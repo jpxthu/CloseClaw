@@ -59,7 +59,10 @@ impl BuiltinSkills {
         engine: Arc<closeclaw_permission::PermissionEngine>,
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
         session_manager: Option<Arc<SessionManager>>,
-        agent_permissions: std::collections::HashMap<String, closeclaw_common::AgentPermissions>,
+        agent_permissions: std::collections::HashMap<
+            String,
+            closeclaw_common::agent_config::AgentPermissions,
+        >,
     ) -> Vec<Arc<dyn Skill>> {
         let agent_perms_for_perm = agent_permissions.clone();
         let file_ops =
@@ -109,7 +112,10 @@ pub fn builtin_skills_with_engine_and_approval_flow(
     engine: Arc<closeclaw_permission::PermissionEngine>,
     approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     session_manager: Option<Arc<SessionManager>>,
-    agent_permissions: std::collections::HashMap<String, closeclaw_common::AgentPermissions>,
+    agent_permissions: std::collections::HashMap<
+        String,
+        closeclaw_common::agent_config::AgentPermissions,
+    >,
 ) -> Vec<Arc<dyn Skill>> {
     BuiltinSkills::all_with_engine_and_approval_flow(
         engine,

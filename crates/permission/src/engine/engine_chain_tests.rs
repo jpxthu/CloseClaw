@@ -5,7 +5,7 @@ use super::engine_types::{Effect, PermissionRequest, PermissionRequestBody, Perm
 use crate::actions::ActionBuilder;
 use crate::mock_session_lookup::MockSessionLookup;
 use crate::rules::{RuleBuilder, RuleSetBuilder};
-use closeclaw_common::{ActionPermission, AgentPermissions, PermissionLimits};
+use closeclaw_common::agent_config::{ActionPermission, AgentPermissions, PermissionLimits};
 
 // -------------------------------------------------------------------------
 // Test helpers

@@ -18,19 +18,18 @@ pub mod registry;
 pub mod security;
 pub mod spawn_validation;
 
+pub mod workdir_context;
 pub use registrar::{ToolRegistrar, ToolRegistrarError};
 pub use registrars::core::CoreToolsRegistrar;
 pub use registrars::session::SessionToolsRegistrar;
 pub use registrars::skills::SkillsToolsRegistrar;
 pub use registry::ToolRegistry;
 pub use spawn_validation::{SpawnError, SpawnValidationResult, SpawnValidator};
+pub use workdir_context::{build_git_status_for, build_workdir_context, WorkdirContext};
 
 use async_trait::async_trait;
 use serde_json::Value;
 use thiserror::Error;
-
-// Re-export WorkdirContext from closeclaw-common for convenience
-pub use closeclaw_common::WorkdirContext;
 
 // ---------------------------------------------------------------------------
 // ToolFlags — bitflags 风格
@@ -73,7 +72,7 @@ pub struct ToolContext {
     /// ID of the agent invoking this tool.
     pub agent_id: String,
     /// Current working directory context (if set).
-    pub workdir: Option<closeclaw_common::WorkdirContext>,
+    pub workdir: Option<WorkdirContext>,
     /// ID of the session that owns this tool invocation, if known.
     pub session_id: Option<String>,
     /// The LLM-side tool call identifier.
@@ -98,7 +97,7 @@ pub struct PromptGenerationContext {
     /// ID of the agent for which the prompt is being built.
     pub agent_id: String,
     /// Current working directory context (if set).
-    pub workdir: Option<closeclaw_common::WorkdirContext>,
+    pub workdir: Option<WorkdirContext>,
     /// Names of all tools currently available to the LLM.
     ///
     /// Only names are passed (not descriptors) to avoid coupling

@@ -1,6 +1,6 @@
 //! Agent communication permission checks.
 
-pub use closeclaw_common::{
+pub use closeclaw_agent::communication::{
     check_communication_allowed, CommunicationCheckResult, CommunicationConfig, CommunicationError,
 };
 

@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use closeclaw_common::SubagentsConfig;
+use closeclaw_common::agent_config::SubagentsConfig;
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_session::bootstrap::BootstrapMode;

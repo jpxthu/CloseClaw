@@ -25,7 +25,7 @@ use crate::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 pub type ConfigSnapshot = Arc<HashMap<ConfigSection, serde_json::Value>>;
 use crate::providers::{ConfigProvider, CredentialsProvider, ModelsConfigData};
 use crate::session::{JsonSessionConfigProvider, SessionConfigProvider};
-use closeclaw_common::AgentPermissions;
+use closeclaw_common::agent_config::AgentPermissions;
 
 // ---------------------------------------------------------------------------
 // Error types

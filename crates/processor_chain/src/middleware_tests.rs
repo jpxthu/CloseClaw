@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::im_plugin::RenderedOutput;
-use crate::middleware::{run_middleware_chain, OutboundMiddleware};
+use crate::middleware::{run_middleware_chain, MiddlewareError, OutboundMiddleware};
+use closeclaw_common::im_plugin::RenderedOutput;
 
 // ---------------------------------------------------------------------------
 // Mock middlewares
@@ -43,10 +43,7 @@ impl OutboundMiddleware for PassthroughMiddleware {
         &self.name
     }
 
-    async fn process(
-        &self,
-        rendered: &RenderedOutput,
-    ) -> Result<RenderedOutput, crate::middleware::MiddlewareError> {
+    async fn process(&self, rendered: &RenderedOutput) -> Result<RenderedOutput, MiddlewareError> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         Ok(rendered.clone())
     }
@@ -61,10 +58,7 @@ impl OutboundMiddleware for TransformMiddleware {
         "transform"
     }
 
-    async fn process(
-        &self,
-        rendered: &RenderedOutput,
-    ) -> Result<RenderedOutput, crate::middleware::MiddlewareError> {
+    async fn process(&self, rendered: &RenderedOutput) -> Result<RenderedOutput, MiddlewareError> {
         Ok(RenderedOutput {
             msg_type: "modified".to_string(),
             payload: rendered.payload.clone(),
@@ -81,11 +75,8 @@ impl OutboundMiddleware for FailingMiddleware {
         "failing"
     }
 
-    async fn process(
-        &self,
-        _rendered: &RenderedOutput,
-    ) -> Result<RenderedOutput, crate::middleware::MiddlewareError> {
-        Err(crate::middleware::MiddlewareError::middleware_failed(
+    async fn process(&self, _rendered: &RenderedOutput) -> Result<RenderedOutput, MiddlewareError> {
+        Err(MiddlewareError::middleware_failed(
             "failing",
             "intentional error",
         ))
@@ -223,7 +214,7 @@ fn test_middleware_receives_rendered_output_not_raw() {
         async fn process(
             &self,
             rendered: &RenderedOutput,
-        ) -> Result<RenderedOutput, crate::middleware::MiddlewareError> {
+        ) -> Result<RenderedOutput, MiddlewareError> {
             assert!(!rendered.msg_type.is_empty());
             RECEIVED_RENDERED.store(true, Ordering::SeqCst);
             Ok(rendered.clone())
