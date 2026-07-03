@@ -17,9 +17,9 @@
   },
   {
     "path": "docs/design/agent/agent-permissions.md",
-    "commit": "ab5856a5b369d66bdaf67f65bc0ccb92fb1e70f2",
-    "commit_time": "2026-06-25T21:00:43+08:00",
-    "confirmed_time": "2026-06-25T21:12:30.811990+08:00",
+    "commit": "6d156760c5b54aec9b5718a58ba2b0eaf54c5101",
+    "commit_time": "2026-07-04T02:49:52+08:00",
+    "confirmed_time": "2026-07-04T02:59:39.328732+08:00",
     "comment": "",
     "blocked_reason": ""
   },
