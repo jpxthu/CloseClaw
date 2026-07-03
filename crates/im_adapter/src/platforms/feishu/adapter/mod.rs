@@ -545,6 +545,16 @@ impl FeishuAdapter {
             }
         };
 
+        // Discard text/post messages with empty content per shared-types.md:
+        // "text 类型空 content 消息在解析阶段丢弃，不产 NormalizedMessage"
+        if matches!(event.event.message_type.as_str(), "text" | "post") && text.trim().is_empty() {
+            tracing::debug!(
+                message_type = %event.event.message_type,
+                "Discarding empty text content"
+            );
+            return Ok(None);
+        }
+
         Ok(Some(NormalizedMessage {
             platform: "feishu".to_string(),
             sender_id: sender_open_id.clone(),
