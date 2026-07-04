@@ -15,17 +15,6 @@ use closeclaw_llm::types::{
 };
 use futures::StreamExt;
 
-/// Serializable snapshot of an outbound context for log files.
-#[derive(Debug, serde::Serialize)]
-struct OutboundLogSnapshot {
-    /// Final message content.
-    content: String,
-    /// Summaries of structured content blocks.
-    content_blocks_summary: Vec<String>,
-    /// Processor metadata.
-    metadata: std::collections::HashMap<String, String>,
-}
-
 /// Result of a streaming outbound dispatch.
 ///
 /// Carries the accumulated content blocks (for downstream consumers like
@@ -86,29 +75,24 @@ struct DispatchCtx<'a> {
 impl Gateway {
     /// Send an outbound message (agent response) via the registered IM plugin.
     ///
-    /// Flow (single path; legacy renderer / processor-only / bypass branches
-    /// are unified here):
+    /// Flow:
     /// 1. Resolve `chat_id` from `session_id` via `SessionManager::get_chat_id`.
     /// 2. Resolve the [`IMPlugin`](super::im::IMPlugin) registered for `channel`
     ///    through `self.plugins`.
-    /// 3. Resolve the session's [`VerbosityLevel`] and independently filter
-    ///    `content_blocks` via [`filter_by_verbosity`] (Gateway-level step,
-    ///    not part of the processor chain).
-    /// 4. Run the processor chain (only [`DslParser`](closeclaw_processor_chain::dsl_parser::DslParser))
-    ///    to produce a [`ProcessedMessage`]; otherwise bypass with a synthetic
-    ///    `ProcessedMessage` wrapping the input. Honor `processed.suppress`.
-    /// 5. Record the outbound log snapshot (Gateway-level step, not part of
-    ///    the processor chain).
-    /// 6. Extract `dsl_result` from `processed.metadata["dsl_result"]` (stored
+    /// 3. Resolve the session's [`VerbosityLevel`] and inject it into chain
+    ///    metadata for [`VerbosityFilter`](closeclaw_processor_chain::verbosity_filter::VerbosityFilter).
+    /// 4. Run the full outbound processor chain (VerbosityFilter → DslParser →
+    ///    OutboundRawLog) via `process_or_bypass`.
+    /// 5. Extract `dsl_result` from `processed.metadata["dsl_result"]` (stored
     ///    as a JSON-encoded string by the DSL processor).
-    /// 7. Call `plugin.render(blocks, dsl_result)` to obtain a
+    /// 6. Call `plugin.render(blocks, dsl_result)` to obtain a
     ///    [`RenderedOutput`](closeclaw_common::im_plugin::RenderedOutput); fall back to a
     ///    single `ContentBlock::Text` block when `content_blocks` is empty.
-    /// 8. Dispatch by `msg_type` (`"text"` / `"interactive"`) through
+    /// 7. Dispatch by `msg_type` (`"text"` / `"interactive"`) through
     ///    `plugin.send`. Any other type is an [`GatewayError::OutboundError`].
-    /// 9. After each successful send, trigger checkpoint persistence.
-    /// 10. `thread_id` is resolved via `session_manager.get_thread_id` and
-    ///     passed to `plugin.send`.
+    /// 8. After each successful send, trigger checkpoint persistence.
+    /// 9. `thread_id` is resolved via `session_manager.get_thread_id` and
+    ///    passed to `plugin.send`.
     pub async fn send_outbound(
         &self,
         session_id: &str,
@@ -127,7 +111,7 @@ impl Gateway {
             .await
             .ok_or_else(|| GatewayError::UnknownChannel(channel.to_string()))?;
 
-        // 2. Resolve verbosity level (step 1 of outbound pipeline).
+        // 2. Resolve verbosity level and inject into chain metadata.
         let verbosity_level = if let Some(cs) = self
             .session_manager
             .get_conversation_session(session_id)
@@ -138,23 +122,19 @@ impl Gateway {
             VerbosityLevel::default()
         };
 
-        // 3. Step 1 — Verbosity filter: strip blocks before chain.
-        let content_blocks = filter_by_verbosity(content_blocks, verbosity_level);
-        if content_blocks.is_empty() {
-            return Ok(());
-        }
-
-        // 4. Step 2 — Processor chain (DslParser) and honor suppress.
+        // 3. Processor chain (VerbosityFilter → DslParser → OutboundRawLog).
         let processed = self
-            .process_or_bypass(raw_output, content_blocks, channel, session_id)
+            .process_or_bypass(
+                raw_output,
+                content_blocks,
+                channel,
+                session_id,
+                verbosity_level,
+            )
             .await?;
         if processed.content_blocks.is_empty() {
             return Ok(());
         }
-
-        // 5. Step 3 — Record outbound log.
-        self.write_outbound_log(&processed.content_blocks, &processed.metadata, channel)
-            .await;
 
         let blocks = &processed.content_blocks;
 
@@ -251,6 +231,7 @@ impl Gateway {
         content_blocks: Vec<ContentBlock>,
         channel: &str,
         session_id: &str,
+        verbosity_level: VerbosityLevel,
     ) -> Result<ProcessedMessage, GatewayError> {
         let registry = self.processor_registry.read().unwrap().clone();
         let Some(registry) = registry else {
@@ -267,6 +248,7 @@ impl Gateway {
         let mut meta = std::collections::HashMap::new();
         meta.insert("channel".to_string(), channel.to_string());
         meta.insert("session_id".to_string(), session_id.to_string());
+        meta.insert("verbosity_level".to_string(), verbosity_level.to_string());
         let input = ProcessedMessage {
             content_blocks,
             metadata: meta,
@@ -288,56 +270,6 @@ impl Gateway {
             timestamp: chrono::Utc::now().timestamp(),
             metadata: std::collections::HashMap::new(),
             thread_id: None,
-        }
-    }
-
-    /// Record outbound message to a JSON log file.
-    ///
-    /// Writes an [`OutboundLogSnapshot`] when `raw_log_dir` is configured.
-    /// Mirrors [`closeclaw_processor_chain::outbound_raw_log::OutboundRawLogProcessor`]
-    /// but lives in the Gateway layer (step 3 of the outbound pipeline).
-    async fn write_outbound_log(
-        &self,
-        content_blocks: &[ContentBlock],
-        metadata: &std::collections::HashMap<String, String>,
-        channel: &str,
-    ) {
-        let Some(ref dir) = self.config.raw_log_dir else {
-            return;
-        };
-
-        let content = content_blocks
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        let snapshot = OutboundLogSnapshot {
-            content,
-            content_blocks_summary: content_blocks.iter().map(|b| format!("{:?}", b)).collect(),
-            metadata: metadata.clone(),
-        };
-        let timestamp_millis = chrono::Utc::now().timestamp_millis();
-        let message_id = metadata
-            .get("message_id")
-            .cloned()
-            .unwrap_or_else(|| format!("out-{}", timestamp_millis));
-        let filename = format!(
-            "{}_outbound_{}_{}.json",
-            channel, timestamp_millis, message_id
-        );
-        let path = dir.join(&filename);
-        let json = match serde_json::to_string_pretty(&snapshot) {
-            Ok(j) => j,
-            Err(e) => {
-                tracing::warn!("failed to serialize outbound log: {e}");
-                return;
-            }
-        };
-        if let Err(e) = tokio::fs::write(&path, json).await {
-            tracing::warn!("failed to write outbound log: {e}");
         }
     }
 
@@ -384,12 +316,12 @@ impl Gateway {
     /// does not require a `session_id` — it takes a `chat_id` directly. Useful for
     /// system messages (e.g. busy replies) that have no associated session.
     ///
-    /// Flow (three-step serial pipeline with default VerbosityLevel::Full):
+    /// Flow:
     /// 1. Resolve the [`IMPlugin`](super::im::IMPlugin) for `channel`.
-    /// 2. Apply Verbosity filter (default: Full — no filtering).
-    /// 3. Run the outbound processor chain (DslParser).
-    /// 4. Record outbound log.
-    /// 5. Render via `plugin.render` and dispatch via `plugin.send`.
+    /// 2. Run the full outbound processor chain (VerbosityFilter → DslParser →
+    ///    OutboundRawLog) via `process_or_bypass` with default
+    ///    [`VerbosityLevel::Full`].
+    /// 3. Render via `plugin.render` and dispatch via `plugin.send`.
     pub async fn send_outbound_to_chat(
         &self,
         chat_id: &str,
@@ -401,26 +333,14 @@ impl Gateway {
             .await
             .ok_or_else(|| GatewayError::UnknownChannel(channel.to_string()))?;
 
-        // Step 1 — Verbosity filter (default: Full — no filtering).
-        let blocks = filter_by_verbosity(
-            vec![ContentBlock::Text(raw_output.to_string())],
-            VerbosityLevel::default(),
-        );
-        if blocks.is_empty() {
-            return Ok(());
-        }
-
-        // Step 2 — Processor chain (DslParser).
+        // Processor chain (VerbosityFilter → DslParser → OutboundRawLog).
+        let blocks = vec![ContentBlock::Text(raw_output.to_string())];
         let processed = self
-            .process_or_bypass(raw_output, blocks, channel, "")
+            .process_or_bypass(raw_output, blocks, channel, "", VerbosityLevel::default())
             .await?;
         if processed.content_blocks.is_empty() {
             return Ok(());
         }
-
-        // Step 3 — Record outbound log.
-        self.write_outbound_log(&processed.content_blocks, &processed.metadata, channel)
-            .await;
 
         // Extract dsl_result stored by the DSL processor.
         let dsl_result: Option<DslParseResult> = processed
@@ -499,21 +419,17 @@ impl Gateway {
         // Real-time per-block verbosity filtering above is kept as an
         // incremental optimization; the final result comes from the pipeline.
 
-        // Step 1 — Verbosity filter.
-        state.content_blocks = filter_by_verbosity(state.content_blocks, verbosity_level);
-        if state.content_blocks.is_empty() {
-            return Ok(StreamState::into_result(state));
-        }
-
-        // Step 2 — Processor chain (DslParser).
+        // Processor chain (VerbosityFilter → DslParser → OutboundRawLog).
         let processed = self
-            .process_or_bypass("", state.content_blocks, channel, session_id)
+            .process_or_bypass(
+                "",
+                state.content_blocks,
+                channel,
+                session_id,
+                verbosity_level,
+            )
             .await?;
         state.content_blocks = processed.content_blocks;
-
-        // Step 3 — Record outbound log.
-        self.write_outbound_log(&state.content_blocks, &processed.metadata, channel)
-            .await;
 
         Ok(StreamState::into_result(state))
     }
