@@ -18,6 +18,7 @@ mod reload_tests {
             ("gateway.json", r#"{"port":8080}"#),
             ("plugins.json", r#"{"plugins":[]}"#),
             ("system.json", r#"{"version":"1"}"#),
+            ("accounts.json", r#"{"accounts":[]}"#),
         ];
         for (name, content) in &sections {
             std::fs::write(dir.join(name), content).unwrap();
@@ -85,6 +86,10 @@ mod reload_tests {
         assert_eq!(
             filename_to_section("session.json"),
             Some(ConfigSection::Session)
+        );
+        assert_eq!(
+            filename_to_section("accounts.json"),
+            Some(ConfigSection::Accounts)
         );
         assert_eq!(filename_to_section("agents.json"), None);
         assert_eq!(filename_to_section("unknown.json"), None);
@@ -809,5 +814,44 @@ mod reload_tests {
         // Agent config should reflect the update
         let agents = cm.agents();
         assert!(agents.contains_key("zeta"));
+    }
+
+    // ------------------------------------------------------------------
+    // Step 1.4 — accounts.json hot-reload monitoring tests
+    // ------------------------------------------------------------------
+
+    /// filename_to_section maps accounts.json to ConfigSection::Accounts.
+    #[test]
+    fn test_accounts_json_maps_to_accounts_section() {
+        assert_eq!(
+            filename_to_section("accounts.json"),
+            Some(ConfigSection::Accounts)
+        );
+    }
+
+    /// dispatch_change routes accounts.json changes to the Accounts section
+    /// reload path (not agent reload, not unknown file).
+    #[test]
+    fn test_dispatch_accounts_json_change() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
+
+        // Write a valid accounts.json
+        std::fs::write(
+            d.path().join("accounts.json"),
+            r#"{"accounts":[{"accountId":"acc1","senderId":"s1"}]}"#,
+        )
+        .unwrap();
+
+        let path = d.path().join("accounts.json");
+        dispatch_change(&path, &mgr);
+
+        // In-memory section should be updated
+        let val = cm.section(ConfigSection::Accounts).unwrap();
+        let accounts = val.get("accounts").unwrap().as_array().unwrap();
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0]["accountId"], "acc1");
     }
 }

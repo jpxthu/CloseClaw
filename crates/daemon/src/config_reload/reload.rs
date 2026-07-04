@@ -339,6 +339,7 @@ fn register_watched_paths(
         "gateway.json",
         "plugins.json",
         "system.json",
+        "accounts.json",
         "session.json",
     ];
     for name in &config_files {
@@ -522,6 +523,7 @@ fn filename_to_section(filename: &str) -> Option<ConfigSection> {
         "plugins.json" => Some(ConfigSection::Plugins),
         "system.json" => Some(ConfigSection::System),
         "session.json" => Some(ConfigSection::Session),
+        "accounts.json" => Some(ConfigSection::Accounts),
         _ => None,
     }
 }

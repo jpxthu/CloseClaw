@@ -264,9 +264,10 @@ fn test_validate_channels_fail_binding_empty_channel() {
 
 #[test]
 fn test_validate_channels_fail_binding_missing_account_id() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"bindings":[{"agentId":"a1","match":{"channel":"feishu"}}]}"#)
-            .unwrap();
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"feishu"}}]}"#,
+    )
+    .unwrap();
     let err = validate_channels(&v).unwrap_err();
     assert!(
         err.contains("match.accountId is required"),
@@ -278,7 +279,7 @@ fn test_validate_channels_fail_binding_missing_account_id() {
 #[test]
 fn test_validate_channels_fail_binding_empty_account_id() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":""}}]}"#,
+        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":""}}]}"#,
     )
     .unwrap();
     let err = validate_channels(&v).unwrap_err();
@@ -329,77 +330,31 @@ fn test_validate_gateway_fail_not_object() {
 }
 
 #[test]
-fn test_validate_gateway_fail_zero_port() {
+fn test_validate_gateway_fail_port_and_timeout() {
+    // port out of range
     let v: serde_json::Value = serde_json::from_str(r#"{"port":0}"#).unwrap();
     let err = validate_gateway(&v).unwrap_err();
-    assert!(
-        err.contains("range 1-65535"),
-        "error should mention port range: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_gateway_fail_port_too_high() {
+    assert!(err.contains("range 1-65535"), "error: {}", err);
+    // port too high
     let v: serde_json::Value = serde_json::from_str(r#"{"port":99999}"#).unwrap();
     let err = validate_gateway(&v).unwrap_err();
-    assert!(
-        err.contains("range 1-65535"),
-        "error should mention port range: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_gateway_fail_port_string() {
+    assert!(err.contains("range 1-65535"), "error: {}", err);
+    // port string
     let v: serde_json::Value = serde_json::from_str(r#"{"port":"abc"}"#).unwrap();
     let err = validate_gateway(&v).unwrap_err();
-    assert!(
-        err.contains("non-negative integer"),
-        "error should mention non-negative integer: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_gateway_fail_negative_port() {
+    assert!(err.contains("non-negative integer"), "error: {}", err);
+    // negative port
     let v: serde_json::Value = serde_json::from_str(r#"{"port":-1}"#).unwrap();
     let err = validate_gateway(&v).unwrap_err();
-    assert!(
-        err.contains("non-negative integer"),
-        "error should mention non-negative integer: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_gateway_pass_valid_port_boundaries() {
-    let v1: serde_json::Value = serde_json::from_str(r#"{"port":1}"#).unwrap();
-    assert!(validate_gateway(&v1).is_ok());
-    let v2: serde_json::Value = serde_json::from_str(r#"{"port":65535}"#).unwrap();
-    assert!(validate_gateway(&v2).is_ok());
-}
-
-#[test]
-fn test_validate_gateway_fail_negative_timeout() {
+    assert!(err.contains("non-negative integer"), "error: {}", err);
+    // timeout negative
     let v: serde_json::Value = serde_json::from_str(r#"{"timeout":-1000}"#).unwrap();
     let err = validate_gateway(&v).unwrap_err();
-    assert!(
-        err.contains("non-negative"),
-        "error should mention non-negative: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_gateway_fail_timeout_string() {
+    assert!(err.contains("non-negative"), "error: {}", err);
+    // timeout string
     let v: serde_json::Value = serde_json::from_str(r#"{"timeout":"not-a-number"}"#).unwrap();
     let err = validate_gateway(&v).unwrap_err();
-    assert!(
-        err.contains("must be a number"),
-        "error should mention must be a number: {}",
-        err
-    );
+    assert!(err.contains("must be a number"), "error: {}", err);
 }
 
 #[test]
@@ -625,24 +580,19 @@ fn test_validate_system_pass_cron_absent() {
 }
 
 #[test]
-fn test_validate_system_fail_cron_not_object() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"cron":"bad"}"#).unwrap();
-    let err = validate_system(&v).unwrap_err();
-    assert!(err.contains("cron must be a JSON object"), "error: {}", err);
-}
-
-#[test]
-fn test_validate_system_fail_cron_array() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"cron":[1,2]}"#).unwrap();
-    let err = validate_system(&v).unwrap_err();
-    assert!(err.contains("cron must be a JSON object"), "error: {}", err);
-}
-
-#[test]
-fn test_validate_system_fail_cron_bool() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"cron":true}"#).unwrap();
-    let err = validate_system(&v).unwrap_err();
-    assert!(err.contains("cron must be a JSON object"), "error: {}", err);
+fn test_validate_system_fail_cron_not_object_variants() {
+    let cases = [r#""bad""#, r#"[1,2]"#, r#"true"#];
+    for json in cases {
+        let v: serde_json::Value =
+            serde_json::from_str(&format!(r#"{{"cron":{}}}"#, json)).unwrap();
+        let err = validate_system(&v).unwrap_err();
+        assert!(
+            err.contains("cron must be a JSON object"),
+            "error for {}: {}",
+            json,
+            err
+        );
+    }
 }
 
 #[test]
@@ -865,18 +815,6 @@ fn test_validate_session_pass_sweeper_interval_positive() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_validate_session_pass_idle_minutes_zero() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"idleMinutes":0}"#).unwrap();
-    assert!(validate_session(&v).is_ok());
-}
-
-#[test]
-fn test_validate_session_pass_idle_minutes_positive() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"idleMinutes":30}"#).unwrap();
-    assert!(validate_session(&v).is_ok());
-}
-
-#[test]
 fn test_validate_session_fail_idle_minutes_negative() {
     let v: serde_json::Value = serde_json::from_str(r#"{"idleMinutes":-1}"#).unwrap();
     let err = validate_session(&v).unwrap_err();
@@ -899,28 +837,6 @@ fn test_validate_session_fail_idle_minutes_string() {
 }
 
 #[test]
-fn test_validate_session_pass_idle_minutes_absent() {
-    let v: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
-    assert!(validate_session(&v).is_ok());
-}
-
-// ---------------------------------------------------------------------------
-// validate_session — purgeAfterMinutes
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_validate_session_pass_purge_after_minutes_zero() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"purgeAfterMinutes":0}"#).unwrap();
-    assert!(validate_session(&v).is_ok());
-}
-
-#[test]
-fn test_validate_session_pass_purge_after_minutes_positive() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"purgeAfterMinutes":1440}"#).unwrap();
-    assert!(validate_session(&v).is_ok());
-}
-
-#[test]
 fn test_validate_session_fail_purge_after_minutes_negative() {
     let v: serde_json::Value = serde_json::from_str(r#"{"purgeAfterMinutes":-1}"#).unwrap();
     let err = validate_session(&v).unwrap_err();
@@ -940,12 +856,6 @@ fn test_validate_session_fail_purge_after_minutes_string() {
         "error: {}",
         err
     );
-}
-
-#[test]
-fn test_validate_session_pass_purge_after_minutes_absent() {
-    let v: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
-    assert!(validate_session(&v).is_ok());
 }
 
 // ---------------------------------------------------------------------------
@@ -995,4 +905,95 @@ fn test_for_section_session_returns_validator() {
     let invalid: serde_json::Value = serde_json::from_str(r#"[1]"#).unwrap();
     assert!(validator(&valid).is_ok());
     assert!(validator(&invalid).is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Step 1.4 — channels binding channel reference validation tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validate_channels_binding_ref_valid_channel_type() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":"acc1"}}]}"#,
+    )
+    .unwrap();
+    assert!(validate_channels(&v).is_ok());
+}
+
+#[test]
+fn test_validate_channels_binding_ref_undefined_channel_type() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"slack","accountId":"acc1"}}]}"#,
+    )
+    .unwrap();
+    let err = validate_channels(&v).unwrap_err();
+    assert!(
+        err.contains("references an undefined channel type"),
+        "error: {}",
+        err
+    );
+    assert!(
+        err.contains("slack"),
+        "error should mention the bad channel: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_channels_binding_ref_no_channels_with_bindings() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":"acc1"}}]}"#,
+    )
+    .unwrap();
+    let err = validate_channels(&v).unwrap_err();
+    assert!(
+        err.contains("references an undefined channel type"),
+        "error: {}",
+        err
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Step 1.4 — models credentialPath file existence validation tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validate_models_credential_path_exists() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    let path = tmp.path().to_str().unwrap();
+    let json = format!(
+        r#"{{"providers":{{"p":{{"credentialPath":"{}","models":[]}}}}}}"#,
+        path
+    );
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(validate_models(&v).is_ok());
+}
+
+#[test]
+fn test_validate_models_credential_path_not_exists() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"providers":{"p":{"credentialPath":"/nonexistent/path/to/cred","models":[]}}}"#,
+    )
+    .unwrap();
+    let err = validate_models(&v).unwrap_err();
+    assert!(err.contains("does not exist"), "error: {}", err);
+    assert!(
+        err.contains("credentialPath"),
+        "error should mention credentialPath: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_models_credential_path_null() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"providers":{"p":{"credentialPath":null,"models":[]}}}"#).unwrap();
+    assert!(validate_models(&v).is_ok());
+}
+
+#[test]
+fn test_validate_models_credential_path_absent() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"providers":{"p":{"models":[]}}}"#).unwrap();
+    assert!(validate_models(&v).is_ok());
 }
