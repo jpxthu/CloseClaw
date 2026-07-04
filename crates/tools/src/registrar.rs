@@ -68,7 +68,7 @@ pub(crate) async fn register_tool(
 pub async fn register_single(
     registry: &ToolRegistry,
     name: String,
-    tool: impl Tool + Send + 'static,
+    tool: impl Tool + 'static,
     registrar_name: &str,
 ) -> Result<bool, ToolRegistrarError> {
     match register_tool(registry, tool, registrar_name).await {
