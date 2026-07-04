@@ -575,4 +575,83 @@ mod tests {
         storage.sync().await.unwrap();
         storage.close().await.unwrap();
     }
+
+    // ===================================================================
+    // plan_state SQLite roundtrip tests
+    // ===================================================================
+
+    #[tokio::test]
+    async fn test_sqlite_plan_state_roundtrip() {
+        use closeclaw_common::{PlanPhase, PlanState};
+
+        let tmp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+        let plan = PlanState {
+            phase: PlanPhase::FinalPlan,
+            pending_steps: vec!["step-a".into(), "step-b".into()],
+            plan_file_path: "/workspace/plan.md".into(),
+        };
+        let mut cp = make_checkpoint("plan-sqlite-rt", SessionStatus::Active);
+        cp.plan_state = Some(plan);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let loaded = storage.load_checkpoint("plan-sqlite-rt").await.unwrap();
+        assert!(loaded.is_some(), "checkpoint should exist");
+        let ps = loaded.unwrap().plan_state.unwrap();
+        assert_eq!(ps.phase, PlanPhase::FinalPlan);
+        assert_eq!(ps.pending_steps, vec!["step-a", "step-b"]);
+        assert_eq!(ps.plan_file_path, "/workspace/plan.md");
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_plan_state_none_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+        let cp = make_checkpoint("plan-none-sqlite", SessionStatus::Active);
+        assert!(cp.plan_state.is_none());
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let loaded = storage.load_checkpoint("plan-none-sqlite").await.unwrap();
+        assert!(loaded.is_some());
+        assert!(loaded.unwrap().plan_state.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_plan_state_update_roundtrip() {
+        use closeclaw_common::{PlanPhase, PlanState};
+
+        let tmp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+        // Save with Research phase
+        let plan1 = PlanState {
+            phase: PlanPhase::Research,
+            pending_steps: vec![],
+            plan_file_path: String::new(),
+        };
+        let mut cp = make_checkpoint("plan-update-sqlite", SessionStatus::Active);
+        cp.plan_state = Some(plan1);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        // Update to Design phase
+        let plan2 = PlanState {
+            phase: PlanPhase::Design,
+            pending_steps: vec!["analyze".into()],
+            plan_file_path: "/tmp/p.md".into(),
+        };
+        cp.plan_state = Some(plan2);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let loaded = storage
+            .load_checkpoint("plan-update-sqlite")
+            .await
+            .unwrap()
+            .unwrap();
+        let ps = loaded.plan_state.unwrap();
+        assert_eq!(ps.phase, PlanPhase::Design);
+        assert_eq!(ps.pending_steps, vec!["analyze"]);
+        assert_eq!(ps.plan_file_path, "/tmp/p.md");
+    }
 }
