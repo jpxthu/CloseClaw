@@ -357,6 +357,9 @@ fn build_compact_messages(messages: &[closeclaw_llm::session::SessionMessage]) -
 }
 
 /// Replace session messages with boundary message on compaction.
+///
+/// After replacing messages, persists the checkpoint to ensure
+/// plan_state (and other checkpoint fields) survive a subsequent crash.
 async fn apply_compact_result(
     sm: &Arc<SessionManager>,
     session_id: &str,
@@ -374,6 +377,9 @@ async fn apply_compact_result(
         let mut cs = cs.write().await;
         cs.replace_messages(vec![boundary]);
     }
+    // Persist checkpoint immediately after compaction to protect plan_state.
+    // This ensures plan_state survives a crash before the next periodic flush.
+    sm.save_checkpoint_after_compact(session_id).await;
     // Rebuild system prompt after compaction so skills stay fresh.
     // The write guard above is now dropped, so rebuild_system_prompt
     // can safely acquire its own write lock.
