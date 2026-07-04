@@ -1,20 +1,21 @@
-//! Step 1.6 — Integration tests for outbound processor chain.
+//! Step 1.3 — Integration tests for outbound processor chain.
+//!
+//! After Step 1.1/1.2, the outbound chain contains only DslParser.
+//! Verbosity filtering and outbound logging are Gateway-level steps.
 //!
 //! Covers:
-//! - VerbosityFilter → DslParser chain integration
-//! - Streaming path: full outbound chain processes content_blocks end-to-end
+//! - DslParser-only outbound chain
 //! - Config Loader: YAML deserialization for OutboundRawLog
+//! - DslParser integration with various content block types
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use closeclaw_common::VerbosityLevel;
 use closeclaw_llm::types::ContentBlock;
 
 use super::dsl_parser::DslParser;
 use super::loader::{ProcessorChainConfig, ProcessorChainLoader, ProcessorConfig};
 use super::registry::ProcessorRegistry;
-use super::verbosity_filter::VerbosityFilter;
 use super::ProcessedMessage;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -55,174 +56,157 @@ fn make_llm_output(
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// VerbosityFilter + DslParser chain integration
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Build a minimal outbound registry: VerbosityFilter(5) → DslParser(10).
-fn build_simple_outbound_chain() -> ProcessorRegistry {
+/// Build a minimal outbound registry: DslParser only.
+fn build_dsl_only_outbound_chain() -> ProcessorRegistry {
     let mut registry = ProcessorRegistry::new();
-    registry.register(Arc::new(VerbosityFilter));
     registry.register(Arc::new(DslParser));
     registry
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// DslParser-only outbound chain
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Plain text passes through DslParser unchanged.
 #[tokio::test]
-async fn test_full_verbosity_all_blocks_pass_through() {
-    let registry = build_simple_outbound_chain();
-    let blocks = vec![
-        text_block("Hello"),
-        thinking_block("thinking..."),
-        tool_use_block("search"),
-        tool_result_block("result"),
-    ];
-    let mut meta = HashMap::new();
-    meta.insert(
-        "verbosity_level".to_string(),
-        VerbosityLevel::Full.to_string(),
-    );
-    let output = make_llm_output(blocks, meta);
-    let result = registry.process_outbound(output).await.unwrap();
-
-    // Full: all 4 blocks pass through VerbosityFilter
-    assert_eq!(result.content_blocks.len(), 4);
-    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(_)));
-    assert!(matches!(
-        &result.content_blocks[1],
-        ContentBlock::Thinking { .. }
-    ));
-    assert!(matches!(
-        &result.content_blocks[2],
-        ContentBlock::ToolUse { .. }
-    ));
-    assert!(matches!(
-        &result.content_blocks[3],
-        ContentBlock::ToolResult { .. }
-    ));
-}
-
-#[tokio::test]
-async fn test_normal_verbosity_filters_thinking() {
-    let registry = build_simple_outbound_chain();
-    let blocks = vec![
-        text_block("Hello"),
-        thinking_block("thinking..."),
-        text_block("World"),
-    ];
-    let mut meta = HashMap::new();
-    meta.insert(
-        "verbosity_level".to_string(),
-        VerbosityLevel::Normal.to_string(),
-    );
-    let output = make_llm_output(blocks, meta);
-    let result = registry.process_outbound(output).await.unwrap();
-
-    // Normal: Thinking removed, only Text blocks remain
-    assert_eq!(result.content_blocks.len(), 2);
-    assert!(matches!(
-        &result.content_blocks[0],
-        ContentBlock::Text(s) if s == "Hello"
-    ));
-    assert!(matches!(
-        &result.content_blocks[1],
-        ContentBlock::Text(s) if s == "World"
-    ));
-}
-
-#[tokio::test]
-async fn test_off_verbosity_only_text() {
-    let registry = build_simple_outbound_chain();
-    let blocks = vec![
-        text_block("Hello"),
-        thinking_block("thinking..."),
-        tool_use_block("search"),
-        tool_result_block("result"),
-    ];
-    let mut meta = HashMap::new();
-    meta.insert(
-        "verbosity_level".to_string(),
-        VerbosityLevel::Off.to_string(),
-    );
-    let output = make_llm_output(blocks, meta);
-    let result = registry.process_outbound(output).await.unwrap();
-
-    // Off: only Text blocks remain
-    assert_eq!(result.content_blocks.len(), 1);
-    assert!(matches!(
-        &result.content_blocks[0],
-        ContentBlock::Text(s) if s == "Hello"
-    ));
-}
-
-/// Metadata without verbosity_level should default to Full.
-#[tokio::test]
-async fn test_missing_verbosity_defaults_to_full() {
-    let registry = build_simple_outbound_chain();
-    let blocks = vec![text_block("Hello"), thinking_block("thinking...")];
+async fn test_dsl_parser_only_plain_text() {
+    let registry = build_dsl_only_outbound_chain();
+    let blocks = vec![text_block("Hello world")];
     let output = make_llm_output(blocks, HashMap::new());
     let result = registry.process_outbound(output).await.unwrap();
 
-    // No verbosity_level → Full → all blocks pass
-    assert_eq!(result.content_blocks.len(), 2);
+    assert_eq!(result.content_blocks.len(), 1);
+    assert_eq!(result.text_content(), Some("Hello world"));
 }
 
-/// VerbosityFilter processes before DslParser — verify DSL instructions
-/// in Text blocks are still parsed after filtering.
+/// DslParser parses DSL instructions from Text blocks.
+/// When a DSL-only block is processed, DslParser extracts the DSL and
+/// falls back to the original content string (preserving the text).
 #[tokio::test]
-async fn test_verbosity_filter_before_dsl_parser() {
-    let registry = build_simple_outbound_chain();
-    let blocks = vec![
-        thinking_block("thinking..."),
-        text_block("::button[label:OK;action:submit;value:yes]"),
-    ];
-    let mut meta = HashMap::new();
-    meta.insert(
-        "verbosity_level".to_string(),
-        VerbosityLevel::Normal.to_string(),
-    );
-    let output = make_llm_output(blocks, meta);
+async fn test_dsl_parser_extracts_dsl() {
+    let registry = build_dsl_only_outbound_chain();
+    let blocks = vec![text_block("::button[label:OK;action:submit;value:yes]")];
+    let output = make_llm_output(blocks, HashMap::new());
     let result = registry.process_outbound(output).await.unwrap();
 
-    // Normal: Thinking filtered by VerbosityFilter, then DslParser parses
-    // the Text block's DSL instruction
+    // DSL-only block: DslParser extracts DSL, fallback keeps original text
     assert_eq!(result.content_blocks.len(), 1);
-    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(_)));
     let dsl = result.metadata.get("dsl_result").unwrap();
     assert!(dsl.contains("button"), "DSL should be parsed: {dsl}");
 }
 
+/// Mixed content: text + DSL in same block.
+#[tokio::test]
+async fn test_dsl_parser_mixed_content() {
+    let registry = build_dsl_only_outbound_chain();
+    let blocks = vec![text_block(
+        "Here is the result.\n::button[label:OK;action:submit;value:yes]",
+    )];
+    let output = make_llm_output(blocks, HashMap::new());
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // Text before DSL is kept, DSL is extracted
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(
+        matches!(&result.content_blocks[0], ContentBlock::Text(s) if s.contains("Here is the result."))
+    );
+    let dsl = result.metadata.get("dsl_result").unwrap();
+    assert!(dsl.contains("button"));
+}
+
+/// Non-Text blocks pass through DslParser unchanged.
+#[tokio::test]
+async fn test_dsl_parser_non_text_blocks_passthrough() {
+    let registry = build_dsl_only_outbound_chain();
+    let blocks = vec![
+        thinking_block("reasoning..."),
+        tool_use_block("search"),
+        tool_result_block("result"),
+    ];
+    let output = make_llm_output(blocks, HashMap::new());
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // DslParser only processes Text blocks; non-Text pass through
+    assert_eq!(result.content_blocks.len(), 3);
+    assert!(matches!(
+        &result.content_blocks[0],
+        ContentBlock::Thinking { .. }
+    ));
+    assert!(matches!(
+        &result.content_blocks[1],
+        ContentBlock::ToolUse { .. }
+    ));
+    assert!(matches!(
+        &result.content_blocks[2],
+        ContentBlock::ToolResult { .. }
+    ));
+}
+
+/// Empty content_blocks: DslParser falls back to content string.
+#[tokio::test]
+async fn test_dsl_parser_empty_blocks_fallback() {
+    let registry = build_dsl_only_outbound_chain();
+    let output = ProcessedMessage {
+        content_blocks: vec![],
+        metadata: HashMap::new(),
+    };
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // Fallback creates a single Text block from content (empty)
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(_)));
+}
+
+/// Multiple Text blocks: DSL parsed from each.
+#[tokio::test]
+async fn test_dsl_parser_multiple_text_blocks() {
+    let registry = build_dsl_only_outbound_chain();
+    let blocks = vec![
+        text_block("First paragraph."),
+        text_block("::button[label:Next;action:next;value:ok]"),
+        text_block("Third paragraph."),
+    ];
+    let output = make_llm_output(blocks, HashMap::new());
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // Two non-DSL text blocks remain, DSL block stripped
+    assert_eq!(result.content_blocks.len(), 2);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "First paragraph."));
+    assert!(matches!(&result.content_blocks[1], ContentBlock::Text(s) if s == "Third paragraph."));
+    let dsl = result.metadata.get("dsl_result").unwrap();
+    assert!(dsl.contains("button"));
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
-// Streaming path integration: full chain processes content_blocks end-to-end
+// Streaming path integration: DslParser processes accumulated blocks
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Simulates the streaming path: after streaming, content_blocks are passed
-/// through process_outbound (the same call `send_outbound_streaming` makes
-/// after the stream ends).
+/// Simulates streaming path: accumulated blocks processed by DslParser only.
 #[tokio::test]
-async fn test_streaming_path_full_chain_with_dsl() {
-    let mut registry = ProcessorRegistry::new();
-    registry.register(Arc::new(VerbosityFilter));
-    registry.register(Arc::new(DslParser));
-    // Simulate streaming: accumulated blocks with DSL and thinking
+async fn test_streaming_path_dsl_parser_only() {
+    let registry = build_dsl_only_outbound_chain();
     let blocks = vec![
         thinking_block("step 1: analyzing..."),
         thinking_block("step 2: planning..."),
         text_block("Here is the result."),
         text_block("::button[label:Confirm;action:confirm;value:ok]"),
     ];
-    let mut meta = HashMap::new();
-    meta.insert(
-        "verbosity_level".to_string(),
-        VerbosityLevel::Normal.to_string(),
-    );
-    let output = make_llm_output(blocks, meta);
+    let output = make_llm_output(blocks, HashMap::new());
     let result = registry.process_outbound(output).await.unwrap();
 
-    // Normal: Thinking blocks filtered, DSL parsed
-    // DSL-only Text block is dropped after stripping (empty)
-    assert_eq!(result.content_blocks.len(), 1);
+    // DslParser processes Text blocks; thinking/tool blocks pass through
+    // DSL-only Text block is dropped after stripping
+    assert_eq!(result.content_blocks.len(), 3); // 2 thinking + 1 text
     assert!(matches!(
         &result.content_blocks[0],
+        ContentBlock::Thinking { .. }
+    ));
+    assert!(matches!(
+        &result.content_blocks[1],
+        ContentBlock::Thinking { .. }
+    ));
+    assert!(matches!(
+        &result.content_blocks[2],
         ContentBlock::Text(s) if s == "Here is the result."
     ));
     let dsl = result.metadata.get("dsl_result").unwrap();
@@ -230,91 +214,17 @@ async fn test_streaming_path_full_chain_with_dsl() {
     assert!(dsl.contains("Confirm"));
 }
 
-/// Streaming path with Off verbosity: only Text blocks survive.
-#[tokio::test]
-async fn test_streaming_path_off_verbosity() {
-    let mut registry = ProcessorRegistry::new();
-    registry.register(Arc::new(VerbosityFilter));
-    registry.register(Arc::new(DslParser));
-    let blocks = vec![
-        thinking_block("internal reasoning"),
-        text_block("Final answer."),
-        tool_use_block("search"),
-        tool_result_block("result data"),
-    ];
-    let mut meta = HashMap::new();
-    meta.insert(
-        "verbosity_level".to_string(),
-        VerbosityLevel::Off.to_string(),
-    );
-    let output = make_llm_output(blocks, meta);
-    let result = registry.process_outbound(output).await.unwrap();
-
-    // Off: only Text blocks remain
-    assert_eq!(result.content_blocks.len(), 1);
-    assert!(matches!(
-        &result.content_blocks[0],
-        ContentBlock::Text(s) if s == "Final answer."
-    ));
-}
-
-/// Streaming path with Full verbosity: everything passes through.
-#[tokio::test]
-async fn test_streaming_path_full_verbosity() {
-    let mut registry = ProcessorRegistry::new();
-    registry.register(Arc::new(VerbosityFilter));
-    registry.register(Arc::new(DslParser));
-    let blocks = vec![
-        text_block("Hello"),
-        thinking_block("thinking..."),
-        tool_use_block("fetch"),
-        tool_result_block("fetched"),
-    ];
-    let mut meta = HashMap::new();
-    meta.insert(
-        "verbosity_level".to_string(),
-        VerbosityLevel::Full.to_string(),
-    );
-    let output = make_llm_output(blocks, meta);
-    let result = registry.process_outbound(output).await.unwrap();
-
-    // Full: all 4 blocks pass through
-    assert_eq!(result.content_blocks.len(), 4);
-}
-
-/// Streaming path with empty content_blocks: falls back to content string.
-#[tokio::test]
-async fn test_streaming_path_empty_blocks_fallback() {
-    let mut registry = ProcessorRegistry::new();
-    registry.register(Arc::new(VerbosityFilter));
-    registry.register(Arc::new(DslParser));
-    let output = ProcessedMessage {
-        content_blocks: vec![],
-        metadata: HashMap::new(),
-    };
-    let result = registry.process_outbound(output).await.unwrap();
-
-    // Empty blocks → fallback creates a single Text block from content
-    assert_eq!(result.content_blocks.len(), 1);
-    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(_)));
-}
-
-/// Streaming path: empty blocks with DSL in content string.
+/// Streaming path with DSL in content fallback.
 #[tokio::test]
 async fn test_streaming_path_empty_blocks_with_dsl_in_content() {
-    let mut registry = ProcessorRegistry::new();
-    registry.register(Arc::new(VerbosityFilter));
-    registry.register(Arc::new(DslParser));
+    let registry = build_dsl_only_outbound_chain();
     let output = ProcessedMessage {
         content_blocks: vec![],
         metadata: HashMap::new(),
     };
-    // VerbosityFilter processes content_blocks (empty) → DslParser falls
-    // back to content, finds DSL instructions
     let result = registry.process_outbound(output).await.unwrap();
 
-    // DslParser should have processed the content (empty) and produced
-    // a fallback block
+    // Empty blocks → fallback creates a single Text block from content (empty)
     assert_eq!(result.content_blocks.len(), 1);
 }
 
