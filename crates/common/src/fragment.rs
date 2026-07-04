@@ -5,16 +5,34 @@ use async_trait::async_trait;
 use crate::bootstrap::BootstrapMode;
 
 /// Context passed to each [`PromptFragmentProvider`] during system prompt construction.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct FragmentContext {
     /// Agent identifier — used by [`SkillsFragmentProvider`] to filter visible skills.
-    pub agent_id: Option<String>,
+    pub agent_id: String,
     /// Bootstrap mode (Minimal / Full) — used by [`BootstrapFragmentProvider`]
-    /// to select the file set. When `None`, falls back to [`AgentRegistry`] lookup.
-    pub bootstrap_mode: Option<BootstrapMode>,
+    /// to select the file set.
+    pub bootstrap_mode: BootstrapMode,
     /// Working directory of the agent — used by [`BootstrapFragmentProvider`]
-    /// to locate bootstrap files. When `None`, bootstrap section is skipped.
-    pub workdir: Option<PathBuf>,
+    /// to locate bootstrap files.
+    pub workdir: PathBuf,
+}
+
+impl FragmentContext {
+    /// Returns a [`FragmentContext`] with reasonable defaults for unit tests.
+    ///
+    /// `#[cfg(test)]` is intentionally omitted because it does not propagate
+    /// across crate boundaries — downstream crates (e.g. system_prompt) also
+    /// need this constructor in their own test suites. The `#[doc(hidden)]`
+    /// attribute keeps it out of generated docs to signal that this is a
+    /// test-only helper, not a public API.
+    #[doc(hidden)]
+    pub fn test_default() -> Self {
+        Self {
+            agent_id: String::new(),
+            bootstrap_mode: BootstrapMode::Full,
+            workdir: std::env::temp_dir(),
+        }
+    }
 }
 
 /// Section type classification for a prompt fragment.

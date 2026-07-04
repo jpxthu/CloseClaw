@@ -32,7 +32,6 @@ use closeclaw_tools::ToolRegistry;
 /// providers and assembles the prompt by asking each provider for its
 /// fragment, sorted by priority.
 pub struct PromptBuilder {
-    agent_registry: Arc<AgentRegistry>,
     tool_registry: Arc<ToolRegistry>,
     skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
     agent_tools: Option<Vec<String>>,
@@ -41,9 +40,8 @@ pub struct PromptBuilder {
 }
 
 impl PromptBuilder {
-    /// Create a new builder with all four registries.
+    /// Create a new builder with the required registries.
     pub fn new(
-        agent_registry: Arc<AgentRegistry>,
         tool_registry: Arc<ToolRegistry>,
         skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
         agent_tools: Option<Vec<String>>,
@@ -51,7 +49,6 @@ impl PromptBuilder {
         agent_skills: Option<Vec<String>>,
     ) -> Self {
         Self {
-            agent_registry,
             tool_registry,
             skill_registry,
             agent_tools,
@@ -68,9 +65,7 @@ impl PromptBuilder {
     pub async fn build(&self, ctx: &FragmentContext) -> String {
         // Create the four standard providers.
         let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
-            Box::new(BootstrapFragmentProvider::new(Arc::clone(
-                &self.agent_registry,
-            ))),
+            Box::new(BootstrapFragmentProvider::new()),
             Box::new(ToolsFragmentProvider::new(
                 Arc::clone(&self.tool_registry),
                 self.agent_tools.clone(),
@@ -250,14 +245,11 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
     });
 
     let ctx = FragmentContext {
-        agent_id: config.agent_id.clone(),
-        bootstrap_mode,
-        workdir: Some(root.to_path_buf()),
+        agent_id: config.agent_id.clone().unwrap_or_default(),
+        bootstrap_mode: bootstrap_mode.unwrap_or(BootstrapMode::Full),
+        workdir: root.to_path_buf(),
     };
 
-    let agent_registry = config
-        .agent_registry
-        .unwrap_or_else(|| Arc::new(AgentRegistry::new()));
     let tool_registry = config
         .tool_registry
         .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
@@ -266,7 +258,6 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
         .unwrap_or_else(|| Arc::new(RwLock::new(None)));
 
     let builder = PromptBuilder::new(
-        agent_registry,
         tool_registry,
         skill_registry,
         config.agent_tools,
@@ -502,27 +493,25 @@ mod tests {
 
     #[test]
     fn test_prompt_builder_new() {
-        let agent_reg = Arc::new(AgentRegistry::new());
         let tool_reg = Arc::new(ToolRegistry::new());
         let skill_reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(vec![]))));
-        let builder = PromptBuilder::new(agent_reg, tool_reg, skill_reg, None, None, None);
+        let builder = PromptBuilder::new(tool_reg, skill_reg, None, None, None);
         // Just verify construction succeeds.
         assert!(builder.agent_tools.is_none());
     }
 
     #[tokio::test]
     async fn test_prompt_builder_build_fallback_default() {
-        let agent_reg = Arc::new(AgentRegistry::new());
         let tool_reg = Arc::new(ToolRegistry::new());
         let skill_reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(vec![]))));
-        let builder = PromptBuilder::new(agent_reg, tool_reg, skill_reg, None, None, None);
+        let builder = PromptBuilder::new(tool_reg, skill_reg, None, None, None);
 
         // No workdir → BootstrapFragmentProvider returns None
         // Empty tool registry → ToolsFragmentProvider returns None
         // Empty skill registry → SkillsFragmentProvider returns None
         // No workdir → MemoryFragmentProvider returns None
         // → fallback DEFAULT_PROMPT
-        let ctx = FragmentContext::default();
+        let ctx = FragmentContext::test_default();
         let result = builder.build(&ctx).await;
         assert_eq!(result, DEFAULT_PROMPT);
     }
@@ -533,14 +522,13 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("MEMORY.md"), "remember X").unwrap();
 
-        let agent_reg = Arc::new(AgentRegistry::new());
         let tool_reg = Arc::new(ToolRegistry::new());
         let skill_reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(vec![]))));
-        let builder = PromptBuilder::new(agent_reg, tool_reg, skill_reg, None, None, None);
+        let builder = PromptBuilder::new(tool_reg, skill_reg, None, None, None);
 
         let ctx = FragmentContext {
-            workdir: Some(tmp.path().to_path_buf()),
-            ..Default::default()
+            workdir: tmp.path().to_path_buf(),
+            ..FragmentContext::test_default()
         };
         let result = builder.build(&ctx).await;
         assert!(result.contains("## Memory"));

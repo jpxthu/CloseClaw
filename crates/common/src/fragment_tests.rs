@@ -8,61 +8,58 @@ use crate::bootstrap::BootstrapMode;
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_fragment_context_default() {
-    let ctx = FragmentContext::default();
-    assert!(ctx.agent_id.is_none());
-    assert!(ctx.bootstrap_mode.is_none());
-    assert!(ctx.workdir.is_none());
+fn test_fragment_context_test_default() {
+    let ctx = FragmentContext::test_default();
+    assert_eq!(ctx.agent_id, "");
+    assert_eq!(ctx.bootstrap_mode, BootstrapMode::Full);
+    assert!(ctx.workdir.is_dir());
 }
 
 #[test]
 fn test_fragment_context_agent_id() {
     let ctx = FragmentContext {
-        agent_id: Some("agent-42".to_string()),
-        ..Default::default()
+        agent_id: "agent-42".to_string(),
+        ..FragmentContext::test_default()
     };
-    assert_eq!(ctx.agent_id.as_deref(), Some("agent-42"));
+    assert_eq!(ctx.agent_id, "agent-42");
 }
 
 #[test]
 fn test_fragment_context_bootstrap_mode() {
     let ctx = FragmentContext {
-        bootstrap_mode: Some(BootstrapMode::Full),
-        ..Default::default()
+        bootstrap_mode: BootstrapMode::Full,
+        ..FragmentContext::test_default()
     };
-    assert_eq!(ctx.bootstrap_mode, Some(BootstrapMode::Full));
+    assert_eq!(ctx.bootstrap_mode, BootstrapMode::Full);
 }
 
 #[test]
 fn test_fragment_context_workdir() {
     let ctx = FragmentContext {
-        workdir: Some(std::path::PathBuf::from("/tmp/workspace")),
-        ..Default::default()
+        workdir: std::path::PathBuf::from("/tmp/workspace"),
+        ..FragmentContext::test_default()
     };
-    assert_eq!(
-        ctx.workdir.as_ref().unwrap().to_str(),
-        Some("/tmp/workspace")
-    );
+    assert_eq!(ctx.workdir, std::path::PathBuf::from("/tmp/workspace"));
 }
 
 #[test]
 fn test_fragment_context_all_fields() {
     let ctx = FragmentContext {
-        agent_id: Some("my-agent".to_string()),
-        bootstrap_mode: Some(BootstrapMode::Minimal),
-        workdir: Some(std::path::PathBuf::from("/home/user/project")),
+        agent_id: "my-agent".to_string(),
+        bootstrap_mode: BootstrapMode::Minimal,
+        workdir: std::path::PathBuf::from("/home/user/project"),
     };
-    assert_eq!(ctx.agent_id.as_deref(), Some("my-agent"));
-    assert_eq!(ctx.bootstrap_mode, Some(BootstrapMode::Minimal));
-    assert!(ctx.workdir.is_some());
+    assert_eq!(ctx.agent_id, "my-agent");
+    assert_eq!(ctx.bootstrap_mode, BootstrapMode::Minimal);
+    assert_eq!(ctx.workdir, std::path::PathBuf::from("/home/user/project"));
 }
 
 #[test]
 fn test_fragment_context_clone() {
     let ctx = FragmentContext {
-        agent_id: Some("clone-test".to_string()),
-        bootstrap_mode: Some(BootstrapMode::Minimal),
-        workdir: Some(std::path::PathBuf::from("/clone")),
+        agent_id: "clone-test".to_string(),
+        bootstrap_mode: BootstrapMode::Minimal,
+        workdir: std::path::PathBuf::from("/clone"),
     };
     let cloned = ctx.clone();
     assert_eq!(ctx.agent_id, cloned.agent_id);
@@ -73,11 +70,107 @@ fn test_fragment_context_clone() {
 #[test]
 fn test_fragment_context_debug() {
     let ctx = FragmentContext {
-        agent_id: Some("dbg".to_string()),
-        ..Default::default()
+        agent_id: "dbg".to_string(),
+        ..FragmentContext::test_default()
     };
     let dbg = format!("{:?}", ctx);
     assert!(dbg.contains("dbg"));
+}
+
+#[test]
+fn test_fragment_context_empty_agent_id_boundary() {
+    let ctx = FragmentContext {
+        agent_id: String::new(),
+        ..FragmentContext::test_default()
+    };
+    assert!(ctx.agent_id.is_empty());
+}
+
+#[test]
+fn test_fragment_context_minimal_mode() {
+    let ctx = FragmentContext {
+        bootstrap_mode: BootstrapMode::Minimal,
+        ..FragmentContext::test_default()
+    };
+    assert_eq!(ctx.bootstrap_mode, BootstrapMode::Minimal);
+}
+
+#[test]
+fn test_fragment_context_full_mode() {
+    let ctx = FragmentContext {
+        bootstrap_mode: BootstrapMode::Full,
+        ..FragmentContext::test_default()
+    };
+    assert_eq!(ctx.bootstrap_mode, BootstrapMode::Full);
+}
+
+// ---------------------------------------------------------------------------
+// PromptFragmentProvider trait: mock implementation uses required fields
+// ---------------------------------------------------------------------------
+
+struct MockFragmentProvider;
+
+#[async_trait]
+impl PromptFragmentProvider for MockFragmentProvider {
+    fn name(&self) -> &str {
+        "mock"
+    }
+
+    fn priority(&self) -> u32 {
+        100
+    }
+
+    async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
+        // Uses all three required fields — must compile with non-Option types.
+        if ctx.agent_id.is_empty() {
+            return None;
+        }
+        Some(PromptFragment {
+            section_title: format!("## Agent: {}", ctx.agent_id),
+            section_type: SectionType::Bootstrap,
+            content: format!(
+                "mode={:?} dir={}",
+                ctx.bootstrap_mode,
+                ctx.workdir.display()
+            ),
+        })
+    }
+
+    fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
+        Some(format!("mock:{}", ctx.agent_id))
+    }
+}
+
+#[tokio::test]
+async fn test_mock_provider_returns_none_for_empty_agent_id() {
+    let provider = MockFragmentProvider;
+    let ctx = FragmentContext::test_default(); // agent_id is empty
+    assert!(provider.generate(&ctx).await.is_none());
+}
+
+#[tokio::test]
+async fn test_mock_provider_generates_with_valid_fields() {
+    let provider = MockFragmentProvider;
+    let ctx = FragmentContext {
+        agent_id: "test-agent".into(),
+        bootstrap_mode: BootstrapMode::Minimal,
+        workdir: std::path::PathBuf::from("/workspace"),
+    };
+    let frag = provider.generate(&ctx).await.unwrap();
+    assert_eq!(frag.section_type, SectionType::Bootstrap);
+    assert!(frag.section_title.contains("test-agent"));
+    assert!(frag.content.contains("Minimal"));
+    assert!(frag.content.contains("/workspace"));
+}
+
+#[test]
+fn test_mock_provider_cache_key_includes_agent_id() {
+    let provider = MockFragmentProvider;
+    let ctx = FragmentContext {
+        agent_id: "agent-99".into(),
+        ..FragmentContext::test_default()
+    };
+    assert_eq!(provider.cache_key(&ctx).as_deref(), Some("mock:agent-99"));
 }
 
 // ---------------------------------------------------------------------------
