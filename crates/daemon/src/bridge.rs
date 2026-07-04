@@ -231,10 +231,8 @@ impl closeclaw_common::IMPlugin for IMPluginAdapter {
     async fn parse_inbound(
         &self,
         payload: &[u8],
-    ) -> Result<
-        Option<closeclaw_common::im_plugin::NormalizedMessage>,
-        closeclaw_common::im_plugin::AdapterError,
-    > {
+    ) -> Result<Option<closeclaw_common::InboundEvent>, closeclaw_common::im_plugin::AdapterError>
+    {
         self.inner
             .parse_inbound(payload)
             .await

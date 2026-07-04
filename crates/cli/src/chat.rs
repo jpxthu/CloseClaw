@@ -346,12 +346,17 @@ async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, _sender_id: &str) -> 
             return ExitReason::Error(anyhow::anyhow!("failed to flush stdout"));
         }
 
-        let message = match plugin.parse_inbound(&[]).await {
-            Ok(Some(msg)) => msg,
+        let inbound_event = match plugin.parse_inbound(&[]).await {
+            Ok(Some(event)) => event,
             Ok(None) => continue,
             Err(e) => {
                 return ExitReason::Error(anyhow::anyhow!("input error: {}", e));
             }
+        };
+
+        let message = match inbound_event {
+            closeclaw_common::InboundEvent::Message(m) => m,
+            _ => continue,
         };
 
         // Save fields before moving into InboundChainInput.
