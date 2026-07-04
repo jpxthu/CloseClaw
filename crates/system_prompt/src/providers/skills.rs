@@ -50,7 +50,12 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
         let lock = self.registry.read().ok()?;
         let reg = lock.as_ref()?;
 
-        let listing = reg.generate_listing(ctx.agent_id.as_deref(), self.agent_skills.as_deref());
+        let agent_id_str = if ctx.agent_id.is_empty() {
+            None
+        } else {
+            Some(ctx.agent_id.as_str())
+        };
+        let listing = reg.generate_listing(agent_id_str, self.agent_skills.as_deref());
 
         if listing.is_empty() {
             return None;
@@ -85,7 +90,7 @@ mod tests {
     fn test_cache_key_always_none() {
         let reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(vec![]))));
         let provider = SkillsFragmentProvider::new(reg, None);
-        let ctx = FragmentContext::default();
+        let ctx = FragmentContext::test_default();
         assert!(provider.cache_key(&ctx).is_none());
     }
 
@@ -93,7 +98,7 @@ mod tests {
     async fn test_generate_empty_registry_returns_none() {
         let reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(vec![]))));
         let provider = SkillsFragmentProvider::new(reg, None);
-        let ctx = FragmentContext::default();
+        let ctx = FragmentContext::test_default();
         assert!(provider.generate(&ctx).await.is_none());
     }
 
@@ -101,7 +106,7 @@ mod tests {
     async fn test_generate_none_inner_returns_none() {
         let reg = Arc::new(RwLock::<Option<DiskSkillRegistry>>::new(None));
         let provider = SkillsFragmentProvider::new(reg, None);
-        let ctx = FragmentContext::default();
+        let ctx = FragmentContext::test_default();
         assert!(provider.generate(&ctx).await.is_none());
     }
 
@@ -128,7 +133,7 @@ mod tests {
         }];
         let reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(skills))));
         let provider = SkillsFragmentProvider::new(reg, None);
-        let ctx = FragmentContext::default();
+        let ctx = FragmentContext::test_default();
         let fragment = provider.generate(&ctx).await;
         assert!(fragment.is_some());
         let frag = fragment.unwrap();
@@ -181,8 +186,8 @@ mod tests {
         let reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(skills))));
         let provider = SkillsFragmentProvider::new(reg, None);
         let ctx = FragmentContext {
-            agent_id: Some("agent1".to_string()),
-            ..Default::default()
+            agent_id: "agent1".to_string(),
+            ..FragmentContext::test_default()
         };
         let fragment = provider.generate(&ctx).await;
         assert!(fragment.is_some());

@@ -17,7 +17,6 @@ pub struct FragmentContext {
     pub workdir: PathBuf,
 }
 
-#[cfg(test)]
 impl FragmentContext {
     /// Returns a [`FragmentContext`] with reasonable defaults for unit tests.
     pub fn test_default() -> Self {

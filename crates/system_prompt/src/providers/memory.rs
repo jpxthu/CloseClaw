@@ -38,8 +38,7 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
     }
 
     async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
-        let workdir = ctx.workdir.as_ref()?;
-
+        let workdir = &ctx.workdir;
         let memory_path = workdir.join("MEMORY.md");
         let content = load_cached_file_section("memory", &memory_path)?;
 
@@ -56,8 +55,7 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
 
     /// File-backed — keyed by mtime so the builder can skip regeneration.
     fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
-        let workdir = ctx.workdir.as_ref()?;
-        let path = workdir.join("MEMORY.md");
+        let path = ctx.workdir.join("MEMORY.md");
         let meta = std::fs::metadata(&path).ok()?;
         let mtime = meta
             .modified()
@@ -82,19 +80,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_generate_no_workdir_returns_none() {
-        let provider = MemoryFragmentProvider::new();
-        let ctx = FragmentContext::default();
-        assert!(provider.generate(&ctx).await.is_none());
-    }
-
-    #[tokio::test]
     async fn test_generate_no_memory_file_returns_none() {
         let tmp = tempfile::tempdir().unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            workdir: Some(tmp.path().to_path_buf()),
-            ..Default::default()
+            workdir: tmp.path().to_path_buf(),
+            ..FragmentContext::test_default()
         };
         assert!(provider.generate(&ctx).await.is_none());
     }
@@ -106,8 +97,8 @@ mod tests {
         fs::write(tmp.path().join("MEMORY.md"), "").unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            workdir: Some(tmp.path().to_path_buf()),
-            ..Default::default()
+            workdir: tmp.path().to_path_buf(),
+            ..FragmentContext::test_default()
         };
         assert!(provider.generate(&ctx).await.is_none());
     }
@@ -119,8 +110,8 @@ mod tests {
         fs::write(tmp.path().join("MEMORY.md"), "Remember X and Y").unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            workdir: Some(tmp.path().to_path_buf()),
-            ..Default::default()
+            workdir: tmp.path().to_path_buf(),
+            ..FragmentContext::test_default()
         };
         let fragment = provider.generate(&ctx).await;
         assert!(fragment.is_some());
@@ -131,19 +122,12 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_key_none_when_no_workdir() {
-        let provider = MemoryFragmentProvider::new();
-        let ctx = FragmentContext::default();
-        assert!(provider.cache_key(&ctx).is_none());
-    }
-
-    #[test]
     fn test_cache_key_none_when_no_memory_file() {
         let tmp = tempfile::tempdir().unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            workdir: Some(tmp.path().to_path_buf()),
-            ..Default::default()
+            workdir: tmp.path().to_path_buf(),
+            ..FragmentContext::test_default()
         };
         assert!(provider.cache_key(&ctx).is_none());
     }
@@ -154,8 +138,8 @@ mod tests {
         fs::write(tmp.path().join("MEMORY.md"), "content").unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            workdir: Some(tmp.path().to_path_buf()),
-            ..Default::default()
+            workdir: tmp.path().to_path_buf(),
+            ..FragmentContext::test_default()
         };
         let key = provider.cache_key(&ctx);
         assert!(key.is_some());
