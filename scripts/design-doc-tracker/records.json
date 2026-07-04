@@ -73,11 +73,11 @@
   },
   {
     "path": "docs/design/common/README.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-07-04T18:39:30.342282+08:00",
+    "commit": "0031fabae2e94ee42d4a0e678d4ac90019528157",
+    "commit_time": "2026-07-04T20:24:15+08:00",
+    "confirmed_time": "2026-07-04T20:30:10.725566+08:00",
     "comment": "",
-    "blocked_reason": "blocked-red-line-prohibits-modification"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/common/core-traits.md",
