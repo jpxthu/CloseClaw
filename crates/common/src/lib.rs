@@ -5,6 +5,7 @@ pub mod agent_skills_query;
 pub mod agent_tools_config_query;
 pub mod bootstrap;
 pub mod compaction;
+pub mod fragment;
 pub mod gateway_spawn;
 pub mod gateway_stop;
 pub mod gateway_types;
@@ -37,6 +38,7 @@ pub use agent_skills_query::AgentSkillsQuery;
 pub use agent_tools_config_query::{AgentToolsConfig, AgentToolsConfigQuery};
 pub use bootstrap::BootstrapMode;
 pub use compaction::CompactConfig;
+pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
 pub use gateway_spawn::{ChildSessionInfo, SpawnMode};
 pub use gateway_stop::{StopProgress, StopResult};
 pub use gateway_types::{
