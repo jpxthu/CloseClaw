@@ -577,7 +577,7 @@ async fn test_send_message_and_card_use_consistent_receive_id_type() {
 // ===========================================================================
 
 #[tokio::test]
-async fn test_handle_webhook_card_action_forceful_shutdown() {
+async fn test_parse_card_action_forceful_shutdown() {
     let adapter = make_test_adapter();
     let payload = serde_json::json!({
         "schema": "2.0",
@@ -598,14 +598,10 @@ async fn test_handle_webhook_card_action_forceful_shutdown() {
         }
     });
     let result = adapter
-        .handle_webhook(&serde_json::to_vec(&payload).unwrap())
+        .parse_card_action(&serde_json::to_vec(&payload).unwrap())
         .await
         .unwrap();
-    let event = result.expect("expected Some(InboundEvent) for forceful_shutdown");
-    let card = match event {
-        closeclaw_common::InboundEvent::CardAction(c) => c,
-        other => panic!("expected CardAction, got {:?}", other),
-    };
+    let card = result.expect("expected Some(CardActionEvent) for forceful_shutdown");
     assert_eq!(card.platform, "feishu");
     assert_eq!(card.sender_id, "ou_operator");
     assert_eq!(card.action_value, "forceful_shutdown");
@@ -615,7 +611,7 @@ async fn test_handle_webhook_card_action_forceful_shutdown() {
 }
 
 #[tokio::test]
-async fn test_handle_webhook_card_action_unknown_returns_none() {
+async fn test_parse_card_action_unknown_returns_some() {
     let adapter = make_test_adapter();
     let payload = serde_json::json!({
         "schema": "2.0",
@@ -636,21 +632,17 @@ async fn test_handle_webhook_card_action_unknown_returns_none() {
         }
     });
     let result = adapter
-        .handle_webhook(&serde_json::to_vec(&payload).unwrap())
+        .parse_card_action(&serde_json::to_vec(&payload).unwrap())
         .await
         .unwrap();
-    // Per design doc: all card actions are returned as InboundEvent::CardAction;
+    // Per design doc: all card actions are returned as CardActionEvent;
     // the Gateway routes them to the tool_result channel.
-    let event = result.expect("expected Some(InboundEvent::CardAction) for any recognized action");
-    let card = match event {
-        closeclaw_common::InboundEvent::CardAction(c) => c,
-        other => panic!("expected CardAction, got {:?}", other),
-    };
+    let card = result.expect("expected Some(CardActionEvent) for any recognized action");
     assert_eq!(card.action_value, "some_other_action");
 }
 
 #[tokio::test]
-async fn test_handle_webhook_card_action_no_value_returns_none() {
+async fn test_parse_card_action_no_value_returns_none() {
     let adapter = make_test_adapter();
     let payload = serde_json::json!({
         "schema": "2.0",
@@ -671,7 +663,7 @@ async fn test_handle_webhook_card_action_no_value_returns_none() {
         }
     });
     let result = adapter
-        .handle_webhook(&serde_json::to_vec(&payload).unwrap())
+        .parse_card_action(&serde_json::to_vec(&payload).unwrap())
         .await
         .unwrap();
     assert!(
@@ -689,11 +681,7 @@ async fn test_parse_inbound_text_type() {
     let adapter = Arc::new(make_test_adapter());
     let plugin = FeishuPlugin::new(adapter);
     let payload = make_webhook_payload("text", &serde_json::json!({"text": "hi"}).to_string());
-    let normalized = plugin.parse_inbound(&payload).await.unwrap().unwrap();
-    let msg = match normalized {
-        closeclaw_common::InboundEvent::Message(m) => m,
-        other => panic!("expected Message, got {:?}", other),
-    };
+    let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::Text);
     assert_eq!(msg.content, "hi");
 }
@@ -707,11 +695,7 @@ async fn test_parse_inbound_post_type() {
         "content": [[{"tag": "text", "text": "body"}]]
     });
     let payload = make_webhook_payload("post", &content.to_string());
-    let normalized = plugin.parse_inbound(&payload).await.unwrap().unwrap();
-    let msg = match normalized {
-        closeclaw_common::InboundEvent::Message(m) => m,
-        other => panic!("expected Message, got {:?}", other),
-    };
+    let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::Other("post".to_string()));
     assert_eq!(msg.content, "Post\nbody");
 }
@@ -724,11 +708,7 @@ async fn test_parse_inbound_image_graceful_degradation() {
         "image",
         &serde_json::json!({"image_key": "img_xxx"}).to_string(),
     );
-    let event = plugin.parse_inbound(&payload).await.unwrap().unwrap();
-    let msg = match event {
-        closeclaw_common::InboundEvent::Message(m) => m,
-        other => panic!("expected Message, got {:?}", other),
-    };
+    let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::Image);
     assert!(msg.media_refs.is_empty(), "download should fail gracefully");
 }
@@ -829,11 +809,7 @@ async fn test_parse_inbound_with_identity_mapping() {
     }]);
     let plugin = FeishuPlugin::with_identity_resolver(adapter, Some(Arc::new(resolver)));
     let payload = make_webhook_payload("text", &serde_json::json!({"text": "hi"}).to_string());
-    let event = plugin.parse_inbound(&payload).await.unwrap().unwrap();
-    let msg = match event {
-        closeclaw_common::InboundEvent::Message(m) => m,
-        other => panic!("expected Message, got {:?}", other),
-    };
+    let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
     assert_eq!(msg.account_id, "mapped_user");
     assert_eq!(msg.sender_id, "ou_sender");
 }
@@ -849,11 +825,7 @@ async fn test_parse_inbound_without_mapping_fallback() {
     }]);
     let plugin = FeishuPlugin::with_identity_resolver(adapter, Some(Arc::new(resolver)));
     let payload = make_webhook_payload("text", &serde_json::json!({"text": "hi"}).to_string());
-    let event = plugin.parse_inbound(&payload).await.unwrap().unwrap();
-    let msg = match event {
-        closeclaw_common::InboundEvent::Message(m) => m,
-        other => panic!("expected Message, got {:?}", other),
-    };
+    let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
     // No matching mapping → fallback to sender_open_id
     assert_eq!(msg.account_id, "ou_sender");
 }
@@ -863,11 +835,7 @@ async fn test_parse_inbound_no_resolver_fallback() {
     let adapter = Arc::new(make_test_adapter());
     let plugin = FeishuPlugin::new(adapter);
     let payload = make_webhook_payload("text", &serde_json::json!({"text": "hi"}).to_string());
-    let event = plugin.parse_inbound(&payload).await.unwrap().unwrap();
-    let msg = match event {
-        closeclaw_common::InboundEvent::Message(m) => m,
-        other => panic!("expected Message, got {:?}", other),
-    };
+    let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
     // No resolver at all → fallback to sender_open_id
     assert_eq!(msg.account_id, "ou_sender");
 }

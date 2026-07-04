@@ -30,15 +30,24 @@ pub trait IMAdapter: Send + Sync {
     /// Platform name (e.g., "feishu", "discord")
     fn name(&self) -> &str;
 
-    /// Handle incoming event from IM platform.
+    /// Parse an inbound webhook payload into a [`NormalizedMessage`].
     ///
-    /// Returns `Ok(Some(event))` for recognized events,
-    /// `Ok(None)` for events that should be silently ignored
-    /// (e.g. unknown card actions), or `Err` on parse failure.
-    async fn handle_webhook(
+    /// Returns `Ok(Some(msg))` for recognized message events,
+    /// `Ok(None)` for non-message events (e.g. card actions) or
+    /// payloads that should be silently ignored, or `Err` on parse failure.
+    async fn parse_inbound(
         &self,
         payload: &[u8],
-    ) -> Result<Option<closeclaw_common::InboundEvent>, AdapterError>;
+    ) -> Result<Option<closeclaw_common::NormalizedMessage>, AdapterError>;
+
+    /// Parse an inbound webhook payload into a [`CardActionEvent`].
+    ///
+    /// Returns `Ok(Some(event))` for card-action events,
+    /// `Ok(None)` for non-card-action events, or `Err` on parse failure.
+    async fn parse_card_action(
+        &self,
+        payload: &[u8],
+    ) -> Result<Option<closeclaw_common::CardActionEvent>, AdapterError>;
 
     /// Send message to IM platform.
     ///
