@@ -15,7 +15,7 @@ use thiserror::Error;
 /// tool listing (group name + tool name + summary).
 ///
 /// Named `ToolSummary` to avoid collision with
-/// [`crate::registry::ToolRegistryImpl`] which carries richer
+/// [`closeclaw_common::tool_registry::ToolDescriptor`] which carries richer
 /// info for `ToolRegistryQuery`.
 #[derive(Debug, Clone)]
 pub struct ToolSummary {
