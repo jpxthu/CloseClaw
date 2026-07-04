@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+use super::strip_jsonc_comments;
 use super::validation::validate_agents_config;
 use super::AgentsConfig;
 use crate::{ConfigError, ConfigProvider};
@@ -31,7 +32,8 @@ impl AgentsConfigProvider {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, ConfigError> {
         let config_path = path.as_ref().display().to_string();
         let content = fs::read_to_string(path)?;
-        let config: AgentsConfig = serde_json::from_str(&content)?;
+        let stripped = strip_jsonc_comments(&content);
+        let config: AgentsConfig = serde_json::from_str(&stripped)?;
         Ok(Self {
             config,
             config_path,
@@ -40,7 +42,8 @@ impl AgentsConfigProvider {
 
     /// Create a new provider from a string (useful for testing)
     pub fn from_json_str(content: &str) -> Result<Self, ConfigError> {
-        let config: AgentsConfig = serde_json::from_str(content)?;
+        let stripped = strip_jsonc_comments(content);
+        let config: AgentsConfig = serde_json::from_str(&stripped)?;
         Ok(Self {
             config,
             config_path: "memory".to_string(),
