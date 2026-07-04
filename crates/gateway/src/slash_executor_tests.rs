@@ -481,59 +481,12 @@ async fn test_side_effect_context_new_session_delivered() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests — TriggerCompact / Nothing dispatch path
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn test_trigger_compact_dispatch_via_receiver() {
-    // TriggerCompact is a ReplyAction variant that can be sent through
-    // reply_tx and received by the dispatcher. Verify it round-trips.
-    let (tx, mut rx) = mpsc::channel(16);
-    let action = ReplyAction::TriggerCompact {
-        instruction: Some("keep recent".into()),
-    };
-    tx.send(action).await.unwrap();
-    drop(tx);
-
-    let received = rx.recv().await.expect("should receive action");
-    match received {
-        ReplyAction::TriggerCompact { instruction } => {
-            assert_eq!(instruction, Some("keep recent".into()));
-        }
-        other => panic!("expected TriggerCompact, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn test_nothing_dispatch_via_receiver() {
-    // Nothing is a ReplyAction variant indicating no action needed.
-    // Verify it round-trips through the channel.
-    let (tx, mut rx) = mpsc::channel(16);
-    tx.send(ReplyAction::Nothing).await.unwrap();
-    drop(tx);
-
-    let received = rx.recv().await.expect("should receive action");
-    assert!(matches!(received, ReplyAction::Nothing));
-}
-
-#[tokio::test]
-async fn test_trigger_compact_no_instruction_dispatch_via_receiver() {
-    // TriggerCompact with None instruction should also round-trip.
-    let (tx, mut rx) = mpsc::channel(16);
-    tx.send(ReplyAction::TriggerCompact { instruction: None })
-        .await
-        .unwrap();
-    drop(tx);
-
-    let received = rx.recv().await.expect("should receive action");
-    match received {
-        ReplyAction::TriggerCompact { instruction } => {
-            assert_eq!(instruction, None);
-        }
-        other => panic!("expected TriggerCompact, got {other:?}"),
-    }
-}
+// NOTE: ReplyAction::TriggerCompact and ReplyAction::Nothing are not produced
+// by any SlashResult::execute() dispatch — they are ReplyAction enum variants
+// only consumed downstream in route_slash_reply. The behavior paths for
+// SlashResult::Compact (executor.execute_compact + ReplyAction::Reply) are
+// already covered by test_compact_calls_executor_and_sends_reply and
+// test_compact_with_instruction_sends_reply.
 
 // ---------------------------------------------------------------------------
 // Tests — SideEffectContext: closed channel error path
