@@ -90,15 +90,28 @@ impl ToolRegistrar for TestRegistrar {
             };
             let boxed: Box<dyn std::any::Any + Send + Sync> =
                 Box::new(crate::registry::ToolBox(Arc::new(tool)));
-            registry.register_any(boxed).await.map_err(|e| match e {
-                closeclaw_common::tool_registry::RegistryError::AlreadyRegistered(n) => {
-                    ToolRegistrarError::Conflict {
-                        tool: n,
-                        registrar: self.name.clone(),
+            registry
+                .register_any(boxed, &self.name)
+                .await
+                .map_err(|e| match e {
+                    closeclaw_common::tool_registry::RegistryError::Conflict {
+                        tool,
+                        registrar,
+                        attempting,
+                    } => ToolRegistrarError::Conflict {
+                        tool,
+                        registrar,
+                        attempting,
+                    },
+                    closeclaw_common::tool_registry::RegistryError::AlreadyRegistered(n) => {
+                        ToolRegistrarError::Conflict {
+                            tool: n,
+                            registrar: String::new(),
+                            attempting: self.name.clone(),
+                        }
                     }
-                }
-                other => ToolRegistrarError::Internal(other.to_string()),
-            })?;
+                    other => ToolRegistrarError::Internal(other.to_string()),
+                })?;
         }
         Ok(())
     }
@@ -325,15 +338,28 @@ impl ToolRegistrar for PartiallyFailingRegistrar {
             };
             let boxed: Box<dyn std::any::Any + Send + Sync> =
                 Box::new(crate::registry::ToolBox(Arc::new(tool)));
-            registry.register_any(boxed).await.map_err(|e| match e {
-                closeclaw_common::tool_registry::RegistryError::AlreadyRegistered(n) => {
-                    ToolRegistrarError::Conflict {
-                        tool: n,
-                        registrar: self.name.clone(),
+            registry
+                .register_any(boxed, &self.name)
+                .await
+                .map_err(|e| match e {
+                    closeclaw_common::tool_registry::RegistryError::Conflict {
+                        tool,
+                        registrar,
+                        attempting,
+                    } => ToolRegistrarError::Conflict {
+                        tool,
+                        registrar,
+                        attempting,
+                    },
+                    closeclaw_common::tool_registry::RegistryError::AlreadyRegistered(n) => {
+                        ToolRegistrarError::Conflict {
+                            tool: n,
+                            registrar: String::new(),
+                            attempting: self.name.clone(),
+                        }
                     }
-                }
-                other => ToolRegistrarError::Internal(other.to_string()),
-            })?;
+                    other => ToolRegistrarError::Internal(other.to_string()),
+                })?;
             registered += 1;
         }
         if registered == 0 {
@@ -433,9 +459,17 @@ async fn test_register_all_partial_failure_then_conflict() {
     let result = registry.register_all(registrars).await;
     assert!(result.is_err());
     match result.unwrap_err() {
-        ToolRegistrarError::Conflict { tool, registrar } => {
+        ToolRegistrarError::Conflict {
+            tool,
+            registrar,
+            attempting,
+        } => {
             assert_eq!(tool, "ToolA");
-            assert_eq!(registrar, "ConflictRegistrar");
+            assert_eq!(registrar, "OK", "original registrar should be 'OK'");
+            assert_eq!(
+                attempting, "ConflictRegistrar",
+                "attempting registrar should be 'ConflictRegistrar'"
+            );
         }
         other => panic!("expected Conflict error, got {:?}", other),
     }
@@ -518,9 +552,14 @@ async fn test_register_all_conflict_detection() {
     let result = registry.register_all(registrars).await;
     assert!(result.is_err());
     match result.unwrap_err() {
-        ToolRegistrarError::Conflict { tool, registrar } => {
+        ToolRegistrarError::Conflict {
+            tool,
+            registrar,
+            attempting,
+        } => {
             assert_eq!(tool, "SameName");
-            assert_eq!(registrar, "R2");
+            assert_eq!(registrar, "R1", "original registrar should be 'R1'");
+            assert_eq!(attempting, "R2", "attempting registrar should be 'R2'");
         }
         other => panic!("expected Conflict error, got {:?}", other),
     }

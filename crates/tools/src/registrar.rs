@@ -20,13 +20,26 @@ pub(crate) async fn register_tool(
     registrar_name: &str,
 ) -> Result<(), ToolRegistrarError> {
     let boxed: Box<dyn std::any::Any + Send + Sync> = Box::new(ToolBox(Arc::new(tool)));
-    registry.register_any(boxed).await.map_err(|e| match e {
-        RegistryError::AlreadyRegistered(name) => ToolRegistrarError::Conflict {
-            tool: name,
-            registrar: registrar_name.to_string(),
-        },
-        other => ToolRegistrarError::Internal(other.to_string()),
-    })
+    registry
+        .register_any(boxed, registrar_name)
+        .await
+        .map_err(|e| match e {
+            RegistryError::Conflict {
+                tool,
+                registrar,
+                attempting,
+            } => ToolRegistrarError::Conflict {
+                tool,
+                registrar,
+                attempting,
+            },
+            RegistryError::AlreadyRegistered(name) => ToolRegistrarError::Conflict {
+                tool: name,
+                registrar: String::new(),
+                attempting: registrar_name.to_string(),
+            },
+            other => ToolRegistrarError::Internal(other.to_string()),
+        })
 }
 
 /// Register a single tool, logging `Internal` errors as warnings.
@@ -41,9 +54,14 @@ pub async fn register_single(
 ) -> Result<bool, ToolRegistrarError> {
     match register_tool(registry, tool, registrar_name).await {
         Ok(()) => Ok(true),
-        Err(ToolRegistrarError::Conflict { .. }) => Err(ToolRegistrarError::Conflict {
-            tool: name,
-            registrar: registrar_name.to_string(),
+        Err(ToolRegistrarError::Conflict {
+            tool: conflicting,
+            registrar,
+            attempting,
+        }) => Err(ToolRegistrarError::Conflict {
+            tool: conflicting,
+            registrar,
+            attempting,
         }),
         Err(ToolRegistrarError::Internal(e)) => {
             tracing::warn!(

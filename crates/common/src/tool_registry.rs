@@ -18,6 +18,17 @@ pub enum RegistryError {
     #[error("tool `{0}` already registered")]
     AlreadyRegistered(String),
 
+    /// A tool name was already registered, with full conflict details.
+    #[error("tool `{tool}` already registered by `{registrar}`, attempting: `{attempting}`")]
+    Conflict {
+        /// The conflicting tool name.
+        tool: String,
+        /// The registrar that registered it first.
+        registrar: String,
+        /// The registrar that attempted to register the conflicting tool.
+        attempting: String,
+    },
+
     /// The registry is frozen — no further registrations accepted.
     #[error("tool registry is frozen — no further registrations accepted")]
     Frozen,
@@ -74,12 +85,14 @@ pub struct ToolDescriptor {
 #[derive(Debug, Error)]
 pub enum ToolRegistrarError {
     /// A tool name was already registered by another registrar.
-    #[error("tool `{tool}` already registered by `{registrar}`")]
+    #[error("tool `{tool}` already registered by `{registrar}`, attempting: `{attempting}`")]
     Conflict {
         /// The conflicting tool name.
         tool: String,
         /// The registrar that registered it first.
         registrar: String,
+        /// The registrar that attempted to register the conflicting tool.
+        attempting: String,
     },
 
     /// Internal error within a registrar.
@@ -115,21 +128,25 @@ pub trait ToolRegistrar: Send + Sync {
 
 /// Central tool registry interface.
 ///
-/// Provides registration, freezing, and querying operations.
+/// Provides registration, freezing, indexing, and querying operations.
 /// Concrete implementation lives in the tools crate.
 #[async_trait]
-pub trait ToolRegistry: Send + Sync {
+pub trait ToolRegistry: ToolRegistryQuery + Send + Sync {
     /// Register a type-erased tool.
     ///
     /// The tool is provided as `Box<dyn Any + Send + Sync>` so that common
     /// does not need to depend on the tools crate's `Tool` trait.
     /// Implementations downcast internally.
     ///
+    /// `registrar_name` identifies which registrar is registering the tool,
+    /// used for conflict error reporting.
+    ///
     /// # Errors
     /// Returns `Err` if the registry is frozen or the tool name conflicts.
     async fn register_any(
         &self,
         tool: Box<dyn std::any::Any + Send + Sync>,
+        registrar_name: &str,
     ) -> Result<(), RegistryError>;
 
     /// Mark registration as complete; reject further registrations.
@@ -137,6 +154,12 @@ pub trait ToolRegistry: Send + Sync {
 
     /// Returns whether the registry is frozen.
     fn is_frozen(&self) -> bool;
+
+    /// Build a first-level tools index string, grouped by tool group.
+    ///
+    /// Eager (non-deferred) tools show name and behavior description.
+    /// Deferred tools show name and danger marks only.
+    async fn build_index(&self) -> String;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

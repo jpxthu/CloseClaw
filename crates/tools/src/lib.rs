@@ -23,7 +23,9 @@ pub use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 pub use registrars::core::CoreToolsRegistrar;
 pub use registrars::session::SessionToolsRegistrar;
 pub use registrars::skills::SkillsToolsRegistrar;
-pub use registry::ToolRegistry;
+pub use registry::ToolRegistryImpl;
+/// Type alias for backward compatibility.
+pub type ToolRegistry = ToolRegistryImpl;
 pub use spawn_validation::{SpawnError, SpawnValidationResult, SpawnValidator};
 pub use workdir_context::{build_git_status_for, build_workdir_context, WorkdirContext};
 
