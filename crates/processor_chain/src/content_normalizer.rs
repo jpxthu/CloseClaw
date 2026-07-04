@@ -16,6 +16,7 @@ use crate::processor_chain::error::ProcessError;
 use crate::processor_chain::processor::{MessageProcessor, ProcessPhase};
 use crate::ProcessedMessage;
 use async_trait::async_trait;
+use closeclaw_common::im_plugin::MessageType;
 use closeclaw_llm::types::ContentBlock;
 use std::sync::LazyLock;
 
@@ -127,6 +128,17 @@ impl MessageProcessor for ContentNormalizer {
         &self,
         ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
+        // Skip normalization for non-text messages (image, file, audio, etc.).
+        // Only Text messages undergo control-character stripping and whitespace normalization.
+        if let Some(initial) = ctx.initial_normalized() {
+            if initial.message_type != MessageType::Text {
+                return Ok(Some(ProcessedMessage {
+                    content_blocks: vec![ContentBlock::Text(ctx.content.clone())],
+                    metadata: std::collections::HashMap::new(),
+                }));
+            }
+        }
+
         let mut normalized = strip_control_chars(&ctx.content);
         normalized = normalize_empty_lines(&normalized);
         normalized = trim_trailing_whitespace(&normalized);
