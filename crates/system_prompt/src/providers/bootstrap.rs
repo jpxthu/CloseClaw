@@ -330,14 +330,85 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_generate_returns_none_when_no_workdir() {
+    async fn test_generate_nonexistent_workdir_returns_none() {
         let reg = Arc::new(AgentRegistry::new());
         let provider = BootstrapFragmentProvider::new(reg);
+
         let ctx = FragmentContext {
+            workdir: Some("/definitely/does/not/exist".into()),
             bootstrap_mode: Some(BootstrapMode::Minimal),
             ..Default::default()
         };
         assert!(provider.generate(&ctx).await.is_none());
+    }
+
+    #[test]
+    fn test_cache_key_nonexistent_workdir_returns_none() {
+        let reg = Arc::new(AgentRegistry::new());
+        let provider = BootstrapFragmentProvider::new(reg);
+        let ctx = FragmentContext {
+            workdir: Some("/definitely/does/not/exist".into()),
+            bootstrap_mode: Some(BootstrapMode::Minimal),
+            ..Default::default()
+        };
+        assert!(provider.cache_key(&ctx).is_none());
+    }
+
+    #[tokio::test]
+    async fn test_generate_full_mode_includes_bootstrap_md() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("AGENTS.md"), "agents content").unwrap();
+        fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap content").unwrap();
+
+        let reg = Arc::new(AgentRegistry::new());
+        let provider = BootstrapFragmentProvider::new(reg);
+
+        let ctx = FragmentContext {
+            workdir: Some(tmp.path().to_path_buf()),
+            bootstrap_mode: Some(BootstrapMode::Full),
+            ..Default::default()
+        };
+        let fragment = provider.generate(&ctx).await.unwrap();
+        assert!(fragment.content.contains("BOOTSTRAP.md"));
+        assert!(fragment.content.contains("bootstrap content"));
+    }
+
+    #[tokio::test]
+    async fn test_generate_workdir_and_agent_id_mode_fallback() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Minimal mode expects AGENTS.md
+        fs::write(tmp.path().join("AGENTS.md"), "from workdir").unwrap();
+
+        use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+
+        let reg = Arc::new(AgentRegistry::new());
+        reg.populate(vec![ResolvedAgentConfig {
+            id: "test-agent".into(),
+            name: "test-agent".into(),
+            parent_id: None,
+            model: None,
+            workspace: None,
+            agent_dir: None,
+            bootstrap_mode: BootstrapMode::Minimal,
+            skills: vec![],
+            tools: vec![],
+            disallowed_tools: vec![],
+            subagents: Default::default(),
+            memory: None,
+            source: ConfigSource::User,
+        }]);
+
+        let provider = BootstrapFragmentProvider::new(reg);
+
+        // No bootstrap_mode in ctx → fallback to registry via agent_id,
+        // but file loading uses workdir.
+        let ctx = FragmentContext {
+            agent_id: Some("test-agent".into()),
+            bootstrap_mode: None,
+            workdir: Some(tmp.path().to_path_buf()),
+        };
+        let fragment = provider.generate(&ctx).await.unwrap();
+        assert!(fragment.content.contains("from workdir"));
     }
 
     #[tokio::test]
