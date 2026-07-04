@@ -140,9 +140,6 @@ pub struct NormalizedMessage {
     #[serde(default)]
     pub media_refs: Vec<MediaRef>,
 
-    /// Quoted/replied-to message content, if present. At most one level of nesting.
-    pub quoted_message: Option<String>,
-
     /// Optional thread/topic ID. Used for threaded replies on platforms that
     /// support threads; does **not** participate in session key calculation.
     pub thread_id: Option<String>,

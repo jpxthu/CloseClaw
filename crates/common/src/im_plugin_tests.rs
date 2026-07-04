@@ -12,7 +12,6 @@ fn make_normalized(account_id: &str) -> NormalizedMessage {
         timestamp: 1700000000000,
         message_type: MessageType::Text,
         media_refs: vec![],
-        quoted_message: None,
         thread_id: None,
         account_id: account_id.into(),
     }
@@ -77,17 +76,6 @@ fn test_normalized_roundtrip() {
     assert_eq!(de.thread_id.as_deref(), Some("t_99"));
 }
 
-#[test]
-fn test_normalized_quoted_message_roundtrip() {
-    let mut msg = make_normalized("a");
-    msg.quoted_message = Some("quoted text".into());
-
-    let json = serde_json::to_string(&msg).unwrap();
-    let de: NormalizedMessage = serde_json::from_str(&json).unwrap();
-    let q = de.quoted_message.unwrap();
-    assert_eq!(q, "quoted text");
-}
-
 // ---- MessageType serialization round-trip tests ----
 
 #[test]
@@ -148,6 +136,5 @@ fn test_normalized_optional_fields_absent() {
     }"#;
     let msg: NormalizedMessage = serde_json::from_str(json).unwrap();
     assert!(msg.media_refs.is_empty());
-    assert!(msg.quoted_message.is_none());
     assert!(msg.thread_id.is_none());
 }
