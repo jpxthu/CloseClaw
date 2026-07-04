@@ -75,15 +75,23 @@
     "path": "docs/design/common/README.md",
     "commit": "",
     "commit_time": "",
-    "confirmed_time": "2026-07-03T21:37:01.496401+08:00",
+    "confirmed_time": "2026-07-04T15:28:35.777725+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "common-module-scope-contradiction"
   },
   {
     "path": "docs/design/common/core-traits.md",
     "commit": "2dc030e1562d3df7a4f6d86e2c9343f3a187da7a",
     "commit_time": "2026-07-04T14:11:46+08:00",
     "confirmed_time": "2026-07-04T14:17:20.716384+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/common/data-flow.md",
+    "commit": "0a4bc8b69b14c7f3f28bf99efe839663b53e3df8",
+    "commit_time": "2026-07-04T15:15:59+08:00",
+    "confirmed_time": "2026-07-04T15:22:29.338612+08:00",
     "comment": "",
     "blocked_reason": ""
   },
