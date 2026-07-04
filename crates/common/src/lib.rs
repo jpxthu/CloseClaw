@@ -65,7 +65,6 @@ pub use tool_registry::{
 pub use tool_session::{KillHandle, ToolSession};
 pub use tool_trait::{
     build_git_status_for, build_workdir_context, ContextModifier, PromptGenerationContext, Tool,
-    ToolCallError, ToolContext, ToolError, ToolFlags, ToolMessage, ToolResult, ToolSummary,
-    WorkdirContext,
+    ToolCallError, ToolContext, ToolFlags, ToolMessage, ToolResult, WorkdirContext,
 };
 pub use verbosity::VerbosityLevel;
