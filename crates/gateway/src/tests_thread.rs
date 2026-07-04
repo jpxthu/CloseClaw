@@ -4,7 +4,7 @@ use crate::im_adapter::streaming::StreamingRenderer;
 use crate::{Gateway, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
-use closeclaw_common::im_plugin::{AdapterError, IMPlugin, InboundEvent};
+use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_llm::types::{
     ContentBlock, ContentBlockType, ContentDelta, StreamEvent, UnifiedUsage,
@@ -72,7 +72,10 @@ impl IMPlugin for CapturingPlugin {
         &self.platform
     }
 
-    async fn parse_inbound(&self, _payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError> {
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
         Ok(None)
     }
 
@@ -380,7 +383,10 @@ impl IMPlugin for IndexCapturingPlugin {
         &self.platform
     }
 
-    async fn parse_inbound(&self, _payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError> {
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
         Ok(None)
     }
 

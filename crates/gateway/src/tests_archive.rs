@@ -191,13 +191,21 @@ impl IMAdapter for MockAdapter {
         "mock"
     }
 
-    async fn handle_webhook(
+    async fn parse_inbound(
         &self,
         _payload: &[u8],
     ) -> Result<
         Option<closeclaw_common::im_plugin::NormalizedMessage>,
         closeclaw_common::im_plugin::AdapterError,
     > {
+        unimplemented!()
+    }
+
+    async fn parse_card_action(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<closeclaw_common::CardActionEvent>, closeclaw_common::im_plugin::AdapterError>
+    {
         unimplemented!()
     }
 

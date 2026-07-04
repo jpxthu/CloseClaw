@@ -55,22 +55,18 @@ async fn test_validate_signature_incorrect() {
 }
 
 #[tokio::test]
-async fn test_handle_webhook_valid() {
+async fn test_parse_inbound_valid() {
     let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into());
     let payload = serde_json::json!({
         "schema": "2.0",
         "header": {"event_id":"evt_1","event_type":"im.message.receive_v1","create_time":"0","token":"t","app_id":"a"},
         "event": {"sender":{"sender_id":{"open_id":"ou_abc"},"sender_type":"user"},"content":"{\"text\":\"hello\"}","chat_id":"oc_x","message_type":"text"}
     });
-    let event = adapter
-        .handle_webhook(&serde_json::to_vec(&payload).unwrap())
+    let msg = adapter
+        .parse_inbound(&serde_json::to_vec(&payload).unwrap())
         .await
         .unwrap()
-        .expect("expected Some(event)");
-    let msg = match event {
-        closeclaw_common::InboundEvent::Message(m) => m,
-        other => panic!("expected InboundEvent::Message, got {:?}", other),
-    };
+        .expect("expected Some(msg)");
     assert_eq!(msg.sender_id, "ou_abc");
     assert_eq!(msg.content, "hello");
     assert_eq!(msg.account_id.as_str(), "ou_abc");
@@ -78,20 +74,20 @@ async fn test_handle_webhook_valid() {
 }
 
 #[tokio::test]
-async fn test_handle_webhook_invalid_json() {
+async fn test_parse_inbound_invalid_json() {
     let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into());
-    assert!(adapter.handle_webhook(b"not json").await.is_err());
+    assert!(adapter.parse_inbound(b"not json").await.is_err());
 }
 
 #[tokio::test]
-async fn test_handle_webhook_empty_text() {
+async fn test_parse_inbound_empty_text() {
     let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into());
     let payload = serde_json::json!({
         "schema":"2.0","header":{"event_id":"e2","event_type":"x","create_time":"0","token":"t","app_id":"a"},
         "event":{"sender":{"sender_id":{"open_id":"ou_x"},"sender_type":"user"},"content":"{\"other\":\"data\"}","chat_id":"oc_y","message_type":"text"}
     });
     let result = adapter
-        .handle_webhook(&serde_json::to_vec(&payload).unwrap())
+        .parse_inbound(&serde_json::to_vec(&payload).unwrap())
         .await
         .unwrap();
     assert!(result.is_none());

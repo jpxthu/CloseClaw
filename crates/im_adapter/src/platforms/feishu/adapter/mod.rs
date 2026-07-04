@@ -3,7 +3,7 @@
 use crate::error::AdapterError;
 use crate::IMAdapter;
 use async_trait::async_trait;
-use closeclaw_common::{CardActionEvent, InboundEvent, MediaRef, MessageType, NormalizedMessage};
+use closeclaw_common::{CardActionEvent, MediaRef, MessageType, NormalizedMessage};
 use closeclaw_gateway::Message;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -233,6 +233,15 @@ impl FeishuAdapter {
         }
     }
 
+    /// Extract the event_type from a raw webhook JSON payload header.
+    fn extract_event_type(raw: &serde_json::Value) -> String {
+        raw.get("header")
+            .and_then(|h| h.get("event_type"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string()
+    }
+
     /// Obtain a tenant access token, using a cached token when valid.
     async fn get_tenant_token(&self) -> Result<String, AdapterError> {
         let cached = self.cached_token.lock().await;
@@ -411,13 +420,13 @@ impl FeishuAdapter {
         Ok(())
     }
 
-    /// Handle a card.action.trigger event.
-    pub(super) fn handle_card_action(
+    /// Parse a card.action.trigger event into a CardActionEvent.
+    pub(super) fn parse_card_action_event(
         &self,
         _event_id: String,
         _app_id: String,
         card_event: &FeishuCardActionEvent,
-    ) -> Result<Option<InboundEvent>, AdapterError> {
+    ) -> Result<Option<CardActionEvent>, AdapterError> {
         let action_value = card_event
             .action
             .value
@@ -443,14 +452,14 @@ impl FeishuAdapter {
                 {
                     metadata.insert("chat_id".to_string(), chat_id.to_string());
                 }
-                Ok(Some(InboundEvent::CardAction(CardActionEvent {
+                Ok(Some(CardActionEvent {
                     platform: "feishu".to_string(),
                     sender_id: card_event.operator.open_id.clone(),
                     action_value: action.to_string(),
                     metadata,
                     timestamp: chrono::Utc::now().timestamp_millis(),
                     account_id: card_event.operator.open_id.clone(),
-                })))
+                }))
             }
             _ => Ok(None),
         }
@@ -571,15 +580,34 @@ impl IMAdapter for FeishuAdapter {
         "feishu"
     }
 
-    async fn handle_webhook(&self, payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError> {
+    async fn parse_inbound(
+        &self,
+        payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
         let raw: serde_json::Value = serde_json::from_slice(payload)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
-        let event_type = raw
-            .get("header")
-            .and_then(|h| h.get("event_type"))
-            .and_then(|t| t.as_str())
-            .unwrap_or("");
+        let event_type = Self::extract_event_type(&raw);
+        if event_type == "card.action.trigger" {
+            return Ok(None);
+        }
+
+        let event: FeishuEvent =
+            serde_json::from_value(raw).map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
+        self.parse_message_event(event).await
+    }
+
+    async fn parse_card_action(
+        &self,
+        payload: &[u8],
+    ) -> Result<Option<CardActionEvent>, AdapterError> {
+        let raw: serde_json::Value = serde_json::from_slice(payload)
+            .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
+
+        let event_type = Self::extract_event_type(&raw);
+        if event_type != "card.action.trigger" {
+            return Ok(None);
+        }
 
         let event_id = raw
             .get("header")
@@ -595,21 +623,9 @@ impl IMAdapter for FeishuAdapter {
             .unwrap_or("")
             .to_string();
 
-        match event_type {
-            "card.action.trigger" => {
-                let card_event: FeishuCardActionEvent = serde_json::from_value(raw)
-                    .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
-                self.handle_card_action(event_id, app_id, &card_event)
-            }
-            _ => {
-                let event: FeishuEvent = serde_json::from_value(raw)
-                    .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
-                Ok(self
-                    .parse_message_event(event)
-                    .await?
-                    .map(InboundEvent::Message))
-            }
-        }
+        let card_event: FeishuCardActionEvent =
+            serde_json::from_value(raw).map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
+        self.parse_card_action_event(event_id, app_id, &card_event)
     }
 
     async fn send_message(
