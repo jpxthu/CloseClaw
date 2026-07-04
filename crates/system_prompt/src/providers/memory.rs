@@ -28,7 +28,7 @@ impl Default for MemoryFragmentProvider {
 }
 
 #[async_trait]
-impl PromptFragmentProvider for MemoryFragmentProvider {
+impl PromptFragmentProvider<PromptFragment> for MemoryFragmentProvider {
     fn name(&self) -> &str {
         "memory"
     }

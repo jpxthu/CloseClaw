@@ -38,7 +38,7 @@ impl BootstrapFragmentProvider {
 }
 
 #[async_trait]
-impl PromptFragmentProvider for BootstrapFragmentProvider {
+impl PromptFragmentProvider<PromptFragment> for BootstrapFragmentProvider {
     fn name(&self) -> &str {
         "bootstrap"
     }

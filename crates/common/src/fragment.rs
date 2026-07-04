@@ -35,35 +35,14 @@ impl FragmentContext {
     }
 }
 
-/// Section type classification for a prompt fragment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SectionType {
-    /// Bootstrap files (agent profile, workspace rules, etc.)
-    Bootstrap,
-    /// Tool registry / tool listings
-    Tools,
-    /// Skill listings
-    Skills,
-    /// Long-term memory (MEMORY.md)
-    Memory,
-}
-
-/// A single prompt fragment produced by a [`PromptFragmentProvider`].
-#[derive(Debug, Clone)]
-pub struct PromptFragment {
-    /// Section title, e.g. `"## AGENTS.md"` or `"## Available Skills"`.
-    pub section_title: String,
-    /// Classification of the section content.
-    pub section_type: SectionType,
-    /// Rendered text content of the section.
-    pub content: String,
-}
-
 /// Trait for providers that contribute a section to the static layer of the
 /// system prompt. The Builder collects registered providers, sorts them by
 /// [`priority`](Self::priority), and concatenates their non-empty outputs.
+///
+/// The fragment type `F` is defined by the consumer crate (e.g.
+/// `closeclaw-system-prompt`) and carries section classification and content.
 #[async_trait]
-pub trait PromptFragmentProvider: Send + Sync {
+pub trait PromptFragmentProvider<F: Send + Sync>: Send + Sync {
     /// Unique name of this provider, used for registration and logging.
     fn name(&self) -> &str;
 
@@ -75,7 +54,7 @@ pub trait PromptFragmentProvider: Send + Sync {
     /// Returns `None` when there is nothing to contribute (e.g. no workspace
     /// directory, empty registry, missing file). The Builder silently skips
     /// `None` results.
-    async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment>;
+    async fn generate(&self, ctx: &FragmentContext) -> Option<F>;
 
     /// Section-level cache key. Returns `None` when the section is not
     /// cacheable (e.g. registry-backed providers that manage their own

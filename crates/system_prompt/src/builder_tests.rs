@@ -49,7 +49,7 @@ impl MockProvider {
 }
 
 #[async_trait]
-impl PromptFragmentProvider for MockProvider {
+impl PromptFragmentProvider<PromptFragment> for MockProvider {
     fn name(&self) -> &str {
         &self.name
     }
@@ -73,7 +73,7 @@ impl PromptFragmentProvider for MockProvider {
 
 #[test]
 fn test_providers_sorted_by_priority() {
-    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+    let providers: Vec<Box<dyn PromptFragmentProvider<PromptFragment>>> = vec![
         Box::new(MockProvider::with_fragment("third", 30, "c")),
         Box::new(MockProvider::with_fragment("first", 1, "a")),
         Box::new(MockProvider::with_fragment("second", 10, "b")),
@@ -88,7 +88,7 @@ fn test_providers_sorted_by_priority() {
 
 #[test]
 fn test_providers_with_equal_priority_stable_order() {
-    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+    let providers: Vec<Box<dyn PromptFragmentProvider<PromptFragment>>> = vec![
         Box::new(MockProvider::with_fragment("a", 5, "content-a")),
         Box::new(MockProvider::with_fragment("b", 5, "content-b")),
     ];
@@ -105,7 +105,7 @@ fn test_providers_with_equal_priority_stable_order() {
 
 #[tokio::test]
 async fn test_all_providers_none_fallback() {
-    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+    let providers: Vec<Box<dyn PromptFragmentProvider<PromptFragment>>> = vec![
         Box::new(MockProvider::empty("p1", 1)),
         Box::new(MockProvider::empty("p2", 2)),
         Box::new(MockProvider::empty("p3", 3)),
@@ -117,7 +117,7 @@ async fn test_all_providers_none_fallback() {
 
 #[tokio::test]
 async fn test_single_provider_none_fallback() {
-    let providers: Vec<Box<dyn PromptFragmentProvider>> =
+    let providers: Vec<Box<dyn PromptFragmentProvider<PromptFragment>>> =
         vec![Box::new(MockProvider::empty("only", 1))];
 
     let result = build_from_mocks(providers).await;
@@ -130,7 +130,7 @@ async fn test_single_provider_none_fallback() {
 
 #[tokio::test]
 async fn test_single_provider_produces_output() {
-    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(
+    let providers: Vec<Box<dyn PromptFragmentProvider<PromptFragment>>> = vec![Box::new(
         MockProvider::with_fragment("tools", 1, "tool content"),
     )];
 
@@ -141,7 +141,7 @@ async fn test_single_provider_produces_output() {
 
 #[tokio::test]
 async fn test_multiple_providers_concatenated() {
-    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+    let providers: Vec<Box<dyn PromptFragmentProvider<PromptFragment>>> = vec![
         Box::new(MockProvider::with_fragment("bootstrap", 1, "boot")),
         Box::new(MockProvider::with_fragment("tools", 2, "tool")),
         Box::new(MockProvider::with_fragment("memory", 3, "mem")),
@@ -161,7 +161,7 @@ async fn test_multiple_providers_concatenated() {
 
 #[tokio::test]
 async fn test_empty_provider_skipped() {
-    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+    let providers: Vec<Box<dyn PromptFragmentProvider<PromptFragment>>> = vec![
         Box::new(MockProvider::empty("empty_one", 1)),
         Box::new(MockProvider::with_fragment("real", 2, "real content")),
     ];
@@ -184,7 +184,7 @@ async fn test_cache_hit_skips_generate() {
 
     let provider =
         MockProvider::with_fragment("cached", 1, "fresh content").with_cache_key("mock-cache-key");
-    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(provider)];
+    let providers: Vec<Box<dyn PromptFragmentProvider<PromptFragment>>> = vec![Box::new(provider)];
 
     let result = build_from_mocks(providers).await;
     // Should use cached content, not the provider's fresh content.
@@ -200,7 +200,7 @@ async fn test_cache_miss_calls_generate() {
 
     let provider =
         MockProvider::with_fragment("fresh", 1, "generated content").with_cache_key("fresh-key");
-    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(provider)];
+    let providers: Vec<Box<dyn PromptFragmentProvider<PromptFragment>>> = vec![Box::new(provider)];
 
     let result = build_from_mocks(providers).await;
     // Provider was called and generated fresh content.
@@ -218,7 +218,7 @@ async fn test_cache_invalidation_triggers_regenerate() {
 
     let provider =
         MockProvider::with_fragment("regen", 1, "new content").with_cache_key("regen-key");
-    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(provider)];
+    let providers: Vec<Box<dyn PromptFragmentProvider<PromptFragment>>> = vec![Box::new(provider)];
 
     // Before invalidation → cache hit → old content.
     let result = build_from_mocks(providers).await;
@@ -228,7 +228,8 @@ async fn test_cache_invalidation_triggers_regenerate() {
     invalidate_section("regen-key");
     let provider2 =
         MockProvider::with_fragment("regen", 1, "new content").with_cache_key("regen-key");
-    let providers2: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(provider2)];
+    let providers2: Vec<Box<dyn PromptFragmentProvider<PromptFragment>>> =
+        vec![Box::new(provider2)];
     let result2 = build_from_mocks(providers2).await;
     assert!(result2.contains("new content"));
     assert!(!result2.contains("old content"));
@@ -246,7 +247,7 @@ async fn test_mixed_empty_and_cached_providers() {
 
     put_cached_section("mix-cache", "cached data".to_string(), None);
 
-    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+    let providers: Vec<Box<dyn PromptFragmentProvider<PromptFragment>>> = vec![
         Box::new(MockProvider::empty("empty1", 1)),
         Box::new(
             MockProvider::with_fragment("cached", 2, "fresh data").with_cache_key("mix-cache"),
@@ -267,7 +268,9 @@ async fn test_mixed_empty_and_cached_providers() {
 
 /// Assemble a prompt string from mock providers using the same logic as
 /// `PromptBuilder::build` but without real registries.
-async fn build_from_mocks(mut providers: Vec<Box<dyn PromptFragmentProvider>>) -> String {
+async fn build_from_mocks(
+    mut providers: Vec<Box<dyn PromptFragmentProvider<PromptFragment>>>,
+) -> String {
     providers.sort_by_key(|p| p.priority());
 
     let mut fragments: Vec<String> = Vec::new();

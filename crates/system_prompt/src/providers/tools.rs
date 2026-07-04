@@ -51,7 +51,7 @@ impl ToolsFragmentProvider {
 }
 
 #[async_trait]
-impl PromptFragmentProvider for ToolsFragmentProvider {
+impl PromptFragmentProvider<PromptFragment> for ToolsFragmentProvider {
     fn name(&self) -> &str {
         "tools"
     }
