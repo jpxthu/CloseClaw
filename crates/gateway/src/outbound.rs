@@ -92,7 +92,7 @@ impl Gateway {
     ///    `plugin.send`. Any other type is an [`GatewayError::OutboundError`].
     /// 8. After each successful send, trigger checkpoint persistence.
     /// 9. `thread_id` is resolved via `session_manager.get_thread_id` and
-    ///     passed to `plugin.send`.
+    ///    passed to `plugin.send`.
     pub async fn send_outbound(
         &self,
         session_id: &str,
