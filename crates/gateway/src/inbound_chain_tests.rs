@@ -1,7 +1,7 @@
 //! Step 1.5 — Unit tests for InboundChainInput field propagation.
 //!
 //! Verifies that fields added in Step 1.1 (thread_id, message_type,
-//! media_refs, quoted_message) survive the InboundChainInput →
+//! media_refs) survive the InboundChainInput →
 //! process_inbound_chain → ProcessedMessage pipeline and are accessible
 //! in Gateway metadata.
 
@@ -51,7 +51,6 @@ fn full_chain_input() -> InboundChainInput {
             key: "img_key_1".into(),
             url: "https://example.com/img1.png".into(),
         }],
-        quoted_message: Some("original message".into()),
     }
 }
 
@@ -68,7 +67,6 @@ fn default_chain_input() -> InboundChainInput {
         thread_id: None,
         message_type: MessageType::Text,
         media_refs: Vec::new(),
-        quoted_message: None,
     }
 }
 
@@ -88,7 +86,6 @@ fn image_chain_input() -> InboundChainInput {
             key: "img_k_99".into(),
             url: "https://example.com/photo.jpg".into(),
         }],
-        quoted_message: None,
     }
 }
 
@@ -108,7 +105,6 @@ fn file_chain_input() -> InboundChainInput {
             key: "file_k_10".into(),
             url: "https://example.com/doc.pdf".into(),
         }],
-        quoted_message: Some("see attached".into()),
     }
 }
 
@@ -128,7 +124,6 @@ fn audio_chain_input() -> InboundChainInput {
             key: "audio_k_1".into(),
             url: "https://example.com/voice.m4a".into(),
         }],
-        quoted_message: None,
     }
 }
 
@@ -163,10 +158,6 @@ async fn test_all_fields_propagated_no_registry() {
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].key, "img_key_1");
     assert_eq!(refs[0].url, "https://example.com/img1.png");
-
-    // quoted_message in metadata.
-    let qm = result.metadata.get("quoted_message").map(|s| s.as_str());
-    assert_eq!(qm, Some("original message"));
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -246,18 +237,6 @@ async fn test_defaults_media_refs_empty() {
     assert!(refs.is_empty(), "default media_refs should be empty array");
 }
 
-#[tokio::test]
-async fn test_defaults_quoted_message_none() {
-    let gw = make_gw();
-    let input = default_chain_input();
-
-    let result = gw.process_inbound_chain(&input).await;
-    assert!(
-        !result.metadata.contains_key("quoted_message"),
-        "quoted_message key absent when None"
-    );
-}
-
 // ═════════════════════════════════════════════════════════════════════════════
 // 4. Non-text messages
 // ═════════════════════════════════════════════════════════════════════════════
@@ -291,7 +270,7 @@ async fn test_image_message_type_propagated() {
     assert_eq!(result.text_content(), Some(""));
 }
 
-/// File message: message_type=File, thread_id absent, quoted_message present.
+/// File message: message_type=File, thread_id absent.
 #[tokio::test]
 async fn test_file_message_type_propagated() {
     let gw = make_gw();
@@ -312,9 +291,6 @@ async fn test_file_message_type_propagated() {
         !result.metadata.contains_key("thread_id"),
         "file_chain_input has no thread_id"
     );
-
-    let qm = result.metadata.get("quoted_message").map(|s| s.as_str());
-    assert_eq!(qm, Some("see attached"));
 }
 
 /// Audio message: message_type=Audio, thread_id present.
