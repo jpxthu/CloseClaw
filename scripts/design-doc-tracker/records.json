@@ -81,11 +81,11 @@
   },
   {
     "path": "docs/design/common/core-traits.md",
-    "commit": "2dc030e1562d3df7a4f6d86e2c9343f3a187da7a",
-    "commit_time": "2026-07-04T14:11:46+08:00",
-    "confirmed_time": "2026-07-05T01:36:00.941057+08:00",
+    "commit": "f4ce865c3505c4c2a358eabadd7fc3f36aaebcea",
+    "commit_time": "2026-07-05T03:43:50+08:00",
+    "confirmed_time": "2026-07-05T03:50:33.203332+08:00",
     "comment": "",
-    "blocked_reason": "Doc internal contradiction: header says all traits in common crate, but Tool trait section says Tools module provides this trait definition. ToolContext depends on closeclaw_llm causing circular dependency if moved to common."
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/common/data-flow.md",
