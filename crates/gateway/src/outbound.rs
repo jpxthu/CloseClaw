@@ -91,14 +91,14 @@ impl Gateway {
     /// 1. Resolve `chat_id` from `session_id` via `SessionManager::get_chat_id`.
     /// 2. Resolve the [`IMPlugin`](super::im::IMPlugin) registered for `channel`
     ///    through `self.plugins`.
-    /// 3. Resolve the session's [`VerbosityLevel`] and inject it into the
-    ///    processor chain metadata (key `"verbosity_level"`).
-    ///    [`VerbosityFilter`](closeclaw_processor_chain::verbosity_filter::VerbosityFilter)
-    ///    reads this value to filter `content_blocks` inside the chain.
-    /// 4. Run the processor chain (if `processor_registry` is configured) to
-    ///    produce a [`ProcessedMessage`]; otherwise bypass with a synthetic
-    ///    `ProcessedMessage` wrapping the input.
-    /// 5. Honor `processed.suppress` — return `Ok(())` without sending.
+    /// 3. Resolve the session's [`VerbosityLevel`] and independently filter
+    ///    `content_blocks` via [`filter_by_verbosity`] (Gateway-level step,
+    ///    not part of the processor chain).
+    /// 4. Run the processor chain (only [`DslParser`](closeclaw_processor_chain::dsl_parser::DslParser))
+    ///    to produce a [`ProcessedMessage`]; otherwise bypass with a synthetic
+    ///    `ProcessedMessage` wrapping the input. Honor `processed.suppress`.
+    /// 5. Record the outbound log snapshot (Gateway-level step, not part of
+    ///    the processor chain).
     /// 6. Extract `dsl_result` from `processed.metadata["dsl_result"]` (stored
     ///    as a JSON-encoded string by the DSL processor).
     /// 7. Call `plugin.render(blocks, dsl_result)` to obtain a
@@ -305,10 +305,7 @@ impl Gateway {
         let Some(ref dir) = self.config.raw_log_dir else {
             return;
         };
-        let is_enabled = tracing::level_enabled!(tracing::Level::DEBUG);
-        if !is_enabled {
-            return;
-        }
+
         let content = content_blocks
             .iter()
             .filter_map(|b| match b {
