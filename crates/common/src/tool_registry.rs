@@ -1,10 +1,42 @@
-//! Tool registry trait for decoupling gateway from concrete tool implementation.
+//! Core traits for tool registration and querying.
 //!
-//! Provides an interface for querying available tools without requiring
-//! a direct dependency on the tools crate.
+//! - [`ToolRegistrar`]: modules implement this to register tools at startup.
+//! - [`ToolRegistry`]: the central registry interface (register, freeze, query).
+//! - [`ToolRegistryQuery`]: read-only query interface for the registry.
 
 use async_trait::async_trait;
 use serde_json::Value;
+use thiserror::Error;
+
+/// Error type for tool registry operations.
+///
+/// Distinguished from [`ToolRegistrarError`] which covers registrar-level
+/// errors (conflict reporting, internal failures).
+#[derive(Debug, Error)]
+pub enum RegistryError {
+    /// A tool name was already registered.
+    #[error("tool `{0}` already registered")]
+    AlreadyRegistered(String),
+
+    /// A tool name was already registered, with full conflict details.
+    #[error("tool `{tool}` already registered by `{registrar}`, attempting: `{attempting}`")]
+    Conflict {
+        /// The conflicting tool name.
+        tool: String,
+        /// The registrar that registered it first.
+        registrar: String,
+        /// The registrar that attempted to register the conflicting tool.
+        attempting: String,
+    },
+
+    /// The registry is frozen — no further registrations accepted.
+    #[error("tool registry is frozen — no further registrations accepted")]
+    Frozen,
+
+    /// Internal error during registration.
+    #[error("{0}")]
+    Internal(String),
+}
 
 /// Tool runtime flags — controls tool behavior in the execution context.
 #[derive(Debug, Clone, Copy, Default)]
@@ -45,7 +77,96 @@ pub struct ToolDescriptor {
     pub flags: ToolFlags,
 }
 
-/// Trait for querying and managing tools.
+// ═══════════════════════════════════════════════════════════════════════════
+// ToolRegistrar — module-level tool registration trait
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Error type for tool registration.
+#[derive(Debug, Error)]
+pub enum ToolRegistrarError {
+    /// A tool name was already registered by another registrar.
+    #[error("tool `{tool}` already registered by `{registrar}`, attempting: `{attempting}`")]
+    Conflict {
+        /// The conflicting tool name.
+        tool: String,
+        /// The registrar that registered it first.
+        registrar: String,
+        /// The registrar that attempted to register the conflicting tool.
+        attempting: String,
+    },
+
+    /// Internal error within a registrar.
+    #[error("{0}")]
+    Internal(String),
+}
+
+/// Unified trait for modules that provide tools.
+///
+/// Each implementation is collected at startup, sorted by
+/// [`priority`](Self::priority), and called in order to populate the global
+/// [`ToolRegistry`].
+#[async_trait]
+pub trait ToolRegistrar: Send + Sync {
+    /// Unique name for this registrar, used in logs and conflict reports.
+    fn name(&self) -> &str;
+
+    /// Priority — lower values are registered first.
+    fn priority(&self) -> u32;
+
+    /// Register all tools from this module into `registry`.
+    ///
+    /// # Errors
+    /// Returns [`ToolRegistrarError::Conflict`] if a tool with the same name
+    /// already exists in `registry`. Returns [`ToolRegistrarError::Internal`]
+    /// for any other registration failure.
+    async fn register(&self, registry: &dyn ToolRegistry) -> Result<(), ToolRegistrarError>;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ToolRegistry — central registry interface
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Central tool registry interface.
+///
+/// Provides registration, freezing, indexing, and querying operations.
+/// Concrete implementation lives in the tools crate.
+#[async_trait]
+pub trait ToolRegistry: ToolRegistryQuery + Send + Sync {
+    /// Register a type-erased tool.
+    ///
+    /// The tool is provided as `Box<dyn Any + Send + Sync>` so that common
+    /// does not need to depend on the tools crate's `Tool` trait.
+    /// Implementations downcast internally.
+    ///
+    /// `registrar_name` identifies which registrar is registering the tool,
+    /// used for conflict error reporting.
+    ///
+    /// # Errors
+    /// Returns `Err` if the registry is frozen or the tool name conflicts.
+    async fn register_any(
+        &self,
+        tool: Box<dyn std::any::Any + Send + Sync>,
+        registrar_name: &str,
+    ) -> Result<(), RegistryError>;
+
+    /// Mark registration as complete; reject further registrations.
+    fn freeze(&self);
+
+    /// Returns whether the registry is frozen.
+    fn is_frozen(&self) -> bool;
+
+    /// Build a first-level tools index string, grouped by tool group.
+    ///
+    /// Eager (non-deferred) tools show name and behavior description.
+    /// Deferred tools show name and danger marks only.
+    async fn build_index(&self) -> String;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ToolRegistryQuery — read-only query interface
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Read-only query interface for the tool registry.
 ///
 /// Implemented by `ToolRegistry` in the tools crate; used by the gateway's
 /// session manager and system prompt builder to list available tools

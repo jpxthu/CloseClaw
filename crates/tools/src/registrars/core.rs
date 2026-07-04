@@ -14,9 +14,9 @@ use crate::builtin::{
     BashTool, CodingAgentTool, EditTool, GitCommitTool, GitLogTool, GitPullTool, GitPushTool,
     GitStatusTool, GrepTool, LsTool, PermissionQueryTool, ReadTool, ToolSearchTool, WriteTool,
 };
-use crate::registrar::{ToolRegistrar, ToolRegistrarError};
 use crate::try_register;
-use crate::{Tool, ToolRegistry};
+use crate::Tool;
+use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 
 /// Core tools registrar — registers all tools from the core domain.
 ///
@@ -55,7 +55,10 @@ impl ToolRegistrar for CoreToolsRegistrar {
         1
     }
 
-    async fn register(&self, registry: &ToolRegistry) -> Result<(), ToolRegistrarError> {
+    async fn register(
+        &self,
+        registry: &dyn closeclaw_common::tool_registry::ToolRegistry,
+    ) -> Result<(), ToolRegistrarError> {
         let mut registered = 0usize;
         let r = self.name();
         try_register!(registry, registered, ReadTool::new(), r);
