@@ -52,10 +52,8 @@ impl IMPlugin for OutboundTrackerPlugin {
     async fn parse_inbound(
         &self,
         _payload: &[u8],
-    ) -> Result<
-        Option<closeclaw_common::im_plugin::NormalizedMessage>,
-        closeclaw_common::im_plugin::AdapterError,
-    > {
+    ) -> Result<Option<closeclaw_common::InboundEvent>, closeclaw_common::im_plugin::AdapterError>
+    {
         Ok(None)
     }
 

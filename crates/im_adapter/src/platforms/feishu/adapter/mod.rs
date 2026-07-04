@@ -3,7 +3,7 @@
 use crate::error::AdapterError;
 use crate::IMAdapter;
 use async_trait::async_trait;
-use closeclaw_common::{MediaRef, MessageType, NormalizedMessage};
+use closeclaw_common::{CardActionEvent, InboundEvent, MediaRef, MessageType, NormalizedMessage};
 use closeclaw_gateway::Message;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -417,7 +417,7 @@ impl FeishuAdapter {
         _event_id: String,
         _app_id: String,
         card_event: &FeishuCardActionEvent,
-    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+    ) -> Result<Option<InboundEvent>, AdapterError> {
         let action_value = card_event
             .action
             .value
@@ -426,7 +426,7 @@ impl FeishuAdapter {
             .and_then(|a| a.as_str());
 
         match action_value {
-            Some("forceful_shutdown") => {
+            Some(action) => {
                 let mut metadata = HashMap::from([
                     (
                         "account_id".to_string(),
@@ -443,17 +443,14 @@ impl FeishuAdapter {
                 {
                     metadata.insert("chat_id".to_string(), chat_id.to_string());
                 }
-                Ok(Some(NormalizedMessage {
+                Ok(Some(InboundEvent::CardAction(CardActionEvent {
                     platform: "feishu".to_string(),
                     sender_id: card_event.operator.open_id.clone(),
-                    peer_id: metadata.get("chat_id").cloned().unwrap_or_default(),
-                    content: "/__card_action:forceful_shutdown".to_string(),
+                    action_value: action.to_string(),
+                    metadata,
                     timestamp: chrono::Utc::now().timestamp_millis(),
-                    message_type: MessageType::Text,
-                    media_refs: vec![],
-                    thread_id: None,
                     account_id: card_event.operator.open_id.clone(),
-                }))
+                })))
             }
             _ => Ok(None),
         }
@@ -574,10 +571,7 @@ impl IMAdapter for FeishuAdapter {
         "feishu"
     }
 
-    async fn handle_webhook(
-        &self,
-        payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+    async fn handle_webhook(&self, payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError> {
         let raw: serde_json::Value = serde_json::from_slice(payload)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
@@ -610,7 +604,10 @@ impl IMAdapter for FeishuAdapter {
             _ => {
                 let event: FeishuEvent = serde_json::from_value(raw)
                     .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
-                self.parse_message_event(event).await
+                Ok(self
+                    .parse_message_event(event)
+                    .await?
+                    .map(InboundEvent::Message))
             }
         }
     }

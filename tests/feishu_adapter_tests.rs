@@ -62,11 +62,15 @@ async fn test_handle_webhook_valid() {
         "header": {"event_id":"evt_1","event_type":"im.message.receive_v1","create_time":"0","token":"t","app_id":"a"},
         "event": {"sender":{"sender_id":{"open_id":"ou_abc"},"sender_type":"user"},"content":"{\"text\":\"hello\"}","chat_id":"oc_x","message_type":"text"}
     });
-    let msg = adapter
+    let event = adapter
         .handle_webhook(&serde_json::to_vec(&payload).unwrap())
         .await
         .unwrap()
-        .expect("expected Some(message)");
+        .expect("expected Some(event)");
+    let msg = match event {
+        closeclaw_common::InboundEvent::Message(m) => m,
+        other => panic!("expected InboundEvent::Message, got {:?}", other),
+    };
     assert_eq!(msg.sender_id, "ou_abc");
     assert_eq!(msg.content, "hello");
     assert_eq!(msg.account_id.as_str(), "ou_abc");

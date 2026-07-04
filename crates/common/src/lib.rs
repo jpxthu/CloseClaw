@@ -21,6 +21,8 @@ pub mod session_types;
 pub mod shutdown;
 pub mod skill_registry;
 pub mod slash_router;
+#[cfg(test)]
+pub mod slash_router_tests;
 pub mod storage_provider;
 pub mod streaming;
 pub mod system_prompt;
@@ -43,8 +45,8 @@ pub use gateway_types::{
 };
 pub use identity::IdentityResolver;
 pub use im_plugin::{
-    AdapterError, IMAdapter, IMPlugin, MediaRef, MessageType, NormalizedMessage, RenderedOutput,
-    StreamingOutput,
+    AdapterError, CardActionEvent, IMAdapter, IMPlugin, InboundEvent, MediaRef, MessageType,
+    NormalizedMessage, RenderedOutput, StreamingOutput,
 };
 pub use middleware::{MiddlewareError, OutboundMiddleware};
 pub use processor::{

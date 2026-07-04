@@ -99,7 +99,7 @@ impl IMPlugin for MockAdapter {
         &self,
         _payload: &[u8],
     ) -> Result<
-        Option<closeclaw_common::im_plugin::NormalizedMessage>,
+        Option<closeclaw_common::im_plugin::InboundEvent>,
         closeclaw_common::im_plugin::AdapterError,
     > {
         Ok(None)

@@ -5,7 +5,7 @@
 use crate::{DmScope, GatewayConfig, GatewayError, Message, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
-use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage};
+use closeclaw_common::im_plugin::{AdapterError, CardActionEvent, IMPlugin, InboundEvent};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_common::processor::ProcessedMessage;
 use closeclaw_llm::types::ContentBlock;
@@ -54,10 +54,7 @@ impl IMPlugin for MockPlugin {
         &self.platform
     }
 
-    async fn parse_inbound(
-        &self,
-        _payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+    async fn parse_inbound(&self, _payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError> {
         Ok(None)
     }
 
@@ -765,16 +762,17 @@ async fn test_card_action_forceful_shutdown_intercept() {
     let msg = make_message("agent-1", "test");
     let _sid = sm.find_or_create("mock", &msg, None).await.unwrap();
 
-    // Simulate a card action message
-    let mut processed = make_processed_msg(&msg, "mock");
-    processed.content = "/__card_action:forceful_shutdown".to_string();
+    // Simulate a card action event (bypasses inbound Processor Chain)
+    gw.handle_card_action(CardActionEvent {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user".to_string(),
+        action_value: "forceful_shutdown".to_string(),
+        metadata: HashMap::new(),
+        timestamp: 0,
+        account_id: "ou_user".to_string(),
+    })
+    .await;
 
-    let result = gw
-        .handle_inbound_message(processed, Some("ou_user"), "feishu")
-        .await;
-
-    // Should return None (card action is intercepted, not forwarded)
-    assert!(result.is_none(), "card action should return None");
     // Should have escalated to forceful
     assert!(
         sh.is_forceful(),
@@ -784,40 +782,36 @@ async fn test_card_action_forceful_shutdown_intercept() {
 
 #[tokio::test]
 async fn test_card_action_forceful_shutdown_no_shutdown_handle() {
-    let (gw, sm) = setup(make_config(), "mock").await;
-
-    // Create a session so session resolution succeeds
-    let msg = make_message("agent-1", "test");
-    let _sid = sm.find_or_create("mock", &msg, None).await.unwrap();
+    let (gw, _sm) = setup(make_config(), "mock").await;
 
     // No shutdown handle wired — card action should be ignored gracefully
-    let mut processed = make_processed_msg(&msg, "mock");
-    processed.content = "/__card_action:forceful_shutdown".to_string();
-
-    let result = gw
-        .handle_inbound_message(processed, Some("ou_user"), "feishu")
-        .await;
-    // Returns None — no shutdown handle, no crash
-    assert!(result.is_none());
+    gw.handle_card_action(CardActionEvent {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user".to_string(),
+        action_value: "forceful_shutdown".to_string(),
+        metadata: HashMap::new(),
+        timestamp: 0,
+        account_id: "ou_user".to_string(),
+    })
+    .await;
+    // No crash — gracefully ignored
 }
 
 #[tokio::test]
 async fn test_card_action_forceful_shutdown_not_shutting_down() {
-    let (gw, sm, sh) = setup_with_shutdown("mock").await;
-
-    // Create a session so session resolution succeeds
-    let msg = make_message("agent-1", "test");
-    let _sid = sm.find_or_create("mock", &msg, None).await.unwrap();
+    let (gw, _sm, sh) = setup_with_shutdown("mock").await;
 
     // Shutdown handle exists but shutdown hasn't started
-    let mut processed = make_processed_msg(&msg, "mock");
-    processed.content = "/__card_action:forceful_shutdown".to_string();
-
-    let result = gw
-        .handle_inbound_message(processed, Some("ou_user"), "feishu")
-        .await;
-    // Returns None but should NOT escalate (not shutting down)
-    assert!(result.is_none());
+    gw.handle_card_action(CardActionEvent {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user".to_string(),
+        action_value: "forceful_shutdown".to_string(),
+        metadata: HashMap::new(),
+        timestamp: 0,
+        account_id: "ou_user".to_string(),
+    })
+    .await;
+    // Should NOT escalate (not shutting down)
     assert!(!sh.is_shutting_down(), "should not start shutdown");
 }
 

@@ -15,7 +15,7 @@ use crate::streaming::{DefaultStreamingRenderer, StreamingOutput, StreamingRende
 use async_trait::async_trait;
 use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::processor::{ContentBlock, DslParseResult, StreamEvent};
-use closeclaw_common::NormalizedMessage;
+use closeclaw_common::InboundEvent;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
@@ -40,7 +40,7 @@ pub struct RenderedOutput {
 ///
 /// Each platform (Feishu, Discord, etc.) implements this trait to provide:
 ///
-/// - **Inbound**: Parse a raw webhook payload into a [`NormalizedMessage`].
+/// - **Inbound**: Parse a raw webhook payload into an [`InboundEvent`].
 /// - **Outbound rendering**: Convert LLM [`ContentBlock`]s into platform-native
 ///   [`RenderedOutput`].
 /// - **Outbound sending**: Deliver the rendered output to the platform.
@@ -77,14 +77,11 @@ pub trait IMPlugin: Send + Sync {
         None
     }
 
-    /// Parse an inbound webhook payload into a [`NormalizedMessage`].
+    /// Parse an inbound webhook payload into an [`InboundEvent`].
     ///
     /// Returns `Ok(None)` when the payload should be silently ignored (e.g.
     /// empty content, unsupported message type). Returns `Err` on parse failure.
-    async fn parse_inbound(
-        &self,
-        payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, AdapterError>;
+    async fn parse_inbound(&self, payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError>;
 
     /// Validate the webhook signature.
     ///

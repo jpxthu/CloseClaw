@@ -6,7 +6,6 @@
 
 use std::sync::Arc;
 
-use super::slash_execute::execute_slash_result;
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::slash_router::{
     ReplyAction, SideEffectContext, SlashContext, SlashEffectExecutor, SlashHandler, SlashRouter,
@@ -287,7 +286,7 @@ impl Gateway {
             executor,
         };
 
-        execute_slash_result(&result, &side_effect_ctx).await;
+        result.execute(&side_effect_ctx).await;
         drop(side_effect_ctx);
 
         while let Some(action) = reply_rx.recv().await {

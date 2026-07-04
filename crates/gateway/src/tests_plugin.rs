@@ -3,7 +3,7 @@
 use crate::{Gateway, GatewayConfig, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
-use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage};
+use closeclaw_common::im_plugin::{AdapterError, IMPlugin, InboundEvent};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::bootstrap::BootstrapMode;
@@ -44,10 +44,7 @@ impl IMPlugin for MockPlugin {
     fn platform(&self) -> &str {
         &self.platform_name
     }
-    async fn parse_inbound(
-        &self,
-        _payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+    async fn parse_inbound(&self, _payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError> {
         Ok(None)
     }
     fn render(
@@ -194,10 +191,7 @@ impl IMPlugin for CapturingPlugin {
         &self.platform_name
     }
 
-    async fn parse_inbound(
-        &self,
-        _payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+    async fn parse_inbound(&self, _payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError> {
         Ok(None)
     }
 
