@@ -31,6 +31,7 @@ pub mod task_manager;
 pub mod test_helpers;
 pub mod tool_registry;
 pub mod tool_session;
+pub mod tool_trait;
 pub mod verbosity;
 
 pub use agent_config_lookup::{AgentConfigInfo, AgentConfigLookup};
@@ -69,8 +70,13 @@ pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, Stor
 pub use system_prompt::{PromptOverrides, SystemPromptBuilder, WorkspaceBuildConfig};
 pub use task_manager::{BackgroundTask, BackgroundTaskError, TaskManager, TaskState};
 pub use tool_registry::{
-    RegistryError, ToolDescriptor, ToolFlags, ToolRegistrar, ToolRegistrarError, ToolRegistry,
+    RegistryError, ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry,
     ToolRegistryQuery,
 };
 pub use tool_session::{KillHandle, ToolSession};
+pub use tool_trait::{
+    build_git_status_for, build_workdir_context, ContextModifier, PromptGenerationContext, Tool,
+    ToolCallError, ToolContext, ToolError, ToolFlags, ToolMessage, ToolResult, ToolSummary,
+    WorkdirContext,
+};
 pub use verbosity::VerbosityLevel;
