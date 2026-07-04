@@ -39,7 +39,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
-use closeclaw_common::im_plugin::RenderedOutput;
+use closeclaw_common::im_plugin::{MessageType, RenderedOutput};
 use closeclaw_common::processor::ProcessedMessage;
 pub use closeclaw_common::processor::ProcessorChain;
 use closeclaw_common::shutdown::ShutdownMode;
@@ -298,6 +298,39 @@ impl Gateway {
                 return None;
             }
         };
+
+        // ── Non-text message interception ─────────────────────────────
+        // Per design doc: non-text messages (image/file/audio) get a
+        // simplified outbound reply (no Processor Chain, no Verbosity/DslParser).
+        let message_type: MessageType = processed
+            .metadata
+            .get("message_type")
+            .and_then(|s| serde_json::from_str::<MessageType>(s).ok())
+            .unwrap_or_default();
+        if !matches!(message_type, MessageType::Text) {
+            tracing::info!(
+                session_id = %session_id,
+                message_type = ?message_type,
+                "rejecting non-text message"
+            );
+            let peer_id = processed
+                .metadata
+                .get("peer_id")
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            if let Some(plugin) = self.get_plugin(channel).await {
+                let err_output = RenderedOutput {
+                    msg_type: "text".into(),
+                    payload: serde_json::json!({
+                        "content": {
+                            "text": "\u{26A0}\u{FE0F} \u{6682}\u{4E0D}\u{652F}\u{6301}\u{975E}\u{6587}\u{672C}\u{6D88}\u{606F}\u{FF0C}\u{8BF7}\u{53D1}\u{9001}\u{6587}\u{5B57}\u{5185}\u{5BB9}"
+                        }
+                    }),
+                };
+                let _ = plugin.send(&err_output, peer_id, None).await;
+            }
+            return None;
+        }
 
         let content = processed.text_content().unwrap_or("").to_string();
 
@@ -916,6 +949,8 @@ fn build_extra_metadata(input: &InboundChainInput) -> std::collections::HashMap<
 
 #[cfg(test)]
 pub mod inbound_chain_tests;
+#[cfg(test)]
+pub mod non_text_interception_tests;
 #[cfg(feature = "full-tests")]
 #[path = "priority_prompt_tests.rs"]
 pub mod priority_prompt_tests;
