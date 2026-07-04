@@ -901,7 +901,6 @@ impl Gateway {
             timestamp: input.timestamp_ms,
             message_type: input.message_type.clone(),
             media_refs: input.media_refs.clone(),
-            quoted_message: input.quoted_message.clone(),
             thread_id: input.thread_id.clone(),
             account_id: input.account_id.clone().unwrap_or_default(),
         };
@@ -926,8 +925,8 @@ impl Gateway {
 
 /// Build extra metadata map from inbound chain input fields.
 ///
-/// Propagates `thread_id`, `message_type`, `media_refs`, and
-/// `quoted_message` so they are available downstream in the Gateway.
+/// Propagates `thread_id`, `message_type`, and `media_refs`
+/// so they are available downstream in the Gateway.
 fn build_extra_metadata(input: &InboundChainInput) -> std::collections::HashMap<String, String> {
     let mut meta = std::collections::HashMap::new();
     if let Some(ref thread_id) = input.thread_id {
@@ -941,9 +940,6 @@ fn build_extra_metadata(input: &InboundChainInput) -> std::collections::HashMap<
         "media_refs".to_string(),
         serde_json::to_string(&input.media_refs).unwrap_or_else(|_| "[]".to_string()),
     );
-    if let Some(ref quoted) = input.quoted_message {
-        meta.insert("quoted_message".to_string(), quoted.clone());
-    }
     meta
 }
 
