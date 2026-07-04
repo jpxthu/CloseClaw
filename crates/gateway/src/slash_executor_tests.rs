@@ -440,30 +440,99 @@ async fn test_set_verbosity_calls_executor_and_sends_reply() {
 }
 
 // ---------------------------------------------------------------------------
-// Tests — ReplyAction variant construction
+// Tests — SideEffectContext: normal path (reply_tx alive)
 // ---------------------------------------------------------------------------
 
-#[test]
-fn test_reply_action_variant_construction() {
-    // Verify each ReplyAction variant can be constructed.
-    let reply = ReplyAction::Reply(vec![ContentBlock::Text("hi".into())]);
-    assert!(matches!(reply, ReplyAction::Reply(blocks) if blocks.len() == 1));
+#[tokio::test]
+async fn test_side_effect_context_normal_reply_delivered() {
+    // When reply_tx is alive, execute() should send the action through
+    // the channel and the receiver should get it.
+    let (ctx, mut rx, _exec) = make_ctx();
+    SlashResult::Reply("ping".into()).execute(&ctx).await;
+    drop(ctx);
 
-    let compact = ReplyAction::TriggerCompact {
-        instruction: Some("keep summary".into()),
+    let actions = drain_actions(&mut rx).await;
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => {
+            assert_eq!(blocks.len(), 1);
+            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "ping"));
+        }
+        other => panic!("expected ReplyAction::Reply, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_side_effect_context_new_session_delivered() {
+    // Verify full end-to-end: executor called + reply sent through alive channel.
+    let (ctx, mut rx, exec) = make_ctx();
+    SlashResult::NewSession.execute(&ctx).await;
+    drop(ctx);
+
+    assert!(*exec.new_session_called.lock().unwrap());
+
+    let actions = drain_actions(&mut rx).await;
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => {
+            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "已创建新 session"));
+        }
+        other => panic!("expected ReplyAction::Reply, got {other:?}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests — TriggerCompact / Nothing dispatch path
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_trigger_compact_dispatch_via_receiver() {
+    // TriggerCompact is a ReplyAction variant that can be sent through
+    // reply_tx and received by the dispatcher. Verify it round-trips.
+    let (tx, mut rx) = mpsc::channel(16);
+    let action = ReplyAction::TriggerCompact {
+        instruction: Some("keep recent".into()),
     };
-    assert!(
-        matches!(compact, ReplyAction::TriggerCompact { instruction: Some(ref s) } if s == "keep summary")
-    );
+    tx.send(action).await.unwrap();
+    drop(tx);
 
-    let compact_no_inst = ReplyAction::TriggerCompact { instruction: None };
-    assert!(matches!(
-        compact_no_inst,
-        ReplyAction::TriggerCompact { instruction: None }
-    ));
+    let received = rx.recv().await.expect("should receive action");
+    match received {
+        ReplyAction::TriggerCompact { instruction } => {
+            assert_eq!(instruction, Some("keep recent".into()));
+        }
+        other => panic!("expected TriggerCompact, got {other:?}"),
+    }
+}
 
-    let nothing = ReplyAction::Nothing;
-    assert!(matches!(nothing, ReplyAction::Nothing));
+#[tokio::test]
+async fn test_nothing_dispatch_via_receiver() {
+    // Nothing is a ReplyAction variant indicating no action needed.
+    // Verify it round-trips through the channel.
+    let (tx, mut rx) = mpsc::channel(16);
+    tx.send(ReplyAction::Nothing).await.unwrap();
+    drop(tx);
+
+    let received = rx.recv().await.expect("should receive action");
+    assert!(matches!(received, ReplyAction::Nothing));
+}
+
+#[tokio::test]
+async fn test_trigger_compact_no_instruction_dispatch_via_receiver() {
+    // TriggerCompact with None instruction should also round-trip.
+    let (tx, mut rx) = mpsc::channel(16);
+    tx.send(ReplyAction::TriggerCompact { instruction: None })
+        .await
+        .unwrap();
+    drop(tx);
+
+    let received = rx.recv().await.expect("should receive action");
+    match received {
+        ReplyAction::TriggerCompact { instruction } => {
+            assert_eq!(instruction, None);
+        }
+        other => panic!("expected TriggerCompact, got {other:?}"),
+    }
 }
 
 // ---------------------------------------------------------------------------
