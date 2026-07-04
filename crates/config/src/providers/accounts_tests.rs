@@ -286,7 +286,12 @@ fn test_accounts_validator_fail_empty_sender_id() {
 fn test_accounts_validator_fail_duplicate_account_id() {
     let validator = for_section(ConfigSection::Accounts);
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"accounts":[{"platform":"feishu","senderId":"ou_a","accountId":"a1"},{"platform":"discord","senderId":"d_1","accountId":"a1"}]}"#,
+        r#"
+            {"accounts":[
+                {"platform":"feishu","senderId":"ou_a","accountId":"a1"},
+                {"platform":"discord","senderId":"d_1","accountId":"a1"}
+            ]}
+        "#,
     )
     .unwrap();
     let err = validator(&v).unwrap_err();

@@ -429,33 +429,49 @@ fn validate_accounts(value: &serde_json::Value) -> Result<(), String> {
             &format!("accounts.accounts[{}].senderId", i),
         )?;
 
-        // Check accountId uniqueness
-        if let Some(id) = entry.get("accountId").and_then(|v| v.as_str()) {
-            if !seen_ids.insert(id.to_string()) {
-                return Err(format!(
-                    "duplicate accountId '{}' at accounts.accounts[{}]",
-                    id, i
-                ));
-            }
-        }
-
-        // Validate platform against allowed channel types
-        if let Some(platform) = entry.get("platform").and_then(|v| v.as_str()) {
-            if platform.is_empty() {
-                return Err(format!("accounts.accounts[{}].platform cannot be empty", i));
-            }
-            if !ALLOWED_CHANNEL_TYPES.contains(&platform) {
-                return Err(format!(
-                    "accounts.accounts[{}].platform '{}' is not a known \
-                     channel type. Allowed: {}",
-                    i,
-                    platform,
-                    ALLOWED_CHANNEL_TYPES.join(", ")
-                ));
-            }
-        }
+        check_account_id_unique(entry, i, &mut seen_ids)?;
+        validate_account_platform(entry, i)?;
     }
 
+    Ok(())
+}
+
+/// Check that `accountId` is unique across all accounts.
+fn check_account_id_unique(
+    entry: &serde_json::Value,
+    index: usize,
+    seen_ids: &mut std::collections::HashSet<String>,
+) -> Result<(), String> {
+    if let Some(id) = entry.get("accountId").and_then(|v| v.as_str()) {
+        if !seen_ids.insert(id.to_string()) {
+            return Err(format!(
+                "duplicate accountId '{}' at accounts.accounts[{}]",
+                id, index
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Validate that `platform` is a known channel type.
+fn validate_account_platform(entry: &serde_json::Value, index: usize) -> Result<(), String> {
+    if let Some(platform) = entry.get("platform").and_then(|v| v.as_str()) {
+        if platform.is_empty() {
+            return Err(format!(
+                "accounts.accounts[{}].platform cannot be empty",
+                index
+            ));
+        }
+        if !ALLOWED_CHANNEL_TYPES.contains(&platform) {
+            return Err(format!(
+                "accounts.accounts[{}].platform '{}' is not a known \
+                 channel type. Allowed: {}",
+                index,
+                platform,
+                ALLOWED_CHANNEL_TYPES.join(", ")
+            ));
+        }
+    }
     Ok(())
 }
 
