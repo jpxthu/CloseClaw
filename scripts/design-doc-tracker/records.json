@@ -59,9 +59,9 @@
     "path": "docs/design/cli/chat.md",
     "commit": "7ea4c0678f3a89707761dc79850c542959045f90",
     "commit_time": "2026-07-03T03:53:40+08:00",
-    "confirmed_time": "2026-07-03T03:58:50.264448+08:00",
+    "confirmed_time": "2026-07-04T12:38:40.019243+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "doc internal inconsistency"
   },
   {
     "path": "docs/design/cli/renderer.md",
