@@ -8,36 +8,6 @@ use async_trait::async_trait;
 use serde_json::Value;
 use thiserror::Error;
 
-/// Error type for tool registry operations.
-///
-/// Distinguished from [`ToolRegistrarError`] which covers registrar-level
-/// errors (conflict reporting, internal failures).
-#[derive(Debug, Error)]
-pub enum RegistryError {
-    /// A tool name was already registered.
-    #[error("tool `{0}` already registered")]
-    AlreadyRegistered(String),
-
-    /// A tool name was already registered, with full conflict details.
-    #[error("tool `{tool}` already registered by `{registrar}`, attempting: `{attempting}`")]
-    Conflict {
-        /// The conflicting tool name.
-        tool: String,
-        /// The registrar that registered it first.
-        registrar: String,
-        /// The registrar that attempted to register the conflicting tool.
-        attempting: String,
-    },
-
-    /// The registry is frozen — no further registrations accepted.
-    #[error("tool registry is frozen — no further registrations accepted")]
-    Frozen,
-
-    /// Internal error during registration.
-    #[error("{0}")]
-    Internal(String),
-}
-
 /// Tool runtime flags — controls tool behavior in the execution context.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ToolFlags {
@@ -147,7 +117,7 @@ pub trait ToolRegistry: ToolRegistryQuery + Send + Sync {
         &self,
         tool: Box<dyn std::any::Any + Send + Sync>,
         registrar_name: &str,
-    ) -> Result<(), RegistryError>;
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     /// Mark registration as complete; reject further registrations.
     fn freeze(&self);

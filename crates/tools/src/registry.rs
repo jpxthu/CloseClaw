@@ -7,6 +7,37 @@ use std::sync::{Arc, OnceLock};
 
 use crate::{PromptGenerationContext, Tool, ToolContext, ToolError, ToolSummary};
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
+use thiserror::Error;
+
+/// Error type for tool registry operations.
+///
+/// Distinguished from [`ToolRegistrarError`] which covers registrar-level
+/// errors (conflict reporting, internal failures).
+#[derive(Debug, Error)]
+pub enum RegistryError {
+    /// A tool name was already registered.
+    #[error("tool `{0}` already registered")]
+    AlreadyRegistered(String),
+
+    /// A tool name was already registered, with full conflict details.
+    #[error("tool `{tool}` already registered by `{registrar}`, attempting: `{attempting}`")]
+    Conflict {
+        /// The conflicting tool name.
+        tool: String,
+        /// The registrar that registered it first.
+        registrar: String,
+        /// The registrar that attempted to register the conflicting tool.
+        attempting: String,
+    },
+
+    /// The registry is frozen — no further registrations accepted.
+    #[error("tool registry is frozen — no further registrations accepted")]
+    Frozen,
+
+    /// Internal error during registration.
+    #[error("{0}")]
+    Internal(String),
+}
 
 // Re-export for tests that `use super::*`
 pub use ToolRegistryImpl as ToolRegistry;
@@ -476,15 +507,15 @@ impl closeclaw_common::tool_registry::ToolRegistry for ToolRegistryImpl {
         &self,
         tool: Box<dyn std::any::Any + Send + Sync>,
         registrar_name: &str,
-    ) -> Result<(), closeclaw_common::tool_registry::RegistryError> {
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let ToolBox(arc_tool) = *tool.downcast::<ToolBox>().map_err(|_| {
-            closeclaw_common::tool_registry::RegistryError::Internal(
+            Box::new(RegistryError::Internal(
                 "register_any expected ToolBox".to_string(),
-            )
+            )) as Box<dyn std::error::Error + Send + Sync>
         })?;
         let name = (*arc_tool).name().to_string();
         if self.frozen.load(Ordering::Acquire) {
-            return Err(closeclaw_common::tool_registry::RegistryError::Frozen);
+            return Err(Box::new(RegistryError::Frozen));
         }
         let mut guard = self.tools.write().await;
         if guard.contains_key(&name) {
@@ -492,11 +523,11 @@ impl closeclaw_common::tool_registry::ToolRegistry for ToolRegistryImpl {
             let original = owners.get(&name).cloned().unwrap_or_default();
             drop(guard);
             drop(owners);
-            return Err(closeclaw_common::tool_registry::RegistryError::Conflict {
+            return Err(Box::new(RegistryError::Conflict {
                 tool: name,
                 registrar: original,
                 attempting: registrar_name.to_string(),
-            });
+            }));
         }
         guard.insert(name.clone(), arc_tool);
         drop(guard);

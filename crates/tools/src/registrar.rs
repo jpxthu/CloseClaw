@@ -5,9 +5,9 @@
 
 use std::sync::Arc;
 
-use closeclaw_common::tool_registry::{RegistryError, ToolRegistrarError};
+use closeclaw_common::tool_registry::ToolRegistrarError;
 
-use crate::registry::ToolBox;
+use crate::registry::{RegistryError, ToolBox};
 use crate::Tool;
 
 // Re-export so that `crate::registrar::ToolRegistrar` still resolves.
@@ -23,22 +23,29 @@ pub(crate) async fn register_tool(
     registry
         .register_any(boxed, registrar_name)
         .await
-        .map_err(|e| match e {
-            RegistryError::Conflict {
-                tool,
-                registrar,
-                attempting,
-            } => ToolRegistrarError::Conflict {
-                tool,
-                registrar,
-                attempting,
-            },
-            RegistryError::AlreadyRegistered(name) => ToolRegistrarError::Conflict {
-                tool: name,
-                registrar: String::new(),
-                attempting: registrar_name.to_string(),
-            },
-            other => ToolRegistrarError::Internal(other.to_string()),
+        .map_err(|e| {
+            // Try to downcast to our concrete RegistryError first.
+            if let Some(re) = e.downcast_ref::<RegistryError>() {
+                match re {
+                    RegistryError::Conflict {
+                        tool,
+                        registrar,
+                        attempting,
+                    } => ToolRegistrarError::Conflict {
+                        tool: tool.clone(),
+                        registrar: registrar.clone(),
+                        attempting: attempting.clone(),
+                    },
+                    RegistryError::AlreadyRegistered(name) => ToolRegistrarError::Conflict {
+                        tool: name.clone(),
+                        registrar: String::new(),
+                        attempting: registrar_name.to_string(),
+                    },
+                    other => ToolRegistrarError::Internal(other.to_string()),
+                }
+            } else {
+                ToolRegistrarError::Internal(e.to_string())
+            }
         })
 }
 

@@ -59,8 +59,7 @@ pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, Stor
 pub use system_prompt::{PromptOverrides, SystemPromptBuilder};
 pub use task_manager::{BackgroundTask, BackgroundTaskError, TaskManager, TaskState};
 pub use tool_registry::{
-    RegistryError, ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry,
-    ToolRegistryQuery,
+    ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry, ToolRegistryQuery,
 };
 pub use tool_session::{KillHandle, ToolSession};
 pub use tool_trait::{
