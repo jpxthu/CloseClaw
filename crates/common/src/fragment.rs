@@ -68,3 +68,7 @@ pub trait PromptFragmentProvider: Send + Sync {
     /// invalidation).
     fn cache_key(&self, ctx: &FragmentContext) -> Option<String>;
 }
+
+#[cfg(test)]
+#[path = "fragment_tests.rs"]
+mod tests;
