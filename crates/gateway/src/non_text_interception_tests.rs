@@ -59,12 +59,20 @@ impl IMPlugin for CapturingPlugin {
 
     fn render(
         &self,
-        _content_blocks: &[ContentBlock],
+        content_blocks: &[ContentBlock],
         _dsl_result: Option<&DslParseResult>,
     ) -> RenderedOutput {
+        let text = content_blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
         RenderedOutput {
             msg_type: "text".into(),
-            payload: json!({"content": {"text": ""}}),
+            payload: json!({"content": {"text": text}}),
         }
     }
 

@@ -321,16 +321,19 @@ impl Gateway {
                 .get("peer_id")
                 .map(|s| s.as_str())
                 .unwrap_or("");
-            if let Some(plugin) = self.get_plugin(channel).await {
-                let err_output = RenderedOutput {
-                    msg_type: "text".into(),
-                    payload: serde_json::json!({
-                        "content": {
-                            "text": "\u{26A0}\u{FE0F} \u{6682}\u{4E0D}\u{652F}\u{6301}\u{975E}\u{6587}\u{672C}\u{6D88}\u{606F}\u{FF0C}\u{8BF7}\u{53D1}\u{9001}\u{6587}\u{5B57}\u{5185}\u{5BB9}"
-                        }
-                    }),
-                };
-                let _ = plugin.send(&err_output, peer_id, None).await;
+            if let Err(e) = self
+                .send_outbound_to_chat(
+                    peer_id,
+                    channel,
+                    "\u{26A0}\u{FE0F} \u{6682}\u{4E0D}\u{652F}\u{6301}\u{975E}\u{6587}\u{672C}\u{6D88}\u{606F}\u{FF0C}\u{8BF7}\u{53D1}\u{9001}\u{6587}\u{5B57}\u{5185}\u{5BB9}",
+                )
+                .await
+            {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %e,
+                    "failed to send non-text rejection reply"
+                );
             }
             return None;
         }
