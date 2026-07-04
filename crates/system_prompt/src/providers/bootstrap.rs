@@ -11,8 +11,8 @@ use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, S
 /// Provider that contributes bootstrap file content (agent profile, workspace
 /// rules, etc.) to the system prompt.
 ///
-/// Bootstrap files are loaded from `agent_dir` when present; otherwise from
-/// `workdir`. When `FragmentContext::bootstrap_mode` is `None`, falls back to
+/// Bootstrap files are loaded from `workdir`. When
+/// `FragmentContext::bootstrap_mode` is `None`, falls back to
 /// [`AgentRegistry`] lookup.
 ///
 /// MEMORY.md is excluded — it is handled separately by
@@ -37,10 +37,10 @@ impl BootstrapFragmentProvider {
 
     /// Resolve the directory to load bootstrap files from.
     ///
-    /// Prefers `agent_dir` when present; falls back to `workdir`.
-    /// Returns `None` when neither is set.
+    /// Uses `workdir` from the context.
+    /// Returns `None` when not set.
     fn resolve_bootstrap_dir(&self, ctx: &FragmentContext) -> Option<PathBuf> {
-        ctx.agent_dir.clone().or_else(|| ctx.workdir.clone())
+        ctx.workdir.clone()
     }
 }
 
@@ -177,7 +177,6 @@ mod tests {
             agent_id: Some("test-agent".into()),
             bootstrap_mode: None,
             workdir: None,
-            agent_dir: None,
         };
         assert_eq!(provider.resolve_mode(&ctx), Some(BootstrapMode::Minimal));
 
@@ -186,7 +185,6 @@ mod tests {
             agent_id: Some("unknown".into()),
             bootstrap_mode: None,
             workdir: None,
-            agent_dir: None,
         };
         assert_eq!(provider.resolve_mode(&ctx), None);
     }
@@ -309,29 +307,11 @@ mod tests {
         assert_eq!(key1, key2);
     }
 
-    // --- agent_dir priority tests ---
-
     #[test]
-    fn test_resolve_bootstrap_dir_prefers_agent_dir() {
+    fn test_resolve_bootstrap_dir_uses_workdir() {
         let reg = Arc::new(AgentRegistry::new());
         let provider = BootstrapFragmentProvider::new(reg);
         let ctx = FragmentContext {
-            agent_dir: Some("/agent/path".into()),
-            workdir: Some("/work/path".into()),
-            ..Default::default()
-        };
-        assert_eq!(
-            provider.resolve_bootstrap_dir(&ctx),
-            Some("/agent/path".into())
-        );
-    }
-
-    #[test]
-    fn test_resolve_bootstrap_dir_falls_back_to_workdir() {
-        let reg = Arc::new(AgentRegistry::new());
-        let provider = BootstrapFragmentProvider::new(reg);
-        let ctx = FragmentContext {
-            agent_dir: None,
             workdir: Some("/work/path".into()),
             ..Default::default()
         };
@@ -342,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_bootstrap_dir_none_when_neither_set() {
+    fn test_resolve_bootstrap_dir_none_when_no_workdir() {
         let reg = Arc::new(AgentRegistry::new());
         let provider = BootstrapFragmentProvider::new(reg);
         let ctx = FragmentContext::default();
@@ -350,46 +330,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_generate_uses_agent_dir_over_workdir() {
-        let agent_tmp = tempfile::tempdir().unwrap();
-        let work_tmp = tempfile::tempdir().unwrap();
-        fs::write(agent_tmp.path().join("AGENTS.md"), "from agent_dir").unwrap();
-        fs::write(work_tmp.path().join("AGENTS.md"), "from workdir").unwrap();
-
-        let reg = Arc::new(AgentRegistry::new());
-        let provider = BootstrapFragmentProvider::new(reg);
-
-        let ctx = FragmentContext {
-            agent_dir: Some(agent_tmp.path().to_path_buf()),
-            workdir: Some(work_tmp.path().to_path_buf()),
-            bootstrap_mode: Some(BootstrapMode::Minimal),
-            ..Default::default()
-        };
-        let fragment = provider.generate(&ctx).await.unwrap();
-        assert!(fragment.content.contains("from agent_dir"));
-        assert!(!fragment.content.contains("from workdir"));
-    }
-
-    #[tokio::test]
-    async fn test_generate_falls_back_to_workdir_when_no_agent_dir() {
-        let tmp = tempfile::tempdir().unwrap();
-        fs::write(tmp.path().join("AGENTS.md"), "from workdir").unwrap();
-
-        let reg = Arc::new(AgentRegistry::new());
-        let provider = BootstrapFragmentProvider::new(reg);
-
-        let ctx = FragmentContext {
-            agent_dir: None,
-            workdir: Some(tmp.path().to_path_buf()),
-            bootstrap_mode: Some(BootstrapMode::Minimal),
-            ..Default::default()
-        };
-        let fragment = provider.generate(&ctx).await.unwrap();
-        assert!(fragment.content.contains("from workdir"));
-    }
-
-    #[tokio::test]
-    async fn test_generate_returns_none_when_both_dirs_none() {
+    async fn test_generate_returns_none_when_no_workdir() {
         let reg = Arc::new(AgentRegistry::new());
         let provider = BootstrapFragmentProvider::new(reg);
         let ctx = FragmentContext {
@@ -399,8 +340,8 @@ mod tests {
         assert!(provider.generate(&ctx).await.is_none());
     }
 
-    #[test]
-    fn test_cache_key_includes_agent_dir_mtime() {
+    #[tokio::test]
+    async fn test_cache_key_includes_workdir_mtime() {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("AGENTS.md"), "content").unwrap();
 
@@ -408,7 +349,7 @@ mod tests {
         let provider = BootstrapFragmentProvider::new(reg);
 
         let ctx = FragmentContext {
-            agent_dir: Some(tmp.path().to_path_buf()),
+            workdir: Some(tmp.path().to_path_buf()),
             bootstrap_mode: Some(BootstrapMode::Minimal),
             ..Default::default()
         };
@@ -479,7 +420,7 @@ mod tests {
         let ctx = FragmentContext {
             agent_id: Some("test-agent".into()),
             bootstrap_mode: None,
-            ..Default::default()
+            workdir: None,
         };
         assert_eq!(provider.resolve_mode(&ctx), Some(BootstrapMode::Full));
     }
@@ -516,7 +457,6 @@ mod tests {
             agent_id: Some("test-agent".into()),
             bootstrap_mode: Some(BootstrapMode::Minimal),
             workdir: Some(tmp.path().to_path_buf()),
-            ..Default::default()
         };
 
         let fragment = provider.generate(&ctx).await.unwrap();
