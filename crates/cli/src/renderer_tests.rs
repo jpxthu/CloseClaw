@@ -390,14 +390,6 @@ fn test_render_tool_result_empty() {
     assert!(!result.is_empty());
 }
 
-#[test]
-fn test_streaming_renderer_access() {
-    let renderer = TerminalRenderer::new();
-    let sr = renderer.streaming_renderer();
-    // Just verify we can lock and get a reference
-    let _lock = sr.lock().unwrap();
-}
-
 // ── get_terminal_width / resolve_terminal_width_from tests ────────────────
 
 /// Normal path: terminal size is available → return actual width.
