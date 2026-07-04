@@ -814,4 +814,28 @@ impl TerminalRenderer {
             payload,
         }
     }
+
+    /// Render a code block with ANSI line numbers and optional syntax highlighting.
+    pub(crate) fn render_code_block(&self, language: &str, code: &str) -> String {
+        render_code_block_ansi(language, code, self.ansi)
+    }
+
+    /// Render markdown text with ANSI styling.
+    pub(crate) fn render_markdown(&self, text: &str) -> String {
+        let mut out = String::new();
+        for line in text.lines() {
+            out.push_str(&format_line(line, self.ansi));
+            out.push('\n');
+        }
+        out
+    }
+
+    /// Render a horizontal rule.
+    pub(crate) fn render_hr(&self) -> String {
+        if self.ansi {
+            format!("{}───{}", DIM, RESET)
+        } else {
+            "───".to_string()
+        }
+    }
 }
