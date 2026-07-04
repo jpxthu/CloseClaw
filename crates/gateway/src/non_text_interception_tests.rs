@@ -7,11 +7,11 @@
 use crate::{DmScope, GatewayConfig, HandleResult, Message, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::MessageType;
+use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_common::processor::ProcessedMessage;
-use closeclaw_common::InboundEvent;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
@@ -50,7 +50,10 @@ impl IMPlugin for CapturingPlugin {
         &self.platform
     }
 
-    async fn parse_inbound(&self, _payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError> {
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
         Ok(None)
     }
 

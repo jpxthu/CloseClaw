@@ -167,25 +167,6 @@ pub struct RenderedOutput {
 use crate::processor::ContentBlock;
 
 // ---------------------------------------------------------------------------
-// InboundEvent
-// ---------------------------------------------------------------------------
-
-/// Unified inbound event envelope.
-///
-/// Replaces a bare [`NormalizedMessage`] at the Adapter → Gateway boundary.
-/// Normal message events carry [`NormalizedMessage`]; card-action events
-/// (button clicks, selector picks) carry [`CardActionEvent`] and bypass the
-/// normal inbound Processor Chain, being injected directly as tool-result
-/// payloads.
-#[derive(Debug, Clone)]
-pub enum InboundEvent {
-    /// A standard inbound message (text, image, file, audio).
-    Message(NormalizedMessage),
-    /// A card-action interaction event (button click, selector pick, etc.).
-    CardAction(CardActionEvent),
-}
-
-// ---------------------------------------------------------------------------
 // CardActionEvent
 // ---------------------------------------------------------------------------
 
@@ -267,11 +248,33 @@ pub trait IMPlugin: Send + Sync {
     /// Returns the platform identifier, e.g. `"feishu"` or `"discord"`.
     fn platform(&self) -> &str;
 
-    /// Parse an inbound webhook payload into an [`InboundEvent`].
+    /// Parse an inbound webhook payload into a [`NormalizedMessage`].
     ///
     /// Returns `Ok(None)` when the payload should be silently ignored (e.g.
-    /// empty content, unsupported message type). Returns `Err` on parse failure.
-    async fn parse_inbound(&self, payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError>;
+    /// empty content, unsupported message type, card-action event).
+    /// Returns `Err` on parse failure.
+    async fn parse_inbound(
+        &self,
+        payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError>;
+
+    /// Parse an inbound webhook payload into a [`CardActionEvent`].
+    ///
+    /// Card-action events (button clicks, selector picks, etc.) bypass the
+    /// normal inbound Processor Chain and are injected directly as tool-result
+    /// payloads.
+    ///
+    /// Returns `Ok(None)` when the payload is not a card-action event.
+    /// Returns `Err` on parse failure.
+    ///
+    /// The default implementation returns `Ok(None)`. Platforms that support
+    /// card actions should override this.
+    async fn parse_card_action(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<CardActionEvent>, AdapterError> {
+        Ok(None)
+    }
 
     /// Validate the webhook signature.
     ///

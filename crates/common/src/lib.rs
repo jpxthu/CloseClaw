@@ -47,8 +47,8 @@ pub use gateway_types::{
 };
 pub use identity::IdentityResolver;
 pub use im_plugin::{
-    AdapterError, CardActionEvent, IMAdapter, IMPlugin, InboundEvent, MediaRef, MessageType,
-    NormalizedMessage, RenderedOutput, StreamingOutput,
+    AdapterError, CardActionEvent, IMAdapter, IMPlugin, MediaRef, MessageType, NormalizedMessage,
+    RenderedOutput, StreamingOutput,
 };
 pub use middleware::{MiddlewareError, OutboundMiddleware};
 pub use processor::{

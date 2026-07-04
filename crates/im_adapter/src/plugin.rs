@@ -15,7 +15,7 @@ use crate::streaming::{DefaultStreamingRenderer, StreamingOutput, StreamingRende
 use async_trait::async_trait;
 use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::processor::{ContentBlock, DslParseResult, StreamEvent};
-use closeclaw_common::InboundEvent;
+use closeclaw_common::{CardActionEvent, NormalizedMessage};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
@@ -40,7 +40,7 @@ pub struct RenderedOutput {
 ///
 /// Each platform (Feishu, Discord, etc.) implements this trait to provide:
 ///
-/// - **Inbound**: Parse a raw webhook payload into an [`InboundEvent`].
+/// - **Inbound**: Parse a raw webhook payload into a [`NormalizedMessage`] or [`CardActionEvent`].
 /// - **Outbound rendering**: Convert LLM [`ContentBlock`]s into platform-native
 ///   [`RenderedOutput`].
 /// - **Outbound sending**: Deliver the rendered output to the platform.
@@ -77,11 +77,32 @@ pub trait IMPlugin: Send + Sync {
         None
     }
 
-    /// Parse an inbound webhook payload into an [`InboundEvent`].
+    /// Parse an inbound webhook payload into a [`NormalizedMessage`].
     ///
     /// Returns `Ok(None)` when the payload should be silently ignored (e.g.
-    /// empty content, unsupported message type). Returns `Err` on parse failure.
-    async fn parse_inbound(&self, payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError>;
+    /// empty content, unsupported message type, card-action event).
+    /// Returns `Err` on parse failure.
+    async fn parse_inbound(
+        &self,
+        payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError>;
+
+    /// Parse an inbound webhook payload into a [`CardActionEvent`].
+    ///
+    /// Card-action events bypass the normal inbound Processor Chain and are
+    /// injected directly as tool-result payloads.
+    ///
+    /// Returns `Ok(None)` when the payload is not a card-action event.
+    /// Returns `Err` on parse failure.
+    ///
+    /// The default implementation returns `Ok(None)`. Platforms that support
+    /// card actions should override this.
+    async fn parse_card_action(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<CardActionEvent>, AdapterError> {
+        Ok(None)
+    }
 
     /// Validate the webhook signature.
     ///

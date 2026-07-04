@@ -7,7 +7,7 @@
 
 use async_trait::async_trait;
 use closeclaw_common::processor::DslParseResult;
-use closeclaw_common::{InboundEvent, MessageType, NormalizedMessage};
+use closeclaw_common::{MessageType, NormalizedMessage};
 use closeclaw_im_adapter::plugin::{IMPlugin, RenderedOutput};
 use closeclaw_im_adapter::AdapterError;
 use closeclaw_llm::types::ContentBlock;
@@ -137,12 +137,15 @@ impl IMPlugin for TerminalPlugin {
         "terminal"
     }
 
-    async fn parse_inbound(&self, _payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError> {
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
         let adapter = self.adapter.clone();
         let result = tokio::task::spawn_blocking(move || adapter.read_input())
             .await
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
-        Ok(result.map(InboundEvent::Message))
+        Ok(result)
     }
 
     fn render(

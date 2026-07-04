@@ -40,14 +40,25 @@ impl IMAdapter for MockAdapter {
         "mock"
     }
 
-    async fn handle_webhook(
+    async fn parse_inbound(
         &self,
         _payload: &[u8],
     ) -> Result<Option<NormalizedMessage>, AdapterError> {
         unimplemented!()
     }
 
-    async fn send_message(&self, message: &Message) -> Result<(), AdapterError> {
+    async fn parse_card_action(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<closeclaw_common::CardActionEvent>, AdapterError> {
+        unimplemented!()
+    }
+
+    async fn send_message(
+        &self,
+        message: &Message,
+        _root_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
         if self.fail_send {
             return Err(AdapterError::SendFailed("mock error".into()));
         }
@@ -55,7 +66,12 @@ impl IMAdapter for MockAdapter {
         Ok(())
     }
 
-    async fn send_card_json(&self, _chat_id: &str, _card_json: &str) -> Result<(), AdapterError> {
+    async fn send_card_json(
+        &self,
+        _chat_id: &str,
+        _card_json: &str,
+        _root_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
         if self.fail_send {
             return Err(AdapterError::SendFailed("mock error".into()));
         }

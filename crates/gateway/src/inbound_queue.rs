@@ -7,8 +7,6 @@
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use closeclaw_common::InboundEvent;
-
 use super::Gateway;
 
 /// An inbound message awaiting processing.
@@ -84,12 +82,12 @@ pub struct InboundQueueFull {
 ///
 /// Flow per message:
 /// 1. Get the registered IM plugin for `platform`
-/// 2. Call `plugin.parse_inbound(raw_payload)` → `NormalizedMessage`
-/// 3. Run through `process_inbound_chain`
-/// 4. Hand off to `handle_inbound_message`
+/// 2. Call `plugin.parse_inbound(raw_payload)` → try NormalizedMessage
+/// 3. If None, call `plugin.parse_card_action(raw_payload)` → try CardActionEvent
+/// 4. Route: NormalizedMessage → inbound chain → handle; CardActionEvent → handle_card_action
 ///
-/// When the plugin is not registered or parsing returns `None` (e.g.
-/// unsupported message type), the message is silently dropped.
+/// When the plugin is not registered or both parsers return `None`, the
+/// message is silently dropped.
 pub(crate) fn start_inbound_consumer(
     mut rx: mpsc::Receiver<InboundRequest>,
     gateway: Arc<Gateway>,
@@ -107,32 +105,10 @@ pub(crate) fn start_inbound_consumer(
                 continue;
             };
 
-            // ── 2. Parse raw webhook payload ──────────────────────────
-            let inbound_event = match plugin.parse_inbound(&req.raw_payload).await {
-                Ok(Some(event)) => event,
-                Ok(None) => {
-                    tracing::debug!(
-                        platform = %req.platform,
-                        peer_id = %req.peer_id,
-                        "inbound consumer: parse returned None — dropping"
-                    );
-                    continue;
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        platform = %req.platform,
-                        peer_id = %req.peer_id,
-                        error = %e,
-                        "inbound consumer: parse failed — dropping"
-                    );
-                    continue;
-                }
-            };
-
-            // ── 3. Route by event type ─────────────────────────────────
-            match inbound_event {
-                InboundEvent::Message(normalized) => {
-                    // ── 3a. Process through inbound chain ───────────────
+            // ── 2. Try parsing as NormalizedMessage ───────────────────
+            match plugin.parse_inbound(&req.raw_payload).await {
+                Ok(Some(normalized)) => {
+                    // ── 2a. Process through inbound chain ───────────────
                     let sender_id = normalized.sender_id.clone();
                     let input = super::InboundChainInput {
                         platform: normalized.platform.clone(),
@@ -148,15 +124,45 @@ pub(crate) fn start_inbound_consumer(
                     };
                     let processed = gateway.process_inbound_chain(&input).await;
 
-                    // ── 4. Handle inbound message ───────────────────────
+                    // ── 2b. Handle inbound message ──────────────────────
                     gateway
                         .handle_inbound_message(processed, Some(&sender_id), &normalized.platform)
                         .await;
+                    continue;
                 }
-                InboundEvent::CardAction(card_action) => {
+                Ok(None) => { /* not a message — try card action below */ }
+                Err(e) => {
+                    tracing::warn!(
+                        platform = %req.platform,
+                        peer_id = %req.peer_id,
+                        error = %e,
+                        "inbound consumer: parse_inbound failed — dropping"
+                    );
+                    continue;
+                }
+            }
+
+            // ── 3. Try parsing as CardActionEvent ──────────────────────
+            match plugin.parse_card_action(&req.raw_payload).await {
+                Ok(Some(card_action)) => {
                     // Card actions bypass the inbound Processor Chain and are
                     // injected directly as tool-result payloads.
                     gateway.handle_card_action(card_action).await;
+                }
+                Ok(None) => {
+                    tracing::debug!(
+                        platform = %req.platform,
+                        peer_id = %req.peer_id,
+                        "inbound consumer: no match (message or card action) — dropping"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        platform = %req.platform,
+                        peer_id = %req.peer_id,
+                        error = %e,
+                        "inbound consumer: parse_card_action failed — dropping"
+                    );
                 }
             }
         }
@@ -216,8 +222,9 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
         );
         return;
     };
+    // Try NormalizedMessage first.
     match plugin.parse_inbound(&request.raw_payload).await {
-        Ok(Some(InboundEvent::Message(normalized))) => {
+        Ok(Some(normalized)) => {
             let sender_id = normalized.sender_id.clone();
             let input = super::InboundChainInput {
                 platform: normalized.platform.clone(),
@@ -235,23 +242,35 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
             gateway
                 .handle_inbound_message(processed, Some(&sender_id), &normalized.platform)
                 .await;
+            return;
         }
-        Ok(Some(InboundEvent::CardAction(card_action))) => {
-            // Card actions bypass the inbound Processor Chain and are
-            // injected directly as tool-result payloads.
+        Ok(None) => { /* not a message — try card action below */ }
+        Err(e) => {
+            tracing::warn!(
+                platform = %request.platform,
+                error = %e,
+                "inline fallback: parse_inbound failed — dropping"
+            );
+            return;
+        }
+    }
+
+    // Try CardActionEvent second.
+    match plugin.parse_card_action(&request.raw_payload).await {
+        Ok(Some(card_action)) => {
             gateway.handle_card_action(card_action).await;
         }
         Ok(None) => {
             tracing::debug!(
                 platform = %request.platform,
-                "inline fallback: parse returned None — dropping"
+                "inline fallback: no match (message or card action) — dropping"
             );
         }
         Err(e) => {
             tracing::warn!(
                 platform = %request.platform,
                 error = %e,
-                "inline fallback: parse failed — dropping"
+                "inline fallback: parse_card_action failed — dropping"
             );
         }
     }

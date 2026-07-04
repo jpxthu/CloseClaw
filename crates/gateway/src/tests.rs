@@ -5,7 +5,7 @@
 use crate::{DmScope, GatewayConfig, GatewayError, Message, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
-use closeclaw_common::im_plugin::{AdapterError, CardActionEvent, IMPlugin, InboundEvent};
+use closeclaw_common::im_plugin::{AdapterError, CardActionEvent, IMPlugin, NormalizedMessage};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_common::processor::ProcessedMessage;
 use closeclaw_llm::types::ContentBlock;
@@ -54,7 +54,10 @@ impl IMPlugin for MockPlugin {
         &self.platform
     }
 
-    async fn parse_inbound(&self, _payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError> {
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
         Ok(None)
     }
 

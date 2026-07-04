@@ -5,7 +5,7 @@ use closeclaw::processor_chain::{
     MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
 };
 use closeclaw_common::im_plugin::{
-    AdapterError, IMPlugin, InboundEvent, MessageType, NormalizedMessage, RenderedOutput,
+    AdapterError, IMPlugin, MessageType, NormalizedMessage, RenderedOutput,
 };
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, GatewayError, Message, SessionManager};
@@ -92,8 +92,11 @@ impl IMPlugin for TrackingPlugin {
         "tracking"
     }
 
-    async fn parse_inbound(&self, _payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError> {
-        Ok(Some(InboundEvent::Message(NormalizedMessage {
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(Some(NormalizedMessage {
             platform: "tracking".to_string(),
             sender_id: "user_1".to_string(),
             peer_id: "chat_1".to_string(),
@@ -103,7 +106,7 @@ impl IMPlugin for TrackingPlugin {
             media_refs: vec![],
             thread_id: None,
             account_id: String::new(),
-        })))
+        }))
     }
 
     fn render(
@@ -350,10 +353,16 @@ async fn test_feishu_adapter_send_card_json_default() {
         fn name(&self) -> &str {
             "dummy"
         }
-        async fn handle_webhook(
+        async fn parse_inbound(
             &self,
             _: &[u8],
-        ) -> Result<Option<closeclaw_common::InboundEvent>, LocalAdapterError> {
+        ) -> Result<Option<closeclaw_common::NormalizedMessage>, LocalAdapterError> {
+            Err(LocalAdapterError::InvalidPayload("x".into()))
+        }
+        async fn parse_card_action(
+            &self,
+            _: &[u8],
+        ) -> Result<Option<closeclaw_common::CardActionEvent>, LocalAdapterError> {
             Err(LocalAdapterError::InvalidPayload("x".into()))
         }
         async fn send_message(
