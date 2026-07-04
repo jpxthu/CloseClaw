@@ -77,6 +77,102 @@ fn test_fragment_context_debug() {
     assert!(dbg.contains("dbg"));
 }
 
+#[test]
+fn test_fragment_context_empty_agent_id_boundary() {
+    let ctx = FragmentContext {
+        agent_id: String::new(),
+        ..FragmentContext::test_default()
+    };
+    assert!(ctx.agent_id.is_empty());
+}
+
+#[test]
+fn test_fragment_context_minimal_mode() {
+    let ctx = FragmentContext {
+        bootstrap_mode: BootstrapMode::Minimal,
+        ..FragmentContext::test_default()
+    };
+    assert_eq!(ctx.bootstrap_mode, BootstrapMode::Minimal);
+}
+
+#[test]
+fn test_fragment_context_full_mode() {
+    let ctx = FragmentContext {
+        bootstrap_mode: BootstrapMode::Full,
+        ..FragmentContext::test_default()
+    };
+    assert_eq!(ctx.bootstrap_mode, BootstrapMode::Full);
+}
+
+// ---------------------------------------------------------------------------
+// PromptFragmentProvider trait: mock implementation uses required fields
+// ---------------------------------------------------------------------------
+
+struct MockFragmentProvider;
+
+#[async_trait]
+impl PromptFragmentProvider for MockFragmentProvider {
+    fn name(&self) -> &str {
+        "mock"
+    }
+
+    fn priority(&self) -> u32 {
+        100
+    }
+
+    async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
+        // Uses all three required fields — must compile with non-Option types.
+        if ctx.agent_id.is_empty() {
+            return None;
+        }
+        Some(PromptFragment {
+            section_title: format!("## Agent: {}", ctx.agent_id),
+            section_type: SectionType::Bootstrap,
+            content: format!(
+                "mode={:?} dir={}",
+                ctx.bootstrap_mode,
+                ctx.workdir.display()
+            ),
+        })
+    }
+
+    fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
+        Some(format!("mock:{}", ctx.agent_id))
+    }
+}
+
+#[tokio::test]
+async fn test_mock_provider_returns_none_for_empty_agent_id() {
+    let provider = MockFragmentProvider;
+    let ctx = FragmentContext::test_default(); // agent_id is empty
+    assert!(provider.generate(&ctx).await.is_none());
+}
+
+#[tokio::test]
+async fn test_mock_provider_generates_with_valid_fields() {
+    let provider = MockFragmentProvider;
+    let ctx = FragmentContext {
+        agent_id: "test-agent".into(),
+        bootstrap_mode: BootstrapMode::Minimal,
+        workdir: std::path::PathBuf::from("/workspace"),
+    };
+    let frag = provider.generate(&ctx).await.unwrap();
+    assert_eq!(frag.section_type, SectionType::Bootstrap);
+    assert!(frag.section_title.contains("test-agent"));
+    assert!(frag.content.contains("Minimal"));
+    assert!(frag.content.contains("/workspace"));
+}
+
+#[test]
+fn test_mock_provider_cache_key_includes_agent_id() {
+    let provider = MockFragmentProvider;
+    let ctx = FragmentContext {
+        agent_id: "agent-99".into(),
+        ..FragmentContext::test_default()
+    };
+    assert_eq!(provider.cache_key(&ctx).as_deref(), Some("mock:agent-99"));
+}
+
 // ---------------------------------------------------------------------------
 // PromptFragment
 // ---------------------------------------------------------------------------
