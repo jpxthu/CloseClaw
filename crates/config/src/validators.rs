@@ -27,6 +27,7 @@ pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {
         // Credentials is a directory, not a JSON section — no validator needed.
         ConfigSection::Session => Box::new(validate_session),
         ConfigSection::Credentials => Box::new(|_| Ok(())),
+        ConfigSection::Accounts => Box::new(validate_accounts),
     }
 }
 
@@ -385,6 +386,91 @@ fn validate_session(value: &serde_json::Value) -> Result<(), String> {
     }
     validate_non_negative_field(value, "idleMinutes")?;
     validate_non_negative_field(value, "purgeAfterMinutes")?;
+    Ok(())
+}
+
+/// Validate the **accounts** config section.
+///
+/// - Top-level must be a JSON object.
+/// - Each account must have a non-empty `accountId`.
+/// - Each account must have a non-empty `senderId`.
+/// - All `accountId` values must be unique.
+/// - Each `platform` must be one of the allowed channel types.
+fn validate_accounts(value: &serde_json::Value) -> Result<(), String> {
+    ensure_object(value, "accounts")?;
+
+    let accounts = match value.get("accounts") {
+        Some(arr) if arr.is_array() => arr.as_array().unwrap(),
+        Some(_) => {
+            return Err(format!(
+                "accounts.accounts must be a JSON array, got {}",
+                type_name(value.get("accounts").unwrap())
+            ));
+        }
+        None => return Ok(()), // no accounts key is fine (empty list)
+    };
+
+    let mut seen_ids = std::collections::HashSet::new();
+
+    for (i, entry) in accounts.iter().enumerate() {
+        if !entry.is_object() {
+            return Err(format!("accounts.accounts[{}] must be a JSON object", i));
+        }
+
+        require_non_empty(
+            entry,
+            "accountId",
+            &format!("accounts.accounts[{}].accountId", i),
+        )?;
+        require_non_empty(
+            entry,
+            "senderId",
+            &format!("accounts.accounts[{}].senderId", i),
+        )?;
+
+        check_account_id_unique(entry, i, &mut seen_ids)?;
+        validate_account_platform(entry, i)?;
+    }
+
+    Ok(())
+}
+
+/// Check that `accountId` is unique across all accounts.
+fn check_account_id_unique(
+    entry: &serde_json::Value,
+    index: usize,
+    seen_ids: &mut std::collections::HashSet<String>,
+) -> Result<(), String> {
+    if let Some(id) = entry.get("accountId").and_then(|v| v.as_str()) {
+        if !seen_ids.insert(id.to_string()) {
+            return Err(format!(
+                "duplicate accountId '{}' at accounts.accounts[{}]",
+                id, index
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Validate that `platform` is a known channel type.
+fn validate_account_platform(entry: &serde_json::Value, index: usize) -> Result<(), String> {
+    if let Some(platform) = entry.get("platform").and_then(|v| v.as_str()) {
+        if platform.is_empty() {
+            return Err(format!(
+                "accounts.accounts[{}].platform cannot be empty",
+                index
+            ));
+        }
+        if !ALLOWED_CHANNEL_TYPES.contains(&platform) {
+            return Err(format!(
+                "accounts.accounts[{}].platform '{}' is not a known \
+                 channel type. Allowed: {}",
+                index,
+                platform,
+                ALLOWED_CHANNEL_TYPES.join(", ")
+            ));
+        }
+    }
     Ok(())
 }
 

@@ -12,6 +12,7 @@ fn write_mandatory_configs(dir: &std::path::Path) -> std::io::Result<()> {
         "gateway.json",
         "plugins.json",
         "system.json",
+        "accounts.json",
     ] {
         std::fs::write(
             dir.join(name),
@@ -77,6 +78,7 @@ fn test_config_section_display() {
     assert_eq!(ConfigSection::System.to_string(), "system.json");
     assert_eq!(ConfigSection::Session.to_string(), "session.json");
     assert_eq!(ConfigSection::Credentials.to_string(), "credentials/");
+    assert_eq!(ConfigSection::Accounts.to_string(), "accounts.json");
 }
 
 // ---------------------------------------------------------------------------
