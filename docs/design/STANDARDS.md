@@ -128,6 +128,14 @@ docs/design/common/
 
 此标准同时约束代码层：文档中在 common 定义的类型和 trait，代码中位于 common crate；文档中在领域模块定义的，代码中位于对应领域 crate。无例外。
 
+### crate 结构跟随文档
+
+`docs/design/<模块>/` 与 crate 的映射为一对一或一对多（模块拆多 crate 时），不允许多对一——两个设计文档模块的定义不应混入同一个 crate。
+
+**common 的边界尤其严格**：common crate 中定义的 pub trait 和 pub struct 必须已在 `docs/design/common/` 的设计文档中唯一定义。反之亦然——已在 common 设计文档中定义的类型和 trait，代码中必须位于 common crate（或其子 crate）。
+
+若代码中 common crate 存在未在设计文档中定义的类型或 trait：→ 代码放错了，应移至对应领域模块的 crate，不是文档缺了。
+
 ## 红线
 
 **不写**：

@@ -28,7 +28,7 @@ closeclaw <command>
 
 ### Chat 层与 IM 渠道的关系
 
-CLI Chat 与飞书、Discord 等 IM 渠道实现同一个 IMPlugin trait，在 Gateway 的 Plugin Registry 中平级注册。不同之处封装在 TerminalPlugin 内部：
+CLI Chat 与飞书、Discord 等 IM 渠道实现同一个 IMPlugin trait（完整接口契约见 [common/core-traits](../common/core-traits.md#implugin)），在 Gateway 的 Plugin Registry 中平级注册。不同之处封装在 TerminalPlugin 内部：
 - 入站渠道：stdin（无 webhook）
 - 出站渠道：stdout（无 IM API）
 - 权限：调用者默认为 Owner（单用户），无需鉴权
