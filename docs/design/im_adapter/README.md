@@ -10,7 +10,7 @@ IM Adapter 模块提供跨消息平台的插件化适配框架。每个消息平
 
 IM Adapter 模块不包含业务逻辑，由三层组成：
 
-- **插件接口层**：定义 IMPlugin trait，统一插件契约。每个消息平台实现此 trait，提供入站解析、格式渲染、消息发送、生命周期管理四组方法。terminal 平台的实现位于 [CLI 模块](../cli/README.md)，不在此目录。
+- **插件接口层**：IMPlugin trait 是统一插件契约，完整接口定义见 [common/core-traits](../common/core-traits.md#implugin)。每个消息平台实现此 trait，提供入站解析、格式渲染、消息发送、生命周期管理四组方法。terminal 平台的实现位于 [CLI 模块](../cli/README.md)，不在此目录。
 - **通用渲染能力**：代码块语法高亮和流式增量渲染是跨平台通用机制，作为 IMPlugin trait 的默认实现提供。各平台插件自动继承，按需覆盖平台差异化部分。
 - **平台插件**：每个消息平台的数据和渲染实现。IM 平台（飞书、Discord 等）的插件放在 `platforms/` 子目录下。terminal 平台的实现位于 CLI 模块。
 
@@ -51,22 +51,9 @@ im_adapter/
 
 ### IMPlugin trait 契约
 
-每个消息平台插件实现统一接口，包含以下方法分组：
+IMPlugin trait 的完整接口契约定义见 [common/core-traits](../common/core-traits.md#implugin)。本文档聚焦 IM Adapter 模块对插件实现和注册编排的具体职责。
 
-**入站**：解析 webhook payload 为 NormalizedMessage。消息过滤在解析阶段完成——空内容消息在解析阶段丢弃，不产 NormalizedMessage。非文本消息（image/file/audio）正常产 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空），由下游 Gateway 统一处理。
-
-**渲染**：接收 ContentBlock[]（定义见 [common ContentBlock](../common/shared-types.md#contentblock)）和 DSL 解析结果（DslParseResult，定义见 [common DslParseResult](../common/shared-types.md#dslparseresult-和-dslinstruction)），按平台能力选择输出格式（纯文本或富格式）。渲染是纯数据转换，无副作用。
-
-**发送**：接收 RenderedOutput，封装为平台请求格式，以指定目标（peer_id + thread_id）调用平台发送 API。
-
-**生命周期**：
-
-| 方法 | 说明 |
-|------|------|
-| `init()` | 启动时初始化（连接池、token 等）。不需要的插件空实现 |
-| `shutdown()` | 关闭时清理资源。不需要的插件空实现 |
-
-渲染和发送拆为两步：渲染结果是数据，发送是副作用。Gateway 在两步之间可插入审计、频率限制等中间件。
+每个消息平台插件实现 IMPlugin trait，包含入站解析、渲染、发送、生命周期四组方法。渲染和发送拆为两步——渲染结果是数据，发送是副作用——Gateway 在两步之间可插入审计、频率限制等中间件。
 
 NormalizedMessage 是插件产出的统一中间结构，屏蔽各平台差异。完整字段定义及身份映射规则见 [common 共享类型](../common/shared-types.md)。
 

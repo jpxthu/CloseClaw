@@ -4,6 +4,8 @@
 
 共享类型是跨模块传递的纯数据结构，被 2 个及以上模块共同消费。每个共享类型在本文档中唯一定义，各业务模块文档通过引用指向此处，不在自身文档中重复描述字段结构。
 
+> **本文档是 common crate 中共享类型的权威清单。** 若代码中 common crate 存在本文档未收录的 pub struct/enum，该类型不属于跨模块共享类型，应移至对应领域模块的 crate。反之，本文档定义的所有类型，代码中均位于 common crate（或其子 crate）。
+
 本文档不包含 trait 接口定义——核心 trait 见 [core-traits](core-traits.md)。
 
 ## 架构
@@ -154,6 +156,43 @@ PromptFragment 是单个 PromptFragmentProvider 产出的静态层片段。
 | `section_type` | enum | Section 类型：bootstrap 文件、工具列表、skill 清单、长期记忆 |
 | `content` | string | 渲染完成的文本内容 |
 
+### RenderedOutput
+
+RenderedOutput 是 IMPlugin 渲染方法产出的平台原生格式消息结构。渲染产出数据，发送执行副作用——Gateway 在两步之间插入中间件（审计、频率限制等）。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `msg_type` | string | 消息格式类型（如 `"text"`、`"interactive"`），由 Renderer 按内容特征选择 |
+| `payload` | any | 平台原生格式的消息体，结构由各平台 Renderer 定义。Gateway 中间件和 Adapter 发送不解析 payload 内容 |
+
+**输出格式决策**：各平台 Renderer 按 ContentBlock 类型组合选择 msg_type——纯文本块（不含 Thinking/ToolUse/ToolResult）→ `"text"`；含 Thinking/ToolUse/ToolResult 块或多块 → `"interactive"`。
+
+### VerbosityLevel
+
+VerbosityLevel 是出站信息展示等级的枚举，控制 VerbosityFilter 对 ContentBlock 的过滤策略。由 `/verbose` 指令设置，Session 存储，出站 Processor Chain 的第一道过滤（VerbosityFilter，priority 5）消费。
+
+三个等级：
+
+| 等级 | 值 | 过滤行为 |
+|------|---|---------|
+| full | `"full"` | 展示全部：思考过程、工具调用、工具结果、最终回复 |
+| normal | `"normal"` | 展示工具调用和结果作为进度提示，隐藏思考过程 |
+| off | `"off"` | 仅展示最终回复，隐藏所有中间过程 |
+
+**作用范围**：Verbosity 控制展示内容，不影响 LLM 推理深度和 Agent 行为模式。切换等级不影响当前正在输出的消息——仅对后续新消息生效。非文本媒体块（Image/Audio/File）属于最终回复的一部分，不受 VerbosityLevel 过滤——在所有等级下均展示。
+
+### PlanState
+
+PlanState 是 Plan Mode 下的规划状态枚举，由 mode 模块管理，Session 持久化。Compaction 对此状态做隔离保护（不压缩 plan 相关消息），Session 恢复时重建 PlanState。
+
+PlanState 描述当前规划的阶段和未完成步骤列表：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `phase` | enum | 当前阶段：Research / Design / Review / FinalPlan / Interview |
+| `pending_steps` | list(string) | 未完成的规划步骤标识列表，用于 compaction 保护和恢复后继续 |
+| `plan_file_path` | string | plan 文件的路径，Agent 写入和读取的唯一可写目标 |
+
 ## 数据流
 
 NormalizedMessage 的全系统流动路径：
@@ -287,6 +326,56 @@ System Prompt Builder 构建 FragmentContext（agent_id + bootstrap_mode + workd
 
 FragmentContext 由 Builder 一次性构建，所有 Provider 共享同一上下文。PromptFragment 由各 Provider 独立产出，生命周期止于 Builder 完成拼接。
 
+### RenderedOutput
+
+RenderedOutput 的流动嵌入在 IM Adapter 出站渲染流程中：
+
+```
+ContentBlock[] + DslParseResult（经 Processor Chain 出站处理后）
+  ↓
+IMPlugin.render() → RenderedOutput { msg_type, payload }
+  ↓
+[Gateway 中间件插入点] — 审计、频率限制等
+  ↓
+IMPlugin.send(payload, peer_id, thread_id) → 平台发送 API
+```
+
+RenderedOutput 的生命周期：IMPlugin 渲染产出 → Gateway 中间件 → IMPlugin 发送后销毁。
+
+### VerbosityLevel
+
+VerbosityLevel 的读写路径：
+
+```
+/verbose <等级> 指令
+  ↓
+VerboseHandler 设置等级
+  ↓
+Gateway 写入 Session 的 Verbosity 字段
+  ↓
+出站 Processor Chain 的第一道 Processor（VerbosityFilter，priority 5）读取
+  ↓
+按等级过滤 ContentBlock[] — 去除被隐藏的块类型
+  ↓
+过滤后的 ContentBlock[] 继续后续出站链路（DslParser → OutboundRawLog → Renderer）
+```
+
+### PlanState
+
+PlanState 的管理路径：
+
+```
+/plan 指令 → mode 模块创建 PlanState
+  ↓
+Session 存储 PlanState（随 checkpoint 持久化）
+  ↓
+Compaction 时隔离保护 PlanState 相关消息（不压缩）
+  ↓
+Session 恢复时从 checkpoint 重建 PlanState
+  ↓
+Plan Mode 结束时销毁 PlanState
+```
+
 ## 模块关系
 
 ### NormalizedMessage
@@ -333,3 +422,21 @@ FragmentContext 由 Builder 一次性构建，所有 Provider 共享同一上下
 - **生产者**：所有 PromptFragmentProvider 实现者（system_prompt / tools / skills / memory）
 - **消费者**：system_prompt 模块（System Prompt Builder 收集所有 Fragment 并按序拼接）
 - **无关**：LLM Provider（不接触 PromptFragment，消费的是拼接后的最终 system prompt 文本）、Session（Builder 写入 system prompt 字段，Session 不直接操作 PromptFragment）
+
+### RenderedOutput
+
+- **生产者**：IM Adapter 各平台 Renderer（IMPlugin.render() 产出）
+- **消费者**：Gateway（中间件插入点，在渲染和发送之间）；IM Adapter（IMPlugin.send() 消费 payload 发送）
+- **无关**：Processor Chain（RenderedOutput 在 Processor Chain 之后产出，不经过链处理）、LLM Provider（不接触 RenderedOutput）
+
+### VerbosityLevel
+
+- **生产者**：slash 模块（VerboseHandler 处理 `/verbose` 指令，写入 Session）
+- **消费者**：Processor Chain 出站（VerbosityFilter 读取并过滤 ContentBlock[]）；Session（存储当前等级，供下次出站过滤）
+- **无关**：LLM Provider（Verbosity 不影响 LLM 推理，仅控制展示）、IM Adapter 入站（入站不涉及展示过滤）
+
+### PlanState
+
+- **生产者**：mode 模块（Plan Mode 进入时创建）
+- **消费者**：Session（持久化和 compaction 保护）；mode 模块（恢复时重建、阶段切换时更新）
+- **无关**：LLM Provider（PlanState 不直接传给 LLM，通过 system prompt 的 plan 上下文间接生效）、IM Adapter（消息路由不感知 PlanState）
