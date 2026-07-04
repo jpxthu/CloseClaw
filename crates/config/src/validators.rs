@@ -26,7 +26,6 @@ pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {
         ConfigSection::System => Box::new(validate_system),
         // Credentials is a directory, not a JSON section — no validator needed.
         ConfigSection::Session => Box::new(validate_session),
-        // Credentials is a directory, not a JSON section — no validator needed.
         ConfigSection::Credentials => Box::new(|_| Ok(())),
         ConfigSection::Accounts => Box::new(validate_accounts),
     }
