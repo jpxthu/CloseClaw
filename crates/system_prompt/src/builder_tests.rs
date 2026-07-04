@@ -273,16 +273,16 @@ async fn build_from_mocks(mut providers: Vec<Box<dyn PromptFragmentProvider>>) -
     let mut fragments: Vec<String> = Vec::new();
 
     for provider in &providers {
-        if let Some(key) = provider.cache_key(&FragmentContext::default()) {
+        if let Some(key) = provider.cache_key(&FragmentContext::test_default()) {
             if let Some(cached) = get_cached_section(&key, None) {
                 fragments.push(cached);
                 continue;
             }
         }
 
-        if let Some(fragment) = provider.generate(&FragmentContext::default()).await {
+        if let Some(fragment) = provider.generate(&FragmentContext::test_default()).await {
             let rendered = format!("{}\n{}\n", fragment.section_title, fragment.content);
-            if let Some(key) = provider.cache_key(&FragmentContext::default()) {
+            if let Some(key) = provider.cache_key(&FragmentContext::test_default()) {
                 put_cached_section(&key, rendered.clone(), None);
             }
             fragments.push(rendered);

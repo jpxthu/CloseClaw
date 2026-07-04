@@ -38,12 +38,10 @@ impl ToolsFragmentProvider {
 
     /// Build a [`ToolContext`] from a [`FragmentContext`].
     fn tool_context(ctx: &FragmentContext) -> ToolContext {
-        let workdir = ctx.workdir.as_ref().map(|p| {
-            let path_str = p.to_string_lossy().to_string();
-            closeclaw_tools::build_workdir_context(&path_str)
-        });
+        let path_str = ctx.workdir.to_string_lossy().to_string();
+        let workdir = Some(closeclaw_tools::build_workdir_context(&path_str));
         ToolContext {
-            agent_id: ctx.agent_id.clone().unwrap_or_default(),
+            agent_id: ctx.agent_id.clone(),
             workdir,
             session_id: None,
             call_id: None,
@@ -112,7 +110,7 @@ mod tests {
     fn test_cache_key_always_none() {
         let registry = Arc::new(ToolRegistry::new());
         let provider = ToolsFragmentProvider::new(registry, None, None);
-        let ctx = FragmentContext::default();
+        let ctx = FragmentContext::test_default();
         assert!(provider.cache_key(&ctx).is_none());
     }
 
@@ -120,7 +118,7 @@ mod tests {
     async fn test_generate_empty_registry_returns_none() {
         let registry = Arc::new(ToolRegistry::new());
         let provider = ToolsFragmentProvider::new(registry, None, None);
-        let ctx = FragmentContext::default();
+        let ctx = FragmentContext::test_default();
         // Empty registry → no tools → content is empty → None
         assert!(provider.generate(&ctx).await.is_none());
     }
@@ -185,7 +183,7 @@ mod tests {
         registry.register_all(registrars).await.unwrap();
 
         let provider = ToolsFragmentProvider::new(registry, None, None);
-        let ctx = FragmentContext::default();
+        let ctx = FragmentContext::test_default();
         let fragment = provider.generate(&ctx).await;
         assert!(fragment.is_some());
         let frag = fragment.unwrap();
