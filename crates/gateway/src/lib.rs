@@ -23,6 +23,7 @@ mod session_handler_dispatch;
 mod session_handler_streaming;
 pub mod session_manager;
 pub mod shutdown_handle;
+pub mod slash_executor;
 pub mod slash_permission;
 pub mod sweeper;
 #[cfg(test)]
