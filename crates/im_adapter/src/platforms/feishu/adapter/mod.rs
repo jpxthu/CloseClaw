@@ -451,7 +451,6 @@ impl FeishuAdapter {
                     timestamp: chrono::Utc::now().timestamp_millis(),
                     message_type: MessageType::Text,
                     media_refs: vec![],
-                    quoted_message: None,
                     thread_id: None,
                     account_id: card_event.operator.open_id.clone(),
                 }))
@@ -563,7 +562,6 @@ impl FeishuAdapter {
             timestamp: chrono::Utc::now().timestamp_millis(),
             message_type: MessageType::from(event.event.message_type.as_str()),
             media_refs,
-            quoted_message: None,
             thread_id,
             account_id: sender_open_id,
         }))

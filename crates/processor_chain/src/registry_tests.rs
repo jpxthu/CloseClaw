@@ -28,7 +28,6 @@ fn make_normalized(content: &str) -> NormalizedMessage {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     }
@@ -412,7 +411,6 @@ async fn test_normalized_message_directly_into_processor_chain() {
         timestamp: 1700000000000,
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: "acct_1".to_string(),
     };
@@ -436,7 +434,6 @@ async fn test_normalized_message_empty_content() {
         timestamp: 0,
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: "owner".to_string(),
     };
@@ -460,7 +457,6 @@ async fn test_normalized_message_with_special_characters() {
         timestamp: 1700000000000,
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -485,7 +481,6 @@ async fn test_normalized_message_timestamp_is_i64_millis() {
         timestamp: 1700000000123,
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -506,7 +501,6 @@ async fn test_normalized_message_passthrough_no_processors() {
         timestamp: 0,
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };

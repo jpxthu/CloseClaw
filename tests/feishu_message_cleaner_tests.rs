@@ -66,7 +66,6 @@ fn webhook_to_normalized_message(webhook: &serde_json::Value) -> NormalizedMessa
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: message_id,
     }

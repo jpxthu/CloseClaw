@@ -77,7 +77,6 @@ impl TerminalAdapter {
             timestamp: current_timestamp(),
             message_type: MessageType::Text,
             media_refs: vec![],
-            quoted_message: None,
             thread_id: None,
             account_id: "owner".to_string(),
         }

@@ -140,7 +140,6 @@ pub(crate) fn start_inbound_consumer(
                 thread_id: normalized.thread_id.clone(),
                 message_type: normalized.message_type.clone(),
                 media_refs: normalized.media_refs.clone(),
-                quoted_message: normalized.quoted_message.clone(),
             };
             let processed = gateway.process_inbound_chain(&input).await;
 
@@ -219,7 +218,6 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
                 thread_id: normalized.thread_id.clone(),
                 message_type: normalized.message_type.clone(),
                 media_refs: normalized.media_refs.clone(),
-                quoted_message: normalized.quoted_message.clone(),
             };
             let processed = gateway.process_inbound_chain(&input).await;
             gateway

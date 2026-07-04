@@ -43,7 +43,6 @@ mod tests {
             timestamp: 1_700_000_000_000,
             message_type: MessageType::Text,
             media_refs: vec![],
-            quoted_message: None,
             thread_id: None,
             account_id: String::new(),
         };
@@ -62,7 +61,6 @@ mod tests {
             timestamp: 1_700_000_000_000,
             message_type: MessageType::Text,
             media_refs: vec![],
-            quoted_message: None,
             thread_id: None,
             account_id: String::new(),
         };
@@ -80,7 +78,6 @@ mod tests {
             timestamp: 1_700_000_000_000,
             message_type: MessageType::Text,
             media_refs: vec![],
-            quoted_message: None,
             thread_id: None,
             account_id: String::new(),
         };
@@ -98,7 +95,6 @@ mod tests {
             timestamp: 1_700_000_000_000,
             message_type: MessageType::Text,
             media_refs: vec![],
-            quoted_message: None,
             thread_id: None,
             account_id: String::new(),
         };
@@ -118,7 +114,6 @@ mod tests {
             timestamp: 1_700_000_000_000,
             message_type: MessageType::Text,
             media_refs: vec![],
-            quoted_message: None,
             thread_id: None,
             account_id: String::new(),
         };
@@ -135,7 +130,6 @@ mod tests {
             timestamp: 1_700_000_000_000,
             message_type: MessageType::Text,
             media_refs: vec![],
-            quoted_message: None,
             thread_id: None,
             account_id: String::new(),
         };
@@ -338,7 +332,6 @@ mod tests {
         assert_eq!(msg.sender_id, closeclaw_platform::current_uid());
         assert_eq!(msg.message_type, MessageType::Text);
         assert!(msg.media_refs.is_empty());
-        assert!(msg.quoted_message.is_none());
         assert!(msg.thread_id.is_none());
     }
 

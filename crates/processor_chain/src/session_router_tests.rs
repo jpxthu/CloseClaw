@@ -21,7 +21,6 @@ async fn test_terminal_session_key_computed() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -61,7 +60,6 @@ async fn test_deterministic_key() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -100,7 +98,6 @@ async fn test_missing_peer_id_yields_empty_key() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -126,7 +123,6 @@ async fn test_dm_scope_affects_key() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -163,7 +159,6 @@ async fn test_metadata_preserves_upstream() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -192,7 +187,6 @@ async fn test_fallback_when_no_initial_normalized() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -220,7 +214,6 @@ async fn test_system_time_used_for_session_key() {
         timestamp: 1_577_836_800_000,
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -269,7 +262,6 @@ async fn test_per_account_channel_peer_uses_system_time() {
         timestamp: 1_577_836_800_000,
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -319,7 +311,6 @@ async fn test_different_account_ids_produce_different_session_keys() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: "account_1".to_string(),
     };
@@ -331,7 +322,6 @@ async fn test_different_account_ids_produce_different_session_keys() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: "account_2".to_string(),
     };
@@ -388,7 +378,6 @@ async fn test_account_id_none_vs_some_produce_different_keys() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -400,7 +389,6 @@ async fn test_account_id_none_vs_some_produce_different_keys() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: "tenant_x".to_string(),
     };
@@ -447,7 +435,6 @@ async fn test_account_id_read_from_raw_message() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: "tenant_42".to_string(),
     };
@@ -471,7 +458,6 @@ async fn test_account_id_read_from_raw_message() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: "metadata_account".to_string(),
     };

@@ -104,7 +104,6 @@ impl IMPlugin for TrackingPlugin {
             timestamp: 0,
             message_type: MessageType::Text,
             media_refs: vec![],
-            quoted_message: None,
             thread_id: None,
             account_id: String::new(),
         }))

@@ -13,7 +13,6 @@ fn make_ctx(content: &str, channel: &str) -> MessageContext {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -113,7 +112,6 @@ async fn test_outbound_and_independent_from_inbound() {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };

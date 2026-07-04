@@ -280,7 +280,6 @@ async fn test_process_inbound_chain_cleans_control_characters() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
-            quoted_message: None,
         })
         .await;
 
@@ -306,7 +305,6 @@ async fn test_process_inbound_chain_suppress_message() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
-            quoted_message: None,
         })
         .await;
 
@@ -335,7 +333,6 @@ async fn test_process_inbound_chain_quit_exit_not_affected() {
                 thread_id: None,
                 message_type: Default::default(),
                 media_refs: Vec::new(),
-                quoted_message: None,
             })
             .await;
         assert_eq!(processed.text_content().unwrap_or(""), *cmd);
@@ -476,7 +473,6 @@ async fn test_process_inbound_chain_peer_id_is_cli() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
-            quoted_message: None,
         })
         .await;
 
@@ -508,7 +504,6 @@ fn normalized_to_inbound(msg: &NormalizedMessage) -> InboundChainInput {
         thread_id: msg.thread_id.clone(),
         message_type: msg.message_type.clone(),
         media_refs: msg.media_refs.clone(),
-        quoted_message: msg.quoted_message.clone(),
     }
 }
 
@@ -523,7 +518,6 @@ fn test_normalized_to_inbound_platform() {
         timestamp: 1_700_000_000_000,
         message_type: MessageType::Text,
         media_refs: vec![],
-        quoted_message: None,
         thread_id: None,
         account_id: "owner".to_string(),
     };
@@ -542,7 +536,6 @@ fn test_normalized_to_inbound_peer_id() {
         timestamp: 1_700_000_000_000,
         message_type: MessageType::Text,
         media_refs: vec![],
-        quoted_message: None,
         thread_id: None,
         account_id: "owner".to_string(),
     };
@@ -561,7 +554,6 @@ fn test_normalized_to_inbound_sender_id() {
         timestamp: 1_700_000_000_000,
         message_type: MessageType::Text,
         media_refs: vec![],
-        quoted_message: None,
         thread_id: None,
         account_id: "owner".to_string(),
     };
@@ -581,7 +573,6 @@ fn test_normalized_to_inbound_timestamp() {
         timestamp: ts,
         message_type: MessageType::Text,
         media_refs: vec![],
-        quoted_message: None,
         thread_id: None,
         account_id: "owner".to_string(),
     };
@@ -600,7 +591,6 @@ fn test_normalized_to_inbound_account_id_present() {
         timestamp: 1_700_000_000_000,
         message_type: MessageType::Text,
         media_refs: vec![],
-        quoted_message: None,
         thread_id: None,
         account_id: "owner".to_string(),
     };
@@ -619,7 +609,6 @@ fn test_normalized_to_inbound_account_id_empty() {
         timestamp: 1_700_000_000_000,
         message_type: MessageType::Text,
         media_refs: vec![],
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -638,7 +627,6 @@ fn test_normalized_to_inbound_content_preserved() {
         timestamp: 1_700_000_000_000,
         message_type: MessageType::Text,
         media_refs: vec![],
-        quoted_message: None,
         thread_id: None,
         account_id: "owner".to_string(),
     };
@@ -657,7 +645,6 @@ fn test_normalized_to_inbound_message_id_format() {
         timestamp: 42,
         message_type: MessageType::Text,
         media_refs: vec![],
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };

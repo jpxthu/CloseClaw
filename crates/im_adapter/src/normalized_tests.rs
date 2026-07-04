@@ -1,11 +1,11 @@
-//! Unit tests for NormalizedMessage new fields (message_type, media_refs,
-//! quoted_message) and sub-structs (MediaRef).
+//! Unit tests for NormalizedMessage new fields (message_type, media_refs)
+//! and sub-structs (MediaRef).
 //!
 //! Covers:
 //! - serde defaults for missing fields in JSON
 //! - roundtrip serialization for NormalizedMessage with new fields
 //! - MediaRef independent roundtrip
-//! - edge cases: empty media_refs, quoted_message None vs present
+//! - edge cases: empty media_refs
 
 use closeclaw_common::{MediaRef, MessageType, NormalizedMessage};
 
@@ -42,13 +42,6 @@ fn test_deserialize_defaults_media_refs_empty() {
 }
 
 #[test]
-fn test_deserialize_defaults_quoted_message_none() {
-    let json = make_minimal_json();
-    let msg: NormalizedMessage = serde_json::from_value(json).expect("deserialization failed");
-    assert!(msg.quoted_message.is_none());
-}
-
-#[test]
 fn test_deserialize_all_defaults_present() {
     let json = make_minimal_json();
     let msg: NormalizedMessage = serde_json::from_value(json).expect("deserialization failed");
@@ -59,7 +52,6 @@ fn test_deserialize_all_defaults_present() {
     assert_eq!(msg.timestamp, 1000);
     assert_eq!(msg.message_type, MessageType::Text);
     assert!(msg.media_refs.is_empty());
-    assert!(msg.quoted_message.is_none());
     assert!(msg.thread_id.is_none());
     assert!(msg.account_id.is_empty());
 }
@@ -86,7 +78,6 @@ fn test_roundtrip_message_type_non_default() {
         timestamp: 0,
         message_type: MessageType::File,
         media_refs: vec![],
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -143,7 +134,6 @@ fn test_roundtrip_message_with_media_refs() {
                 url: "http://a.com/2".into(),
             },
         ],
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -152,45 +142,6 @@ fn test_roundtrip_message_with_media_refs() {
     assert_eq!(back.media_refs.len(), 2);
     assert_eq!(back.media_refs[0].key, "k1");
     assert_eq!(back.media_refs[1].url, "http://a.com/2");
-}
-
-// ---------------------------------------------------------------------------
-// QuotedMessage
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_deserialize_quoted_message_present() {
-    let mut json = make_minimal_json();
-    json["quoted_message"] = serde_json::json!("quoted text");
-    let msg: NormalizedMessage = serde_json::from_value(json).expect("deserialization failed");
-    assert_eq!(msg.quoted_message.as_deref(), Some("quoted text"));
-}
-
-#[test]
-fn test_deserialize_quoted_message_without_sender_id() {
-    let mut json = make_minimal_json();
-    json["quoted_message"] = serde_json::json!("orphan quote");
-    let msg: NormalizedMessage = serde_json::from_value(json).expect("deserialization failed");
-    assert_eq!(msg.quoted_message.as_deref(), Some("orphan quote"));
-}
-
-#[test]
-fn test_roundtrip_message_with_quoted() {
-    let msg = NormalizedMessage {
-        platform: "discord".into(),
-        sender_id: "s".into(),
-        peer_id: "p".into(),
-        content: "my reply".into(),
-        timestamp: 42,
-        message_type: MessageType::Text,
-        media_refs: vec![],
-        quoted_message: Some("original".into()),
-        thread_id: None,
-        account_id: String::new(),
-    };
-    let json = serde_json::to_string(&msg).unwrap();
-    let back: NormalizedMessage = serde_json::from_str(&json).unwrap();
-    assert_eq!(back.quoted_message.as_deref(), Some("original"));
 }
 
 // ---------------------------------------------------------------------------
@@ -210,7 +161,6 @@ fn test_roundtrip_all_new_fields_populated() {
             key: "img_key_001".into(),
             url: "https://cdn.feishu.cn/img.png".into(),
         }],
-        quoted_message: Some("check this out".into()),
         thread_id: Some("omt_123".into()),
         account_id: "tenant_999".into(),
     };
@@ -221,8 +171,6 @@ fn test_roundtrip_all_new_fields_populated() {
     assert_eq!(back.media_refs.len(), 1);
     assert_eq!(back.media_refs[0].key, "img_key_001");
     assert_eq!(back.media_refs[0].url, "https://cdn.feishu.cn/img.png");
-    let q = back.quoted_message.unwrap();
-    assert_eq!(q, "check this out");
     assert_eq!(back.thread_id.as_deref(), Some("omt_123"));
     assert_eq!(back.account_id, "tenant_999");
 }
@@ -244,7 +192,6 @@ fn test_backward_compat_old_json_without_new_fields() {
     let msg: NormalizedMessage = serde_json::from_value(json).expect("backward compat failed");
     assert_eq!(msg.message_type, MessageType::Text);
     assert!(msg.media_refs.is_empty());
-    assert!(msg.quoted_message.is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -261,7 +208,6 @@ fn test_normalized_message_debug_contains_key_fields() {
         timestamp: 0,
         message_type: MessageType::Text,
         media_refs: vec![],
-        quoted_message: None,
         thread_id: None,
         account_id: String::new(),
     };
@@ -287,7 +233,6 @@ fn test_normalized_message_clone() {
             key: "k".into(),
             url: "u".into(),
         }],
-        quoted_message: Some("q".into()),
         thread_id: Some("t".into()),
         account_id: "a".into(),
     };
@@ -295,5 +240,4 @@ fn test_normalized_message_clone() {
     assert_eq!(cloned.platform, msg.platform);
     assert_eq!(cloned.message_type, msg.message_type);
     assert_eq!(cloned.media_refs.len(), 1);
-    assert_eq!(cloned.quoted_message.as_deref(), Some("q"));
 }

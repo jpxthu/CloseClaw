@@ -168,8 +168,6 @@ pub struct InboundChainInput {
     pub message_type: MessageType,
     /// Media attachment references.
     pub media_refs: Vec<MediaRef>,
-    /// Quoted/replied-to message content, if present.
-    pub quoted_message: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
