@@ -19,6 +19,13 @@ pub struct FragmentContext {
 
 impl FragmentContext {
     /// Returns a [`FragmentContext`] with reasonable defaults for unit tests.
+    ///
+    /// `#[cfg(test)]` is intentionally omitted because it does not propagate
+    /// across crate boundaries — downstream crates (e.g. system_prompt) also
+    /// need this constructor in their own test suites. The `#[doc(hidden)]`
+    /// attribute keeps it out of generated docs to signal that this is a
+    /// test-only helper, not a public API.
+    #[doc(hidden)]
     pub fn test_default() -> Self {
         Self {
             agent_id: String::new(),
