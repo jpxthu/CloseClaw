@@ -51,3 +51,7 @@ pub enum ToolError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 }
+
+#[cfg(test)]
+#[path = "tool_types_tests.rs"]
+mod tests;
