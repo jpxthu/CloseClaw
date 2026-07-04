@@ -949,6 +949,8 @@ fn build_extra_metadata(input: &InboundChainInput) -> std::collections::HashMap<
 
 #[cfg(test)]
 pub mod inbound_chain_tests;
+#[cfg(test)]
+pub mod non_text_interception_tests;
 #[cfg(feature = "full-tests")]
 #[path = "priority_prompt_tests.rs"]
 pub mod priority_prompt_tests;
