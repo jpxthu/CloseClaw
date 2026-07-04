@@ -13,9 +13,6 @@ mod validation;
 
 // Re-export all config types from the local module.
 pub use config_types::*;
-// TODO: uncomment and adjust when all consumers are migrated.
-// For now, the local config_types::AgentConfig is the canonical export.
-// pub use closeclaw_common::agent_config::AgentConfig;
 pub use directory::AgentDirectoryProvider;
 pub(crate) use jsonc::strip_jsonc_comments;
 pub use provider::AgentsConfigProvider;
