@@ -46,11 +46,11 @@ async fn test_default_config_no_raw_log() {
         2,
         "default config should have 2 inbound processors"
     );
-    // Outbound: DslParser (10) = 1
+    // Outbound: VerbosityFilter (5) + DslParser (10) = 2
     assert_eq!(
         registry.outbound_len(),
-        1,
-        "default config should have 1 outbound processor (DslParser)"
+        2,
+        "default config should have 2 outbound processors (VerbosityFilter + DslParser)"
     );
 }
 
@@ -71,8 +71,8 @@ async fn test_config_with_raw_log_dir() {
     );
     assert_eq!(
         registry.outbound_len(),
-        1,
-        "config with raw_log_dir should have 1 outbound processor (DslParser)"
+        3,
+        "config with raw_log_dir should have 3 outbound processors (VerbosityFilter + DslParser + OutboundRawLogProcessor)"
     );
 }
 
@@ -139,7 +139,8 @@ async fn test_priority_sorting_inbound() {
     );
 }
 
-/// Verify that the outbound chain contains only DslParser.
+/// Verify that the outbound chain processes in priority order:
+/// VerbosityFilter (5) → DslParser (10).
 #[tokio::test]
 async fn test_priority_sorting_outbound() {
     let tmp = tempfile::tempdir().unwrap();
@@ -154,21 +155,49 @@ async fn test_priority_sorting_outbound() {
     };
     let result = registry.process_outbound(llm_output).await.unwrap();
 
-    // Outbound chain has only DslParser — plain text passes through unchanged
+    // VerbosityFilter (Full) + DslParser — plain text passes through unchanged
     assert_eq!(result.text_content(), Some("test output"));
     assert!(!result.content_blocks.is_empty());
 }
 
-/// Verify that VerbosityFilter is NOT in the outbound chain.
-/// Verbosity filtering is now a Gateway-level step (not in the chain).
+/// Verify that VerbosityFilter is in the outbound chain and filters
+/// Thinking blocks when verbosity is Normal.
 #[tokio::test]
-async fn test_outbound_chain_no_verbosity_filter() {
+async fn test_outbound_chain_verbosity_filter_normal() {
     let tmp = tempfile::tempdir().unwrap();
     let config = make_config(Some(tmp.path().to_path_buf()), DmScope::default());
     let registry = build_processor_registry(&config);
 
-    // Send blocks with Thinking content — if VerbosityFilter were in chain,
-    // Thinking blocks would be filtered. Since it's not, they pass through.
+    // Normal verbosity removes Thinking blocks
+    let mut metadata = std::collections::HashMap::new();
+    metadata.insert("verbosity_level".to_string(), "normal".to_string());
+    let llm_output = ProcessedMessage {
+        content_blocks: vec![
+            closeclaw_llm::types::ContentBlock::Thinking {
+                thinking: "internal reasoning".to_string(),
+                signature: None,
+            },
+            closeclaw_llm::types::ContentBlock::Text("Hello".to_string()),
+        ],
+        metadata,
+    };
+    let result = registry.process_outbound(llm_output).await.unwrap();
+
+    // VerbosityFilter removes Thinking blocks at Normal level
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(
+        &result.content_blocks[0],
+        closeclaw_llm::types::ContentBlock::Text(_)
+    ));
+}
+
+/// Verify that VerbosityFilter preserves all blocks at Full verbosity.
+#[tokio::test]
+async fn test_outbound_chain_verbosity_filter_full() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = make_config(Some(tmp.path().to_path_buf()), DmScope::default());
+    let registry = build_processor_registry(&config);
+
     let llm_output = ProcessedMessage {
         content_blocks: vec![
             closeclaw_llm::types::ContentBlock::Thinking {
@@ -181,7 +210,7 @@ async fn test_outbound_chain_no_verbosity_filter() {
     };
     let result = registry.process_outbound(llm_output).await.unwrap();
 
-    // Both blocks should pass through (no VerbosityFilter in chain)
+    // Full verbosity (default) preserves all blocks
     assert_eq!(result.content_blocks.len(), 2);
     assert!(matches!(
         &result.content_blocks[0],
@@ -193,19 +222,33 @@ async fn test_outbound_chain_no_verbosity_filter() {
     ));
 }
 
-/// Verify that OutboundRawLogProcessor is NOT in the outbound chain.
-/// Outbound logging is now a Gateway-level step (not in the chain).
+/// Verify that OutboundRawLogProcessor is in the outbound chain
+/// when raw_log_dir is configured.
 #[tokio::test]
-async fn test_outbound_chain_no_outbound_log_processor() {
+async fn test_outbound_chain_with_outbound_log_processor() {
     let tmp = tempfile::tempdir().unwrap();
     let config = make_config(Some(tmp.path().to_path_buf()), DmScope::default());
     let registry = build_processor_registry(&config);
 
-    // Even with raw_log_dir configured, outbound chain should only have DslParser
+    // With raw_log_dir: VerbosityFilter (5) + DslParser (10) + OutboundRawLogProcessor (20) = 3
     assert_eq!(
         registry.outbound_len(),
-        1,
-        "outbound chain should only contain DslParser, not OutboundRawLogProcessor"
+        3,
+        "outbound chain should contain VerbosityFilter + DslParser + OutboundRawLogProcessor"
+    );
+}
+
+/// Verify that OutboundRawLogProcessor is NOT registered when raw_log_dir is None.
+#[tokio::test]
+async fn test_outbound_chain_no_outbound_log_without_config() {
+    let config = make_config(None, DmScope::default());
+    let registry = build_processor_registry(&config);
+
+    // Without raw_log_dir: VerbosityFilter (5) + DslParser (10) = 2
+    assert_eq!(
+        registry.outbound_len(),
+        2,
+        "outbound chain should contain VerbosityFilter + DslParser (no OutboundRawLogProcessor)"
     );
 }
 

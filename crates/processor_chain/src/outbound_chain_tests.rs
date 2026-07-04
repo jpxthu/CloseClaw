@@ -1,10 +1,11 @@
 //! Step 1.3 — Integration tests for outbound processor chain.
 //!
-//! After Step 1.1/1.2, the outbound chain contains only DslParser.
-//! Verbosity filtering and outbound logging are Gateway-level steps.
+//! After Step 1.1/1.2, the outbound chain is:
+//!   VerbosityFilter (5) → DslParser (10) → [OutboundRawLogProcessor (20)]
 //!
 //! Covers:
-//! - DslParser-only outbound chain
+//! - VerbosityFilter + DslParser chain integration
+//! - DslParser-only outbound chain (unit isolation)
 //! - Config Loader: YAML deserialization for OutboundRawLog
 //! - DslParser integration with various content block types
 
@@ -61,6 +62,159 @@ fn build_dsl_only_outbound_chain() -> ProcessorRegistry {
     let mut registry = ProcessorRegistry::new();
     registry.register(Arc::new(DslParser));
     registry
+}
+
+/// Build the full outbound registry: VerbosityFilter + DslParser.
+/// Mirrors the chain produced by `build_processor_registry` for default config.
+fn build_full_outbound_chain() -> ProcessorRegistry {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(super::verbosity_filter::VerbosityFilter));
+    registry.register(Arc::new(DslParser));
+    registry
+}
+
+/// Build a metadata map with the given verbosity level.
+fn make_meta(verbosity: &str) -> std::collections::HashMap<String, String> {
+    let mut m = std::collections::HashMap::new();
+    m.insert("verbosity_level".to_string(), verbosity.to_string());
+    m
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VerbosityFilter + DslParser chain integration
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Full chain: Normal verbosity filters Thinking blocks, then DslParser processes remaining Text.
+#[tokio::test]
+async fn test_full_chain_normal_filters_thinking_then_parses_dsl() {
+    let registry = build_full_outbound_chain();
+    let blocks = vec![
+        thinking_block("internal reasoning"),
+        text_block("::button[label:OK;action:submit]"),
+    ];
+    let output = make_llm_output(blocks, make_meta("normal"));
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // VerbosityFilter removes Thinking at Normal level
+    // DslParser extracts DSL from remaining Text block
+    assert_eq!(result.content_blocks.len(), 1);
+    let dsl = result.metadata.get("dsl_result").unwrap();
+    assert!(dsl.contains("button"));
+}
+
+/// Full chain: Off verbosity keeps only Text, then DslParser processes it.
+#[tokio::test]
+async fn test_full_chain_off_keeps_only_text_then_parses_dsl() {
+    let registry = build_full_outbound_chain();
+    let blocks = vec![
+        thinking_block("rm"),
+        text_block("Hello"),
+        tool_use_block("search"),
+    ];
+    let output = make_llm_output(blocks, make_meta("off"));
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // Off keeps only Text; DslParser passes through plain Text
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Hello"));
+}
+
+/// Full chain: Full verbosity keeps all blocks, then DslParser passes through.
+#[tokio::test]
+async fn test_full_chain_full_keeps_all_then_parses_dsl() {
+    let registry = build_full_outbound_chain();
+    let blocks = vec![
+        text_block("Hello"),
+        thinking_block("reasoning"),
+        tool_use_block("search"),
+    ];
+    let output = make_llm_output(blocks, make_meta("full"));
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // Full keeps all blocks; DslParser passes through non-DSL Text
+    assert_eq!(result.content_blocks.len(), 3);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Hello"));
+    assert!(matches!(
+        &result.content_blocks[1],
+        ContentBlock::Thinking { .. }
+    ));
+    assert!(matches!(
+        &result.content_blocks[2],
+        ContentBlock::ToolUse { .. }
+    ));
+}
+
+/// Full chain: empty blocks — VerbosityFilter creates fallback, DslParser processes it.
+#[tokio::test]
+async fn test_full_chain_empty_blocks() {
+    let registry = build_full_outbound_chain();
+    let output = make_llm_output(vec![], make_meta("normal"));
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // Fallback creates a single Text block from content (empty)
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(_)));
+}
+
+/// Full chain: mixed blocks with DSL — Normal filters Thinking, DslParser extracts DSL.
+#[tokio::test]
+async fn test_full_chain_mixed_blocks_with_dsl() {
+    let registry = build_full_outbound_chain();
+    let blocks = vec![
+        thinking_block("step 1"),
+        text_block("Result here."),
+        text_block("::button[label:OK;action:ok]"),
+        tool_use_block("tool"),
+    ];
+    let output = make_llm_output(blocks, make_meta("normal"));
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // Normal: Thinking filtered; DslParser: first Text kept, second Text (DSL) stripped, ToolUse passed
+    assert_eq!(result.content_blocks.len(), 2);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Result here."));
+    assert!(matches!(
+        &result.content_blocks[1],
+        ContentBlock::ToolUse { .. }
+    ));
+    let dsl = result.metadata.get("dsl_result").unwrap();
+    assert!(dsl.contains("button"));
+}
+
+/// Full chain: missing verbosity_level in metadata defaults to Full.
+#[tokio::test]
+async fn test_full_chain_missing_verbosity_defaults_to_full() {
+    let registry = build_full_outbound_chain();
+    let blocks = vec![thinking_block("reasoning"), text_block("Hello")];
+    let output = make_llm_output(blocks, HashMap::new());
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // No verbosity_level → Full → all blocks kept
+    assert_eq!(result.content_blocks.len(), 2);
+    assert!(matches!(
+        &result.content_blocks[0],
+        ContentBlock::Thinking { .. }
+    ));
+    assert!(matches!(&result.content_blocks[1], ContentBlock::Text(_)));
+}
+
+/// Full chain: Normal verbosity with DSL in mixed text — verifies ordering.
+#[tokio::test]
+async fn test_full_chain_normal_ordering() {
+    let registry = build_full_outbound_chain();
+    let blocks = vec![
+        thinking_block("internal"),
+        text_block("::button[label:A;action:a]"),
+        thinking_block("internal2"),
+        text_block("Plain text"),
+    ];
+    let output = make_llm_output(blocks, make_meta("normal"));
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // Both Thinking blocks filtered; first Text (DSL-only) stripped; second Text kept
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Plain text"));
+    let dsl = result.metadata.get("dsl_result").unwrap();
+    assert!(dsl.contains("button"));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
