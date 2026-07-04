@@ -57,7 +57,7 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
         }
 
         Some(PromptFragment {
-            title: "## Available Skills".to_string(),
+            section_title: "## Available Skills".to_string(),
             section_type: SectionType::Skills,
             content: listing,
         })
@@ -133,7 +133,7 @@ mod tests {
         assert!(fragment.is_some());
         let frag = fragment.unwrap();
         assert_eq!(frag.section_type, SectionType::Skills);
-        assert_eq!(frag.title, "## Available Skills");
+        assert_eq!(frag.section_title, "## Available Skills");
         assert!(frag.content.contains("test-skill"));
     }
 
