@@ -1,6 +1,7 @@
 //! Tests for `FragmentContext`, `PromptFragment`, and `SectionType`.
 
 use super::*;
+use crate::bootstrap::BootstrapMode;
 
 // ---------------------------------------------------------------------------
 // FragmentContext
