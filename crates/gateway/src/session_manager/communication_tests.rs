@@ -28,8 +28,8 @@ fn test_resolved_config(
     id: &str,
     workspace: Option<PathBuf>,
 ) -> closeclaw_config::agents::ResolvedAgentConfig {
-    use closeclaw_common::agent_lookup::config::SubagentsConfig;
     use closeclaw_config::agents::ConfigSource;
+    use closeclaw_config::agents::SubagentsConfig;
 
     closeclaw_config::agents::ResolvedAgentConfig {
         id: id.to_string(),

@@ -11,7 +11,7 @@ use tokio::net::{UnixListener, UnixStream};
 use crate::admin::rpc::protocol::{AdminRequest, AdminResponse, AgentInfo, SkillInfo};
 use closeclaw_agent::config::AgentConfig;
 use closeclaw_agent::registry::AgentRegistry;
-use closeclaw_common::agent_config::ModelSpec;
+use closeclaw_config::agents::ModelSpec;
 use closeclaw_config::manager::write_atomically;
 use closeclaw_config::ConfigManager;
 use closeclaw_skills::DiskSkillRegistry;

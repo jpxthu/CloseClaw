@@ -202,14 +202,14 @@ fn convert_to_llm_messages(snapshots: &[Snapshot]) -> Vec<closeclaw_llm::session
 /// Deserialize the memory config JSON into a strongly-typed struct.
 fn deserialize_memory_config(
     memory_config: &serde_json::Value,
-) -> Option<closeclaw_common::agent_config::MemoryConfig> {
+) -> Option<closeclaw_config::agents::MemoryConfig> {
     serde_json::from_value(memory_config.clone()).ok()
 }
 
 /// Build the active-searcher config from model and memory config.
 fn build_searcher_config(
     model: &str,
-    mem_cfg: &Option<closeclaw_common::agent_config::MemoryConfig>,
+    mem_cfg: &Option<closeclaw_config::agents::MemoryConfig>,
 ) -> crate::memory::active_searcher::ActiveSearcherConfig {
     use crate::memory::active_searcher::ActiveSearcherConfig;
     ActiveSearcherConfig::from_agent_config(Some(model), mem_cfg.as_ref())

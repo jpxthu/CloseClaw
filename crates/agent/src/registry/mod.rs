@@ -4,8 +4,8 @@
 //! populated once at startup (or reloaded at runtime) and exposes read-only
 //! queries. All runtime state (processes, lifecycle) lives elsewhere.
 
-use closeclaw_common::agent_config::ModelSpec;
 use closeclaw_common::BootstrapMode;
+use closeclaw_config::agents::ModelSpec;
 use closeclaw_config::agents::ResolvedAgentConfig;
 use dashmap::DashMap;
 use std::sync::Arc;
@@ -87,7 +87,7 @@ pub fn create_registry() -> SharedAgentRegistry {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[async_trait::async_trait]
-impl closeclaw_common::agent_lookup::AgentLookup for AgentRegistry {
+impl crate::lookup::AgentLookup for AgentRegistry {
     async fn get_agent_model(&self, agent_id: &str) -> Option<ModelSpec> {
         self.get(agent_id).and_then(|cfg| cfg.model.clone())
     }
@@ -105,7 +105,7 @@ impl closeclaw_common::agent_lookup::AgentLookup for AgentRegistry {
 // AgentSkillsQuery — bridge to closeclaw_common trait
 // ═══════════════════════════════════════════════════════════════════════════
 
-impl closeclaw_common::AgentSkillsQuery for AgentRegistry {
+impl crate::skills_query::AgentSkillsQuery for AgentRegistry {
     fn get_agent_skills(&self, agent_id: &str) -> Option<Vec<String>> {
         self.get(agent_id).and_then(|cfg| cfg.effective_skills())
     }
@@ -116,11 +116,11 @@ impl closeclaw_common::AgentSkillsQuery for AgentRegistry {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[async_trait::async_trait]
-impl closeclaw_common::AgentToolsConfigQuery for AgentRegistry {
+impl crate::tools_config_query::AgentToolsConfigQuery for AgentRegistry {
     async fn get_agent_tools_config(
         &self,
         agent_id: &str,
-    ) -> Option<closeclaw_common::AgentToolsConfig> {
+    ) -> Option<crate::tools_config_query::AgentToolsConfig> {
         self.get(agent_id).map(|cfg| {
             let tools = if cfg.tools.is_empty() || cfg.tools == ["*"] {
                 None
@@ -132,7 +132,7 @@ impl closeclaw_common::AgentToolsConfigQuery for AgentRegistry {
             } else {
                 Some(cfg.disallowed_tools.clone())
             };
-            closeclaw_common::AgentToolsConfig {
+            crate::tools_config_query::AgentToolsConfig {
                 tools,
                 disallowed_tools,
             }
@@ -145,13 +145,10 @@ impl closeclaw_common::AgentToolsConfigQuery for AgentRegistry {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[async_trait::async_trait]
-impl closeclaw_common::AgentConfigLookup for AgentRegistry {
-    async fn lookup_agent_config(
-        &self,
-        agent_id: &str,
-    ) -> Option<closeclaw_common::AgentConfigInfo> {
+impl crate::lookup::AgentConfigLookup for AgentRegistry {
+    async fn lookup_agent_config(&self, agent_id: &str) -> Option<crate::lookup::AgentConfigInfo> {
         self.get(agent_id)
-            .map(|cfg| closeclaw_common::AgentConfigInfo {
+            .map(|cfg| crate::lookup::AgentConfigInfo {
                 subagents_model: cfg.subagents.model.clone(),
             })
     }

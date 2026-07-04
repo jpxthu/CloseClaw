@@ -9,6 +9,7 @@ license = "MIT"
 # Internal crates
 closeclaw-common = { path = "../common" }
 closeclaw-config = { path = "../config" }
+closeclaw-agent = { path = "../agent" }
 closeclaw-session = { path = "../session" }
 closeclaw-llm = { path = "../llm" }
 closeclaw-gateway = { path = "../gateway" }

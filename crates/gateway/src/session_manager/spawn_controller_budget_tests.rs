@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use closeclaw_common::agent_config::{ModelSpec, SubagentsConfig};
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;

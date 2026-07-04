@@ -685,6 +685,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "closeclaw-common",
+ "closeclaw-config",
  "closeclaw-llm",
  "closeclaw-session",
  "rusqlite",
@@ -776,6 +777,7 @@ name = "closeclaw-skills"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "closeclaw-agent",
  "closeclaw-common",
  "closeclaw-config",
  "closeclaw-gateway",
@@ -858,6 +860,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "chrono",
+ "closeclaw-agent",
  "closeclaw-common",
  "closeclaw-config",
  "closeclaw-gateway",

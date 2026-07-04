@@ -1,7 +1,7 @@
 //! Permission skill - allows agents to query their own permissions
 use crate::registry::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
-use closeclaw_common::agent_config::AgentPermissions;
+use closeclaw_config::agents::AgentPermissions;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::engine::engine_types::{PermissionRequest, PermissionRequestBody};
 use closeclaw_permission::PermissionResponse;

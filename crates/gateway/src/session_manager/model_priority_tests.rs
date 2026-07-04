@@ -10,7 +10,7 @@
 use super::spawn::SpawnMode;
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
-use closeclaw_common::agent_lookup::config::SubagentsConfig;
+use closeclaw_config::agents::SubagentsConfig;
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_session::bootstrap::BootstrapMode;
 use serial_test::serial;
