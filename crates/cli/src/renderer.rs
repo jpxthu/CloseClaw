@@ -816,11 +816,13 @@ impl TerminalRenderer {
     }
 
     /// Render a code block with ANSI line numbers and optional syntax highlighting.
+    #[cfg(test)]
     pub(crate) fn render_code_block(&self, language: &str, code: &str) -> String {
         render_code_block_ansi(language, code, self.ansi)
     }
 
     /// Render markdown text with ANSI styling.
+    #[cfg(test)]
     pub(crate) fn render_markdown(&self, text: &str) -> String {
         let mut out = String::new();
         for line in text.lines() {
@@ -831,6 +833,7 @@ impl TerminalRenderer {
     }
 
     /// Render a horizontal rule.
+    #[cfg(test)]
     pub(crate) fn render_hr(&self) -> String {
         if self.ansi {
             format!("{}───{}", DIM, RESET)

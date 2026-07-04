@@ -31,7 +31,11 @@ pub mod task_manager;
 pub mod test_helpers;
 pub mod tool_registry;
 pub mod tool_session;
+#[cfg(test)]
+pub mod tool_session_tests;
 pub mod tool_trait;
+#[cfg(test)]
+pub mod tool_trait_tests;
 pub mod verbosity;
 
 pub use agent_config_lookup::{AgentConfigInfo, AgentConfigLookup};
