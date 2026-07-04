@@ -18,18 +18,10 @@ use crate::ConfigProvider;
 // ---------------------------------------------------------------------------
 
 /// Root accounts configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AccountsConfigData {
     #[serde(default)]
     pub accounts: Vec<IdentityMapping>,
-}
-
-impl Default for AccountsConfigData {
-    fn default() -> Self {
-        Self {
-            accounts: Vec::new(),
-        }
-    }
 }
 
 impl AccountsConfigData {

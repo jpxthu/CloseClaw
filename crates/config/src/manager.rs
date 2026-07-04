@@ -159,6 +159,7 @@ pub enum ConfigSection {
     System,
     Session,
     Credentials,
+    Accounts,
 }
 
 impl ConfigSection {
@@ -172,6 +173,7 @@ impl ConfigSection {
             ConfigSection::System => "system.json",
             ConfigSection::Session => "session.json",
             ConfigSection::Credentials => "credentials/",
+            ConfigSection::Accounts => "accounts.json",
         }
     }
 
@@ -299,6 +301,7 @@ impl ConfigManager {
             ConfigSection::Gateway,
             ConfigSection::Plugins,
             ConfigSection::System,
+            ConfigSection::Accounts,
         ];
 
         let mut sections = self
