@@ -474,6 +474,38 @@ impl SessionManager {
         Ok(saved)
     }
 
+    /// Persist the checkpoint after compaction to protect plan_state.
+    ///
+    /// Compaction replaces in-memory messages but does not modify the
+    /// checkpoint directly. This method ensures the checkpoint (including
+    /// plan_state) is written to durable storage immediately after
+    /// compaction, so a subsequent crash does not lose the plan state.
+    ///
+    /// Follows the BootstrapProtection pattern: save a copy of the
+    /// checkpoint before compaction is applied (the caller is responsible
+    /// for calling this after `apply_compact_result`).
+    pub async fn save_checkpoint_after_compact(&self, session_id: &str) {
+        let storage = {
+            let guard = self.storage.read().await;
+            match guard.as_ref() {
+                Some(s) => Arc::clone(s),
+                None => return,
+            }
+        };
+        let mut cp = match storage.load_checkpoint(session_id).await {
+            Ok(Some(cp)) => cp,
+            _ => return,
+        };
+        cp.touch();
+        if let Err(e) = storage.save_checkpoint(&cp).await {
+            warn!(
+                session_id = %session_id,
+                "failed to persist checkpoint after compaction: {}",
+                e
+            );
+        }
+    }
+
     /// Get the ConversationSession for a given session_id.
     /// Returns None if the session does not exist.
     pub async fn get_conversation_session(

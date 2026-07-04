@@ -643,4 +643,166 @@ mod tests {
         storage.sync().await.unwrap();
         storage.close().await.unwrap();
     }
+
+    // ===================================================================
+    // plan_state tests
+    // ===================================================================
+
+    #[test]
+    fn test_checkpoint_plan_state_default_none() {
+        let cp = SessionCheckpoint::new("s-plan-default".into());
+        assert!(cp.plan_state.is_none());
+    }
+
+    #[test]
+    fn test_checkpoint_with_plan_state_builder() {
+        use closeclaw_common::{PlanPhase, PlanState};
+
+        let plan = PlanState {
+            phase: PlanPhase::Design,
+            pending_steps: vec!["step1".into(), "step2".into()],
+            plan_file_path: "/tmp/plan.md".into(),
+        };
+        let cp = SessionCheckpoint::new("s-plan-builder".into()).with_plan_state(plan.clone());
+        let ps = cp.plan_state.unwrap();
+        assert_eq!(ps.phase, PlanPhase::Design);
+        assert_eq!(ps.pending_steps, vec!["step1", "step2"]);
+        assert_eq!(ps.plan_file_path, "/tmp/plan.md");
+    }
+
+    #[test]
+    fn test_checkpoint_plan_state_roundtrip() {
+        use closeclaw_common::{PlanPhase, PlanState};
+
+        let plan = PlanState {
+            phase: PlanPhase::Review,
+            pending_steps: vec!["a".into()],
+            plan_file_path: "/p.md".into(),
+        };
+        let cp = SessionCheckpoint::new("s-plan-rt".into()).with_plan_state(plan);
+        let json = serde_json::to_string(&cp).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
+        let ps = parsed.plan_state.unwrap();
+        assert_eq!(ps.phase, PlanPhase::Review);
+        assert_eq!(ps.pending_steps, vec!["a"]);
+        assert_eq!(ps.plan_file_path, "/p.md");
+    }
+
+    #[test]
+    fn test_checkpoint_plan_state_none_roundtrip() {
+        let cp = SessionCheckpoint::new("s-plan-none".into());
+        assert!(cp.plan_state.is_none());
+        let json = serde_json::to_string(&cp).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
+        assert!(parsed.plan_state.is_none());
+    }
+
+    #[test]
+    fn test_checkpoint_plan_state_missing_json_defaults_none() {
+        // Simulate old JSON without plan_state field
+        let cp = SessionCheckpoint::new("s-old-json-plan".into()).with_message_count(5);
+        let mut json_value: serde_json::Value = serde_json::to_value(&cp).unwrap();
+        json_value.as_object_mut().unwrap().remove("plan_state");
+        let json_str = serde_json::to_string(&json_value).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json_str).unwrap();
+        assert!(
+            parsed.plan_state.is_none(),
+            "old data without plan_state should default to None"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_manager_save_load_with_plan_state() {
+        use closeclaw_common::{PlanPhase, PlanState};
+
+        let storage = Arc::new(MemoryStorage::new());
+        let manager = CheckpointManager::new(storage);
+
+        let plan = PlanState {
+            phase: PlanPhase::Interview,
+            pending_steps: vec!["todo1".into()],
+            plan_file_path: "/workspace/plan.md".into(),
+        };
+        let checkpoint = SessionCheckpoint::new("session-plan".into()).with_plan_state(plan);
+
+        manager.save_sync(checkpoint).await.unwrap();
+
+        let loaded = manager.load("session-plan").await.unwrap();
+        assert!(loaded.is_some());
+        let ps = loaded.unwrap().plan_state.unwrap();
+        assert_eq!(ps.phase, PlanPhase::Interview);
+        assert_eq!(ps.pending_steps, vec!["todo1"]);
+        assert_eq!(ps.plan_file_path, "/workspace/plan.md");
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_plan_state_survives_compaction_simulation() {
+        use crate::storage::memory::MemoryStorage;
+        use closeclaw_common::{PlanPhase, PlanState};
+
+        // Simulate compaction protection flow:
+        // 1. Save checkpoint with plan_state
+        // 2. Load it (simulating pre-compact state)
+        // 3. Re-save with touch() (simulating save_checkpoint_after_compact)
+        // 4. Reload and verify plan_state unchanged
+        let storage = MemoryStorage::new();
+        let plan = PlanState {
+            phase: PlanPhase::Design,
+            pending_steps: vec!["s1".into(), "s2".into()],
+            plan_file_path: "/plan.md".into(),
+        };
+        let cp = SessionCheckpoint::new("compact-test".into()).with_plan_state(plan);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        // Simulate compaction: load -> touch -> save
+        let mut loaded = storage
+            .load_checkpoint("compact-test")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.plan_state.as_ref().unwrap().phase, PlanPhase::Design);
+        loaded.touch();
+        storage.save_checkpoint(&loaded).await.unwrap();
+
+        // Verify plan_state survived
+        let after = storage
+            .load_checkpoint("compact-test")
+            .await
+            .unwrap()
+            .unwrap();
+        let ps = after.plan_state.unwrap();
+        assert_eq!(ps.phase, PlanPhase::Design);
+        assert_eq!(ps.pending_steps, vec!["s1", "s2"]);
+        assert_eq!(ps.plan_file_path, "/plan.md");
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_plan_state_none_compaction_works() {
+        use crate::storage::memory::MemoryStorage;
+
+        let storage = MemoryStorage::new();
+        let cp = SessionCheckpoint::new("compact-none-test".into());
+        assert!(cp.plan_state.is_none());
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        // Simulate compaction: load -> touch -> save
+        let mut loaded = storage
+            .load_checkpoint("compact-none-test")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(loaded.plan_state.is_none());
+        loaded.touch();
+        storage.save_checkpoint(&loaded).await.unwrap();
+
+        let after = storage
+            .load_checkpoint("compact-none-test")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            after.plan_state.is_none(),
+            "plan_state should remain None after compaction"
+        );
+    }
 }

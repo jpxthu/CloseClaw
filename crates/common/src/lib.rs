@@ -14,6 +14,9 @@ pub mod im_plugin;
 #[cfg(test)]
 pub mod im_plugin_tests;
 pub mod middleware;
+pub mod plan_state;
+#[cfg(test)]
+pub mod plan_state_tests;
 pub mod processor;
 #[cfg(test)]
 pub mod processor_tests;
@@ -57,6 +60,7 @@ pub use im_plugin::{
     RenderedOutput, StreamingOutput,
 };
 pub use middleware::{MiddlewareError, OutboundMiddleware};
+pub use plan_state::{PlanPhase, PlanState};
 pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
     ProcessedMessage, ProcessorChain, StreamEvent, UnifiedResponse, UnifiedUsage,

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::warn;
 
-pub use closeclaw_common::{AgentRole, PendingMessage, ReasoningLevel};
+pub use closeclaw_common::{AgentRole, PendingMessage, PlanState, ReasoningLevel};
 
 /// Session Checkpoint — 用于持久化恢复的核心数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,6 +126,11 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 Full）。
     #[serde(default)]
     pub verbosity_level: closeclaw_common::VerbosityLevel,
+    /// Plan Mode 状态（阶段、待办步骤、plan 文件路径）
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
+    #[serde(default)]
+    pub plan_state: Option<PlanState>,
 }
 
 impl SessionCheckpoint {
@@ -162,6 +167,7 @@ impl SessionCheckpoint {
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
+            plan_state: None,
         }
     }
 
@@ -296,6 +302,11 @@ impl SessionCheckpoint {
     /// Update the verbosity level
     pub fn with_verbosity_level(mut self, level: closeclaw_common::VerbosityLevel) -> Self {
         self.verbosity_level = level;
+        self
+    }
+    /// Update the plan state
+    pub fn with_plan_state(mut self, state: PlanState) -> Self {
+        self.plan_state = Some(state);
         self
     }
     /// Touch the updated_at timestamp
