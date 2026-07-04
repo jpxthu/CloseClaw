@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use crate::slash_executor::SlashResultExecutor;
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::slash_router::{
     ReplyAction, SideEffectContext, SlashContext, SlashEffectExecutor, SlashHandler, SlashRouter,

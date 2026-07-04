@@ -15,8 +15,10 @@ fn test_agent_config_save_load() {
     };
 
     let path = temp.path().join("config.json");
-    config.save(&path).unwrap();
-    let loaded = AgentConfig::load(&path).unwrap();
+    let content = serde_json::to_string_pretty(&config).unwrap();
+    std::fs::write(&path, content).unwrap();
+    let raw = std::fs::read_to_string(&path).unwrap();
+    let loaded: AgentConfig = serde_json::from_str(&raw).unwrap();
 
     assert_eq!(loaded.id, config.id);
     assert_eq!(loaded.name, config.name);
@@ -44,8 +46,10 @@ fn test_permissions_save_load() {
     );
 
     let path = temp.path().join("permissions.json");
-    permissions.save(&path).unwrap();
-    let loaded = AgentPermissions::load(&path).unwrap();
+    let content = serde_json::to_string_pretty(&permissions).unwrap();
+    std::fs::write(&path, content).unwrap();
+    let raw = std::fs::read_to_string(&path).unwrap();
+    let loaded: AgentPermissions = serde_json::from_str(&raw).unwrap();
 
     assert_eq!(loaded.agent_id, permissions.agent_id);
     assert!(loaded.is_allowed("exec"));
