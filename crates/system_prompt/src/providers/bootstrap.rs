@@ -80,7 +80,7 @@ impl PromptFragmentProvider for BootstrapFragmentProvider {
             .join("\n\n");
 
         Some(PromptFragment {
-            title: String::new(),
+            section_title: String::new(),
             section_type: SectionType::Bootstrap,
             content,
         })
@@ -229,7 +229,7 @@ mod tests {
             ..Default::default()
         };
         let fragment = provider.generate(&ctx).await.unwrap();
-        assert!(fragment.title.is_empty());
+        assert!(fragment.section_title.is_empty());
         assert_eq!(fragment.section_type, SectionType::Bootstrap);
         assert!(fragment.content.starts_with("## AGENTS.md\n"));
         assert!(fragment.content.contains("# Agent Config\nHello"));

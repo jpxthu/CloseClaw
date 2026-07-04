@@ -25,7 +25,7 @@ impl MockProvider {
             name: name.to_string(),
             priority,
             fragment: Some(PromptFragment {
-                title: format!("## {}", name),
+                section_title: format!("## {}", name),
                 section_type: SectionType::Bootstrap,
                 content: content.to_string(),
             }),
@@ -281,7 +281,7 @@ async fn build_from_mocks(mut providers: Vec<Box<dyn PromptFragmentProvider>>) -
         }
 
         if let Some(fragment) = provider.generate(&FragmentContext::default()).await {
-            let rendered = format!("{}\n{}\n", fragment.title, fragment.content);
+            let rendered = format!("{}\n{}\n", fragment.section_title, fragment.content);
             if let Some(key) = provider.cache_key(&FragmentContext::default()) {
                 put_cached_section(&key, rendered.clone(), None);
             }

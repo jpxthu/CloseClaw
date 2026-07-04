@@ -96,11 +96,11 @@ fn test_fragment_context_debug() {
 #[test]
 fn test_prompt_fragment_fields() {
     let frag = PromptFragment {
-        title: "## Section".to_string(),
+        section_title: "## Section".to_string(),
         section_type: SectionType::Tools,
         content: "content here".to_string(),
     };
-    assert_eq!(frag.title, "## Section");
+    assert_eq!(frag.section_title, "## Section");
     assert_eq!(frag.section_type, SectionType::Tools);
     assert_eq!(frag.content, "content here");
 }
@@ -108,12 +108,12 @@ fn test_prompt_fragment_fields() {
 #[test]
 fn test_prompt_fragment_clone() {
     let frag = PromptFragment {
-        title: "## Clone".to_string(),
+        section_title: "## Clone".to_string(),
         section_type: SectionType::Memory,
         content: "remember".to_string(),
     };
     let cloned = frag.clone();
-    assert_eq!(frag.title, cloned.title);
+    assert_eq!(frag.section_title, cloned.section_title);
     assert_eq!(frag.section_type, cloned.section_type);
     assert_eq!(frag.content, cloned.content);
 }
@@ -121,7 +121,7 @@ fn test_prompt_fragment_clone() {
 #[test]
 fn test_prompt_fragment_debug() {
     let frag = PromptFragment {
-        title: "## Debug".to_string(),
+        section_title: "## Debug".to_string(),
         section_type: SectionType::Bootstrap,
         content: "debug content".to_string(),
     };

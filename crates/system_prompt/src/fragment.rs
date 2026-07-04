@@ -38,7 +38,7 @@ pub enum SectionType {
 #[derive(Debug, Clone)]
 pub struct PromptFragment {
     /// Section title, e.g. `"## AGENTS.md"` or `"## Available Skills"`.
-    pub title: String,
+    pub section_title: String,
     /// Classification of the section content.
     pub section_type: SectionType,
     /// Rendered text content of the section.

@@ -83,7 +83,7 @@ impl PromptFragmentProvider for ToolsFragmentProvider {
         }
 
         Some(PromptFragment {
-            title: "## Tools".to_string(),
+            section_title: "## Tools".to_string(),
             section_type: SectionType::Tools,
             content,
         })

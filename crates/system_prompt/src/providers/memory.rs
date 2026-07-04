@@ -48,7 +48,7 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
         }
 
         Some(PromptFragment {
-            title: "## Memory".to_string(),
+            section_title: "## Memory".to_string(),
             section_type: SectionType::Memory,
             content,
         })
@@ -125,7 +125,7 @@ mod tests {
         let fragment = provider.generate(&ctx).await;
         assert!(fragment.is_some());
         let frag = fragment.unwrap();
-        assert_eq!(frag.title, "## Memory");
+        assert_eq!(frag.section_title, "## Memory");
         assert_eq!(frag.section_type, SectionType::Memory);
         assert_eq!(frag.content, "Remember X and Y");
     }

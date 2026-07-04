@@ -99,10 +99,10 @@ impl PromptBuilder {
             }
 
             if let Some(fragment) = provider.generate(ctx).await {
-                let rendered = if fragment.title.is_empty() {
+                let rendered = if fragment.section_title.is_empty() {
                     format!("{}\n", fragment.content)
                 } else {
-                    format!("{}\n{}\n", fragment.title, fragment.content)
+                    format!("{}\n{}\n", fragment.section_title, fragment.content)
                 };
                 // Cache the rendered fragment.
                 if let Some(key) = provider.cache_key(ctx) {
