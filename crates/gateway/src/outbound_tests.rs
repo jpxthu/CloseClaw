@@ -261,39 +261,37 @@ fn test_batch_off_keeps_only_text() {
 // Gateway-level three-step outbound flow tests
 // ===========================================================================
 // These tests verify that the outbound pipeline correctly executes:
-//   Step 1: Verbosity filtering (filter_by_verbosity)
-//   Step 2: Processor Chain (DslParser only)
-//   Step 3: Outbound log (Gateway layer, not tested here)
+//   Step 1: VerbosityFilter (in-chain, priority 5)
+//   Step 2: DslParser (in-chain, priority 10)
 //
-// Since filter_by_verbosity is a pure function and the chain only contains
-// DslParser, we test the combined flow by composing the two steps.
+// Since VerbosityFilter is now part of the processor chain, we test the
+// combined flow by using a registry that includes both processors.
 
 use closeclaw_common::processor::ProcessedMessage;
 
-/// Build a DslParser-only outbound registry for three-step flow tests.
-fn build_dsl_registry() -> closeclaw_processor_chain::ProcessorRegistry {
+/// Build an outbound registry with VerbosityFilter + DslParser.
+/// Mirrors the chain produced by `build_processor_registry` for default config.
+fn build_full_outbound_chain() -> closeclaw_processor_chain::ProcessorRegistry {
     let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
+    registry.register(Arc::new(
+        closeclaw_processor_chain::verbosity_filter::VerbosityFilter,
+    ));
     registry.register(Arc::new(closeclaw_processor_chain::DslParser));
     registry
 }
 
-/// Simulate the three-step outbound pipeline:
-/// 1. Verbosity filter → 2. DslParser chain → 3. (log omitted in unit test)
+/// Simulate the outbound pipeline: VerbosityFilter → DslParser chain.
 fn simulate_outbound_pipeline(
     blocks: Vec<ContentBlock>,
     verbosity: VerbosityLevel,
 ) -> ProcessedMessage {
-    // Step 1: Verbosity filter
-    let filtered = filter_by_verbosity(blocks, verbosity);
-
-    // Step 2: Processor chain (DslParser)
     let mut meta = std::collections::HashMap::new();
     meta.insert("verbosity_level".to_string(), verbosity.to_string());
     let input = ProcessedMessage {
-        content_blocks: filtered,
+        content_blocks: blocks,
         metadata: meta,
     };
-    let registry = build_dsl_registry();
+    let registry = build_full_outbound_chain();
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(registry.process_outbound(input)).unwrap()
 }
@@ -310,8 +308,8 @@ fn test_three_step_normal_filters_thinking_then_parses_dsl() {
 
     let result = simulate_outbound_pipeline(blocks, VerbosityLevel::Normal);
 
-    // Step 1: Normal filters Thinking blocks
-    // Step 2: DslParser extracts DSL from remaining Text block
+    // VerbosityFilter (in-chain) filters Thinking blocks at Normal level
+    // DslParser (in-chain) extracts DSL from remaining Text block
     // DslParser fallback keeps the original content when all blocks are stripped
     assert_eq!(
         result.content_blocks.len(),
@@ -339,8 +337,8 @@ fn test_three_step_off_keeps_only_text_then_parses_dsl() {
 
     let result = simulate_outbound_pipeline(blocks, VerbosityLevel::Off);
 
-    // Step 1: Off keeps only Text
-    // Step 2: DslParser processes Text
+    // VerbosityFilter (in-chain) keeps only Text at Off level
+    // DslParser (in-chain) processes Text
     assert_eq!(result.content_blocks.len(), 1);
     assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Hello"));
 }
@@ -362,8 +360,8 @@ fn test_three_step_full_keeps_all_then_parses_dsl() {
 
     let result = simulate_outbound_pipeline(blocks, VerbosityLevel::Full);
 
-    // Step 1: Full keeps all blocks
-    // Step 2: DslParser passes through non-Text blocks, Text passes unchanged
+    // VerbosityFilter (in-chain) keeps all blocks at Full level
+    // DslParser (in-chain) passes through non-Text blocks, Text passes unchanged
     assert_eq!(result.content_blocks.len(), 3);
     assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Hello"));
     assert!(matches!(
@@ -405,8 +403,8 @@ fn test_three_step_mixed_blocks_with_dsl() {
 
     let result = simulate_outbound_pipeline(blocks, VerbosityLevel::Normal);
 
-    // Normal: Thinking filtered
-    // DslParser: first Text kept, second Text (DSL-only) stripped, ToolUse passed
+    // VerbosityFilter (in-chain) filters Thinking at Normal level
+    // DslParser (in-chain): first Text kept, second Text (DSL-only) stripped, ToolUse passed
     assert_eq!(result.content_blocks.len(), 2);
     assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Result here."));
     assert!(matches!(
