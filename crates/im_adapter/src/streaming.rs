@@ -16,14 +16,7 @@ use closeclaw_common::processor::{ContentBlock, ContentBlockType, ContentDelta, 
 /// Default threshold (in characters) for forcing buffer emission.
 const LINE_THRESHOLD: usize = 100;
 
-/// Incremental output produced by [`StreamingRenderer`] for a batch of events.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct StreamingOutput {
-    /// Completed text lines emitted by the line buffer.
-    pub text_messages: Vec<String>,
-    /// Non-Text content blocks completed in this batch.
-    pub render_blocks: Vec<ContentBlock>,
-}
+pub use closeclaw_common::im_plugin::StreamingOutput;
 
 /// Line buffer for incremental text rendering.
 ///

@@ -2,25 +2,23 @@
 //!
 //! Tests cover:
 //! - Default `render()` pipeline: Text → `parse_content_segments` → hooks
-//! - Platform-specific hook overrides (Feishu)
 //! - Mock plugin verifying plain-text fallback path
 //! - Edge cases: empty blocks, single/multi blocks, unclosed code fences,
 //!   no language annotation
-//! - IMPlugin streaming default methods
 //!
 //! Note: TerminalPlugin tests live in the main crate (src/im_adapter/plugin_tests.rs)
 //! since TerminalPlugin is defined there.
+//! Streaming tests live in streaming_tests.rs since the streaming renderer
+//! is now tested directly via the StreamingRenderer trait.
 
 #[cfg(test)]
 mod tests {
     use crate::code_block::{parse_content_segments, ContentSegment};
     use crate::platforms::feishu::{FeishuAdapter, FeishuPlugin};
     use crate::plugin::{IMPlugin, RenderedOutput};
-    use crate::streaming::DefaultStreamingRenderer;
-    use crate::AdapterError;
     use async_trait::async_trait;
-    use closeclaw_common::processor::{ContentBlock, ContentDelta, StreamEvent};
-    use closeclaw_common::NormalizedMessage;
+    use closeclaw_common::processor::ContentBlock;
+    use closeclaw_common::{AdapterError, NormalizedMessage};
     use std::sync::Arc;
 
     // =========================================================================
@@ -40,47 +38,6 @@ mod tests {
             _payload: &[u8],
         ) -> Result<Option<NormalizedMessage>, AdapterError> {
             Ok(None)
-        }
-
-        async fn send(
-            &self,
-            _output: &RenderedOutput,
-            _peer_id: &str,
-            _thread_id: Option<&str>,
-        ) -> Result<(), AdapterError> {
-            Ok(())
-        }
-    }
-
-    // =========================================================================
-    // Mock plugin — overrides all hooks for custom behavior
-    // =========================================================================
-
-    struct CustomMockPlugin;
-
-    #[async_trait]
-    impl IMPlugin for CustomMockPlugin {
-        fn platform(&self) -> &str {
-            "custom-mock"
-        }
-
-        async fn parse_inbound(
-            &self,
-            _payload: &[u8],
-        ) -> Result<Option<NormalizedMessage>, AdapterError> {
-            Ok(None)
-        }
-
-        fn render_code_block(&self, language: &str, code: &str) -> String {
-            format!("[CUSTOM:lang={},len={}]", language, code.len())
-        }
-
-        fn render_markdown(&self, text: &str) -> String {
-            format!("<<{}>>", text)
-        }
-
-        fn render_hr(&self) -> String {
-            "======".to_string()
         }
 
         async fn send(
@@ -219,62 +176,6 @@ mod tests {
         let output = plugin.render(&blocks, None);
         assert_eq!(output.msg_type, "text");
         assert!(output.payload.is_string());
-    }
-
-    // =========================================================================
-    // Custom hook overrides test
-    // =========================================================================
-
-    #[test]
-    fn test_custom_hooks_code_block() {
-        let plugin = CustomMockPlugin;
-        let text = "```rust\nlet x = 1;\n```";
-        let blocks = vec![ContentBlock::Text(text.into())];
-        let output = plugin.render(&blocks, None);
-        let result = output.payload.as_str().unwrap();
-        assert!(result.contains("[CUSTOM:lang=rust,len=10]"));
-    }
-
-    #[test]
-    fn test_custom_hooks_code_block_no_language() {
-        let plugin = CustomMockPlugin;
-        let text = "```\nhello\n```";
-        let blocks = vec![ContentBlock::Text(text.into())];
-        let output = plugin.render(&blocks, None);
-        let result = output.payload.as_str().unwrap();
-        assert!(result.contains("[CUSTOM:lang=,len=5]"));
-    }
-
-    #[test]
-    fn test_custom_hooks_markdown() {
-        let plugin = CustomMockPlugin;
-        let blocks = vec![ContentBlock::Text("hello".into())];
-        let output = plugin.render(&blocks, None);
-        let result = output.payload.as_str().unwrap();
-        assert!(result.contains("<<hello>>"));
-    }
-
-    #[test]
-    fn test_custom_hooks_hr() {
-        let plugin = CustomMockPlugin;
-        let text = "before\n---\nafter";
-        let blocks = vec![ContentBlock::Text(text.into())];
-        let output = plugin.render(&blocks, None);
-        let result = output.payload.as_str().unwrap();
-        assert!(result.contains("======"));
-        assert!(!result.contains("---"));
-    }
-
-    #[test]
-    fn test_custom_hooks_mixed() {
-        let plugin = CustomMockPlugin;
-        let text = "text\n```py\ncode\n```\n---";
-        let blocks = vec![ContentBlock::Text(text.into())];
-        let output = plugin.render(&blocks, None);
-        let result = output.payload.as_str().unwrap();
-        assert!(result.contains("<<text>>"));
-        assert!(result.contains("[CUSTOM:lang=py,len=4]"));
-        assert!(result.contains("======"));
     }
 
     // =========================================================================
@@ -484,262 +385,6 @@ mod tests {
         let cloned = output.clone();
         assert_eq!(cloned.msg_type, output.msg_type);
         assert_eq!(cloned.payload, output.payload);
-    }
-
-    // =========================================================================
-    // IMPlugin streaming default method tests
-    // =========================================================================
-
-    /// Mock plugin with a real streaming renderer for testing default methods.
-    struct StreamingMockPlugin {
-        renderer: std::sync::Mutex<DefaultStreamingRenderer>,
-    }
-
-    impl StreamingMockPlugin {
-        fn new() -> Self {
-            Self {
-                renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl IMPlugin for StreamingMockPlugin {
-        fn platform(&self) -> &str {
-            "streaming-mock"
-        }
-
-        async fn parse_inbound(
-            &self,
-            _payload: &[u8],
-        ) -> Result<Option<NormalizedMessage>, AdapterError> {
-            Ok(None)
-        }
-
-        async fn send(
-            &self,
-            _output: &RenderedOutput,
-            _peer_id: &str,
-            _thread_id: Option<&str>,
-        ) -> Result<(), AdapterError> {
-            Ok(())
-        }
-
-        fn streaming_renderer(&self) -> &std::sync::Mutex<DefaultStreamingRenderer> {
-            &self.renderer
-        }
-    }
-
-    #[test]
-    fn test_streaming_text_delta_completes_line() {
-        let plugin = StreamingMockPlugin::new();
-
-        let out = plugin.handle_stream_event(StreamEvent::BlockStart {
-            index: 0,
-            block_type: closeclaw_common::processor::ContentBlockType::Text,
-        });
-        assert!(out.text_messages.is_empty());
-
-        let out = plugin.handle_stream_event(StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::Text {
-                text: "Hello world.".to_string(),
-            },
-        });
-        assert_eq!(out.text_messages, vec!["Hello world."]);
-        assert!(out.render_blocks.is_empty());
-    }
-
-    #[test]
-    fn test_streaming_text_delta_buffered_no_terminator() {
-        let plugin = StreamingMockPlugin::new();
-
-        plugin.handle_stream_event(StreamEvent::BlockStart {
-            index: 0,
-            block_type: closeclaw_common::processor::ContentBlockType::Text,
-        });
-
-        let out = plugin.handle_stream_event(StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::Text {
-                text: "partial text".to_string(),
-            },
-        });
-        assert!(out.text_messages.is_empty());
-
-        let out = plugin.flush_stream();
-        assert_eq!(out.text_messages, vec!["partial text"]);
-    }
-
-    #[test]
-    fn test_streaming_non_text_block_emits_render_block() {
-        let plugin = StreamingMockPlugin::new();
-
-        plugin.handle_stream_event(StreamEvent::BlockStart {
-            index: 0,
-            block_type: closeclaw_common::processor::ContentBlockType::Thinking,
-        });
-        plugin.handle_stream_event(StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::Thinking {
-                thinking: "reasoning...".to_string(),
-                signature: None,
-            },
-        });
-        let out = plugin.handle_stream_event(StreamEvent::BlockEnd {
-            index: 0,
-            block_type: closeclaw_common::processor::ContentBlockType::Thinking,
-        });
-        assert!(out.text_messages.is_empty());
-        assert_eq!(out.render_blocks.len(), 1);
-        assert_eq!(
-            out.render_blocks[0],
-            ContentBlock::Thinking {
-                thinking: "reasoning...".to_string(),
-                signature: None
-            }
-        );
-    }
-
-    #[test]
-    fn test_streaming_tool_use_block_emits_render_block() {
-        let plugin = StreamingMockPlugin::new();
-
-        plugin.handle_stream_event(StreamEvent::BlockStart {
-            index: 0,
-            block_type: closeclaw_common::processor::ContentBlockType::ToolUse,
-        });
-        plugin.handle_stream_event(StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::ToolUseId {
-                id: "call_1".to_string(),
-            },
-        });
-        plugin.handle_stream_event(StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::ToolUseName {
-                name: "exec".to_string(),
-            },
-        });
-        plugin.handle_stream_event(StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::ToolUseInputChunk {
-                input: r#"{"cmd":"ls"}"#.to_string(),
-            },
-        });
-        let out = plugin.handle_stream_event(StreamEvent::BlockEnd {
-            index: 0,
-            block_type: closeclaw_common::processor::ContentBlockType::ToolUse,
-        });
-        assert_eq!(out.render_blocks.len(), 1);
-        assert_eq!(
-            out.render_blocks[0],
-            ContentBlock::ToolUse {
-                id: "call_1".to_string(),
-                name: "exec".to_string(),
-                input: r#"{"cmd":"ls"}"#.to_string(),
-            }
-        );
-    }
-
-    #[test]
-    fn test_streaming_flush_empty_buffer() {
-        let plugin = StreamingMockPlugin::new();
-        let out = plugin.flush_stream();
-        assert!(out.text_messages.is_empty());
-        assert!(out.render_blocks.is_empty());
-    }
-
-    #[test]
-    fn test_streaming_end_to_end_text_only() {
-        let plugin = StreamingMockPlugin::new();
-
-        plugin.handle_stream_event(StreamEvent::BlockStart {
-            index: 0,
-            block_type: closeclaw_common::processor::ContentBlockType::Text,
-        });
-        plugin.handle_stream_event(StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::Text {
-                text: "First line. ".to_string(),
-            },
-        });
-        let out = plugin.handle_stream_event(StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::Text {
-                text: "Second line.".to_string(),
-            },
-        });
-        assert_eq!(out.text_messages, vec![" Second line."]);
-
-        plugin.handle_stream_event(StreamEvent::BlockEnd {
-            index: 0,
-            block_type: closeclaw_common::processor::ContentBlockType::Text,
-        });
-
-        let out = plugin.flush_stream();
-        assert!(out.text_messages.is_empty());
-    }
-
-    #[test]
-    fn test_streaming_end_to_end_mixed_blocks() {
-        let plugin = StreamingMockPlugin::new();
-
-        plugin.handle_stream_event(StreamEvent::BlockStart {
-            index: 0,
-            block_type: closeclaw_common::processor::ContentBlockType::Text,
-        });
-        plugin.handle_stream_event(StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::Text {
-                text: "Hello.".to_string(),
-            },
-        });
-
-        plugin.handle_stream_event(StreamEvent::BlockStart {
-            index: 1,
-            block_type: closeclaw_common::processor::ContentBlockType::Thinking,
-        });
-        plugin.handle_stream_event(StreamEvent::BlockDelta {
-            index: 1,
-            delta: ContentDelta::Thinking {
-                thinking: "hmm".to_string(),
-                signature: None,
-            },
-        });
-        let out = plugin.handle_stream_event(StreamEvent::BlockEnd {
-            index: 1,
-            block_type: closeclaw_common::processor::ContentBlockType::Thinking,
-        });
-        assert_eq!(out.render_blocks.len(), 1);
-
-        plugin.handle_stream_event(StreamEvent::BlockStart {
-            index: 2,
-            block_type: closeclaw_common::processor::ContentBlockType::Text,
-        });
-        let out = plugin.handle_stream_event(StreamEvent::BlockDelta {
-            index: 2,
-            delta: ContentDelta::Text {
-                text: "World.".to_string(),
-            },
-        });
-        assert_eq!(out.text_messages, vec!["World."]);
-
-        plugin.handle_stream_event(StreamEvent::BlockEnd {
-            index: 0,
-            block_type: closeclaw_common::processor::ContentBlockType::Text,
-        });
-    }
-
-    #[test]
-    fn test_streaming_message_end_is_noop() {
-        let plugin = StreamingMockPlugin::new();
-        let out = plugin.handle_stream_event(StreamEvent::MessageEnd {
-            usage: None,
-            finish_reason: Some("end_turn".to_string()),
-        });
-        assert!(out.text_messages.is_empty());
-        assert!(out.render_blocks.is_empty());
     }
 
     // =====================================================================

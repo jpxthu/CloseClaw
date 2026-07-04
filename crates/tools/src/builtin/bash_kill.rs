@@ -29,8 +29,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
 
 use crate::ToolResult;
+use closeclaw_common::tool_session::KillHandle;
 use closeclaw_common::TaskManager;
-use closeclaw_llm::session::KillHandle;
 
 use super::bash_classify;
 

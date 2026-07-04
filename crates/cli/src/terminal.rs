@@ -6,11 +6,10 @@
 //!   delegating outbound rendering to [`TerminalRenderer`].
 
 use async_trait::async_trait;
+use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::processor::DslParseResult;
-use closeclaw_common::{MessageType, NormalizedMessage};
-use closeclaw_im_adapter::plugin::{IMPlugin, RenderedOutput};
-use closeclaw_im_adapter::AdapterError;
-use closeclaw_llm::types::ContentBlock;
+use closeclaw_common::AdapterError;
+use closeclaw_common::{IMPlugin, MessageType, NormalizedMessage, RenderedOutput};
 use std::io::{self, BufRead, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -156,21 +155,6 @@ impl IMPlugin for TerminalPlugin {
         self.renderer.render(content_blocks, dsl_result)
     }
 
-    /// Render a code block with ANSI line numbers and optional syntax highlighting.
-    fn render_code_block(&self, language: &str, code: &str) -> String {
-        self.renderer.render_code_block(language, code)
-    }
-
-    /// Render markdown text with ANSI styling.
-    fn render_markdown(&self, text: &str) -> String {
-        self.renderer.render_markdown(text)
-    }
-
-    /// Render a horizontal rule.
-    fn render_hr(&self) -> String {
-        self.renderer.render_hr()
-    }
-
     async fn send(
         &self,
         output: &RenderedOutput,
@@ -184,11 +168,5 @@ impl IMPlugin for TerminalPlugin {
             .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
         Write::flush(&mut stdout).map_err(|e| AdapterError::SendFailed(e.to_string()))?;
         Ok(())
-    }
-
-    fn streaming_renderer(
-        &self,
-    ) -> &std::sync::Mutex<closeclaw_im_adapter::streaming::DefaultStreamingRenderer> {
-        self.renderer.streaming_renderer()
     }
 }

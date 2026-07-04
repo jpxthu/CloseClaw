@@ -5,11 +5,9 @@
 //! thinking blocks, tool use/result, and DSL element rendering.
 
 use closeclaw_common::processor::DslParseResult;
+use closeclaw_common::RenderedOutput;
 use closeclaw_im_adapter::code_block::{parse_content_segments, ContentSegment};
-use closeclaw_im_adapter::plugin::RenderedOutput;
-use closeclaw_im_adapter::streaming::DefaultStreamingRenderer;
 use closeclaw_llm::types::ContentBlock;
-use std::sync::Mutex;
 use tracing::warn;
 
 // ---------------------------------------------------------------------------
@@ -629,7 +627,6 @@ fn render_markdown_ansi(content: &str, ansi: bool) -> String {
 /// thinking blocks, tool use/result, and DSL element hints.
 pub struct TerminalRenderer {
     ansi: bool,
-    renderer: Mutex<DefaultStreamingRenderer>,
 }
 
 impl TerminalRenderer {
@@ -637,16 +634,12 @@ impl TerminalRenderer {
     pub(crate) fn new() -> Self {
         Self {
             ansi: closeclaw_platform::terminal::supports_ansi(),
-            renderer: Mutex::new(DefaultStreamingRenderer::new()),
         }
     }
 
     /// Create a renderer with explicit ANSI mode.
     pub(crate) fn with_ansi(ansi: bool) -> Self {
-        Self {
-            ansi,
-            renderer: Mutex::new(DefaultStreamingRenderer::new()),
-        }
+        Self { ansi }
     }
 
     // -- helper methods for non-text content blocks -------------------------
@@ -844,10 +837,5 @@ impl TerminalRenderer {
         } else {
             "───".to_string()
         }
-    }
-
-    /// Access the underlying streaming renderer.
-    pub(crate) fn streaming_renderer(&self) -> &Mutex<DefaultStreamingRenderer> {
-        &self.renderer
     }
 }

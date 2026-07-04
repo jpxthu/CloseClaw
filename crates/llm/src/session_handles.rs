@@ -17,7 +17,6 @@
 //! [`ConversationSession::clear_exec_state`]) so no single function
 //! crosses the CONTRIBUTING.md 50-line soft cap.
 
-use std::io;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,30 +24,10 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+use closeclaw_common::tool_session::KillHandle;
+
 use super::session::ConversationSession;
 use super::session_state::LlmState;
-
-/// Abstract tool-process kill operation.
-///
-/// Implemented by adapter types in
-/// [`crate::tools::builtin::bash_kill`] (foreground child processes,
-/// background tasks) and by test doubles in
-/// `src/llm/session/tests/stop_tests.rs`.
-///
-/// `kill()` must be safe to call multiple times — `stop()` invokes
-/// every registered handle exactly once per stop call, and adapters
-/// are responsible for being idempotent (e.g. foreground
-/// `BashKillHandle` uses `start_kill()`, which is no-op after the
-/// child has already been reaped).
-pub trait KillHandle: Send + Sync {
-    /// Request termination of the underlying process / task.
-    ///
-    /// Returns `Ok(())` on success (idempotent re-`kill` is also
-    /// success). The caller does not wait for the process to actually
-    /// exit — `stop()` enforces a wall-clock budget via
-    /// [`tokio::time::timeout`].
-    fn kill(&self) -> io::Result<()>;
-}
 
 /// Default kill-handle timeout (5 seconds) applied per handle in
 /// [`ConversationSession::kill_tool_handles`] and per child session in
@@ -70,7 +49,11 @@ impl ConversationSession {
     /// the spawned `tokio::process::Child`, and (background path)
     /// with a [`crate::tools::builtin::bash_kill::BackgroundKillHandle`]
     /// pointing at the `BackgroundTaskManager` entry.
-    pub fn register_tool_handle(&self, call_id: impl Into<String>, handle: Arc<dyn KillHandle>) {
+    pub fn register_tool_handle(
+        &self,
+        call_id: impl Into<String>,
+        handle: Arc<dyn closeclaw_common::tool_session::KillHandle>,
+    ) {
         let id = call_id.into();
 
         // ── Shutdown gate: reject new tool execution ───────────────────
@@ -365,5 +348,20 @@ impl ConversationSession {
             .write()
             .expect("child_handles lock poisoned")
             .clear();
+    }
+}
+
+// ── ToolSession trait implementation ────────────────────────────────────
+
+#[async_trait::async_trait]
+impl closeclaw_common::tool_session::ToolSession for ConversationSession {
+    async fn register_tool_handle(
+        &self,
+        call_id: String,
+        handle: Arc<dyn closeclaw_common::tool_session::KillHandle>,
+    ) {
+        // Delegate to the inherent method which also handles
+        // shutdown-gate and busy-count tracking.
+        self.register_tool_handle(call_id, handle);
     }
 }
