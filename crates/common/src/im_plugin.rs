@@ -4,6 +4,8 @@
 //! adapters implement, along with supporting types ([`AdapterError`],
 //! [`NormalizedMessage`], [`RenderedOutput`]) shared across crates.
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -165,6 +167,52 @@ pub struct RenderedOutput {
 use crate::processor::ContentBlock;
 
 // ---------------------------------------------------------------------------
+// InboundEvent
+// ---------------------------------------------------------------------------
+
+/// Unified inbound event envelope.
+///
+/// Replaces a bare [`NormalizedMessage`] at the Adapter → Gateway boundary.
+/// Normal message events carry [`NormalizedMessage`]; card-action events
+/// (button clicks, selector picks) carry [`CardActionEvent`] and bypass the
+/// normal inbound Processor Chain, being injected directly as tool-result
+/// payloads.
+#[derive(Debug, Clone)]
+pub enum InboundEvent {
+    /// A standard inbound message (text, image, file, audio).
+    Message(NormalizedMessage),
+    /// A card-action interaction event (button click, selector pick, etc.).
+    CardAction(CardActionEvent),
+}
+
+// ---------------------------------------------------------------------------
+// CardActionEvent
+// ---------------------------------------------------------------------------
+
+/// Platform-agnostic card-action interaction event.
+///
+/// Carries all information needed to inject a card action result into the
+/// conversation as a tool-result payload, without going through the normal
+/// inbound Processor Chain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardActionEvent {
+    /// Platform identifier, e.g. `"feishu"`.
+    pub platform: String,
+    /// Sender's platform-specific user ID.
+    pub sender_id: String,
+    /// The action value produced by the card interaction.
+    pub action_value: String,
+    /// Free-form metadata from the platform (e.g. card ID, action tag).
+    #[serde(default)]
+    pub metadata: HashMap<String, String>,
+    /// Event timestamp as a Unix timestamp (milliseconds since epoch).
+    pub timestamp: i64,
+    /// Tenant/account identifier for multi-tenant session isolation.
+    #[serde(default)]
+    pub account_id: String,
+}
+
+// ---------------------------------------------------------------------------
 // StreamingOutput
 // ---------------------------------------------------------------------------
 
@@ -219,14 +267,11 @@ pub trait IMPlugin: Send + Sync {
     /// Returns the platform identifier, e.g. `"feishu"` or `"discord"`.
     fn platform(&self) -> &str;
 
-    /// Parse an inbound webhook payload into a [`NormalizedMessage`].
+    /// Parse an inbound webhook payload into an [`InboundEvent`].
     ///
     /// Returns `Ok(None)` when the payload should be silently ignored (e.g.
     /// empty content, unsupported message type). Returns `Err` on parse failure.
-    async fn parse_inbound(
-        &self,
-        payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, AdapterError>;
+    async fn parse_inbound(&self, payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError>;
 
     /// Validate the webhook signature.
     ///

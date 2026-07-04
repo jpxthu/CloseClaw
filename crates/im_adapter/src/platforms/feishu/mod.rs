@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::processor::DslParseResult;
-use closeclaw_common::NormalizedMessage;
+use closeclaw_common::InboundEvent;
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_gateway::Message;
 use std::collections::HashMap;
@@ -145,10 +145,8 @@ impl closeclaw_common::IMPlugin for GatewayPluginWrapper {
     async fn parse_inbound(
         &self,
         payload: &[u8],
-    ) -> Result<
-        Option<closeclaw_common::im_plugin::NormalizedMessage>,
-        closeclaw_common::im_plugin::AdapterError,
-    > {
+    ) -> Result<Option<closeclaw_common::InboundEvent>, closeclaw_common::im_plugin::AdapterError>
+    {
         self.0
             .parse_inbound(payload)
             .await
@@ -280,12 +278,9 @@ impl IMPlugin for FeishuPlugin {
         self.identity_resolver.as_deref()
     }
 
-    async fn parse_inbound(
-        &self,
-        payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, AdapterError> {
-        let mut msg = self.adapter.handle_webhook(payload).await?;
-        if let Some(ref mut m) = msg {
+    async fn parse_inbound(&self, payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError> {
+        let mut event = self.adapter.handle_webhook(payload).await?;
+        if let Some(InboundEvent::Message(ref mut m)) = event {
             m.content = normalize_urls(&m.content);
             m.content = add_code_block_language_hint(&m.content);
             // Apply identity mapping: map (platform, sender_id) → account_id
@@ -295,7 +290,7 @@ impl IMPlugin for FeishuPlugin {
                     .unwrap_or(std::mem::take(&mut m.account_id));
             }
         }
-        Ok(msg)
+        Ok(event)
     }
 
     async fn validate_signature(&self, signature: &str, payload: &[u8]) -> bool {

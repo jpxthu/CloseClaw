@@ -32,13 +32,13 @@ pub trait IMAdapter: Send + Sync {
 
     /// Handle incoming event from IM platform.
     ///
-    /// Returns `Ok(Some(message))` for recognized message events,
+    /// Returns `Ok(Some(event))` for recognized events,
     /// `Ok(None)` for events that should be silently ignored
     /// (e.g. unknown card actions), or `Err` on parse failure.
     async fn handle_webhook(
         &self,
         payload: &[u8],
-    ) -> Result<Option<closeclaw_common::NormalizedMessage>, AdapterError>;
+    ) -> Result<Option<closeclaw_common::InboundEvent>, AdapterError>;
 
     /// Send message to IM platform.
     ///

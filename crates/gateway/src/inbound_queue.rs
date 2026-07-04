@@ -7,6 +7,8 @@
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+use closeclaw_common::InboundEvent;
+
 use super::Gateway;
 
 /// An inbound message awaiting processing.
@@ -106,8 +108,8 @@ pub(crate) fn start_inbound_consumer(
             };
 
             // ── 2. Parse raw webhook payload ──────────────────────────
-            let normalized = match plugin.parse_inbound(&req.raw_payload).await {
-                Ok(Some(msg)) => msg,
+            let inbound_event = match plugin.parse_inbound(&req.raw_payload).await {
+                Ok(Some(event)) => event,
                 Ok(None) => {
                     tracing::debug!(
                         platform = %req.platform,
@@ -127,26 +129,36 @@ pub(crate) fn start_inbound_consumer(
                 }
             };
 
-            // ── 3. Process through inbound chain ──────────────────────
-            let sender_id = normalized.sender_id.clone();
-            let input = super::InboundChainInput {
-                platform: normalized.platform.clone(),
-                sender_id: normalized.sender_id.clone(),
-                peer_id: normalized.peer_id.clone(),
-                content: normalized.content.clone(),
-                message_id: String::new(), // message_id not in NormalizedMessage; empty for now
-                timestamp_ms: normalized.timestamp,
-                account_id: Some(normalized.account_id.clone()),
-                thread_id: normalized.thread_id.clone(),
-                message_type: normalized.message_type.clone(),
-                media_refs: normalized.media_refs.clone(),
-            };
-            let processed = gateway.process_inbound_chain(&input).await;
+            // ── 3. Route by event type ─────────────────────────────────
+            match inbound_event {
+                InboundEvent::Message(normalized) => {
+                    // ── 3a. Process through inbound chain ───────────────
+                    let sender_id = normalized.sender_id.clone();
+                    let input = super::InboundChainInput {
+                        platform: normalized.platform.clone(),
+                        sender_id: normalized.sender_id.clone(),
+                        peer_id: normalized.peer_id.clone(),
+                        content: normalized.content.clone(),
+                        message_id: String::new(),
+                        timestamp_ms: normalized.timestamp,
+                        account_id: Some(normalized.account_id.clone()),
+                        thread_id: normalized.thread_id.clone(),
+                        message_type: normalized.message_type.clone(),
+                        media_refs: normalized.media_refs.clone(),
+                    };
+                    let processed = gateway.process_inbound_chain(&input).await;
 
-            // ── 4. Handle inbound message ─────────────────────────────
-            gateway
-                .handle_inbound_message(processed, Some(&sender_id), &normalized.platform)
-                .await;
+                    // ── 4. Handle inbound message ───────────────────────
+                    gateway
+                        .handle_inbound_message(processed, Some(&sender_id), &normalized.platform)
+                        .await;
+                }
+                InboundEvent::CardAction(card_action) => {
+                    // Card actions bypass the inbound Processor Chain and are
+                    // injected directly as tool-result payloads.
+                    gateway.handle_card_action(card_action).await;
+                }
+            }
         }
         tracing::info!("inbound queue consumer stopped");
     });
@@ -205,7 +217,7 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
         return;
     };
     match plugin.parse_inbound(&request.raw_payload).await {
-        Ok(Some(normalized)) => {
+        Ok(Some(InboundEvent::Message(normalized))) => {
             let sender_id = normalized.sender_id.clone();
             let input = super::InboundChainInput {
                 platform: normalized.platform.clone(),
@@ -223,6 +235,11 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
             gateway
                 .handle_inbound_message(processed, Some(&sender_id), &normalized.platform)
                 .await;
+        }
+        Ok(Some(InboundEvent::CardAction(card_action))) => {
+            // Card actions bypass the inbound Processor Chain and are
+            // injected directly as tool-result payloads.
+            gateway.handle_card_action(card_action).await;
         }
         Ok(None) => {
             tracing::debug!(

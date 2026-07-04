@@ -9,8 +9,9 @@ use async_trait::async_trait;
 use closeclaw::processor_chain::{
     MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
 };
-use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
+use closeclaw_common::im_plugin::{AdapterError, IMPlugin, RenderedOutput};
 use closeclaw_common::processor::DslParseResult;
+use closeclaw_common::InboundEvent;
 use closeclaw_gateway::{Gateway, GatewayError, SessionManager};
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::bootstrap::BootstrapMode;
@@ -97,10 +98,7 @@ impl IMPlugin for TrackingPlugin {
         &self.platform_name
     }
 
-    async fn parse_inbound(
-        &self,
-        _payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+    async fn parse_inbound(&self, _payload: &[u8]) -> Result<Option<InboundEvent>, AdapterError> {
         Ok(None)
     }
 
