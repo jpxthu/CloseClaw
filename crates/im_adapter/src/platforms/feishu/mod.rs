@@ -12,14 +12,15 @@ pub mod tools;
 
 use crate::error::AdapterError;
 use crate::normalized::{add_code_block_language_hint, normalize_urls};
-use crate::plugin::{IMPlugin, RenderedOutput};
-use crate::streaming::DefaultStreamingRenderer;
 use crate::IMAdapter;
 use async_trait::async_trait;
 use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::processor::DslParseResult;
-use closeclaw_common::{CardActionEvent, NormalizedMessage};
+use closeclaw_common::{
+    AdapterError as CommonAdapterError, CardActionEvent, IMPlugin, NormalizedMessage,
+    RenderedOutput,
+};
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_gateway::Message;
 use std::collections::HashMap;
@@ -64,11 +65,11 @@ pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, config_dir: &st
         let identity_resolver: Option<Arc<dyn IdentityResolver>> =
             load_identity_resolver(config_dir);
 
-        let plugin: Arc<dyn crate::plugin::IMPlugin> = Arc::new(
-            FeishuPlugin::with_identity_resolver(adapter, identity_resolver),
-        );
-        let wrapped = wrap_plugin_for_gateway(plugin);
-        gateway.register_plugin(wrapped).await;
+        let plugin: Arc<dyn IMPlugin> = Arc::new(FeishuPlugin::with_identity_resolver(
+            adapter,
+            identity_resolver,
+        ));
+        gateway.register_plugin(plugin).await;
         info!("Feishu plugin registered");
     } else {
         info!("Feishu credentials not found in env — Feishu plugin not registered");
@@ -122,134 +123,22 @@ fn load_identity_resolver(config_dir: &str) -> Option<Arc<dyn IdentityResolver>>
     }
 }
 
-/// Wrap an [`IMPlugin`] (from this crate) into a [`closeclaw_common::IMPlugin`]
-/// for registration with the Gateway.
-///
-/// This is a simple delegation wrapper that converts between the two
-/// type systems (they share the same underlying data types from closeclaw-common).
-fn wrap_plugin_for_gateway(
-    plugin: Arc<dyn crate::plugin::IMPlugin>,
-) -> Arc<dyn closeclaw_common::IMPlugin> {
-    Arc::new(GatewayPluginWrapper(plugin))
-}
-
-/// Wrapper that adapts our [`IMPlugin`] to the gateway's [`closeclaw_common::IMPlugin`].
-struct GatewayPluginWrapper(Arc<dyn crate::plugin::IMPlugin>);
-
-#[async_trait]
-impl closeclaw_common::IMPlugin for GatewayPluginWrapper {
-    fn platform(&self) -> &str {
-        self.0.platform()
-    }
-
-    async fn parse_inbound(
-        &self,
-        payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, closeclaw_common::im_plugin::AdapterError> {
-        self.0
-            .parse_inbound(payload)
-            .await
-            .map_err(convert_to_common_error)
-    }
-
-    async fn parse_card_action(
-        &self,
-        payload: &[u8],
-    ) -> Result<Option<CardActionEvent>, closeclaw_common::im_plugin::AdapterError> {
-        self.0
-            .parse_card_action(payload)
-            .await
-            .map_err(convert_to_common_error)
-    }
-
-    async fn validate_signature(&self, signature: &str, payload: &[u8]) -> bool {
-        self.0.validate_signature(signature, payload).await
-    }
-
-    async fn send(
-        &self,
-        output: &closeclaw_common::im_plugin::RenderedOutput,
-        peer_id: &str,
-        thread_id: Option<&str>,
-    ) -> Result<(), closeclaw_common::im_plugin::AdapterError> {
-        let main_output = RenderedOutput {
-            msg_type: output.msg_type.clone(),
-            payload: output.payload.clone(),
-        };
-        self.0
-            .send(&main_output, peer_id, thread_id)
-            .await
-            .map_err(convert_to_common_error)
-    }
-
-    fn clean_content(&self, raw: &str) -> String {
-        self.0.clean_content(raw)
-    }
-
-    async fn init(&self) -> Result<(), closeclaw_common::im_plugin::AdapterError> {
-        self.0.init().await.map_err(convert_to_common_error)
-    }
-
-    async fn shutdown(&self) -> Result<(), closeclaw_common::im_plugin::AdapterError> {
-        self.0.shutdown().await.map_err(convert_to_common_error)
-    }
-
-    fn render(
-        &self,
-        content_blocks: &[closeclaw_common::processor::ContentBlock],
-        dsl_result: Option<&closeclaw_common::processor::DslParseResult>,
-    ) -> closeclaw_common::im_plugin::RenderedOutput {
-        let result = self.0.render(content_blocks, dsl_result);
-        closeclaw_common::im_plugin::RenderedOutput {
-            msg_type: result.msg_type,
-            payload: result.payload,
-        }
-    }
-
-    fn handle_stream_event(
-        &self,
-        event: closeclaw_common::processor::StreamEvent,
-    ) -> closeclaw_common::im_plugin::StreamingOutput {
-        let result = self.0.handle_stream_event(event);
-        closeclaw_common::im_plugin::StreamingOutput {
-            text_messages: result.text_messages,
-            render_blocks: result.render_blocks,
-        }
-    }
-
-    fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
-        let result = self.0.flush_stream();
-        closeclaw_common::im_plugin::StreamingOutput {
-            text_messages: result.text_messages,
-            render_blocks: result.render_blocks,
-        }
-    }
-}
-
-fn convert_to_common_error(e: AdapterError) -> closeclaw_common::im_plugin::AdapterError {
+/// Convert im_adapter error to common error.
+fn convert_to_common_error(e: AdapterError) -> CommonAdapterError {
     match e {
-        AdapterError::InvalidPayload(s) => {
-            closeclaw_common::im_plugin::AdapterError::InvalidPayload(s)
-        }
-        AdapterError::AuthFailed => closeclaw_common::im_plugin::AdapterError::AuthFailed,
-        AdapterError::SendFailed(s) => closeclaw_common::im_plugin::AdapterError::SendFailed(s),
-        AdapterError::InvalidSignature => {
-            closeclaw_common::im_plugin::AdapterError::InvalidSignature
-        }
-        AdapterError::IoError(e) => closeclaw_common::im_plugin::AdapterError::IoError(e),
-        AdapterError::UnsupportedOperation => {
-            closeclaw_common::im_plugin::AdapterError::UnsupportedOperation
-        }
-        AdapterError::MediaDownloadFailed(s) => {
-            closeclaw_common::im_plugin::AdapterError::SendFailed(s)
-        }
+        AdapterError::InvalidPayload(s) => CommonAdapterError::InvalidPayload(s),
+        AdapterError::AuthFailed => CommonAdapterError::AuthFailed,
+        AdapterError::SendFailed(s) => CommonAdapterError::SendFailed(s),
+        AdapterError::InvalidSignature => CommonAdapterError::InvalidSignature,
+        AdapterError::IoError(e) => CommonAdapterError::IoError(e),
+        AdapterError::UnsupportedOperation => CommonAdapterError::UnsupportedOperation,
+        AdapterError::MediaDownloadFailed(s) => CommonAdapterError::SendFailed(s),
     }
 }
 
 /// Unified IM plugin for Feishu.
 pub struct FeishuPlugin {
     adapter: Arc<FeishuAdapter>,
-    renderer: std::sync::Mutex<DefaultStreamingRenderer>,
     identity_resolver: Option<Arc<dyn IdentityResolver>>,
 }
 
@@ -258,7 +147,6 @@ impl FeishuPlugin {
     pub(crate) fn new(adapter: Arc<FeishuAdapter>) -> Self {
         Self {
             adapter,
-            renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
             identity_resolver: None,
         }
     }
@@ -271,9 +159,13 @@ impl FeishuPlugin {
     ) -> Self {
         Self {
             adapter,
-            renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
             identity_resolver,
         }
+    }
+
+    /// Get the identity resolver for cross-platform account mapping.
+    fn identity_resolver(&self) -> Option<&dyn IdentityResolver> {
+        self.identity_resolver.as_deref()
     }
 }
 
@@ -283,15 +175,15 @@ impl IMPlugin for FeishuPlugin {
         "feishu"
     }
 
-    fn identity_resolver(&self) -> Option<&dyn IdentityResolver> {
-        self.identity_resolver.as_deref()
-    }
-
     async fn parse_inbound(
         &self,
         payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, AdapterError> {
-        let mut msg = self.adapter.parse_inbound(payload).await?;
+    ) -> Result<Option<NormalizedMessage>, CommonAdapterError> {
+        let mut msg = self
+            .adapter
+            .parse_inbound(payload)
+            .await
+            .map_err(convert_to_common_error)?;
         if let Some(ref mut m) = msg {
             m.content = normalize_urls(&m.content);
             m.content = add_code_block_language_hint(&m.content);
@@ -308,8 +200,11 @@ impl IMPlugin for FeishuPlugin {
     async fn parse_card_action(
         &self,
         payload: &[u8],
-    ) -> Result<Option<CardActionEvent>, AdapterError> {
-        self.adapter.parse_card_action(payload).await
+    ) -> Result<Option<CardActionEvent>, CommonAdapterError> {
+        self.adapter
+            .parse_card_action(payload)
+            .await
+            .map_err(convert_to_common_error)
     }
 
     async fn validate_signature(&self, signature: &str, payload: &[u8]) -> bool {
@@ -350,7 +245,7 @@ impl IMPlugin for FeishuPlugin {
         output: &RenderedOutput,
         peer_id: &str,
         _thread_id: Option<&str>,
-    ) -> Result<(), AdapterError> {
+    ) -> Result<(), CommonAdapterError> {
         match output.msg_type.as_str() {
             "text" => {
                 let text = output
@@ -369,29 +264,29 @@ impl IMPlugin for FeishuPlugin {
                     metadata: HashMap::new(),
                     thread_id: None,
                 };
-                self.adapter.send_message(&message, _thread_id).await
+                self.adapter
+                    .send_message(&message, _thread_id)
+                    .await
+                    .map_err(convert_to_common_error)
             }
             "interactive" => {
                 let card_json = serde_json::to_string(&output.payload)
-                    .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+                    .map_err(|e| CommonAdapterError::SendFailed(e.to_string()))?;
                 self.adapter
                     .send_card_json(peer_id, &card_json, _thread_id)
                     .await
+                    .map_err(convert_to_common_error)
             }
-            _ => Err(AdapterError::UnsupportedOperation),
+            _ => Err(CommonAdapterError::UnsupportedOperation),
         }
     }
 
-    async fn shutdown(&self) -> Result<(), AdapterError> {
+    async fn shutdown(&self) -> Result<(), CommonAdapterError> {
         *self.adapter.cached_token.lock().await = None;
         Ok(())
     }
 
     fn clean_content(&self, raw: &str) -> String {
         cleaner::clean_feishu_content(raw)
-    }
-
-    fn streaming_renderer(&self) -> &std::sync::Mutex<DefaultStreamingRenderer> {
-        &self.renderer
     }
 }

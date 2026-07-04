@@ -5,11 +5,9 @@
 //! thinking blocks, tool use/result, and DSL element rendering.
 
 use closeclaw_common::processor::DslParseResult;
+use closeclaw_common::RenderedOutput;
 use closeclaw_im_adapter::code_block::{parse_content_segments, ContentSegment};
-use closeclaw_im_adapter::plugin::RenderedOutput;
-use closeclaw_im_adapter::streaming::DefaultStreamingRenderer;
 use closeclaw_llm::types::ContentBlock;
-use std::sync::Mutex;
 use tracing::warn;
 
 // ---------------------------------------------------------------------------
@@ -629,7 +627,6 @@ fn render_markdown_ansi(content: &str, ansi: bool) -> String {
 /// thinking blocks, tool use/result, and DSL element hints.
 pub struct TerminalRenderer {
     ansi: bool,
-    renderer: Mutex<DefaultStreamingRenderer>,
 }
 
 impl TerminalRenderer {
@@ -637,16 +634,12 @@ impl TerminalRenderer {
     pub(crate) fn new() -> Self {
         Self {
             ansi: closeclaw_platform::terminal::supports_ansi(),
-            renderer: Mutex::new(DefaultStreamingRenderer::new()),
         }
     }
 
     /// Create a renderer with explicit ANSI mode.
     pub(crate) fn with_ansi(ansi: bool) -> Self {
-        Self {
-            ansi,
-            renderer: Mutex::new(DefaultStreamingRenderer::new()),
-        }
+        Self { ansi }
     }
 
     // -- helper methods for non-text content blocks -------------------------
@@ -820,34 +813,5 @@ impl TerminalRenderer {
             msg_type: "text".into(),
             payload,
         }
-    }
-
-    /// Render a code block with ANSI line numbers and optional syntax highlighting.
-    pub(crate) fn render_code_block(&self, language: &str, code: &str) -> String {
-        render_code_block_ansi(language, code, self.ansi)
-    }
-
-    /// Render markdown text with ANSI styling.
-    pub(crate) fn render_markdown(&self, text: &str) -> String {
-        let mut out = String::new();
-        for line in text.lines() {
-            out.push_str(&format_line(line, self.ansi));
-            out.push('\n');
-        }
-        out
-    }
-
-    /// Render a horizontal rule.
-    pub(crate) fn render_hr(&self) -> String {
-        if self.ansi {
-            format!("{}───{}", DIM, RESET)
-        } else {
-            "───".to_string()
-        }
-    }
-
-    /// Access the underlying streaming renderer.
-    pub(crate) fn streaming_renderer(&self) -> &Mutex<DefaultStreamingRenderer> {
-        &self.renderer
     }
 }
