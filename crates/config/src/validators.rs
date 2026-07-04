@@ -82,13 +82,19 @@ fn validate_provider(provider_id: &str, provider: &serde_json::Value) -> Result<
             }
         }
     }
-    // Validate credentialPath format if present
+    // Validate credentialPath format and existence if present
     if let Some(cred_path) = provider.get("credentialPath") {
         if let Some(path_str) = cred_path.as_str() {
             if path_str.is_empty() {
                 return Err(format!(
                     "models.providers.{}.credentialPath cannot be empty",
                     provider_id
+                ));
+            }
+            if !std::path::Path::new(path_str).exists() {
+                return Err(format!(
+                    "models.providers.{}.credentialPath '{}' does not exist",
+                    provider_id, path_str
                 ));
             }
         } else if !cred_path.is_null() {
@@ -170,12 +176,19 @@ fn validate_channels(value: &serde_json::Value) -> Result<(), String> {
         }
     }
 
+    // Collect defined channel type keys for binding reference validation
+    let channel_types: std::collections::HashSet<String> = value
+        .get("channels")
+        .and_then(|c| c.as_object())
+        .map(|obj| obj.keys().cloned().collect())
+        .unwrap_or_default();
+
     // Validate bindings
     if let Some(bindings) = value.get("bindings") {
         ensure_array(bindings, "channels.bindings")?;
         if let Some(arr) = bindings.as_array() {
             for (i, entry) in arr.iter().enumerate() {
-                validate_binding_entry(i, entry)?;
+                validate_binding_entry(i, entry, &channel_types)?;
             }
         }
     }
@@ -184,7 +197,11 @@ fn validate_channels(value: &serde_json::Value) -> Result<(), String> {
 }
 
 /// Validate a single binding entry within the channels section.
-fn validate_binding_entry(index: usize, entry: &serde_json::Value) -> Result<(), String> {
+fn validate_binding_entry(
+    index: usize,
+    entry: &serde_json::Value,
+    channel_types: &std::collections::HashSet<String>,
+) -> Result<(), String> {
     if !entry.is_object() {
         return Err(format!(
             "channels.bindings[{}] must be a JSON object",
@@ -214,6 +231,27 @@ fn validate_binding_entry(index: usize, entry: &serde_json::Value) -> Result<(),
         "channel",
         &format!("channels.bindings[{}].match.channel", index),
     )?;
+    // Verify match.channel references a defined channel type
+    let channel = match_obj
+        .get("channel")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if !channel.is_empty() && !channel_types.contains(channel) {
+        let defined = if channel_types.is_empty() {
+            "none".to_string()
+        } else {
+            channel_types
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        return Err(format!(
+            "channels.bindings[{}].match.channel '{}' references an undefined \
+             channel type. Defined types: {}",
+            index, channel, defined
+        ));
+    }
     require_non_empty(
         match_obj,
         "accountId",
