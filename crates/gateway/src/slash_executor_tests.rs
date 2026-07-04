@@ -438,3 +438,76 @@ async fn test_set_verbosity_calls_executor_and_sends_reply() {
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests — ReplyAction variant construction
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_reply_action_variant_construction() {
+    // Verify each ReplyAction variant can be constructed.
+    let reply = ReplyAction::Reply(vec![ContentBlock::Text("hi".into())]);
+    assert!(matches!(reply, ReplyAction::Reply(blocks) if blocks.len() == 1));
+
+    let compact = ReplyAction::TriggerCompact {
+        instruction: Some("keep summary".into()),
+    };
+    assert!(
+        matches!(compact, ReplyAction::TriggerCompact { instruction: Some(ref s) } if s == "keep summary")
+    );
+
+    let compact_no_inst = ReplyAction::TriggerCompact { instruction: None };
+    assert!(matches!(
+        compact_no_inst,
+        ReplyAction::TriggerCompact { instruction: None }
+    ));
+
+    let nothing = ReplyAction::Nothing;
+    assert!(matches!(nothing, ReplyAction::Nothing));
+}
+
+// ---------------------------------------------------------------------------
+// Tests — SideEffectContext: closed channel error path
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_side_effect_context_closed_channel_no_panic() {
+    // When reply_tx is closed (receiver dropped), execute() should
+    // silently drop the action (let _ = ...) without panicking.
+    let (tx, rx) = mpsc::channel::<ReplyAction>(1);
+    let executor: Arc<dyn SlashEffectExecutor> = Arc::new(MockExecutor::new());
+    let ctx = SideEffectContext {
+        session_id: "sess-closed".into(),
+        channel: "feishu".into(),
+        session_manager: Arc::new(MockSessionLookup),
+        reply_tx: tx,
+        executor,
+    };
+    // Drop the receiver to close the channel.
+    drop(rx);
+
+    // Execute a variant that sends via reply_tx — should not panic.
+    SlashResult::Reply("test".into()).execute(&ctx).await;
+}
+
+#[tokio::test]
+async fn test_side_effect_context_new_session_closed_channel() {
+    // Verify that executor methods are still called even when the
+    // reply channel is closed.
+    let (tx, rx) = mpsc::channel::<ReplyAction>(1);
+    let executor = Arc::new(MockExecutor::new());
+    let ctx = SideEffectContext {
+        session_id: "sess-closed-ns".into(),
+        channel: "telegram".into(),
+        session_manager: Arc::new(MockSessionLookup),
+        reply_tx: tx,
+        executor: executor.clone(),
+    };
+    drop(rx);
+
+    SlashResult::NewSession.execute(&ctx).await;
+    assert!(
+        *executor.new_session_called.lock().unwrap(),
+        "executor must be called even when reply channel is closed"
+    );
+}
