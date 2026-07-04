@@ -75,9 +75,9 @@
     "path": "docs/design/common/README.md",
     "commit": "",
     "commit_time": "",
-    "confirmed_time": "2026-07-03T21:37:01.496401+08:00",
+    "confirmed_time": "2026-07-04T15:28:35.777725+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "common-module-scope-contradiction"
   },
   {
     "path": "docs/design/common/core-traits.md",
