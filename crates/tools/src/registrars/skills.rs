@@ -7,9 +7,9 @@ use closeclaw_gateway::SessionManager;
 use closeclaw_skills::DiskSkillRegistry;
 
 use crate::builtin::{SkillCreatorTool, SkillTool};
-use crate::registrar::{ToolRegistrar, ToolRegistrarError};
 use crate::try_register;
-use crate::{SpawnValidator, Tool, ToolRegistry};
+use crate::{SpawnValidator, Tool};
+use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 
 /// Skills tools registrar — registers all tools from the skills domain.
 ///
@@ -46,7 +46,10 @@ impl ToolRegistrar for SkillsToolsRegistrar {
         3
     }
 
-    async fn register(&self, registry: &ToolRegistry) -> Result<(), ToolRegistrarError> {
+    async fn register(
+        &self,
+        registry: &dyn closeclaw_common::tool_registry::ToolRegistry,
+    ) -> Result<(), ToolRegistrarError> {
         let mut registered = 0usize;
         let r = self.name();
         try_register!(

@@ -3,62 +3,43 @@
 //! 每个工具提供模块实现此 trait，通过统一的 `register_all` 编排完成全局注册。
 //! 参见 `docs/design/tools/tool-registrar.md`。
 
-use async_trait::async_trait;
-use thiserror::Error;
+use std::sync::Arc;
 
-use crate::{Tool, ToolError, ToolRegistry};
+use closeclaw_common::tool_registry::{RegistryError, ToolRegistrarError};
 
-/// Error type for tool registration.
-#[derive(Debug, Error)]
-pub enum ToolRegistrarError {
-    /// A tool name was already registered by another registrar.
-    #[error("tool `{tool}` already registered by `{registrar}`")]
-    Conflict {
-        /// The conflicting tool name.
-        tool: String,
-        /// The registrar that registered it first.
-        registrar: String,
-    },
+use crate::registry::ToolBox;
+use crate::Tool;
 
-    /// Internal error within a registrar.
-    #[error("{0}")]
-    Internal(String),
-}
+// Re-export so that `crate::registrar::ToolRegistrar` still resolves.
+pub use closeclaw_common::tool_registry::ToolRegistrar;
 
-/// Unified trait for modules that provide tools.
-///
-/// Each implementation is collected at startup, sorted by [`priority`](Self::priority),
-/// and called in order to populate the global [`ToolRegistry`].
-#[async_trait]
-pub trait ToolRegistrar: Send + Sync {
-    /// Unique name for this registrar, used in logs and conflict reports.
-    fn name(&self) -> &str;
-
-    /// Priority — lower values are registered first.
-    fn priority(&self) -> u32;
-
-    /// Register all tools from this module into `registry`.
-    ///
-    /// # Errors
-    /// Returns [`ToolRegistrarError::Conflict`] if a tool with the same name
-    /// already exists in `registry`. Returns [`ToolRegistrarError::Internal`]
-    /// for any other registration failure.
-    async fn register(&self, registry: &ToolRegistry) -> Result<(), ToolRegistrarError>;
-}
-
-/// Register a single tool, converting [`ToolError`] into [`ToolRegistrarError`].
+/// Register a single tool, converting [`RegistryError`] into [`ToolRegistrarError`].
 pub(crate) async fn register_tool(
-    registry: &ToolRegistry,
+    registry: &dyn closeclaw_common::tool_registry::ToolRegistry,
     tool: impl Tool + 'static,
     registrar_name: &str,
 ) -> Result<(), ToolRegistrarError> {
-    registry.register(tool).await.map_err(|e| match e {
-        ToolError::AlreadyRegistered(name) => ToolRegistrarError::Conflict {
-            tool: name,
-            registrar: registrar_name.to_string(),
-        },
-        other => ToolRegistrarError::Internal(other.to_string()),
-    })
+    let boxed: Box<dyn std::any::Any + Send + Sync> = Box::new(ToolBox(Arc::new(tool)));
+    registry
+        .register_any(boxed, registrar_name)
+        .await
+        .map_err(|e| match e {
+            RegistryError::Conflict {
+                tool,
+                registrar,
+                attempting,
+            } => ToolRegistrarError::Conflict {
+                tool,
+                registrar,
+                attempting,
+            },
+            RegistryError::AlreadyRegistered(name) => ToolRegistrarError::Conflict {
+                tool: name,
+                registrar: String::new(),
+                attempting: registrar_name.to_string(),
+            },
+            other => ToolRegistrarError::Internal(other.to_string()),
+        })
 }
 
 /// Register a single tool, logging `Internal` errors as warnings.
@@ -66,16 +47,21 @@ pub(crate) async fn register_tool(
 /// Returns `Ok(true)` on success, `Ok(false)` on recoverable error,
 /// or `Err` on conflict.
 pub async fn register_single(
-    registry: &ToolRegistry,
+    registry: &dyn closeclaw_common::tool_registry::ToolRegistry,
     name: String,
     tool: impl Tool + 'static,
     registrar_name: &str,
 ) -> Result<bool, ToolRegistrarError> {
     match register_tool(registry, tool, registrar_name).await {
         Ok(()) => Ok(true),
-        Err(ToolRegistrarError::Conflict { .. }) => Err(ToolRegistrarError::Conflict {
-            tool: name,
-            registrar: registrar_name.to_string(),
+        Err(ToolRegistrarError::Conflict {
+            tool: conflicting,
+            registrar,
+            attempting,
+        }) => Err(ToolRegistrarError::Conflict {
+            tool: conflicting,
+            registrar,
+            attempting,
         }),
         Err(ToolRegistrarError::Internal(e)) => {
             tracing::warn!(

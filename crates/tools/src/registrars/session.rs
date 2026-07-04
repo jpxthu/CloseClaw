@@ -8,9 +8,9 @@ use closeclaw_gateway::SessionManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 
 use crate::builtin::{SessionsKillTool, SessionsSpawnTool, SessionsSteerTool};
-use crate::registrar::{ToolRegistrar, ToolRegistrarError};
 use crate::try_register;
-use crate::{SpawnValidator, Tool, ToolRegistry};
+use crate::{SpawnValidator, Tool};
+use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 
 /// Session tools registrar — registers all tools from the sessions domain.
 ///
@@ -50,7 +50,10 @@ impl ToolRegistrar for SessionToolsRegistrar {
         2
     }
 
-    async fn register(&self, registry: &ToolRegistry) -> Result<(), ToolRegistrarError> {
+    async fn register(
+        &self,
+        registry: &dyn closeclaw_common::tool_registry::ToolRegistry,
+    ) -> Result<(), ToolRegistrarError> {
         let mut registered = 0usize;
         let r = self.name();
         try_register!(

@@ -67,5 +67,8 @@ pub use slash_router::{
 pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, StorageProvider};
 pub use system_prompt::{PromptOverrides, SystemPromptBuilder, WorkspaceBuildConfig};
 pub use task_manager::{BackgroundTask, BackgroundTaskError, TaskManager, TaskState};
-pub use tool_registry::{ToolDescriptor, ToolFlags, ToolRegistryQuery};
+pub use tool_registry::{
+    RegistryError, ToolDescriptor, ToolFlags, ToolRegistrar, ToolRegistrarError, ToolRegistry,
+    ToolRegistryQuery,
+};
 pub use verbosity::VerbosityLevel;

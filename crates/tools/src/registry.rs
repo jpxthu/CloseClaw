@@ -5,8 +5,14 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use crate::registrar::{ToolRegistrar, ToolRegistrarError};
 use crate::{PromptGenerationContext, Tool, ToolContext, ToolDescriptor, ToolError};
+use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
+
+// Re-export for tests that `use super::*`
+pub use ToolRegistryImpl as ToolRegistry;
+
+/// Wrapper to bridge [`Tool`] with [`std::any::Any`] for type-erased registration.
+pub(crate) struct ToolBox(pub Arc<dyn Tool>);
 
 use closeclaw_common::AgentToolsConfigQuery;
 use serde_json::Value;
@@ -49,27 +55,29 @@ const TOOLS_SECTION_MAX_LEN: usize = 15000;
 ///
 /// Wraps an inner `HashMap<String, Arc<dyn Tool>>` behind a Tokio
 /// read-write lock so that all operations are async-safe.
-pub struct ToolRegistry {
+pub struct ToolRegistryImpl {
     pub(crate) tools: tokio::sync::RwLock<std::collections::HashMap<String, Arc<dyn Tool>>>,
+    /// Maps tool name to the registrar that registered it (for conflict reporting).
+    pub(crate) owners: tokio::sync::RwLock<std::collections::HashMap<String, String>>,
     /// Optional reference to an agent tools config query for direct config queries.
     agent_tools_query: OnceLock<Arc<dyn AgentToolsConfigQuery>>,
     /// When `true`, no further registrations are accepted.
     frozen: AtomicBool,
 }
 
-impl std::fmt::Debug for ToolRegistry {
+impl std::fmt::Debug for ToolRegistryImpl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ToolRegistry").finish()
+        f.debug_struct("ToolRegistryImpl").finish()
     }
 }
 
-impl Default for ToolRegistry {
+impl Default for ToolRegistryImpl {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ToolRegistry {
+impl ToolRegistryImpl {
     /// Set the AgentToolsConfigQuery reference for direct config queries.
     ///
     /// Called during daemon initialization after the AgentRegistry is created.
@@ -154,11 +162,12 @@ impl ToolRegistry {
     }
 }
 
-impl ToolRegistry {
+impl ToolRegistryImpl {
     /// Creates a new empty registry.
     pub fn new() -> Self {
         Self {
             tools: tokio::sync::RwLock::new(std::collections::HashMap::new()),
+            owners: tokio::sync::RwLock::new(std::collections::HashMap::new()),
             agent_tools_query: OnceLock::new(),
             frozen: AtomicBool::new(false),
         }
@@ -205,11 +214,77 @@ impl ToolRegistry {
         sorted.sort_by_key(|r| r.priority());
 
         for registrar in &sorted {
-            registrar.register(self).await?;
+            registrar
+                .register(self as &dyn closeclaw_common::tool_registry::ToolRegistry)
+                .await?;
         }
 
         self.frozen.store(true, Ordering::Release);
         Ok(())
+    }
+
+    /// Build a first-level tools index string without a prompt generation context.
+    ///
+    /// Groups tools by group, shows name + detail for eager tools,
+    /// name + danger marks for deferred tools.
+    pub async fn build_index_raw(&self) -> String {
+        let guard = self.tools.read().await;
+        let tool_infos: Vec<ToolInfo> = guard
+            .values()
+            .map(|t| {
+                ToolInfo::from_tool(
+                    t,
+                    &crate::PromptGenerationContext {
+                        agent_id: String::new(),
+                        workdir: None,
+                        available_tool_names: Vec::new(),
+                        tools: None,
+                        disallowed_tools: None,
+                    },
+                )
+            })
+            .collect();
+
+        let mut groups_map: std::collections::HashMap<String, Vec<ToolInfo>> =
+            std::collections::HashMap::new();
+        for info in tool_infos {
+            groups_map.entry(info.group.clone()).or_default().push(info);
+        }
+
+        let mut lines: Vec<String> = Vec::new();
+        let mut sorted_groups: Vec<_> = groups_map.into_iter().collect();
+        sorted_groups.sort_by_key(|(g, _)| g.clone());
+
+        for (group_name, tools) in sorted_groups {
+            let has_eager = tools.iter().any(|t| !t.is_deferred);
+            let tag = if has_eager {
+                "(always loaded)"
+            } else {
+                "(deferred)"
+            };
+            lines.push(format!("**{}** — {}", group_name, tag));
+            let mut sorted_tools: Vec<_> = tools.iter().collect();
+            sorted_tools.sort_by_key(|t| t.name.clone());
+            for tool in sorted_tools {
+                let danger_mark = if tool.is_destructive {
+                    " (destructive)"
+                } else if tool.is_read_only {
+                    " (read-only)"
+                } else {
+                    ""
+                };
+                if tool.is_deferred {
+                    lines.push(format!("  - {}{}", tool.name, danger_mark));
+                } else {
+                    lines.push(format!(
+                        "  - **{}**{}: {}",
+                        tool.name, danger_mark, tool.detail
+                    ));
+                }
+            }
+            lines.push(String::new());
+        }
+        lines.join("\n")
     }
 
     /// Returns whether the registry is frozen.
@@ -259,7 +334,7 @@ impl ToolRegistry {
     }
 }
 
-impl ToolRegistry {
+impl ToolRegistryImpl {
     /// Build a first-level tools section string, grouped and truncated.
     ///
     /// Groups tools by `group()`, formats each group with a header and tool
@@ -330,7 +405,7 @@ impl ToolRegistry {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[async_trait::async_trait]
-impl closeclaw_common::tool_registry::ToolRegistryQuery for ToolRegistry {
+impl closeclaw_common::tool_registry::ToolRegistryQuery for ToolRegistryImpl {
     async fn list_tool_names(&self) -> Vec<String> {
         let guard = self.tools.read().await;
         guard.keys().cloned().collect()
@@ -385,6 +460,57 @@ impl closeclaw_common::tool_registry::ToolRegistryQuery for ToolRegistry {
     async fn get_tool_schema(&self, name: &str) -> Option<serde_json::Value> {
         let guard = self.tools.read().await;
         guard.get(name).map(|t| t.input_schema())
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ToolRegistry — bridge to closeclaw_common trait
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[async_trait::async_trait]
+impl closeclaw_common::tool_registry::ToolRegistry for ToolRegistryImpl {
+    async fn build_index(&self) -> String {
+        self.build_index_raw().await
+    }
+    async fn register_any(
+        &self,
+        tool: Box<dyn std::any::Any + Send + Sync>,
+        registrar_name: &str,
+    ) -> Result<(), closeclaw_common::tool_registry::RegistryError> {
+        let ToolBox(arc_tool) = *tool.downcast::<ToolBox>().map_err(|_| {
+            closeclaw_common::tool_registry::RegistryError::Internal(
+                "register_any expected ToolBox".to_string(),
+            )
+        })?;
+        let name = (*arc_tool).name().to_string();
+        if self.frozen.load(Ordering::Acquire) {
+            return Err(closeclaw_common::tool_registry::RegistryError::Frozen);
+        }
+        let mut guard = self.tools.write().await;
+        if guard.contains_key(&name) {
+            let owners = self.owners.read().await;
+            let original = owners.get(&name).cloned().unwrap_or_default();
+            drop(guard);
+            drop(owners);
+            return Err(closeclaw_common::tool_registry::RegistryError::Conflict {
+                tool: name,
+                registrar: original,
+                attempting: registrar_name.to_string(),
+            });
+        }
+        guard.insert(name.clone(), arc_tool);
+        drop(guard);
+        let mut owners = self.owners.write().await;
+        owners.insert(name, registrar_name.to_string());
+        Ok(())
+    }
+
+    fn freeze(&self) {
+        self.frozen.store(true, Ordering::Release);
+    }
+
+    fn is_frozen(&self) -> bool {
+        self.frozen.load(Ordering::Acquire)
     }
 }
 
