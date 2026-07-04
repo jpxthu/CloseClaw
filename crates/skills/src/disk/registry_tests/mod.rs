@@ -426,7 +426,7 @@ fn test_find_matching_skills_priority_dedup_mixed() {
 // Tests for DiskSkillRegistry's ability to query the AgentSkillsQuery
 // trait directly for skills whitelist configuration.
 
-use closeclaw_common::AgentSkillsQuery;
+use closeclaw_agent::AgentSkillsQuery;
 use std::sync::Arc;
 
 /// Mock agent skills query for testing.

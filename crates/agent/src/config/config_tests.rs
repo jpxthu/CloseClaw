@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use closeclaw_common::agent_config::ModelSpec;
+use closeclaw_config::agents::ModelSpec;
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use tempfile::TempDir;
 #[test]

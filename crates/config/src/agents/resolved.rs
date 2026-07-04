@@ -24,8 +24,8 @@
 
 use std::path::PathBuf;
 
+use crate::agents::config_types::{AgentConfig, ModelSpec, SubagentsConfig};
 use crate::ConfigError;
-use closeclaw_common::agent_config::{AgentConfig, ModelSpec, SubagentsConfig};
 use closeclaw_common::BootstrapMode;
 
 /// Configuration source level.
@@ -69,7 +69,7 @@ pub struct ResolvedAgentConfig {
     pub tools: Vec<String>,
     pub disallowed_tools: Vec<String>,
     pub subagents: SubagentsConfig,
-    pub memory: Option<closeclaw_common::agent_config::MemoryConfig>,
+    pub memory: Option<crate::agents::config_types::MemoryConfig>,
     /// Which configuration level this was resolved from.
     pub source: ConfigSource,
 }

@@ -3,7 +3,7 @@
 //! Covers Gap 3 (requireAgentId) and Gap 4 (bootstrapMode, maxSpawnDepth,
 //! maxChildren) from the design doc alignment plan.
 
-use closeclaw_common::agent_config::{AgentConfig, SubagentsConfig};
+use crate::agents::config_types::{AgentConfig, SubagentsConfig};
 use closeclaw_common::BootstrapMode;
 
 use super::{ConfigSource, ResolvedAgentConfig};

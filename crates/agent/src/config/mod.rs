@@ -5,11 +5,11 @@
 pub use crate::communication::{
     check_communication_allowed, CommunicationCheckResult, CommunicationConfig,
 };
-pub use closeclaw_common::agent_config::{
+pub use closeclaw_common::BootstrapMode;
+pub use closeclaw_config::agents::{
     ActionPermission, ActiveSearcherOverride, AgentConfig, AgentPermissions, MemoryConfig,
     PermissionLimits, SubagentsConfig,
 };
-pub use closeclaw_common::BootstrapMode;
 
 #[cfg(test)]
 mod config_tests;

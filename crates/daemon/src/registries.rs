@@ -81,7 +81,7 @@ fn inject_agent_registry_into_skill_registry(
     let mut guard = skill_registry.write().unwrap();
     if let Some(ref mut disk_reg) = *guard {
         disk_reg.set_agent_skills_query(
-            Arc::clone(agent_registry) as Arc<dyn closeclaw_common::AgentSkillsQuery>
+            Arc::clone(agent_registry) as Arc<dyn closeclaw_agent::AgentSkillsQuery>
         );
     }
 }
@@ -92,7 +92,7 @@ fn inject_agent_registry_into_tool_registry(
     agent_registry: &Arc<closeclaw_agent::registry::AgentRegistry>,
 ) {
     tool_registry.set_agent_tools_query(
-        Arc::clone(agent_registry) as Arc<dyn closeclaw_common::AgentToolsConfigQuery>
+        Arc::clone(agent_registry) as Arc<dyn closeclaw_agent::AgentToolsConfigQuery>
     );
 }
 
@@ -102,7 +102,7 @@ async fn wire_session_manager(ctx: &RegistryContext<'_>) {
         .set_config_manager(Arc::clone(ctx.config_manager))
         .await;
     ctx.session_manager
-        .set_agent_registry(Arc::clone(ctx.agent_registry) as Arc<dyn closeclaw_common::AgentLookup>)
+        .set_agent_registry(Arc::clone(ctx.agent_registry) as Arc<dyn closeclaw_agent::AgentLookup>)
         .await;
 }
 
@@ -146,7 +146,7 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
     let session_registrar = SessionToolsRegistrar::new(
         Arc::clone(&ctx.spawn_controller) as Arc<dyn closeclaw_tools::SpawnValidator>,
         Arc::clone(ctx.session_manager),
-        Arc::clone(ctx.agent_registry) as Arc<dyn closeclaw_common::AgentConfigLookup>,
+        Arc::clone(ctx.agent_registry) as Arc<dyn closeclaw_agent::AgentConfigLookup>,
         Arc::clone(ctx.permission_engine),
     );
     let skills_registrar = SkillsToolsRegistrar::new(

@@ -28,7 +28,7 @@ fn test_resolved_config(id: &str) -> ResolvedAgentConfig {
         skills: vec![],
         tools: vec![],
         disallowed_tools: vec![],
-        subagents: closeclaw_common::agent_lookup::config::SubagentsConfig::default(),
+        subagents: closeclaw_config::agents::SubagentsConfig::default(),
         memory: None,
         source: ConfigSource::Merged,
     }

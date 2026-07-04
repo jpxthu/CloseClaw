@@ -5,7 +5,7 @@ use crate::{SpawnValidator, Tool, ToolCallError, ToolContext, ToolFlags, ToolRes
 use closeclaw_gateway::session_manager::{SessionManager, SpawnMode};
 
 use async_trait::async_trait;
-use closeclaw_common::AgentConfigLookup;
+use closeclaw_agent::AgentConfigLookup;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
