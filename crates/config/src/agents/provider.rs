@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+use super::strip_jsonc_comments;
 use super::validation::validate_agents_config;
 use super::AgentsConfig;
 use crate::{ConfigError, ConfigProvider};
@@ -31,7 +32,8 @@ impl AgentsConfigProvider {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, ConfigError> {
         let config_path = path.as_ref().display().to_string();
         let content = fs::read_to_string(path)?;
-        let config: AgentsConfig = serde_json::from_str(&content)?;
+        let stripped = strip_jsonc_comments(&content);
+        let config: AgentsConfig = serde_json::from_str(&stripped)?;
         Ok(Self {
             config,
             config_path,
@@ -40,7 +42,8 @@ impl AgentsConfigProvider {
 
     /// Create a new provider from a string (useful for testing)
     pub fn from_json_str(content: &str) -> Result<Self, ConfigError> {
-        let config: AgentsConfig = serde_json::from_str(content)?;
+        let stripped = strip_jsonc_comments(content);
+        let config: AgentsConfig = serde_json::from_str(&stripped)?;
         Ok(Self {
             config,
             config_path: "memory".to_string(),
@@ -209,5 +212,73 @@ mod tests {
         let provider = AgentsConfigProvider::new(&path).unwrap();
         assert_eq!(provider.agents().len(), 1);
         assert!(!provider.is_default());
+    }
+
+    #[test]
+    fn test_jsonc_inline_comment() {
+        let jsonc = r#"{
+            // This is a comment
+            "agents": ["alpha", "beta"]
+        }"#;
+        let provider = AgentsConfigProvider::from_json_str(jsonc).unwrap();
+        assert_eq!(provider.agents(), &["alpha", "beta"]);
+    }
+
+    #[test]
+    fn test_jsonc_trailing_comment() {
+        let jsonc = r#"{
+            "agents": ["alpha", "beta"]  // trailing comment
+        }"#;
+        let provider = AgentsConfigProvider::from_json_str(jsonc).unwrap();
+        assert_eq!(provider.agents(), &["alpha", "beta"]);
+    }
+
+    #[test]
+    fn test_jsonc_commented_out_agent() {
+        let jsonc = r#"{
+            "agents": [
+                "alpha",
+                // "beta",
+                "gamma"
+            ]
+        }"#;
+        let provider = AgentsConfigProvider::from_json_str(jsonc).unwrap();
+        assert_eq!(provider.agents(), &["alpha", "gamma"]);
+        assert!(provider.get("beta").is_none());
+    }
+
+    #[test]
+    fn test_jsonc_commented_out_all_agents() {
+        let jsonc = r#"{
+            "agents": [
+                // "alpha",
+                // "beta"
+            ]
+        }"#;
+        let provider = AgentsConfigProvider::from_json_str(jsonc).unwrap();
+        assert!(provider.agents().is_empty());
+    }
+
+    #[test]
+    fn test_plain_json_still_works() {
+        let json = r#"{"agents":["one","two","three"]}"#;
+        let provider = AgentsConfigProvider::from_json_str(json).unwrap();
+        assert_eq!(provider.agents(), &["one", "two", "three"]);
+    }
+
+    #[test]
+    fn test_new_jsonc_from_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("agents.json");
+        let jsonc = r#"{
+            "agents": [
+                "agent-a",
+                // "agent-b",  // disabled
+                "agent-c"
+            ]
+        }"#;
+        std::fs::write(&path, jsonc).unwrap();
+        let provider = AgentsConfigProvider::new(&path).unwrap();
+        assert_eq!(provider.agents(), &["agent-a", "agent-c"]);
     }
 }
