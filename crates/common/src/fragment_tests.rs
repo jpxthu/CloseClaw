@@ -13,7 +13,6 @@ fn test_fragment_context_default() {
     assert!(ctx.agent_id.is_none());
     assert!(ctx.bootstrap_mode.is_none());
     assert!(ctx.workdir.is_none());
-    assert!(ctx.agent_dir.is_none());
 }
 
 #[test]
@@ -52,17 +51,10 @@ fn test_fragment_context_all_fields() {
         agent_id: Some("my-agent".to_string()),
         bootstrap_mode: Some(BootstrapMode::Minimal),
         workdir: Some(std::path::PathBuf::from("/home/user/project")),
-        agent_dir: Some(std::path::PathBuf::from(
-            "/home/user/.openclaw/agents/test-agent",
-        )),
     };
     assert_eq!(ctx.agent_id.as_deref(), Some("my-agent"));
     assert_eq!(ctx.bootstrap_mode, Some(BootstrapMode::Minimal));
     assert!(ctx.workdir.is_some());
-    assert_eq!(
-        ctx.agent_dir.as_ref().unwrap().to_str(),
-        Some("/home/user/.openclaw/agents/test-agent")
-    );
 }
 
 #[test]
@@ -71,13 +63,11 @@ fn test_fragment_context_clone() {
         agent_id: Some("clone-test".to_string()),
         bootstrap_mode: Some(BootstrapMode::Minimal),
         workdir: Some(std::path::PathBuf::from("/clone")),
-        agent_dir: Some(std::path::PathBuf::from("/clone-agent")),
     };
     let cloned = ctx.clone();
     assert_eq!(ctx.agent_id, cloned.agent_id);
     assert_eq!(ctx.bootstrap_mode, cloned.bootstrap_mode);
     assert_eq!(ctx.workdir, cloned.workdir);
-    assert_eq!(ctx.agent_dir, cloned.agent_dir);
 }
 
 #[test]
