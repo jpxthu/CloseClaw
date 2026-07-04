@@ -34,8 +34,8 @@ pub use manager::{
 pub use agents::{AgentDirectoryProvider, AgentsConfig, AgentsConfigProvider};
 pub use migration::{migrate_if_needed, ConfigMigrationError};
 pub use providers::{
-    ChannelsConfigData, ConfigError, ConfigProvider, CredentialsProvider, GatewayConfigData,
-    ModelsConfigData, SystemConfigData,
+    AccountsConfigData, ChannelsConfigData, ConfigError, ConfigProvider, CredentialsProvider,
+    GatewayConfigData, ModelsConfigData, SystemConfigData,
 };
 pub use session::{
     JsonSessionConfigProvider, PerAgentSessionConfig, SessionConfig, SessionConfigProvider,
