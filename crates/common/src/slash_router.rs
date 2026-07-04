@@ -93,6 +93,12 @@ impl SlashResult {
                 ctx.executor
                     .execute_compact(&ctx.session_id, instruction)
                     .await;
+                let _ = ctx
+                    .reply_tx
+                    .send(ReplyAction::Reply(vec![ContentBlock::Text(
+                        "对话历史已压缩".into(),
+                    )]))
+                    .await;
             }
             SlashResult::SystemAppend { action } => {
                 ctx.executor
