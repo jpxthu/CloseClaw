@@ -23,9 +23,9 @@ use crate::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 /// downstream components (e.g. `SessionManager`) can swap to the
 /// latest config without holding a lock on `ConfigManager`.
 pub type ConfigSnapshot = Arc<HashMap<ConfigSection, serde_json::Value>>;
+use crate::agents::AgentPermissions;
 use crate::providers::{ConfigProvider, CredentialsProvider, ModelsConfigData};
 use crate::session::{JsonSessionConfigProvider, SessionConfigProvider};
-use closeclaw_common::agent_config::AgentPermissions;
 
 // ---------------------------------------------------------------------------
 // Error types

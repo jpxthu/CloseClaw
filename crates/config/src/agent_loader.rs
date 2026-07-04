@@ -71,7 +71,7 @@ impl ConfigManager {
     fn sync_permissions(
         &self,
         ids: &[String],
-        provider_perms: &HashMap<String, closeclaw_common::agent_config::AgentPermissions>,
+        provider_perms: &HashMap<String, crate::agents::AgentPermissions>,
     ) {
         let mut perms_map = self.agent_permissions.write().expect("RwLock poisoned");
         for id in ids {
@@ -80,7 +80,7 @@ impl ConfigManager {
             } else {
                 perms_map.insert(
                     id.clone(),
-                    closeclaw_common::agent_config::AgentPermissions {
+                    crate::agents::AgentPermissions {
                         agent_id: id.clone(),
                         permissions: std::collections::HashMap::new(),
                         inherited_from: None,
@@ -152,7 +152,7 @@ impl ConfigManager {
     pub fn restore_agents(
         &self,
         agents: HashMap<String, ResolvedAgentConfig>,
-        permissions: HashMap<String, closeclaw_common::agent_config::AgentPermissions>,
+        permissions: HashMap<String, crate::agents::AgentPermissions>,
     ) {
         *self.agents.write().expect("RwLock for agents was poisoned") = agents;
         *self
@@ -166,7 +166,7 @@ impl ConfigManager {
         &self,
     ) -> (
         HashMap<String, ResolvedAgentConfig>,
-        HashMap<String, closeclaw_common::agent_config::AgentPermissions>,
+        HashMap<String, crate::agents::AgentPermissions>,
     ) {
         let agents = self.agents();
         let permissions = self.agent_permissions();
@@ -191,9 +191,7 @@ impl ConfigManager {
     }
 
     /// Get all agent permissions (clone).
-    pub fn agent_permissions(
-        &self,
-    ) -> HashMap<String, closeclaw_common::agent_config::AgentPermissions> {
+    pub fn agent_permissions(&self) -> HashMap<String, crate::agents::AgentPermissions> {
         self.agent_permissions
             .read()
             .expect("RwLock for agent_permissions was poisoned")
