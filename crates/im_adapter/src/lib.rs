@@ -12,7 +12,6 @@ pub mod platforms;
 pub mod plugin;
 #[cfg(test)]
 pub mod plugin_tests;
-pub mod render_hooks;
 pub mod streaming;
 #[cfg(test)]
 pub mod streaming_tests;

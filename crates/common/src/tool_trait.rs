@@ -84,12 +84,9 @@ impl Clone for ToolContext {
 }
 
 // ---------------------------------------------------------------------------
-// build_workdir_context — helper to construct WorkdirContext
+// build_workdir_context & build_git_status_for — helpers
 // ---------------------------------------------------------------------------
 
-/// Build a [`WorkdirContext`] for the given path.
-///
-/// Resolves relative paths against `cwd`.  Canonicalizes the result.
 /// Build a git status string for the given path (`None` if not a git repo).
 pub fn build_git_status_for(path: &str) -> Option<String> {
     let p = Path::new(path);
