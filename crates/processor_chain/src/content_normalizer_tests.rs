@@ -1,7 +1,7 @@
 use super::*;
 use crate::processor_chain::context::MessageContext;
 use crate::processor_chain::processor::MessageProcessor;
-use closeclaw_common::im_plugin::NormalizedMessage;
+use closeclaw_common::im_plugin::{MessageType, NormalizedMessage};
 use closeclaw_im_adapter::normalized::{add_code_block_language_hint, normalize_urls};
 
 // -------------------------------------------------------------------------
@@ -101,6 +101,76 @@ async fn test_process_plain_text() {
     assert!(result.is_some());
     let out = result.unwrap();
     assert_eq!(out.text_content(), Some("hello world"));
+}
+
+// --------------------------------------------------------------------------
+// Non-text message types — skip normalization
+// --------------------------------------------------------------------------
+
+fn make_normalized_with_type(content: &str, message_type: MessageType) -> NormalizedMessage {
+    NormalizedMessage {
+        platform: "terminal".to_string(),
+        sender_id: "user_1".to_string(),
+        peer_id: "cli".to_string(),
+        content: content.to_string(),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type,
+        media_refs: Vec::new(),
+        thread_id: None,
+        account_id: String::new(),
+    }
+}
+
+#[tokio::test]
+async fn test_process_image_skips_normalization() {
+    let processor = ContentNormalizer::new();
+    let msg = make_normalized_with_type("raw content  ", MessageType::Image);
+    let ctx = MessageContext::from_normalized(msg);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    // Content returned as-is, no trimming applied
+    assert_eq!(result.text_content(), Some("raw content  "));
+    assert!(result.metadata.is_empty());
+}
+
+#[tokio::test]
+async fn test_process_file_skips_normalization() {
+    let processor = ContentNormalizer::new();
+    let msg = make_normalized_with_type("file placeholder", MessageType::File);
+    let ctx = MessageContext::from_normalized(msg);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    assert_eq!(result.text_content(), Some("file placeholder"));
+    assert!(result.metadata.is_empty());
+}
+
+#[tokio::test]
+async fn test_process_audio_skips_normalization() {
+    let processor = ContentNormalizer::new();
+    let msg = make_normalized_with_type("audio note", MessageType::Audio);
+    let ctx = MessageContext::from_normalized(msg);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    assert_eq!(result.text_content(), Some("audio note"));
+    assert!(result.metadata.is_empty());
+}
+
+#[tokio::test]
+async fn test_process_other_skips_normalization() {
+    let processor = ContentNormalizer::new();
+    let msg = make_normalized_with_type("sticker   ", MessageType::Other("sticker".into()));
+    let ctx = MessageContext::from_normalized(msg);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    // Non-text types return content as-is, trailing spaces preserved
+    assert_eq!(result.text_content(), Some("sticker   "));
+    assert!(result.metadata.is_empty());
+}
+
+#[tokio::test]
+async fn test_process_image_with_ansi_preserved() {
+    let processor = ContentNormalizer::new();
+    let msg = make_normalized_with_type("\x1b[31mError\x1b[0m", MessageType::Image);
+    let ctx = MessageContext::from_normalized(msg);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    // ANSI escape is NOT stripped for non-text messages
+    assert_eq!(result.text_content(), Some("\x1b[31mError\x1b[0m"));
 }
 
 #[tokio::test]

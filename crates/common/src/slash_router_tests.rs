@@ -280,7 +280,29 @@ async fn test_stop_calls_executor_and_sends_reply() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_compact_calls_executor_with_instruction() {
+async fn test_compact_calls_executor_and_sends_reply() {
+    let (ctx, mut rx, exec) = make_ctx();
+    SlashResult::Compact { instruction: None }
+        .execute(&ctx)
+        .await;
+    drop(ctx);
+
+    assert!(*exec.compact_called.lock().unwrap());
+    assert_eq!(*exec.compact_instruction.lock().unwrap(), None);
+
+    let actions = drain_actions(&mut rx).await;
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => {
+            assert_eq!(blocks.len(), 1);
+            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "对话历史已压缩"));
+        }
+        other => panic!("expected ReplyAction::Reply, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_compact_with_instruction_sends_reply() {
     let (ctx, mut rx, exec) = make_ctx();
     SlashResult::Compact {
         instruction: Some("keep recent".into()),
@@ -295,21 +317,15 @@ async fn test_compact_calls_executor_with_instruction() {
         Some("keep recent".into())
     );
 
-    // Compact produces no reply action
     let actions = drain_actions(&mut rx).await;
-    assert!(actions.is_empty());
-}
-
-#[tokio::test]
-async fn test_compact_without_instruction() {
-    let (ctx, _rx, exec) = make_ctx();
-    SlashResult::Compact { instruction: None }
-        .execute(&ctx)
-        .await;
-    drop(ctx);
-
-    assert!(*exec.compact_called.lock().unwrap());
-    assert_eq!(*exec.compact_instruction.lock().unwrap(), None);
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => {
+            assert_eq!(blocks.len(), 1);
+            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "对话历史已压缩"));
+        }
+        other => panic!("expected ReplyAction::Reply, got {other:?}"),
+    }
 }
 
 // ---------------------------------------------------------------------------
