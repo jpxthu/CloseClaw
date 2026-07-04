@@ -8,11 +8,84 @@
 //! which owns the concrete session and permission implementations.
 
 use async_trait::async_trait;
+use std::sync::Arc;
+use tokio::sync::mpsc;
 
 use closeclaw_common::processor::ContentBlock;
-use closeclaw_common::slash_router::{
-    ReplyAction, SideEffectContext, SlashResult, SystemAppendAction,
-};
+use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
+use closeclaw_common::SessionLookup;
+use closeclaw_common::{ReasoningLevel, VerbosityLevel};
+
+// ── Migrated types (from common) ──────────────────────────────────────
+
+/// Action produced by execute_slash_result for the Gateway to dispatch.
+#[derive(Debug)]
+pub enum ReplyAction {
+    /// Send a content-block reply to the user (routed through outbound
+    /// Processor Chain: Verbosity filtering → DslParser → outbound logging
+    /// → IM Adapter rendering).
+    Reply(Vec<ContentBlock>),
+    /// Trigger manual compaction.
+    TriggerCompact { instruction: Option<String> },
+    /// No action needed.
+    Nothing,
+}
+
+/// Executor trait for slash command side effects.
+///
+/// Implemented by the Gateway, which has access to the full
+/// `SessionManager` and `SessionMessageHandler`. This trait breaks
+/// the circular dependency: common defines the interface, gateway
+/// provides the implementation.
+#[async_trait]
+pub trait SlashEffectExecutor: Send + Sync {
+    /// Stop the current LLM turn for the session.
+    async fn execute_stop(&self, session_id: &str);
+
+    /// Create a new session for the given channel.
+    async fn execute_new_session(&self, session_id: &str, channel: &str);
+
+    /// Trigger context compaction with an optional custom instruction.
+    async fn execute_compact(&self, session_id: &str, instruction: Option<String>);
+
+    /// Apply a system prompt append/clear action.
+    async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction);
+
+    /// Set the reasoning level for the session.
+    async fn execute_set_reasoning(&self, session_id: &str, level: ReasoningLevel);
+
+    /// Set the verbosity level for the session.
+    async fn execute_set_verbosity(&self, session_id: &str, level: VerbosityLevel);
+
+    /// Execute a shell command for the given agent.
+    ///
+    /// The implementation evaluates command-level permissions via the
+    /// permission engine, then runs the command and returns output as
+    /// `ContentBlock::Text`. Returns a rejection message on permission denial.
+    async fn execute_exec(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+        command: &str,
+    ) -> Vec<ContentBlock>;
+}
+
+/// Context for slash command side-effect dispatch.
+///
+/// Carries session/channel identity, a reply channel, and an executor
+/// for the Gateway to dispatch side effects.
+pub struct SideEffectContext {
+    /// Session ID where the slash command was invoked.
+    pub session_id: String,
+    /// Channel identifier (e.g. "feishu", "telegram").
+    pub channel: String,
+    /// Session manager for state queries.
+    pub session_manager: Arc<dyn SessionLookup>,
+    /// Sender for [`ReplyAction`]s.
+    pub reply_tx: mpsc::Sender<ReplyAction>,
+    /// Executor for slash command side effects.
+    pub executor: Arc<dyn SlashEffectExecutor>,
+}
 
 /// Extension trait for executing [`SlashResult`] side effects.
 ///

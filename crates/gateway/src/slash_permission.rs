@@ -6,12 +6,11 @@
 
 use std::sync::Arc;
 
-use crate::slash_executor::SlashResultExecutor;
-use closeclaw_common::processor::ContentBlock;
-use closeclaw_common::slash_router::{
-    ReplyAction, SideEffectContext, SlashContext, SlashEffectExecutor, SlashHandler, SlashRouter,
-    SystemAppendAction,
+use crate::slash_executor::{
+    ReplyAction, SideEffectContext, SlashEffectExecutor, SlashResultExecutor,
 };
+use closeclaw_common::processor::ContentBlock;
+use closeclaw_common::slash_router::{SlashContext, SlashHandler, SlashRouter, SystemAppendAction};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
