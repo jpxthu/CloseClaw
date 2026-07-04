@@ -6,7 +6,7 @@
 use crate::tool_registry::ToolFlags;
 use crate::tool_trait::{
     build_workdir_context, ContextModifier, PromptGenerationContext, Tool, ToolCallError,
-    ToolContext, ToolMessage, ToolResult, ToolSummary, WorkdirContext,
+    ToolContext, ToolMessage, ToolResult, WorkdirContext,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -391,50 +391,6 @@ fn test_prompt_generation_context_debug() {
 }
 
 // =========================================================================
-// ToolSummary
-// =========================================================================
-
-#[test]
-fn test_tool_summary_fields() {
-    let summary = ToolSummary {
-        name: "Read".into(),
-        group: "file_ops".into(),
-        summary: "Read file contents".into(),
-        is_deferred: false,
-    };
-    assert_eq!(summary.name, "Read");
-    assert_eq!(summary.group, "file_ops");
-    assert_eq!(summary.summary, "Read file contents");
-    assert!(!summary.is_deferred);
-}
-
-#[test]
-fn test_tool_summary_clone() {
-    let summary = ToolSummary {
-        name: "Write".into(),
-        group: "file_ops".into(),
-        summary: "Write file contents".into(),
-        is_deferred: true,
-    };
-    let cloned = summary.clone();
-    assert_eq!(cloned.name, "Write");
-    assert!(cloned.is_deferred);
-}
-
-#[test]
-fn test_tool_summary_debug() {
-    let summary = ToolSummary {
-        name: "Bash".into(),
-        group: "bash".into(),
-        summary: "Run commands".into(),
-        is_deferred: false,
-    };
-    let debug = format!("{:?}", summary);
-    assert!(debug.contains("ToolSummary"));
-    assert!(debug.contains("Bash"));
-}
-
-// =========================================================================
 // ToolMessage / ContextModifier / ToolResult
 // =========================================================================
 
@@ -528,20 +484,8 @@ fn test_tool_flags_all_set() {
 }
 
 // =========================================================================
-// ToolError / ToolCallError
+// ToolCallError
 // =========================================================================
-
-#[test]
-fn test_tool_error_not_found_display() {
-    let err = crate::tool_trait::ToolError::NotFound("Bash".into());
-    assert_eq!(format!("{}", err), "tool not found: Bash");
-}
-
-#[test]
-fn test_tool_error_already_registered_display() {
-    let err = crate::tool_trait::ToolError::AlreadyRegistered("Read".into());
-    assert_eq!(format!("{}", err), "tool `Read` already registered");
-}
 
 #[test]
 fn test_tool_call_error_not_found_display() {

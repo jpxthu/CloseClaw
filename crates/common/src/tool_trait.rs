@@ -1,20 +1,22 @@
 //! Core Tool trait and associated types.
 //!
 //! This module defines the [`Tool`] trait and all supporting types
-//! (`ToolContext`, `ToolResult`, `ToolError`, etc.) that were
+//! (`ToolContext`, `ToolResult`, `ToolCallError`, etc.) that were
 //! previously in `closeclaw-tools`.  They now live in `closeclaw-common`
 //! so that both the `tools` crate and downstream consumers can
 //! reference them without circular dependencies.
+//!
+//! [`ToolSummary`] and [`ToolError`] have moved to the `tools` crate
+//! (`closeclaw_tools::tool_types`).
 //!
 //! [`ToolFlags`] is re-exported from [`crate::tool_registry`] —
 //! the single canonical definition lives there.
 
 use async_trait::async_trait;
 use serde_json::Value;
-use thiserror::Error;
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use thiserror::Error;
 
 use crate::tool_session::ToolSession;
 
@@ -238,53 +240,6 @@ pub struct PromptGenerationContext {
     /// applied *after* the whitelist filter.  `None` means no
     /// blacklist.
     pub disallowed_tools: Option<Vec<String>>,
-}
-
-// ---------------------------------------------------------------------------
-// ToolSummary — reduced tool info for the system prompt index
-// ---------------------------------------------------------------------------
-
-/// Reduced tool info for the system prompt index.
-///
-/// Contains only the fields needed to render the first-level
-/// tool listing (group name + tool name + summary).
-///
-/// Named `ToolSummary` to avoid collision with
-/// [`crate::tool_registry::ToolDescriptor`] which carries richer
-/// info for `ToolRegistryQuery`.
-#[derive(Debug, Clone)]
-pub struct ToolSummary {
-    /// Unique tool name.
-    pub name: String,
-    /// Group this tool belongs to.
-    pub group: String,
-    /// Short one-line summary (≤50 chars).
-    pub summary: String,
-    /// Whether this tool's detail is deferred by default.
-    pub is_deferred: bool,
-}
-
-// ---------------------------------------------------------------------------
-// ToolError — tool layer errors
-// ---------------------------------------------------------------------------
-
-/// Errors raised by the tools layer.
-#[derive(Debug, Error)]
-pub enum ToolError {
-    #[error("tool not found: {0}")]
-    NotFound(String),
-
-    #[error("tool `{0}` already registered")]
-    AlreadyRegistered(String),
-
-    #[error("tool registry is frozen — no further registrations accepted")]
-    Frozen,
-
-    #[error("serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
-
-    #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
 }
 
 // ---------------------------------------------------------------------------

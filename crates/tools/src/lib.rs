@@ -17,13 +17,15 @@ pub mod registrars;
 pub mod registry;
 pub mod security;
 pub mod spawn_validation;
-
+pub mod tool_types;
 pub mod workdir_context;
+
 pub use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 pub use registrars::core::CoreToolsRegistrar;
 pub use registrars::session::SessionToolsRegistrar;
 pub use registrars::skills::SkillsToolsRegistrar;
 pub use registry::ToolRegistryImpl;
+pub use tool_types::{ToolError, ToolSummary};
 /// Type alias for backward compatibility.
 pub type ToolRegistry = ToolRegistryImpl;
 pub use spawn_validation::{SpawnError, SpawnValidationResult, SpawnValidator};
@@ -31,5 +33,9 @@ pub use spawn_validation::{SpawnError, SpawnValidationResult, SpawnValidator};
 // Re-export WorkdirContext helpers from common (via workdir_context module).
 pub use workdir_context::{build_git_status_for, build_workdir_context, WorkdirContext};
 
-// Re-export all tool trait types from common.
-pub use closeclaw_common::tool_trait::*;
+// Re-export tool trait types from common (except ToolSummary/ToolError which live here,
+// and build_git_status_for/build_workdir_context/WorkdirContext which come from workdir_context).
+pub use closeclaw_common::tool_trait::{
+    ContextModifier, PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags,
+    ToolMessage, ToolResult,
+};
