@@ -12,12 +12,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
+use crate::slash_executor::{ReplyAction, SideEffectContext, SlashEffectExecutor};
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::session_lookup::{PendingMessage, SessionLookup};
 use closeclaw_common::session_types::ReasoningLevel;
-use closeclaw_common::slash_router::{
-    ReplyAction, SideEffectContext, SlashEffectExecutor, SlashResult, SystemAppendAction,
-};
+use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 use closeclaw_common::verbosity::VerbosityLevel;
 
 use crate::slash_executor::SlashResultExecutor;
@@ -438,4 +437,99 @@ async fn test_set_verbosity_calls_executor_and_sends_reply() {
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tests — SideEffectContext: normal path (reply_tx alive)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_side_effect_context_normal_reply_delivered() {
+    // When reply_tx is alive, execute() should send the action through
+    // the channel and the receiver should get it.
+    let (ctx, mut rx, _exec) = make_ctx();
+    SlashResult::Reply("ping".into()).execute(&ctx).await;
+    drop(ctx);
+
+    let actions = drain_actions(&mut rx).await;
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => {
+            assert_eq!(blocks.len(), 1);
+            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "ping"));
+        }
+        other => panic!("expected ReplyAction::Reply, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_side_effect_context_new_session_delivered() {
+    // Verify full end-to-end: executor called + reply sent through alive channel.
+    let (ctx, mut rx, exec) = make_ctx();
+    SlashResult::NewSession.execute(&ctx).await;
+    drop(ctx);
+
+    assert!(*exec.new_session_called.lock().unwrap());
+
+    let actions = drain_actions(&mut rx).await;
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => {
+            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "已创建新 session"));
+        }
+        other => panic!("expected ReplyAction::Reply, got {other:?}"),
+    }
+}
+
+// NOTE: ReplyAction::TriggerCompact and ReplyAction::Nothing are not produced
+// by any SlashResult::execute() dispatch — they are ReplyAction enum variants
+// only consumed downstream in route_slash_reply. The behavior paths for
+// SlashResult::Compact (executor.execute_compact + ReplyAction::Reply) are
+// already covered by test_compact_calls_executor_and_sends_reply and
+// test_compact_with_instruction_sends_reply.
+
+// ---------------------------------------------------------------------------
+// Tests — SideEffectContext: closed channel error path
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_side_effect_context_closed_channel_no_panic() {
+    // When reply_tx is closed (receiver dropped), execute() should
+    // silently drop the action (let _ = ...) without panicking.
+    let (tx, rx) = mpsc::channel::<ReplyAction>(1);
+    let executor: Arc<dyn SlashEffectExecutor> = Arc::new(MockExecutor::new());
+    let ctx = SideEffectContext {
+        session_id: "sess-closed".into(),
+        channel: "feishu".into(),
+        session_manager: Arc::new(MockSessionLookup),
+        reply_tx: tx,
+        executor,
+    };
+    // Drop the receiver to close the channel.
+    drop(rx);
+
+    // Execute a variant that sends via reply_tx — should not panic.
+    SlashResult::Reply("test".into()).execute(&ctx).await;
+}
+
+#[tokio::test]
+async fn test_side_effect_context_new_session_closed_channel() {
+    // Verify that executor methods are still called even when the
+    // reply channel is closed.
+    let (tx, rx) = mpsc::channel::<ReplyAction>(1);
+    let executor = Arc::new(MockExecutor::new());
+    let ctx = SideEffectContext {
+        session_id: "sess-closed-ns".into(),
+        channel: "telegram".into(),
+        session_manager: Arc::new(MockSessionLookup),
+        reply_tx: tx,
+        executor: executor.clone(),
+    };
+    drop(rx);
+
+    SlashResult::NewSession.execute(&ctx).await;
+    assert!(
+        *executor.new_session_called.lock().unwrap(),
+        "executor must be called even when reply channel is closed"
+    );
 }
