@@ -1,9 +1,6 @@
 pub mod bootstrap;
 pub mod compaction;
 pub mod fragment;
-pub mod gateway_spawn;
-pub mod gateway_stop;
-pub mod gateway_types;
 pub mod identity;
 pub mod im_plugin;
 #[cfg(test)]
@@ -39,12 +36,6 @@ pub mod verbosity;
 pub use bootstrap::BootstrapMode;
 pub use compaction::CompactConfig;
 pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
-pub use gateway_spawn::{ChildSessionInfo, SpawnMode};
-pub use gateway_stop::{StopProgress, StopResult};
-pub use gateway_types::{
-    DmScope, GatewayConfig, GatewayError, HandleResult, InboundChainInput, InboundRequest, Message,
-    Session,
-};
 pub use identity::IdentityResolver;
 pub use im_plugin::{
     AdapterError, CardActionEvent, IMAdapter, IMPlugin, MediaRef, MessageType, NormalizedMessage,
