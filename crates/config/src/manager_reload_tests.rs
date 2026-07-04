@@ -18,6 +18,7 @@ fn write_mandatory_configs(dir: &std::path::Path) -> std::io::Result<()> {
         "gateway.json",
         "plugins.json",
         "system.json",
+        "accounts.json",
     ] {
         std::fs::write(
             dir.join(name),
