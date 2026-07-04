@@ -10,9 +10,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::terminal::TerminalPlugin;
+use closeclaw_common::IMPlugin;
 use closeclaw_config::providers::{ConfigProvider, CredentialsProvider};
 use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
-use closeclaw_im_adapter::plugin::IMPlugin;
 use closeclaw_llm::anthropic::AnthropicProvider;
 use closeclaw_llm::fallback::{FallbackClient, ModelEntry};
 use closeclaw_llm::mimo::MimoProvider;
@@ -91,10 +91,8 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
         .set_slash_dispatcher(slash_dispatcher as Arc<dyn closeclaw_common::SlashRouter>)
         .await;
 
-    let plugin: Arc<dyn closeclaw_im_adapter::IMPlugin> = Arc::new(TerminalPlugin::new());
-    gateway
-        .register_plugin(crate::bridge::IMPluginAdapter::wrap(plugin))
-        .await;
+    let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(TerminalPlugin::new());
+    gateway.register_plugin(plugin).await;
 
     (gateway, session_manager)
 }

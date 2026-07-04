@@ -371,7 +371,7 @@ async fn execute_command(
     timeout_ms: u64,
     run_in_background: bool,
     bg_manager: &Arc<dyn closeclaw_common::TaskManager>,
-    session: Option<&Arc<tokio::sync::RwLock<closeclaw_llm::session::ConversationSession>>>,
+    session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
     call_id: Option<&str>,
 ) -> Result<ToolResult, String> {
     if run_in_background {
@@ -387,12 +387,12 @@ async fn execute_command(
         // of the tool invocation, and the handle is naturally
         // reaped when the entry is removed from the manager.
         if let (Some(s), Some(cid)) = (session, call_id) {
-            let handle: Arc<dyn closeclaw_llm::session::KillHandle> =
+            let handle: Arc<dyn closeclaw_common::tool_session::KillHandle> =
                 Arc::new(BackgroundKillHandle {
                     bg_manager: Arc::clone(bg_manager),
                     task_id: task.id.clone(),
                 });
-            s.read().await.register_tool_handle(cid.to_string(), handle);
+            s.register_tool_handle(cid.to_string(), handle).await;
         }
 
         return Ok(build_background_result(&task));
@@ -404,10 +404,11 @@ async fn execute_command(
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
 
     if let (Some(s), Some(cid)) = (session, call_id) {
-        let handle: Arc<dyn closeclaw_llm::session::KillHandle> = Arc::new(BashKillHandle {
-            child: Arc::clone(&child_arc),
-        });
-        s.read().await.register_tool_handle(cid.to_string(), handle);
+        let handle: Arc<dyn closeclaw_common::tool_session::KillHandle> =
+            Arc::new(BashKillHandle {
+                child: Arc::clone(&child_arc),
+            });
+        s.register_tool_handle(cid.to_string(), handle).await;
     }
 
     let bg_timeout = if auto_backgroundize_excluded(command) {
@@ -418,12 +419,9 @@ async fn execute_command(
 
     let result = handle_foreground_result(child_arc, command, bg_timeout, bg_manager).await;
 
-    // Unregister on both success and failure. The handle's `Arc` is
-    // dropped here; if the foreground wait consumed the child, the
-    // slot was already `None` and the drop is a no-op.
-    if let (Some(s), Some(cid)) = (session, call_id) {
-        s.read().await.unregister_tool_handle(cid);
-    }
+    // The kill handle's `Arc` is dropped here; if the foreground wait
+    // consumed the child, the slot was already `None` and the drop is a no-op.
+    // No explicit unregister needed — handle lifecycle is tied to the Arc.
 
     result
 }

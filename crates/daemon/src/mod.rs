@@ -928,10 +928,8 @@ impl Daemon {
 impl Daemon {
     /// Initialize the terminal (CLI) IM plugin and register with Gateway.
     async fn init_terminal_plugin(gateway: &Arc<Gateway>) {
-        let plugin: Arc<dyn closeclaw_im_adapter::IMPlugin> = Arc::new(TerminalPlugin::new());
-        gateway
-            .register_plugin(crate::bridge::IMPluginAdapter::wrap(plugin))
-            .await;
+        let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(TerminalPlugin::new());
+        gateway.register_plugin(plugin).await;
         info!("Terminal plugin registered");
     }
 

@@ -5,7 +5,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use crate::{PromptGenerationContext, Tool, ToolContext, ToolDescriptor, ToolError};
+use crate::{PromptGenerationContext, Tool, ToolContext, ToolError, ToolSummary};
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 
 // Re-export for tests that `use super::*`
@@ -293,11 +293,11 @@ impl ToolRegistryImpl {
     }
 
     /// Returns all registered tool descriptors, filtered by `ctx`.
-    pub async fn list_descriptors(&self, _ctx: &ToolContext) -> Vec<ToolDescriptor> {
+    pub async fn list_descriptors(&self, _ctx: &ToolContext) -> Vec<ToolSummary> {
         let guard = self.tools.read().await;
         guard
             .values()
-            .map(|t| ToolDescriptor {
+            .map(|t| ToolSummary {
                 name: t.name().to_string(),
                 group: t.group().to_string(),
                 summary: t.summary(),
