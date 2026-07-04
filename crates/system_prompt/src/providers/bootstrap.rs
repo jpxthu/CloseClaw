@@ -15,6 +15,12 @@ use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, S
 /// [`MemoryFragmentProvider`](super::memory::MemoryFragmentProvider).
 pub struct BootstrapFragmentProvider;
 
+impl Default for BootstrapFragmentProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BootstrapFragmentProvider {
     pub fn new() -> Self {
         Self
