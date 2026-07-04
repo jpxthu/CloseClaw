@@ -99,3 +99,7 @@ impl ConfigProvider for AccountsConfigData {
         self.accounts.is_empty()
     }
 }
+
+#[cfg(test)]
+#[path = "accounts_tests.rs"]
+mod tests;
