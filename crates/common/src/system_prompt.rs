@@ -22,21 +22,6 @@ pub struct PromptOverrides {
     pub custom_prompt: Option<String>,
 }
 
-/// Configuration for building a system prompt from workspace sections.
-#[derive(Debug, Clone, Default)]
-pub struct WorkspaceBuildConfig {
-    /// Agent ID for the session requesting the prompt.
-    pub agent_id: Option<String>,
-    /// Agent-level tool whitelist.
-    pub agent_tools: Option<Vec<String>>,
-    /// Agent-level tool blacklist.
-    pub agent_disallowed_tools: Option<Vec<String>>,
-    /// Agent-level skill whitelist.
-    pub agent_skills: Option<Vec<String>>,
-    /// Content to append at the end of the prompt.
-    pub append_section: Option<String>,
-}
-
 /// Trait for building system prompts.
 ///
 /// Implemented by the concrete builder in the main crate; used by

@@ -56,7 +56,7 @@ pub use slash_router::{
 };
 
 pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, StorageProvider};
-pub use system_prompt::{PromptOverrides, SystemPromptBuilder, WorkspaceBuildConfig};
+pub use system_prompt::{PromptOverrides, SystemPromptBuilder};
 pub use task_manager::{BackgroundTask, BackgroundTaskError, TaskManager, TaskState};
 pub use tool_registry::{
     RegistryError, ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry,
