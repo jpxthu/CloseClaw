@@ -8,61 +8,58 @@ use crate::bootstrap::BootstrapMode;
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_fragment_context_default() {
-    let ctx = FragmentContext::default();
-    assert!(ctx.agent_id.is_none());
-    assert!(ctx.bootstrap_mode.is_none());
-    assert!(ctx.workdir.is_none());
+fn test_fragment_context_test_default() {
+    let ctx = FragmentContext::test_default();
+    assert_eq!(ctx.agent_id, "");
+    assert_eq!(ctx.bootstrap_mode, BootstrapMode::Full);
+    assert!(ctx.workdir.is_dir());
 }
 
 #[test]
 fn test_fragment_context_agent_id() {
     let ctx = FragmentContext {
-        agent_id: Some("agent-42".to_string()),
-        ..Default::default()
+        agent_id: "agent-42".to_string(),
+        ..FragmentContext::test_default()
     };
-    assert_eq!(ctx.agent_id.as_deref(), Some("agent-42"));
+    assert_eq!(ctx.agent_id, "agent-42");
 }
 
 #[test]
 fn test_fragment_context_bootstrap_mode() {
     let ctx = FragmentContext {
-        bootstrap_mode: Some(BootstrapMode::Full),
-        ..Default::default()
+        bootstrap_mode: BootstrapMode::Full,
+        ..FragmentContext::test_default()
     };
-    assert_eq!(ctx.bootstrap_mode, Some(BootstrapMode::Full));
+    assert_eq!(ctx.bootstrap_mode, BootstrapMode::Full);
 }
 
 #[test]
 fn test_fragment_context_workdir() {
     let ctx = FragmentContext {
-        workdir: Some(std::path::PathBuf::from("/tmp/workspace")),
-        ..Default::default()
+        workdir: std::path::PathBuf::from("/tmp/workspace"),
+        ..FragmentContext::test_default()
     };
-    assert_eq!(
-        ctx.workdir.as_ref().unwrap().to_str(),
-        Some("/tmp/workspace")
-    );
+    assert_eq!(ctx.workdir, std::path::PathBuf::from("/tmp/workspace"));
 }
 
 #[test]
 fn test_fragment_context_all_fields() {
     let ctx = FragmentContext {
-        agent_id: Some("my-agent".to_string()),
-        bootstrap_mode: Some(BootstrapMode::Minimal),
-        workdir: Some(std::path::PathBuf::from("/home/user/project")),
+        agent_id: "my-agent".to_string(),
+        bootstrap_mode: BootstrapMode::Minimal,
+        workdir: std::path::PathBuf::from("/home/user/project"),
     };
-    assert_eq!(ctx.agent_id.as_deref(), Some("my-agent"));
-    assert_eq!(ctx.bootstrap_mode, Some(BootstrapMode::Minimal));
-    assert!(ctx.workdir.is_some());
+    assert_eq!(ctx.agent_id, "my-agent");
+    assert_eq!(ctx.bootstrap_mode, BootstrapMode::Minimal);
+    assert_eq!(ctx.workdir, std::path::PathBuf::from("/home/user/project"));
 }
 
 #[test]
 fn test_fragment_context_clone() {
     let ctx = FragmentContext {
-        agent_id: Some("clone-test".to_string()),
-        bootstrap_mode: Some(BootstrapMode::Minimal),
-        workdir: Some(std::path::PathBuf::from("/clone")),
+        agent_id: "clone-test".to_string(),
+        bootstrap_mode: BootstrapMode::Minimal,
+        workdir: std::path::PathBuf::from("/clone"),
     };
     let cloned = ctx.clone();
     assert_eq!(ctx.agent_id, cloned.agent_id);
@@ -73,8 +70,8 @@ fn test_fragment_context_clone() {
 #[test]
 fn test_fragment_context_debug() {
     let ctx = FragmentContext {
-        agent_id: Some("dbg".to_string()),
-        ..Default::default()
+        agent_id: "dbg".to_string(),
+        ..FragmentContext::test_default()
     };
     let dbg = format!("{:?}", ctx);
     assert!(dbg.contains("dbg"));
