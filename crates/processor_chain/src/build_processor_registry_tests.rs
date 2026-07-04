@@ -46,11 +46,11 @@ async fn test_default_config_no_raw_log() {
         2,
         "default config should have 2 inbound processors"
     );
-    // Outbound: VerbosityFilter (5) + DslParser (10) = 2
+    // Outbound: DslParser (10) = 1
     assert_eq!(
         registry.outbound_len(),
-        2,
-        "default config should have 2 outbound processors"
+        1,
+        "default config should have 1 outbound processor (DslParser)"
     );
 }
 
@@ -71,8 +71,8 @@ async fn test_config_with_raw_log_dir() {
     );
     assert_eq!(
         registry.outbound_len(),
-        3,
-        "config with raw_log_dir should have 3 outbound processors"
+        1,
+        "config with raw_log_dir should have 1 outbound processor (DslParser)"
     );
 }
 
@@ -139,8 +139,7 @@ async fn test_priority_sorting_inbound() {
     );
 }
 
-/// Verify that the outbound chain executes in priority order:
-/// VerbosityFilter(5) → DslParser(10) → OutboundRawLogProcessor(20) (when raw_log_dir is set).
+/// Verify that the outbound chain contains only DslParser.
 #[tokio::test]
 async fn test_priority_sorting_outbound() {
     let tmp = tempfile::tempdir().unwrap();
@@ -155,8 +154,77 @@ async fn test_priority_sorting_outbound() {
     };
     let result = registry.process_outbound(llm_output).await.unwrap();
 
-    // Outbound chain should pass content through (DslParser doesn't modify
-    // plain text, OutboundRawLogProcessor logs without changing content)
+    // Outbound chain has only DslParser — plain text passes through unchanged
     assert_eq!(result.text_content(), Some("test output"));
     assert!(!result.content_blocks.is_empty());
+}
+
+/// Verify that VerbosityFilter is NOT in the outbound chain.
+/// Verbosity filtering is now a Gateway-level step (not in the chain).
+#[tokio::test]
+async fn test_outbound_chain_no_verbosity_filter() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = make_config(Some(tmp.path().to_path_buf()), DmScope::default());
+    let registry = build_processor_registry(&config);
+
+    // Send blocks with Thinking content — if VerbosityFilter were in chain,
+    // Thinking blocks would be filtered. Since it's not, they pass through.
+    let llm_output = ProcessedMessage {
+        content_blocks: vec![
+            closeclaw_llm::types::ContentBlock::Thinking {
+                thinking: "internal reasoning".to_string(),
+                signature: None,
+            },
+            closeclaw_llm::types::ContentBlock::Text("Hello".to_string()),
+        ],
+        metadata: std::collections::HashMap::new(),
+    };
+    let result = registry.process_outbound(llm_output).await.unwrap();
+
+    // Both blocks should pass through (no VerbosityFilter in chain)
+    assert_eq!(result.content_blocks.len(), 2);
+    assert!(matches!(
+        &result.content_blocks[0],
+        closeclaw_llm::types::ContentBlock::Thinking { .. }
+    ));
+    assert!(matches!(
+        &result.content_blocks[1],
+        closeclaw_llm::types::ContentBlock::Text(_)
+    ));
+}
+
+/// Verify that OutboundRawLogProcessor is NOT in the outbound chain.
+/// Outbound logging is now a Gateway-level step (not in the chain).
+#[tokio::test]
+async fn test_outbound_chain_no_outbound_log_processor() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = make_config(Some(tmp.path().to_path_buf()), DmScope::default());
+    let registry = build_processor_registry(&config);
+
+    // Even with raw_log_dir configured, outbound chain should only have DslParser
+    assert_eq!(
+        registry.outbound_len(),
+        1,
+        "outbound chain should only contain DslParser, not OutboundRawLogProcessor"
+    );
+}
+
+/// Outbound chain with DSL instruction: DslParser extracts DSL.
+#[tokio::test]
+async fn test_outbound_chain_dsl_parsing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = make_config(Some(tmp.path().to_path_buf()), DmScope::default());
+    let registry = build_processor_registry(&config);
+
+    let llm_output = ProcessedMessage {
+        content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
+            "::button[label:OK;action:submit;value:yes]".to_string(),
+        )],
+        metadata: std::collections::HashMap::new(),
+    };
+    let result = registry.process_outbound(llm_output).await.unwrap();
+
+    // DslParser extracts DSL from text block
+    let dsl = result.metadata.get("dsl_result").unwrap();
+    assert!(dsl.contains("button"), "DSL should be parsed: {dsl}");
 }

@@ -605,6 +605,7 @@ dependencies = [
  "closeclaw-llm",
  "closeclaw-memory",
  "closeclaw-permission",
+ "closeclaw-processor-chain",
  "closeclaw-session",
  "futures",
  "hex",
