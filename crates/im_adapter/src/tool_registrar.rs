@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 
 use closeclaw_tools::registrar::{ToolRegistrar, ToolRegistrarError};
-use closeclaw_tools::ToolRegistry;
+use closeclaw_tools::{Tool, ToolRegistry};
 
 use crate::platforms::feishu::tools::{
     FeishuBitableTool, FeishuCalendarTool, FeishuDocTool, FeishuDriveTool, FeishuImTool,
@@ -41,28 +41,20 @@ impl ToolRegistrar for ImAdapterToolsRegistrar {
     }
 
     async fn register(&self, registry: &ToolRegistry) -> Result<(), ToolRegistrarError> {
-        register_tool(registry, FeishuImTool::new()).await?;
-        register_tool(registry, FeishuCalendarTool::new()).await?;
-        register_tool(registry, FeishuTaskTool::new()).await?;
-        register_tool(registry, FeishuBitableTool::new()).await?;
-        register_tool(registry, FeishuDocTool::new()).await?;
-        register_tool(registry, FeishuDriveTool::new()).await?;
-        register_tool(registry, FeishuSheetTool::new()).await?;
-
+        let mut registered = 0usize;
+        let r = self.name();
+        closeclaw_tools::try_register!(registry, registered, FeishuImTool::new(), r);
+        closeclaw_tools::try_register!(registry, registered, FeishuCalendarTool::new(), r);
+        closeclaw_tools::try_register!(registry, registered, FeishuTaskTool::new(), r);
+        closeclaw_tools::try_register!(registry, registered, FeishuBitableTool::new(), r);
+        closeclaw_tools::try_register!(registry, registered, FeishuDocTool::new(), r);
+        closeclaw_tools::try_register!(registry, registered, FeishuDriveTool::new(), r);
+        closeclaw_tools::try_register!(registry, registered, FeishuSheetTool::new(), r);
+        if registered == 0 {
+            return Err(ToolRegistrarError::Internal(
+                "all 7 tools failed to register".to_string(),
+            ));
+        }
         Ok(())
     }
-}
-
-/// Helper: register a single tool, converting `ToolError` into `ToolRegistrarError`.
-async fn register_tool(
-    registry: &ToolRegistry,
-    tool: impl closeclaw_tools::Tool + 'static,
-) -> Result<(), ToolRegistrarError> {
-    registry.register(tool).await.map_err(|e| match e {
-        closeclaw_tools::ToolError::AlreadyRegistered(name) => ToolRegistrarError::Conflict {
-            tool: name,
-            registrar: "ImAdapterToolsRegistrar".to_string(),
-        },
-        other => ToolRegistrarError::Internal(other.to_string()),
-    })
 }
