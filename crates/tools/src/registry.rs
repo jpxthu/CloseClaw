@@ -5,8 +5,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use crate::registrar::{ToolRegistrar, ToolRegistrarError};
 use crate::{PromptGenerationContext, Tool, ToolContext, ToolDescriptor, ToolError};
+use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
+
+/// Wrapper to bridge [`Tool`] with [`std::any::Any`] for type-erased registration.
+pub(crate) struct ToolBox(pub Arc<dyn Tool>);
 
 use closeclaw_common::AgentToolsConfigQuery;
 use serde_json::Value;
@@ -205,7 +208,9 @@ impl ToolRegistry {
         sorted.sort_by_key(|r| r.priority());
 
         for registrar in &sorted {
-            registrar.register(self).await?;
+            registrar
+                .register(self as &dyn closeclaw_common::tool_registry::ToolRegistry)
+                .await?;
         }
 
         self.frozen.store(true, Ordering::Release);
@@ -385,6 +390,42 @@ impl closeclaw_common::tool_registry::ToolRegistryQuery for ToolRegistry {
     async fn get_tool_schema(&self, name: &str) -> Option<serde_json::Value> {
         let guard = self.tools.read().await;
         guard.get(name).map(|t| t.input_schema())
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ToolRegistry — bridge to closeclaw_common trait
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[async_trait::async_trait]
+impl closeclaw_common::tool_registry::ToolRegistry for ToolRegistry {
+    async fn register_any(
+        &self,
+        tool: Box<dyn std::any::Any + Send + Sync>,
+    ) -> Result<(), closeclaw_common::tool_registry::RegistryError> {
+        let ToolBox(arc_tool) = *tool.downcast::<ToolBox>().map_err(|_| {
+            closeclaw_common::tool_registry::RegistryError::Internal(
+                "register_any expected ToolBox".to_string(),
+            )
+        })?;
+        let name = (*arc_tool).name().to_string();
+        if self.frozen.load(Ordering::Acquire) {
+            return Err(closeclaw_common::tool_registry::RegistryError::Frozen);
+        }
+        let mut guard = self.tools.write().await;
+        if guard.contains_key(&name) {
+            return Err(closeclaw_common::tool_registry::RegistryError::AlreadyRegistered(name));
+        }
+        guard.insert(name, arc_tool);
+        Ok(())
+    }
+
+    fn freeze(&self) {
+        self.frozen.store(true, Ordering::Release);
+    }
+
+    fn is_frozen(&self) -> bool {
+        self.frozen.load(Ordering::Acquire)
     }
 }
 

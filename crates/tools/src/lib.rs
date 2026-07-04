@@ -19,7 +19,7 @@ pub mod security;
 pub mod spawn_validation;
 
 pub mod workdir_context;
-pub use registrar::{ToolRegistrar, ToolRegistrarError};
+pub use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 pub use registrars::core::CoreToolsRegistrar;
 pub use registrars::session::SessionToolsRegistrar;
 pub use registrars::skills::SkillsToolsRegistrar;

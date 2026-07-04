@@ -12,8 +12,10 @@
 
 use async_trait::async_trait;
 
-use crate::registrar::{ToolRegistrar, ToolRegistrarError};
 use crate::{Tool, ToolContext, ToolFlags, ToolRegistry};
+use closeclaw_common::tool_registry::{
+    ToolRegistrar, ToolRegistrarError, ToolRegistry as ToolRegistryTrait,
+};
 use std::sync::{Arc, Mutex};
 
 // ---------------------------------------------------------------------------
@@ -79,22 +81,24 @@ impl ToolRegistrar for TestRegistrar {
         self.priority
     }
 
-    async fn register(&self, registry: &ToolRegistry) -> Result<(), ToolRegistrarError> {
+    async fn register(&self, registry: &dyn ToolRegistryTrait) -> Result<(), ToolRegistrarError> {
         for (name, group, deferred) in &self.tools {
-            registry
-                .register(DummyTool {
-                    name: name.clone(),
-                    group: group.clone(),
-                    is_deferred: *deferred,
-                })
-                .await
-                .map_err(|e| match e {
-                    crate::ToolError::AlreadyRegistered(n) => ToolRegistrarError::Conflict {
+            let tool = DummyTool {
+                name: name.clone(),
+                group: group.clone(),
+                is_deferred: *deferred,
+            };
+            let boxed: Box<dyn std::any::Any + Send + Sync> =
+                Box::new(crate::registry::ToolBox(Arc::new(tool)));
+            registry.register_any(boxed).await.map_err(|e| match e {
+                closeclaw_common::tool_registry::RegistryError::AlreadyRegistered(n) => {
+                    ToolRegistrarError::Conflict {
                         tool: n,
                         registrar: self.name.clone(),
-                    },
-                    other => ToolRegistrarError::Internal(other.to_string()),
-                })?;
+                    }
+                }
+                other => ToolRegistrarError::Internal(other.to_string()),
+            })?;
         }
         Ok(())
     }
@@ -116,7 +120,7 @@ impl ToolRegistrar for FailingRegistrar {
         self.priority
     }
 
-    async fn register(&self, _registry: &ToolRegistry) -> Result<(), ToolRegistrarError> {
+    async fn register(&self, _registry: &dyn ToolRegistryTrait) -> Result<(), ToolRegistrarError> {
         Err(ToolRegistrarError::Internal(
             "intentional failure".to_string(),
         ))
@@ -304,7 +308,7 @@ impl ToolRegistrar for PartiallyFailingRegistrar {
         self.priority
     }
 
-    async fn register(&self, registry: &ToolRegistry) -> Result<(), ToolRegistrarError> {
+    async fn register(&self, registry: &dyn ToolRegistryTrait) -> Result<(), ToolRegistrarError> {
         let mut registered = 0usize;
         for (name, group, deferred) in &self.tools {
             if self.failing.contains(name) {
@@ -314,20 +318,22 @@ impl ToolRegistrar for PartiallyFailingRegistrar {
                 );
                 continue;
             }
-            registry
-                .register(DummyTool {
-                    name: name.clone(),
-                    group: group.clone(),
-                    is_deferred: *deferred,
-                })
-                .await
-                .map_err(|e| match e {
-                    crate::ToolError::AlreadyRegistered(n) => ToolRegistrarError::Conflict {
+            let tool = DummyTool {
+                name: name.clone(),
+                group: group.clone(),
+                is_deferred: *deferred,
+            };
+            let boxed: Box<dyn std::any::Any + Send + Sync> =
+                Box::new(crate::registry::ToolBox(Arc::new(tool)));
+            registry.register_any(boxed).await.map_err(|e| match e {
+                closeclaw_common::tool_registry::RegistryError::AlreadyRegistered(n) => {
+                    ToolRegistrarError::Conflict {
                         tool: n,
                         registrar: self.name.clone(),
-                    },
-                    other => ToolRegistrarError::Internal(other.to_string()),
-                })?;
+                    }
+                }
+                other => ToolRegistrarError::Internal(other.to_string()),
+            })?;
             registered += 1;
         }
         if registered == 0 {
@@ -489,7 +495,10 @@ async fn test_register_all_priority_ordering() {
             self.priority
         }
 
-        async fn register(&self, _registry: &ToolRegistry) -> Result<(), ToolRegistrarError> {
+        async fn register(
+            &self,
+            _registry: &dyn ToolRegistryTrait,
+        ) -> Result<(), ToolRegistrarError> {
             self.order_log.lock().unwrap().push(self.name.clone());
             Ok(())
         }

@@ -4,8 +4,7 @@
 
 use async_trait::async_trait;
 
-use closeclaw_tools::registrar::{ToolRegistrar, ToolRegistrarError};
-use closeclaw_tools::{Tool, ToolRegistry};
+use closeclaw_tools::{Tool, ToolRegistrar, ToolRegistrarError};
 
 use crate::platforms::feishu::tools::{
     FeishuBitableTool, FeishuCalendarTool, FeishuDocTool, FeishuDriveTool, FeishuImTool,
@@ -40,7 +39,10 @@ impl ToolRegistrar for ImAdapterToolsRegistrar {
         4
     }
 
-    async fn register(&self, registry: &ToolRegistry) -> Result<(), ToolRegistrarError> {
+    async fn register(
+        &self,
+        registry: &dyn closeclaw_common::tool_registry::ToolRegistry,
+    ) -> Result<(), ToolRegistrarError> {
         let mut registered = 0usize;
         let r = self.name();
         closeclaw_tools::try_register!(registry, registered, FeishuImTool::new(), r);
