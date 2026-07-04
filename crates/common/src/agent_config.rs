@@ -8,7 +8,6 @@ use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use std::path::Path;
 
 use crate::bootstrap::BootstrapMode;
 
@@ -249,22 +248,6 @@ pub struct ActiveSearcherOverride {
     pub context_turns: Option<usize>,
 }
 
-impl AgentConfig {
-    /// Load config from a JSON file at the given path.
-    pub fn load(path: &Path) -> std::io::Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        serde_json::from_str(&content)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-    }
-
-    /// Save config to a JSON file at the given path.
-    pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        let content = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        std::fs::write(path, content)
-    }
-}
-
 /// Permission limits for a single action category.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PermissionLimits {
@@ -304,20 +287,6 @@ pub struct AgentPermissions {
 }
 
 impl AgentPermissions {
-    /// Load permissions from a JSON file.
-    pub fn load(path: &Path) -> std::io::Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        serde_json::from_str(&content)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-    }
-
-    /// Save permissions to a JSON file.
-    pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        let content = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        std::fs::write(path, content)
-    }
-
     /// Check if a specific action is permitted.
     pub fn is_allowed(&self, action: &str) -> bool {
         self.permissions
