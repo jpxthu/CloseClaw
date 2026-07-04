@@ -32,9 +32,9 @@ use closeclaw_session::persistence::ReasoningLevel;
 /// `system_appends` list is the only remaining production consumer.
 pub const APPEND_SECTION_MAX_LEN: usize = 500;
 
-// Re-export `KillHandle` so call sites that `use closeclaw_session::KillHandle`
-// keep working after the trait moved to `session_handles` in Step 1.8.
-pub use crate::session_handles::KillHandle;
+// Re-export `KillHandle` from common so call sites that
+// `use closeclaw_session::KillHandle` keep working.
+pub use closeclaw_common::tool_session::KillHandle;
 
 // `ChatSession` trait + `impl ChatSession for ConversationSession` live in
 // the sibling file `session_chat.rs`. Re-exported here so existing
