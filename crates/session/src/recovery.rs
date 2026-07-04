@@ -487,7 +487,6 @@ mod tests {
     };
     use crate::storage::memory::MemoryStorage;
     use chrono::Utc;
-
     fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         SessionCheckpoint {
             session_id: session_id.to_string(),
@@ -524,6 +523,7 @@ mod tests {
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
+            plan_state: None,
         }
     }
 

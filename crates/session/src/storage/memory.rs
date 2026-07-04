@@ -302,6 +302,7 @@ mod tests {
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
+            plan_state: None,
         }
     }
 

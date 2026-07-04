@@ -42,6 +42,7 @@ mod tests {
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
+            plan_state: None,
         }
     }
 
@@ -409,6 +410,7 @@ mod tests {
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
+            plan_state: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -458,6 +460,7 @@ mod tests {
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
+            plan_state: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -507,6 +510,7 @@ mod tests {
             recovery_notification: None,
             pending_tool_failures: Vec::new(),
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
+            plan_state: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
