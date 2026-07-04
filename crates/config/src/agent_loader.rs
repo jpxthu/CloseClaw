@@ -9,23 +9,10 @@ use std::path::Path;
 
 use tracing::info;
 
-use crate::agents::{AgentDirectoryProvider, AgentsConfig, ResolvedAgentConfig};
+use crate::agents::{
+    strip_jsonc_comments, AgentDirectoryProvider, AgentsConfig, ResolvedAgentConfig,
+};
 use crate::manager::{ConfigLoadError, ConfigManager};
-
-/// Strip `//` line comments from JSONC content.
-fn strip_jsonc_comments(content: &str) -> String {
-    content
-        .lines()
-        .map(|line| {
-            if let Some(idx) = line.find("//") {
-                &line[..idx]
-            } else {
-                line
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
 
 impl ConfigManager {
     /// Load an agents.json file and return parsed agent IDs.
