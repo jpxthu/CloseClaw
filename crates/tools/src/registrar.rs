@@ -60,3 +60,45 @@ pub(crate) async fn register_tool(
         other => ToolRegistrarError::Internal(other.to_string()),
     })
 }
+
+/// Register a single tool, logging `Internal` errors as warnings.
+///
+/// Returns `Ok(true)` on success, `Ok(false)` on recoverable error,
+/// or `Err` on conflict.
+pub async fn register_single(
+    registry: &ToolRegistry,
+    name: String,
+    tool: impl Tool + Send + 'static,
+    registrar_name: &str,
+) -> Result<bool, ToolRegistrarError> {
+    match register_tool(registry, tool, registrar_name).await {
+        Ok(()) => Ok(true),
+        Err(ToolRegistrarError::Conflict { .. }) => Err(ToolRegistrarError::Conflict {
+            tool: name,
+            registrar: registrar_name.to_string(),
+        }),
+        Err(ToolRegistrarError::Internal(e)) => {
+            tracing::warn!(
+                "{registrar_name}: failed to register \
+                 tool `{name}`: {e}"
+            );
+            Ok(false)
+        }
+    }
+}
+
+/// Register a tool and increment the counter on success.
+///
+/// Used inside registrar `register()` methods to reduce boilerplate.
+/// Extracts the tool name, calls [`register_single`], and increments
+/// `$registered` when the tool is accepted.
+#[macro_export]
+macro_rules! try_register {
+    ($registry:expr, $registered:expr, $tool:expr, $registrar_name:expr) => {
+        let tool = $tool;
+        let name = tool.name().to_string();
+        if $crate::registrar::register_single($registry, name, tool, $registrar_name).await? {
+            $registered += 1;
+        }
+    };
+}

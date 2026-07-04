@@ -14,8 +14,9 @@ use crate::builtin::{
     BashTool, CodingAgentTool, EditTool, GitCommitTool, GitLogTool, GitPullTool, GitPushTool,
     GitStatusTool, GrepTool, LsTool, PermissionQueryTool, ReadTool, ToolSearchTool, WriteTool,
 };
-use crate::registrar::{register_tool, ToolRegistrar, ToolRegistrarError};
-use crate::ToolRegistry;
+use crate::registrar::{ToolRegistrar, ToolRegistrarError};
+use crate::try_register;
+use crate::{Tool, ToolRegistry};
 
 /// Core tools registrar — registers all tools from the core domain.
 ///
@@ -55,36 +56,38 @@ impl ToolRegistrar for CoreToolsRegistrar {
     }
 
     async fn register(&self, registry: &ToolRegistry) -> Result<(), ToolRegistrarError> {
-        // file_ops
-        register_tool(registry, ReadTool::new(), "CoreToolsRegistrar").await?;
-        register_tool(registry, WriteTool::new(), "CoreToolsRegistrar").await?;
-        register_tool(registry, EditTool::new(), "CoreToolsRegistrar").await?;
-        register_tool(registry, GrepTool::new(), "CoreToolsRegistrar").await?;
-        register_tool(registry, LsTool::new(), "CoreToolsRegistrar").await?;
-        // meta
-        register_tool(registry, ToolSearchTool::new(), "CoreToolsRegistrar").await?;
-        register_tool(registry, PermissionQueryTool::new(), "CoreToolsRegistrar").await?;
-        // git_ops
-        register_tool(registry, GitStatusTool::new(), "CoreToolsRegistrar").await?;
-        register_tool(registry, GitLogTool::new(), "CoreToolsRegistrar").await?;
-        register_tool(registry, GitCommitTool::new(), "CoreToolsRegistrar").await?;
-        register_tool(registry, GitPushTool::new(), "CoreToolsRegistrar").await?;
-        register_tool(registry, GitPullTool::new(), "CoreToolsRegistrar").await?;
-        // stub (tools-internal, not listed in design doc)
-        register_tool(registry, CodingAgentTool::new(), "CoreToolsRegistrar").await?;
+        let mut registered = 0usize;
+        let r = self.name();
+        try_register!(registry, registered, ReadTool::new(), r);
+        try_register!(registry, registered, WriteTool::new(), r);
+        try_register!(registry, registered, EditTool::new(), r);
+        try_register!(registry, registered, GrepTool::new(), r);
+        try_register!(registry, registered, LsTool::new(), r);
+        try_register!(registry, registered, ToolSearchTool::new(), r);
+        try_register!(registry, registered, PermissionQueryTool::new(), r);
+        try_register!(registry, registered, GitStatusTool::new(), r);
+        try_register!(registry, registered, GitLogTool::new(), r);
+        try_register!(registry, registered, GitCommitTool::new(), r);
+        try_register!(registry, registered, GitPushTool::new(), r);
+        try_register!(registry, registered, GitPullTool::new(), r);
+        try_register!(registry, registered, CodingAgentTool::new(), r);
         // bash
-        register_tool(
+        try_register!(
             registry,
+            registered,
             BashTool::new(
                 self.permission_engine.clone(),
                 self.task_manager.clone(),
                 self.session_manager.clone(),
                 self.config_manager.clone(),
             ),
-            "CoreToolsRegistrar",
-        )
-        .await?;
-
+            r
+        );
+        if registered == 0 {
+            return Err(ToolRegistrarError::Internal(
+                "all 14 tools failed to register".to_string(),
+            ));
+        }
         Ok(())
     }
 }

@@ -8,8 +8,9 @@ use closeclaw_gateway::SessionManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 
 use crate::builtin::{SessionsKillTool, SessionsSpawnTool, SessionsSteerTool};
-use crate::registrar::{register_tool, ToolRegistrar, ToolRegistrarError};
-use crate::{SpawnValidator, ToolRegistry};
+use crate::registrar::{ToolRegistrar, ToolRegistrarError};
+use crate::try_register;
+use crate::{SpawnValidator, Tool, ToolRegistry};
 
 /// Session tools registrar — registers all tools from the sessions domain.
 ///
@@ -50,29 +51,35 @@ impl ToolRegistrar for SessionToolsRegistrar {
     }
 
     async fn register(&self, registry: &ToolRegistry) -> Result<(), ToolRegistrarError> {
-        register_tool(
+        let mut registered = 0usize;
+        let r = self.name();
+        try_register!(
             registry,
+            registered,
             SessionsSpawnTool::new(
                 self.spawn_validator.clone(),
                 self.session_manager.clone(),
                 self.agent_config_lookup.clone(),
             ),
-            "SessionToolsRegistrar",
-        )
-        .await?;
-        register_tool(
+            r
+        );
+        try_register!(
             registry,
+            registered,
             SessionsSteerTool::new(self.session_manager.clone(), self.permission_engine.clone()),
-            "SessionToolsRegistrar",
-        )
-        .await?;
-        register_tool(
+            r
+        );
+        try_register!(
             registry,
+            registered,
             SessionsKillTool::new(self.session_manager.clone(), self.permission_engine.clone()),
-            "SessionToolsRegistrar",
-        )
-        .await?;
-
+            r
+        );
+        if registered == 0 {
+            return Err(ToolRegistrarError::Internal(
+                "all 3 tools failed to register".to_string(),
+            ));
+        }
         Ok(())
     }
 }

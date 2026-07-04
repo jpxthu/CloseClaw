@@ -281,6 +281,161 @@ async fn test_register_all_rejected_on_frozen_registry() {
 }
 
 // ---------------------------------------------------------------------------
+// Partial / total Internal failure
+// ---------------------------------------------------------------------------
+
+/// A test registrar where some tools fail with Internal and others succeed.
+struct PartiallyFailingRegistrar {
+    name: String,
+    priority: u32,
+    /// Tool names that should fail with Internal error.
+    failing: Vec<String>,
+    /// All tools to attempt: (name, group, is_deferred).
+    tools: Vec<(String, String, bool)>,
+}
+
+#[async_trait]
+impl ToolRegistrar for PartiallyFailingRegistrar {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn priority(&self) -> u32 {
+        self.priority
+    }
+
+    async fn register(&self, registry: &ToolRegistry) -> Result<(), ToolRegistrarError> {
+        let mut registered = 0usize;
+        for (name, group, deferred) in &self.tools {
+            if self.failing.contains(name) {
+                tracing::warn!(
+                    "{}: failed to register tool `{name}`: simulated failure",
+                    self.name
+                );
+                continue;
+            }
+            registry
+                .register(DummyTool {
+                    name: name.clone(),
+                    group: group.clone(),
+                    is_deferred: *deferred,
+                })
+                .await
+                .map_err(|e| match e {
+                    crate::ToolError::AlreadyRegistered(n) => ToolRegistrarError::Conflict {
+                        tool: n,
+                        registrar: self.name.clone(),
+                    },
+                    other => ToolRegistrarError::Internal(other.to_string()),
+                })?;
+            registered += 1;
+        }
+        if registered == 0 {
+            return Err(ToolRegistrarError::Internal(format!(
+                "all {} tools failed to register",
+                self.tools.len()
+            )));
+        }
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn test_register_all_partial_internal_failure() {
+    let registry = ToolRegistry::new();
+    let registrars: Vec<Box<dyn ToolRegistrar>> = vec![Box::new(PartiallyFailingRegistrar {
+        name: "PartialRegistrar".to_string(),
+        priority: 1,
+        failing: vec!["ToolB".to_string()],
+        tools: vec![
+            ("ToolA".to_string(), "group_a".to_string(), false),
+            ("ToolB".to_string(), "group_b".to_string(), false),
+            ("ToolC".to_string(), "group_c".to_string(), false),
+        ],
+    })];
+
+    let result = registry.register_all(registrars).await;
+    assert!(
+        result.is_ok(),
+        "partial failure should return Ok, got {:?}",
+        result
+    );
+
+    let ctx = make_ctx();
+    let descriptors = registry.list_descriptors(&ctx).await;
+    assert_eq!(
+        descriptors.len(),
+        2,
+        "2 out of 3 tools should be registered"
+    );
+    assert!(descriptors.iter().any(|d| d.name == "ToolA"));
+    assert!(!descriptors.iter().any(|d| d.name == "ToolB"));
+    assert!(descriptors.iter().any(|d| d.name == "ToolC"));
+}
+
+#[tokio::test]
+async fn test_register_all_total_internal_failure() {
+    let registry = ToolRegistry::new();
+    let registrars: Vec<Box<dyn ToolRegistrar>> = vec![Box::new(PartiallyFailingRegistrar {
+        name: "AllFailRegistrar".to_string(),
+        priority: 1,
+        failing: vec![
+            "ToolA".to_string(),
+            "ToolB".to_string(),
+            "ToolC".to_string(),
+        ],
+        tools: vec![
+            ("ToolA".to_string(), "group_a".to_string(), false),
+            ("ToolB".to_string(), "group_b".to_string(), false),
+            ("ToolC".to_string(), "group_c".to_string(), false),
+        ],
+    })];
+
+    let result = registry.register_all(registrars).await;
+    assert!(result.is_err(), "all-tools failure should return Err");
+    match result.unwrap_err() {
+        ToolRegistrarError::Internal(msg) => {
+            assert!(msg.contains("all 3 tools failed"));
+        }
+        other => panic!("expected Internal error, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_register_all_partial_failure_then_conflict() {
+    // First registrar succeeds with ToolA.
+    // Second registrar tries ToolA (conflict) + ToolB (Internal fail).
+    // Conflict should still abort immediately.
+    let registry = ToolRegistry::new();
+    let registrars: Vec<Box<dyn ToolRegistrar>> = vec![
+        Box::new(TestRegistrar::new(
+            "OK",
+            1,
+            vec![("ToolA", "group_a", false)],
+        )),
+        Box::new(PartiallyFailingRegistrar {
+            name: "ConflictRegistrar".to_string(),
+            priority: 2,
+            failing: vec!["ToolB".to_string()],
+            tools: vec![
+                ("ToolA".to_string(), "group_a2".to_string(), false),
+                ("ToolB".to_string(), "group_b".to_string(), false),
+            ],
+        }),
+    ];
+
+    let result = registry.register_all(registrars).await;
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        ToolRegistrarError::Conflict { tool, registrar } => {
+            assert_eq!(tool, "ToolA");
+            assert_eq!(registrar, "ConflictRegistrar");
+        }
+        other => panic!("expected Conflict error, got {:?}", other),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Conflict detection
 // ---------------------------------------------------------------------------
 
