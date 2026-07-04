@@ -451,8 +451,10 @@ impl Gateway {
             thread_id: processed.metadata.get("thread_id").cloned(),
         };
 
+        let account_id = processed.metadata.get("account_id").map(|s| s.as_str());
+
         self.session_manager
-            .resolve(session_key, channel, &message, None)
+            .resolve(session_key, channel, &message, account_id)
             .await
             .ok()
     }
@@ -927,6 +929,9 @@ fn build_extra_metadata(input: &InboundChainInput) -> std::collections::HashMap<
         "media_refs".to_string(),
         serde_json::to_string(&input.media_refs).unwrap_or_else(|_| "[]".to_string()),
     );
+    if let Some(ref account_id) = input.account_id {
+        meta.insert("account_id".to_string(), account_id.clone());
+    }
     meta
 }
 
