@@ -30,6 +30,7 @@ pub mod system_prompt;
 pub mod task_manager;
 pub mod test_helpers;
 pub mod tool_registry;
+pub mod tool_session;
 pub mod verbosity;
 
 pub use agent_config_lookup::{AgentConfigInfo, AgentConfigLookup};
@@ -71,4 +72,5 @@ pub use tool_registry::{
     RegistryError, ToolDescriptor, ToolFlags, ToolRegistrar, ToolRegistrarError, ToolRegistry,
     ToolRegistryQuery,
 };
+pub use tool_session::{KillHandle, ToolSession};
 pub use verbosity::VerbosityLevel;
