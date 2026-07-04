@@ -14,7 +14,7 @@ pub use ToolRegistryImpl as ToolRegistry;
 /// Wrapper to bridge [`Tool`] with [`std::any::Any`] for type-erased registration.
 pub(crate) struct ToolBox(pub Arc<dyn Tool>);
 
-use closeclaw_common::AgentToolsConfigQuery;
+use closeclaw_agent::AgentToolsConfigQuery;
 use serde_json::Value;
 
 /// Internal tool info carrier for `build_tools_section`.

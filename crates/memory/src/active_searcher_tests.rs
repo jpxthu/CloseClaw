@@ -795,7 +795,7 @@ fn test_active_searcher_config_defaults() {
 
 // ── from_agent_config tests ─────────────────────────────────────────────
 
-use closeclaw_common::agent_config::{ActiveSearcherOverride, MemoryConfig};
+use closeclaw_config::agents::{ActiveSearcherOverride, MemoryConfig};
 
 /// Full override: all fields specified → all fields correct.
 #[test]

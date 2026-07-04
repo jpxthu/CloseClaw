@@ -79,7 +79,7 @@ pub struct SessionManager {
     /// Config manager for looking up agent-level tool/skill filtering.
     config_manager: RwLock<Option<Arc<ConfigManager>>>,
     /// Agent registry for looking up resolved agent configs (design-doc query layer).
-    agent_registry: RwLock<Option<Arc<dyn closeclaw_common::AgentLookup>>>,
+    agent_registry: RwLock<Option<Arc<dyn closeclaw_agent::AgentLookup>>>,
     /// Latest config snapshot; swapped atomically on each hot-reload.
     /// The old snapshot is released when all Arc references are dropped.
     config_snapshot: RwLock<Option<ConfigSnapshot>>,
@@ -144,7 +144,7 @@ impl SessionManager {
     }
 
     /// Set the agent registry for resolved config lookups.
-    pub async fn set_agent_registry(&self, agent_registry: Arc<dyn closeclaw_common::AgentLookup>) {
+    pub async fn set_agent_registry(&self, agent_registry: Arc<dyn closeclaw_agent::AgentLookup>) {
         *self.agent_registry.write().await = Some(agent_registry);
     }
 

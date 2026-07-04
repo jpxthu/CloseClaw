@@ -8,8 +8,8 @@
 use super::spawn::{ChildSessionInfo, SpawnMode};
 use super::SessionManager;
 use chrono::Utc;
-use closeclaw_common::agent_config::{ModelSpec, SubagentsConfig};
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
 use closeclaw_llm::session::{ChatSession, ConversationSession, SessionMessage};
 use closeclaw_llm::types::{ContentBlock, UnifiedResponse, UnifiedUsage};
 use closeclaw_session::bootstrap::BootstrapMode;

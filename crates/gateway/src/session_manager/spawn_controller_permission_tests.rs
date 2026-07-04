@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use closeclaw_common::agent_config::{
+use closeclaw_config::agents::{
     ActionPermission, AgentPermissions, ModelSpec, PermissionLimits, SubagentsConfig,
 };
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};

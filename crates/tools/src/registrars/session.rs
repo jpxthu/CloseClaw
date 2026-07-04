@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use closeclaw_common::AgentConfigLookup;
+use closeclaw_agent::AgentConfigLookup;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 

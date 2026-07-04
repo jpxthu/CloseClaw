@@ -173,7 +173,7 @@ mod tests {
             Box::new(closeclaw_tools::SessionToolsRegistrar::new(
                 spawn_controller.clone() as Arc<dyn closeclaw_tools::SpawnValidator>,
                 session_manager.clone(),
-                agent_registry.clone() as Arc<dyn closeclaw_common::AgentConfigLookup>,
+                agent_registry.clone() as Arc<dyn closeclaw_agent::AgentConfigLookup>,
                 permission_engine,
             )),
             Box::new(closeclaw_tools::SkillsToolsRegistrar::new(
