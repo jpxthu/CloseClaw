@@ -14,7 +14,7 @@ use async_trait::async_trait;
 
 use crate::{Tool, ToolContext, ToolFlags, ToolRegistry};
 use closeclaw_common::tool_registry::{
-    ToolRegistrar, ToolRegistrarError, ToolRegistry as ToolRegistryTrait,
+    ToolRegistrar, ToolRegistrarError, ToolRegistry as ToolRegistryTrait, ToolRegistryQuery,
 };
 use std::sync::{Arc, Mutex};
 
@@ -442,6 +442,60 @@ async fn test_register_all_partial_failure_then_conflict() {
 }
 
 // ---------------------------------------------------------------------------
+// Freeze does not break queries
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_queries_work_after_freeze() {
+    let registry = ToolRegistry::new();
+    let registrars: Vec<Box<dyn ToolRegistrar>> = vec![Box::new(TestRegistrar::new(
+        "R",
+        0,
+        vec![
+            ("ToolA", "group_a", false),
+            ("ToolB", "group_b", true),
+            ("ToolC", "group_a", false),
+        ],
+    ))];
+    registry.register_all(registrars).await.unwrap();
+    assert!(registry.is_frozen());
+
+    // list_tool_names (via ToolRegistryQuery)
+    let mut names = <ToolRegistry as ToolRegistryQuery>::list_tool_names(&registry).await;
+    names.sort();
+    assert_eq!(names, vec!["ToolA", "ToolB", "ToolC"]);
+
+    // has_tool
+    assert!(<ToolRegistry as ToolRegistryQuery>::has_tool(&registry, "ToolA").await);
+    assert!(!<ToolRegistry as ToolRegistryQuery>::has_tool(&registry, "Missing").await);
+
+    // get_tool_schema
+    let schema = <ToolRegistry as ToolRegistryQuery>::get_tool_schema(&registry, "ToolA").await;
+    assert!(schema.is_some());
+    assert!(schema.unwrap().is_object());
+
+    // list_descriptors (ToolRegistry method)
+    let ctx = make_ctx();
+    let descriptors = registry.list_descriptors(&ctx).await;
+    assert_eq!(descriptors.len(), 3);
+    assert!(descriptors
+        .iter()
+        .any(|d| d.name == "ToolA" && d.group == "group_a"));
+    assert!(descriptors
+        .iter()
+        .any(|d| d.name == "ToolB" && d.is_deferred));
+    assert!(descriptors
+        .iter()
+        .any(|d| d.name == "ToolC" && d.group == "group_a"));
+
+    // list_by_group
+    let mut group_a = registry.list_by_group("group_a").await;
+    group_a.sort();
+    assert_eq!(group_a, vec!["ToolA", "ToolC"]);
+    assert_eq!(registry.list_by_group("group_b").await, vec!["ToolB"]);
+}
+
+// ---------------------------------------------------------------------------
 // Conflict detection
 // ---------------------------------------------------------------------------
 
@@ -470,6 +524,44 @@ async fn test_register_all_conflict_detection() {
         }
         other => panic!("expected Conflict error, got {:?}", other),
     }
+}
+
+// ---------------------------------------------------------------------------
+// build_tools_section index generation
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_build_tools_section_index_generation() {
+    let registry = ToolRegistry::new();
+    let registrars: Vec<Box<dyn ToolRegistrar>> = vec![Box::new(TestRegistrar::new(
+        "R",
+        0,
+        vec![
+            ("Read", "file_ops", false),
+            ("Write", "file_ops", true),
+            ("Bash", "exec", false),
+        ],
+    ))];
+    registry.register_all(registrars).await.unwrap();
+
+    let ctx = crate::PromptGenerationContext {
+        agent_id: "test-agent".to_string(),
+        workdir: None,
+        available_tool_names: vec!["Read".into(), "Write".into(), "Bash".into()],
+        tools: None,
+        disallowed_tools: None,
+    };
+    let section = registry.build_tools_section(&ctx).await;
+
+    // Index groups by group name
+    assert!(section.contains("**file_ops**"));
+    assert!(section.contains("**exec**"));
+
+    // Eager tool shows detail
+    assert!(section.contains("**Read**"));
+    // Deferred tool shows name only (no bold, no detail)
+    assert!(section.contains("  - Write"));
+    assert!(!section.contains("**Write**:"));
 }
 
 // ---------------------------------------------------------------------------
