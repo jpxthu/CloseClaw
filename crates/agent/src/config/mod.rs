@@ -7,8 +7,8 @@ pub use crate::communication::{
 };
 pub use closeclaw_common::BootstrapMode;
 pub use closeclaw_config::agents::{
-    ActionPermission, ActiveSearcherOverride, AgentConfig, AgentPermissions, MemoryConfig,
-    PermissionLimits, SubagentsConfig,
+    ActionPermission, AgentConfig, AgentPermissions, MemoryConfig, PermissionLimits,
+    SubagentsConfig,
 };
 
 #[cfg(test)]

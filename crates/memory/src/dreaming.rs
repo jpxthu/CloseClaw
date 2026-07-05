@@ -128,7 +128,7 @@ impl DreamingPipeline {
     /// through Light → REM → Deep, and writes surviving entries to
     /// MEMORY.md.
     pub async fn run_once(&self, storage: &dyn PersistenceService) -> Result<(), DreamingError> {
-        if !self.config.enabled {
+        if !self.config.enabled.unwrap_or(false) {
             return Ok(());
         }
 
@@ -169,7 +169,7 @@ impl DreamingPipeline {
         );
 
         // Write Dream Diary if enabled.
-        if self.config.diary.enabled && !deep.is_empty() {
+        if self.config.diary.enabled.unwrap_or(true) && !deep.is_empty() {
             self.write_dream_diary(&deep)?;
         }
 
@@ -364,7 +364,7 @@ impl DreamingPipeline {
     /// The diary is a narrative summary of the entries that passed the
     /// Deep stage, written to `{path}/{date}.md`.
     pub(crate) fn write_dream_diary(&self, entries: &[MemoryEntry]) -> Result<(), DreamingError> {
-        if !self.config.diary.enabled || entries.is_empty() {
+        if !self.config.diary.enabled.unwrap_or(true) || entries.is_empty() {
             return Ok(());
         }
 

@@ -226,8 +226,6 @@ impl Default for AgentConfig {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryConfig {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_searcher: Option<ActiveSearcherOverride>,
     /// Storage paths for memory subsystem files.
     #[serde(default)]
     pub storage: MemoryStorageConfig,
@@ -242,13 +240,26 @@ pub struct MemoryConfig {
     pub search: SearchConfig,
 }
 
+impl MemoryConfig {
+    /// Field-level merge: agent's declared fields override global,
+    /// undeclared fields inherit global values.
+    pub fn merge_overrides(&self, agent: &MemoryConfig) -> MemoryConfig {
+        MemoryConfig {
+            storage: self.storage.merge_overrides(&agent.storage),
+            mining: self.mining.merge_overrides(&agent.mining),
+            dreaming: self.dreaming.merge_overrides(&agent.dreaming),
+            search: self.search.merge_overrides(&agent.search),
+        }
+    }
+}
+
 /// Dreaming subsystem configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DreamingConfig {
-    /// Whether dreaming is enabled.
+    /// Whether dreaming is enabled. `None` means inherit global default.
     #[serde(default)]
-    pub enabled: bool,
+    pub enabled: Option<bool>,
     /// Dream Diary settings.
     #[serde(default)]
     pub diary: DreamingDiaryConfig,
@@ -272,13 +283,32 @@ pub struct DreamingConfig {
 impl Default for DreamingConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: None,
             diary: DreamingDiaryConfig::default(),
             model: None,
             schedule: default_dreaming_schedule(),
             scoring: DreamingScoringConfig::default(),
             threshold: DreamingThresholdConfig::default(),
             capacity: DreamingCapacityConfig::default(),
+        }
+    }
+}
+
+impl DreamingConfig {
+    /// Field-level merge: agent's declared fields override global.
+    pub fn merge_overrides(&self, agent: &DreamingConfig) -> DreamingConfig {
+        DreamingConfig {
+            enabled: agent.enabled.or(self.enabled),
+            diary: self.diary.merge_overrides(&agent.diary),
+            model: agent.model.clone().or_else(|| self.model.clone()),
+            schedule: if agent.schedule != default_dreaming_schedule() {
+                agent.schedule.clone()
+            } else {
+                self.schedule.clone()
+            },
+            scoring: self.scoring.merge_overrides(&agent.scoring),
+            threshold: self.threshold.merge_overrides(&agent.threshold),
+            capacity: self.capacity.merge_overrides(&agent.capacity),
         }
     }
 }
@@ -292,26 +322,35 @@ fn default_dreaming_schedule() -> String {
 #[serde(rename_all = "camelCase")]
 pub struct DreamingDiaryConfig {
     /// Whether Dream Diary writing is enabled.
-    /// Defaults to `true` when dreaming is active.
-    #[serde(default = "default_true")]
-    pub enabled: bool,
+    /// `None` means inherit global default.
+    #[serde(default)]
+    pub enabled: Option<bool>,
     /// Directory path for diary files (relative to data root).
     #[serde(default = "default_diary_path")]
     pub path: String,
 }
 
-#[allow(clippy::derivable_impls)]
 impl Default for DreamingDiaryConfig {
     fn default() -> Self {
         Self {
-            enabled: default_true(),
+            enabled: None,
             path: default_diary_path(),
         }
     }
 }
 
-fn default_true() -> bool {
-    true
+impl DreamingDiaryConfig {
+    /// Field-level merge: agent's declared fields override global.
+    pub fn merge_overrides(&self, agent: &DreamingDiaryConfig) -> DreamingDiaryConfig {
+        DreamingDiaryConfig {
+            enabled: agent.enabled.or(self.enabled),
+            path: if agent.path != default_diary_path() {
+                agent.path.clone()
+            } else {
+                self.path.clone()
+            },
+        }
+    }
 }
 
 fn default_diary_path() -> String {
@@ -347,6 +386,41 @@ impl Default for DreamingScoringConfig {
             explicitness_weight: default_scoring_explicitness(),
             cross_agent_weight: default_scoring_cross_agent(),
             negative_signal_weight: default_scoring_negative_signal(),
+        }
+    }
+}
+
+impl DreamingScoringConfig {
+    /// Field-level merge: agent's declared fields override global.
+    pub fn merge_overrides(&self, agent: &DreamingScoringConfig) -> DreamingScoringConfig {
+        DreamingScoringConfig {
+            frequency_weight: if agent.frequency_weight != default_scoring_frequency() {
+                agent.frequency_weight
+            } else {
+                self.frequency_weight
+            },
+            recency_weight: if agent.recency_weight != default_scoring_recency() {
+                agent.recency_weight
+            } else {
+                self.recency_weight
+            },
+            explicitness_weight: if agent.explicitness_weight != default_scoring_explicitness() {
+                agent.explicitness_weight
+            } else {
+                self.explicitness_weight
+            },
+            cross_agent_weight: if agent.cross_agent_weight != default_scoring_cross_agent() {
+                agent.cross_agent_weight
+            } else {
+                self.cross_agent_weight
+            },
+            negative_signal_weight: if agent.negative_signal_weight
+                != default_scoring_negative_signal()
+            {
+                agent.negative_signal_weight
+            } else {
+                self.negative_signal_weight
+            },
         }
     }
 }
@@ -392,6 +466,24 @@ impl Default for DreamingThresholdConfig {
     }
 }
 
+impl DreamingThresholdConfig {
+    /// Field-level merge: agent's declared fields override global.
+    pub fn merge_overrides(&self, agent: &DreamingThresholdConfig) -> DreamingThresholdConfig {
+        DreamingThresholdConfig {
+            absolute: if agent.absolute != default_threshold_absolute() {
+                agent.absolute
+            } else {
+                self.absolute
+            },
+            relative: if agent.relative != default_threshold_relative() {
+                agent.relative
+            } else {
+                self.relative
+            },
+        }
+    }
+}
+
 fn default_threshold_absolute() -> f64 {
     2.0
 }
@@ -417,6 +509,19 @@ impl Default for DreamingCapacityConfig {
     }
 }
 
+impl DreamingCapacityConfig {
+    /// Field-level merge: agent's declared fields override global.
+    pub fn merge_overrides(&self, agent: &DreamingCapacityConfig) -> DreamingCapacityConfig {
+        DreamingCapacityConfig {
+            max_rules: if agent.max_rules != default_capacity_max_rules() {
+                agent.max_rules
+            } else {
+                self.max_rules
+            },
+        }
+    }
+}
+
 fn default_capacity_max_rules() -> usize {
     20
 }
@@ -434,12 +539,29 @@ pub struct MemoryStorageConfig {
     pub memory_md_path: String,
 }
 
-#[allow(clippy::derivable_impls)]
 impl Default for MemoryStorageConfig {
     fn default() -> Self {
         Self {
             db_path: default_db_path(),
             memory_md_path: default_memory_md_path(),
+        }
+    }
+}
+
+impl MemoryStorageConfig {
+    /// Field-level merge: agent's declared fields override global.
+    pub fn merge_overrides(&self, agent: &MemoryStorageConfig) -> MemoryStorageConfig {
+        MemoryStorageConfig {
+            db_path: if agent.db_path != default_db_path() {
+                agent.db_path.clone()
+            } else {
+                self.db_path.clone()
+            },
+            memory_md_path: if agent.memory_md_path != default_memory_md_path() {
+                agent.memory_md_path.clone()
+            } else {
+                self.memory_md_path.clone()
+            },
         }
     }
 }
@@ -477,6 +599,29 @@ impl Default for TranscriptCleanRules {
     }
 }
 
+impl TranscriptCleanRules {
+    /// Field-level merge: agent's declared fields override global.
+    pub fn merge_overrides(&self, agent: &TranscriptCleanRules) -> TranscriptCleanRules {
+        TranscriptCleanRules {
+            min_turns: if agent.min_turns != default_transcript_min_turns() {
+                agent.min_turns
+            } else {
+                self.min_turns
+            },
+            min_owner_msgs: if agent.min_owner_msgs != default_transcript_min_owner_msgs() {
+                agent.min_owner_msgs
+            } else {
+                self.min_owner_msgs
+            },
+            format: if agent.format != default_transcript_format() {
+                agent.format.clone()
+            } else {
+                self.format.clone()
+            },
+        }
+    }
+}
+
 fn default_transcript_min_turns() -> i32 {
     5
 }
@@ -493,9 +638,9 @@ fn default_transcript_format() -> String {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MiningConfig {
-    /// Whether mining is enabled.
+    /// Whether mining is enabled. `None` means inherit global default.
     #[serde(default)]
-    pub enabled: bool,
+    pub enabled: Option<bool>,
     /// Model for Miner 1 and Miner 2. None inherits global default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
@@ -513,11 +658,26 @@ pub struct MiningConfig {
 impl Default for MiningConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: None,
             model: None,
             max_events_per_session: default_mining_max_events_per_session(),
             dedup_window_days: default_mining_dedup_window_days(),
             transcript_clean_rules: TranscriptCleanRules::default(),
+        }
+    }
+}
+
+impl MiningConfig {
+    /// Field-level merge: agent's declared fields override global.
+    pub fn merge_overrides(&self, agent: &MiningConfig) -> MiningConfig {
+        MiningConfig {
+            enabled: agent.enabled.or(self.enabled),
+            model: agent.model.clone().or_else(|| self.model.clone()),
+            max_events_per_session: agent.max_events_per_session,
+            dedup_window_days: agent.dedup_window_days,
+            transcript_clean_rules: agent
+                .transcript_clean_rules
+                .merge_overrides(&self.transcript_clean_rules),
         }
     }
 }
@@ -534,9 +694,9 @@ fn default_mining_dedup_window_days() -> i32 {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchConfig {
-    /// Whether active search is enabled.
+    /// Whether active search is enabled. `None` means inherit global default.
     #[serde(default)]
-    pub enabled: bool,
+    pub enabled: Option<bool>,
     /// Model for concept extraction. None inherits global default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
@@ -560,13 +720,28 @@ pub struct SearchConfig {
 impl Default for SearchConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: None,
             model: None,
             context_turns: default_search_context_turns(),
             timeout_ms: default_search_timeout_ms(),
             max_summary_chars: default_search_max_summary_chars(),
             min_entity_hits: default_search_min_entity_hits(),
             top_k_events: default_search_top_k_events(),
+        }
+    }
+}
+
+impl SearchConfig {
+    /// Field-level merge: agent's declared fields override global.
+    pub fn merge_overrides(&self, agent: &SearchConfig) -> SearchConfig {
+        SearchConfig {
+            enabled: agent.enabled.or(self.enabled),
+            model: agent.model.clone().or_else(|| self.model.clone()),
+            context_turns: agent.context_turns,
+            timeout_ms: agent.timeout_ms,
+            max_summary_chars: agent.max_summary_chars,
+            min_entity_hits: agent.min_entity_hits,
+            top_k_events: agent.top_k_events,
         }
     }
 }
@@ -589,25 +764,6 @@ fn default_search_min_entity_hits() -> u32 {
 
 fn default_search_top_k_events() -> usize {
     3
-}
-
-/// Active-searcher overrides — all fields optional.
-/// Missing fields fall back to defaults (model from agent global).
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ActiveSearcherOverride {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timeout_ms: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_summary_chars: Option<usize>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min_entity_hits: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub top_k_events: Option<usize>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context_turns: Option<usize>,
 }
 
 /// Permission limits for a single action category.

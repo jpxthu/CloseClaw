@@ -6,7 +6,7 @@
 
 use closeclaw::agent::config::SubagentsConfig;
 use closeclaw::agent::registry::create_registry;
-use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_session::bootstrap::BootstrapMode;
 
 /// Helper: build a minimal `ResolvedAgentConfig` for E2E tests.
@@ -23,7 +23,7 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         tools: vec![],
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
-        memory: None,
+        memory: MemoryConfig::default(),
         source: ConfigSource::User,
     }
 }

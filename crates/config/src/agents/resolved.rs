@@ -69,7 +69,7 @@ pub struct ResolvedAgentConfig {
     pub tools: Vec<String>,
     pub disallowed_tools: Vec<String>,
     pub subagents: SubagentsConfig,
-    pub memory: Option<crate::agents::config_types::MemoryConfig>,
+    pub memory: crate::agents::config_types::MemoryConfig,
     /// Which configuration level this was resolved from.
     pub source: ConfigSource,
 }
@@ -153,7 +153,7 @@ impl ResolvedAgentConfig {
             tools: config.tools,
             disallowed_tools: config.disallowed_tools,
             subagents: config.subagents,
-            memory: config.memory.clone(),
+            memory: config.memory.unwrap_or_default(),
             source,
         })
     }
@@ -211,7 +211,12 @@ impl ResolvedAgentConfig {
                 user.disallowed_tools,
             ),
             subagents: merge_subagents(project.subagents, user.subagents),
-            memory: project.memory.or(user.memory),
+            memory: match (&user.memory, &project.memory) {
+                (Some(u), Some(p)) => u.merge_overrides(p),
+                (Some(u), None) => u.clone(),
+                (None, Some(p)) => p.clone(),
+                (None, None) => crate::agents::config_types::MemoryConfig::default(),
+            },
             source: ConfigSource::Merged,
         })
     }

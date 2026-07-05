@@ -18,18 +18,10 @@ use crate::ConfigProvider;
 /// The global `memory.json` has the same schema as the per-agent `memory`
 /// section.  All features default to `disabled` when the file is absent
 /// or empty (matching `MemoryConfig::default()`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MemoryConfigData {
     #[serde(flatten)]
     pub config: MemoryConfig,
-}
-
-impl Default for MemoryConfigData {
-    fn default() -> Self {
-        Self {
-            config: MemoryConfig::default(),
-        }
-    }
 }
 
 impl MemoryConfigData {
@@ -66,7 +58,9 @@ impl ConfigProvider for MemoryConfigData {
     }
 
     fn is_default(&self) -> bool {
-        !self.config.mining.enabled && !self.config.dreaming.enabled && !self.config.search.enabled
+        !self.config.mining.enabled.unwrap_or(false)
+            && !self.config.dreaming.enabled.unwrap_or(false)
+            && !self.config.search.enabled.unwrap_or(false)
     }
 }
 
@@ -101,7 +95,7 @@ mod tests {
     fn test_from_json_str_with_search_enabled() {
         let json = r#"{"search": {"enabled": true, "timeoutMs": 5000}}"#;
         let data = MemoryConfigData::from_json_str(json).expect("valid JSON should parse");
-        assert!(data.config.search.enabled);
+        assert!(data.config.search.enabled == Some(true));
         assert_eq!(data.config.search.timeout_ms, 5000);
         assert!(!data.is_default());
     }
