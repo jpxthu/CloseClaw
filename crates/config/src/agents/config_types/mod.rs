@@ -243,7 +243,7 @@ pub struct MemoryConfig {
 }
 
 /// Dreaming subsystem configuration.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DreamingConfig {
     /// Whether dreaming is enabled.
@@ -252,6 +252,39 @@ pub struct DreamingConfig {
     /// Dream Diary settings.
     #[serde(default)]
     pub diary: DreamingDiaryConfig,
+    /// Model for lesson distillation and Dream Diary. None inherits global default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Cron expression for dreaming schedule.
+    #[serde(default = "default_dreaming_schedule")]
+    pub schedule: String,
+    /// Scoring dimension weights.
+    #[serde(default)]
+    pub scoring: DreamingScoringConfig,
+    /// Score thresholds for rule promotion.
+    #[serde(default)]
+    pub threshold: DreamingThresholdConfig,
+    /// Capacity limits.
+    #[serde(default)]
+    pub capacity: DreamingCapacityConfig,
+}
+
+impl Default for DreamingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            diary: DreamingDiaryConfig::default(),
+            model: None,
+            schedule: default_dreaming_schedule(),
+            scoring: DreamingScoringConfig::default(),
+            threshold: DreamingThresholdConfig::default(),
+            capacity: DreamingCapacityConfig::default(),
+        }
+    }
+}
+
+fn default_dreaming_schedule() -> String {
+    "0 3 * * *".to_string()
 }
 
 /// Dream Diary configuration.
@@ -285,6 +318,109 @@ fn default_diary_path() -> String {
     "memory/diary/".to_string()
 }
 
+/// Scoring dimension weights for dreaming.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamingScoringConfig {
+    /// Entity cross-session frequency weight.
+    #[serde(default = "default_scoring_frequency")]
+    pub frequency_weight: f64,
+    /// Recency decay weight.
+    #[serde(default = "default_scoring_recency")]
+    pub recency_weight: f64,
+    /// Owner explicitness bonus weight.
+    #[serde(default = "default_scoring_explicitness")]
+    pub explicitness_weight: f64,
+    /// Cross-agent entity bonus weight.
+    #[serde(default = "default_scoring_cross_agent")]
+    pub cross_agent_weight: f64,
+    /// Negative signal penalty weight.
+    #[serde(default = "default_scoring_negative_signal")]
+    pub negative_signal_weight: f64,
+}
+
+impl Default for DreamingScoringConfig {
+    fn default() -> Self {
+        Self {
+            frequency_weight: default_scoring_frequency(),
+            recency_weight: default_scoring_recency(),
+            explicitness_weight: default_scoring_explicitness(),
+            cross_agent_weight: default_scoring_cross_agent(),
+            negative_signal_weight: default_scoring_negative_signal(),
+        }
+    }
+}
+
+fn default_scoring_frequency() -> f64 {
+    1.0
+}
+
+fn default_scoring_recency() -> f64 {
+    0.5
+}
+
+fn default_scoring_explicitness() -> f64 {
+    1.5
+}
+
+fn default_scoring_cross_agent() -> f64 {
+    1.3
+}
+
+fn default_scoring_negative_signal() -> f64 {
+    -0.5
+}
+
+/// Dreaming threshold configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamingThresholdConfig {
+    /// Absolute score threshold for rule promotion.
+    #[serde(default = "default_threshold_absolute")]
+    pub absolute: f64,
+    /// Relative score threshold ratio.
+    #[serde(default = "default_threshold_relative")]
+    pub relative: f64,
+}
+
+impl Default for DreamingThresholdConfig {
+    fn default() -> Self {
+        Self {
+            absolute: default_threshold_absolute(),
+            relative: default_threshold_relative(),
+        }
+    }
+}
+
+fn default_threshold_absolute() -> f64 {
+    2.0
+}
+
+fn default_threshold_relative() -> f64 {
+    0.3
+}
+
+/// Dreaming capacity configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamingCapacityConfig {
+    /// Maximum number of rules in MEMORY.md.
+    #[serde(default = "default_capacity_max_rules")]
+    pub max_rules: usize,
+}
+
+impl Default for DreamingCapacityConfig {
+    fn default() -> Self {
+        Self {
+            max_rules: default_capacity_max_rules(),
+        }
+    }
+}
+
+fn default_capacity_max_rules() -> usize {
+    20
+}
+
 /// Storage paths for memory subsystem.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -316,22 +452,143 @@ fn default_memory_md_path() -> String {
     "memory/MEMORY.md".to_string()
 }
 
+/// Transcript clean rules for mining.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptCleanRules {
+    /// Minimum conversation turns required.
+    #[serde(default = "default_transcript_min_turns")]
+    pub min_turns: i32,
+    /// Minimum owner messages required.
+    #[serde(default = "default_transcript_min_owner_msgs")]
+    pub min_owner_msgs: i32,
+    /// Transcript output format.
+    #[serde(default = "default_transcript_format")]
+    pub format: String,
+}
+
+impl Default for TranscriptCleanRules {
+    fn default() -> Self {
+        Self {
+            min_turns: default_transcript_min_turns(),
+            min_owner_msgs: default_transcript_min_owner_msgs(),
+            format: default_transcript_format(),
+        }
+    }
+}
+
+fn default_transcript_min_turns() -> i32 {
+    5
+}
+
+fn default_transcript_min_owner_msgs() -> i32 {
+    5
+}
+
+fn default_transcript_format() -> String {
+    "md".to_string()
+}
+
 /// Mining subsystem configuration.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MiningConfig {
     /// Whether mining is enabled.
     #[serde(default)]
     pub enabled: bool,
+    /// Model for Miner 1 and Miner 2. None inherits global default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Maximum events per mining session.
+    #[serde(default = "default_mining_max_events_per_session")]
+    pub max_events_per_session: i32,
+    /// Dedup window in days for Miner 1.
+    #[serde(default = "default_mining_dedup_window_days")]
+    pub dedup_window_days: i32,
+    /// Transcript clean rules.
+    #[serde(default)]
+    pub transcript_clean_rules: TranscriptCleanRules,
+}
+
+impl Default for MiningConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            model: None,
+            max_events_per_session: default_mining_max_events_per_session(),
+            dedup_window_days: default_mining_dedup_window_days(),
+            transcript_clean_rules: TranscriptCleanRules::default(),
+        }
+    }
+}
+
+fn default_mining_max_events_per_session() -> i32 {
+    10
+}
+
+fn default_mining_dedup_window_days() -> i32 {
+    30
 }
 
 /// Active search subsystem configuration.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchConfig {
     /// Whether active search is enabled.
     #[serde(default)]
     pub enabled: bool,
+    /// Model for concept extraction. None inherits global default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Number of recent conversation turns for query concept extraction.
+    #[serde(default = "default_search_context_turns")]
+    pub context_turns: usize,
+    /// Search timeout in milliseconds.
+    #[serde(default = "default_search_timeout_ms")]
+    pub timeout_ms: u64,
+    /// Maximum summary character count.
+    #[serde(default = "default_search_max_summary_chars")]
+    pub max_summary_chars: usize,
+    /// Minimum entity hit count.
+    #[serde(default = "default_search_min_entity_hits")]
+    pub min_entity_hits: u32,
+    /// Maximum event summaries to inject.
+    #[serde(default = "default_search_top_k_events")]
+    pub top_k_events: usize,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            model: None,
+            context_turns: default_search_context_turns(),
+            timeout_ms: default_search_timeout_ms(),
+            max_summary_chars: default_search_max_summary_chars(),
+            min_entity_hits: default_search_min_entity_hits(),
+            top_k_events: default_search_top_k_events(),
+        }
+    }
+}
+
+fn default_search_context_turns() -> usize {
+    5
+}
+
+fn default_search_timeout_ms() -> u64 {
+    3000
+}
+
+fn default_search_max_summary_chars() -> usize {
+    500
+}
+
+fn default_search_min_entity_hits() -> u32 {
+    1
+}
+
+fn default_search_top_k_events() -> usize {
+    3
 }
 
 /// Active-searcher overrides — all fields optional.
@@ -515,343 +772,4 @@ pub(crate) fn intersect_option_min(a: Option<u64>, b: Option<u64>) -> Option<u64
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn make_perms(agent_id: &str, allowed_dims: &[&str]) -> AgentPermissions {
-        let dimensions = [
-            "exec",
-            "file_read",
-            "file_write",
-            "network",
-            "spawn",
-            "tool_call",
-            "config_write",
-        ];
-        let permissions = dimensions
-            .iter()
-            .map(|&dim| {
-                (
-                    dim.to_string(),
-                    ActionPermission {
-                        allowed: allowed_dims.contains(&dim),
-                        limits: PermissionLimits::default(),
-                    },
-                )
-            })
-            .collect();
-        AgentPermissions {
-            agent_id: agent_id.to_string(),
-            permissions,
-            inherited_from: None,
-        }
-    }
-
-    // --- intersect: normal path ---
-
-    #[test]
-    fn intersect_both_allow_preserves() {
-        let child = make_perms("child", &["exec", "file_read"]);
-        let parent = make_perms("parent", &["exec", "file_read"]);
-        let result = child.intersect(&parent);
-        assert!(result.permissions["exec"].allowed);
-        assert!(result.permissions["file_read"].allowed);
-    }
-
-    #[test]
-    fn intersect_limits_commands_set_intersection() {
-        let child = AgentPermissions {
-            agent_id: "child".to_string(),
-            permissions: HashMap::from([(
-                "exec".to_string(),
-                ActionPermission {
-                    allowed: true,
-                    limits: PermissionLimits {
-                        commands: vec!["git".into(), "ls".into()],
-                        ..Default::default()
-                    },
-                },
-            )]),
-            inherited_from: None,
-        };
-        let parent = AgentPermissions {
-            agent_id: "parent".to_string(),
-            permissions: HashMap::from([(
-                "exec".to_string(),
-                ActionPermission {
-                    allowed: true,
-                    limits: PermissionLimits {
-                        commands: vec!["git".into(), "cat".into()],
-                        ..Default::default()
-                    },
-                },
-            )]),
-            inherited_from: None,
-        };
-        let result = child.intersect(&parent);
-        assert_eq!(result.permissions["exec"].limits.commands, vec!["git"]);
-    }
-
-    #[test]
-    fn intersect_limits_paths_set_intersection() {
-        let child = AgentPermissions {
-            agent_id: "child".to_string(),
-            permissions: HashMap::from([(
-                "file_read".to_string(),
-                ActionPermission {
-                    allowed: true,
-                    limits: PermissionLimits {
-                        paths: vec!["/data/**".into(), "/home/**".into()],
-                        ..Default::default()
-                    },
-                },
-            )]),
-            inherited_from: None,
-        };
-        let parent = AgentPermissions {
-            agent_id: "parent".to_string(),
-            permissions: HashMap::from([(
-                "file_read".to_string(),
-                ActionPermission {
-                    allowed: true,
-                    limits: PermissionLimits {
-                        paths: vec!["/data/**".into(), "/etc/**".into()],
-                        ..Default::default()
-                    },
-                },
-            )]),
-            inherited_from: None,
-        };
-        let result = child.intersect(&parent);
-        assert_eq!(
-            result.permissions["file_read"].limits.paths,
-            vec!["/data/**"]
-        );
-    }
-
-    #[test]
-    fn intersect_limits_timeout_min() {
-        let child = AgentPermissions {
-            agent_id: "child".to_string(),
-            permissions: HashMap::from([(
-                "exec".to_string(),
-                ActionPermission {
-                    allowed: true,
-                    limits: PermissionLimits {
-                        timeout_ms: Some(60_000),
-                        ..Default::default()
-                    },
-                },
-            )]),
-            inherited_from: None,
-        };
-        let parent = AgentPermissions {
-            agent_id: "parent".to_string(),
-            permissions: HashMap::from([(
-                "exec".to_string(),
-                ActionPermission {
-                    allowed: true,
-                    limits: PermissionLimits {
-                        timeout_ms: Some(30_000),
-                        ..Default::default()
-                    },
-                },
-            )]),
-            inherited_from: None,
-        };
-        let result = child.intersect(&parent);
-        assert_eq!(result.permissions["exec"].limits.timeout_ms, Some(30_000));
-    }
-
-    // --- intersect: error path ---
-
-    #[test]
-    fn intersect_child_deny_overrides() {
-        let child = make_perms("child", &["file_read"]); // exec denied
-        let parent = make_perms("parent", &["exec", "file_read"]);
-        let result = child.intersect(&parent);
-        assert!(!result.permissions["exec"].allowed);
-        assert!(result.permissions["file_read"].allowed);
-    }
-
-    #[test]
-    fn intersect_parent_deny_overrides() {
-        let child = make_perms("child", &["exec", "file_read"]);
-        let parent = make_perms("parent", &["exec"]); // file_read denied
-        let result = child.intersect(&parent);
-        assert!(result.permissions["exec"].allowed);
-        assert!(!result.permissions["file_read"].allowed);
-    }
-
-    #[test]
-    fn intersect_absent_dimension_is_deny() {
-        let child = AgentPermissions {
-            agent_id: "child".to_string(),
-            permissions: HashMap::new(),
-            inherited_from: None,
-        };
-        let parent = make_perms("parent", &["exec"]);
-        let result = child.intersect(&parent);
-        assert!(!result.permissions["exec"].allowed);
-    }
-
-    #[test]
-    fn intersect_deny_gets_default_limits() {
-        let child = make_perms("child", &[]); // all denied
-        let parent = make_perms("parent", &["exec"]);
-        let result = child.intersect(&parent);
-        let exec = &result.permissions["exec"].limits;
-        assert!(exec.commands.is_empty());
-        assert!(exec.paths.is_empty());
-        assert_eq!(exec.timeout_ms, None);
-    }
-
-    // --- intersect: boundary values ---
-
-    #[test]
-    fn intersect_limits_timeout_none_vs_none() {
-        let child = AgentPermissions {
-            agent_id: "child".to_string(),
-            permissions: HashMap::from([(
-                "exec".to_string(),
-                ActionPermission {
-                    allowed: true,
-                    limits: PermissionLimits {
-                        timeout_ms: None,
-                        ..Default::default()
-                    },
-                },
-            )]),
-            inherited_from: None,
-        };
-        let parent = AgentPermissions {
-            agent_id: "parent".to_string(),
-            permissions: HashMap::from([(
-                "exec".to_string(),
-                ActionPermission {
-                    allowed: true,
-                    limits: PermissionLimits {
-                        timeout_ms: None,
-                        ..Default::default()
-                    },
-                },
-            )]),
-            inherited_from: None,
-        };
-        let result = child.intersect(&parent);
-        assert_eq!(result.permissions["exec"].limits.timeout_ms, None);
-    }
-
-    #[test]
-    fn intersect_limits_timeout_none_vs_some() {
-        let child = AgentPermissions {
-            agent_id: "child".to_string(),
-            permissions: HashMap::from([(
-                "exec".to_string(),
-                ActionPermission {
-                    allowed: true,
-                    limits: PermissionLimits {
-                        timeout_ms: None,
-                        ..Default::default()
-                    },
-                },
-            )]),
-            inherited_from: None,
-        };
-        let parent = AgentPermissions {
-            agent_id: "parent".to_string(),
-            permissions: HashMap::from([(
-                "exec".to_string(),
-                ActionPermission {
-                    allowed: true,
-                    limits: PermissionLimits {
-                        timeout_ms: Some(5_000),
-                        ..Default::default()
-                    },
-                },
-            )]),
-            inherited_from: None,
-        };
-        let result = child.intersect(&parent);
-        assert_eq!(result.permissions["exec"].limits.timeout_ms, Some(5_000));
-    }
-
-    #[test]
-    fn intersect_vec_none_none_returns_empty() {
-        let result = intersect_vec::<String>(None, None);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn intersect_vec_some_none_returns_some() {
-        let a = vec!["x".to_string(), "y".to_string()];
-        let result = intersect_vec(Some(&a), None);
-        assert_eq!(result, vec!["x", "y"]);
-    }
-
-    #[test]
-    fn intersect_vec_none_some_returns_some() {
-        let b = vec!["x".to_string(), "z".to_string()];
-        let result = intersect_vec(None, Some(&b));
-        assert_eq!(result, vec!["x", "z"]);
-    }
-
-    // --- state transition: is_fully_denied ---
-
-    #[test]
-    fn is_fully_denied_all_absent() {
-        let perms = AgentPermissions {
-            agent_id: "a".to_string(),
-            permissions: HashMap::new(),
-            inherited_from: None,
-        };
-        assert!(perms.is_fully_denied());
-    }
-
-    #[test]
-    fn is_fully_denied_all_explicit_deny() {
-        let perms = make_perms("a", &[]);
-        assert!(perms.is_fully_denied());
-    }
-
-    #[test]
-    fn is_fully_denied_one_allow() {
-        let perms = make_perms("a", &["exec"]);
-        assert!(!perms.is_fully_denied());
-    }
-
-    // --- intersect: result identity ---
-
-    #[test]
-    fn intersect_result_has_correct_ids() {
-        let child = make_perms("child", &["exec"]);
-        let parent = make_perms("parent", &["exec"]);
-        let result = child.intersect(&parent);
-        assert_eq!(result.agent_id, "child");
-        assert_eq!(result.inherited_from, Some("parent".into()));
-    }
-
-    // --- intersect: all seven dimensions ---
-
-    #[test]
-    fn intersect_all_seven_dimensions_checked() {
-        let child = make_perms("child", &["exec"]);
-        let parent = make_perms("parent", &["exec"]);
-        let result = child.intersect(&parent);
-        assert_eq!(result.permissions.len(), 7);
-        for dim in [
-            "exec",
-            "file_read",
-            "file_write",
-            "network",
-            "spawn",
-            "tool_call",
-            "config_write",
-        ] {
-            assert!(
-                result.permissions.contains_key(dim),
-                "missing dimension: {dim}"
-            );
-        }
-    }
-}
+mod tests;
