@@ -1,4 +1,5 @@
-//! Unit tests for workflow engine transition evaluation.
+//! Unit tests for workflow engine: transition evaluation, state machine,
+//! and end-to-end lifecycle.
 
 use std::collections::HashMap;
 
@@ -29,8 +30,6 @@ fn when_map(entries: &[(&str, serde_yaml::Value)]) -> serde_yaml::Value {
     serde_yaml::Value::Mapping(map)
 }
 
-// ---------------------------------------------------------------------------
-// Boolean condition matching
 // ---------------------------------------------------------------------------
 
 #[test]

@@ -8,3 +8,6 @@ mod definition_tests;
 
 #[cfg(test)]
 mod engine_tests;
+
+#[cfg(test)]
+mod engine_state_machine_tests;
