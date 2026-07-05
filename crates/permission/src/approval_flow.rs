@@ -9,7 +9,10 @@
 //! ```text
 //! Tool call → Deny → submit_denial()
 //!                     ├─ sub_agent? → None (silent deny)
-//!                     ├─ heartbeat? → None (silent skip)
+//!                     ├─ heartbeat? → mode-dependent:
+//!                     │     Skip  → None (silent)
+//!                     │     Notify → notify owner, None
+//!                     │     Ask   → enqueue (same as normal)
 //!                     └─ normal?    → enqueue → on_notify_owner → Some(id)
 //!
 //! Owner → /approve id → approve_request(id, Once)
@@ -67,11 +70,12 @@ pub struct ApprovalNotification {
     pub risk_level: RiskLevel,
 }
 
-/// Operations that should be silently skipped during the approval flow.
+/// Check if a request is a heartbeat operation.
 ///
-/// In the initial implementation this is a hardcoded set; later this may
-/// become configurable via permissions.json.
-fn is_heartbeat_skip_operation(request: &PermissionRequestBody) -> bool {
+/// Heartbeat operations are tool calls with skill="heartbeat" and
+/// method="ping". The handling strategy (skip / notify / ask) is
+/// determined by [`HeartbeatApprovalMode`].
+fn is_heartbeat_operation(request: &PermissionRequestBody) -> bool {
     matches!(
         request,
         PermissionRequestBody::ToolCall {
@@ -152,7 +156,10 @@ impl ApprovalFlow {
     ///
     /// # Behavior
     /// - `is_sub_agent = true` → returns `None` (silent deny, no queue).
-    /// - Heartbeat-skip operations → returns `None` (silent skip).
+    /// - Heartbeat operations → handled according to [`HeartbeatApprovalMode`]:
+    ///   - `Skip` → returns `None` (silent skip, no notification).
+    ///   - `Notify` → sends owner notification, returns `None` (no queue).
+    ///   - `Ask` → enqueues for approval like normal operations.
     /// - Normal operations → enqueues (dedup via `ApprovalQueue`) → triggers
     ///   `on_notify_owner` → returns `Some(request_id)`.
     ///
@@ -173,9 +180,36 @@ impl ApprovalFlow {
             return None;
         }
 
-        // Heartbeat-skip operations are silently skipped.
-        if is_heartbeat_skip_operation(request) {
-            return None;
+        // Heartbeat operations are handled according to heartbeat_mode.
+        if is_heartbeat_operation(request) {
+            // Extract skill/method via pattern matching (no accessors needed).
+            let (agent_str, skill_str, method_str) = match request {
+                PermissionRequestBody::ToolCall {
+                    agent,
+                    skill,
+                    method,
+                } => (agent.as_str(), skill.as_str(), method.as_str()),
+                _ => unreachable!("is_heartbeat_operation only matches ToolCall"),
+            };
+            let operation_desc = format!("{} tool {}/{}", agent_str, skill_str, method_str);
+
+            match self.heartbeat_mode {
+                HeartbeatApprovalMode::Skip => {
+                    return None;
+                }
+                HeartbeatApprovalMode::Notify => {
+                    (self.on_notify_owner)(ApprovalNotification {
+                        request_id: String::new(),
+                        caller: caller.clone(),
+                        operation_desc,
+                        risk_level,
+                    });
+                    return None;
+                }
+                HeartbeatApprovalMode::Ask => {
+                    // Fall through to the normal enqueue flow below.
+                }
+            }
         }
 
         let operation_desc = match request {
