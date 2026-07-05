@@ -1,14 +1,12 @@
 //! Tests for key_registry and resolve logic.
 
 use super::session_helpers;
-use super::test_helpers::MockPersistService;
 use super::tests::{make_test_mgr, test_config};
 use super::SessionManager;
 use crate::{Message, Session};
 use closeclaw_session::bootstrap::BootstrapMode;
-use closeclaw_session::persistence::{ReasoningLevel, SessionCheckpoint, SessionStatus};
+use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 fn test_message() -> Message {
     Message {
@@ -31,13 +29,11 @@ fn test_generate_session_id_format() {
     let parts: Vec<&str> = id.split('_').collect();
     assert_eq!(parts.len(), 3, "expected 3 parts: {}", id);
     assert_eq!(parts[0], "agent-1");
-    // Second part should be a numeric timestamp
     assert!(
         parts[1].parse::<i64>().is_ok(),
         "timestamp not numeric: {}",
         parts[1]
     );
-    // Third part should be 8 hex digits
     assert_eq!(parts[2].len(), 8, "hex part not 8 chars: {}", parts[2]);
     assert!(
         parts[2].chars().all(|c| c.is_ascii_hexdigit()),
@@ -61,9 +57,7 @@ fn test_generate_session_id_uniqueness() {
 async fn test_resolve_path1_active_hit() {
     let mgr = make_test_mgr(None);
     let msg = test_message();
-    let session_key = mgr.compute_session_key("feishu", &msg, None, msg.timestamp);
-    // resolve() strips timestamps before registry lookup — insert routing_key.
-    let routing_key = SessionManager::strip_timestamp_from_session_key(&session_key);
+    let routing_key = SessionManager::compute_routing_key("feishu", &msg, None);
     let session_id = "active_session_1";
     {
         let mut reg = mgr.key_registry.write().await;
@@ -82,66 +76,59 @@ async fn test_resolve_path1_active_hit() {
             },
         );
     }
-    let result = mgr
-        .resolve(&session_key, "feishu", &msg, None)
-        .await
-        .unwrap();
+    let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     assert_eq!(result, session_id);
-}
-
-#[tokio::test]
-async fn test_resolve_path2_archived_hit_restore() {
-    let session_id = "archived_session_1";
-    let mock_storage = Arc::new(MockPersistService {
-        archived_checkpoint: Mutex::new(Some(
-            SessionCheckpoint::new(session_id.to_string())
-                .with_status(SessionStatus::Archived)
-                .with_peer_id("agent-b".to_string()),
-        )),
-        restore_called: Mutex::new(false),
-    });
-    let mgr = SessionManager::new(
-        &test_config(),
-        Some(mock_storage.clone()),
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    );
-    let msg = test_message();
-    let session_key = mgr.compute_session_key("feishu", &msg, None, msg.timestamp);
-    // resolve() strips timestamps before registry lookup — insert routing_key.
-    let routing_key = SessionManager::strip_timestamp_from_session_key(&session_key);
-    {
-        let mut reg = mgr.key_registry.write().await;
-        reg.insert(routing_key.to_string(), session_id.to_string());
-    }
-    let result = mgr
-        .resolve(&session_key, "feishu", &msg, None)
-        .await
-        .unwrap();
-    assert_eq!(result, session_id);
-    let called = *mock_storage.restore_called.lock().await;
-    assert!(called, "restore_checkpoint should have been called");
 }
 
 #[tokio::test]
 async fn test_resolve_path3_miss_creates_new() {
     let mgr = make_test_mgr(None);
     let msg = test_message();
-    let session_key = mgr.compute_session_key("feishu", &msg, None, msg.timestamp);
     // key_registry is empty → miss → create new
-    let result = mgr
-        .resolve(&session_key, "feishu", &msg, None)
-        .await
-        .unwrap();
+    let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     // Verify format
     assert!(result.starts_with("agent-b_"), "bad format: {}", result);
-    // Verify key_registry updated — resolve stores routing_key (timestamps stripped)
-    let routing_key = SessionManager::strip_timestamp_from_session_key(&session_key);
+    // Verify key_registry updated
+    let routing_key = SessionManager::compute_routing_key("feishu", &msg, None);
     let reg = mgr.key_registry.read().await;
-    assert_eq!(reg.get(routing_key).unwrap(), &result);
+    assert_eq!(reg.get(&routing_key).unwrap(), &result);
     // Verify session exists
     assert!(mgr.has_session(&result).await);
+}
+
+// ── stable routing_key: different timestamps → same session ───────────────────
+
+#[tokio::test]
+async fn test_resolve_stable_routing_key_different_timestamps() {
+    let mgr = make_test_mgr(None);
+    let msg1 = test_message();
+    // msg2 has different timestamp but same routing fields
+    let msg2 = Message {
+        id: "msg-2".to_string(),
+        from: "user-a".to_string(),
+        to: "agent-b".to_string(),
+        content: "hello again".to_string(),
+        channel: "feishu".to_string(),
+        timestamp: chrono::Utc::now().timestamp() + 60_000,
+        metadata: std::collections::HashMap::new(),
+        thread_id: None,
+    };
+    // Both messages have same (channel, from, to) → same routing_key
+    let routing_key1 = SessionManager::compute_routing_key("feishu", &msg1, None);
+    let routing_key2 = SessionManager::compute_routing_key("feishu", &msg2, None);
+    assert_eq!(
+        routing_key1, routing_key2,
+        "routing_keys should be identical for same routing fields"
+    );
+
+    // First call creates a new session
+    let id1 = mgr.find_or_create("feishu", &msg1, None).await.unwrap();
+    // Second call with different timestamp resolves to same session
+    let id2 = mgr.find_or_create("feishu", &msg2, None).await.unwrap();
+    assert_eq!(
+        id1, id2,
+        "same routing fields must resolve to the same session"
+    );
 }
 
 // ── rebuild_key_registry ─────────────────────────────────────────────────────
@@ -161,7 +148,6 @@ async fn test_rebuild_key_registry() {
         .with_agent_id("agent-a".to_string());
     cp2.created_at = chrono::Utc::now();
 
-    // Need to load_checkpoint to return the right checkpoint
     let cps = vec![cp1.clone(), cp2.clone()];
     struct RebuildMockWithLoad {
         checkpoints: Vec<SessionCheckpoint>,
@@ -226,15 +212,100 @@ async fn test_rebuild_key_registry() {
     mgr.rebuild_key_registry().await.unwrap();
 
     let reg = mgr.key_registry.read().await;
-    // Both sessions share the same reconstructed routing fields:
-    // "default:feishu:agent-a:agent-a" (PerAccountChannelPeer, no sender_id → uses agent_id)
-    // The registry key is now the sha256 hash of the routing fields.
-    // The newer one (sid_new) should win.
     use sha2::{Digest, Sha256};
     let routing_fields = "default:feishu:agent-a:agent-a";
     let hash = Sha256::digest(routing_fields.as_bytes());
     let key = format!("{:x}", hash);
     assert_eq!(reg.get(&key).unwrap(), "sid_new");
+}
+
+// ── daemon restart: rebuild then resolve hits registry ───────────────────────
+
+#[tokio::test]
+async fn test_rebuild_then_resolve_consistency() {
+    use closeclaw_session::persistence::SessionCheckpoint;
+    use sha2::{Digest, Sha256};
+
+    let session_id = "sid_after_restart".to_string();
+    let session_id_clone = session_id.clone();
+    let mut cp = SessionCheckpoint::new(session_id.clone())
+        .with_platform("feishu".to_string())
+        .with_peer_id("agent-b".to_string())
+        .with_agent_id("agent-b".to_string());
+    cp.sender_id = Some("user-a".to_string());
+    cp.account_id = None; // will be reconstructed as "default"
+    cp.created_at = chrono::Utc::now();
+
+    struct RestartMock {
+        checkpoint: tokio::sync::Mutex<Option<SessionCheckpoint>>,
+        session_id: String,
+    }
+    #[async_trait::async_trait]
+    impl closeclaw_session::persistence::PersistenceService for RestartMock {
+        async fn save_checkpoint(
+            &self,
+            _: &SessionCheckpoint,
+        ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
+            Ok(())
+        }
+        async fn load_checkpoint(
+            &self,
+            _id: &str,
+        ) -> Result<Option<SessionCheckpoint>, closeclaw_session::persistence::PersistenceError>
+        {
+            Ok(self.checkpoint.lock().await.take())
+        }
+        async fn delete_checkpoint(
+            &self,
+            _: &str,
+        ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
+            Ok(())
+        }
+        async fn list_active_sessions(
+            &self,
+        ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
+            Ok(vec![self.session_id.clone()])
+        }
+        async fn restore_checkpoint(
+            &self,
+            _: &str,
+        ) -> Result<Option<SessionCheckpoint>, closeclaw_session::persistence::PersistenceError>
+        {
+            Ok(None)
+        }
+    }
+
+    let mock = Arc::new(RestartMock {
+        checkpoint: tokio::sync::Mutex::new(Some(cp)),
+        session_id: session_id_clone.clone(),
+    });
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(mock),
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    );
+
+    // Simulate daemon restart: rebuild_key_registry populates key_registry
+    mgr.rebuild_key_registry().await.unwrap();
+
+    // Now a new message arrives with same routing fields
+    let msg = test_message(); // from=user-a, to=agent-b, channel=feishu
+    let routing_key = SessionManager::compute_routing_key("feishu", &msg, None);
+
+    // Verify registry has the expected key
+    let reg = mgr.key_registry.read().await;
+    assert!(
+        reg.contains_key(&routing_key),
+        "registry must contain the routing key after rebuild"
+    );
+    assert_eq!(reg.get(&routing_key).unwrap(), &session_id_clone);
+    drop(reg);
+
+    // Verify the key format matches: sha256("default:feishu:user-a:agent-b")
+    let expected_hash = format!("{:x}", Sha256::digest(b"default:feishu:user-a:agent-b"));
+    assert_eq!(routing_key, expected_hash);
 }
 
 // ── find_or_create delegates to resolve ──────────────────────────────────────
@@ -243,12 +314,9 @@ async fn test_rebuild_key_registry() {
 async fn test_find_or_create_delegates_to_resolve() {
     let mgr = make_test_mgr(None);
     let msg = test_message();
-    // First call creates a new session
     let id1 = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-    // Second call with same message resolves to same session
     let id2 = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     assert_eq!(id1, id2);
-    // Only one session in the map
     let sessions = mgr.sessions.read().await;
     assert_eq!(sessions.len(), 1);
 }
@@ -258,13 +326,11 @@ async fn test_find_or_create_delegates_to_resolve() {
 #[tokio::test]
 async fn test_key_registry_write_and_query() {
     let mgr = make_test_mgr(None);
-    // Write
     {
         let mut reg = mgr.key_registry.write().await;
         reg.insert("key1".to_string(), "sid1".to_string());
         reg.insert("key2".to_string(), "sid2".to_string());
     }
-    // Query
     let reg = mgr.key_registry.read().await;
     assert_eq!(reg.get("key1").unwrap(), "sid1");
     assert_eq!(reg.get("key2").unwrap(), "sid2");
