@@ -1,5 +1,6 @@
 use super::*;
 use crate::ToolFlags;
+use closeclaw_common::RegistryError;
 
 struct DummyTool {
     name: String,
@@ -536,4 +537,46 @@ async fn test_query_agent_tools_config_not_set() {
     let (tools, disallowed) = reg.query_agent_tools_config("any-agent").await;
     assert_eq!(tools, None);
     assert_eq!(disallowed, None);
+}
+
+// =========================================================================
+// RegistryError — Display and variant tests
+// =========================================================================
+
+#[test]
+fn test_registry_error_already_registered_display() {
+    let err = RegistryError::AlreadyRegistered("Read".into());
+    assert_eq!(format!("{}", err), "tool `Read` already registered");
+}
+
+#[test]
+fn test_registry_error_conflict_display() {
+    let err = RegistryError::Conflict {
+        tool: "Read".into(),
+        registrar: "core".into(),
+        attempting: "extra".into(),
+    };
+    let msg = format!("{}", err);
+    assert!(msg.contains("Read"));
+    assert!(msg.contains("core"));
+    assert!(msg.contains("extra"));
+}
+
+#[test]
+fn test_registry_error_frozen_display() {
+    let err = RegistryError::Frozen;
+    assert!(format!("{}", err).contains("frozen"));
+}
+
+#[test]
+fn test_registry_error_internal_display() {
+    let err = RegistryError::Internal("something broke".into());
+    assert_eq!(format!("{}", err), "something broke");
+}
+
+#[test]
+fn test_registry_error_debug() {
+    let err = RegistryError::AlreadyRegistered("Write".into());
+    let debug = format!("{:?}", err);
+    assert!(debug.contains("AlreadyRegistered"));
 }

@@ -27,20 +27,6 @@ pub enum BackgroundTaskError {
     Io(#[from] std::io::Error),
 }
 
-impl From<BackgroundTaskError> for closeclaw_common::BackgroundTaskError {
-    fn from(e: BackgroundTaskError) -> Self {
-        match e {
-            BackgroundTaskError::NotFound(id) => {
-                closeclaw_common::BackgroundTaskError::NotFound(id)
-            }
-            BackgroundTaskError::Io(e) => closeclaw_common::BackgroundTaskError::Io(e),
-            other => {
-                closeclaw_common::BackgroundTaskError::Io(std::io::Error::other(other.to_string()))
-            }
-        }
-    }
-}
-
 /// Lifecycle state of a background task.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskState {
@@ -260,75 +246,29 @@ impl BackgroundTaskManager {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[async_trait::async_trait]
-impl closeclaw_common::TaskManager for BackgroundTaskManager {
+impl crate::TaskManager for BackgroundTaskManager {
     async fn spawn_task(
         &self,
         command: &str,
-        cwd: &Path,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        let result = self.spawn(command, cwd).await?;
-        Ok(closeclaw_common::BackgroundTask {
-            id: result.id,
-            command: result.command,
-            state: match result.state {
-                TaskState::Running => closeclaw_common::TaskState::Running,
-                TaskState::Completed { exit_code } => {
-                    closeclaw_common::TaskState::Completed { exit_code }
-                }
-                TaskState::Failed { exit_code } => {
-                    closeclaw_common::TaskState::Failed { exit_code }
-                }
-                TaskState::Killed => closeclaw_common::TaskState::Killed,
-            },
-            output_path: result.output_path,
-        })
+        cwd: &std::path::Path,
+    ) -> Result<BackgroundTask, BackgroundTaskError> {
+        self.spawn(command, cwd).await
     }
 
     async fn backgroundize_task(
         &self,
         child: tokio::process::Child,
         command: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        let result = self.backgroundize(child, command).await?;
-        Ok(closeclaw_common::BackgroundTask {
-            id: result.id,
-            command: result.command,
-            state: match result.state {
-                TaskState::Running => closeclaw_common::TaskState::Running,
-                TaskState::Completed { exit_code } => {
-                    closeclaw_common::TaskState::Completed { exit_code }
-                }
-                TaskState::Failed { exit_code } => {
-                    closeclaw_common::TaskState::Failed { exit_code }
-                }
-                TaskState::Killed => closeclaw_common::TaskState::Killed,
-            },
-            output_path: result.output_path,
-        })
+    ) -> Result<BackgroundTask, BackgroundTaskError> {
+        self.backgroundize(child, command).await
     }
 
-    async fn kill_task(&self, task_id: &str) -> Result<(), closeclaw_common::BackgroundTaskError> {
-        self.kill(task_id).await.map_err(Into::into)
+    async fn kill_task(&self, task_id: &str) -> Result<(), BackgroundTaskError> {
+        self.kill(task_id).await
     }
 
-    async fn get_task(&self, task_id: &str) -> Option<closeclaw_common::BackgroundTask> {
-        self.get_task(task_id)
-            .await
-            .map(|t| closeclaw_common::BackgroundTask {
-                id: t.id,
-                command: t.command,
-                state: match t.state {
-                    TaskState::Running => closeclaw_common::TaskState::Running,
-                    TaskState::Completed { exit_code } => {
-                        closeclaw_common::TaskState::Completed { exit_code }
-                    }
-                    TaskState::Failed { exit_code } => {
-                        closeclaw_common::TaskState::Failed { exit_code }
-                    }
-                    TaskState::Killed => closeclaw_common::TaskState::Killed,
-                },
-                output_path: t.output_path,
-            })
+    async fn get_task(&self, task_id: &str) -> Option<BackgroundTask> {
+        self.get_task(task_id).await
     }
 }
 
