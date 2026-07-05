@@ -25,6 +25,8 @@ pub mod slash_router;
 pub mod slash_router_tests;
 pub mod storage_provider;
 pub mod streaming;
+#[cfg(test)]
+pub mod streaming_tests;
 pub mod system_prompt;
 pub mod test_helpers;
 pub mod tool_registry;
@@ -60,6 +62,7 @@ pub use skill_registry::SkillRegistryQuery;
 pub use slash_router::{
     SlashContext, SlashDispatcherTrait, SlashHandler, SlashResult, SlashRouter, SystemAppendAction,
 };
+pub use streaming::{DefaultStreamingRenderer, LineBuffer, StreamingRenderer};
 
 pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, StorageProvider};
 pub use system_prompt::{PromptOverrides, SystemPromptBuilder};

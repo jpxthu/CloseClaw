@@ -17,11 +17,11 @@ use crate::normalized::{add_code_block_language_hint, normalize_urls};
 use crate::IMAdapter;
 use async_trait::async_trait;
 use closeclaw_common::identity::IdentityResolver;
-use closeclaw_common::processor::ContentBlock;
-use closeclaw_common::processor::DslParseResult;
+use closeclaw_common::processor::{ContentBlock, DslParseResult, StreamEvent};
+use closeclaw_common::streaming::{DefaultStreamingRenderer, StreamingRenderer};
 use closeclaw_common::{
     AdapterError as CommonAdapterError, CardActionEvent, IMPlugin, NormalizedMessage,
-    RenderedOutput,
+    RenderedOutput, StreamingOutput,
 };
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_gateway::Message;
@@ -219,6 +219,7 @@ fn convert_to_common_error(e: AdapterError) -> CommonAdapterError {
 pub struct FeishuPlugin {
     adapter: Arc<FeishuAdapter>,
     identity_resolver: Option<Arc<dyn IdentityResolver>>,
+    streaming_renderer: std::sync::Mutex<DefaultStreamingRenderer>,
 }
 
 impl FeishuPlugin {
@@ -227,6 +228,7 @@ impl FeishuPlugin {
         Self {
             adapter,
             identity_resolver: None,
+            streaming_renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
         }
     }
 
@@ -239,6 +241,7 @@ impl FeishuPlugin {
         Self {
             adapter,
             identity_resolver,
+            streaming_renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
         }
     }
 
@@ -363,6 +366,20 @@ impl IMPlugin for FeishuPlugin {
     async fn shutdown(&self) -> Result<(), CommonAdapterError> {
         *self.adapter.cached_token.lock().await = None;
         Ok(())
+    }
+
+    fn handle_stream_event(&self, event: StreamEvent) -> StreamingOutput {
+        self.streaming_renderer
+            .lock()
+            .expect("FeishuPlugin streaming renderer lock poisoned")
+            .handle_event(event)
+    }
+
+    fn flush_stream(&self) -> StreamingOutput {
+        self.streaming_renderer
+            .lock()
+            .expect("FeishuPlugin streaming renderer lock poisoned")
+            .flush()
     }
 
     fn clean_content(&self, raw: &str) -> String {
