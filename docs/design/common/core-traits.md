@@ -60,7 +60,7 @@
 
 ### Tool trait
 
-**用途**：所有工具的统一切入点接口。每个工具实现此 trait，ToolRegistry 通过此接口统一管理工具的标识、描述和输入模式。Tools 模块提供此 trait 的具体定义。
+**用途**：所有工具的统一切入点接口，定义于 common crate。每个工具实现此 trait，ToolRegistry 通过此接口统一管理工具的标识、描述和输入模式。
 
 **接口契约**：
 
