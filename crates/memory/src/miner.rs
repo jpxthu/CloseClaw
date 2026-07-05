@@ -26,20 +26,39 @@ pub enum MinerError {
 }
 
 /// Memory miner — extracts structured entries from session transcripts.
-pub struct MemoryMiner;
+pub struct MemoryMiner {
+    /// Whether mining is enabled.
+    enabled: bool,
+}
 
 impl MemoryMiner {
-    /// Create a new `MemoryMiner`.
+    /// Create a new `MemoryMiner` with mining enabled.
     pub fn new() -> Self {
-        Self
+        Self { enabled: true }
+    }
+
+    /// Create a new `MemoryMiner` with an explicit enabled flag.
+    pub fn with_enabled(enabled: bool) -> Self {
+        Self { enabled }
+    }
+
+    /// Returns `true` if mining is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
     }
 
     /// Mine a single session: read transcript → extract → write → mark.
+    ///
+    /// Returns `Ok(())` immediately if mining is disabled.
     pub async fn mine_session(
         &self,
         session_id: &str,
         storage: &dyn PersistenceService,
     ) -> Result<(), MinerError> {
+        if !self.enabled {
+            return Ok(());
+        }
+
         let checkpoint = storage.load_checkpoint(session_id).await?.ok_or_else(|| {
             MinerError::TranscriptParse(format!("session {session_id} not found"))
         })?;

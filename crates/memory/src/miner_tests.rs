@@ -59,6 +59,25 @@ async fn test_mine_session_nonexistent_returns_error() {
     assert!(result.is_err(), "mining nonexistent session should fail");
 }
 
+/// Mining does not process sessions when mining is disabled.
+#[tokio::test]
+async fn test_mine_disabled_skips_processing() {
+    let storage = TestStorage::default();
+    let mut cp = SessionCheckpoint::new("sess-disabled".into());
+    cp.mined = false;
+    storage.add_checkpoint(cp);
+
+    let miner = MemoryMiner::with_enabled(false);
+    miner.mine_session("sess-disabled", &storage).await.unwrap();
+
+    // Session should NOT be marked as mined when disabled.
+    let mined = storage.mined_ids();
+    assert!(
+        mined.is_empty(),
+        "disabled miner should not process sessions"
+    );
+}
+
 /// Mining multiple sessions processes each independently.
 #[tokio::test]
 async fn test_mine_multiple_sessions() {
