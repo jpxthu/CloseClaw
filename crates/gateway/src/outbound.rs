@@ -364,6 +364,37 @@ impl Gateway {
         Ok(())
     }
 
+    /// Send a simplified outbound message, skipping the full processor chain
+    /// and middleware. Used for non-text message rejection replies where the
+    /// design doc specifies a short path: log → render → send.
+    pub async fn send_outbound_simplified(
+        &self,
+        chat_id: &str,
+        channel: &str,
+        raw_output: &str,
+    ) -> Result<(), GatewayError> {
+        let plugin = self
+            .get_plugin(channel)
+            .await
+            .ok_or_else(|| GatewayError::UnknownChannel(channel.to_string()))?;
+        let blocks = vec![ContentBlock::Text(raw_output.to_string())];
+
+        // Log before render (design doc: 经日志→渲染→发送).
+        tracing::info!(
+            chat_id,
+            channel,
+            content = %raw_output,
+            "simplified outbound"
+        );
+
+        // Render without DSL result — skips Verbosity/DslParser.
+        let rendered = plugin.render(&blocks, None);
+
+        // Send directly — no outbound middleware chain.
+        plugin.send(&rendered, chat_id, None).await?;
+        Ok(())
+    }
+
     /// Send a streaming LLM response via the registered IM plugin.
     ///
     /// Drives a [`DefaultStreamingRenderer`] over the [`StreamEvent`] stream,

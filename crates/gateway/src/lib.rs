@@ -322,10 +322,10 @@ impl Gateway {
                 .map(|s| s.as_str())
                 .unwrap_or("");
             if let Err(e) = self
-                .send_outbound_to_chat(
+                .send_outbound_simplified(
                     peer_id,
                     channel,
-                    "\u{26A0}\u{FE0F} \u{6682}\u{4E0D}\u{652F}\u{6301}\u{975E}\u{6587}\u{672C}\u{6D88}\u{606F}\u{FF0C}\u{8BF7}\u{53D1}\u{9001}\u{6587}\u{5B57}\u{5185}\u{5BB9}",
+                    "\u{6682}\u{4E0D}\u{652F}\u{6301}\u{8BE5}\u{6D88}\u{606F}\u{7C7B}\u{578B}",
                 )
                 .await
             {
