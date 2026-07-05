@@ -17,9 +17,6 @@ pub enum AdapterError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
-    #[error("Media download failed: {0}")]
-    MediaDownloadFailed(String),
-
     #[error("Unsupported operation")]
     UnsupportedOperation,
 }

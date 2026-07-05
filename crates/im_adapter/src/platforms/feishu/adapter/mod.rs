@@ -3,13 +3,12 @@
 use crate::error::AdapterError;
 use crate::IMAdapter;
 use async_trait::async_trait;
-use closeclaw_common::{CardActionEvent, MediaRef, MessageType, NormalizedMessage};
+use closeclaw_common::{CardActionEvent, MessageType, NormalizedMessage};
 use closeclaw_gateway::Message;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -211,9 +210,6 @@ pub struct FeishuAdapter {
     http_client: Client,
     pub(super) cached_token: Arc<Mutex<Option<CachedToken>>>,
     base_url: String,
-    /// Base directory for downloaded media files.
-    /// Production uses `$TMPDIR/closeclaw/media`; tests inject [`tempfile::TempDir`] paths.
-    pub(super) temp_dir: PathBuf,
 }
 
 impl FeishuAdapter {
@@ -229,7 +225,6 @@ impl FeishuAdapter {
             http_client,
             cached_token: Arc::new(Mutex::new(None)),
             base_url: FEISHU_API_BASE.to_string(),
-            temp_dir: std::env::temp_dir().join("closeclaw").join("media"),
         }
     }
 
@@ -261,76 +256,6 @@ impl FeishuAdapter {
         });
 
         Ok(new_token)
-    }
-
-    /// Download a media resource from Feishu API to a local temp file.
-    ///
-    /// Calls `GET /im/v1/messages/{message_id}/resources/{file_key}?type={media_type}`
-    /// with Bearer token authentication. Saves the file to
-    /// `{temp_dir}/{file_key}` and returns the local path.
-    #[allow(dead_code)]
-    async fn download_media(
-        &self,
-        message_id: &str,
-        file_key: &str,
-        media_type: &str,
-    ) -> Result<String, AdapterError> {
-        let token = self.get_tenant_token().await?;
-        let url = format!(
-            "{}/im/v1/messages/{}/resources/{}?type={}",
-            self.base_url, message_id, file_key, media_type
-        );
-
-        let resp = self
-            .http_client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", token))
-            .send()
-            .await
-            .map_err(|e| AdapterError::MediaDownloadFailed(e.to_string()))?;
-
-        if !resp.status().is_success() {
-            return Err(AdapterError::MediaDownloadFailed(format!(
-                "Feishu media download failed with status {}",
-                resp.status()
-            )));
-        }
-
-        let bytes = resp
-            .bytes()
-            .await
-            .map_err(|e| AdapterError::MediaDownloadFailed(e.to_string()))?;
-
-        let dir = &self.temp_dir;
-        tokio::fs::create_dir_all(&dir)
-            .await
-            .map_err(|e| AdapterError::MediaDownloadFailed(e.to_string()))?;
-
-        let path = dir.join(file_key);
-        tokio::fs::write(&path, &bytes)
-            .await
-            .map_err(|e| AdapterError::MediaDownloadFailed(e.to_string()))?;
-
-        Ok(path.to_string_lossy().to_string())
-    }
-
-    /// Extract the media key from a Feishu message content JSON value.
-    ///
-    /// For `image` messages the key field is `image_key`.
-    /// For `file` and `audio` messages the key field is `file_key`.
-    #[allow(dead_code)]
-    fn extract_media_key(content: &serde_json::Value, media_type: &str) -> Option<String> {
-        match media_type {
-            "image" => content
-                .get("image_key")
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            "file" | "audio" => content
-                .get("file_key")
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            _ => None,
-        }
     }
 
     /// Fetch a fresh tenant access token from Feishu API (no caching).
@@ -465,56 +390,10 @@ impl FeishuAdapter {
         }
     }
 
-    /// Process an image, file, or audio message: download the media and
-    /// build the content text and `media_refs` list.
-    ///
-    /// Returns `(content_text, media_refs)`. On download failure the media
-    /// ref is omitted but the message is still produced (graceful degradation).
-    async fn process_media_message(
-        &self,
-        content: &serde_json::Value,
-        message_id: &str,
-        message_type: &str,
-    ) -> (String, Vec<MediaRef>) {
-        let media_type = if message_type == "image" {
-            "image"
-        } else {
-            "file"
-        };
-        let media_ref = if let Some(key) = Self::extract_media_key(content, message_type) {
-            match self.download_media(message_id, &key, media_type).await {
-                Ok(local_path) => Some(MediaRef {
-                    key,
-                    url: local_path,
-                }),
-                Err(e) => {
-                    tracing::warn!(
-                        message_type = %message_type,
-                        error = %e,
-                        "Failed to download media, continuing with empty media_refs"
-                    );
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        let content_text = match message_type {
-            "file" => content
-                .get("file_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            _ => String::new(),
-        };
-        (content_text, media_ref.into_iter().collect())
-    }
-
     /// Parse a regular message event into a NormalizedMessage.
     ///
-    /// For `image`, `file`, and `audio` message types, downloads the media
-    /// resource and populates `media_refs`. On download failure the message
-    /// is still produced with an empty `media_refs` (graceful degradation).
+    /// For `image`, `file`, and `audio` message types, logs and discards
+    /// (media understanding is not yet designed).
     async fn parse_message_event(
         &self,
         event: FeishuEvent,
@@ -522,7 +401,7 @@ impl FeishuAdapter {
         let content: serde_json::Value = serde_json::from_str(&event.event.content)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
-        let message_id = event.event.message_id.as_deref().unwrap_or("");
+        let _message_id = event.event.message_id.as_deref().unwrap_or("");
         let thread_id = event
             .event
             .thread_id
@@ -541,8 +420,11 @@ impl FeishuAdapter {
             ),
             "post" => (expand_post_content(&content), vec![]),
             "image" | "file" | "audio" => {
-                self.process_media_message(&content, message_id, &event.event.message_type)
-                    .await
+                tracing::debug!(
+                    message_type = %event.event.message_type,
+                    "Discarding non-text message (media understanding not yet designed)"
+                );
+                return Ok(None);
             }
             other => {
                 tracing::debug!(message_type = other, "Discarding unsupported message type");

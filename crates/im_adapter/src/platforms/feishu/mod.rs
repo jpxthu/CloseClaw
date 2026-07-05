@@ -132,7 +132,6 @@ fn convert_to_common_error(e: AdapterError) -> CommonAdapterError {
         AdapterError::InvalidSignature => CommonAdapterError::InvalidSignature,
         AdapterError::IoError(e) => CommonAdapterError::IoError(e),
         AdapterError::UnsupportedOperation => CommonAdapterError::UnsupportedOperation,
-        AdapterError::MediaDownloadFailed(s) => CommonAdapterError::SendFailed(s),
     }
 }
 
