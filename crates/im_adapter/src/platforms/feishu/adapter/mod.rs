@@ -301,6 +301,112 @@ impl FeishuAdapter {
             .ok_or_else(|| AdapterError::SendFailed("No token in response".to_string()))
     }
 
+    /// Fetch the content of a message by its ID via Feishu API.
+    ///
+    /// Returns `Some(text)` for supported types (text, post), or `None` for
+    /// unsupported types or on failure (which logs a warning and degrades
+    /// gracefully).
+    pub async fn fetch_message_content(
+        &self,
+        message_id: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        #[derive(Deserialize)]
+        struct MsgBody {
+            content: Option<String>,
+        }
+
+        #[derive(Deserialize)]
+        struct MsgItem {
+            msg_type: Option<String>,
+            body: Option<MsgBody>,
+        }
+
+        #[derive(Deserialize)]
+        struct GetMessageResponse {
+            code: i32,
+            msg: String,
+            items: Option<Vec<MsgItem>>,
+        }
+
+        let token = self.get_tenant_token().await?;
+        let resp: GetMessageResponse = self
+            .http_client
+            .get(format!("{}/im/v1/messages/{}", self.base_url, message_id))
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
+            .json()
+            .await
+            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+
+        if resp.code != 0 {
+            tracing::warn!(
+                code = resp.code,
+                msg = %resp.msg,
+                message_id = %message_id,
+                "Failed to fetch quoted message"
+            );
+            return Ok(None);
+        }
+
+        let items = match resp.items {
+            Some(v) => v,
+            None => {
+                tracing::warn!(
+                    message_id = %message_id,
+                    "No items in message response"
+                );
+                return Ok(None);
+            }
+        };
+        let item = match items.into_iter().next() {
+            Some(i) => i,
+            None => return Ok(None),
+        };
+
+        let msg_type = item.msg_type.unwrap_or_default();
+        let raw_content = match item.body.and_then(|b| b.content) {
+            Some(c) => c,
+            None => {
+                tracing::warn!(
+                    message_id = %message_id,
+                    "Message body has no content"
+                );
+                return Ok(None);
+            }
+        };
+
+        match msg_type.as_str() {
+            "text" => {
+                let parsed: serde_json::Value =
+                    serde_json::from_str(&raw_content).unwrap_or(serde_json::Value::Null);
+                Ok(parsed
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .map(String::from))
+            }
+            "post" => {
+                let parsed: serde_json::Value =
+                    serde_json::from_str(&raw_content).unwrap_or(serde_json::Value::Null);
+                let text = expand_post_content(&parsed);
+                if text.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(text))
+                }
+            }
+            other => {
+                tracing::debug!(
+                    msg_type = other,
+                    message_id = %message_id,
+                    "Unsupported message type for quote"
+                );
+                Ok(None)
+            }
+        }
+    }
+
     /// Update an existing card message identified by `message_id`.
     pub async fn update_message(
         &self,
