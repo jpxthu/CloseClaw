@@ -5,9 +5,9 @@
 //! `None`, bypassing slash/LLM routing.
 //!
 //! Step 1.3 additions verify that the error reply now flows through
-//! `send_outbound_to_chat` (outbound processor chain → render → send)
-//! rather than a direct `plugin.send()` call, and that `account_id`
-//! propagates correctly through metadata.
+//! `send_outbound_simplified` (render → send, no processor chain,
+//! no middleware) rather than `send_outbound_to_chat`, and that
+//! `account_id` propagates correctly through metadata.
 
 use crate::{DmScope, GatewayConfig, HandleResult, Message, SessionManager};
 use async_trait::async_trait;
@@ -325,9 +325,9 @@ async fn test_image_message_intercepted() {
     assert_eq!(output.msg_type, "text");
     assert_eq!(peer_id, "agent-1");
     let text = output.payload["content"]["text"].as_str().unwrap();
-    assert!(
-        text.contains("非文本"),
-        "error message should mention non-text: got {text}"
+    assert_eq!(
+        text, "暂不支持该消息类型",
+        "error message must match design doc: got {text}"
     );
 }
 
@@ -412,7 +412,7 @@ async fn test_missing_message_type_defaults_to_text() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// Non-text rejection reply goes through `plugin.render()` before
-/// `plugin.send()`, confirming the `send_outbound_to_chat` path.
+/// `plugin.send()`, confirming the `send_outbound_simplified` path.
 #[tokio::test]
 async fn test_non_text_reply_goes_through_render() {
     let (gw, plugin) = make_gw("mock").await;
@@ -431,10 +431,10 @@ async fn test_non_text_reply_goes_through_render() {
     assert_eq!(plugin.send_count(), 1, "send should be called once");
 }
 
-/// Non-text rejection reply passes through the outbound processor chain
-/// (process_outbound is invoked), confirming the processor chain path.
+/// Non-text rejection reply does NOT pass through the outbound processor
+/// chain, confirming the simplified path bypasses Verbosity/DslParser.
 #[tokio::test]
-async fn test_non_text_reply_through_outbound_processor_chain() {
+async fn test_non_text_reply_skips_outbound_processor_chain() {
     let (gw, plugin, chain) = make_gw_with_processor("mock").await;
     let msg = make_message("agent-1", "");
     register_session(gw.session_manager(), "mock", &msg).await;
@@ -445,13 +445,64 @@ async fn test_non_text_reply_through_outbound_processor_chain() {
         .await;
 
     assert!(result.is_none(), "file message should return None");
-    // Outbound processor chain must have been invoked
-    assert!(
-        chain.outbound_call_count() > 0,
-        "outbound processor chain should be called for non-text rejection"
+    // Outbound processor chain must NOT have been invoked
+    assert_eq!(
+        chain.outbound_call_count(),
+        0,
+        "outbound processor chain should be bypassed for non-text rejection"
     );
-    // Plugin send must also have been called
+    // Plugin send must still have been called
     assert_eq!(plugin.send_count(), 1, "error reply should be sent");
+}
+
+/// Non-text rejection reply does not run outbound middleware, confirming
+/// the simplified path skips middleware execution.
+#[tokio::test]
+async fn test_non_text_reply_skips_middleware() {
+    let (gw, plugin) = make_gw("mock").await;
+    let msg = make_message("agent-1", "");
+    register_session(gw.session_manager(), "mock", &msg).await;
+
+    let processed = make_processed(&msg, "mock", "", Some(&MessageType::Audio));
+    let result: Option<HandleResult> = gw
+        .handle_inbound_message(processed, Some("ou_sender"), "mock")
+        .await;
+
+    assert!(result.is_none(), "audio message should return None");
+    // render is called (simplified path still renders)
+    assert_eq!(plugin.render_count(), 1, "render should be called once");
+    // send is called
+    assert_eq!(plugin.send_count(), 1, "send should be called once");
+    // Middleware is not invoked: render was called directly by
+    // send_outbound_simplified, which does not call get_outbound_middlewares.
+    // If middleware ran, render_count would be > 1 (middleware calls render
+    // on its own). This is verified indirectly — render_count == 1 means
+    // only the simplified path rendered.
+}
+
+/// Non-text rejection error text matches the design doc specification.
+#[tokio::test]
+async fn test_non_text_error_text_matches_doc() {
+    let (gw, plugin) = make_gw("mock").await;
+    let msg = make_message("agent-1", "");
+    register_session(gw.session_manager(), "mock", &msg).await;
+
+    let processed = make_processed(&msg, "mock", "", Some(&MessageType::Image));
+    let result: Option<HandleResult> = gw
+        .handle_inbound_message(processed, Some("ou_sender"), "mock")
+        .await;
+
+    assert!(result.is_none(), "image message should return None");
+    assert_eq!(plugin.send_count(), 1, "error reply should be sent");
+
+    let (output, peer_id, _thread_id) = plugin.last_send().unwrap();
+    assert_eq!(output.msg_type, "text");
+    assert_eq!(peer_id, "agent-1");
+    let text = output.payload["content"]["text"].as_str().unwrap();
+    assert_eq!(
+        text, "暂不支持该消息类型",
+        "error text must match design doc: {text}"
+    );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
