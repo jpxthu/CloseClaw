@@ -143,6 +143,7 @@ pub async fn execute_compact(
 mod tests {
     use super::*;
     use closeclaw_common::llm_types::InternalMessage;
+    use closeclaw_llm::UnifiedChatClient;
 
     fn make_request(content: &str) -> InternalRequest {
         InternalRequest {
