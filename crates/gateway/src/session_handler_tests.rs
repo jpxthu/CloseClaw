@@ -1,5 +1,5 @@
 use super::*;
-use crate::session_handler::FallbackLlmCaller;
+use crate::session_handler::ActiveSearcherLlmCaller;
 use closeclaw_common::LlmCaller;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::retry::CooldownManager;
@@ -17,7 +17,7 @@ fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
         Arc::new(CooldownManager::new()),
     ));
     let llm_caller: Arc<dyn LlmCaller> = Arc::new(llm_caller_impl::FallbackLlmCaller(ufc.clone()));
-    let fallback_llm_caller = Arc::new(FallbackLlmCaller {
+    let fallback_llm_caller = Arc::new(ActiveSearcherLlmCaller {
         client: ufc,
         model: String::new(),
     });

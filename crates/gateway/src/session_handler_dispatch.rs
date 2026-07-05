@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use super::session_handler::{
-    flatten_content_blocks, FallbackLlmCaller, MessageMetadata, SessionMessageHandler,
+    flatten_content_blocks, ActiveSearcherLlmCaller, MessageMetadata, SessionMessageHandler,
 };
 use super::Gateway;
 use crate::session_manager::SessionManager;
@@ -30,7 +30,7 @@ use closeclaw_session::persistence::PendingMessage;
 #[derive(Clone)]
 struct SearcherTriggerDeps {
     session_manager: Arc<SessionManager>,
-    fallback_llm_caller: Arc<FallbackLlmCaller>,
+    fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
     memory_db_path: Option<std::path::PathBuf>,
     /// Pre-loaded agent model (avoids redundant config load in closures).
     agent_model: Option<String>,
@@ -217,7 +217,7 @@ fn build_searcher_config(
 /// Execute the searcher pipeline and convert the result.
 async fn run_searcher_pipeline(
     input: closeclaw_session::active_searcher::SearcherInput,
-    caller: &FallbackLlmCaller,
+    caller: &ActiveSearcherLlmCaller,
 ) -> Option<(String, String, std::collections::HashSet<i64>)> {
     use crate::memory::active_searcher::ActiveSearcher;
     let llm_messages = convert_to_llm_messages(&input.context_messages);

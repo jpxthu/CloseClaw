@@ -65,14 +65,14 @@ pub struct SessionMessageHandler {
     pub(super) output_tx: OutputTx,
     pub(super) compaction_service: Arc<std::sync::Mutex<CompactionService>>,
     pub(super) llm_caller: Arc<dyn LlmCaller>,
-    /// Concrete [`FallbackLlmCaller`] for the active-searcher pipeline.
+    /// Concrete [`ActiveSearcherLlmCaller`] for the active-searcher pipeline.
     ///
     /// The active-searcher uses its own [`LlmCaller`][closeclaw_memory::active_searcher_llm::LlmCaller]
     /// trait (with `complete()`) rather than the main
     /// [`closeclaw_common::LlmCaller`] trait. This field provides the
     /// concrete wrapper needed by the searcher pipeline without
     /// exposing `UnifiedFallbackClient` as a direct dependency.
-    pub(super) fallback_llm_caller: Arc<FallbackLlmCaller>,
+    pub(super) fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
     /// Optional back-reference to the owning [`Gateway`] (weak).
     ///
     /// When set, `handle_message_with_gateway` can route streaming LLM
@@ -100,7 +100,7 @@ impl SessionMessageHandler {
         fallback_client: Arc<FallbackClient>,
         output_tx: mpsc::Sender<(String, Vec<ContentBlock>)>,
         llm_caller: Arc<dyn LlmCaller>,
-        fallback_llm_caller: Arc<FallbackLlmCaller>,
+        fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
     ) -> Self {
         Self {
             session_manager,
@@ -121,7 +121,7 @@ impl SessionMessageHandler {
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,
         llm_caller: Arc<dyn LlmCaller>,
-        fallback_llm_caller: Arc<FallbackLlmCaller>,
+        fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
     ) -> Self {
         Self {
             session_manager,
@@ -325,7 +325,7 @@ impl SessionMessageHandler {
 ///
 /// Wraps the unified fallback client so it can be used as a trait object
 /// by the active-searcher pipeline.
-pub struct FallbackLlmCaller {
+pub struct ActiveSearcherLlmCaller {
     #[allow(dead_code)]
     pub client: Arc<closeclaw_llm::unified_fallback::UnifiedFallbackClient>,
     #[allow(dead_code)]
@@ -333,7 +333,7 @@ pub struct FallbackLlmCaller {
 }
 
 #[async_trait::async_trait]
-impl crate::memory::active_searcher_llm::LlmCaller for FallbackLlmCaller {
+impl crate::memory::active_searcher_llm::LlmCaller for ActiveSearcherLlmCaller {
     async fn complete(
         &self,
         prompt: &str,

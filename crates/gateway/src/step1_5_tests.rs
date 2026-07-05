@@ -396,7 +396,7 @@ async fn test_gateway_delegates_llm_to_session_layer() {
     ));
     let llm_caller: std::sync::Arc<dyn closeclaw_common::LlmCaller> =
         Arc::new(crate::llm_caller_impl::FallbackLlmCaller(ufc.clone()));
-    let fallback_llm_caller = Arc::new(crate::session_handler::FallbackLlmCaller {
+    let fallback_llm_caller = Arc::new(crate::session_handler::ActiveSearcherLlmCaller {
         client: ufc,
         model: String::new(),
     });

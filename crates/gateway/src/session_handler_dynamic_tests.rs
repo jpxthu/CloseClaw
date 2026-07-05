@@ -1,6 +1,6 @@
 use super::session_handler::MessageMetadata;
 use super::*;
-use crate::session_handler::FallbackLlmCaller;
+use crate::session_handler::ActiveSearcherLlmCaller;
 use closeclaw_common::system_prompt::inject::{
     build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
 };
@@ -21,7 +21,7 @@ fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
         Arc::new(CooldownManager::new()),
     ));
     let llm_caller: Arc<dyn LlmCaller> = Arc::new(llm_caller_impl::FallbackLlmCaller(ufc.clone()));
-    let fallback_llm_caller = Arc::new(FallbackLlmCaller {
+    let fallback_llm_caller = Arc::new(ActiveSearcherLlmCaller {
         client: ufc,
         model: String::new(),
     });

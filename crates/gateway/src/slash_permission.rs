@@ -715,7 +715,7 @@ mod tests {
         assert_eq!(
             counter.load(Ordering::SeqCst),
             1,
-            "handler must be invoked even when permission is denied"
+            "handler must be invoked even when permission is denied; result.execute() is skipped"
         );
         // result.execute() is skipped — the early return after the
         // permission check prevents side effects from running. This is
