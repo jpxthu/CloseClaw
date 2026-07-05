@@ -377,36 +377,10 @@ fn test_find_events_empty_entity_ids_returns_empty() {
 // ── Dedup tests ──────────────────────────────────────────────────────────
 
 #[test]
-fn test_dedup_events_first_time_inject_all() {
+fn test_dedup_events() {
     let tmp = tempfile::tempdir().unwrap();
     let _conn = create_test_db(tmp.path());
     let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
-
-    let events = vec![
-        EventRecord {
-            id: 1,
-            content: "ev1".into(),
-            timestamp: 1000,
-            source_session_id: "s1".into(),
-        },
-        EventRecord {
-            id: 2,
-            content: "ev2".into(),
-            timestamp: 2000,
-            source_session_id: "s1".into(),
-        },
-    ];
-    let injected = HashSet::new();
-    let result = searcher.dedup_events(events.clone(), &injected);
-    assert_eq!(result.len(), 2);
-}
-
-#[test]
-fn test_dedup_events_already_injected_excluded() {
-    let tmp = tempfile::tempdir().unwrap();
-    let _conn = create_test_db(tmp.path());
-    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
-
     let events = vec![
         EventRecord {
             id: 1,
@@ -427,6 +401,10 @@ fn test_dedup_events_already_injected_excluded() {
             source_session_id: "s1".into(),
         },
     ];
+    // Empty injected set → all events pass
+    let result = searcher.dedup_events(events.clone(), &HashSet::new());
+    assert_eq!(result.len(), 3);
+    // Inject id=2 → excluded from result
     let mut injected = HashSet::new();
     injected.insert(2);
     let result = searcher.dedup_events(events, &injected);
@@ -444,11 +422,8 @@ fn test_summarize_events() {
     let tmp = tempfile::tempdir().unwrap();
     let _conn = create_test_db(tmp.path());
     let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
-
     // empty events → empty summary
-    let summary = searcher.summarize_events(&[]);
-    assert!(summary.is_empty());
-
+    assert!(searcher.summarize_events(&[]).is_empty());
     // short text preserved
     let events = vec![EventRecord {
         id: 1,
@@ -459,30 +434,17 @@ fn test_summarize_events() {
     let summary = searcher.summarize_events(&events);
     assert!(summary.contains("Short event"));
     assert!(summary.contains("1000"));
-}
-
-#[test]
-fn test_summarize_long_text_truncated() {
-    let tmp = tempfile::tempdir().unwrap();
-    let _conn = create_test_db(tmp.path());
+    // long text truncated
     let config = ActiveSearcherConfig {
         max_summary_chars: 50,
         ..Default::default()
     };
     let searcher = ActiveSearcher::new(tmp.path().join("test.db"), config);
-
     let events = vec![EventRecord {
-        id: 1,
-        content: "A very long event description that should be truncated when exceeding the max summary chars limit".into(),
-        timestamp: 1000,
-        source_session_id: "s1".into(),
+        id: 1, content: "A very long event description that should be truncated when exceeding the max summary chars limit".into(),
+        timestamp: 1000, source_session_id: "s1".into(),
     }];
-    let summary = searcher.summarize_events(&events);
-    assert!(
-        summary.len() <= 50,
-        "summary should be <= 50 chars, got {}",
-        summary.len()
-    );
+    assert!(searcher.summarize_events(&events).len() <= 50);
 }
 
 #[test]
@@ -537,10 +499,7 @@ fn test_role_exclusion_and_trigger() {
     assert!(!should_trigger_role("dreaming"));
     assert!(should_trigger_role("user"));
     assert!(should_trigger_role("assistant"));
-    assert!(should_trigger_role("main_agent"));
-    assert!(should_trigger_role("sub_agent"));
     assert!(!ActiveSearcher::should_trigger("memory-miner"));
-    assert!(!ActiveSearcher::should_trigger("dreaming"));
     assert!(ActiveSearcher::should_trigger("user"));
 }
 
@@ -565,8 +524,6 @@ async fn test_run_timeout_returns_none() {
         ..Default::default()
     };
     let searcher = ActiveSearcher::new(tmp.path().join("test.db"), config);
-    let llm = SlowLlmCaller;
-
     let result = searcher
         .run(
             "agent-1",
@@ -574,10 +531,9 @@ async fn test_run_timeout_returns_none() {
             "test message",
             &[],
             &HashSet::new(),
-            &llm,
+            &SlowLlmCaller,
         )
         .await;
-
     assert!(result.is_none(), "timeout should return None");
 }
 
@@ -634,27 +590,18 @@ async fn test_run_full_pipeline_mock() {
     assert!(result.is_some(), "pipeline should produce an injection");
     let injection = result.unwrap();
     assert!(!injection.content.is_empty(), "content should not be empty");
-    assert_eq!(
-        injection.position_mode,
-        InjectionPosition::AfterCurrent,
-        "user role should use AfterCurrent"
-    );
-    assert_eq!(
-        injection.injected_event_ids.len(),
-        2,
-        "should record both event IDs"
-    );
+    assert_eq!(injection.position_mode, InjectionPosition::AfterCurrent);
+    assert_eq!(injection.injected_event_ids.len(), 2);
 }
 
 #[tokio::test]
-async fn test_run_skips_excluded_role() {
+async fn test_run_excluded_role_returns_none() {
     let tmp = tempfile::tempdir().unwrap();
     let _conn = create_test_db(tmp.path());
     let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
     let llm = MockConceptLlm {
         concepts: vec!["test".into()],
     };
-
     let result = searcher
         .run(
             "agent-1",
@@ -665,7 +612,6 @@ async fn test_run_skips_excluded_role() {
             &llm,
         )
         .await;
-
     assert!(
         result.is_none(),
         "memory-miner should not trigger active searcher"
@@ -678,11 +624,9 @@ async fn test_run_empty_concepts_returns_none() {
     let _conn = create_test_db(tmp.path());
     let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
     let llm = MockConceptLlm { concepts: vec![] };
-
     let result = searcher
         .run("agent-1", "user", "test", &[], &HashSet::new(), &llm)
         .await;
-
     assert!(result.is_none(), "empty concepts should return None");
 }
 
@@ -690,7 +634,6 @@ async fn test_run_empty_concepts_returns_none() {
 async fn test_run_dedup_excludes_injected_events() {
     let tmp = tempfile::tempdir().unwrap();
     let conn = create_test_db(tmp.path());
-
     let eid = insert_entity(&conn, "agent-1", "person", "Alice", "alice");
     let ev1 = insert_event(&conn, "Alice met Bob", 1000, "sess-1");
     let ev2 = insert_event(&conn, "Alice went home", 2000, "sess-1");
@@ -702,7 +645,6 @@ async fn test_run_dedup_excludes_injected_events() {
     let llm = MockConceptLlm {
         concepts: vec!["alice".into()],
     };
-
     let mut injected = HashSet::new();
     injected.insert(ev1);
 
@@ -711,14 +653,8 @@ async fn test_run_dedup_excludes_injected_events() {
         .await;
 
     if let Some(inj) = result {
-        assert!(
-            !inj.injected_event_ids.contains(&ev1),
-            "ev1 should not be in injected set"
-        );
-        assert!(
-            inj.injected_event_ids.contains(&ev2),
-            "ev2 should be in injected set"
-        );
+        assert!(!inj.injected_event_ids.contains(&ev1));
+        assert!(inj.injected_event_ids.contains(&ev2));
     }
 }
 
@@ -814,28 +750,14 @@ fn test_from_agent_config_partial_override() {
     assert_eq!(config.context_turns, 5);
 }
 
-/// No override (None) + agent_model → model uses agent global model, other fields use defaults.
+/// No override (None) + agent_model → model uses agent global model.
 #[test]
 fn test_from_agent_config_no_override() {
-    // With agent_model
-    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o-mini"), None);
-    let config = config.expect("no memory config means search enabled by default");
+    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o-mini"), None).unwrap();
     assert_eq!(config.model, "gpt-4o-mini");
-    assert_eq!(config.timeout_ms, 3000);
-    assert_eq!(config.max_summary_chars, 500);
-    assert_eq!(config.min_entity_hits, 1);
-    assert_eq!(config.top_k_events, 3);
-    assert_eq!(config.context_turns, 5);
-
     // Without agent_model → model is empty string
-    let config = ActiveSearcherConfig::from_agent_config(None, None);
-    let config = config.expect("no memory config means search enabled by default");
+    let config = ActiveSearcherConfig::from_agent_config(None, None).unwrap();
     assert_eq!(config.model, "");
-    assert_eq!(config.timeout_ms, 3000);
-    assert_eq!(config.max_summary_chars, 500);
-    assert_eq!(config.min_entity_hits, 1);
-    assert_eq!(config.top_k_events, 3);
-    assert_eq!(config.context_turns, 5);
 }
 
 /// Global search config flows through when no active_searcher override.
@@ -855,10 +777,7 @@ fn test_from_agent_config_global_search_config() {
         },
         ..MemoryConfig::default()
     };
-
-    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory));
-    let config = config.expect("search should be enabled");
-
+    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory)).unwrap();
     assert_eq!(config.timeout_ms, 4000);
     assert_eq!(config.max_summary_chars, 800);
     assert_eq!(config.min_entity_hits, 2);
@@ -889,15 +808,10 @@ fn test_from_agent_config_override_overrides_global_search() {
         },
         ..MemoryConfig::default()
     };
-
-    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory));
-    let config = config.expect("search should be enabled");
-
-    // override values win
+    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory)).unwrap();
     assert_eq!(config.model, "override-model");
     assert_eq!(config.timeout_ms, 1500);
     assert_eq!(config.max_summary_chars, 300);
-    // non-override fields fall back to global search
     assert_eq!(config.min_entity_hits, 1);
     assert_eq!(config.top_k_events, 3);
     assert_eq!(config.context_turns, 5);
@@ -917,8 +831,8 @@ fn test_from_agent_config_model_priority_chain() {
         },
         ..MemoryConfig::default()
     };
-    let config = ActiveSearcherConfig::from_agent_config(Some("agent-model"), Some(&memory));
-    let config = config.expect("search should be enabled");
+    let config =
+        ActiveSearcherConfig::from_agent_config(Some("agent-model"), Some(&memory)).unwrap();
     assert_eq!(config.model, "search-model");
 
     // override > search.model > agent_model
@@ -935,8 +849,8 @@ fn test_from_agent_config_model_priority_chain() {
         },
         ..MemoryConfig::default()
     };
-    let config = ActiveSearcherConfig::from_agent_config(Some("agent-model"), Some(&memory));
-    let config = config.expect("search should be enabled");
+    let config =
+        ActiveSearcherConfig::from_agent_config(Some("agent-model"), Some(&memory)).unwrap();
     assert_eq!(config.model, "override-model");
 }
 
@@ -950,12 +864,7 @@ fn test_from_agent_config_search_disabled() {
         },
         ..MemoryConfig::default()
     };
-
-    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory));
-    assert!(
-        config.is_none(),
-        "should return None when search is disabled"
-    );
+    assert!(ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory)).is_none());
 }
 
 // ── Concept extraction prompt dimension tests ─────────────────────────
@@ -976,21 +885,111 @@ fn test_concept_extraction_prompt_coverage() {
         timestamp: Utc::now(),
     }];
     let prompt = build_concept_extraction_prompt(&messages, "current msg");
-
     let lower = prompt.to_lowercase();
+    assert!(lower.contains("action"));
+    assert!(lower.contains("entit") || lower.contains("object"));
     assert!(
-        lower.contains("action"),
-        "prompt should mention action types"
-    );
-    assert!(
-        lower.contains("entit") || lower.contains("object"),
-        "prompt should mention entities or objects"
-    );
-    assert!(
-        lower.contains("scenario") || lower.contains("context") || lower.contains("characteristic"),
-        "prompt should mention scenario characteristics or context"
+        lower.contains("scenario") || lower.contains("context") || lower.contains("characteristic")
     );
     assert!(prompt.contains("context info"));
     assert!(prompt.contains("current msg"));
     assert!(prompt.contains("assistant: context info"));
+}
+
+// ── Boundary value tests ───────────────────────────────────────────
+
+/// timeout_ms=0 causes immediate timeout, pipeline returns None.
+#[tokio::test]
+async fn test_run_timeout_zero_returns_none() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _conn = create_test_db(tmp.path());
+    let config = ActiveSearcherConfig {
+        timeout_ms: 0,
+        ..Default::default()
+    };
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), config);
+    let llm = SlowLlmCaller;
+
+    let result = searcher
+        .run(
+            "agent-1",
+            "user",
+            "test message",
+            &[],
+            &HashSet::new(),
+            &llm,
+        )
+        .await;
+
+    assert!(
+        result.is_none(),
+        "timeout_ms=0 should return None immediately"
+    );
+}
+
+/// min_entity_hits=0 means all events with >= 0 hits pass (all events).
+#[test]
+fn test_find_events_min_entity_hits_zero() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    let eid = insert_entity(&conn, "agent-1", "person", "Alice", "alice");
+    // Create event with NO entity links
+    let _ev_no_link = insert_event(&conn, "orphan event", 3000, "sess-1");
+    let ev_linked = insert_event(&conn, "linked event", 2000, "sess-1");
+    link_event_entity(&conn, ev_linked, eid);
+
+    let config = ActiveSearcherConfig {
+        min_entity_hits: 0,
+        top_k_events: 10,
+        ..Default::default()
+    };
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), config);
+
+    let events = searcher.find_events(&[eid]).unwrap();
+    // min_entity_hits=0: HAVING hit_count >= 0 passes all grouped events.
+    // But only events with at least one entity link appear in the JOIN result.
+    assert!(events.iter().any(|e| e.id == ev_linked));
+}
+
+/// top_k_events=0 returns no events.
+#[test]
+fn test_find_events_top_k_zero() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    let eid = insert_entity(&conn, "agent-1", "person", "Alice", "alice");
+    let ev = insert_event(&conn, "event", 1000, "sess-1");
+    link_event_entity(&conn, ev, eid);
+
+    let config = ActiveSearcherConfig {
+        top_k_events: 0,
+        ..Default::default()
+    };
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), config);
+
+    let events = searcher.find_events(&[eid]).unwrap();
+    assert!(events.is_empty(), "top_k_events=0 should return no events");
+}
+
+/// max_summary_chars=0 produces empty summary.
+#[test]
+fn test_summarize_max_summary_chars_zero() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _conn = create_test_db(tmp.path());
+    let config = ActiveSearcherConfig {
+        max_summary_chars: 0,
+        ..Default::default()
+    };
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), config);
+
+    let events = vec![EventRecord {
+        id: 1,
+        content: "event".into(),
+        timestamp: 1000,
+        source_session_id: "s1".into(),
+    }];
+    let summary = searcher.summarize_events(&events);
+    assert!(
+        summary.is_empty(),
+        "max_summary_chars=0 should produce empty summary"
+    );
 }

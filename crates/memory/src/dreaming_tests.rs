@@ -387,3 +387,112 @@ fn test_dream_diary_empty_entries_no_write() {
         "no files should be created for empty entries"
     );
 }
+
+// ── Custom scoring/threshold/capacity config tests ─────────────────
+
+use closeclaw_config::agents::{
+    DreamingCapacityConfig, DreamingScoringConfig, DreamingThresholdConfig,
+};
+
+/// Custom scoring config is accepted by with_config constructor.
+#[test]
+fn test_dreaming_pipeline_custom_scoring_config() {
+    let config = DreamingConfig {
+        enabled: true,
+        scoring: DreamingScoringConfig {
+            frequency_weight: 2.0,
+            recency_weight: 1.0,
+            explicitness_weight: 3.0,
+            cross_agent_weight: 2.0,
+            negative_signal_weight: -1.0,
+        },
+        threshold: DreamingThresholdConfig {
+            absolute: 0.0,
+            relative: 0.0,
+        },
+        capacity: DreamingCapacityConfig { max_rules: 100 },
+        ..Default::default()
+    };
+    // Verify with_config doesn't panic and pipeline is constructible.
+    let _pipeline = DreamingPipeline::with_config(config);
+}
+
+/// High absolute threshold config is accepted.
+#[test]
+fn test_dreaming_pipeline_high_threshold_config() {
+    let config = DreamingConfig {
+        enabled: true,
+        scoring: DreamingScoringConfig {
+            frequency_weight: 0.0,
+            recency_weight: 0.0,
+            explicitness_weight: 0.0,
+            cross_agent_weight: 0.0,
+            negative_signal_weight: 0.0,
+        },
+        threshold: DreamingThresholdConfig {
+            absolute: 5.0,
+            relative: 0.0,
+        },
+        capacity: DreamingCapacityConfig { max_rules: 100 },
+        ..Default::default()
+    };
+    let _pipeline = DreamingPipeline::with_config(config);
+}
+
+/// Capacity config with small max_rules is accepted.
+#[test]
+fn test_dreaming_pipeline_capacity_config_stored() {
+    let config = DreamingConfig {
+        enabled: true,
+        scoring: DreamingScoringConfig::default(),
+        threshold: DreamingThresholdConfig {
+            absolute: 0.0,
+            relative: 0.0,
+        },
+        capacity: DreamingCapacityConfig { max_rules: 5 },
+        ..Default::default()
+    };
+    let _pipeline = DreamingPipeline::with_config(config);
+}
+
+/// Boundary: max_rules=0 config is accepted without panic.
+#[test]
+fn test_dreaming_pipeline_max_rules_zero_config() {
+    let config = DreamingConfig {
+        enabled: true,
+        threshold: DreamingThresholdConfig {
+            absolute: 0.0,
+            relative: 0.0,
+        },
+        capacity: DreamingCapacityConfig { max_rules: 0 },
+        ..Default::default()
+    };
+    let _pipeline = DreamingPipeline::with_config(config);
+}
+
+/// Custom relative threshold config is accepted.
+#[test]
+fn test_dreaming_pipeline_relative_threshold_config() {
+    let config = DreamingConfig {
+        enabled: true,
+        scoring: DreamingScoringConfig::default(),
+        threshold: DreamingThresholdConfig {
+            absolute: 0.0,
+            relative: 0.5,
+        },
+        capacity: DreamingCapacityConfig { max_rules: 100 },
+        ..Default::default()
+    };
+    let _pipeline = DreamingPipeline::with_config(config);
+}
+
+/// Default DreamingPipeline construction succeeds.
+#[test]
+fn test_dreaming_pipeline_default_config() {
+    let pipeline = DreamingPipeline::default();
+    // Verify default construction doesn't panic.
+    let entries = vec![make_entry(EntryCategory::Decision, "test", "s1", 10)];
+    // run_once needs storage; just verify pipeline is constructible.
+    let _ = pipeline;
+    assert!(!entries.is_empty());
+}
