@@ -355,3 +355,154 @@ async fn test_consumer_drops_empty_text_from_plugin() {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     // No panic = empty text filtered in consumer path too.
 }
+
+// ---------------------------------------------------------------------------
+// Step 1.3 — Additional empty-text consumer path tests
+// ---------------------------------------------------------------------------
+
+/// A mock plugin that returns empty string text content.
+struct EmptyStringTextPlugin;
+
+#[async_trait]
+impl IMPlugin for EmptyStringTextPlugin {
+    fn platform(&self) -> &str {
+        "feishu"
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(Some(NormalizedMessage {
+            platform: "feishu".into(),
+            sender_id: "u1".into(),
+            peer_id: "p1".into(),
+            content: String::new(), // empty string
+            timestamp: 0,
+            message_type: MessageType::Text,
+            media_refs: vec![],
+            thread_id: None,
+            account_id: "u1".into(),
+        }))
+    }
+
+    fn render(
+        &self,
+        _content_blocks: &[ContentBlock],
+        _dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::json!({}),
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        Ok(())
+    }
+}
+
+/// A mock plugin that returns non-empty text (normal message).
+struct NormalTextPlugin;
+
+#[async_trait]
+impl IMPlugin for NormalTextPlugin {
+    fn platform(&self) -> &str {
+        "feishu"
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(Some(NormalizedMessage {
+            platform: "feishu".into(),
+            sender_id: "u1".into(),
+            peer_id: "p1".into(),
+            content: "hello world".into(),
+            timestamp: 0,
+            message_type: MessageType::Text,
+            media_refs: vec![],
+            thread_id: None,
+            account_id: "u1".into(),
+        }))
+    }
+
+    fn render(
+        &self,
+        _content_blocks: &[ContentBlock],
+        _dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::json!({}),
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn test_consumer_drops_empty_string_text() {
+    // Consumer path should drop text message with empty string content.
+    let gw = make_gateway();
+    gw.register_plugin(Arc::new(EmptyStringTextPlugin)).await;
+    let handle = gw.start_inbound_queue();
+    handle.try_send(make_request("empty-str")).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    // No panic = empty string text filtered in consumer path.
+}
+
+#[tokio::test]
+async fn test_consumer_passes_non_text_empty_content() {
+    // Consumer path should NOT filter non-text messages with
+    // empty content (e.g. image with no alt text).
+    let gw = make_gateway();
+    gw.register_plugin(Arc::new(NonTextEmptyContentPlugin))
+        .await;
+    let handle = gw.start_inbound_queue();
+    handle.try_send(make_request("img-via-queue")).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    // No panic = image message passed through consumer path.
+}
+
+#[tokio::test]
+async fn test_consumer_passes_normal_text() {
+    // Consumer path should pass non-empty text messages.
+    let gw = make_gateway();
+    gw.register_plugin(Arc::new(NormalTextPlugin)).await;
+    let handle = gw.start_inbound_queue();
+    handle.try_send(make_request("normal")).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    // No panic = normal text message passed through consumer path.
+}
+
+#[tokio::test]
+async fn test_fallback_drops_empty_string_text() {
+    // Fallback path should also drop text with empty string.
+    let gw = make_gateway();
+    gw.register_plugin(Arc::new(EmptyStringTextPlugin)).await;
+    gw.enqueue_inbound(make_request("empty-str-fb")).await;
+    // No panic = empty string text filtered in fallback path.
+}
+
+#[tokio::test]
+async fn test_fallback_passes_normal_text() {
+    // Fallback path should pass non-empty text messages.
+    let gw = make_gateway();
+    gw.register_plugin(Arc::new(NormalTextPlugin)).await;
+    gw.enqueue_inbound(make_request("normal-fb")).await;
+    // No panic = normal text passed through fallback path.
+}

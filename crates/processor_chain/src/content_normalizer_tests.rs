@@ -149,43 +149,48 @@ fn make_normalized_with_type(content: &str, message_type: MessageType) -> Normal
 #[tokio::test]
 async fn test_process_image_skips_normalization() {
     let processor = ContentNormalizer::new();
-    let msg = make_normalized_with_type("raw content  ", MessageType::Image);
-    let ctx = MessageContext::from_normalized(msg);
+    let meta = sample_metadata();
+    let ctx = make_ctx_with_metadata_and_type("raw content  ", meta, MessageType::Image);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     // Content returned as-is, no trimming applied
     assert_eq!(result.text_content(), Some("raw content  "));
-    assert!(result.metadata.is_empty());
+    // Metadata preserved from input context
+    assert!(result.metadata.contains_key("session_key"));
 }
 
 #[tokio::test]
 async fn test_process_file_skips_normalization() {
     let processor = ContentNormalizer::new();
-    let msg = make_normalized_with_type("file placeholder", MessageType::File);
-    let ctx = MessageContext::from_normalized(msg);
+    let meta = sample_metadata();
+    let ctx = make_ctx_with_metadata_and_type("file placeholder", meta, MessageType::File);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     assert_eq!(result.text_content(), Some("file placeholder"));
-    assert!(result.metadata.is_empty());
+    // Metadata preserved from input context
+    assert!(result.metadata.contains_key("session_key"));
 }
 
 #[tokio::test]
 async fn test_process_audio_skips_normalization() {
     let processor = ContentNormalizer::new();
-    let msg = make_normalized_with_type("audio note", MessageType::Audio);
-    let ctx = MessageContext::from_normalized(msg);
+    let meta = sample_metadata();
+    let ctx = make_ctx_with_metadata_and_type("audio note", meta, MessageType::Audio);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     assert_eq!(result.text_content(), Some("audio note"));
-    assert!(result.metadata.is_empty());
+    // Metadata preserved from input context
+    assert!(result.metadata.contains_key("session_key"));
 }
 
 #[tokio::test]
 async fn test_process_other_skips_normalization() {
     let processor = ContentNormalizer::new();
-    let msg = make_normalized_with_type("sticker   ", MessageType::Other("sticker".into()));
-    let ctx = MessageContext::from_normalized(msg);
+    let meta = sample_metadata();
+    let ctx =
+        make_ctx_with_metadata_and_type("sticker   ", meta, MessageType::Other("sticker".into()));
     let result = processor.process(&ctx).await.unwrap().unwrap();
     // Non-text types return content as-is, trailing spaces preserved
     assert_eq!(result.text_content(), Some("sticker   "));
-    assert!(result.metadata.is_empty());
+    // Metadata preserved from input context
+    assert!(result.metadata.contains_key("session_key"));
 }
 
 #[tokio::test]

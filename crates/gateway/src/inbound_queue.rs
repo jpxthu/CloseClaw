@@ -109,6 +109,19 @@ pub(crate) fn start_inbound_consumer(
             // ── 2. Try parsing as NormalizedMessage ───────────────────
             match plugin.parse_inbound(&req.raw_payload).await {
                 Ok(Some(normalized)) => {
+                    // Defensive: drop empty text messages that slipped through
+                    // parse_inbound. Per design doc: "text type empty content
+                    // messages are discarded at parse stage, no NormalizedMessage
+                    // produced".
+                    if normalized.message_type == MessageType::Text
+                        && normalized.content.trim().is_empty()
+                    {
+                        tracing::debug!(
+                            peer_id = %req.peer_id,
+                            "consumer: dropping empty text message"
+                        );
+                        continue;
+                    }
                     // ── 2a. Process through inbound chain ───────────────
                     let sender_id = normalized.sender_id.clone();
                     let input = super::InboundChainInput {
