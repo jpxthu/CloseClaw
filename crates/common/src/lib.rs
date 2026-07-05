@@ -1,4 +1,5 @@
 pub mod bootstrap;
+pub mod code_block;
 pub mod compaction;
 pub mod fragment;
 pub mod identity;
