@@ -12,7 +12,6 @@
 use super::Gateway;
 use crate::llm_caller_impl::execute_compact;
 use crate::session_manager::SessionManager;
-use crate::session_prompt_helper::rebuild_system_prompt_for_session;
 use crate::shutdown_handle::ShutdownHandle;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::session::ChatSession;
@@ -424,7 +423,7 @@ async fn apply_compact_result(
     // Rebuild system prompt after compaction so skills stay fresh.
     // The write guard above is now dropped, so we can safely acquire
     // a write lock for the rebuild.
-    rebuild_system_prompt_for_session(sm.as_ref(), session_id).await;
+    sm.rebuild_system_prompt_for_session(session_id).await;
 }
 
 async fn send_output(output_tx: &OutputTx, text: &str) {
