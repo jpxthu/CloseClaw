@@ -25,6 +25,8 @@ pub mod slash_executor;
 mod slash_executor_tests;
 pub mod slash_permission;
 #[cfg(test)]
+mod slash_permission_tests;
+#[cfg(test)]
 mod streaming_pipeline_tests;
 pub mod sweeper;
 #[cfg(test)]
@@ -71,7 +73,6 @@ pub struct Gateway {
     /// Bounded inbound queue sender. `None` until the queue is started.
     inbound_tx: std::sync::Mutex<Option<mpsc::Sender<InboundRequest>>>,
     /// Self-reference for back-pointer to the owning `Arc<Gateway>`.
-    ///
     /// `handle_inbound_message` is called with `&self`, but
     /// `SessionMessageHandler` needs an `Arc<Gateway>` to call
     /// `send_outbound_streaming`. The caller wires this after wrapping
@@ -138,7 +139,6 @@ impl Gateway {
     }
 
     /// Configure a SessionMessageHandler for busy/pending LLM session management.
-    ///
     /// When a handler is installed, inbound messages are routed through the
     /// busy/pending state machine. When `None` (default), Gateway behaves as before.
     pub fn with_session_handler(mut self, handler: Arc<SessionMessageHandler>) -> Self {

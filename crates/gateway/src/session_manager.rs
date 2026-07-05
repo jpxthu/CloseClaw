@@ -92,6 +92,10 @@ pub struct SessionManager {
     /// Populated by `try_restore_archived_session_inner` when a session is restored,
     /// consumed by `take_restore_notification` after Gateway sends it through the outbound chain.
     pending_restore_notifications: RwLock<HashMap<String, String>>,
+    /// Optional callback to invalidate the static-layer section cache.
+    /// Injected by the daemon (composition root) so gateway avoids
+    /// depending on `closeclaw-system-prompt` directly.
+    cache_invalidator: RwLock<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -134,6 +138,7 @@ impl SessionManager {
             config_snapshot: RwLock::new(None),
             shutdown_handle: RwLock::new(None),
             pending_restore_notifications: RwLock::new(HashMap::new()),
+            cache_invalidator: RwLock::new(None),
         }
     }
 
@@ -216,6 +221,27 @@ impl SessionManager {
     /// Get a clone of the shutdown handle, if set.
     pub(crate) async fn get_shutdown_handle(&self) -> Option<Arc<ShutdownHandle>> {
         self.shutdown_handle.read().await.clone()
+    }
+
+    /// Register a callback to invalidate the static-layer section cache.
+    ///
+    /// The daemon (composition root) injects this so that gateway code
+    /// can trigger cache invalidation without depending on
+    /// `closeclaw-system-prompt` directly.
+    pub async fn set_cache_invalidator(&self, invalidator: Arc<dyn Fn() + Send + Sync>) {
+        *self.cache_invalidator.write().await = Some(invalidator);
+    }
+
+    /// Invoke the registered cache-invalidation callback (if any).
+    ///
+    /// Called by `/system clear` to invalidate static-layer sections so
+    /// the next prompt build regenerates from current state. No-op when
+    /// no callback has been registered.
+    pub async fn invalidate_static_cache(&self) {
+        let guard = self.cache_invalidator.read().await;
+        if let Some(cb) = guard.as_ref() {
+            cb();
+        }
     }
 
     /// Set the tool registry for building system prompt ToolsSection.

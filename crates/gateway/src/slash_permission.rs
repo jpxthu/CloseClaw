@@ -377,6 +377,9 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             }
             SystemAppendAction::Clear => {
                 cs.clear_system_appends();
+                // Invalidate static layer cache on clear, so the next
+                // prompt build regenerates from current state.
+                self.session_manager.invalidate_static_cache().await;
             }
         }
     }

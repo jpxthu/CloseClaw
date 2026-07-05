@@ -45,6 +45,7 @@ use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::storage::SqliteStorage;
 use closeclaw_skills::builtin::builtin_skills_with_engine_and_approval_flow;
 use closeclaw_skills::{DiskSkillRegistry, SkillWatcherHandle};
+use closeclaw_system_prompt::invalidate_all_sections;
 use closeclaw_tools::ToolRegistry;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -383,6 +384,14 @@ impl Daemon {
                 skill_registry.clone(),
             ))
                 as Arc<dyn closeclaw_common::SkillRegistryQuery>)
+            .await;
+        // Inject static-layer cache invalidation callback so /system clear
+        // can invalidate section caches without gateway depending on
+        // closeclaw-system-prompt directly.
+        session_manager
+            .set_cache_invalidator(Arc::new(|| {
+                invalidate_all_sections();
+            }))
             .await;
         Ok((sweeper_tx, dreaming_tx, config_watcher))
     }
