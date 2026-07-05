@@ -23,6 +23,7 @@ use closeclaw_common::llm_error::LLMError;
 use closeclaw_common::llm_types::InternalRequest;
 use closeclaw_common::processor::{StreamEvent, UnifiedResponse};
 use closeclaw_llm::client::UnifiedChatClient;
+use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::protocol::ProtocolError;
 use closeclaw_llm::session::{InjectionPosition, MemoryInjection};
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
@@ -122,6 +123,86 @@ impl LlmCaller for ChatLlmCaller {
         });
         Ok(Box::pin(mapped))
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// execute_compact
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Execute a compaction: call the LLM to summarize the conversation,
+/// return the compaction result with the boundary message.
+pub async fn execute_compact(
+    messages: &[closeclaw_llm::Message],
+    client: &FallbackClient,
+    model: &str,
+    instruction: Option<&str>,
+    is_auto: bool,
+) -> Result<
+    closeclaw_session::compaction::CompactionResult,
+    closeclaw_session::compaction::CompactionError,
+> {
+    use closeclaw_llm::{ChatRequest, Message as LlmMessage};
+    use closeclaw_session::compaction::*;
+
+    if messages.is_empty() {
+        return Err(CompactionError::EmptyMessages);
+    }
+
+    let prompt = build_compact_prompt(instruction);
+    let mut llm_messages = vec![LlmMessage {
+        role: "system".to_string(),
+        content: prompt,
+    }];
+    for m in messages {
+        llm_messages.push(LlmMessage {
+            role: m.role.clone(),
+            content: m.content.clone(),
+        });
+    }
+
+    let request = ChatRequest {
+        model: model.to_string(),
+        messages: llm_messages,
+        temperature: 0.0,
+        max_tokens: Some(4096),
+    };
+
+    let response = client
+        .chat(request)
+        .await
+        .map_err(|e| CompactionError::LLMCallFailed(e.to_string()))?;
+
+    let summary = extract_summary(&response.content).ok_or(CompactionError::SummaryParseFailed)?;
+
+    let boundary = format_boundary_message(&summary, is_auto);
+    let before_tokens = estimate_messages_tokens(
+        &messages
+            .iter()
+            .map(|m| CompactionMessage {
+                role: m.role.clone(),
+                content: m.content.clone(),
+            })
+            .collect::<Vec<_>>(),
+    );
+    let after_tokens = estimate_tokens(&boundary);
+    let before_chars: usize = messages.iter().map(|m| m.content.len()).sum();
+    let after_chars = boundary.len();
+
+    Ok(CompactionResult {
+        performed: true,
+        original_tokens: before_tokens,
+        compacted_tokens: after_tokens,
+        message: format!(
+            "Compaction completed: {} → {} tokens",
+            before_tokens, after_tokens
+        ),
+        before_char_count: before_chars,
+        after_char_count: after_chars,
+        before_token_count: before_tokens,
+        after_token_count: after_tokens,
+        boundary_message: boundary,
+        is_auto,
+    })
 }
 
 #[cfg(test)]

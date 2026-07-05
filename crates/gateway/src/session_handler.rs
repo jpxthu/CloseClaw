@@ -10,7 +10,7 @@
 //! The `output_tx` channel is used to surface LLM response text to callers.
 
 use super::Gateway;
-use crate::llm_caller::execute_compact;
+use crate::llm_caller_impl::execute_compact;
 use crate::session_manager::SessionManager;
 use crate::shutdown_handle::ShutdownHandle;
 use closeclaw_llm::fallback::FallbackClient;

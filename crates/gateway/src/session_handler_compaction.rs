@@ -19,7 +19,7 @@
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
-use crate::llm_caller::execute_compact;
+use crate::llm_caller_impl::execute_compact;
 use crate::session_manager::SessionManager;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::session::ChatSession;
