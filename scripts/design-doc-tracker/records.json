@@ -209,9 +209,9 @@
   },
   {
     "path": "docs/design/llm/provider-config-wizard.md",
-    "commit": "07c9c6879df9bdef0982cf520481cb9f042413ea",
-    "commit_time": "2026-06-28T01:46:15+08:00",
-    "confirmed_time": "2026-06-28T01:53:33.164151+08:00",
+    "commit": "8fa56b00c3c4b00d93292f310ba842b457c54395",
+    "commit_time": "2026-07-06T02:59:03+08:00",
+    "confirmed_time": "2026-07-06T03:05:14.177500+08:00",
     "comment": "",
     "blocked_reason": ""
   },
