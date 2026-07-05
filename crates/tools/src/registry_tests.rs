@@ -1,5 +1,6 @@
 use super::*;
 use crate::ToolFlags;
+use closeclaw_common::RegistryError;
 
 struct DummyTool {
     name: String,

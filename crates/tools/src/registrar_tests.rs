@@ -71,34 +71,6 @@ impl TestRegistrar {
     }
 }
 
-/// Helper to convert `Box<dyn Error>` from `register_any` into `ToolRegistrarError`.
-fn downcast_registry_error(
-    e: Box<dyn std::error::Error + Send + Sync>,
-    registrar_name: &str,
-) -> ToolRegistrarError {
-    if let Some(re) = e.downcast_ref::<crate::registry::RegistryError>() {
-        match re {
-            crate::registry::RegistryError::Conflict {
-                tool,
-                registrar,
-                attempting,
-            } => ToolRegistrarError::Conflict {
-                tool: tool.clone(),
-                registrar: registrar.clone(),
-                attempting: attempting.clone(),
-            },
-            crate::registry::RegistryError::AlreadyRegistered(n) => ToolRegistrarError::Conflict {
-                tool: n.clone(),
-                registrar: String::new(),
-                attempting: registrar_name.to_string(),
-            },
-            other => ToolRegistrarError::Internal(other.to_string()),
-        }
-    } else {
-        ToolRegistrarError::Internal(e.to_string())
-    }
-}
-
 #[async_trait]
 impl ToolRegistrar for TestRegistrar {
     fn name(&self) -> &str {
@@ -121,7 +93,25 @@ impl ToolRegistrar for TestRegistrar {
             registry
                 .register_any(boxed, &self.name)
                 .await
-                .map_err(|e| downcast_registry_error(e, &self.name))?;
+                .map_err(|e| match e {
+                    closeclaw_common::tool_registry::RegistryError::Conflict {
+                        tool,
+                        registrar,
+                        attempting,
+                    } => ToolRegistrarError::Conflict {
+                        tool,
+                        registrar,
+                        attempting,
+                    },
+                    closeclaw_common::tool_registry::RegistryError::AlreadyRegistered(n) => {
+                        ToolRegistrarError::Conflict {
+                            tool: n,
+                            registrar: String::new(),
+                            attempting: self.name.clone(),
+                        }
+                    }
+                    other => ToolRegistrarError::Internal(other.to_string()),
+                })?;
         }
         Ok(())
     }
@@ -351,7 +341,25 @@ impl ToolRegistrar for PartiallyFailingRegistrar {
             registry
                 .register_any(boxed, &self.name)
                 .await
-                .map_err(|e| downcast_registry_error(e, &self.name))?;
+                .map_err(|e| match e {
+                    closeclaw_common::tool_registry::RegistryError::Conflict {
+                        tool,
+                        registrar,
+                        attempting,
+                    } => ToolRegistrarError::Conflict {
+                        tool,
+                        registrar,
+                        attempting,
+                    },
+                    closeclaw_common::tool_registry::RegistryError::AlreadyRegistered(n) => {
+                        ToolRegistrarError::Conflict {
+                            tool: n,
+                            registrar: String::new(),
+                            attempting: self.name.clone(),
+                        }
+                    }
+                    other => ToolRegistrarError::Internal(other.to_string()),
+                })?;
             registered += 1;
         }
         if registered == 0 {

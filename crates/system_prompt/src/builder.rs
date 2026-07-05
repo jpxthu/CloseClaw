@@ -2,7 +2,7 @@
 //!
 //! Orchestrates section assembly and renders the final system prompt string.
 
-use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider};
+use crate::fragment::{FragmentContext, PromptFragmentProvider};
 use crate::providers::bootstrap::BootstrapFragmentProvider;
 use crate::providers::memory::MemoryFragmentProvider;
 use crate::providers::skills::SkillsFragmentProvider;
@@ -64,7 +64,7 @@ impl PromptBuilder {
     /// and falls back to `DEFAULT_PROMPT` when no provider contributes.
     pub async fn build(&self, ctx: &FragmentContext) -> String {
         // Create the four standard providers.
-        let providers: Vec<Box<dyn PromptFragmentProvider<PromptFragment>>> = vec![
+        let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
             Box::new(BootstrapFragmentProvider::new()),
             Box::new(ToolsFragmentProvider::new(
                 Arc::clone(&self.tool_registry),

@@ -37,7 +37,7 @@ impl SkillsFragmentProvider {
 }
 
 #[async_trait]
-impl PromptFragmentProvider<PromptFragment> for SkillsFragmentProvider {
+impl PromptFragmentProvider for SkillsFragmentProvider {
     fn name(&self) -> &str {
         "skills"
     }
