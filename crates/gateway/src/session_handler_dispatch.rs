@@ -6,7 +6,7 @@
 //! and [`SessionMessageHandler::dispatch_llm_call`], which route a
 //! spawned LLM call to either the streaming pipeline (via
 //! [`Gateway::send_outbound_streaming`]) or the non-streaming
-//! fallback ([`SessionMessageHandler::call_llm`]).
+//! fallback ([`ConversationSession::invoke_llm`]).
 
 use std::sync::Arc;
 
@@ -376,7 +376,21 @@ impl SessionMessageHandler {
         let session_id = session_id.to_string();
         let content_for_task = content;
         let sm = Arc::clone(&self.session_manager);
-        let llm_caller = Arc::clone(&self.llm_caller);
+        // Validate session exists and has an LLM caller before spawning.
+        let cs = match sm.get_conversation_session(&session_id).await {
+            Some(cs) => cs,
+            None => {
+                tracing::error!(session_id = %session_id, "session not found");
+                return HandleResult::MessageQueued;
+            }
+        };
+        if cs.read().await.llm_caller().is_none() {
+            tracing::error!(
+                session_id = %session_id,
+                "no LLM caller configured for session"
+            );
+            return HandleResult::MessageQueued;
+        }
         let output_tx = Arc::clone(&self.output_tx);
         let channel = meta.channel.clone();
         // Clone the gateway/plugin into the spawn (optional). If
@@ -406,7 +420,7 @@ impl SessionMessageHandler {
             let result = if stream_enabled {
                 if let (Some(gw), Some(pl)) = (gw_for_task.as_ref(), plugin_for_task.as_ref()) {
                     Self::call_llm_streaming(
-                        &llm_caller,
+                        &cs,
                         &content_for_task,
                         &meta,
                         &sm,
@@ -422,12 +436,16 @@ impl SessionMessageHandler {
                         "streaming enabled but no gateway/plugin; \
                          falling back to non-streaming"
                     );
-                    Self::call_llm(&llm_caller, &content_for_task, &meta, &sm, &session_id)
+                    cs.read()
+                        .await
+                        .invoke_llm(&content_for_task)
                         .await
                         .map(Into::into)
                 }
             } else {
-                Self::call_llm(&llm_caller, &content_for_task, &meta, &sm, &session_id)
+                cs.read()
+                    .await
+                    .invoke_llm(&content_for_task)
                     .await
                     .map(Into::into)
             };
@@ -447,7 +465,7 @@ impl SessionMessageHandler {
                 Err(_) => String::new(),
             };
 
-            Self::finish_llm(&sm, &session_id, result, &llm_caller, &output_tx).await;
+            Self::finish_llm(&sm, &session_id, result, &output_tx).await;
 
             // ── Trigger active-searcher for assistant message ───
             // After the assistant response is stored in the session,

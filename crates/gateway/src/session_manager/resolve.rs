@@ -98,32 +98,29 @@ impl SessionManager {
                                 .as_ref()
                                 .map(Self::extract_agent_filters)
                                 .unwrap_or_default();
-                            let overrides = self.prompt_overrides.read().await.clone();
-                            let prompt = if let Some(builder) =
-                                self.system_prompt_builder.read().await.as_ref()
-                            {
-                                session_helpers::build_session_system_prompt(
-                                    builder.as_ref(),
-                                    &session_id,
-                                    &agent_id,
-                                    overrides.as_ref(),
-                                )
-                                .await
-                            } else {
-                                String::new()
-                            };
-
                             let mut conv_session = ConversationSession::new(
                                 session_id.clone(),
                                 "default".to_string(),
                                 workdir_path,
                             )
-                            .with_system_prompt(prompt)
+                            .with_system_prompt("")
                             .with_reasoning_level(self.default_reasoning_level);
                             // Wire shutdown handle for busy-count tracking.
                             if let Some(sh) = self.get_shutdown_handle().await {
                                 conv_session.set_shutdown_handle(sh);
                             }
+                            // Inject LLM caller and system prompt builder for delegation.
+                            if let Some(caller) = self.get_llm_caller().await {
+                                conv_session.set_llm_caller(caller);
+                            }
+                            if let Some(builder) = self.get_system_prompt_builder().await {
+                                conv_session.set_system_prompt_builder(builder);
+                            }
+                            conv_session.set_prompt_overrides(self.get_prompt_overrides().await);
+                            // Build initial system prompt via session's own builder.
+                            conv_session
+                                .rebuild_system_prompt(&session_id, &agent_id, None)
+                                .await;
                             {
                                 let mut cs = self.conversation_sessions.write().await;
                                 cs.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
@@ -222,18 +219,6 @@ impl SessionManager {
             .as_ref()
             .map(Self::extract_agent_filters)
             .unwrap_or_default();
-        let overrides = self.prompt_overrides.read().await.clone();
-        let prompt = if let Some(builder) = self.system_prompt_builder.read().await.as_ref() {
-            session_helpers::build_session_system_prompt(
-                builder.as_ref(),
-                &session_id,
-                &agent_id,
-                overrides.as_ref(),
-            )
-            .await
-        } else {
-            String::new()
-        };
 
         // Compute workdir
         let workdir_path = if let Some(ref workspace_dir) = self.workspace_dir {
@@ -247,12 +232,24 @@ impl SessionManager {
         // Create ConversationSession
         let mut conv_session =
             ConversationSession::new(session_id.clone(), "default".to_string(), workdir_path)
-                .with_system_prompt(prompt)
+                .with_system_prompt("")
                 .with_reasoning_level(self.default_reasoning_level);
         // Wire shutdown handle for busy-count tracking.
         if let Some(sh) = self.get_shutdown_handle().await {
             conv_session.set_shutdown_handle(sh);
         }
+        // Inject LLM caller and system prompt builder for delegation.
+        if let Some(caller) = self.get_llm_caller().await {
+            conv_session.set_llm_caller(caller);
+        }
+        if let Some(builder) = self.get_system_prompt_builder().await {
+            conv_session.set_system_prompt_builder(builder);
+        }
+        conv_session.set_prompt_overrides(self.get_prompt_overrides().await);
+        // Build initial system prompt via session's own builder.
+        conv_session
+            .rebuild_system_prompt(&session_id, &agent_id, None)
+            .await;
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
             conv_sessions.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));

@@ -56,6 +56,14 @@ impl SessionManager {
         if let Some(sh) = self.get_shutdown_handle().await {
             conv_session.set_shutdown_handle(sh);
         }
+        // Inject LLM caller and system prompt builder for delegation.
+        if let Some(caller) = self.get_llm_caller().await {
+            conv_session.set_llm_caller(caller);
+        }
+        if let Some(builder) = self.get_system_prompt_builder().await {
+            conv_session.set_system_prompt_builder(builder);
+        }
+        conv_session.set_prompt_overrides(self.get_prompt_overrides().await);
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
             conv_sessions.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));

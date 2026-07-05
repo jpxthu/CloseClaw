@@ -19,11 +19,10 @@
 
 use std::sync::Arc;
 
-use super::session_handler::{MessageMetadata, SessionMessageHandler};
+use super::session_handler::SessionMessageHandler;
 use super::OutputTx;
 use crate::outbound::StreamResult;
 use crate::session_manager::SessionManager;
-use closeclaw_common::LlmCaller;
 use closeclaw_llm::session::ChatSession;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
@@ -39,11 +38,10 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
         result: Result<StreamResult, closeclaw_llm::LLMError>,
-        llm_caller: &Arc<dyn LlmCaller>,
         output_tx: &OutputTx,
     ) {
         Self::clear_busy_and_send(session_manager, session_id, result, output_tx).await;
-        Self::drain_pending_loop(session_manager, session_id, llm_caller, output_tx).await;
+        Self::drain_pending_loop(session_manager, session_id, output_tx).await;
 
         // NOTE: Decrement is handled by the caller (spawned task in
         // `session_handler_dispatch.rs`), NOT here. This avoids a
@@ -121,7 +119,6 @@ impl SessionMessageHandler {
     async fn drain_pending_loop(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
-        llm_caller: &Arc<dyn LlmCaller>,
         output_tx: &OutputTx,
     ) {
         // Step 1.5: drain queued announces.
@@ -139,18 +136,20 @@ impl SessionMessageHandler {
                 cs.set_llm_state(LlmState::Requesting);
             }
 
-            let meta = MessageMetadata::default_meta();
-            // Non-streaming path: `call_llm` returns `UnifiedResponse`.
-            // Convert to `StreamResult` for the unified `finish_llm` entry point.
-            let result: Result<StreamResult, closeclaw_llm::LLMError> = Self::call_llm(
-                llm_caller,
-                &pending.content,
-                &meta,
-                session_manager,
-                session_id,
-            )
-            .await
-            .map(Into::into);
+            // Non-streaming path: delegate to ConversationSession.
+            let result: Result<StreamResult, closeclaw_llm::LLMError> = {
+                if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+                    cs.read()
+                        .await
+                        .invoke_llm(&pending.content)
+                        .await
+                        .map(Into::into)
+                } else {
+                    Err(closeclaw_llm::LLMError::InvalidRequest(
+                        "session not found".to_string(),
+                    ))
+                }
+            };
             Self::clear_busy_and_send(session_manager, session_id, result, output_tx).await;
         }
     }

@@ -9,7 +9,10 @@ use closeclaw_llm::LLMRegistry;
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 
-fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
+/// Create a `SessionMessageHandler` with a mock LLM caller injected
+/// into the `SessionManager`. Must be called BEFORE `find_or_create`
+/// so the `ConversationSession` gets the caller at creation time.
+async fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
     let registry = Arc::new(LLMRegistry::new());
     let fallback = Arc::new(FallbackClient::from_strings(registry, vec![]));
     let ufc = Arc::new(UnifiedFallbackClient::new(
@@ -17,11 +20,13 @@ fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
         Arc::new(CooldownManager::new()),
     ));
     let llm_caller: Arc<dyn LlmCaller> = Arc::new(llm_caller_impl::FallbackLlmCaller(ufc.clone()));
+    // Set LLM caller on SessionManager so ConversationSession gets it at creation.
+    sm.set_llm_caller(llm_caller).await;
     let fallback_llm_caller = Arc::new(ActiveSearcherLlmCaller {
         client: ufc,
         model: String::new(),
     });
-    SessionMessageHandler::new_no_output(sm, fallback, llm_caller, fallback_llm_caller)
+    SessionMessageHandler::new_no_output(sm, fallback, fallback_llm_caller)
 }
 
 fn make_msg() -> crate::Message {
@@ -38,44 +43,39 @@ fn make_msg() -> crate::Message {
     }
 }
 
-#[tokio::test]
-async fn test_idle_message_returns_llm_started() {
-    let config = crate::GatewayConfig {
+fn make_config() -> crate::GatewayConfig {
+    crate::GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
         dm_scope: crate::DmScope::default(),
         ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
+    }
+}
+
+fn make_sm() -> Arc<SessionManager> {
+    Arc::new(SessionManager::new(
+        &make_config(),
         None,
         None,
         BootstrapMode::Full,
         ReasoningLevel::default(),
-    ));
+    ))
+}
+
+#[tokio::test]
+async fn test_idle_message_returns_llm_started() {
+    let sm = make_sm();
+    // Inject LLM caller BEFORE creating sessions
+    let handler = handler_with_sm(Arc::clone(&sm)).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
-    let handler = handler_with_sm(Arc::clone(&sm));
     let result = handler.handle_message(&sid, "hello".to_string()).await;
     assert!(matches!(result, HandleResult::LlmStarted));
 }
 
 #[tokio::test]
 async fn test_busy_message_returns_queued() {
-    let config = crate::GatewayConfig {
-        name: "test".to_string(),
-        rate_limit_per_minute: 100,
-        max_message_size: 1024,
-        dm_scope: crate::DmScope::default(),
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    ));
+    let sm = make_sm();
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
     // Manually set busy
@@ -84,7 +84,7 @@ async fn test_busy_message_returns_queued() {
         cs.write().await.set_llm_state(LlmState::Requesting);
     }
 
-    let handler = handler_with_sm(Arc::clone(&sm));
+    let handler = handler_with_sm(Arc::clone(&sm)).await;
     let result = handler.handle_message(&sid, "hello".to_string()).await;
     assert!(matches!(result, HandleResult::MessageQueued));
 
@@ -98,22 +98,9 @@ async fn test_busy_message_returns_queued() {
 
 #[tokio::test]
 async fn test_no_pending_no_recursion() {
-    let config = crate::GatewayConfig {
-        name: "test".to_string(),
-        rate_limit_per_minute: 100,
-        max_message_size: 1024,
-        dm_scope: crate::DmScope::default(),
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    ));
+    let sm = make_sm();
+    let handler = handler_with_sm(Arc::clone(&sm)).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
-    let handler = handler_with_sm(Arc::clone(&sm));
 
     // With empty fallback chain, call will fail — but we just verify it doesn't panic
     handler.handle_message(&sid, "hello".to_string()).await;
@@ -128,22 +115,9 @@ async fn test_no_pending_no_recursion() {
 /// busy should be cleared so the session becomes idle again.
 #[tokio::test]
 async fn test_llm_failure_resets_busy() {
-    let config = crate::GatewayConfig {
-        name: "test".to_string(),
-        rate_limit_per_minute: 100,
-        max_message_size: 1024,
-        dm_scope: crate::DmScope::default(),
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    ));
+    let sm = make_sm();
+    let handler = handler_with_sm(Arc::clone(&sm)).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
-    let handler = handler_with_sm(Arc::clone(&sm));
 
     // Start a call — busy becomes true
     let result = handler.handle_message(&sid, "hello".to_string()).await;
@@ -167,22 +141,9 @@ async fn test_llm_failure_resets_busy() {
 /// and the session handles them in order.
 #[tokio::test]
 async fn test_pending_consumed_after_llm_done() {
-    let config = crate::GatewayConfig {
-        name: "test".to_string(),
-        rate_limit_per_minute: 100,
-        max_message_size: 1024,
-        dm_scope: crate::DmScope::default(),
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    ));
+    let sm = make_sm();
+    let handler = handler_with_sm(Arc::clone(&sm)).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
-    let handler = handler_with_sm(Arc::clone(&sm));
 
     // First message starts LLM call, busy = true
     handler.handle_message(&sid, "first".to_string()).await;
@@ -205,22 +166,9 @@ async fn test_pending_consumed_after_llm_done() {
 /// Multiple pending messages are consumed in FIFO order.
 #[tokio::test]
 async fn test_multiple_pending_fifo_order() {
-    let config = crate::GatewayConfig {
-        name: "test".to_string(),
-        rate_limit_per_minute: 100,
-        max_message_size: 1024,
-        dm_scope: crate::DmScope::default(),
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    ));
+    let sm = make_sm();
+    let handler = handler_with_sm(Arc::clone(&sm)).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
-    let handler = handler_with_sm(Arc::clone(&sm));
 
     // Start first LLM call
     handler.handle_message(&sid, "first".to_string()).await;
@@ -257,20 +205,7 @@ async fn test_multiple_pending_fifo_order() {
 async fn test_set_verbosity_persists() {
     use closeclaw_common::VerbosityLevel;
 
-    let config = crate::GatewayConfig {
-        name: "test".to_string(),
-        rate_limit_per_minute: 100,
-        max_message_size: 1024,
-        dm_scope: crate::DmScope::default(),
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    ));
+    let sm = make_sm();
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
     // Verify default verbosity is Full
