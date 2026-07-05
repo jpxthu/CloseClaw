@@ -13,11 +13,9 @@ use super::Gateway;
 use crate::llm_caller_impl::execute_compact;
 use crate::session_manager::SessionManager;
 use crate::shutdown_handle::ShutdownHandle;
-use closeclaw_common::LlmCaller;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::session::ChatSession;
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_llm::types::UnifiedResponse;
 use closeclaw_llm::Message as ChatMessage;
 use closeclaw_session::compaction::{
     CompactConfig, CompactionMessage, CompactionResult, CompactionService,
@@ -64,7 +62,6 @@ pub struct SessionMessageHandler {
     pub(super) fallback_client: Arc<FallbackClient>,
     pub(super) output_tx: OutputTx,
     pub(super) compaction_service: Arc<std::sync::Mutex<CompactionService>>,
-    pub(super) llm_caller: Arc<dyn LlmCaller>,
     /// Concrete [`ActiveSearcherLlmCaller`] for the active-searcher pipeline.
     ///
     /// The active-searcher uses its own [`LlmCaller`][closeclaw_memory::active_searcher_llm::LlmCaller]
@@ -99,7 +96,6 @@ impl SessionMessageHandler {
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,
         output_tx: mpsc::Sender<(String, Vec<ContentBlock>)>,
-        llm_caller: Arc<dyn LlmCaller>,
         fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
     ) -> Self {
         Self {
@@ -109,7 +105,6 @@ impl SessionMessageHandler {
             compaction_service: Arc::new(std::sync::Mutex::new(CompactionService::new(
                 CompactConfig::default(),
             ))),
-            llm_caller,
             fallback_llm_caller,
             gateway: None,
             shutdown_handle: None,
@@ -120,7 +115,6 @@ impl SessionMessageHandler {
     pub fn new_no_output(
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,
-        llm_caller: Arc<dyn LlmCaller>,
         fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
     ) -> Self {
         Self {
@@ -130,7 +124,6 @@ impl SessionMessageHandler {
             compaction_service: Arc::new(std::sync::Mutex::new(CompactionService::new(
                 CompactConfig::default(),
             ))),
-            llm_caller,
             fallback_llm_caller,
             gateway: None,
             shutdown_handle: None,
@@ -260,64 +253,6 @@ impl SessionMessageHandler {
             result,
         )
         .await;
-    }
-}
-
-// ── LLM calling ──
-impl SessionMessageHandler {
-    /// Make a non-streaming LLM call via the [`LlmCaller`] trait.
-    pub(super) async fn call_llm(
-        llm_caller: &Arc<dyn LlmCaller>,
-        content: &str,
-        _meta: &MessageMetadata,
-        session_manager: &Arc<SessionManager>,
-        session_id: &str,
-    ) -> Result<UnifiedResponse, closeclaw_llm::LLMError> {
-        use closeclaw_llm::session::InjectionPosition;
-
-        let mut messages = vec![closeclaw_llm::types::InternalMessage {
-            role: "user".to_string(),
-            content: content.to_string(),
-            tool_call_id: None,
-        }];
-
-        // Consume memory_injection slot if present.
-        if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-            let inj = { cs.read().await.take_memory_injection() };
-            if let Some(injection) = inj {
-                let tool_msg = closeclaw_llm::types::InternalMessage {
-                    role: "tool".to_string(),
-                    content: injection.content.clone(),
-                    tool_call_id: None,
-                };
-                match injection.position_mode {
-                    InjectionPosition::AfterCurrent => {
-                        messages.push(tool_msg);
-                    }
-                    InjectionPosition::BeforeNext => {
-                        messages.insert(0, tool_msg);
-                    }
-                }
-            }
-        }
-
-        let request = closeclaw_llm::types::InternalRequest {
-            model: String::new(),
-            messages,
-            temperature: 0.7,
-            max_tokens: None,
-            stream: false,
-            extra_body: Default::default(),
-            system_static: None,
-            system_dynamic: None,
-            system_blocks: None,
-            tools: None,
-            session_id: None,
-            reasoning_level: closeclaw_session::persistence::ReasoningLevel::default(),
-            turn_count: None,
-        };
-
-        llm_caller.call(request).await
     }
 }
 

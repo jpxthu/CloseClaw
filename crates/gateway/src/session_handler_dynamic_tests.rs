@@ -5,7 +5,6 @@ use closeclaw_common::system_prompt::inject::{
     build_dynamic_sections, build_full_system_prompt, split_static_dynamic,
 };
 use closeclaw_common::system_prompt::sections::Section;
-use closeclaw_common::LlmCaller;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
@@ -20,12 +19,11 @@ fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
         vec![],
         Arc::new(CooldownManager::new()),
     ));
-    let llm_caller: Arc<dyn LlmCaller> = Arc::new(llm_caller_impl::FallbackLlmCaller(ufc.clone()));
     let fallback_llm_caller = Arc::new(ActiveSearcherLlmCaller {
         client: ufc,
         model: String::new(),
     });
-    SessionMessageHandler::new_no_output(sm, fallback, llm_caller, fallback_llm_caller)
+    SessionMessageHandler::new_no_output(sm, fallback, fallback_llm_caller)
 }
 
 fn make_msg() -> crate::Message {

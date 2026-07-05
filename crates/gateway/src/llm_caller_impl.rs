@@ -22,7 +22,6 @@ use closeclaw_common::llm_caller::LlmCaller;
 use closeclaw_common::llm_error::LLMError;
 use closeclaw_common::llm_types::InternalRequest;
 use closeclaw_common::processor::{StreamEvent, UnifiedResponse};
-use closeclaw_llm::client::UnifiedChatClient;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::protocol::ProtocolError;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
@@ -35,7 +34,6 @@ use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 ///
 /// Required by Rust's orphan rule — we cannot implement a foreign trait
 /// for a foreign type directly.
-#[allow(dead_code)]
 pub struct FallbackLlmCaller(pub Arc<UnifiedFallbackClient>);
 
 #[async_trait]
@@ -51,35 +49,6 @@ impl LlmCaller for FallbackLlmCaller {
         let raw_stream = self
             .0
             .primary()
-            .chat_streaming(request)
-            .await
-            .map_err(|e| LLMError::ApiError(e.to_string()))?;
-        let mapped = raw_stream.map(|r: Result<StreamEvent, ProtocolError>| {
-            r.map_err(|e| LLMError::ApiError(e.to_string()))
-        });
-        Ok(Box::pin(mapped))
-    }
-}
-
-/// Newtype wrapper around [`UnifiedChatClient`] to implement [`LlmCaller`].
-#[allow(dead_code)]
-pub struct ChatLlmCaller(pub Arc<UnifiedChatClient>);
-
-#[async_trait]
-impl LlmCaller for ChatLlmCaller {
-    async fn call(&self, request: InternalRequest) -> Result<UnifiedResponse, LLMError> {
-        self.0
-            .chat(request)
-            .await
-            .map_err(|e| LLMError::ApiError(e.to_string()))
-    }
-
-    async fn call_streaming(
-        &self,
-        request: InternalRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>>, LLMError> {
-        let raw_stream = self
-            .0
             .chat_streaming(request)
             .await
             .map_err(|e| LLMError::ApiError(e.to_string()))?;
@@ -174,6 +143,7 @@ pub async fn execute_compact(
 mod tests {
     use super::*;
     use closeclaw_common::llm_types::InternalMessage;
+    use closeclaw_llm::UnifiedChatClient;
 
     fn make_request(content: &str) -> InternalRequest {
         InternalRequest {
@@ -233,61 +203,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_chat_llm_caller_call() {
-        use closeclaw_llm::cache_adapter::NoopCacheAdapter;
-        use closeclaw_llm::interpreter::InterpreterRegistry;
-        use closeclaw_llm::plugin::PluginPipeline;
-        use closeclaw_llm::protocol::OpenAiProtocol;
-        use closeclaw_llm::stub::StubProvider;
-
-        let provider = Arc::new(StubProvider::new());
-        let protocol = Arc::new(OpenAiProtocol::default());
-        let registry = InterpreterRegistry::new(vec![]);
-        let pipeline = PluginPipeline::new();
-        let client = Arc::new(UnifiedChatClient::new(
-            provider,
-            protocol,
-            registry,
-            pipeline,
-            Arc::new(NoopCacheAdapter),
-        ));
-        let caller = ChatLlmCaller(client);
-
-        let request = make_request("hello");
-        let result = caller.call(request).await;
-        assert!(result.is_ok(), "call should succeed via stub provider");
-    }
-
-    #[tokio::test]
-    async fn test_chat_llm_caller_call_streaming() {
-        use closeclaw_llm::cache_adapter::NoopCacheAdapter;
-        use closeclaw_llm::interpreter::InterpreterRegistry;
-        use closeclaw_llm::plugin::PluginPipeline;
-        use closeclaw_llm::protocol::OpenAiProtocol;
-        use closeclaw_llm::stub::StubProvider;
-
-        let provider = Arc::new(StubProvider::new());
-        let protocol = Arc::new(OpenAiProtocol::default());
-        let registry = InterpreterRegistry::new(vec![]);
-        let pipeline = PluginPipeline::new();
-        let client = Arc::new(UnifiedChatClient::new(
-            provider,
-            protocol,
-            registry,
-            pipeline,
-            Arc::new(NoopCacheAdapter),
-        ));
-        let caller = ChatLlmCaller(client);
-
-        let mut request = make_request("hello");
-        request.stream = true;
-        let result = caller.call_streaming(request).await;
-        assert!(result.is_ok(), "call_streaming should succeed");
-        let mut stream = result.unwrap();
-        let _ = stream.next().await;
-    }
-
-    #[tokio::test]
     async fn test_fallback_llm_caller_call_streaming() {
         use closeclaw_llm::cache_adapter::NoopCacheAdapter;
         use closeclaw_llm::interpreter::InterpreterRegistry;
@@ -340,35 +255,6 @@ mod tests {
         let request = make_request("hello");
         let result = caller.call(request).await;
         assert!(result.is_err(), "empty chain should return error");
-    }
-
-    #[tokio::test]
-    async fn test_chat_llm_caller_error_propagation() {
-        use closeclaw_llm::cache_adapter::NoopCacheAdapter;
-        use closeclaw_llm::interpreter::InterpreterRegistry;
-        use closeclaw_llm::plugin::PluginPipeline;
-        use closeclaw_llm::protocol::OpenAiProtocol;
-        use closeclaw_llm::stub::StubProvider;
-
-        // Create a client with a provider that returns empty content,
-        // which will cause SummaryParseFailed downstream.
-        let provider = Arc::new(StubProvider::new());
-        let protocol = Arc::new(OpenAiProtocol::default());
-        let registry = InterpreterRegistry::new(vec![]);
-        let pipeline = PluginPipeline::new();
-        let client = Arc::new(UnifiedChatClient::new(
-            provider,
-            protocol,
-            registry,
-            pipeline,
-            Arc::new(NoopCacheAdapter),
-        ));
-        let caller = ChatLlmCaller(client);
-
-        // Non-streaming call succeeds with stub
-        let request = make_request("hello");
-        let result = caller.call(request).await;
-        assert!(result.is_ok(), "stub should succeed");
     }
 
     #[tokio::test]

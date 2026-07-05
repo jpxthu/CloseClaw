@@ -21,7 +21,7 @@ use crate::turn::TurnCounter;
 use crate::types::{ContentBlock, UnifiedUsage};
 use closeclaw_agent::communication::CommunicationConfig;
 use closeclaw_common::VerbosityLevel;
-use closeclaw_common::{PromptOverrides, SystemPromptBuilder};
+use closeclaw_common::{LlmCaller, PromptOverrides, SystemPromptBuilder};
 use closeclaw_session::persistence::ReasoningLevel;
 
 /// Maximum length of an individual append-section item (in characters).
@@ -45,6 +45,8 @@ pub use memory_injection::{InjectionPosition, MemoryInjection};
 
 mod session_chat;
 pub use session_chat::ChatSession;
+
+mod session_llm;
 
 /// A single message in a conversation session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +136,15 @@ pub struct ConversationSession {
     shutdown_handle: Option<Arc<dyn closeclaw_common::ShutdownSignal>>,
     /// Verbosity level controlling outbound content filtering.
     verbosity_level: VerbosityLevel,
+    /// LLM caller injected by Gateway for delegating LLM requests.
+    /// Set via [`set_llm_caller`](Self::set_llm_caller) after construction.
+    llm_caller: Option<Arc<dyn LlmCaller>>,
+    /// System prompt builder injected by Gateway for prompt rebuilds.
+    /// Set via [`set_system_prompt_builder`](Self::set_system_prompt_builder) after construction.
+    system_prompt_builder: Option<Arc<dyn SystemPromptBuilder>>,
+    /// Prompt overrides injected by Gateway for prompt rebuilds.
+    /// Set via [`set_prompt_overrides`](Self::set_prompt_overrides) after construction.
+    prompt_overrides: Option<PromptOverrides>,
 }
 
 // `impl ConversationSession` is split across multiple blocks so each
@@ -174,6 +185,9 @@ impl ConversationSession {
             last_activity_at: Utc::now().timestamp(),
             shutdown_handle: None,
             verbosity_level: VerbosityLevel::default(),
+            llm_caller: None,
+            system_prompt_builder: None,
+            prompt_overrides: None,
         }
     }
 
@@ -237,6 +251,40 @@ impl ConversationSession {
     /// Set the shutdown handle for busy-count tracking during tool execution.
     pub fn set_shutdown_handle(&mut self, handle: Arc<dyn closeclaw_common::ShutdownSignal>) {
         self.shutdown_handle = Some(handle);
+    }
+
+    /// Inject an [`LlmCaller`] into this session.
+    ///
+    /// Called by Gateway after session creation so the session can
+    /// delegate LLM requests without the Gateway holding the caller.
+    pub fn set_llm_caller(&mut self, caller: Arc<dyn LlmCaller>) {
+        self.llm_caller = Some(caller);
+    }
+
+    /// Returns a reference to the injected [`LlmCaller`], if any.
+    pub fn llm_caller(&self) -> Option<&Arc<dyn LlmCaller>> {
+        self.llm_caller.as_ref()
+    }
+
+    /// Inject a [`SystemPromptBuilder`] into this session.
+    ///
+    /// Called by Gateway after session creation so the session can
+    /// rebuild its own system prompt without the Gateway holding the builder.
+    pub fn set_system_prompt_builder(&mut self, builder: Arc<dyn SystemPromptBuilder>) {
+        self.system_prompt_builder = Some(builder);
+    }
+
+    /// Returns `true` if a [`SystemPromptBuilder`] has been injected.
+    pub fn has_system_prompt_builder(&self) -> bool {
+        self.system_prompt_builder.is_some()
+    }
+
+    /// Inject prompt overrides into this session.
+    ///
+    /// Called by Gateway after session creation so the session can
+    /// apply overrides when rebuilding its system prompt.
+    pub fn set_prompt_overrides(&mut self, overrides: Option<PromptOverrides>) {
+        self.prompt_overrides = overrides;
     }
 
     /// Get a clone of the shutdown handle, if set.
@@ -317,23 +365,46 @@ impl ConversationSession {
         self.system_prompt = Some(prompt.into());
     }
 
-    /// Rebuild the system prompt using the given builder.
+    /// Returns the current system prompt, if any.
+    pub fn system_prompt(&self) -> Option<&str> {
+        self.system_prompt.as_deref()
+    }
+
+    /// Rebuild the system prompt using the session's own builder and overrides.
     ///
     /// This is the session-side entry point for prompt rebuilds after
-    /// compaction or config changes. The caller provides the builder,
-    /// agent id, and optional overrides; the session owns the final
-    /// prompt replacement.
+    /// compaction or config changes. The session owns the builder and
+    /// overrides; no external references are needed.
+    ///
+    /// * `bootstrap_mode_override` — optional override for the bootstrap mode
+    ///   used when building the prompt. Pass `None` for standard rebuilds;
+    ///   spawn callers should pass the child's bootstrap mode.
+    ///
+    /// Returns the rebuilt prompt string for callers that need it
+    /// (e.g. initial session creation in `resolve.rs`).
     pub async fn rebuild_system_prompt(
         &mut self,
         session_id: &str,
         agent_id: &str,
-        builder: &dyn SystemPromptBuilder,
-        overrides: Option<&PromptOverrides>,
-    ) {
+        bootstrap_mode_override: Option<closeclaw_session::bootstrap::loader::BootstrapMode>,
+    ) -> String {
+        let Some(builder) = self.system_prompt_builder.as_deref() else {
+            tracing::debug!(
+                session_id,
+                "no system prompt builder configured, skipping rebuild"
+            );
+            return String::new();
+        };
         let prompt = builder
-            .build_prompt(session_id, agent_id, overrides, None)
+            .build_prompt(
+                session_id,
+                agent_id,
+                self.prompt_overrides.as_ref(),
+                bootstrap_mode_override,
+            )
             .await;
-        self.replace_system_prompt(prompt);
+        self.replace_system_prompt(prompt.clone());
+        prompt
     }
 
     /// Appends a message to the session.

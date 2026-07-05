@@ -317,6 +317,8 @@ async fn build_session_handler(
     let llm_caller: Arc<dyn LlmCaller> = Arc::new(
         closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(unified_fallback_client.clone()),
     );
+    // Set LLM caller on SessionManager so it can inject into ConversationSession.
+    session_manager.set_llm_caller(llm_caller).await;
     let fallback_llm_caller = Arc::new(
         closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
             client: unified_fallback_client,
@@ -328,7 +330,6 @@ async fn build_session_handler(
             session_manager,
             fallback_client,
             output_tx,
-            llm_caller,
             fallback_llm_caller,
         ),
     )
