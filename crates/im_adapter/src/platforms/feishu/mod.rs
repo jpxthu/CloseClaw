@@ -9,6 +9,8 @@ mod adapter_tests;
 pub mod cleaner;
 #[cfg(test)]
 mod cleaner_tests;
+#[cfg(test)]
+mod feishu_tests;
 pub mod renderer;
 pub mod tools;
 
@@ -60,13 +62,13 @@ inventory::submit!(PlatformEntry {
 /// the platform plugin is registered at startup.
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
-struct PlatformsConfig {
+pub(crate) struct PlatformsConfig {
     platforms: HashMap<String, PlatformEnabledEntry>,
 }
 
 /// A single platform entry in `platforms.json`.
 #[derive(Debug, Clone, Deserialize, Default)]
-struct PlatformEnabledEntry {
+pub(crate) struct PlatformEnabledEntry {
     #[serde(default)]
     enabled: bool,
 }
@@ -81,7 +83,7 @@ impl PlatformsConfig {
 /// Load `{config_dir}/config/platforms.json`.
 ///
 /// Returns an empty config when the file is missing or unparseable.
-fn load_platforms_config(config_dir: &str) -> PlatformsConfig {
+pub(crate) fn load_platforms_config(config_dir: &str) -> PlatformsConfig {
     let path = std::path::Path::new(config_dir)
         .join("config")
         .join("platforms.json");
@@ -157,7 +159,7 @@ pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, config_dir: &st
 /// Returns `Some(Arc<ConfigIdentityResolver>)` when the file exists and
 /// contains a valid JSON object with an `accounts` array, or `None` on
 /// any error / missing file.
-fn load_identity_resolver(config_dir: &str) -> Option<Arc<dyn IdentityResolver>> {
+pub(crate) fn load_identity_resolver(config_dir: &str) -> Option<Arc<dyn IdentityResolver>> {
     use closeclaw_config::AccountsConfigData;
 
     let path = std::path::Path::new(config_dir)
