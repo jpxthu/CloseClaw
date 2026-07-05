@@ -96,7 +96,7 @@ impl SessionMessageHandler {
         // Retrieve the session's streaming sink (if any) for delta notifications.
         let sink: Option<Arc<dyn closeclaw_llm::streaming::StreamingSink>> =
             if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-                cs.read().await.streaming_sink().map(|s| s.clone())
+                cs.read().await.streaming_sink().cloned()
             } else {
                 None
             };
