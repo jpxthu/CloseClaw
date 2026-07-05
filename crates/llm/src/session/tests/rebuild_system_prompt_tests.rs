@@ -1,7 +1,7 @@
 //! Unit tests for `ConversationSession::rebuild_system_prompt`.
 //!
 //! Covers the normal path (builder rebuilds prompt and replaces),
-//! and edge cases for the `overrides` parameter.
+//! edge cases for the `overrides` parameter, and the no-builder path.
 
 use super::super::*;
 use closeclaw_common::{PromptOverrides, SystemPromptBuilder};
@@ -68,16 +68,21 @@ fn new_session() -> ConversationSession {
     ConversationSession::new("sess_rebuild".into(), "gpt-4o".into(), tmp_path())
 }
 
+fn new_session_with_builder(builder: Arc<dyn SystemPromptBuilder>) -> ConversationSession {
+    let mut s = new_session();
+    s.set_system_prompt_builder(builder);
+    s
+}
+
 // ── normal path ───────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_rebuild_system_prompt_replaces_prompt() {
-    let mut session = new_session();
+    let mut session = new_session_with_builder(Arc::new(MockBuilder::new("new system prompt")));
     assert!(session.system_prompt().is_none());
 
-    let builder = MockBuilder::new("new system prompt");
     session
-        .rebuild_system_prompt("sess_rebuild", "agent_1", &builder, None)
+        .rebuild_system_prompt("sess_rebuild", "agent_1")
         .await;
 
     assert_eq!(session.system_prompt(), Some("new system prompt"));
@@ -85,11 +90,11 @@ async fn test_rebuild_system_prompt_replaces_prompt() {
 
 #[tokio::test]
 async fn test_rebuild_system_prompt_overwrites_existing() {
-    let mut session = new_session().with_system_prompt("old prompt");
+    let mut session = new_session_with_builder(Arc::new(MockBuilder::new("replaced prompt")))
+        .with_system_prompt("old prompt");
 
-    let builder = MockBuilder::new("replaced prompt");
     session
-        .rebuild_system_prompt("sess_rebuild", "agent_1", &builder, None)
+        .rebuild_system_prompt("sess_rebuild", "agent_1")
         .await;
 
     assert_eq!(session.system_prompt(), Some("replaced prompt"));
@@ -100,15 +105,15 @@ async fn test_rebuild_system_prompt_overwrites_existing() {
 #[tokio::test]
 async fn test_rebuild_system_prompt_with_overrides() {
     let mut session = new_session();
-    let overrides = PromptOverrides {
+    session.set_system_prompt_builder(Arc::new(CapturingBuilder));
+    session.set_prompt_overrides(Some(PromptOverrides {
         override_prompt: Some("custom override".to_string()),
         agent_prompt: None,
         custom_prompt: None,
-    };
+    }));
 
-    let builder = CapturingBuilder;
     session
-        .rebuild_system_prompt("sess_rebuild", "agent_1", &builder, Some(&overrides))
+        .rebuild_system_prompt("sess_rebuild", "agent_1")
         .await;
 
     assert_eq!(
@@ -119,25 +124,37 @@ async fn test_rebuild_system_prompt_with_overrides() {
 
 #[tokio::test]
 async fn test_rebuild_system_prompt_without_overrides() {
-    let mut session = new_session();
+    let mut session = new_session_with_builder(Arc::new(CapturingBuilder));
 
-    let builder = CapturingBuilder;
     session
-        .rebuild_system_prompt("sess_rebuild", "agent_1", &builder, None)
+        .rebuild_system_prompt("sess_rebuild", "agent_1")
         .await;
 
     assert_eq!(session.system_prompt(), Some("prompt-for-agent_1"));
+}
+
+// ── edge case: no builder ────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_rebuild_system_prompt_no_builder_is_noop() {
+    let mut session = new_session();
+    assert!(!session.has_system_prompt_builder());
+
+    session
+        .rebuild_system_prompt("sess_rebuild", "agent_1")
+        .await;
+
+    assert!(session.system_prompt().is_none());
 }
 
 // ── edge case: empty prompt from builder ─────────────────────────────────
 
 #[tokio::test]
 async fn test_rebuild_system_prompt_builder_returns_empty() {
-    let mut session = new_session();
+    let mut session = new_session_with_builder(Arc::new(MockBuilder::new("")));
 
-    let builder = MockBuilder::new("");
     session
-        .rebuild_system_prompt("sess_rebuild", "agent_1", &builder, None)
+        .rebuild_system_prompt("sess_rebuild", "agent_1")
         .await;
 
     // Empty string is still set as the prompt
@@ -158,4 +175,15 @@ fn test_replace_system_prompt_overwrites_existing() {
     let mut session = new_session().with_system_prompt("old");
     session.replace_system_prompt("new");
     assert_eq!(session.system_prompt(), Some("new"));
+}
+
+// ── setter tests ─────────────────────────────────────────────────────────
+
+#[test]
+fn test_has_system_prompt_builder() {
+    let mut session = new_session();
+    assert!(!session.has_system_prompt_builder());
+
+    session.set_system_prompt_builder(Arc::new(MockBuilder::new("test")));
+    assert!(session.has_system_prompt_builder());
 }
