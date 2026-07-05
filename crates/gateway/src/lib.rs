@@ -279,24 +279,23 @@ impl Gateway {
             Some(id) => id,
             None => {
                 tracing::warn!("session_key missing or resolve failed — message not processed");
-                // Reply to user with error per design doc
+                // Reply to user with error per design doc.
+                // Use simplified outbound path (same as non-text interception).
                 let peer_id = processed
                     .metadata
                     .get("peer_id")
                     .map(|s| s.as_str())
                     .unwrap_or("");
                 if !peer_id.is_empty() {
-                    let err_msg = Message {
-                        id: String::new(),
-                        from: String::new(),
-                        to: peer_id.to_string(),
-                        content: String::new(),
-                        channel: channel.to_string(),
-                        timestamp: 0,
-                        metadata: std::collections::HashMap::new(),
-                        thread_id: None,
-                    };
-                    self.send_user_error(channel, &err_msg).await;
+                    if let Err(e) = self
+                        .send_outbound_simplified(peer_id, channel, "\u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\u{5931}\u{8D25}\u{FF0C}\u{8BF7}\u{91CD}\u{8BD5}")
+                        .await
+                    {
+                        tracing::warn!(
+                            error = %e,
+                            "failed to send session routing failure reply"
+                        );
+                    }
                 }
                 return None;
             }
