@@ -1,0 +1,14 @@
+[package]
+name = "closeclaw-workflow"
+version = "0.1.0"
+edition = "2021"
+description = "Workflow engine: definition parsing, state machine, and execution protocol"
+license = "MIT"
+
+[dependencies]
+closeclaw-common = { path = "../common" }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2.0"
+tracing = "=0.1.43"
