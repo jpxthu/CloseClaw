@@ -11,14 +11,13 @@
 use std::sync::Arc;
 
 use super::session_handler::{
-    flatten_content_blocks, FallbackLlmCaller, MessageMetadata, SessionMessageHandler,
+    flatten_content_blocks, ActiveSearcherLlmCaller, MessageMetadata, SessionMessageHandler,
 };
 use super::Gateway;
 use crate::session_manager::SessionManager;
 use crate::HandleResult;
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_llm::session_state::LlmState;
-use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::ChatSession;
 use closeclaw_session::persistence::PendingMessage;
 
@@ -31,7 +30,7 @@ use closeclaw_session::persistence::PendingMessage;
 #[derive(Clone)]
 struct SearcherTriggerDeps {
     session_manager: Arc<SessionManager>,
-    unified_fallback_client: Arc<UnifiedFallbackClient>,
+    fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
     memory_db_path: Option<std::path::PathBuf>,
     /// Pre-loaded agent model (avoids redundant config load in closures).
     agent_model: Option<String>,
@@ -171,14 +170,14 @@ impl SearcherTriggerDeps {
 
     /// Build a closure that executes the active-searcher pipeline.
     fn build_run_searcher(&self) -> RunSearcher {
-        let ufc = Arc::clone(&self.unified_fallback_client);
+        let caller = Arc::clone(&self.fallback_llm_caller);
         Box::new(
             move |input: closeclaw_session::active_searcher::SearcherInput| -> BoxFuture<
                 Option<(String, String, std::collections::HashSet<i64>)>,
             > {
-                let ufc = Arc::clone(&ufc);
+                let caller = Arc::clone(&caller);
                 Box::pin(async move {
-                    run_searcher_pipeline(input, &ufc).await
+                    run_searcher_pipeline(input, &caller).await
                 })
             },
         )
@@ -215,24 +214,15 @@ fn build_searcher_config(
     ActiveSearcherConfig::from_agent_config(Some(model), mem_cfg.as_ref())
 }
 
-/// Build the LLM caller for the searcher pipeline.
-fn build_llm_caller(ufc: &Arc<UnifiedFallbackClient>, model: &str) -> FallbackLlmCaller {
-    FallbackLlmCaller {
-        client: Arc::clone(ufc),
-        model: model.to_string(),
-    }
-}
-
 /// Execute the searcher pipeline and convert the result.
 async fn run_searcher_pipeline(
     input: closeclaw_session::active_searcher::SearcherInput,
-    ufc: &Arc<UnifiedFallbackClient>,
+    caller: &ActiveSearcherLlmCaller,
 ) -> Option<(String, String, std::collections::HashSet<i64>)> {
     use crate::memory::active_searcher::ActiveSearcher;
     let llm_messages = convert_to_llm_messages(&input.context_messages);
     let mem_cfg = deserialize_memory_config(&input.memory_config);
     let config = build_searcher_config(&input.model, &mem_cfg);
-    let caller = build_llm_caller(ufc, &config.model);
     let searcher = ActiveSearcher::new(std::path::PathBuf::from(&input.db_path), config.clone());
 
     let injection = searcher
@@ -242,7 +232,7 @@ async fn run_searcher_pipeline(
             &input.content,
             &llm_messages,
             &input.injected_ids,
-            &caller,
+            caller,
         )
         .await?;
 
@@ -364,7 +354,7 @@ impl SessionMessageHandler {
         // triggers, avoiding redundant config loads inside closures.
         let searcher_deps = SearcherTriggerDeps {
             session_manager: Arc::clone(&self.session_manager),
-            unified_fallback_client: Arc::clone(&self.unified_fallback_client),
+            fallback_llm_caller: Arc::clone(&self.fallback_llm_caller),
             memory_db_path: self.memory_db_path.clone(),
             agent_model: None,
             memory_config: None,
@@ -383,7 +373,7 @@ impl SessionMessageHandler {
         let session_id = session_id.to_string();
         let content_for_task = content;
         let sm = Arc::clone(&self.session_manager);
-        let ufc = Arc::clone(&self.unified_fallback_client);
+        let llm_caller = Arc::clone(&self.llm_caller);
         let output_tx = Arc::clone(&self.output_tx);
         let channel = meta.channel.clone();
         // Clone the gateway/plugin into the spawn (optional). If
@@ -413,7 +403,7 @@ impl SessionMessageHandler {
             let result = if stream_enabled {
                 if let (Some(gw), Some(pl)) = (gw_for_task.as_ref(), plugin_for_task.as_ref()) {
                     Self::call_llm_streaming(
-                        &ufc,
+                        &llm_caller,
                         &content_for_task,
                         &meta,
                         &sm,
@@ -429,12 +419,12 @@ impl SessionMessageHandler {
                         "streaming enabled but no gateway/plugin; \
                          falling back to non-streaming"
                     );
-                    Self::call_llm(&ufc, &content_for_task, &meta, &sm, &session_id)
+                    Self::call_llm(&llm_caller, &content_for_task, &meta, &sm, &session_id)
                         .await
                         .map(Into::into)
                 }
             } else {
-                Self::call_llm(&ufc, &content_for_task, &meta, &sm, &session_id)
+                Self::call_llm(&llm_caller, &content_for_task, &meta, &sm, &session_id)
                     .await
                     .map(Into::into)
             };
@@ -454,7 +444,7 @@ impl SessionMessageHandler {
                 Err(_) => String::new(),
             };
 
-            Self::finish_llm(&sm, &session_id, result, &ufc, &output_tx).await;
+            Self::finish_llm(&sm, &session_id, result, &llm_caller, &output_tx).await;
 
             // ── Trigger active-searcher for assistant message ───
             // After the assistant response is stored in the session,

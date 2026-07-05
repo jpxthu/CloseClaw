@@ -3,7 +3,7 @@
 //! Extracted from `session_handler.rs` to keep file sizes under the
 //! 500-line project limit.
 //!
-//! The LLM stream is opened via [`crate::llm_caller_impl::FallbackLlmCaller`].
+//! The LLM stream is opened via the [`LlmCaller`] trait (passed as `&Arc<dyn LlmCaller>`).
 //! This file handles Gateway-side orchestration: wrapping the stream with
 //! [`SinkUpdater`][closeclaw_llm::SinkUpdater], racing against
 //! a cancellation token, and dispatching through
@@ -19,10 +19,10 @@ use crate::session_manager::SessionManager;
 use crate::types::GatewayError;
 use crate::Gateway;
 use closeclaw_common::im_plugin::IMPlugin;
+use closeclaw_common::LlmCaller;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::streaming::StreamDone;
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::LLMError;
 
 impl SessionMessageHandler {
@@ -36,7 +36,7 @@ impl SessionMessageHandler {
     /// 3. Dispatching through [`Gateway::send_outbound_streaming`].
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn call_llm_streaming(
-        unified_fallback_client: &Arc<UnifiedFallbackClient>,
+        llm_caller: &Arc<dyn LlmCaller>,
         content: &str,
         _meta: &MessageMetadata,
         session_manager: &Arc<SessionManager>,
@@ -45,7 +45,6 @@ impl SessionMessageHandler {
         gateway: &Arc<Gateway>,
         plugin: &Arc<dyn IMPlugin>,
     ) -> Result<StreamResult, LLMError> {
-        use closeclaw_common::LlmCaller;
         use closeclaw_llm::session::InjectionPosition;
         use closeclaw_llm::types::InternalMessage;
 
@@ -89,9 +88,8 @@ impl SessionMessageHandler {
             turn_count: None,
         };
 
-        // ── Open LLM stream via FallbackLlmCaller ──
-        let caller = crate::llm_caller_impl::FallbackLlmCaller(Arc::clone(unified_fallback_client));
-        let raw_stream = caller.call_streaming(request).await?;
+        // ── Open LLM stream via LlmCaller trait ──
+        let raw_stream = llm_caller.call_streaming(request).await?;
 
         // Retrieve the session's streaming sink (if any) for delta notifications.
         let sink: Option<Arc<dyn closeclaw_llm::streaming::StreamingSink>> =
