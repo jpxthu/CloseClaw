@@ -138,7 +138,11 @@ impl ApprovalFlow {
     pub fn set_notify_callback(&mut self, cb: Arc<dyn Fn(ApprovalNotification) + Send + Sync>) {
         self.on_notify_owner = cb;
     }
+}
 
+// ── Heartbeat mode ──────────────────────────────────────────────────────────
+
+impl ApprovalFlow {
     /// Set the heartbeat approval mode at runtime.
     ///
     /// Allows changing how heartbeat denials are handled without
@@ -178,7 +182,11 @@ impl ApprovalFlow {
             HeartbeatApprovalMode::Ask => Some(String::new()),
         }
     }
+}
 
+// ── Operation submission ────────────────────────────────────────────────────
+
+impl ApprovalFlow {
     /// Build a human-readable description of the operation for notifications.
     fn format_operation_desc(request: &PermissionRequestBody) -> String {
         match request {
@@ -262,7 +270,11 @@ impl ApprovalFlow {
         });
         Some(request_id)
     }
+}
 
+// ── Approval resolution ─────────────────────────────────────────────────────
+
+impl ApprovalFlow {
     /// Approve a pending approval request.
     ///
     /// Delegates to [`ApprovalQueue::approve`] with the given [`ApprovalMode`].
