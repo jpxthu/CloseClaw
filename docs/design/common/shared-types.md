@@ -159,6 +159,15 @@ PromptFragment 是单个 PromptFragmentProvider 产出的静态层片段。
 | `section_type` | enum | Section 类型：bootstrap 文件、工具列表、skill 清单、长期记忆 |
 | `content` | string | 渲染完成的文本内容 |
 
+### BootstrapMode
+
+BootstrapMode 是系统启动模式的枚举，控制 System Prompt 构建时 BootstrapFragmentProvider 选择加载的文件集合。由 Daemon 在系统启动时按运行模式设定，随 FragmentContext 传递给各 PromptFragmentProvider。
+
+| 变体 | 说明 |
+|------|------|
+| Minimal | 精简模式，仅加载最基础的 bootstrap 文件。适用于无 workspace 目录或快速测试场景 |
+| Full | 完整模式，加载完整的 bootstrap 文件集合（AGENTS.md、SOUL.md、IDENTITY.md 等）。正常运行的默认模式 |
+
 ### RenderedOutput
 
 RenderedOutput 是 IMPlugin 渲染方法产出的平台原生格式消息结构。渲染产出数据，发送执行副作用——Gateway 在两步之间插入中间件（审计、频率限制等）。
@@ -254,7 +263,10 @@ PromptOverrides 是 System Prompt 的覆盖配置，允许各 Agent 按需替换
 | `agent_prompt` | string? | 次优先级的 agent 级 prompt。替换 agent 自动生成的 prompt 段 |
 | `custom_prompt` | string? | 最低优先级的用户自定义 prompt。在 agent 级 prompt 之上叠加用户定制内容 |
 
-**解析策略**：SystemPromptBuilder 按优先级检查——先检查 `override_prompt`（非 None 则直接使用），否则检查 `agent_prompt`，再检查 `custom_prompt`，全部 None 时使用正常的 section 渲染流程。
+**解析策略**：
+1. `override_prompt` 非 None → 全量替换整个静态层，忽略 `agent_prompt`、`custom_prompt` 和正常 section 渲染
+2. 否则，以 `agent_prompt`（若非 None）或自动生成的 agent 段为基础，再在其上叠加 `custom_prompt`（若非 None）
+3. 全部 None → 正常 section 渲染流程
 
 ### SessionCheckpoint
 
