@@ -4,7 +4,7 @@
 //! - idle message  → set busy → LLM call → clear busy → drain pending
 //! - busy message  → enqueue pending
 //!
-//! `UnifiedFallbackClient::chat()` (non-streaming) is used for non-streaming LLM calls,
+//! `LlmCaller` trait is used for LLM calls (non-streaming and streaming),
 //! going through the full five-layer architecture (CacheAdapter → PluginPipeline →
 //! Interpreter → Protocol → Provider).
 //! The `output_tx` channel is used to surface LLM response text to callers.
@@ -12,13 +12,12 @@
 use super::Gateway;
 use crate::llm_caller_impl::execute_compact;
 use crate::session_manager::SessionManager;
-use crate::session_prompt_helper::rebuild_system_prompt_for_session;
 use crate::shutdown_handle::ShutdownHandle;
+use closeclaw_common::LlmCaller;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::session::ChatSession;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::types::UnifiedResponse;
-use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::Message as ChatMessage;
 use closeclaw_session::compaction::{
     CompactConfig, CompactionMessage, CompactionResult, CompactionService,
@@ -65,7 +64,15 @@ pub struct SessionMessageHandler {
     pub(super) fallback_client: Arc<FallbackClient>,
     pub(super) output_tx: OutputTx,
     pub(super) compaction_service: Arc<std::sync::Mutex<CompactionService>>,
-    pub(super) unified_fallback_client: Arc<UnifiedFallbackClient>,
+    pub(super) llm_caller: Arc<dyn LlmCaller>,
+    /// Concrete [`ActiveSearcherLlmCaller`] for the active-searcher pipeline.
+    ///
+    /// The active-searcher uses its own [`LlmCaller`][closeclaw_memory::active_searcher_llm::LlmCaller]
+    /// trait (with `complete()`) rather than the main
+    /// [`closeclaw_common::LlmCaller`] trait. This field provides the
+    /// concrete wrapper needed by the searcher pipeline without
+    /// exposing `UnifiedFallbackClient` as a direct dependency.
+    pub(super) fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
     /// Optional back-reference to the owning [`Gateway`] (weak).
     ///
     /// When set, `handle_message_with_gateway` can route streaming LLM
@@ -92,7 +99,8 @@ impl SessionMessageHandler {
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,
         output_tx: mpsc::Sender<(String, Vec<ContentBlock>)>,
-        unified_fallback_client: Arc<UnifiedFallbackClient>,
+        llm_caller: Arc<dyn LlmCaller>,
+        fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
     ) -> Self {
         Self {
             session_manager,
@@ -101,7 +109,8 @@ impl SessionMessageHandler {
             compaction_service: Arc::new(std::sync::Mutex::new(CompactionService::new(
                 CompactConfig::default(),
             ))),
-            unified_fallback_client,
+            llm_caller,
+            fallback_llm_caller,
             gateway: None,
             shutdown_handle: None,
             memory_db_path: None,
@@ -111,7 +120,8 @@ impl SessionMessageHandler {
     pub fn new_no_output(
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,
-        unified_fallback_client: Arc<UnifiedFallbackClient>,
+        llm_caller: Arc<dyn LlmCaller>,
+        fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
     ) -> Self {
         Self {
             session_manager,
@@ -120,7 +130,8 @@ impl SessionMessageHandler {
             compaction_service: Arc::new(std::sync::Mutex::new(CompactionService::new(
                 CompactConfig::default(),
             ))),
-            unified_fallback_client,
+            llm_caller,
+            fallback_llm_caller,
             gateway: None,
             shutdown_handle: None,
             memory_db_path: None,
@@ -254,16 +265,14 @@ impl SessionMessageHandler {
 
 // ── LLM calling ──
 impl SessionMessageHandler {
-    /// Delegate to [`crate::llm_caller_impl::FallbackLlmCaller`].
+    /// Make a non-streaming LLM call via the [`LlmCaller`] trait.
     pub(super) async fn call_llm(
-        unified_fallback_client: &Arc<UnifiedFallbackClient>,
+        llm_caller: &Arc<dyn LlmCaller>,
         content: &str,
         _meta: &MessageMetadata,
         session_manager: &Arc<SessionManager>,
         session_id: &str,
     ) -> Result<UnifiedResponse, closeclaw_llm::LLMError> {
-        use crate::llm_caller_impl::FallbackLlmCaller;
-        use closeclaw_common::LlmCaller;
         use closeclaw_llm::session::InjectionPosition;
 
         let mut messages = vec![closeclaw_llm::types::InternalMessage {
@@ -308,8 +317,7 @@ impl SessionMessageHandler {
             turn_count: None,
         };
 
-        let caller = FallbackLlmCaller(Arc::clone(unified_fallback_client));
-        caller.call(request).await
+        llm_caller.call(request).await
     }
 }
 
@@ -317,15 +325,15 @@ impl SessionMessageHandler {
 ///
 /// Wraps the unified fallback client so it can be used as a trait object
 /// by the active-searcher pipeline.
-pub(crate) struct FallbackLlmCaller {
+pub struct ActiveSearcherLlmCaller {
     #[allow(dead_code)]
-    pub(crate) client: Arc<UnifiedFallbackClient>,
+    pub client: Arc<closeclaw_llm::unified_fallback::UnifiedFallbackClient>,
     #[allow(dead_code)]
-    pub(crate) model: String,
+    pub model: String,
 }
 
 #[async_trait::async_trait]
-impl crate::memory::active_searcher_llm::LlmCaller for FallbackLlmCaller {
+impl crate::memory::active_searcher_llm::LlmCaller for ActiveSearcherLlmCaller {
     async fn complete(
         &self,
         prompt: &str,
@@ -365,9 +373,12 @@ impl crate::memory::active_searcher_llm::LlmCaller for FallbackLlmCaller {
                     .join("");
                 Ok(text)
             }
-            Err(e) => Err(crate::memory::active_searcher::ActiveSearcherError::Llm(
-                e.to_string(),
-            )),
+            Err(e) => {
+                let msg = e.to_string();
+                Err(crate::memory::active_searcher::ActiveSearcherError::Llm(
+                    msg,
+                ))
+            }
         }
     }
 }
@@ -424,7 +435,7 @@ async fn apply_compact_result(
     // Rebuild system prompt after compaction so skills stay fresh.
     // The write guard above is now dropped, so we can safely acquire
     // a write lock for the rebuild.
-    rebuild_system_prompt_for_session(sm.as_ref(), session_id).await;
+    sm.rebuild_system_prompt_for_session(session_id).await;
 }
 
 async fn send_output(output_tx: &OutputTx, text: &str) {

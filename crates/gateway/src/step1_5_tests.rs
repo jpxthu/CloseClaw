@@ -394,11 +394,18 @@ async fn test_gateway_delegates_llm_to_session_layer() {
         vec![],
         Arc::new(closeclaw_llm::retry::CooldownManager::new()),
     ));
+    let llm_caller: std::sync::Arc<dyn closeclaw_common::LlmCaller> =
+        Arc::new(crate::llm_caller_impl::FallbackLlmCaller(ufc.clone()));
+    let fallback_llm_caller = Arc::new(crate::session_handler::ActiveSearcherLlmCaller {
+        client: ufc,
+        model: String::new(),
+    });
     let handler = Arc::new(
         crate::session_handler::SessionMessageHandler::new_no_output(
             Arc::clone(&sm),
             fallback,
-            ufc,
+            llm_caller,
+            fallback_llm_caller,
         ),
     );
     let gw = crate::Gateway::new(config, sm).with_session_handler(handler);

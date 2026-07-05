@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use crate::terminal::TerminalPlugin;
 use closeclaw_common::IMPlugin;
+use closeclaw_common::LlmCaller;
 use closeclaw_config::providers::{ConfigProvider, CredentialsProvider};
 use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use closeclaw_llm::anthropic::AnthropicProvider;
@@ -313,12 +314,22 @@ async fn build_session_handler(
     let unified_fallback_client = Arc::new(UnifiedFallbackClient::new(unified_chain, cooldown));
 
     let (output_tx, _output_rx) = tokio::sync::mpsc::channel(64);
+    let llm_caller: Arc<dyn LlmCaller> = Arc::new(
+        closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(unified_fallback_client.clone()),
+    );
+    let fallback_llm_caller = Arc::new(
+        closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
+            client: unified_fallback_client,
+            model: String::new(),
+        },
+    );
     Some(
         closeclaw_gateway::session_handler::SessionMessageHandler::new(
             session_manager,
             fallback_client,
             output_tx,
-            unified_fallback_client,
+            llm_caller,
+            fallback_llm_caller,
         ),
     )
 }

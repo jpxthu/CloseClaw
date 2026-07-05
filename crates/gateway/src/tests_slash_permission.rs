@@ -706,7 +706,7 @@ async fn test_execute_route_non_owner_denied_skips_execute() {
         .dispatch_slash("s1", "/exec ls", Some("user1"), "feishu")
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
-    // handler.handle() was NOT invoked because permission was denied before execution.
+    // handler.handle() IS invoked, but result.execute() is skipped because permission is checked after handler returns SlashResult.
 }
 
 // ===========================================================================
