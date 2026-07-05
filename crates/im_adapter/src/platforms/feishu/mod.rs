@@ -3,7 +3,9 @@
 //! Unified IM plugin for Feishu messaging platform, wrapping
 //! [`FeishuAdapter`] (HTTP I/O) behind a single [`IMPlugin`] implementation.
 
-pub mod adapter;
+mod adapter;
+#[cfg(test)]
+mod adapter_tests;
 pub mod cleaner;
 #[cfg(test)]
 mod cleaner_tests;
@@ -35,6 +37,13 @@ pub use adapter::FeishuAdapter;
 use renderer::build_card;
 pub use renderer::build_text;
 pub use renderer::should_use_card_for_blocks;
+
+// Re-export adapter internals for test modules.
+#[cfg(test)]
+pub(crate) use adapter::{
+    expand_post_content, truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent,
+    FeishuSender, FeishuSenderId, FEISHU_API_BASE,
+};
 
 inventory::submit!(PlatformEntry {
     name: "feishu",
