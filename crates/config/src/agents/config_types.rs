@@ -223,11 +223,53 @@ impl Default for AgentConfig {
 }
 
 /// Memory subsystem configuration.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_searcher: Option<ActiveSearcherOverride>,
+    /// Storage paths for memory subsystem files.
+    #[serde(default)]
+    pub storage: MemoryStorageConfig,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            active_searcher: None,
+            storage: MemoryStorageConfig::default(),
+        }
+    }
+}
+
+/// Storage paths for memory subsystem.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryStorageConfig {
+    /// SQLite database file path (relative to data root).
+    #[serde(default = "default_db_path")]
+    pub db_path: String,
+    /// MEMORY.md file path (relative to data root).
+    /// Used by system prompt provider and dreaming output.
+    #[serde(default = "default_memory_md_path")]
+    pub memory_md_path: String,
+}
+
+impl Default for MemoryStorageConfig {
+    fn default() -> Self {
+        Self {
+            db_path: default_db_path(),
+            memory_md_path: default_memory_md_path(),
+        }
+    }
+}
+
+fn default_db_path() -> String {
+    "memory/memory.db".to_string()
+}
+
+fn default_memory_md_path() -> String {
+    "memory/MEMORY.md".to_string()
 }
 
 /// Active-searcher overrides — all fields optional.

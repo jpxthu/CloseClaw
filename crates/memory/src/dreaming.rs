@@ -22,23 +22,35 @@ pub struct MemoryEntry {
     pub timestamp: chrono::DateTime<chrono::Utc>,
     /// Source session that generated this entry.
     pub source_session_id: String,
+    /// Actionable lesson extracted from Error/Anger events.
+    /// Required for Error and Anger categories; None for Decision.
+    pub lesson: Option<String>,
     /// Concept tags assigned during the REM stage.
     tags: Vec<String>,
     /// Aggregate score from the Deep stage.
     score: f64,
 }
 
+impl MemoryEntry {
+    /// Set the lesson field (builder pattern).
+    pub fn lesson(mut self, lesson: String) -> Self {
+        self.lesson = Some(lesson);
+        self
+    }
+}
+
 /// Memory entry category (matches design doc).
+///
+/// Miner 1 produces events with one of these categories.
+/// Error and Anger entries carry a required `lesson` field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EntryCategory {
-    /// User preference (e.g. "always use dark mode").
-    Preference,
-    /// A decision made during a session.
+    /// Agent made a clear error (wrong judgment, poor execution, misunderstood request).
+    Error,
+    /// Owner expressed dissatisfaction or correction.
+    Anger,
+    /// Owner made an explicit product decision or design choice.
     Decision,
-    /// A lesson learned.
-    Lesson,
-    /// A factual piece of information.
-    Fact,
 }
 
 /// Errors specific to the dreaming pipeline.
@@ -301,13 +313,13 @@ impl DreamingPipeline {
         let timeliness = 1.0 / (1.0 + age_hours / 168.0); // half-life ≈ 1 week
 
         let clarity = match entry.category {
-            EntryCategory::Preference | EntryCategory::Decision => 1.0,
-            EntryCategory::Lesson | EntryCategory::Fact => 0.6,
+            EntryCategory::Decision => 1.0,
+            EntryCategory::Error | EntryCategory::Anger => 0.8,
         };
 
         let persistence = match entry.category {
-            EntryCategory::Preference | EntryCategory::Decision => 1.0,
-            _ => 0.4,
+            EntryCategory::Decision => 1.0,
+            EntryCategory::Error | EntryCategory::Anger => 0.6,
         };
 
         let frequency = 1.0; // TODO: compute from cross-session duplicates
@@ -373,6 +385,7 @@ mod tests {
             body: body.to_string(),
             timestamp: chrono::Utc::now() - chrono::Duration::minutes(minutes_ago),
             source_session_id: session_id.to_string(),
+            lesson: None,
             tags: Vec::new(),
             score: 0.0,
         }
@@ -382,9 +395,9 @@ mod tests {
     fn test_light_dedup_removes_duplicates() {
         let pipeline = DreamingPipeline::new();
         let entries = vec![
-            make_entry(EntryCategory::Fact, "dark mode preferred", "s1", 10),
-            make_entry(EntryCategory::Fact, "dark mode preferred", "s1", 10),
-            make_entry(EntryCategory::Fact, "light theme is nice", "s1", 5),
+            make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 10),
+            make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 10),
+            make_entry(EntryCategory::Decision, "light theme is nice", "s1", 5),
         ];
         let result = pipeline.deduplicate(entries);
         assert_eq!(result.len(), 2);
@@ -394,9 +407,9 @@ mod tests {
     fn test_light_chunk_by_session() {
         let pipeline = DreamingPipeline::new();
         let entries = vec![
-            make_entry(EntryCategory::Fact, "a", "s1", 10),
-            make_entry(EntryCategory::Fact, "b", "s2", 10),
-            make_entry(EntryCategory::Fact, "c", "s1", 5),
+            make_entry(EntryCategory::Decision, "a", "s1", 10),
+            make_entry(EntryCategory::Decision, "b", "s2", 10),
+            make_entry(EntryCategory::Decision, "c", "s1", 5),
         ];
         let chunks = pipeline.chunk_by_session(entries);
         assert_eq!(chunks.len(), 2);
@@ -412,11 +425,17 @@ mod tests {
     fn test_deep_scoring_thresholds() {
         let pipeline = DreamingPipeline::new();
         let entries = vec![
-            make_entry(EntryCategory::Preference, "always use vim", "s1", 10),
-            make_entry(EntryCategory::Fact, "the sky is blue", "s1", 10),
+            make_entry(EntryCategory::Decision, "always use vim", "s1", 10),
+            make_entry(
+                EntryCategory::Error,
+                "wrong judgment on deployment",
+                "s1",
+                10,
+            )
+            .lesson("verify before deploying".to_string()),
         ];
         let result = pipeline.deep_stage(entries);
-        // Preference gets higher score than Fact due to clarity/persistence
+        // Decision gets higher score than Error due to clarity/persistence
         assert!(!result.is_empty());
     }
 
@@ -426,8 +445,8 @@ mod tests {
         let mut entries = Vec::new();
         for i in 0..300 {
             entries.push(make_entry(
-                EntryCategory::Fact,
-                &format!("fact number {i}"),
+                EntryCategory::Decision,
+                &format!("decision number {i}"),
                 "s1",
                 i,
             ));
