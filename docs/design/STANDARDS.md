@@ -107,7 +107,7 @@ docs/design/
 ```
 docs/design/common/
 ├── README.md              ← 共享类型与核心 trait 的总索引
-├── shared-types.md        ← 跨模块传递的纯数据结构的完整定义
+├── shared-types/          ← 跨模块传递的纯数据结构目录
 ├── core-traits.md         ← 核心 trait 的接口定义
 └── data-flow.md           ← 共享类型在全系统中的流动路径
 ```

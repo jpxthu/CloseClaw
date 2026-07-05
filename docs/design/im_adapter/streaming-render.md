@@ -2,7 +2,7 @@
 
 ## 概述
 
-流式渲染是 IM Adapter 模块的通用渲染子功能，负责在 LLM 流式输出时逐条渲染 ContentBlock 增量（定义见 [common ContentBlock](../common/shared-types.md#contentblock)）。用户无需等待完整响应即可看到输出内容。该能力作为 IMPlugin trait 的默认方法提供——各平台插件通过组合持有流式渲染器实例，由 trait 默认方法委托调用，平台可按需覆盖方法实现差异化渲染逻辑。
+流式渲染是 IM Adapter 模块的通用渲染子功能，负责在 LLM 流式输出时逐条渲染 ContentBlock 增量（定义见 [common ContentBlock](../common/shared-types/content-block.md)）。用户无需等待完整响应即可看到输出内容。该能力作为 IMPlugin trait 的默认方法提供——各平台插件通过组合持有流式渲染器实例，由 trait 默认方法委托调用，平台可按需覆盖方法实现差异化渲染逻辑。
 
 ## 架构
 

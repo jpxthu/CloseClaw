@@ -13,7 +13,7 @@ IM 平台消息到达
   ↓
 IM Adapter（入站）— 平台特定解析，产 NormalizedMessage
   ↓
-NormalizedMessage（统一中间结构，字段定义见 [common 共享类型](../../common/shared-types.md)）
+NormalizedMessage（统一中间结构，字段定义见 [common 共享类型](../../common/shared-types/README.md)）
   ↓
 Processor Chain（按 priority 升序执行，纯变换）
   ├── RawLogProcessor（priority 10）
@@ -66,7 +66,7 @@ IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, 
   → RawLogProcessor：记录原始内容到日志 → 透传（保留所有字段）
     → SessionRouter：计算 session_key（算法见上文 session_key 算法节）→ 写入 metadata.session_key
       → ContentNormalizer：文本标准化（去控制字符、压缩空行、去尾空格）。非文本消息（由 message_type 判断）跳过标准化，直接透传 content
-        → [ProcessedMessage](../common/shared-types.md#processedmessage)
+        → [ProcessedMessage](../common/shared-types/processed-message.md)
           → Gateway
             → 调用 SessionManager.resolve()，SessionManager 从消息路由字段提取稳定路由键做查找 → 获得 session_id
             → 路由决策（/ 开头 → 斜杠指令；否则 → LLM 对话）
@@ -82,7 +82,7 @@ IM Adapter 产出 NormalizedMessage { platform, sender_id, peer_id, thread_id?, 
 ## 模块关系
 
 - **上游**：IM Adapter（各平台提供适配器，产 NormalizedMessage）
-- **下游**：Gateway（接收 [ProcessedMessage](../common/shared-types.md#processedmessage)，消费 metadata.session_key 用于消息追踪）、Session 模块（SessionRouter 计算的 session_key 随 metadata 经 Gateway 传递给 SessionManager；SessionManager 使用稳定路由键做 session 路由查找，属数据流下游依赖）
+- **下游**：Gateway（接收 [ProcessedMessage](../common/shared-types/processed-message.md)，消费 metadata.session_key 用于消息追踪）、Session 模块（SessionRouter 计算的 session_key 随 metadata 经 Gateway 传递给 SessionManager；SessionManager 使用稳定路由键做 session 路由查找，属数据流下游依赖）
 - **链内**：
   - RawLogProcessor — 审计日志（副作用），不改内容
   - SessionRouter — 计算 session_key（纯哈希计算），写 metadata

@@ -10,9 +10,9 @@
 
 - **SlashDispatcher**：嵌入 Gateway 的指令分派器。Gateway 收到入站消息后，若内容以 `/` 开头则拦截并交给 SlashDispatcher，否则正常路由到 Session。
 - **HandlerRegistry**：指令注册表，维护指令名到 Handler 的映射。Gateway 初始化时注册所有 Handler。
-- **Handler**：指令处理器。每个 Handler 负责一组关联指令，接收指令参数和上下文，返回 [SlashResult](../common/shared-types.md#slashresult)。
+- **Handler**：指令处理器。每个 Handler 负责一组关联指令，接收指令参数和上下文，返回 [SlashResult](../common/shared-types/slash-result.md)。
 
-Handler 返回 [SlashResult](../common/shared-types.md#slashresult) 后，由 Gateway 构造 SideEffectContext（定义见 [common/shared-types.md](../common/shared-types.md#slashresult)）并触发 SlashResult 执行。SideEffectContext 封装 Session 操作和消息回复能力，各 SlashResult 变体自行完成副作用。Gateway 不感知具体变体，只负责传递上下文。
+Handler 返回 [SlashResult](../common/shared-types/slash-result.md) 后，由 Gateway 构造 SideEffectContext（定义见 [common/shared-types/slash-result.md](../common/shared-types/slash-result.md)）并触发 SlashResult 执行。SideEffectContext 封装 Session 操作和消息回复能力，各 SlashResult 变体自行完成副作用。Gateway 不感知具体变体，只负责传递上下文。
 
 ```
 用户消息到达 Gateway
@@ -99,7 +99,7 @@ Gateway.handle_inbound()
 - **下游**：
   - Session 模块 — 模式切换、会话创建/停止（含级联终止子 session）、推理深度控制、上下文压缩、system prompt 追加区管理、工作目录设置
 - **间接下游**（通过 Gateway 调用）：
-  - Permission 模块 — `/exec` 和 `/git` 写操作的权限审批（Gateway 在收到 Handler 返回的 Exec [SlashResult](../common/shared-types.md#slashresult) 后、实际执行前调用 Permission 引擎）
+  - Permission 模块 — `/exec` 和 `/git` 写操作的权限审批（Gateway 在收到 Handler 返回的 Exec [SlashResult](../common/shared-types/slash-result.md) 后、实际执行前调用 Permission 引擎）
 - **间接下游**（通过 Session 生效）：
   - LLM 模块 — `/reasoning` 写入的推理深度在下一次 LLM 调用时映射为各模型的原生参数（含不支持等级的自动降级）
-- **间接相关**：Processor Chain（斜杠指令消息经入站 Processor Chain 处理后由 Gateway 路由到 SlashDispatcher；[SlashResult](../common/shared-types.md#slashresult) 各变体通过 SideEffectContext 的回复通道产出回复内容，由 Gateway 送入出站 Processor Chain 处理后经 IM 插件渲染发送）
+- **间接相关**：Processor Chain（斜杠指令消息经入站 Processor Chain 处理后由 Gateway 路由到 SlashDispatcher；[SlashResult](../common/shared-types/slash-result.md) 各变体通过 SideEffectContext 的回复通道产出回复内容，由 Gateway 送入出站 Processor Chain 处理后经 IM 插件渲染发送）

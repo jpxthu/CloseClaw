@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档提供共享类型在全系统中的高层流动路径总览。各类型的完整数据流（字段级流动路径、判断分支、渲染差异）定义在 [shared-types.md](shared-types.md) 中，本文档仅做方向级概述和引用。
+本文档提供共享类型在全系统中的高层流动路径总览。各类型的完整数据流（字段级流动路径、判断分支、渲染差异）定义在 [shared-types/README.md](shared-types/README.md) 中，本文档仅做方向级概述和引用。
 
 ## 架构
 
@@ -35,8 +35,8 @@ ProcessedMessage { content_blocks: [ContentBlock::Text], metadata: { session_key
 
 入站方向涉及两种共享类型：
 
-- **[NormalizedMessage](shared-types.md#normalizedmessage)**：IM Adapter 产出 → Processor Chain 消费。各平台 Adapter 在入站解析时填充全部字段。消息过滤在 Adapter 解析阶段完成（空 text 丢弃，非 text 正常产出 NormalizedMessage）。
-- **[ProcessedMessage](shared-types.md#processedmessage)**（入站形态）：Processor Chain 入站产出 → Gateway 消费。content_blocks 为单个 ContentBlock::Text，metadata 含 session_key。生命周期止于 Gateway 完成路由决策。
+- **[NormalizedMessage](shared-types/inbound-message.md)**：IM Adapter 产出 → Processor Chain 消费。各平台 Adapter 在入站解析时填充全部字段。消息过滤在 Adapter 解析阶段完成（空 text 丢弃，非 text 正常产出 NormalizedMessage）。
+- **[ProcessedMessage](shared-types/processed-message.md)**（入站形态）：Processor Chain 入站产出 → Gateway 消费。content_blocks 为单个 ContentBlock::Text，metadata 含 session_key。生命周期止于 Gateway 完成路由决策。
 
 ### 出站方向
 
@@ -61,14 +61,14 @@ IM Adapter 发送
 
 出站方向涉及四种共享类型：
 
-- **[ContentBlock](shared-types.md#contentblock)**：7 种变体（Text / Thinking / ToolUse / ToolResult / Image / Audio / File），仅 Text 变体参与 DSL 解析，其余 6 种变体由 DslParser 透传。从 LLM / SlashResult 产出 → Processor Chain 出站消费 → IM Adapter 渲染。
-- **[DslParseResult / DslInstruction](shared-types.md#dslparseresult-和-dslinstruction)**：DslParser 从 ContentBlock::Text 中解析 DSL 指令行，产出 DslInstruction 列表。经 [ProcessedMessage](shared-types.md#processedmessage) 和出站日志传递，生命周期始于 DslParser、终于 Renderer 渲染。
-- **[ProcessedMessage](shared-types.md#processedmessage)**（出站形态）：Processor Chain 出站产出 → Gateway 出站日志 → IM Adapter 渲染。content_blocks 为经 DslParser 处理后的 ContentBlock[]，metadata 含 dsl_result（DslParseResult 的序列化值）。
-- **[SlashResult](shared-types.md#slashresult)**：10 种变体，SlashDispatcher Handler 返回 → Gateway 构造 SideEffectContext 触发执行。Exec 变体在执行前经 [Permission 模块](../permission/README.md) 校验。回复内容进入出站 Processor Chain，Session 操作通过 SideEffectContext 完成。
+- **[ContentBlock](shared-types/content-block.md)**：7 种变体（Text / Thinking / ToolUse / ToolResult / Image / Audio / File），仅 Text 变体参与 DSL 解析，其余 6 种变体由 DslParser 透传。从 LLM / SlashResult 产出 → Processor Chain 出站消费 → IM Adapter 渲染。
+- **[DslParseResult / DslInstruction](shared-types/dsl-parse-result.md)**：DslParser 从 ContentBlock::Text 中解析 DSL 指令行，产出 DslInstruction 列表。经 [ProcessedMessage](shared-types/processed-message.md) 和出站日志传递，生命周期始于 DslParser、终于 Renderer 渲染。
+- **[ProcessedMessage](shared-types/processed-message.md)**（出站形态）：Processor Chain 出站产出 → Gateway 出站日志 → IM Adapter 渲染。content_blocks 为经 DslParser 处理后的 ContentBlock[]，metadata 含 dsl_result（DslParseResult 的序列化值）。
+- **[SlashResult](shared-types/slash-result.md)**：10 种变体，SlashDispatcher Handler 返回 → Gateway 构造 SideEffectContext 触发执行。Exec 变体在执行前经 [Permission 模块](../permission/README.md) 校验。回复内容进入出站 Processor Chain，Session 操作通过 SideEffectContext 完成。
 
 ### 跨方向类型
 
-[ProcessedMessage](shared-types.md#processedmessage) 是唯一跨入站/出站方向使用的类型——入站和出站共用同一结构，content_blocks 和 metadata 按方向携带不同内容。入站和出站不区分类型，同一结构按方向呈现不同形态。
+[ProcessedMessage](shared-types/processed-message.md) 是唯一跨入站/出站方向使用的类型——入站和出站共用同一结构，content_blocks 和 metadata 按方向携带不同内容。入站和出站不区分类型，同一结构按方向呈现不同形态。
 
 ## 模块关系
 

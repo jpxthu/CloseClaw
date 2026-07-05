@@ -55,7 +55,7 @@ IMPlugin trait 的完整接口契约定义见 [common/core-traits](../common/cor
 
 每个消息平台插件实现 IMPlugin trait，包含入站解析、渲染、发送、生命周期四组方法。渲染和发送拆为两步——渲染结果是数据，发送是副作用——Gateway 在两步之间可插入审计、频率限制等中间件。
 
-NormalizedMessage 是插件产出的统一中间结构，屏蔽各平台差异。完整字段定义及身份映射规则见 [common 共享类型](../common/shared-types.md)。
+NormalizedMessage 是插件产出的统一中间结构，屏蔽各平台差异。完整字段定义及身份映射规则见 [common 共享类型](../common/shared-types/README.md)。
 
 IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段——各平台插件将原生格式转为统一结构，Processor Chain 和 Gateway 下游消费时不感知平台差异。
 
@@ -90,7 +90,7 @@ IM 平台 webhook
 Processor Chain 入站
   RawLog → SessionRouter → ContentNormalizer
   ↓
-[ProcessedMessage](../common/shared-types.md#processedmessage) → Gateway 路由决策
+[ProcessedMessage](../common/shared-types/processed-message.md) → Gateway 路由决策
 ```
 
 ### 出站路径
@@ -100,12 +100,12 @@ LLM 输出 ContentBlock[]
   ↓
 Processor Chain 出站（DslParser）
   ↓
-[ProcessedMessage](../common/shared-types.md#processedmessage)
+[ProcessedMessage](../common/shared-types/processed-message.md)
   ↓
 Gateway 记录出站日志
   ↓
 [IMPlugin 渲染]
-  Renderer.render(content_blocks, dsl_result)（DslParseResult，定义见 [common DslParseResult](../common/shared-types.md#dslparseresult-和-dslinstruction)）
+  Renderer.render(content_blocks, dsl_result)（DslParseResult，定义见 [common DslParseResult](../common/shared-types/dsl-parse-result.md)）
   ↓
   RenderedOutput { msg_type, payload }
   ↓

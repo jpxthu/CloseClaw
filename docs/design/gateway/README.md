@@ -13,7 +13,7 @@ Gateway 由五个职责组成：
 - **IM Adapter 管理**：注册和维护各平台插件，入站方向将平台原始格式归一化为统一结构。
 - **Processor Chain 调度**：按 priority 顺序调度入站和出站处理器链。入站链完成消息归一化和日志记录，出站链完成 Verbosity 过滤、DSL 解析和出站日志。
 - **路由决策**：根据消息前缀决定走向——以 `/` 开头则拦截分派给 SlashDispatcher（其中 Immediate 指令绕过 Session 队列立即执行），否则路由到 Session 进入 LLM 对话流程。
-- **IM Adapter 选择与渲染**：出站方向根据目标平台选择对应 IM Adapter，IM Adapter 完成 ContentBlock[]（定义见 [common ContentBlock](../common/shared-types.md#contentblock)）到平台原生格式的渲染。渲染完成后、发送前，Gateway 可插入审计、频率限制等中间件拦截出站消息。发送由 IM Adapter 完成。
+- **IM Adapter 选择与渲染**：出站方向根据目标平台选择对应 IM Adapter，IM Adapter 完成 ContentBlock[]（定义见 [common ContentBlock](../common/shared-types/content-block.md)）到平台原生格式的渲染。渲染完成后、发送前，Gateway 可插入审计、频率限制等中间件拦截出站消息。发送由 IM Adapter 完成。
 - **出站日志持久化**：出站消息发送后，Gateway 将消息写入 session checkpoint 持久化存储。
 
 Gateway 维护以下运行时注册表：
@@ -68,10 +68,10 @@ Gateway 维护以下运行时注册表：
 
 关键交接：
 - NormalizedMessage：IM Adapter 产出，Processor Chain 消费
-- [ProcessedMessage](../common/shared-types.md#processedmessage)：Processor Chain 产出，Gateway 消费
+- [ProcessedMessage](../common/shared-types/processed-message.md)：Processor Chain 产出，Gateway 消费
 - ContentBlock[]：LLM 响应 / SlashResult 变体产出，Processor Chain 出站消费
 - RenderedOutput：Gateway 调用 IM Adapter 渲染产出，由 IM Adapter 内部发送
-- **SideEffectContext**：Gateway 构造，封装 Session 引用和回复通道。传给 [SlashResult](../common/shared-types.md#slashresult) 让各变体自行完成副作用，Gateway 不穷举变体。回复内容经出站 Processor Chain 处理后发送（详见 [Slash 模块](../slash/README.md)及 [出站链路](../processor_chain/outbound-chain.md)）
+- **SideEffectContext**：Gateway 构造，封装 Session 引用和回复通道。传给 [SlashResult](../common/shared-types/slash-result.md) 让各变体自行完成副作用，Gateway 不穷举变体。回复内容经出站 Processor Chain 处理后发送（详见 [Slash 模块](../slash/README.md)及 [出站链路](../processor_chain/outbound-chain.md)）
 
 ### 子功能索引
 
@@ -83,7 +83,7 @@ Gateway 维护以下运行时注册表：
 
 ### 入站路径
 
-Gateway 收到入站 webhook 后，消息先进入入站消息队列（有界缓冲，详见下方「消息队列与排队语义」），再由 IM Adapter 解析后进入 Processor Chain。Processor Chain 入站产出 [ProcessedMessage](../common/shared-types.md#processedmessage) 后，Gateway 按以下路径处理：
+Gateway 收到入站 webhook 后，消息先进入入站消息队列（有界缓冲，详见下方「消息队列与排队语义」），再由 IM Adapter 解析后进入 Processor Chain。Processor Chain 入站产出 [ProcessedMessage](../common/shared-types/processed-message.md) 后，Gateway 按以下路径处理：
 
 - **非文本消息处理**：若消息的 message_type 非 text（image/file/audio），Gateway 直接构造"暂不支持该消息类型"的错误回复（ContentBlock[]），经简化出站路径发送（错误回复为纯文本不含 DSL 指令且无需按 Session 过滤，跳过 Processor Chain 出站和中间件链），经出站日志记录后由 IM Adapter 渲染发送。流程到此结束。
 
@@ -143,7 +143,7 @@ Gateway 涉及两层排队：
 
 ### 斜杠指令副作用执行
 
-SlashDispatcher 返回 [SlashResult](../common/shared-types.md#slashresult) 后，Gateway 构造 SideEffectContext（封装 Session 引用和回复通道）并触发 SlashResult 执行。各 SlashResult 变体在其执行逻辑中通过上下文完成对应的 session 操作。Gateway 不穷举变体，副作用逻辑内聚在 slash 模块。
+SlashDispatcher 返回 [SlashResult](../common/shared-types/slash-result.md) 后，Gateway 构造 SideEffectContext（封装 Session 引用和回复通道）并触发 SlashResult 执行。各 SlashResult 变体在其执行逻辑中通过上下文完成对应的 session 操作。Gateway 不穷举变体，副作用逻辑内聚在 slash 模块。
 
 SlashResult 的执行通过上下文的回复通道产出回复内容，Gateway 将回复送入出站 Processor Chain（VerbosityFilter → DslParser → OutboundRawLog）处理后由 IM Adapter 渲染发送。详见 [Slash 模块](../slash/README.md)。
 

@@ -12,11 +12,11 @@ PromptFragmentProvider 的完整接口定义见 [core-traits](../common/core-tra
 
 ### FragmentContext
 
-Builder 在构建时提供的上下文，传递给每个 Provider。定义见 [shared-types](../common/shared-types.md#fragmentcontext)。
+Builder 在构建时提供的上下文，传递给每个 Provider。定义见 [shared-types](../common/shared-types/prompt-fragment.md)。
 
 ### PromptFragment
 
-单个 Provider 产出的片段。定义见 [shared-types](../common/shared-types.md#promptfragment)。
+单个 Provider 产出的片段。定义见 [shared-types](../common/shared-types/prompt-fragment.md)。
 
 ### Provider 注册与 Builder 组装
 

@@ -23,7 +23,7 @@ webhook → webhook → webhook → ...（高并发）
     ↓
   ContentNormalizer(30) → 文本标准化（去除控制字符和 ANSI 转义序列、压缩连续空行、去尾空格）
   ↓
-[ProcessedMessage](../common/shared-types.md#processedmessage)（content_blocks + metadata { session_key }）
+[ProcessedMessage](../common/shared-types/processed-message.md)（content_blocks + metadata { session_key }）
   ↓
 [Gateway]
   → SessionManager 执行 resolve（传入 session_key 和消息路由字段；SessionManager 内部提取稳定路由键做查找）→ 获得 session_id
@@ -52,7 +52,7 @@ webhook → webhook → webhook → ...（高并发）
 
 ### 第一步：IM 插件解析
 
-IM 平台（飞书、Discord、Telegram 等）的 webhook 消息出队列后，由对应平台的插件处理。插件把平台原生格式转成统一结构 `NormalizedMessage`（完整字段定义见 [common 共享类型](../common/shared-types.md)）。插件屏蔽了平台差异，Gateway 和 Processor Chain 看到的是统一的 NormalizedMessage。入站链路中参与处理的关键字段为：platform、sender_id、peer_id、thread_id?、account_id、content、message_type、timestamp。message_type 由 ContentNormalizer（非文本跳过标准化）和 Gateway（非文本拦截）消费。media_refs 当前在入站链路无实际消费者，为多模态支持预留。完整产品逻辑待后续设计。
+IM 平台（飞书、Discord、Telegram 等）的 webhook 消息出队列后，由对应平台的插件处理。插件把平台原生格式转成统一结构 `NormalizedMessage`（完整字段定义见 [common 共享类型](../common/shared-types/README.md)）。插件屏蔽了平台差异，Gateway 和 Processor Chain 看到的是统一的 NormalizedMessage。入站链路中参与处理的关键字段为：platform、sender_id、peer_id、thread_id?、account_id、content、message_type、timestamp。message_type 由 ContentNormalizer（非文本跳过标准化）和 Gateway（非文本拦截）消费。media_refs 当前在入站链路无实际消费者，为多模态支持预留。完整产品逻辑待后续设计。
 
 消息过滤：text 类型空 content 消息在解析阶段丢弃，不产 NormalizedMessage。非文本消息（image/file/audio）正常产 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空），由下游 Gateway 统一处理。
 
@@ -71,7 +71,7 @@ NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执
 
 **ContentNormalizer（priority 30）**：对消息内容做平台无关的文本标准化。去除控制字符和 ANSI 转义序列，压缩连续空行，去行尾空格。不负责 Markdown 格式处理——URL 补全、代码块语言标签、富文本展开等均由各 IM 插件在解析阶段完成。非文本消息（image/file/audio）跳过标准化，直接透传。
 
-链输出入站 [ProcessedMessage](../common/shared-types.md#processedmessage)（`content_blocks` 含标准化后文本 + `metadata` 含 `session_key`）。ContentNormalizer 保留 metadata 不变，下游 Gateway 从 metadata 取出 session_key。
+链输出入站 [ProcessedMessage](../common/shared-types/processed-message.md)（`content_blocks` 含标准化后文本 + `metadata` 含 `session_key`）。ContentNormalizer 保留 metadata 不变，下游 Gateway 从 metadata 取出 session_key。
 
 ### 第三步：Gateway 路由
 
