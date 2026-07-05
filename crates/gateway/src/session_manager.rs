@@ -31,7 +31,6 @@ mod announce;
 mod channel;
 pub mod communication;
 mod key_registry;
-mod rebuild;
 mod resolve;
 mod session_helpers;
 mod spawn;
@@ -624,7 +623,7 @@ impl SessionManager {
                 section = %section,
                 "rebuilding system prompt for session after config change"
             );
-            self.rebuild_system_prompt(session_id).await;
+            crate::session_prompt_helper::rebuild_system_prompt_for_session(self, session_id).await;
         }
         tracing::info!(
             section = %section,
