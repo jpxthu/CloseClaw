@@ -7,7 +7,7 @@
 
 use thiserror::Error;
 
-use closeclaw_config::agents::DreamingConfig;
+use closeclaw_config::agents::{DreamingConfig, DreamingScoringConfig};
 use closeclaw_session::persistence::{DreamingStatus, PersistenceError, PersistenceService};
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -72,63 +72,23 @@ pub enum DreamingError {
 
 // ── Scoring weights (Deep stage) ─────────────────────────────────────────
 
-/// Configurable scoring weights for the Deep stage.
-#[derive(Debug, Clone)]
-struct ScoringWeights {
-    /// Weight for frequency (similar info across multiple sessions).
-    frequency: f64,
-    /// Weight for timeliness (recency bonus).
-    timeliness: f64,
-    /// Weight for clarity (owner-explicit vs agent-inferred).
-    clarity: f64,
-    /// Weight for persistence (decision/preference vs temporary fact).
-    persistence: f64,
-    /// Weight for relevance to existing MEMORY.md content.
-    relevance: f64,
-    /// Penalty weight for negative signals.
-    negative: f64,
-}
-
-impl Default for ScoringWeights {
-    fn default() -> Self {
-        Self {
-            frequency: 1.0,
-            timeliness: 0.8,
-            clarity: 1.2,
-            persistence: 1.5,
-            relevance: 0.6,
-            negative: -2.0,
-        }
-    }
-}
-
 /// Thresholds for the Deep stage three-gate filtering.
 #[derive(Debug, Clone)]
 struct Thresholds {
     /// Absolute minimum score; entries below this are discarded.
-    absolute_min: f64,
+    absolute: f64,
     /// Relative minimum within the same category; entries scoring
     /// below this fraction of the top entry are discarded.
-    relative_min_ratio: f64,
+    relative: f64,
     /// Maximum number of entries in the final MEMORY.md.
-    capacity: usize,
-}
-
-impl Default for Thresholds {
-    fn default() -> Self {
-        Self {
-            absolute_min: 0.3,
-            relative_min_ratio: 0.2,
-            capacity: 200,
-        }
-    }
+    max_rules: usize,
 }
 
 // ── DreamingPipeline ─────────────────────────────────────────────────────
 
 /// Orchestrates the three-stage dreaming pipeline.
 pub struct DreamingPipeline {
-    weights: ScoringWeights,
+    scoring: DreamingScoringConfig,
     thresholds: Thresholds,
     config: DreamingConfig,
 }
@@ -137,17 +97,27 @@ impl DreamingPipeline {
     /// Create a pipeline with default weights, thresholds, and config.
     pub fn new() -> Self {
         Self {
-            weights: ScoringWeights::default(),
-            thresholds: Thresholds::default(),
+            scoring: DreamingScoringConfig::default(),
+            thresholds: Thresholds {
+                absolute: 2.0,
+                relative: 0.3,
+                max_rules: 20,
+            },
             config: DreamingConfig::default(),
         }
     }
 
     /// Create a pipeline with a custom dreaming configuration.
     pub fn with_config(config: DreamingConfig) -> Self {
+        let scoring = config.scoring.clone();
+        let thresholds = Thresholds {
+            absolute: config.threshold.absolute,
+            relative: config.threshold.relative,
+            max_rules: config.capacity.max_rules,
+        };
         Self {
-            weights: ScoringWeights::default(),
-            thresholds: Thresholds::default(),
+            scoring,
+            thresholds,
             config,
         }
     }
@@ -318,13 +288,13 @@ impl DreamingPipeline {
         });
 
         // Gate 1: absolute threshold
-        scored.retain(|e| e.score >= self.thresholds.absolute_min);
+        scored.retain(|e| e.score >= self.thresholds.absolute);
 
         // Gate 2: relative threshold (per-category)
         self.apply_relative_filter(&mut scored);
 
         // Gate 3: capacity limit
-        scored.truncate(self.thresholds.capacity);
+        scored.truncate(self.thresholds.max_rules);
 
         scored
     }
@@ -332,9 +302,9 @@ impl DreamingPipeline {
     /// Compute a weighted score for a single entry.
     fn score_entry(&self, mut entry: MemoryEntry) -> MemoryEntry {
         let age_hours = (chrono::Utc::now() - entry.timestamp).num_hours().max(0) as f64;
-        let timeliness = 1.0 / (1.0 + age_hours / 168.0); // half-life ≈ 1 week
+        let recency = 1.0 / (1.0 + age_hours / 168.0); // half-life ≈ 1 week
 
-        let clarity = match entry.category {
+        let explicitness = match entry.category {
             EntryCategory::Decision => 1.0,
             EntryCategory::Error | EntryCategory::Anger => 0.8,
         };
@@ -346,20 +316,21 @@ impl DreamingPipeline {
 
         let frequency = 1.0; // TODO: compute from cross-session duplicates
         let relevance = entry.tags.len() as f64 / 10.0;
-        let negative = 0.0; // TODO: detect conflicting info
+        // persistence + relevance → cross_agent dimension
+        let cross_agent = persistence * 0.5 + relevance * 0.5;
+        let negative_signal = 0.0; // TODO: detect conflicting info
 
-        let w = &self.weights;
-        entry.score = w.frequency * frequency
-            + w.timeliness * timeliness
-            + w.clarity * clarity
-            + w.persistence * persistence
-            + w.relevance * relevance
-            + w.negative * negative;
+        let w = &self.scoring;
+        entry.score = w.frequency_weight * frequency
+            + w.recency_weight * recency
+            + w.explicitness_weight * explicitness
+            + w.cross_agent_weight * cross_agent
+            + w.negative_signal_weight * negative_signal;
 
         entry
     }
 
-    /// Remove entries scoring below `relative_min_ratio × top_score`
+    /// Remove entries scoring below `relative × top_score`
     /// within the same category.
     fn apply_relative_filter(&self, entries: &mut Vec<MemoryEntry>) {
         if entries.is_empty() {
@@ -380,7 +351,7 @@ impl DreamingPipeline {
                 continue;
             }
             let max_score = cat_scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-            let cutoff = max_score * self.thresholds.relative_min_ratio;
+            let cutoff = max_score * self.thresholds.relative;
 
             entries.retain(|e| e.category != cat || e.score >= cutoff);
         }
