@@ -22,7 +22,6 @@ pub mod slash_router_tests;
 pub mod storage_provider;
 pub mod streaming;
 pub mod system_prompt;
-pub mod task_manager;
 pub mod test_helpers;
 pub mod tool_registry;
 pub mod tool_session;
