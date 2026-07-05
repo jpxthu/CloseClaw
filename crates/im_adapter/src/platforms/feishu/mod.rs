@@ -3,10 +3,14 @@
 //! Unified IM plugin for Feishu messaging platform, wrapping
 //! [`FeishuAdapter`] (HTTP I/O) behind a single [`IMPlugin`] implementation.
 
-pub mod adapter;
+mod adapter;
+#[cfg(test)]
+mod adapter_tests;
 pub mod cleaner;
 #[cfg(test)]
 mod cleaner_tests;
+#[cfg(test)]
+mod feishu_tests;
 pub mod renderer;
 pub mod tools;
 
@@ -15,17 +19,18 @@ use crate::normalized::{add_code_block_language_hint, normalize_urls};
 use crate::IMAdapter;
 use async_trait::async_trait;
 use closeclaw_common::identity::IdentityResolver;
-use closeclaw_common::processor::ContentBlock;
-use closeclaw_common::processor::DslParseResult;
+use closeclaw_common::processor::{ContentBlock, DslParseResult, StreamEvent};
+use closeclaw_common::streaming::{DefaultStreamingRenderer, StreamingRenderer};
 use closeclaw_common::{
     AdapterError as CommonAdapterError, CardActionEvent, IMPlugin, NormalizedMessage,
-    RenderedOutput,
+    RenderedOutput, StreamingOutput,
 };
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_gateway::Message;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::PlatformEntry;
 
@@ -34,6 +39,13 @@ pub use adapter::FeishuAdapter;
 use renderer::build_card;
 pub use renderer::build_text;
 pub use renderer::should_use_card_for_blocks;
+
+// Re-export adapter internals for test modules.
+#[cfg(test)]
+pub(crate) use adapter::{
+    expand_post_content, truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent,
+    FeishuSender, FeishuSenderId, FEISHU_API_BASE,
+};
 
 inventory::submit!(PlatformEntry {
     name: "feishu",
@@ -44,15 +56,81 @@ inventory::submit!(PlatformEntry {
     },
 });
 
+/// Root platforms configuration loaded from `platforms.json`.
+///
+/// Each key is a platform name and `enabled` controls whether
+/// the platform plugin is registered at startup.
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+pub(crate) struct PlatformsConfig {
+    platforms: HashMap<String, PlatformEnabledEntry>,
+}
+
+/// A single platform entry in `platforms.json`.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub(crate) struct PlatformEnabledEntry {
+    #[serde(default)]
+    enabled: bool,
+}
+
+impl PlatformsConfig {
+    /// Check whether a platform is explicitly enabled.
+    fn is_enabled(&self, platform: &str) -> bool {
+        self.platforms.get(platform).is_some_and(|e| e.enabled)
+    }
+}
+
+/// Load `{config_dir}/config/platforms.json`.
+///
+/// Returns an empty config when the file is missing or unparseable.
+pub(crate) fn load_platforms_config(config_dir: &str) -> PlatformsConfig {
+    let path = std::path::Path::new(config_dir)
+        .join("config")
+        .join("platforms.json");
+    match std::fs::read_to_string(&path) {
+        Ok(json) => match serde_json::from_str::<PlatformsConfig>(&json) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    path = %path.display(),
+                    "failed to parse platforms.json — all platforms disabled"
+                );
+                PlatformsConfig::default()
+            }
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            info!("platforms.json not found — all platforms disabled");
+            PlatformsConfig::default()
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                path = %path.display(),
+                "failed to read platforms.json — all platforms disabled"
+            );
+            PlatformsConfig::default()
+        }
+    }
+}
+
 /// Register the Feishu plugin with the Gateway.
 ///
-/// Reads credentials from environment variables.  If any required
-/// variable is missing the plugin is silently not registered.
+/// First checks `{config_dir}/config/platforms.json` for an explicit
+/// enable flag.  If the platform is not listed or disabled the plugin
+/// is silently not registered.  When enabled, credentials are read
+/// from environment variables; missing env vars emit a warning.
 ///
-/// Identity mapping is loaded from `{config_dir}/config/identity.json`
+/// Identity mapping is loaded from `{config_dir}/config/accounts.json`
 /// (if the file exists).  A missing or empty file results in no
 /// mapping — the fallback uses `sender_id` as `account_id`.
 pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, config_dir: &str) {
+    let platforms = load_platforms_config(config_dir);
+    if !platforms.is_enabled("feishu") {
+        info!("feishu not enabled in platforms.json — skipping");
+        return;
+    }
+
     let app_id = std::env::var("FEISHU_APP_ID").ok();
     let app_secret = std::env::var("FEISHU_APP_SECRET").ok();
     let verification_token = std::env::var("FEISHU_VERIFICATION_TOKEN").ok();
@@ -72,23 +150,27 @@ pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, config_dir: &st
         gateway.register_plugin(plugin).await;
         info!("Feishu plugin registered");
     } else {
-        info!("Feishu credentials not found in env — Feishu plugin not registered");
+        warn!("feishu enabled in platforms.json but credentials missing in env — skipping");
     }
 }
 
-/// Try to load identity mappings from `{config_dir}/config/identity.json`.
+/// Try to load identity mappings from `{config_dir}/config/accounts.json`.
 ///
 /// Returns `Some(Arc<ConfigIdentityResolver>)` when the file exists and
-/// contains a valid JSON array, or `None` on any error / missing file.
-fn load_identity_resolver(config_dir: &str) -> Option<Arc<dyn IdentityResolver>> {
+/// contains a valid JSON object with an `accounts` array, or `None` on
+/// any error / missing file.
+pub(crate) fn load_identity_resolver(config_dir: &str) -> Option<Arc<dyn IdentityResolver>> {
+    use closeclaw_config::AccountsConfigData;
+
     let path = std::path::Path::new(config_dir)
         .join("config")
-        .join("identity.json");
+        .join("accounts.json");
     match std::fs::read_to_string(&path) {
-        Ok(json) => match ConfigIdentityResolver::from_json(&json) {
-            Ok(resolver) => {
+        Ok(json) => match AccountsConfigData::from_json_str(&json) {
+            Ok(accounts_data) => {
+                let resolver = ConfigIdentityResolver::new(accounts_data.accounts);
                 if resolver.is_empty() {
-                    info!("identity.json loaded but empty — no mappings configured");
+                    info!("accounts.json loaded but empty — no mappings configured");
                     None
                 } else {
                     info!(
@@ -103,20 +185,20 @@ fn load_identity_resolver(config_dir: &str) -> Option<Arc<dyn IdentityResolver>>
                 tracing::warn!(
                     error = %e,
                     path = %path.display(),
-                    "failed to parse identity.json — skipping identity mapping"
+                    "failed to parse accounts.json — skipping identity mapping"
                 );
                 None
             }
         },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            info!("identity.json not found — identity mapping disabled");
+            info!("accounts.json not found — identity mapping disabled");
             None
         }
         Err(e) => {
             tracing::warn!(
                 error = %e,
                 path = %path.display(),
-                "failed to read identity.json — skipping identity mapping"
+                "failed to read accounts.json — skipping identity mapping"
             );
             None
         }
@@ -139,6 +221,7 @@ fn convert_to_common_error(e: AdapterError) -> CommonAdapterError {
 pub struct FeishuPlugin {
     adapter: Arc<FeishuAdapter>,
     identity_resolver: Option<Arc<dyn IdentityResolver>>,
+    streaming_renderer: std::sync::Mutex<DefaultStreamingRenderer>,
 }
 
 impl FeishuPlugin {
@@ -147,6 +230,7 @@ impl FeishuPlugin {
         Self {
             adapter,
             identity_resolver: None,
+            streaming_renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
         }
     }
 
@@ -159,6 +243,7 @@ impl FeishuPlugin {
         Self {
             adapter,
             identity_resolver,
+            streaming_renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
         }
     }
 
@@ -283,6 +368,20 @@ impl IMPlugin for FeishuPlugin {
     async fn shutdown(&self) -> Result<(), CommonAdapterError> {
         *self.adapter.cached_token.lock().await = None;
         Ok(())
+    }
+
+    fn handle_stream_event(&self, event: StreamEvent) -> StreamingOutput {
+        self.streaming_renderer
+            .lock()
+            .expect("FeishuPlugin streaming renderer lock poisoned")
+            .handle_event(event)
+    }
+
+    fn flush_stream(&self) -> StreamingOutput {
+        self.streaming_renderer
+            .lock()
+            .expect("FeishuPlugin streaming renderer lock poisoned")
+            .flush()
     }
 
     fn clean_content(&self, raw: &str) -> String {

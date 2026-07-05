@@ -2,5 +2,5 @@
 
 pub mod streaming {
     #[allow(unused_imports)]
-    pub use closeclaw_im_adapter::streaming::{DefaultStreamingRenderer, StreamingRenderer};
+    pub use closeclaw_common::streaming::{DefaultStreamingRenderer, StreamingRenderer};
 }

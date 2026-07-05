@@ -13,10 +13,10 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::code_block::{parse_content_segments, ContentSegment};
     use crate::platforms::feishu::{FeishuAdapter, FeishuPlugin};
     use crate::plugin::{IMPlugin, RenderedOutput};
     use async_trait::async_trait;
+    use closeclaw_common::code_block::{parse_content_segments, ContentSegment};
     use closeclaw_common::processor::ContentBlock;
     use closeclaw_common::{AdapterError, NormalizedMessage};
     use std::sync::Arc;
@@ -339,11 +339,14 @@ mod tests {
             segs,
             vec![
                 ContentSegment::Markdown("text1".into()),
+                ContentSegment::Markdown("".into()),
                 ContentSegment::CodeBlock {
                     language: String::new(),
                     code: "code".into(),
                 },
+                ContentSegment::Markdown("".into()),
                 ContentSegment::Hr,
+                ContentSegment::Markdown("".into()),
                 ContentSegment::Markdown("text2".into()),
             ]
         );

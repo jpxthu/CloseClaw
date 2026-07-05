@@ -19,78 +19,78 @@ use tokio::sync::Mutex;
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
-pub(super) struct FeishuEvent {
-    pub(super) schema: String,
-    pub(super) header: FeishuHeader,
-    pub(super) event: FeishuMessageEvent,
+pub(crate) struct FeishuEvent {
+    pub(crate) schema: String,
+    pub(crate) header: FeishuHeader,
+    pub(crate) event: FeishuMessageEvent,
 }
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
-pub(super) struct FeishuHeader {
-    pub(super) event_id: String,
-    pub(super) event_type: String,
-    pub(super) create_time: String,
-    pub(super) token: String,
-    pub(super) app_id: String,
+pub(crate) struct FeishuHeader {
+    pub(crate) event_id: String,
+    pub(crate) event_type: String,
+    pub(crate) create_time: String,
+    pub(crate) token: String,
+    pub(crate) app_id: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
-pub(super) struct FeishuMessageEvent {
+pub(crate) struct FeishuMessageEvent {
     #[serde(default)]
-    pub(super) message_id: Option<String>,
-    pub(super) sender: FeishuSender,
-    pub(super) content: String,
-    pub(super) chat_id: String,
-    pub(super) message_type: String,
+    pub(crate) message_id: Option<String>,
+    pub(crate) sender: FeishuSender,
+    pub(crate) content: String,
+    pub(crate) chat_id: String,
+    pub(crate) message_type: String,
     #[serde(default)]
-    pub(super) thread_id: Option<String>,
+    pub(crate) thread_id: Option<String>,
     #[serde(default)]
-    pub(super) root_id: Option<String>,
+    pub(crate) root_id: Option<String>,
     #[serde(default)]
-    pub(super) parent_id: Option<String>,
+    pub(crate) parent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
-pub(super) struct FeishuSender {
-    pub(super) sender_id: FeishuSenderId,
-    pub(super) sender_type: String,
+pub(crate) struct FeishuSender {
+    pub(crate) sender_id: FeishuSenderId,
+    pub(crate) sender_type: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub(super) struct FeishuSenderId {
-    pub(super) open_id: String,
+pub(crate) struct FeishuSenderId {
+    pub(crate) open_id: String,
 }
 
 /// Card action event payload (`card.action.trigger`).
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
-pub(super) struct FeishuCardActionEvent {
-    pub(super) operator: FeishuCardOperator,
-    pub(super) token: String,
-    pub(super) action: FeishuCardAction,
+pub(crate) struct FeishuCardActionEvent {
+    pub(crate) operator: FeishuCardOperator,
+    pub(crate) token: String,
+    pub(crate) action: FeishuCardAction,
 }
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
-pub(super) struct FeishuCardOperator {
-    pub(super) open_id: String,
+pub(crate) struct FeishuCardOperator {
+    pub(crate) open_id: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
-pub(super) struct FeishuCardAction {
-    pub(super) value: Option<serde_json::Value>,
-    pub(super) tag: Option<String>,
+pub(crate) struct FeishuCardAction {
+    pub(crate) value: Option<serde_json::Value>,
+    pub(crate) tag: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
+pub(crate) const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
 
 // ---------------------------------------------------------------------------
 // Post content expansion
@@ -105,7 +105,7 @@ const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
 /// - `title` becomes the first line (if present).
 /// - Each sub-array in `content` becomes one line; elements are concatenated.
 /// - Supported tags: `text`, `a`, `at`, unknown tags use `text` if available.
-fn expand_post_content(content: &serde_json::Value) -> String {
+pub(crate) fn expand_post_content(content: &serde_json::Value) -> String {
     let mut lines: Vec<String> = Vec::new();
 
     // Extract title as the first line if present.
@@ -145,7 +145,7 @@ fn expand_post_content(content: &serde_json::Value) -> String {
 /// - `media` → `[视频]`
 /// - `file` → `[文件]`
 /// - unknown tags → text if available, otherwise `[未知消息]`
-fn expand_element(elem: &serde_json::Value) -> String {
+pub(crate) fn expand_element(elem: &serde_json::Value) -> String {
     let tag = elem.get("tag").and_then(|t| t.as_str()).unwrap_or("");
     match tag {
         "text" | "a" => elem
@@ -184,7 +184,7 @@ fn expand_element(elem: &serde_json::Value) -> String {
 // ---------------------------------------------------------------------------
 
 /// Truncate text to at most 500 characters, appending "..." if truncated.
-fn truncate_to_500(text: &str) -> String {
+pub(crate) fn truncate_to_500(text: &str) -> String {
     let max_chars = 500;
     if text.chars().count() <= max_chars {
         text.to_string()
@@ -198,7 +198,7 @@ fn truncate_to_500(text: &str) -> String {
 }
 
 /// Format text as a markdown blockquote: each line prefixed with "> ".
-fn to_blockquote(text: &str) -> String {
+pub(crate) fn to_blockquote(text: &str) -> String {
     text.lines()
         .map(|line| format!("> {}", line))
         .collect::<Vec<_>>()
@@ -252,12 +252,12 @@ struct FeishuGetMessageResponse {
 /// Feishu adapter implementation.
 #[derive(Debug, Clone)]
 pub struct FeishuAdapter {
-    app_id: String,
-    app_secret: String,
-    verification_token: String,
-    http_client: Client,
-    pub(super) cached_token: Arc<Mutex<Option<CachedToken>>>,
-    base_url: String,
+    pub(crate) app_id: String,
+    pub(crate) app_secret: String,
+    pub(crate) verification_token: String,
+    pub(crate) http_client: Client,
+    pub(crate) cached_token: Arc<Mutex<Option<CachedToken>>>,
+    pub(crate) base_url: String,
 }
 
 impl FeishuAdapter {
@@ -536,7 +536,7 @@ impl FeishuAdapter {
     }
 
     /// Parse a card.action.trigger event into a CardActionEvent.
-    pub(super) fn parse_card_action_event(
+    pub(crate) fn parse_card_action_event(
         &self,
         _event_id: String,
         _app_id: String,
@@ -584,7 +584,7 @@ impl FeishuAdapter {
     ///
     /// For `image`, `file`, and `audio` message types, logs and discards
     /// (media understanding is not yet designed).
-    async fn parse_message_event(
+    pub(crate) async fn parse_message_event(
         &self,
         event: FeishuEvent,
     ) -> Result<Option<NormalizedMessage>, AdapterError> {
@@ -839,6 +839,3 @@ impl IMAdapter for FeishuAdapter {
         expected == signature
     }
 }
-
-#[cfg(test)]
-mod adapter_tests;

@@ -341,8 +341,14 @@ pub trait IMPlugin: Send + Sync {
 
     /// Render LLM content blocks into a platform-native output.
     ///
-    /// The default implementation concatenates text blocks into a plain-text
-    /// payload. Platforms should override for rich formatting.
+    /// The default implementation parses Text blocks via
+    /// [`parse_content_segments`] to preserve fenced code blocks as single
+    /// units with language annotations, then emits them in triple-backtick
+    /// markdown format. This implements the "other" platform strategy:
+    /// plain text with fenced code blocks preserved.
+    ///
+    /// Platforms should override for rich formatting (e.g. Feishu uses
+    /// native markdown code blocks, CLI uses ANSI escape sequences).
     fn render(
         &self,
         content_blocks: &[crate::processor::ContentBlock],
@@ -351,7 +357,30 @@ pub trait IMPlugin: Send + Sync {
         let mut rendered = String::new();
         for block in content_blocks {
             if let crate::processor::ContentBlock::Text(text) = block {
-                rendered.push_str(text);
+                let segments = crate::code_block::parse_content_segments(text);
+                for (i, segment) in segments.into_iter().enumerate() {
+                    if i > 0 {
+                        rendered.push('\n');
+                    }
+                    use crate::code_block::ContentSegment;
+                    match segment {
+                        ContentSegment::Markdown(line) => {
+                            rendered.push_str(&line);
+                        }
+                        ContentSegment::Hr => {
+                            rendered.push_str("---");
+                        }
+                        ContentSegment::CodeBlock { language, code } => {
+                            if language.is_empty() {
+                                rendered.push_str("```\n");
+                            } else {
+                                rendered.push_str(&format!("```{language}\n"));
+                            }
+                            rendered.push_str(&code);
+                            rendered.push_str("\n```");
+                        }
+                    }
+                }
             }
         }
         RenderedOutput {
