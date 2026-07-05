@@ -193,6 +193,156 @@ fn test_deny_request() {
 }
 
 #[test]
+fn test_heartbeat_notify_returns_none_and_notifies() {
+    let rt = test_runtime();
+    let sm = test_session_lookup();
+    let notify_count = Arc::new(AtomicUsize::new(0));
+    let nc = Arc::clone(&notify_count);
+    let mut flow = ApprovalFlow::new(
+        sm,
+        Arc::new(move |_n: ApprovalNotification| {
+            nc.fetch_add(1, Ordering::SeqCst);
+        }),
+        rt.handle().clone(),
+        HeartbeatApprovalMode::Notify,
+    );
+
+    let caller = test_caller();
+    let request = test_heartbeat_request();
+
+    let result = flow.submit_denial(&caller, &request, RiskLevel::Low, "session_1", false);
+    // Notify mode: returns None, one notification sent.
+    assert!(result.is_none());
+    assert_eq!(notify_count.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn test_heartbeat_ask_enqueues_and_notifies() {
+    let rt = test_runtime();
+    let sm = test_session_lookup();
+    let notify_count = Arc::new(AtomicUsize::new(0));
+    let nc = Arc::clone(&notify_count);
+    let mut flow = ApprovalFlow::new(
+        sm,
+        Arc::new(move |_n: ApprovalNotification| {
+            nc.fetch_add(1, Ordering::SeqCst);
+        }),
+        rt.handle().clone(),
+        HeartbeatApprovalMode::Ask,
+    );
+
+    let caller = test_caller();
+    let request = test_heartbeat_request();
+
+    let result = flow.submit_denial(&caller, &request, RiskLevel::Low, "session_1", false);
+    // Ask mode: returns Some(request_id), one notification sent.
+    assert!(result.is_some());
+    assert_eq!(notify_count.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn test_heartbeat_ask_dedup() {
+    let rt = test_runtime();
+    let sm = test_session_lookup();
+    let notify_count = Arc::new(AtomicUsize::new(0));
+    let nc = Arc::clone(&notify_count);
+    let mut flow = ApprovalFlow::new(
+        sm,
+        Arc::new(move |_n: ApprovalNotification| {
+            nc.fetch_add(1, Ordering::SeqCst);
+        }),
+        rt.handle().clone(),
+        HeartbeatApprovalMode::Ask,
+    );
+
+    let caller = test_caller();
+    let request = test_heartbeat_request();
+
+    // First submission succeeds.
+    let result1 = flow.submit_denial(&caller, &request, RiskLevel::Low, "session_1", false);
+    assert!(result1.is_some());
+
+    // Duplicate is rejected.
+    let result2 = flow.submit_denial(&caller, &request, RiskLevel::Low, "session_1", false);
+    assert!(result2.is_none());
+
+    // Only one notification was sent.
+    assert_eq!(notify_count.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn test_non_heartbeat_unaffected_by_heartbeat_mode() {
+    let rt = test_runtime();
+    let caller = test_caller();
+    let request = test_request();
+
+    for mode in [
+        HeartbeatApprovalMode::Skip,
+        HeartbeatApprovalMode::Notify,
+        HeartbeatApprovalMode::Ask,
+    ] {
+        let nc = Arc::new(AtomicUsize::new(0));
+        let nc_clone = Arc::clone(&nc);
+        let sm_clone: Arc<dyn SessionLookup> = Arc::new(MockSessionLookup::new());
+        let mut flow = ApprovalFlow::new(
+            sm_clone,
+            Arc::new(move |_n: ApprovalNotification| {
+                nc_clone.fetch_add(1, Ordering::SeqCst);
+            }),
+            rt.handle().clone(),
+            mode,
+        );
+
+        let result = flow.submit_denial(&caller, &request, RiskLevel::Low, "session_1", false);
+        // Non-heartbeat always enqueues regardless of heartbeat_mode.
+        assert!(
+            result.is_some(),
+            "non-heartbeat should enqueue with mode {:?}",
+            mode
+        );
+        assert_eq!(nc.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[test]
+fn test_set_heartbeat_mode_runtime_switch() {
+    let rt = test_runtime();
+    let notify_count = Arc::new(AtomicUsize::new(0));
+    let nc = Arc::clone(&notify_count);
+    let sm: Arc<dyn SessionLookup> = Arc::new(MockSessionLookup::new());
+    let mut flow = ApprovalFlow::new(
+        sm,
+        Arc::new(move |_n: ApprovalNotification| {
+            nc.fetch_add(1, Ordering::SeqCst);
+        }),
+        rt.handle().clone(),
+        HeartbeatApprovalMode::Skip,
+    );
+
+    let caller = test_caller();
+    let request = test_heartbeat_request();
+
+    // Initially Skip: returns None, no notification.
+    let result = flow.submit_denial(&caller, &request, RiskLevel::Low, "session_1", false);
+    assert!(result.is_none());
+    assert_eq!(notify_count.load(Ordering::SeqCst), 0);
+
+    // Switch to Notify at runtime.
+    flow.set_heartbeat_mode(HeartbeatApprovalMode::Notify);
+    let result = flow.submit_denial(&caller, &request, RiskLevel::Low, "session_1", false);
+    // Notify: returns None, notification sent.
+    assert!(result.is_none());
+    assert_eq!(notify_count.load(Ordering::SeqCst), 1);
+
+    // Switch to Ask at runtime.
+    flow.set_heartbeat_mode(HeartbeatApprovalMode::Ask);
+    let result = flow.submit_denial(&caller, &request, RiskLevel::Low, "session_1", false);
+    // Ask: returns Some, notification sent.
+    assert!(result.is_some());
+    assert_eq!(notify_count.load(Ordering::SeqCst), 2);
+}
+
+#[test]
 fn test_clear() {
     let rt = test_runtime();
     let sm = test_session_lookup();
