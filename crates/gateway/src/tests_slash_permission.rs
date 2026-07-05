@@ -206,6 +206,34 @@ fn deny_engine() -> Arc<PermissionEngine> {
     Arc::new(PermissionEngine::new_with_default_data_root(rules))
 }
 
+/// A PermissionEngine that always allows (all rules are Allow).
+fn allow_engine() -> Arc<PermissionEngine> {
+    let rules = RuleSet {
+        rules: vec![Rule {
+            name: "allow-all".to_owned(),
+            subject: Subject::AgentOnly {
+                agent: "*".to_owned(),
+                match_type: Default::default(),
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::All],
+            template: None,
+            priority: 100,
+        }],
+        defaults: Defaults {
+            file: Effect::Allow,
+            command: Effect::Allow,
+            network: Effect::Allow,
+            inter_agent: Effect::Allow,
+            config: Effect::Allow,
+            tool_call: Effect::Allow,
+        },
+        template_includes: vec![],
+        agent_creators: HashMap::new(),
+    };
+    Arc::new(PermissionEngine::new_with_default_data_root(rules))
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -250,8 +278,8 @@ async fn test_non_owner_high_risk_goes_to_permission_engine() {
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
     assert_eq!(
         counter.load(Ordering::SeqCst),
-        1,
-        "handler.handle() must be invoked even when permission is denied"
+        0,
+        "handler.handle() must NOT be invoked when permission is denied"
     );
 }
 
@@ -330,8 +358,30 @@ async fn test_deny_skips_execute() {
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
     assert_eq!(
         counter.load(Ordering::SeqCst),
+        0,
+        "handler.handle() must NOT be invoked when permission is denied"
+    );
+}
+
+#[tokio::test]
+async fn test_non_owner_high_risk_permitted_handler_executes() {
+    // Branch 2: non-owner + requires_permission=true + engine Allow
+    // → handler.handle() IS invoked and result.execute() runs.
+    let counter = Arc::new(AtomicU32::new(0));
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(counting_dispatcher("exec", true, Arc::clone(&counter)))
+        .await;
+    gw.set_permission_engine(allow_engine()).await;
+
+    let result = gw
+        .dispatch_slash("sess1", "/exec ls", Some("user123"), "feishu")
+        .await;
+
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
         1,
-        "handler.handle() must be invoked; only execute() is skipped"
+        "handler.handle() must be invoked when permission is allowed"
     );
 }
 
@@ -656,7 +706,7 @@ async fn test_execute_route_non_owner_denied_skips_execute() {
         .dispatch_slash("s1", "/exec ls", Some("user1"), "feishu")
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
-    // handler.handle() was invoked, but execute() was skipped by permission check.
+    // handler.handle() was NOT invoked because permission was denied before execution.
 }
 
 // ===========================================================================

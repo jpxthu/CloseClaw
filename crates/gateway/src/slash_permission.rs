@@ -253,6 +253,16 @@ impl Gateway {
         sender_id: Option<&str>,
         channel: &str,
     ) -> Option<HandleResult> {
+        // Permission check BEFORE handler execution (design doc alignment).
+        // Owner short-circuit and non-permissioned commands pass through;
+        // high-risk commands denied by the engine never reach handler.handle().
+        if !self
+            .check_slash_permission(cmd_name, sender_id, session_id)
+            .await
+        {
+            return Some(HandleResult::SlashHandled);
+        }
+
         let slash_ctx = SlashContext {
             command: cmd_name.to_owned(),
             sender_id: sender_id.unwrap_or("").to_owned(),
@@ -260,14 +270,6 @@ impl Gateway {
             channel: channel.to_owned(),
         };
         let result = handler.handle(args, &slash_ctx).await;
-
-        // Permission check: after handler, before execute (design doc alignment).
-        if !self
-            .check_slash_permission(cmd_name, sender_id, session_id)
-            .await
-        {
-            return Some(HandleResult::SlashHandled);
-        }
 
         let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel(8);
         let session_mgr: Arc<dyn closeclaw_common::SessionLookup> =
@@ -497,5 +499,243 @@ impl GatewaySlashExecutor {
             }
             Err(e) => vec![ContentBlock::Text(format!("命令执行失败：{e}"))],
         }
+    }
+}
+
+// ── Inline tests (Step 1.3: slash permission) ──────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Gateway, GatewayConfig, HandleResult, SessionManager};
+    use closeclaw_common::slash_router::SlashResult;
+    use closeclaw_permission::engine::engine_eval::PermissionEngine;
+    use closeclaw_permission::engine::engine_types::{
+        Action, Defaults, Effect, Rule, RuleSet, Subject,
+    };
+    use closeclaw_session::bootstrap::loader::BootstrapMode;
+    use closeclaw_session::persistence::ReasoningLevel;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
+
+    // ── Mock handlers ──────────────────────────────────────────────────────
+
+    struct CountingHandler {
+        command: &'static str,
+        requires_permission: bool,
+        counter: Arc<AtomicU32>,
+    }
+
+    #[async_trait::async_trait]
+    impl SlashHandler for CountingHandler {
+        fn commands(&self) -> &[&str] {
+            std::slice::from_ref(&self.command)
+        }
+        fn description(&self) -> &str {
+            "counting handler"
+        }
+        fn requires_permission(&self) -> bool {
+            self.requires_permission
+        }
+        async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
+            self.counter.fetch_add(1, Ordering::SeqCst);
+            SlashResult::Reply("counted".to_owned())
+        }
+    }
+
+    // ── Mock SlashRouter ───────────────────────────────────────────────────
+
+    struct MockRouter {
+        command: &'static str,
+        requires_permission: bool,
+        counter: Arc<AtomicU32>,
+    }
+
+    #[async_trait::async_trait]
+    impl SlashRouter for MockRouter {
+        async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
+            None
+        }
+        fn is_immediate(&self, _command: &str) -> bool {
+            false
+        }
+        fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>> {
+            if command == self.command {
+                Some(Box::new(CountingHandler {
+                    command: self.command,
+                    requires_permission: self.requires_permission,
+                    counter: Arc::clone(&self.counter),
+                }))
+            } else {
+                None
+            }
+        }
+    }
+
+    fn counting_router(
+        command: &'static str,
+        requires_permission: bool,
+        counter: Arc<AtomicU32>,
+    ) -> Arc<dyn SlashRouter> {
+        Arc::new(MockRouter {
+            command,
+            requires_permission,
+            counter,
+        })
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+
+    fn make_gateway() -> Arc<Gateway> {
+        let config = GatewayConfig {
+            name: "test".to_owned(),
+            rate_limit_per_minute: 0,
+            max_message_size: 0,
+            dm_scope: Default::default(),
+            ..Default::default()
+        };
+        let sm = Arc::new(SessionManager::new(
+            &config,
+            None,
+            None,
+            BootstrapMode::Minimal,
+            ReasoningLevel::default(),
+        ));
+        Arc::new(Gateway::new(config, sm))
+    }
+
+    fn allow_engine() -> Arc<PermissionEngine> {
+        let rules = RuleSet {
+            rules: vec![Rule {
+                name: "allow-all".to_owned(),
+                subject: Subject::AgentOnly {
+                    agent: "*".to_owned(),
+                    match_type: Default::default(),
+                },
+                effect: Effect::Allow,
+                actions: vec![Action::All],
+                template: None,
+                priority: 100,
+            }],
+            defaults: Defaults {
+                file: Effect::Allow,
+                command: Effect::Allow,
+                network: Effect::Allow,
+                inter_agent: Effect::Allow,
+                config: Effect::Allow,
+                tool_call: Effect::Allow,
+            },
+            template_includes: vec![],
+            agent_creators: HashMap::new(),
+        };
+        Arc::new(PermissionEngine::new_with_default_data_root(rules))
+    }
+
+    fn deny_engine() -> Arc<PermissionEngine> {
+        let rules = RuleSet {
+            rules: vec![Rule {
+                name: "deny-all".to_owned(),
+                subject: Subject::AgentOnly {
+                    agent: "*".to_owned(),
+                    match_type: Default::default(),
+                },
+                effect: Effect::Deny,
+                actions: vec![Action::All],
+                template: None,
+                priority: 100,
+            }],
+            defaults: Defaults::default(),
+            template_includes: vec![],
+            agent_creators: HashMap::new(),
+        };
+        Arc::new(PermissionEngine::new_with_default_data_root(rules))
+    }
+
+    // ── Tests ──────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_non_owner_high_risk_permitted_handler_executes() {
+        // Branch 2: non-owner + requires_permission=true + engine Allow
+        // → handler.handle() IS invoked.
+        let counter = Arc::new(AtomicU32::new(0));
+        let gw = make_gateway();
+        gw.set_slash_dispatcher(counting_router("exec", true, Arc::clone(&counter)))
+            .await;
+        gw.set_permission_engine(allow_engine()).await;
+
+        let result = gw
+            .dispatch_slash("sess1", "/exec ls", Some("user123"), "feishu")
+            .await;
+
+        assert!(matches!(result, Some(HandleResult::SlashHandled)));
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "handler.handle() must be invoked when permission is allowed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_owner_short_circuit_bypasses_deny() {
+        // Branch 1: owner bypasses deny engine.
+        let counter = Arc::new(AtomicU32::new(0));
+        let gw = make_gateway();
+        gw.set_slash_dispatcher(counting_router("exec", true, Arc::clone(&counter)))
+            .await;
+        gw.set_permission_engine(deny_engine()).await;
+
+        let result = gw
+            .dispatch_slash("sess1", "/exec ls", Some("owner"), "feishu")
+            .await;
+
+        assert!(matches!(result, Some(HandleResult::SlashHandled)));
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "owner must bypass deny engine and invoke handler"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_non_owner_high_risk_denied_handler_not_invoked() {
+        // Branch 2: non-owner + requires_permission=true + engine Deny
+        // → handler.handle() is NOT invoked.
+        let counter = Arc::new(AtomicU32::new(0));
+        let gw = make_gateway();
+        gw.set_slash_dispatcher(counting_router("exec", true, Arc::clone(&counter)))
+            .await;
+        gw.set_permission_engine(deny_engine()).await;
+
+        let result = gw
+            .dispatch_slash("sess1", "/exec ls", Some("user123"), "feishu")
+            .await;
+
+        assert!(matches!(result, Some(HandleResult::SlashHandled)));
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            0,
+            "handler must NOT be invoked when permission is denied"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_non_owner_safe_handler_direct_dispatch() {
+        // Branch 3: non-owner + requires_permission=false → dispatched directly.
+        let counter = Arc::new(AtomicU32::new(0));
+        let gw = make_gateway();
+        gw.set_slash_dispatcher(counting_router("help", false, Arc::clone(&counter)))
+            .await;
+        gw.set_permission_engine(deny_engine()).await;
+
+        let result = gw
+            .dispatch_slash("sess1", "/help", Some("user123"), "feishu")
+            .await;
+
+        assert!(matches!(result, Some(HandleResult::SlashHandled)));
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "safe handler must dispatch without consulting engine"
+        );
     }
 }

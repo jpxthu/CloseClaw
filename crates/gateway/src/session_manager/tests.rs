@@ -77,9 +77,8 @@ async fn test_archived_session_restoration() {
     );
     let msg = test_message();
     // Populate key_registry so resolve can look up the session.
-    // resolve() strips timestamps before registry lookup — insert routing_key.
-    let session_key = mgr.compute_session_key("feishu", &msg, None, msg.timestamp);
-    let routing_key = SessionManager::strip_timestamp_from_session_key(&session_key);
+    // resolve() computes routing_key from message fields — insert it.
+    let routing_key = SessionManager::compute_routing_key("feishu", &msg, None);
     {
         let mut reg = mgr.key_registry.write().await;
         reg.insert(routing_key.to_string(), "test_sid".to_string());

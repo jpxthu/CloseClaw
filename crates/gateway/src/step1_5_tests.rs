@@ -460,9 +460,9 @@ fn allow_engine() -> Arc<closeclaw_permission::engine::engine_eval::PermissionEn
     )
 }
 
-/// Step 1.3 — Permission check happens AFTER handler.handle(), BEFORE execute().
+/// Step 1.2 — Permission check happens BEFORE handler.handle(), BEFORE execute().
 ///
-/// The design doc requires: handler.handle() → permission check → result.execute().
+/// The design doc requires: permission check → handler.handle() → result.execute().
 #[tokio::test]
 async fn test_permission_check_after_handler_before_execute() {
     let order = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
@@ -500,8 +500,8 @@ async fn test_permission_check_after_handler_before_execute() {
     );
 }
 
-/// Step 1.3 — When permission is denied, handler.handle() is still invoked
-/// but result.execute() is skipped.
+/// Step 1.2 — When permission is denied, handler.handle() is NOT invoked
+/// and result.execute() is skipped.
 #[tokio::test]
 async fn test_permission_denied_handler_still_invoked() {
     let order = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
@@ -555,8 +555,8 @@ async fn test_permission_denied_handler_still_invoked() {
     assert!(matches!(result, Some(crate::HandleResult::SlashHandled)));
 
     let ops = order.lock().expect("lock");
-    assert_eq!(ops.len(), 1);
-    assert_eq!(ops[0], "handler.handle()");
+    assert_eq!(ops.len(), 0);
+    // handler.handle() should NOT be invoked because permission was denied before execution.
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
