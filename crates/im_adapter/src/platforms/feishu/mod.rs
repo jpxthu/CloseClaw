@@ -110,7 +110,7 @@ fn load_platforms_config(config_dir: &str) -> PlatformsConfig {
 /// is silently not registered.  When enabled, credentials are read
 /// from environment variables; missing env vars emit a warning.
 ///
-/// Identity mapping is loaded from `{config_dir}/config/identity.json`
+/// Identity mapping is loaded from `{config_dir}/config/accounts.json`
 /// (if the file exists).  A missing or empty file results in no
 /// mapping — the fallback uses `sender_id` as `account_id`.
 pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, config_dir: &str) {
@@ -143,19 +143,23 @@ pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, config_dir: &st
     }
 }
 
-/// Try to load identity mappings from `{config_dir}/config/identity.json`.
+/// Try to load identity mappings from `{config_dir}/config/accounts.json`.
 ///
 /// Returns `Some(Arc<ConfigIdentityResolver>)` when the file exists and
-/// contains a valid JSON array, or `None` on any error / missing file.
+/// contains a valid JSON object with an `accounts` array, or `None` on
+/// any error / missing file.
 fn load_identity_resolver(config_dir: &str) -> Option<Arc<dyn IdentityResolver>> {
+    use closeclaw_config::AccountsConfigData;
+
     let path = std::path::Path::new(config_dir)
         .join("config")
-        .join("identity.json");
+        .join("accounts.json");
     match std::fs::read_to_string(&path) {
-        Ok(json) => match ConfigIdentityResolver::from_json(&json) {
-            Ok(resolver) => {
+        Ok(json) => match AccountsConfigData::from_json_str(&json) {
+            Ok(accounts_data) => {
+                let resolver = ConfigIdentityResolver::new(accounts_data.accounts);
                 if resolver.is_empty() {
-                    info!("identity.json loaded but empty — no mappings configured");
+                    info!("accounts.json loaded but empty — no mappings configured");
                     None
                 } else {
                     info!(
@@ -170,20 +174,20 @@ fn load_identity_resolver(config_dir: &str) -> Option<Arc<dyn IdentityResolver>>
                 tracing::warn!(
                     error = %e,
                     path = %path.display(),
-                    "failed to parse identity.json — skipping identity mapping"
+                    "failed to parse accounts.json — skipping identity mapping"
                 );
                 None
             }
         },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            info!("identity.json not found — identity mapping disabled");
+            info!("accounts.json not found — identity mapping disabled");
             None
         }
         Err(e) => {
             tracing::warn!(
                 error = %e,
                 path = %path.display(),
-                "failed to read identity.json — skipping identity mapping"
+                "failed to read accounts.json — skipping identity mapping"
             );
             None
         }
