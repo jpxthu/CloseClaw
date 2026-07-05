@@ -961,3 +961,40 @@ async fn test_quote_with_root_id_thread_uses_root_id() {
     assert!(msg.content.contains("\u{003e} quoted"));
     assert!(msg.content.contains("reply"));
 }
+
+// --- Tests for truncate_to_500 UTF-8 handling ---
+#[test]
+fn test_truncate_to_500_ascii_within_limit() {
+    assert_eq!(truncate_to_500(&"a".repeat(500)), "a".repeat(500));
+}
+#[test]
+fn test_truncate_to_500_ascii_exceeds_limit() {
+    let result = truncate_to_500(&"a".repeat(600));
+    assert!(result.ends_with("..."));
+    assert_eq!(result.len(), 503);
+    assert_eq!(result.chars().count(), 503);
+}
+#[test]
+fn test_truncate_to_500_chinese_within_limit() {
+    let chinese = "中".repeat(500);
+    assert_eq!(truncate_to_500(&chinese), chinese);
+}
+#[test]
+fn test_truncate_to_500_chinese_exceeds_limit() {
+    let result = truncate_to_500(&"中".repeat(600));
+    assert!(result.ends_with("..."));
+    assert_eq!(result.len(), 1503);
+    assert_eq!(result.chars().count(), 503);
+}
+#[test]
+fn test_truncate_to_500_mixed_text() {
+    let mixed = format!("{}{}", "中".repeat(400), "a".repeat(200));
+    let result = truncate_to_500(&mixed);
+    assert!(result.ends_with("..."));
+    assert_eq!(result.len(), 1303);
+    assert_eq!(result.chars().count(), 503);
+}
+#[test]
+fn test_truncate_to_500_empty_string() {
+    assert_eq!(truncate_to_500(""), "");
+}
