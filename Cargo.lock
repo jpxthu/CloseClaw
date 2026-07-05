@@ -890,6 +890,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "closeclaw-workflow"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "closeclaw-common",
+ "serde",
+ "serde_yaml",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
