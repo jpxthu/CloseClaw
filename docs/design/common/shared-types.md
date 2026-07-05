@@ -4,7 +4,10 @@
 
 共享类型是跨模块传递的纯数据结构，被 2 个及以上模块共同消费。每个共享类型在本文档中唯一定义，各业务模块文档通过引用指向此处，不在自身文档中重复描述字段结构。
 
-> **本文档是 common crate 中共享类型的权威清单。** 若代码中 common crate 存在本文档未收录的 pub struct/enum，该类型不属于跨模块共享类型，应移至对应领域模块的 crate。反之，本文档定义的所有类型，代码中均位于 common crate（或其子 crate）。
+> **本文档是 common crate 的内容边界。**
+> - 本文档中定义的类型 → 代码位于 common crate（或其子 crate）
+> - **不在本文档中的类型 → 代码不得出现在 common crate 中**
+> - common crate 中出现本文档未收录的类型，说明代码放错了位置——应移至对应领域模块的 crate，而非追加到本文档
 
 本文档不包含 trait 接口定义——核心 trait 见 [core-traits](core-traits.md)。
 
@@ -193,6 +196,99 @@ PlanState 描述当前规划的阶段和未完成步骤列表：
 | `pending_steps` | list(string) | 未完成的规划步骤标识列表，用于 compaction 保护和恢复后继续 |
 | `plan_file_path` | string | plan 文件的路径，Agent 写入和读取的唯一可写目标 |
 
+### SessionCheckpoint
+
+SessionCheckpoint 是 Session 持久化的核心数据结构，保存 Session 的全部运行时状态。Session 归档、恢复、崩溃重启时以此为锚点。
+
+按逻辑分组：
+
+**标识**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `session_id` | string | 会话唯一标识，格式 `{agent_id}_{timestamp}_{random_suffix}` |
+| `agent_id` | string | 关联的 agent 标识 |
+| `role` | enum | 会话角色：主 agent / 子 agent |
+| `last_message_id` | string | 最后一条已持久化的消息 ID |
+
+**会话路由键**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `platform` | string | 平台标识，如 `"feishu"` |
+| `sender_id` | string | 发送者的平台内 ID |
+| `peer_id` | string | 会话对端（群聊 chat_id 或私聊对方 ID） |
+| `account_id` | string | CloseClaw 本地账号标识 |
+| `thread_id` | string? | 话题 ID，可选。不参与 session_key 计算，仅用于出站定向回复 |
+
+**生命周期**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `status` | SessionStatus | Active / Archived，与执行状态独立 |
+| `created_at` | datetime | 会话创建时间（UTC） |
+| `updated_at` | datetime | 最后 checkpoint 更新时间 |
+| `ttl_seconds` | int | 会话存活时长 |
+
+**运行时快照**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `pending_messages` | list(Message) | transcript 消息列表 |
+| `pending_operations` | list(PendingOperation) | 未完成的操作记录，用于崩溃恢复 |
+| `mode` | enum | 会话运行模式：direct / plan / stream |
+| `mode_state` | struct | 推理步骤状态 |
+
+**其他**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `system_appends` | list(string) | `/system` 指令追加的条目列表，独立于对话消息流，不参与 compaction |
+| `parent_session_id` | string? | 父 session ID，用于 spawn 父子关系追踪 |
+| `depth` | int | spawn 层级深度 |
+| `last_message_at` | datetime? | 最后消息时间，Sweeper 据此判断 idle |
+| `message_count` | int | 累计消息数 |
+
+> `archived_at` 和扩展元数据作为 SQLite 表列存储，由存储层维护，不进入 Checkpoint 结构体。
+
+**PendingOperation** 记录未确认完成的操作：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `op_id` | string | 操作唯一标识 |
+| `op_type` | enum | 操作类型：ToolCall / SubSessionSpawn / OutboundMessage |
+| `status` | enum | 固定为 Running（完成即删除，不持久化完成态） |
+| `detail` | struct | 类型相关的补充信息 |
+| `created_at` | datetime | 操作发起时间 |
+
+写入时机：操作发起前，先追加到 pending_operations 并持久化，确认成功后再执行实际操作。
+
+**SessionStatus 枚举**：
+
+| 变体 | 说明 |
+|------|------|
+| Active | 正常运行中或待恢复 |
+| Archived | 已归档，transcript 移至 archived_sessions/ |
+
+### ReasoningLevel
+
+ReasoningLevel 控制 LLM 的推理深度，通过 Config 默认值（全局）+ 运行时 `/reasoning` 指令（session 级）两级入口生效。各 LLM Provider builder 将其转换为 provider 原生参数。
+
+四个等级：
+
+| 等级 | 说明 |
+|------|------|
+| Low | 低推理深度 |
+| Medium | 中等推理深度 |
+| High | 高推理深度，各 provider 默认值 |
+| Max | 最大推理深度 |
+
+不支持某等级的 provider 自动降级到最近的可用等级。
+
+### PromptOverrides
+
+PromptOverrides 是 System Prompt 构建器的运行时覆盖配置，允许在构建时提供额外覆盖参数。由 Daemon 初始化时创建，初始值为空（None），System Prompt 构建器在组装 prompt 时读取覆盖内容。
+
 ## 数据流
 
 NormalizedMessage 的全系统流动路径：
@@ -376,6 +472,28 @@ Session 恢复时从 checkpoint 重建 PlanState
 Plan Mode 结束时销毁 PlanState
 ```
 
+### SessionCheckpoint
+
+1. Session 创建或状态变更 → SessionManager 触发 checkpoint 写入
+2. CheckpointManager 缓存 → 持久化存储（含全部标识、路由键、运行时快照、system_appends、pending_operations 等）
+3. 重启恢复：遍历所有活跃 session 的 checkpoint → 使用路由键（platform/sender_id/peer_id/account_id）重建 key registry 映射表 → 重建 spawn_tree（根据 parent_session_id/depth）
+4. 崩溃恢复：从 pending_operations 字段恢复未完成的操作
+5. ArchiveSweeper 定期扫描：Active + idle（last_message_at 超时）→ Archived（transcript 移入归档区）→ Archived + 过期 → 完全删除
+6. Session 恢复：Archived session 收到新消息 → 从 checkpoint 恢复 → status 切回 Active
+
+### ReasoningLevel
+
+1. Config 加载全局默认 reasoning level（llm.reasoning_level）
+2. 运行时 `/reasoning <level>` 指令 → 修改 session 级 reasoning level
+3. 每次 LLM 请求构建时 → ConversationSession 注入当前 reasoning level
+4. 各 Provider builder 持有自己的参数映射表 → 将 ReasoningLevel 转换为 provider 原生参数
+5. 不支持的等级自动降级
+
+### PromptOverrides
+
+1. Daemon 启动 → SessionManager 创建 System Prompt 构建器 → PromptOverrides 初始化（None）
+2. System Prompt 构建触发（session 创建/恢复/compaction）→ 构建器读取 PromptOverrides → 作为覆盖参数组装 system prompt
+
 ## 模块关系
 
 ### NormalizedMessage
@@ -440,3 +558,21 @@ Plan Mode 结束时销毁 PlanState
 - **生产者**：mode 模块（Plan Mode 进入时创建）
 - **消费者**：Session（持久化和 compaction 保护）；mode 模块（恢复时重建、阶段切换时更新）
 - **无关**：LLM Provider（PlanState 不直接传给 LLM，通过 system prompt 的 plan 上下文间接生效）、IM Adapter（消息路由不感知 PlanState）
+
+### SessionCheckpoint
+
+- **生产者**：CheckpointManager（写入缓存和持久化）、SessionManager（触发持久化）
+- **消费者**：SessionManager（从 checkpoint 重建 Session）、ArchiveSweeper（Active→Archived，过期清理）、spawn_tree（从 parent_session_id/depth 恢复父子关系）
+- **无关**：IM Adapter（不接触 Session 持久化）、LLM Provider（不接触 checkpoint）
+
+### ReasoningLevel
+
+- **生产者**：Config 系统（llm.reasoning_level 全局默认值）、slash 模块（`/reasoning` 指令 runtime 覆盖）
+- **消费者**：ConversationSession（请求构建时注入）、各 LLM Provider builder（转换为 provider 原生参数）
+- **无关**：Processor Chain（不接触 reasoning level）、IM Adapter（不接触 reasoning 配置）
+
+### PromptOverrides
+
+- **生产者**：Daemon / SessionManager（初始化时创建，初始 None）
+- **消费者**：System Prompt 构建器（组装 system prompt 时读取覆盖内容）
+- **无关**：LLM Provider（PromptOverrides 在构建阶段消费，不直接传给 LLM）
