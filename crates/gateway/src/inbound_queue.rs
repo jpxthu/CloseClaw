@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use super::Gateway;
+use closeclaw_common::MessageType;
 
 /// An inbound message awaiting processing.
 ///
@@ -225,6 +226,17 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
     // Try NormalizedMessage first.
     match plugin.parse_inbound(&request.raw_payload).await {
         Ok(Some(normalized)) => {
+            // Defensive: drop empty text messages that slipped through parse_inbound.
+            // Per design doc: "text type empty content messages are discarded at parse
+            // stage, no NormalizedMessage produced".
+            if normalized.message_type == MessageType::Text && normalized.content.trim().is_empty()
+            {
+                tracing::debug!(
+                    peer_id = %request.peer_id,
+                    "dropping empty text message"
+                );
+                return;
+            }
             let sender_id = normalized.sender_id.clone();
             let input = super::InboundChainInput {
                 platform: normalized.platform.clone(),
