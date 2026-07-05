@@ -31,7 +31,6 @@ mod announce;
 mod channel;
 pub mod communication;
 mod key_registry;
-mod rebuild;
 mod resolve;
 mod session_helpers;
 mod spawn;
@@ -591,6 +590,40 @@ impl SessionManager {
             Ok(Some(cp)) => cp.sender_id,
             _ => None,
         }
+    }
+
+    /// Rebuild the system prompt for an existing session.
+    /// Called after compaction to pick up skill/config changes.
+    /// Lock Safety: acquires its own write lock; callers must NOT hold
+    /// any external write guard on the same session.
+    pub async fn rebuild_system_prompt(&self, session_id: &str) {
+        let cs = match self.get_conversation_session(session_id).await {
+            Some(cs) => cs,
+            None => return,
+        };
+        let agent_id = {
+            let sessions = self.sessions.read().await;
+            match sessions.get(session_id) {
+                Some(session) => session.agent_id.clone(),
+                None => return,
+            }
+        };
+
+        let builder = match self.system_prompt_builder.read().await.clone() {
+            Some(b) => b,
+            None => {
+                tracing::debug!(
+                    session_id,
+                    "no system prompt builder configured, skipping rebuild"
+                );
+                return;
+            }
+        };
+
+        let overrides = self.prompt_overrides.read().await.clone();
+        let mut cs = cs.write().await;
+        cs.rebuild_system_prompt(session_id, &agent_id, builder.as_ref(), overrides.as_ref())
+            .await;
     }
 
     /// Notify all active sessions that a configuration section has been updated.
