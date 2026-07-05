@@ -184,6 +184,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/llm/README.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-07-06T03:11:17.158644+08:00",
+    "comment": "",
+    "blocked_reason": "doc internal inconsistency: architecture diagram declares five layers including CacheAdapter, data flow section also describes cache adapter step, but layer responsibility table only lists four layers missing CacheAdapter row. Additionally data flow section description of Plugin Pipeline vs ModelInterpreter execution order is inconsistent with actual code cross-execution pattern."
+  },
+  {
     "path": "docs/design/llm/cache-adapter.md",
     "commit": "3b8d190ee3037e1b995205d599ef6d92f67c07c1",
     "commit_time": "2026-06-28T01:38:08+08:00",
