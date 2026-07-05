@@ -394,3 +394,401 @@ fn test_from_single_preserves_explicit_values() {
     assert_eq!(resolved.subagents.max_spawn_depth, Some(3));
     assert_eq!(resolved.subagents.max_children, Some(10));
 }
+
+// ------------------------------------------------------------------
+// MemoryConfig field-level merge: merge_overrides
+// ------------------------------------------------------------------
+
+use crate::agents::config_types::{
+    DreamingConfig, DreamingScoringConfig, DreamingThresholdConfig, MemoryConfig,
+    MemoryStorageConfig, MiningConfig, SearchConfig,
+};
+
+/// Build a global MemoryConfig with non-default values.
+fn make_global_memory() -> MemoryConfig {
+    MemoryConfig {
+        storage: MemoryStorageConfig {
+            db_path: "global/memory.db".into(),
+            memory_md_path: "global/MEMORY.md".into(),
+        },
+        mining: MiningConfig {
+            enabled: Some(true),
+            model: Some("global-miner".into()),
+            max_events_per_session: 15,
+            dedup_window_days: 60,
+            ..Default::default()
+        },
+        dreaming: DreamingConfig {
+            enabled: Some(true),
+            model: Some("global-dreamer".into()),
+            schedule: "0 2 * * *".into(),
+            threshold: DreamingThresholdConfig {
+                absolute: 2.0,
+                relative: 0.3,
+            },
+            ..Default::default()
+        },
+        search: SearchConfig {
+            enabled: Some(true),
+            model: Some("global-search".into()),
+            timeout_ms: 5000,
+            max_summary_chars: 800,
+            min_entity_hits: 2,
+            top_k_events: 5,
+            context_turns: 8,
+        },
+    }
+}
+
+// --- Per-agent no memory declaration → inherit global ---
+
+#[test]
+fn test_merge_memory_no_agent_override_inherits_global() {
+    let global = make_global_memory();
+    let agent = MemoryConfig::default(); // all None/default
+    let merged = global.merge_overrides(&agent);
+
+    // Mining inherits global
+    assert_eq!(merged.mining.enabled, Some(true));
+    assert_eq!(merged.mining.model.as_deref(), Some("global-miner"));
+    assert_eq!(merged.mining.max_events_per_session, 15);
+    assert_eq!(merged.mining.dedup_window_days, 60);
+
+    // Dreaming inherits global
+    assert_eq!(merged.dreaming.enabled, Some(true));
+    assert_eq!(merged.dreaming.model.as_deref(), Some("global-dreamer"));
+    assert_eq!(merged.dreaming.schedule, "0 2 * * *");
+    assert_eq!(merged.dreaming.threshold.absolute, 2.0);
+
+    // Search inherits global
+    assert_eq!(merged.search.enabled, Some(true));
+    assert_eq!(merged.search.model.as_deref(), Some("global-search"));
+    assert_eq!(merged.search.timeout_ms, 5000);
+    assert_eq!(merged.search.max_summary_chars, 800);
+    assert_eq!(merged.search.min_entity_hits, 2);
+    assert_eq!(merged.search.top_k_events, 5);
+    assert_eq!(merged.search.context_turns, 8);
+
+    // Storage inherits global
+    assert_eq!(merged.storage.db_path, "global/memory.db");
+    assert_eq!(merged.storage.memory_md_path, "global/MEMORY.md");
+}
+
+// --- search.enabled override: agent false overrides global true ---
+
+#[test]
+fn test_merge_memory_search_enabled_override() {
+    let global = make_global_memory();
+    let agent = MemoryConfig {
+        search: SearchConfig {
+            enabled: Some(false),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let merged = global.merge_overrides(&agent);
+    assert_eq!(merged.search.enabled, Some(false));
+}
+
+// --- dreaming.threshold.absolute override: agent 3.0 overrides global 2.0 ---
+
+#[test]
+fn test_merge_memory_dreaming_threshold_override() {
+    let global = make_global_memory();
+    let agent = MemoryConfig {
+        dreaming: DreamingConfig {
+            threshold: DreamingThresholdConfig {
+                absolute: 3.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let merged = global.merge_overrides(&agent);
+    assert_eq!(merged.dreaming.threshold.absolute, 3.0);
+    // Other dreaming fields inherit global
+    assert_eq!(merged.dreaming.threshold.relative, 0.3);
+    assert_eq!(merged.dreaming.enabled, Some(true));
+    assert_eq!(merged.dreaming.model.as_deref(), Some("global-dreamer"));
+    assert_eq!(merged.dreaming.schedule, "0 2 * * *");
+}
+
+// --- Per-agent full declaration → all per-agent values used ---
+
+#[test]
+fn test_merge_memory_full_agent_override() {
+    let global = make_global_memory();
+    let agent = MemoryConfig {
+        storage: MemoryStorageConfig {
+            db_path: "agent/db.sqlite".into(),
+            memory_md_path: "agent/NOTES.md".into(),
+        },
+        mining: MiningConfig {
+            enabled: Some(false),
+            model: Some("agent-miner".into()),
+            max_events_per_session: 5,
+            dedup_window_days: 7,
+            ..Default::default()
+        },
+        dreaming: DreamingConfig {
+            enabled: Some(false),
+            model: Some("agent-dreamer".into()),
+            schedule: "0 6 * * *".into(),
+            threshold: DreamingThresholdConfig {
+                absolute: 5.0,
+                relative: 0.8,
+            },
+            ..Default::default()
+        },
+        search: SearchConfig {
+            enabled: Some(false),
+            model: Some("agent-search".into()),
+            timeout_ms: 1000,
+            max_summary_chars: 200,
+            min_entity_hits: 4,
+            top_k_events: 10,
+            context_turns: 2,
+        },
+    };
+    let merged = global.merge_overrides(&agent);
+
+    // All agent values used (non-default values override global)
+    assert_eq!(merged.mining.enabled, Some(false));
+    assert_eq!(merged.mining.model.as_deref(), Some("agent-miner"));
+    assert_eq!(merged.mining.max_events_per_session, 5);
+    assert_eq!(merged.mining.dedup_window_days, 7);
+
+    assert_eq!(merged.dreaming.enabled, Some(false));
+    assert_eq!(merged.dreaming.model.as_deref(), Some("agent-dreamer"));
+    assert_eq!(merged.dreaming.schedule, "0 6 * * *");
+    assert_eq!(merged.dreaming.threshold.absolute, 5.0);
+    assert_eq!(merged.dreaming.threshold.relative, 0.8);
+
+    assert_eq!(merged.search.enabled, Some(false));
+    assert_eq!(merged.search.model.as_deref(), Some("agent-search"));
+    assert_eq!(merged.search.timeout_ms, 1000);
+    assert_eq!(merged.search.max_summary_chars, 200);
+    assert_eq!(merged.search.min_entity_hits, 4);
+    assert_eq!(merged.search.top_k_events, 10);
+    assert_eq!(merged.search.context_turns, 2);
+
+    assert_eq!(merged.storage.db_path, "agent/db.sqlite");
+    assert_eq!(merged.storage.memory_md_path, "agent/NOTES.md");
+}
+
+// --- Partial agent override: some fields override, rest inherit ---
+
+#[test]
+fn test_merge_memory_partial_override() {
+    let global = make_global_memory();
+    let agent = MemoryConfig {
+        mining: MiningConfig {
+            max_events_per_session: 5,
+            ..Default::default()
+        },
+        dreaming: DreamingConfig {
+            threshold: DreamingThresholdConfig {
+                absolute: 3.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        search: SearchConfig {
+            timeout_ms: 1000,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let merged = global.merge_overrides(&agent);
+
+    // Mining: enabled inherits global (Some(true)), max_events overrides
+    assert_eq!(merged.mining.enabled, Some(true));
+    assert_eq!(merged.mining.model.as_deref(), Some("global-miner"));
+    assert_eq!(merged.mining.max_events_per_session, 5);
+    assert_eq!(merged.mining.dedup_window_days, 60);
+
+    // Dreaming: enabled inherits, threshold.absolute overrides
+    assert_eq!(merged.dreaming.enabled, Some(true));
+    assert_eq!(merged.dreaming.threshold.absolute, 3.0);
+    assert_eq!(merged.dreaming.threshold.relative, 0.3);
+    assert_eq!(merged.dreaming.model.as_deref(), Some("global-dreamer"));
+
+    // Search: enabled inherits, timeout overrides
+    assert_eq!(merged.search.enabled, Some(true));
+    assert_eq!(merged.search.timeout_ms, 1000);
+    assert_eq!(merged.search.model.as_deref(), Some("global-search"));
+    assert_eq!(merged.search.max_summary_chars, 800);
+}
+
+// --- Merge with both global and agent having enabled=None ---
+
+#[test]
+fn test_merge_memory_enabled_none_both_levels() {
+    let global = MemoryConfig::default(); // enabled=None
+    let agent = MemoryConfig::default(); // enabled=None
+    let merged = global.merge_overrides(&agent);
+    assert_eq!(merged.mining.enabled, None);
+    assert_eq!(merged.dreaming.enabled, None);
+    assert_eq!(merged.search.enabled, None);
+}
+
+// --- Merge global enabled=false, agent enabled=true ---
+
+#[test]
+fn test_merge_memory_agent_enables_over_global_disabled() {
+    let global = MemoryConfig {
+        mining: MiningConfig {
+            enabled: Some(false),
+            ..Default::default()
+        },
+        search: SearchConfig {
+            enabled: Some(false),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let agent = MemoryConfig {
+        mining: MiningConfig {
+            enabled: Some(true),
+            ..Default::default()
+        },
+        search: SearchConfig {
+            enabled: Some(true),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let merged = global.merge_overrides(&agent);
+    assert_eq!(merged.mining.enabled, Some(true));
+    assert_eq!(merged.search.enabled, Some(true));
+}
+
+// --- Dreaming sub-config merge: scoring weights ---
+
+#[test]
+fn test_merge_memory_dreaming_scoring_override() {
+    let global = make_global_memory();
+    let agent = MemoryConfig {
+        dreaming: DreamingConfig {
+            scoring: DreamingScoringConfig {
+                frequency_weight: 3.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let merged = global.merge_overrides(&agent);
+    // frequency_weight overridden
+    assert_eq!(merged.dreaming.scoring.frequency_weight, 3.0);
+    // Other scoring weights inherit global defaults (not overridden by agent)
+    assert_eq!(merged.dreaming.scoring.recency_weight, 0.5);
+    assert_eq!(merged.dreaming.scoring.explicitness_weight, 1.5);
+}
+
+// --- from_single with memory ---
+
+#[test]
+fn test_from_single_with_memory_config() {
+    let config = AgentConfig {
+        id: "test-agent".to_string(),
+        memory: Some(MemoryConfig {
+            search: SearchConfig {
+                enabled: Some(true),
+                timeout_ms: 10000,
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>").unwrap();
+    assert_eq!(resolved.memory.search.enabled, Some(true));
+    assert_eq!(resolved.memory.search.timeout_ms, 10000);
+}
+
+#[test]
+fn test_from_single_without_memory_uses_default() {
+    let config = AgentConfig {
+        id: "test-agent".to_string(),
+        memory: None,
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>").unwrap();
+    assert_eq!(resolved.memory, MemoryConfig::default());
+}
+
+// --- Merge project+user with different memory configs ---
+
+#[test]
+fn test_merge_project_user_memory_field_level() {
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        memory: Some(MemoryConfig {
+            mining: MiningConfig {
+                enabled: Some(true),
+                max_events_per_session: 20,
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        memory: Some(MemoryConfig {
+            mining: MiningConfig {
+                dedup_window_days: 7,
+                ..Default::default()
+            },
+            search: SearchConfig {
+                enabled: Some(true),
+                timeout_ms: 8000,
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+
+    // Project overrides user where specified
+    assert_eq!(resolved.memory.mining.dedup_window_days, 7);
+    assert_eq!(resolved.memory.search.enabled, Some(true));
+    assert_eq!(resolved.memory.search.timeout_ms, 8000);
+
+    // User's non-overridden fields preserved
+    assert_eq!(resolved.memory.mining.enabled, Some(true));
+    assert_eq!(resolved.memory.mining.max_events_per_session, 20);
+}
+
+// --- Edge: project overrides user's enabled=false ---
+
+#[test]
+fn test_merge_project_user_enabled_override() {
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        memory: Some(MemoryConfig {
+            search: SearchConfig {
+                enabled: Some(true),
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        memory: Some(MemoryConfig {
+            search: SearchConfig {
+                enabled: Some(false),
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    assert_eq!(resolved.memory.search.enabled, Some(false));
+}

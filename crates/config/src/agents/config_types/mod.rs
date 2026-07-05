@@ -223,7 +223,7 @@ impl Default for AgentConfig {
 }
 
 /// Memory subsystem configuration.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryConfig {
     /// Storage paths for memory subsystem files.
@@ -254,7 +254,7 @@ impl MemoryConfig {
 }
 
 /// Dreaming subsystem configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DreamingConfig {
     /// Whether dreaming is enabled. `None` means inherit global default.
@@ -318,7 +318,7 @@ fn default_dreaming_schedule() -> String {
 }
 
 /// Dream Diary configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DreamingDiaryConfig {
     /// Whether Dream Diary writing is enabled.
@@ -358,7 +358,7 @@ fn default_diary_path() -> String {
 }
 
 /// Scoring dimension weights for dreaming.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DreamingScoringConfig {
     /// Entity cross-session frequency weight.
@@ -446,7 +446,7 @@ fn default_scoring_negative_signal() -> f64 {
 }
 
 /// Dreaming threshold configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DreamingThresholdConfig {
     /// Absolute score threshold for rule promotion.
@@ -493,7 +493,7 @@ fn default_threshold_relative() -> f64 {
 }
 
 /// Dreaming capacity configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DreamingCapacityConfig {
     /// Maximum number of rules in MEMORY.md.
@@ -527,7 +527,7 @@ fn default_capacity_max_rules() -> usize {
 }
 
 /// Storage paths for memory subsystem.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryStorageConfig {
     /// SQLite database file path (relative to data root).
@@ -575,7 +575,7 @@ fn default_memory_md_path() -> String {
 }
 
 /// Transcript clean rules for mining.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptCleanRules {
     /// Minimum conversation turns required.
@@ -635,7 +635,7 @@ fn default_transcript_format() -> String {
 }
 
 /// Mining subsystem configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MiningConfig {
     /// Whether mining is enabled. `None` means inherit global default.
@@ -673,8 +673,18 @@ impl MiningConfig {
         MiningConfig {
             enabled: agent.enabled.or(self.enabled),
             model: agent.model.clone().or_else(|| self.model.clone()),
-            max_events_per_session: agent.max_events_per_session,
-            dedup_window_days: agent.dedup_window_days,
+            max_events_per_session: if agent.max_events_per_session
+                != default_mining_max_events_per_session()
+            {
+                agent.max_events_per_session
+            } else {
+                self.max_events_per_session
+            },
+            dedup_window_days: if agent.dedup_window_days != default_mining_dedup_window_days() {
+                agent.dedup_window_days
+            } else {
+                self.dedup_window_days
+            },
             transcript_clean_rules: agent
                 .transcript_clean_rules
                 .merge_overrides(&self.transcript_clean_rules),
@@ -691,7 +701,7 @@ fn default_mining_dedup_window_days() -> i32 {
 }
 
 /// Active search subsystem configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchConfig {
     /// Whether active search is enabled. `None` means inherit global default.
@@ -737,11 +747,31 @@ impl SearchConfig {
         SearchConfig {
             enabled: agent.enabled.or(self.enabled),
             model: agent.model.clone().or_else(|| self.model.clone()),
-            context_turns: agent.context_turns,
-            timeout_ms: agent.timeout_ms,
-            max_summary_chars: agent.max_summary_chars,
-            min_entity_hits: agent.min_entity_hits,
-            top_k_events: agent.top_k_events,
+            context_turns: if agent.context_turns != default_search_context_turns() {
+                agent.context_turns
+            } else {
+                self.context_turns
+            },
+            timeout_ms: if agent.timeout_ms != default_search_timeout_ms() {
+                agent.timeout_ms
+            } else {
+                self.timeout_ms
+            },
+            max_summary_chars: if agent.max_summary_chars != default_search_max_summary_chars() {
+                agent.max_summary_chars
+            } else {
+                self.max_summary_chars
+            },
+            min_entity_hits: if agent.min_entity_hits != default_search_min_entity_hits() {
+                agent.min_entity_hits
+            } else {
+                self.min_entity_hits
+            },
+            top_k_events: if agent.top_k_events != default_search_top_k_events() {
+                agent.top_k_events
+            } else {
+                self.top_k_events
+            },
         }
     }
 }

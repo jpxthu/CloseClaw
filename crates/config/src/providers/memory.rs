@@ -65,50 +65,5 @@ impl ConfigProvider for MemoryConfigData {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_default_is_valid() {
-        let data = MemoryConfigData::default();
-        data.validate().expect("default config should be valid");
-    }
-
-    #[test]
-    fn test_default_is_default() {
-        let data = MemoryConfigData::default();
-        assert!(data.is_default());
-    }
-
-    #[test]
-    fn test_config_path() {
-        assert_eq!(MemoryConfigData::config_path(), "memory.json");
-    }
-
-    #[test]
-    fn test_from_json_str_empty_object() {
-        let data = MemoryConfigData::from_json_str("{}").expect("empty object should parse");
-        assert!(data.is_default());
-    }
-
-    #[test]
-    fn test_from_json_str_with_search_enabled() {
-        let json = r#"{"search": {"enabled": true, "timeoutMs": 5000}}"#;
-        let data = MemoryConfigData::from_json_str(json).expect("valid JSON should parse");
-        assert!(data.config.search.enabled == Some(true));
-        assert_eq!(data.config.search.timeout_ms, 5000);
-        assert!(!data.is_default());
-    }
-
-    #[test]
-    fn test_from_json_str_invalid() {
-        let result = MemoryConfigData::from_json_str("not json");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_from_file_nonexistent() {
-        let result = MemoryConfigData::from_file("/nonexistent/memory.json");
-        assert!(result.is_err());
-    }
-}
+#[path = "memory_tests.rs"]
+mod tests;
