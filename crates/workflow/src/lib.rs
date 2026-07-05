@@ -5,3 +5,6 @@ pub mod run;
 
 #[cfg(test)]
 mod definition_tests;
+
+#[cfg(test)]
+mod engine_tests;
