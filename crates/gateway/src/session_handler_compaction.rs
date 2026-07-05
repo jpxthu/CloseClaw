@@ -71,9 +71,39 @@ async fn apply_compact_result(
         cs.replace_messages(vec![boundary]);
     }
     // Rebuild system prompt after compaction so skills stay fresh.
-    // The write guard above is now dropped, so rebuild_system_prompt
-    // can safely acquire its own write lock.
-    sm.rebuild_system_prompt(session_id).await;
+    // The write guard above is now dropped, so we can safely acquire
+    // a write lock for the rebuild.
+    rebuild_system_prompt_for_session(sm, session_id).await;
+}
+
+/// Rebuild the system prompt for a session using the session manager's
+/// builder and overrides. Delegates to `ConversationSession::rebuild_system_prompt`.
+async fn rebuild_system_prompt_for_session(sm: &Arc<SessionManager>, session_id: &str) {
+    let cs = match sm.get_conversation_session(session_id).await {
+        Some(cs) => cs,
+        None => return,
+    };
+    let agent_id = {
+        let sessions = sm.sessions.read().await;
+        match sessions.get(session_id) {
+            Some(session) => session.agent_id.clone(),
+            None => return,
+        }
+    };
+    let builder = match sm.get_system_prompt_builder().await {
+        Some(b) => b,
+        None => {
+            tracing::debug!(
+                session_id,
+                "no system prompt builder configured, skipping rebuild"
+            );
+            return;
+        }
+    };
+    let overrides = sm.get_prompt_overrides().await;
+    let mut cs = cs.write().await;
+    cs.rebuild_system_prompt(session_id, &agent_id, builder.as_ref(), overrides.as_ref())
+        .await;
 }
 
 /// Push a reply onto the handler's `output_tx` channel. The reply

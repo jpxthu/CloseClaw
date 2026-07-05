@@ -3,6 +3,10 @@
 //! Provides thin wrappers around the LLM client for non-streaming and
 //! streaming calls, plus a [`SinkUpdater`] adapter that forwards stream
 //! events to a [`StreamingSink`].
+//!
+//! NOTE: These functions are superseded by `crate::llm_caller_impl` and
+//! will be removed in Step 1.7.
+#![allow(dead_code)]
 
 use std::pin::Pin;
 use std::sync::Arc;

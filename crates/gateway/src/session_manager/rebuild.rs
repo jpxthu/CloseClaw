@@ -35,11 +35,8 @@ impl SessionManager {
         };
 
         let overrides = self.prompt_overrides.read().await.clone();
-        let prompt = builder
-            .build_prompt(session_id, &agent_id, overrides.as_ref(), None)
-            .await;
-
         let mut cs = cs.write().await;
-        cs.replace_system_prompt(prompt);
+        cs.rebuild_system_prompt(session_id, &agent_id, builder.as_ref(), overrides.as_ref())
+            .await;
     }
 }

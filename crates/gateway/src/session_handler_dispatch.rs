@@ -413,7 +413,7 @@ impl SessionMessageHandler {
             let result = if stream_enabled {
                 if let (Some(gw), Some(pl)) = (gw_for_task.as_ref(), plugin_for_task.as_ref()) {
                     Self::call_llm_streaming(
-                        ufc.primary(),
+                        &ufc,
                         &content_for_task,
                         &meta,
                         &sm,
