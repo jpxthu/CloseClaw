@@ -810,6 +810,7 @@ fn test_from_agent_config_full_override() {
     };
     let memory = MemoryConfig {
         active_searcher: Some(override_cfg),
+        ..MemoryConfig::default()
     };
 
     let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory));
@@ -835,6 +836,7 @@ fn test_from_agent_config_partial_override() {
     };
     let memory = MemoryConfig {
         active_searcher: Some(override_cfg),
+        ..MemoryConfig::default()
     };
 
     let config = ActiveSearcherConfig::from_agent_config(None, Some(&memory));
@@ -886,6 +888,7 @@ fn test_from_agent_config_override_overrides_agent_model() {
     };
     let memory = MemoryConfig {
         active_searcher: Some(override_cfg),
+        ..MemoryConfig::default()
     };
 
     let config = ActiveSearcherConfig::from_agent_config(Some("agent-global-model"), Some(&memory));

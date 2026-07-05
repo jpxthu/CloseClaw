@@ -231,6 +231,9 @@ pub struct MemoryConfig {
     /// Storage paths for memory subsystem files.
     #[serde(default)]
     pub storage: MemoryStorageConfig,
+    /// Dream Diary configuration.
+    #[serde(default)]
+    pub dreaming: DreamingConfig,
 }
 
 impl Default for MemoryConfig {
@@ -238,8 +241,56 @@ impl Default for MemoryConfig {
         Self {
             active_searcher: None,
             storage: MemoryStorageConfig::default(),
+            dreaming: DreamingConfig::default(),
         }
     }
+}
+
+/// Dreaming subsystem configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamingConfig {
+    /// Dream Diary settings.
+    #[serde(default)]
+    pub diary: DreamingDiaryConfig,
+}
+
+impl Default for DreamingConfig {
+    fn default() -> Self {
+        Self {
+            diary: DreamingDiaryConfig::default(),
+        }
+    }
+}
+
+/// Dream Diary configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamingDiaryConfig {
+    /// Whether Dream Diary writing is enabled.
+    /// Defaults to `true` when dreaming is active.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Directory path for diary files (relative to data root).
+    #[serde(default = "default_diary_path")]
+    pub path: String,
+}
+
+impl Default for DreamingDiaryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            path: default_diary_path(),
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_diary_path() -> String {
+    "memory/diary/".to_string()
 }
 
 /// Storage paths for memory subsystem.

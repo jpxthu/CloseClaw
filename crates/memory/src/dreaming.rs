@@ -7,6 +7,7 @@
 
 use thiserror::Error;
 
+use closeclaw_config::agents::DreamingDiaryConfig;
 use closeclaw_session::persistence::{DreamingStatus, PersistenceError, PersistenceService};
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -26,9 +27,9 @@ pub struct MemoryEntry {
     /// Required for Error and Anger categories; None for Decision.
     pub lesson: Option<String>,
     /// Concept tags assigned during the REM stage.
-    tags: Vec<String>,
+    pub(crate) tags: Vec<String>,
     /// Aggregate score from the Deep stage.
-    score: f64,
+    pub(crate) score: f64,
 }
 
 impl MemoryEntry {
@@ -129,6 +130,7 @@ impl Default for Thresholds {
 pub struct DreamingPipeline {
     weights: ScoringWeights,
     thresholds: Thresholds,
+    diary_config: DreamingDiaryConfig,
 }
 
 impl DreamingPipeline {
@@ -137,6 +139,16 @@ impl DreamingPipeline {
         Self {
             weights: ScoringWeights::default(),
             thresholds: Thresholds::default(),
+            diary_config: DreamingDiaryConfig::default(),
+        }
+    }
+
+    /// Create a pipeline with a custom diary configuration.
+    pub fn with_diary_config(diary_config: DreamingDiaryConfig) -> Self {
+        Self {
+            weights: ScoringWeights::default(),
+            thresholds: Thresholds::default(),
+            diary_config,
         }
     }
 
@@ -181,6 +193,12 @@ impl DreamingPipeline {
             entry_count = deep.len(),
             "dreaming pipeline completed but MEMORY.md write not yet integrated"
         );
+
+        // Write Dream Diary if enabled.
+        if self.diary_config.enabled && !deep.is_empty() {
+            self.write_dream_diary(&deep)?;
+        }
+
         Ok(())
     }
 
@@ -363,6 +381,47 @@ impl DreamingPipeline {
             entries.retain(|e| e.category != cat || e.score >= cutoff);
         }
     }
+
+    // ── Dream Diary ────────────────────────────────────────────────
+
+    /// Write a Dream Diary file summarizing the promoted entries.
+    ///
+    /// The diary is a narrative summary of the entries that passed the
+    /// Deep stage, written to `{path}/{date}.md`.
+    pub(crate) fn write_dream_diary(&self, entries: &[MemoryEntry]) -> Result<(), DreamingError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let filename = format!("{}.md", date);
+        let diary_dir = std::path::Path::new(&self.diary_config.path);
+        std::fs::create_dir_all(diary_dir)?;
+        let diary_path = diary_dir.join(&filename);
+
+        let mut content = format!("# Dream Diary — {}\n\n", date);
+        content.push_str(&format!(
+            "Promoted {} entries to MEMORY.md.\n\n",
+            entries.len()
+        ));
+
+        for entry in entries {
+            let category_str = match entry.category {
+                EntryCategory::Error => "Error",
+                EntryCategory::Anger => "Anger",
+                EntryCategory::Decision => "Decision",
+            };
+            content.push_str(&format!("- **[{}]** {}", category_str, entry.body));
+            if let Some(lesson) = &entry.lesson {
+                content.push_str(&format!(" → _Lesson: {}_", lesson));
+            }
+            content.push('\n');
+        }
+
+        std::fs::write(&diary_path, content)?;
+        tracing::info!(path = %diary_path.display(), "dream diary written");
+        Ok(())
+    }
 }
 
 impl Default for DreamingPipeline {
@@ -370,7 +429,6 @@ impl Default for DreamingPipeline {
         Self::new()
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
