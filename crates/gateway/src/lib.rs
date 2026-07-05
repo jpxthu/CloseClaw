@@ -272,18 +272,17 @@ impl Gateway {
         sender_id: Option<&str>,
         channel: &str,
     ) -> Option<HandleResult> {
+        // ── Extract peer_id once for reuse ──────────────────────────
+        let peer_id = processed
+            .metadata
+            .get("peer_id")
+            .map(|s| s.as_str())
+            .unwrap_or("");
         // ── Resolve session_key → session_id ────────────────────────
         let session_id = match self.resolve_session_from_message(&processed, channel).await {
             Some(id) => id,
             None => {
                 tracing::warn!("session_key missing or resolve failed — message not processed");
-                // Reply to user with error per design doc.
-                // Use simplified outbound path (same as non-text interception).
-                let peer_id = processed
-                    .metadata
-                    .get("peer_id")
-                    .map(|s| s.as_str())
-                    .unwrap_or("");
                 if !peer_id.is_empty() {
                     if let Err(e) = self
                         .send_outbound_simplified(peer_id, channel, "\u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\u{5931}\u{8D25}\u{FF0C}\u{8BF7}\u{91CD}\u{8BD5}")
@@ -334,11 +333,6 @@ impl Gateway {
                 message_type = ?message_type,
                 "rejecting non-text message"
             );
-            let peer_id = processed
-                .metadata
-                .get("peer_id")
-                .map(|s| s.as_str())
-                .unwrap_or("");
             if let Err(e) = self
                 .send_outbound_simplified(
                     peer_id,
@@ -410,13 +404,35 @@ impl Gateway {
                 .await;
             // NOTE: No decrement_busy here — the handler's spawned task
             // (finish_llm) is responsible for decrementing on async paths.
+            if matches!(result, HandleResult::MessageQueued) && !peer_id.is_empty() {
+                self.send_queuing_notification(&session_id, peer_id, channel)
+                    .await;
+            }
             return Some(result);
         }
 
         let result = handler.handle_message(&session_id, content).await;
         // NOTE: No decrement_busy here — the handler's spawned task
         // (finish_llm) is responsible for decrementing on async paths.
+        if matches!(result, HandleResult::MessageQueued) && !peer_id.is_empty() {
+            self.send_queuing_notification(&session_id, peer_id, channel)
+                .await;
+        }
         Some(result)
+    }
+
+    /// Send "⏳ 正在排队..." when a message is enqueued (session busy).
+    async fn send_queuing_notification(&self, session_id: &str, peer_id: &str, channel: &str) {
+        if let Err(e) = self
+            .send_outbound_simplified(peer_id, channel, "⏳ 正在排队...")
+            .await
+        {
+            tracing::warn!(
+                session_id = %session_id,
+                error = %e,
+                "failed to send queuing notification"
+            );
+        }
     }
 
     /// Resolve a session_id from a [`ProcessedMessage`]'s `session_key`.
