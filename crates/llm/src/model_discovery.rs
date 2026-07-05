@@ -59,6 +59,10 @@ impl ModelDiscovery {
 
             match result {
                 Ok(Ok(mut models)) => {
+                    // Filter to only models known in the knowledge base.
+                    // Unknown models (not in knowledge base) are excluded.
+                    models.retain(|model| self.knowledge.find(provider_id, &model.id).is_some());
+
                     for model in &mut models {
                         if let Some(params) = self.knowledge.find(provider_id, &model.id) {
                             // Knowledge base is the authoritative source for
@@ -201,27 +205,39 @@ mod tests {
         assert_eq!(fetch_count.load(Ordering::SeqCst), 0);
     }
 
+    fn known_models() -> Vec<ModelInfo> {
+        vec![ModelInfo {
+            id: "MiniMax-M2.7".into(),
+            name: "MiniMax M2.7".into(),
+            context_window: 4096,
+            max_tokens: 1024,
+            default_temperature: Some(0.7),
+            reasoning: false,
+            input_types: vec![],
+        }]
+    }
+
     #[tokio::test]
     async fn test_cache_miss_fetch_success_writes_cache() {
         let dir = tempfile::tempdir().unwrap();
         let discovery = make_discovery(&dir);
 
         let result = discovery
-            .discover("test-provider", "mytoken", |_| async { Ok(test_models()) })
+            .discover("minimax", "mytoken", |_| async { Ok(known_models()) })
             .await;
 
         assert_eq!(result.models().len(), 1);
-        assert_eq!(result.models()[0].id, "test-model-1");
+        assert_eq!(result.models()[0].id, "MiniMax-M2.7");
 
         // Cache should now be populated — second call should not invoke fetch
         let fetch_count = Arc::new(AtomicUsize::new(0));
         let fc = fetch_count.clone();
         let result2 = discovery
-            .discover("test-provider", "mytoken", move |_| {
+            .discover("minimax", "mytoken", move |_| {
                 let fc = fc.clone();
                 async move {
                     fc.fetch_add(1, Ordering::SeqCst);
-                    Ok(test_models())
+                    Ok(known_models())
                 }
             })
             .await;
@@ -275,12 +291,12 @@ mod tests {
         std::fs::write(&path, serde_json::to_string_pretty(&map).unwrap()).unwrap();
 
         let result = discovery
-            .discover("test-provider", "mytoken", |_| async { Ok(test_models()) })
+            .discover("minimax", "mytoken", |_| async { Ok(known_models()) })
             .await;
 
         // Should have re-fetched (not returned old-model)
         assert_eq!(result.models().len(), 1);
-        assert_eq!(result.models()[0].id, "test-model-1");
+        assert_eq!(result.models()[0].id, "MiniMax-M2.7");
     }
 
     #[test]
@@ -353,17 +369,56 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_discover_knowledge_miss_fallback() {
+    async fn test_discover_knowledge_miss_filters_unknown_models() {
         let dir = tempfile::tempdir().unwrap();
         let discovery = make_test_discovery(&dir);
 
-        // API returns an unknown model not in knowledge base
+        // API returns a known model and an unknown model
+        let api_models = vec![
+            ModelInfo {
+                id: "MiniMax-M2.7".into(),
+                name: "MiniMax M2.7".into(),
+                context_window: 4096,
+                max_tokens: 1024,
+                default_temperature: Some(0.5),
+                reasoning: false,
+                input_types: vec![],
+            },
+            ModelInfo {
+                id: "some-new-future-model".into(),
+                name: "Future Model".into(),
+                context_window: 16384,
+                max_tokens: 4096,
+                default_temperature: Some(0.5),
+                reasoning: false,
+                input_types: vec![],
+            },
+        ];
+
+        let result = discovery
+            .discover("minimax", "key", |_| {
+                let value = api_models.clone();
+                async move { Ok(value) }
+            })
+            .await;
+
+        // Only the known model should remain
+        assert_eq!(result.models().len(), 1);
+        assert_eq!(result.models()[0].id, "MiniMax-M2.7");
+    }
+
+    #[tokio::test]
+    async fn test_discover_filters_all_unknown_models() {
+        let dir = tempfile::tempdir().unwrap();
+        let discovery = make_test_discovery(&dir);
+
+        // API returns only unknown models
         let api_models = vec![ModelInfo {
-            id: "some-new-future-model".into(),
-            name: "Future Model".into(),
-            context_window: 16384,
-            max_tokens: 4096,
-            default_temperature: Some(0.5),
+            id: "unknown-model-alpha".into(),
+            name: "Alpha".into(),
+            context_window: 8192,
+            max_tokens: 2048,
+            default_temperature: Some(0.7),
             reasoning: false,
             input_types: vec![],
         }];
@@ -375,12 +430,10 @@ mod tests {
             })
             .await;
 
-        assert_eq!(result.models().len(), 1);
-        let m = &result.models()[0];
-        // Unknown model: no knowledge base fill, API values preserved
-        assert_eq!(m.id, "some-new-future-model");
-        assert_eq!(m.context_window, 16384);
-        assert_eq!(m.max_tokens, 4096);
-        assert!(!m.reasoning);
+        assert!(
+            result.models().is_empty(),
+            "unknown models should be filtered out"
+        );
+        assert_eq!(result.source, DiscoverySource::Api);
     }
 }
