@@ -403,8 +403,8 @@ fn test_from_single_preserves_explicit_values() {
 // ------------------------------------------------------------------
 
 use crate::agents::config_types::{
-    DreamingConfig, DreamingScoringConfig, DreamingThresholdConfig, MemoryConfig,
-    MemoryStorageConfig, MiningConfig, SearchConfig,
+    DreamingCapacityConfig, DreamingConfig, DreamingScoringConfig, DreamingThresholdConfig,
+    MemoryConfig, MemoryStorageConfig, MiningConfig, SearchConfig,
 };
 
 /// Build a global MemoryConfig with non-default values.
@@ -425,9 +425,19 @@ fn make_global_memory() -> MemoryConfig {
             enabled: Some(true),
             model: Some("global-dreamer".into()),
             schedule: Some("0 2 * * *".into()),
+            scoring: DreamingScoringConfig {
+                frequency_weight: Some(1.0),
+                recency_weight: Some(0.5),
+                explicitness_weight: Some(1.5),
+                cross_agent_weight: Some(1.3),
+                negative_signal_weight: Some(-0.5),
+            },
             threshold: DreamingThresholdConfig {
                 absolute: Some(2.0),
                 relative: Some(0.3),
+            },
+            capacity: DreamingCapacityConfig {
+                max_rules: Some(20),
             },
             ..Default::default()
         },
