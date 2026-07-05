@@ -41,20 +41,15 @@ use super::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectWhitelis
 ///   denial but do not enqueue for approval. This is a one-way notification.
 /// - [`Ask`](HeartbeatApprovalMode::Ask): Enqueue the heartbeat denial for
 ///   owner approval, treating it the same as any other denied operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum HeartbeatApprovalMode {
     /// Silently skip denied heartbeat operations (no queue, no notification).
+    #[default]
     Skip,
     /// Notify the owner about the denial but do not enqueue for approval.
     Notify,
     /// Enqueue denied heartbeat operations for owner approval.
     Ask,
-}
-
-impl Default for HeartbeatApprovalMode {
-    fn default() -> Self {
-        Self::Skip
-    }
 }
 
 /// Notification sent to the owner when an operation requires approval.
@@ -152,6 +147,67 @@ impl ApprovalFlow {
         self.heartbeat_mode = mode;
     }
 
+    /// Handle a denied heartbeat operation according to the configured mode.
+    ///
+    /// Returns `None` if the operation should not be enqueued (Skip/Notify modes),
+    /// or `Some(())` if it should proceed to the normal enqueue flow (Ask mode).
+    fn handle_heartbeat_denial(
+        &self,
+        caller: &Caller,
+        request: &PermissionRequestBody,
+        risk_level: RiskLevel,
+    ) -> Option<String> {
+        match self.heartbeat_mode {
+            HeartbeatApprovalMode::Skip => None,
+            HeartbeatApprovalMode::Notify => {
+                if let PermissionRequestBody::ToolCall {
+                    agent,
+                    skill,
+                    method,
+                } = request
+                {
+                    (self.on_notify_owner)(ApprovalNotification {
+                        request_id: String::new(),
+                        caller: caller.clone(),
+                        operation_desc: format!("{} tool {}/{}", agent, skill, method),
+                        risk_level,
+                    });
+                }
+                None
+            }
+            HeartbeatApprovalMode::Ask => Some(String::new()),
+        }
+    }
+
+    /// Build a human-readable description of the operation for notifications.
+    fn format_operation_desc(request: &PermissionRequestBody) -> String {
+        match request {
+            PermissionRequestBody::FileOp { agent, path, op } => {
+                format!("{} file {} {}", agent, op, path)
+            }
+            PermissionRequestBody::CommandExec { agent, cmd, .. } => {
+                format!("{} execute {}", agent, cmd)
+            }
+            PermissionRequestBody::NetOp { agent, host, port } => {
+                format!("{} network {}:{}", agent, host, port)
+            }
+            PermissionRequestBody::ToolCall {
+                agent,
+                skill,
+                method,
+            } => format!("{} tool {}/{}", agent, skill, method),
+            PermissionRequestBody::InterAgentMsg { from, to } => {
+                format!("inter-agent {} -> {}", from, to)
+            }
+            PermissionRequestBody::ConfigWrite { agent, config_file } => {
+                format!("{} config write {}", agent, config_file)
+            }
+            PermissionRequestBody::SlashCommand { agent, command } => {
+                format!("{} slash /{}", agent, command)
+            }
+        }
+    }
+
     /// Submit a denied operation for owner approval.
     ///
     /// # Behavior
@@ -175,98 +231,35 @@ impl ApprovalFlow {
         session_id: &str,
         is_sub_agent: bool,
     ) -> Option<String> {
-        // Sub-agent operations are silently denied.
         if is_sub_agent {
             return None;
         }
-
-        // Heartbeat operations are handled according to heartbeat_mode.
-        if is_heartbeat_operation(request) {
-            // Extract skill/method via pattern matching (no accessors needed).
-            let (agent_str, skill_str, method_str) = match request {
-                PermissionRequestBody::ToolCall {
-                    agent,
-                    skill,
-                    method,
-                } => (agent.as_str(), skill.as_str(), method.as_str()),
-                _ => unreachable!("is_heartbeat_operation only matches ToolCall"),
-            };
-            let operation_desc = format!("{} tool {}/{}", agent_str, skill_str, method_str);
-
-            match self.heartbeat_mode {
-                HeartbeatApprovalMode::Skip => {
-                    return None;
-                }
-                HeartbeatApprovalMode::Notify => {
-                    (self.on_notify_owner)(ApprovalNotification {
-                        request_id: String::new(),
-                        caller: caller.clone(),
-                        operation_desc,
-                        risk_level,
-                    });
-                    return None;
-                }
-                HeartbeatApprovalMode::Ask => {
-                    // Fall through to the normal enqueue flow below.
-                }
-            }
+        if is_heartbeat_operation(request)
+            && self
+                .handle_heartbeat_denial(caller, request, risk_level)
+                .is_none()
+        {
+            return None;
         }
-
-        let operation_desc = match request {
-            PermissionRequestBody::FileOp { agent, path, op } => {
-                format!("{} file {} {}", agent, op, path)
-            }
-            PermissionRequestBody::CommandExec { agent, cmd, .. } => {
-                format!("{} execute {}", agent, cmd)
-            }
-            PermissionRequestBody::NetOp { agent, host, port } => {
-                format!("{} network {}:{}", agent, host, port)
-            }
-            PermissionRequestBody::ToolCall {
-                agent,
-                skill,
-                method,
-            } => {
-                format!("{} tool {}/{}", agent, skill, method)
-            }
-            PermissionRequestBody::InterAgentMsg { from, to } => {
-                format!("inter-agent {} -> {}", from, to)
-            }
-            PermissionRequestBody::ConfigWrite { agent, config_file } => {
-                format!("{} config write {}", agent, config_file)
-            }
-            PermissionRequestBody::SlashCommand { agent, command } => {
-                format!("{} slash /{}", agent, command)
-            }
-        };
-
-        let session_resume = session_id.to_string();
-        let risk = risk_level;
-
-        // Callback: no-op. The actual push_pending_message calls are in
-        // approve_request / deny_request to avoid duplicate messages.
-        let callback = Box::new(move |_result: ApproveOrDeny| {});
-
-        let request_id = match self.queue.enqueue(
-            request.clone(),
-            caller.clone(),
-            operation_desc.clone(),
-            risk,
-            session_resume,
-            callback,
-        ) {
-            Ok(id) => id,
-            Err(_) => return None, // Duplicate — silently ignore.
-        };
-
-        // Notify the owner about the pending approval.
+        let operation_desc = Self::format_operation_desc(request);
+        let callback = Box::new(|_: ApproveOrDeny| {});
+        let request_id = self
+            .queue
+            .enqueue(
+                request.clone(),
+                caller.clone(),
+                operation_desc.clone(),
+                risk_level,
+                session_id.to_string(),
+                callback,
+            )
+            .ok()?;
         (self.on_notify_owner)(ApprovalNotification {
             request_id: request_id.clone(),
             caller: caller.clone(),
             operation_desc,
-            risk_level: risk,
+            risk_level,
         });
-
         Some(request_id)
     }
 
