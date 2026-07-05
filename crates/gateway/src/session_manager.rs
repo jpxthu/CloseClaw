@@ -671,7 +671,7 @@ mod flush_tests;
 #[cfg(test)]
 mod graceful_stop_tests;
 #[cfg(test)]
-// mod resolve_tests;  // DISABLED: imports from full-tests only modules
+mod resolve_tests;
 #[cfg(test)]
 mod spawn_cascade_tests;
 #[cfg(test)]
