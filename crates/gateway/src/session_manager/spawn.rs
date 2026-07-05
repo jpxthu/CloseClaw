@@ -390,6 +390,14 @@ impl SessionManager {
         if let Some(sh) = self.get_shutdown_handle().await {
             cs.set_shutdown_handle(sh);
         }
+        // Inject LLM caller and system prompt builder for delegation.
+        if let Some(caller) = self.get_llm_caller().await {
+            cs.set_llm_caller(caller);
+        }
+        if let Some(builder) = self.get_system_prompt_builder().await {
+            cs.set_system_prompt_builder(builder);
+        }
+        cs.set_prompt_overrides(self.get_prompt_overrides().await);
 
         // 5b. Generate communication config: child may only
         //     communicate with its parent agent.

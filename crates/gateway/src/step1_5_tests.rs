@@ -396,6 +396,8 @@ async fn test_gateway_delegates_llm_to_session_layer() {
     ));
     let llm_caller: std::sync::Arc<dyn closeclaw_common::LlmCaller> =
         Arc::new(crate::llm_caller_impl::FallbackLlmCaller(ufc.clone()));
+    // Set LLM caller on SessionManager so ConversationSession gets it at creation.
+    sm.set_llm_caller(llm_caller).await;
     let fallback_llm_caller = Arc::new(crate::session_handler::ActiveSearcherLlmCaller {
         client: ufc,
         model: String::new(),
@@ -404,7 +406,6 @@ async fn test_gateway_delegates_llm_to_session_layer() {
         crate::session_handler::SessionMessageHandler::new_no_output(
             Arc::clone(&sm),
             fallback,
-            llm_caller,
             fallback_llm_caller,
         ),
     );

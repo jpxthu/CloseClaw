@@ -64,7 +64,6 @@ pub struct SessionMessageHandler {
     pub(super) fallback_client: Arc<FallbackClient>,
     pub(super) output_tx: OutputTx,
     pub(super) compaction_service: Arc<std::sync::Mutex<CompactionService>>,
-    pub(super) llm_caller: Arc<dyn LlmCaller>,
     /// Concrete [`ActiveSearcherLlmCaller`] for the active-searcher pipeline.
     ///
     /// The active-searcher uses its own [`LlmCaller`][closeclaw_memory::active_searcher_llm::LlmCaller]
@@ -99,7 +98,6 @@ impl SessionMessageHandler {
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,
         output_tx: mpsc::Sender<(String, Vec<ContentBlock>)>,
-        llm_caller: Arc<dyn LlmCaller>,
         fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
     ) -> Self {
         Self {
@@ -109,7 +107,6 @@ impl SessionMessageHandler {
             compaction_service: Arc::new(std::sync::Mutex::new(CompactionService::new(
                 CompactConfig::default(),
             ))),
-            llm_caller,
             fallback_llm_caller,
             gateway: None,
             shutdown_handle: None,
@@ -120,7 +117,6 @@ impl SessionMessageHandler {
     pub fn new_no_output(
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,
-        llm_caller: Arc<dyn LlmCaller>,
         fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
     ) -> Self {
         Self {
@@ -130,7 +126,6 @@ impl SessionMessageHandler {
             compaction_service: Arc::new(std::sync::Mutex::new(CompactionService::new(
                 CompactConfig::default(),
             ))),
-            llm_caller,
             fallback_llm_caller,
             gateway: None,
             shutdown_handle: None,

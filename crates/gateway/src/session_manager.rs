@@ -10,7 +10,7 @@ use closeclaw_common::shutdown::ShutdownMode;
 use crate::shutdown_handle::ShutdownHandle;
 use closeclaw_common::IMPlugin;
 use closeclaw_common::{
-    PromptOverrides, SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
+    LlmCaller, PromptOverrides, SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
 };
 use closeclaw_config::manager::{ConfigManager, ConfigSnapshot};
 use closeclaw_config::ConfigSection;
@@ -66,6 +66,9 @@ pub struct SessionManager {
     prompt_overrides: RwLock<Option<PromptOverrides>>,
     /// System prompt builder (trait object) for rebuilding prompts.
     system_prompt_builder: RwLock<Option<Arc<dyn SystemPromptBuilder>>>,
+    /// LLM caller injected by Gateway for delegating LLM requests.
+    /// Set via [`set_llm_caller`](Self::set_llm_caller) after construction.
+    llm_caller: RwLock<Option<Arc<dyn LlmCaller>>>,
     /// Children tracking table: parent_session_id → list of child sessions.
     children: RwLock<spawn::SpawnTree>,
     /// Channel → active session_id mapping.
@@ -122,6 +125,7 @@ impl SessionManager {
             default_reasoning_level,
             prompt_overrides: RwLock::new(None),
             system_prompt_builder: RwLock::new(None),
+            llm_caller: RwLock::new(None),
             children: RwLock::new(spawn::SpawnTree::new()),
             channel_active_sessions: RwLock::new(HashMap::new()),
             key_registry: RwLock::new(HashMap::new()),
@@ -177,6 +181,16 @@ impl SessionManager {
     /// Get the system prompt builder, if set.
     pub async fn get_system_prompt_builder(&self) -> Option<Arc<dyn SystemPromptBuilder>> {
         self.system_prompt_builder.read().await.clone()
+    }
+
+    /// Set the LLM caller.
+    pub async fn set_llm_caller(&self, caller: Arc<dyn LlmCaller>) {
+        *self.llm_caller.write().await = Some(caller);
+    }
+
+    /// Get the LLM caller, if set.
+    pub async fn get_llm_caller(&self) -> Option<Arc<dyn LlmCaller>> {
+        self.llm_caller.read().await.clone()
     }
 
     /// Swap in a new config snapshot, releasing the old one.
@@ -606,20 +620,8 @@ impl SessionManager {
                 None => return,
             }
         };
-        let builder = match self.get_system_prompt_builder().await {
-            Some(b) => b,
-            None => {
-                tracing::debug!(
-                    session_id,
-                    "no system prompt builder configured, skipping rebuild"
-                );
-                return;
-            }
-        };
-        let overrides = self.get_prompt_overrides().await;
         let mut cs = cs.write().await;
-        cs.rebuild_system_prompt(session_id, &agent_id, builder.as_ref(), overrides.as_ref())
-            .await;
+        cs.rebuild_system_prompt(session_id, &agent_id).await;
     }
 
     /// Notify all active sessions that a configuration section has been updated.

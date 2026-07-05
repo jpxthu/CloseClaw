@@ -23,7 +23,6 @@ use super::session_handler::{MessageMetadata, SessionMessageHandler};
 use super::OutputTx;
 use crate::outbound::StreamResult;
 use crate::session_manager::SessionManager;
-use closeclaw_common::LlmCaller;
 use closeclaw_llm::session::ChatSession;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
@@ -39,7 +38,7 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
         result: Result<StreamResult, closeclaw_llm::LLMError>,
-        llm_caller: &Arc<dyn LlmCaller>,
+        llm_caller: &Arc<dyn closeclaw_common::LlmCaller>,
         output_tx: &OutputTx,
     ) {
         Self::clear_busy_and_send(session_manager, session_id, result, output_tx).await;
@@ -121,7 +120,7 @@ impl SessionMessageHandler {
     async fn drain_pending_loop(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
-        llm_caller: &Arc<dyn LlmCaller>,
+        llm_caller: &Arc<dyn closeclaw_common::LlmCaller>,
         output_tx: &OutputTx,
     ) {
         // Step 1.5: drain queued announces.

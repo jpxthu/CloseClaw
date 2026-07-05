@@ -17,6 +17,7 @@ use super::Gateway;
 use crate::session_manager::SessionManager;
 use crate::HandleResult;
 use closeclaw_common::im_plugin::IMPlugin;
+use closeclaw_common::LlmCaller;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::ChatSession;
 use closeclaw_session::persistence::PendingMessage;
@@ -376,7 +377,19 @@ impl SessionMessageHandler {
         let session_id = session_id.to_string();
         let content_for_task = content;
         let sm = Arc::clone(&self.session_manager);
-        let llm_caller = Arc::clone(&self.llm_caller);
+        let llm_caller: Arc<dyn LlmCaller> = match sm.get_conversation_session(&session_id).await {
+            Some(cs) => match cs.read().await.llm_caller().cloned() {
+                Some(c) => c,
+                None => {
+                    tracing::error!(session_id = %session_id, "no LLM caller configured for session");
+                    return HandleResult::MessageQueued;
+                }
+            },
+            None => {
+                tracing::error!(session_id = %session_id, "session not found");
+                return HandleResult::MessageQueued;
+            }
+        };
         let output_tx = Arc::clone(&self.output_tx);
         let channel = meta.channel.clone();
         // Clone the gateway/plugin into the spawn (optional). If

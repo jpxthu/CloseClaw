@@ -17,11 +17,18 @@ fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
         Arc::new(CooldownManager::new()),
     ));
     let llm_caller: Arc<dyn LlmCaller> = Arc::new(llm_caller_impl::FallbackLlmCaller(ufc.clone()));
+    // Set LLM caller on SessionManager so ConversationSession gets it at creation.
+    {
+        let sm_clone = Arc::clone(&sm);
+        tokio::runtime::Handle::current().block_on(async {
+            sm_clone.set_llm_caller(llm_caller).await;
+        });
+    }
     let fallback_llm_caller = Arc::new(ActiveSearcherLlmCaller {
         client: ufc,
         model: String::new(),
     });
-    SessionMessageHandler::new_no_output(sm, fallback, llm_caller, fallback_llm_caller)
+    SessionMessageHandler::new_no_output(sm, fallback, fallback_llm_caller)
 }
 
 fn make_msg() -> crate::Message {
