@@ -4,7 +4,10 @@
 
 共享类型是跨模块传递的纯数据结构，被 2 个及以上模块共同消费。每个共享类型在本文档中唯一定义，各业务模块文档通过引用指向此处，不在自身文档中重复描述字段结构。
 
-> **本文档是 common crate 中共享类型的权威清单。** 若代码中 common crate 存在本文档未收录的 pub struct/enum，该类型不属于跨模块共享类型，应移至对应领域模块的 crate。反之，本文档定义的所有类型，代码中均位于 common crate（或其子 crate）。
+> **本文档是 common crate 的内容边界。**
+> - 本文档中定义的类型 → 代码位于 common crate（或其子 crate）
+> - **不在本文档中的类型 → 代码不得出现在 common crate 中**
+> - common crate 中出现本文档未收录的类型，说明代码放错了位置——应将该类型移至对应领域模块的 crate，而非将其追加到本文档
 
 本文档不包含 trait 接口定义——核心 trait 见 [core-traits](core-traits.md)。
 
@@ -193,7 +196,132 @@ PlanState 描述当前规划的阶段和未完成步骤列表：
 | `pending_steps` | list(string) | 未完成的规划步骤标识列表，用于 compaction 保护和恢复后继续 |
 | `plan_file_path` | string | plan 文件的路径，Agent 写入和读取的唯一可写目标 |
 
+### CompactConfig
+
+CompactConfig 是会话历史压缩的配置结构，由 Config 模块加载，Gateway 和 Session 在 compaction 触发时读取。控制压缩何时自动触发、触发阈值的估算参数，以及容错机制。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `chars_per_token` | f64 | 每 token 对应字符数估算系数，用于根据字符数推算 token 用量。默认 0.25（即 1 token ≈ 4 字符） |
+| `auto_compact_buffer_tokens` | usize | 上下文窗口边缘预留的 buffer token 数，低于该阈值时触发自动压缩。默认 13,000 |
+| `max_consecutive_failures` | usize | 连续压缩失败的最大次数，超过后断路器触发停止自动压缩。默认 3 |
+
+**触发条件**：Session 检测到当前上下文 token 用量超过 `上下文窗口 - auto_compact_buffer_tokens` 时触发自动压缩。手动 `/compact` 指令不受此阈值限制。
+
+**保留策略**：Compaction 保留最近 N 条消息（策略由 Compaction 模块实现），对 PlanState 相关消息做隔离保护不予压缩。
+
+### PendingMessage
+
+PendingMessage 是待审批消息的暂存结构，存储在 Session 的消息队列中。当 Permission 模块拦截需要审批的消息时，将其包装为 PendingMessage 推入 Session 的待审批队列，等待用户审批后继续执行。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `message_id` | string | 消息 ID，全局唯一标识 |
+| `content` | string | 消息内容，待审批的消息文本 |
+| `created_at` | datetime | 创建时间（UTC），Permission 模块可据此判断审批超时 |
+| `sent` | bool | 是否已发送。初始值为 false，审批通过发送后标记为 true（`mark_sent()`） |
+
+**审批状态推断**：`sent` 字段为 true 表示消息已审批通过并发送；审批拒绝时，消息从队列中移除（delete），不保留任何痕迹。PendingMessage 不包含"拒绝"状态——拒绝即删除。
+
+**数据流**：Session 执行消息前 → Permission 模块拦截 → 包装为 PendingMessage → 推入 Session 的 pending 队列 → 用户审批 → 标记 sent / 删除 → 继续执行。
+
+### ReasoningLevel
+
+ReasoningLevel 是 LLM 推理深度控制的枚举，描述 LLM 在响应中投入的推理计算量。由 `/reasoning` 指令设置，Gateway 传递给 LLM Provider，Session 持久化。推理深度越高，LLM 花费更多 token 做内部推理（thinking/reasoning），适用于复杂问题。
+
+四个等级：
+
+| 等级 | 值 | 行为 |
+|------|----|------|
+| Low | `"low"` | 低推理深度，最小推理 token 消耗。适合简单问答、常规对话 |
+| Medium | `"medium"` | 中等推理深度。平衡推理质量和 token 成本 |
+| High | `"high"` | 高推理深度（默认等级）。适合复杂问题分析、代码审查等 |
+| Max | `"max"` | 最大推理深度，最大推理 token 消耗。适合深度研究、复杂架构设计 |
+
+**与 VerbosityLevel 的区别**：ReasoningLevel 控制 LLM 产出前的推理计算量（影响输出的 Thinking 块内容质量和长度），VerbosityLevel 控制输出时是否展示中间推理过程。两轴正交——即使 ReasoningLevel = Max，VerbosityLevel = off 时 LLM 仍可产出完整推理，但展示时隐藏 Thinking 块。
+
+**作用范围**：ReasoningLevel 仅对后续 LLM 调用生效。切换等级不影响当前正在运行的 LLM 调用。
+
+### PromptOverrides
+
+PromptOverrides 是 System Prompt 的覆盖配置，允许各 Agent 按需替换 system prompt 的特定层级。由 Gateway 在构建 system prompt 时传递给 SystemPromptBuilder。当不存在覆盖时（所有字段均为 None），按正常的三层优先级渲染各 section。
+
+三层优先级覆盖（从高到低）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `override_prompt` | string? | 最高优先级的全量覆盖。设置后将替换整个静态层，忽略其他层级和 section 渲染 |
+| `agent_prompt` | string? | 次优先级的 agent 级 prompt。替换 agent 自动生成的 prompt 段 |
+| `custom_prompt` | string? | 最低优先级的用户自定义 prompt。在 agent 级 prompt 之上叠加用户定制内容 |
+
+**解析策略**：SystemPromptBuilder 按优先级检查——先检查 `override_prompt`（非 None 则直接使用），否则检查 `agent_prompt`，再检查 `custom_prompt`，全部 None 时使用正常的 section 渲染流程。
+
+### SessionCheckpoint
+
+SessionCheckpoint 是 Session 持久化快照，由 Gateway 在 Session 生命周期关键节点（创建、状态变更、停止）写入 StorageProvider。Session 恢复时从存储读取此结构重建会话状态。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `session_id` | string | 会话唯一标识 |
+| `agent_id` | string | 与会话关联的 agent 标识 |
+| `channel` | string | 平台通道标识，如 `"feishu"`、`"discord"` |
+| `status` | SessionStatus | 会话状态枚举（见下文） |
+| `last_activity` | int | 最后活动 Unix 时间戳 |
+
+**SessionStatus 枚举**：
+
+| 变体 | 说明 |
+|------|------|
+| Active | 会话活跃，正在处理消息 |
+| Idle | 会话空闲，无待处理的工作 |
+| Stopped | 会话已停止 |
+
+**数据流**：Session 状态变更 → Gateway 构造 SessionCheckpoint → 调用 StorageProvider.save_checkpoint() → 写入持久化存储 → Session 恢复时调用 StorageProvider.load_checkpoint() → 重建 Session。
+
+### PersistResult
+
+PersistResult 是持久化操作（save / load / delete / flush）的执行结果类型。所有 StorageProvider 实现的方法均返回此类型，允许调用方统一错误处理。
+
+三种变体：
+
+| 变体 | 说明 |
+|------|------|
+| Success | 操作成功完成 |
+| PartialSuccess { warnings: Vec\<string\> } | 操作完成但存在非致命警告（如部分数据未刷新到磁盘） |
+| Failure(string) | 操作失败，携带错误描述 |
+
+**使用场景**：Gateway 在保存 checkpoint 后检查 PersistResult，Failure 时记录错误日志并尝试重试或降级。PartialSuccess 仅记录警告日志，不阻塞后续流程。
+
+### UnifiedResponse
+
+UnifiedResponse 是 LLM Provider 调用产出的统一响应结构。所有 LLM Provider（OpenAI、Claude 等）的原始响应经 LLM 模块的 Interpreter 统一转换为此结构，供上游 Gateway 和 Session 消费。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `content_blocks` | ContentBlock[] | 有序的内容块列表。LLM 产出的文本、思考过程、工具调用等均按序排列在此 |
+| `usage` | UnifiedUsage | Token 用量统计（见 [UnifiedUsage](#unifiedusage)） |
+| `finish_reason` | string? | 响应结束原因（如 `"stop"`、`"length"`、`"tool_use"`），由 LLM Provider 报告 |
+
+**数据流**：LLM Provider 原始响应 → Interpreter 统一转换 → UnifiedResponse → Gateway 接收 → Session 持久化（消息维度） → ContentBlock[] 进入出站 Processor Chain。
+
+### UnifiedUsage
+
+UnifiedUsage 是 LLM 调用的 token 统计数据，作为 [UnifiedResponse](#unifiedresponse) 的子结构携带。由 LLM Provider 报告，Interpreter 转换。下游用于计费统计、用量监控和触发压缩决策。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `prompt_tokens` | u32 | 提示（输入）token 数 |
+| `completion_tokens` | u32 | 补全（输出）token 数 |
+| `total_tokens` | u32? | 总 token 数（可选，部分 Provider 不报告此项） |
+| `reasoning_tokens` | u32? | 推理 token 数（可选，仅支持 reasoning 的 Provider 报告） |
+| `cache_read_tokens` | u32? | 缓存读取 token 数（可选，仅支持 prompt caching 的 Provider 报告） |
+| `cache_write_tokens` | u32? | 缓存写入 token 数（可选，仅支持 prompt caching 的 Provider 报告） |
+
+**数据流**：LLM Provider 原始响应 → Interpreter 解析 token 字段 → 填充 UnifiedUsage → 随 UnifiedResponse 传递给 Gateway → Gateway 累计用量指标 → 超过阈值时触发压缩决策。
+
 ## 数据流
+
+### NormalizedMessage
 
 NormalizedMessage 的全系统流动路径：
 
@@ -212,6 +340,8 @@ Gateway 路由
 ```
 
 NormalizedMessage 仅用于入站方向。出站方向使用 ContentBlock[]（LLM 输出）和 [ProcessedMessage](#processedmessage)（经 Processor Chain 处理后的中间结构），与 NormalizedMessage 无关。
+
+### ContentBlock
 
 ContentBlock[] 的出站流动路径：
 
@@ -376,6 +506,126 @@ Session 恢复时从 checkpoint 重建 PlanState
 Plan Mode 结束时销毁 PlanState
 ```
 
+### CompactConfig
+
+CompactConfig 的配置和消费路径：
+
+```
+Config 模块加载 CompactConfig（来自配置文件）
+  ↓
+Session 在 compaction 触发时读取：
+  ├── 自动触发：检查上下文 token 是否超过 `窗口 - auto_compact_buffer_tokens`
+  │   └── 超过阈值 → 调用 Compaction 模块执行压缩
+  ├── 手动触发：/compact 指令 → 直接调用 Compaction 模块
+  └── 失败处理：连续失败超过 max_consecutive_failures → 断路器切断自动压缩
+  ↓
+Compaction 模块根据 chars_per_token 估算 token 用量
+```
+
+### PendingMessage
+
+PendingMessage 的审批流程：
+
+```
+Session 执行消息前
+  ↓
+Permission 模块检查是否需要审批
+  ├── 需要审批 → 构造 PendingMessage → 推入 Session.pending 队列 → 等待用户审批
+  │     ├── 审批通过 → mark_sent() → 继续执行消息
+  │     └── 审批拒绝 → 从队列删除（remove）→ 丢弃消息
+  └── 无需审批 → 正常执行消息
+```
+
+### ReasoningLevel
+
+ReasoningLevel 的设置和消费路径：
+
+```
+/reasoning <等级> 指令
+  ↓
+ReasoningHandler 设置等级
+  ↓
+Gateway 写入 Session 的 reasoning_level 字段
+  ↓
+Gateway 在构造 LLM 请求时读取 reasoning_level
+  ↓
+传递给 LLM Provider（通过 provider-specific 参数，如 reasoning_effort）
+  ↓
+LLM 按指定推理深度产出响应
+```
+
+### PromptOverrides
+
+PromptOverrides 在 system prompt 构建中的使用路径：
+
+```
+Agent 注册/配置时设置 PromptOverrides（各字段可选）
+  ↓
+Gateway 触发 system prompt 构建时传入 PromptOverrides
+  ↓
+SystemPromptBuilder 按优先级检查：
+  1. override_prompt != None → 直接使用，跳过所有 section
+  2. agent_prompt != None → 替换 agent 级 prompt
+  3. custom_prompt != None → 在 agent 级 prompt 上叠加
+  4. 全部 None → 正常 section 渲染流程
+  ↓
+产出最终 system prompt 字符串 → 写入 Session
+```
+
+### SessionCheckpoint
+
+SessionCheckpoint 的持久化路径：
+
+```
+Session 创建 / 状态变更 / 停止
+  ↓
+Gateway 构造 SessionCheckpoint { session_id, agent_id, channel, status, last_activity }
+  ↓
+StorageProvider.save_checkpoint()
+  ↓
+持久化存储（SQLite / 文件系统）
+  ↓
+Session 恢复时：
+  ↓
+StorageProvider.load_checkpoint(session_id)
+  ↓
+重建 Session（恢复 agent_id, channel, status, last_activity）
+```
+
+### PersistResult
+
+PersistResult 的处理路径：
+
+```
+StorageProvider 方法执行（save / load / delete / flush）
+  ↓
+返回 PersistResult
+  ├── Success → 正常继续
+  ├── PartialSuccess { warnings } → 记录警告日志，继续流程
+  └── Failure(error) → Gateway 记录错误日志，尝试重试或降级
+```
+
+### UnifiedResponse / UnifiedUsage
+
+UnifiedResponse 和 UnifiedUsage 的流动路径：
+
+```
+LLM Provider 原始响应
+  ↓
+Interpreter 统一转换
+  → 提取 ContentBlock[]
+  → 提取 token 用量填充 UnifiedUsage
+  → 提取 finish_reason
+  ↓
+UnifiedResponse { content_blocks, usage: UnifiedUsage, finish_reason }
+  ↓
+Gateway 接收 → Session 将消息追加到对话历史
+  ↓
+ContentBlock[] 进入出站 Processor Chain
+  ↓
+UnifiedUsage 由 Gateway 累计 → 触发压缩决策 / 计费统计
+```
+
 ## 模块关系
 
 ### NormalizedMessage
@@ -440,3 +690,47 @@ Plan Mode 结束时销毁 PlanState
 - **生产者**：mode 模块（Plan Mode 进入时创建）
 - **消费者**：Session（持久化和 compaction 保护）；mode 模块（恢复时重建、阶段切换时更新）
 - **无关**：LLM Provider（PlanState 不直接传给 LLM，通过 system prompt 的 plan 上下文间接生效）、IM Adapter（消息路由不感知 PlanState）
+
+### CompactConfig
+
+- **生产者**：Config 模块（从配置文件加载 CompactConfig）
+- **消费者**：Compaction 模块（读取配置确定压缩触发条件和估算参数）；Session（在 compaction 触发时通过管理器间接引用）
+- **无关**：LLM Provider（压缩配置不影响 LLM 调用）、IM Adapter（不参与压缩决策）
+
+### PendingMessage
+
+- **生产者**：Permission 模块（拦截需要审批的消息时构造 PendingMessage，推入 Session 队列）
+- **消费者**：Session（存储 pending 队列，供用户审批）；Gateway（通过 SessionLookup trait 读取 pending 消息做审批处理）
+- **无关**：LLM Provider（PendingMessage 在 LLM 调用之前流转，LLM 不感知审批流程）、IM Adapter（不参与审批流程）
+
+### ReasoningLevel
+
+- **生产者**：slash 模块（ReasoningHandler 处理 `/reasoning` 指令，写入 Session）
+- **消费者**：Gateway（构造 LLM 请求时读取推理等级并传递给 LLM Provider）；Session（持久化存储当前等级）
+- **无关**：IM Adapter（不感知推理深度）、Processor Chain（ReasoningLevel 在 LLM 调用前已消费，不出现在入站/出站处理链中）
+
+### PromptOverrides
+
+- **生产者**：Agent 注册/配置（各 Agent 设置自己的 PromptOverrides）
+- **消费者**：system_prompt 模块（SystemPromptBuilder 接收 PromptOverrides，按优先级选择覆盖策略）
+- **无关**：LLM Provider（不接触 PromptOverrides 结构，消费的是构建后的最终 prompt 文本）、Processor Chain（不参与 system prompt 构建）
+
+### SessionCheckpoint
+
+- **生产者**：Gateway（Session 创建、状态变更、停止时构造 checkpoint）
+- **消费者**：StorageProvider（持久化保存和加载 checkpoint）；Gateway / SessionManager（从存储恢复时反序列化重建 Session）
+- **无关**：LLM Provider（不接触 checkpoint 结构）、IM Adapter（不参与 session 持久化）
+
+### PersistResult
+
+- **生产者**：StorageProvider 所有方法（save_checkpoint / load_checkpoint / delete_checkpoint / list_checkpoints / flush 均返回 PersistResult）
+- **消费者**：Gateway / SessionManager（消费 PersistResult 判断操作成功与否，做日志记录或重试）
+- **无关**：LLM Provider（不与持久化层直接交互）、IM Adapter（不参与持久化）
+
+### UnifiedResponse / UnifiedUsage
+
+- **生产者（UnifiedResponse）**：LLM 模块的 Interpreter（将各 LLM Provider 原始响应统一转换为 UnifiedResponse）
+- **生产者（UnifiedUsage）**：LLM 模块的 Interpreter（从 Provider 原始响应中提取 token 统计数据填充 UnifiedUsage）
+- **消费者（UnifiedResponse）**：Gateway（接收 UnifiedResponse，提取 ContentBlock[] 进入出站链路，提取 UnifiedUsage 做用量统计）；Session（将 UnifiedResponse 的消息内容追加到对话历史）
+- **消费者（UnifiedUsage）**：Gateway（累计 token 用量，触发压缩决策）；计费/监控系统（消费 token 统计数据）
+- **无关**：IM Adapter（不接触 UnifiedResponse 和 UnifiedUsage，消费的是出站链处理后的 ContentBlock[]）
