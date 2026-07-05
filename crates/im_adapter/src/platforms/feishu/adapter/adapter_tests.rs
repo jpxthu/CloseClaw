@@ -677,6 +677,30 @@ async fn test_parse_card_action_no_value_returns_none() {
 // ===========================================================================
 
 #[tokio::test]
+async fn test_parse_inbound_empty_text_returns_none() {
+    let adapter = Arc::new(make_test_adapter());
+    let plugin = FeishuPlugin::new(adapter);
+    let payload = make_webhook_payload("text", &serde_json::json!({"text": ""}).to_string());
+    let result = plugin.parse_inbound(&payload).await.unwrap();
+    assert!(
+        result.is_none(),
+        "parse_inbound should discard empty text messages"
+    );
+}
+
+#[tokio::test]
+async fn test_parse_inbound_whitespace_only_text_returns_none() {
+    let adapter = Arc::new(make_test_adapter());
+    let plugin = FeishuPlugin::new(adapter);
+    let payload = make_webhook_payload("text", &serde_json::json!({"text": "   "}).to_string());
+    let result = plugin.parse_inbound(&payload).await.unwrap();
+    assert!(
+        result.is_none(),
+        "parse_inbound should discard whitespace-only text messages"
+    );
+}
+
+#[tokio::test]
 async fn test_parse_inbound_text_type() {
     let adapter = Arc::new(make_test_adapter());
     let plugin = FeishuPlugin::new(adapter);

@@ -92,6 +92,31 @@ fn make_normalized(content: &str) -> NormalizedMessage {
     }
 }
 
+/// Helper: create a MessageContext with pre-populated metadata
+/// (simulating upstream SessionRouter output).
+fn make_ctx_with_metadata(
+    content: &str,
+    metadata: std::collections::HashMap<String, String>,
+) -> MessageContext {
+    let msg = make_normalized(content);
+    let mut ctx = MessageContext::from_normalized(msg);
+    ctx.metadata = metadata;
+    ctx
+}
+
+/// Helper: create a MessageContext with pre-populated metadata
+/// and a specific message type.
+fn make_ctx_with_metadata_and_type(
+    content: &str,
+    metadata: std::collections::HashMap<String, String>,
+    message_type: MessageType,
+) -> MessageContext {
+    let msg = make_normalized_with_type(content, message_type);
+    let mut ctx = MessageContext::from_normalized(msg);
+    ctx.metadata = metadata;
+    ctx
+}
+
 #[tokio::test]
 async fn test_process_plain_text() {
     let processor = ContentNormalizer::new();
@@ -124,43 +149,48 @@ fn make_normalized_with_type(content: &str, message_type: MessageType) -> Normal
 #[tokio::test]
 async fn test_process_image_skips_normalization() {
     let processor = ContentNormalizer::new();
-    let msg = make_normalized_with_type("raw content  ", MessageType::Image);
-    let ctx = MessageContext::from_normalized(msg);
+    let meta = sample_metadata();
+    let ctx = make_ctx_with_metadata_and_type("raw content  ", meta, MessageType::Image);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     // Content returned as-is, no trimming applied
     assert_eq!(result.text_content(), Some("raw content  "));
-    assert!(result.metadata.is_empty());
+    // Metadata preserved from input context
+    assert!(result.metadata.contains_key("session_key"));
 }
 
 #[tokio::test]
 async fn test_process_file_skips_normalization() {
     let processor = ContentNormalizer::new();
-    let msg = make_normalized_with_type("file placeholder", MessageType::File);
-    let ctx = MessageContext::from_normalized(msg);
+    let meta = sample_metadata();
+    let ctx = make_ctx_with_metadata_and_type("file placeholder", meta, MessageType::File);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     assert_eq!(result.text_content(), Some("file placeholder"));
-    assert!(result.metadata.is_empty());
+    // Metadata preserved from input context
+    assert!(result.metadata.contains_key("session_key"));
 }
 
 #[tokio::test]
 async fn test_process_audio_skips_normalization() {
     let processor = ContentNormalizer::new();
-    let msg = make_normalized_with_type("audio note", MessageType::Audio);
-    let ctx = MessageContext::from_normalized(msg);
+    let meta = sample_metadata();
+    let ctx = make_ctx_with_metadata_and_type("audio note", meta, MessageType::Audio);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     assert_eq!(result.text_content(), Some("audio note"));
-    assert!(result.metadata.is_empty());
+    // Metadata preserved from input context
+    assert!(result.metadata.contains_key("session_key"));
 }
 
 #[tokio::test]
 async fn test_process_other_skips_normalization() {
     let processor = ContentNormalizer::new();
-    let msg = make_normalized_with_type("sticker   ", MessageType::Other("sticker".into()));
-    let ctx = MessageContext::from_normalized(msg);
+    let meta = sample_metadata();
+    let ctx =
+        make_ctx_with_metadata_and_type("sticker   ", meta, MessageType::Other("sticker".into()));
     let result = processor.process(&ctx).await.unwrap().unwrap();
     // Non-text types return content as-is, trailing spaces preserved
     assert_eq!(result.text_content(), Some("sticker   "));
-    assert!(result.metadata.is_empty());
+    // Metadata preserved from input context
+    assert!(result.metadata.contains_key("session_key"));
 }
 
 #[tokio::test]
@@ -420,4 +450,67 @@ fn test_strip_platform_residue_only_at_tag() {
 fn test_strip_platform_residue_nested_xml_like_surrounding() {
     let input = r#"<root><at user_id="u1">Alice</at></root>"#;
     assert_eq!(strip_platform_residue(input), "<root>@Alice</root>");
+}
+
+// -------------------------------------------------------------------------
+// Metadata preservation (per design doc: "ContentNormalizer 保留 metadata 不变")
+// -------------------------------------------------------------------------
+
+fn sample_metadata() -> std::collections::HashMap<String, String> {
+    let mut m = std::collections::HashMap::new();
+    m.insert("session_key".into(), "12345-feishu".into());
+    m.insert("platform".into(), "feishu".into());
+    m.insert("sender_id".into(), "ou_abc".into());
+    m.insert("peer_id".into(), "chat_xyz".into());
+    m
+}
+
+#[tokio::test]
+async fn test_metadata_preserved_for_text_message() {
+    let processor = ContentNormalizer::new();
+    let meta = sample_metadata();
+    let ctx = make_ctx_with_metadata("hello world", meta.clone());
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    assert_eq!(result.text_content(), Some("hello world"));
+    assert_eq!(result.metadata, meta);
+}
+
+#[tokio::test]
+async fn test_metadata_preserved_for_non_text_message() {
+    let processor = ContentNormalizer::new();
+    let meta = sample_metadata();
+    let ctx = make_ctx_with_metadata_and_type("raw", meta.clone(), MessageType::Image);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    assert_eq!(result.text_content(), Some("raw"));
+    assert_eq!(result.metadata, meta);
+}
+
+#[tokio::test]
+async fn test_metadata_preserved_for_file_message() {
+    let processor = ContentNormalizer::new();
+    let meta = sample_metadata();
+    let ctx = make_ctx_with_metadata_and_type("", meta.clone(), MessageType::File);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    assert_eq!(result.text_content(), Some(""));
+    assert_eq!(result.metadata, meta);
+}
+
+#[tokio::test]
+async fn test_metadata_preserved_for_audio_message() {
+    let processor = ContentNormalizer::new();
+    let meta = sample_metadata();
+    let ctx = make_ctx_with_metadata_and_type("audio", meta.clone(), MessageType::Audio);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    assert_eq!(result.text_content(), Some("audio"));
+    assert_eq!(result.metadata, meta);
+}
+
+#[tokio::test]
+async fn test_metadata_preserved_with_control_chars() {
+    let processor = ContentNormalizer::new();
+    let meta = sample_metadata();
+    let ctx = make_ctx_with_metadata("\x1b[31mHello\x1b[0m", meta.clone());
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    assert_eq!(result.text_content(), Some("Hello"));
+    assert_eq!(result.metadata, meta);
 }

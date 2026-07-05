@@ -134,7 +134,7 @@ impl MessageProcessor for ContentNormalizer {
             if initial.message_type != MessageType::Text {
                 return Ok(Some(ProcessedMessage {
                     content_blocks: vec![ContentBlock::Text(ctx.content.clone())],
-                    metadata: std::collections::HashMap::new(),
+                    metadata: ctx.metadata.clone(),
                 }));
             }
         }
@@ -145,7 +145,7 @@ impl MessageProcessor for ContentNormalizer {
 
         Ok(Some(ProcessedMessage {
             content_blocks: vec![ContentBlock::Text(normalized)],
-            metadata: std::collections::HashMap::new(),
+            metadata: ctx.metadata.clone(),
         }))
     }
 }
