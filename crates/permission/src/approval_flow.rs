@@ -27,6 +27,33 @@ use closeclaw_common::{PendingMessage, SessionLookup};
 
 use super::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectWhitelistReason};
 
+/// How heartbeat operations are handled when denied by the permission engine.
+///
+/// This controls the approval flow behavior for heartbeat tasks that receive
+/// a Deny verdict from the permission engine:
+///
+/// - [`Skip`](HeartbeatApprovalMode::Skip): Silently skip the operation (default).
+///   Heartbeat denials are not enqueued and no notification is sent.
+/// - [`Notify`](HeartbeatApprovalMode::Notify): Notify the owner about the
+///   denial but do not enqueue for approval. This is a one-way notification.
+/// - [`Ask`](HeartbeatApprovalMode::Ask): Enqueue the heartbeat denial for
+///   owner approval, treating it the same as any other denied operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeartbeatApprovalMode {
+    /// Silently skip denied heartbeat operations (no queue, no notification).
+    Skip,
+    /// Notify the owner about the denial but do not enqueue for approval.
+    Notify,
+    /// Enqueue denied heartbeat operations for owner approval.
+    Ask,
+}
+
+impl Default for HeartbeatApprovalMode {
+    fn default() -> Self {
+        Self::Skip
+    }
+}
+
 /// Notification sent to the owner when an operation requires approval.
 #[derive(Debug, Clone)]
 pub struct ApprovalNotification {
@@ -69,12 +96,15 @@ pub struct ApprovalFlow {
     on_notify_owner: Arc<dyn Fn(ApprovalNotification) + Send + Sync>,
     /// Tokio runtime handle for spawning async tasks from sync closures.
     runtime_handle: tokio::runtime::Handle,
+    /// How heartbeat operations are handled when denied.
+    heartbeat_mode: HeartbeatApprovalMode,
 }
 
 impl std::fmt::Debug for ApprovalFlow {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ApprovalFlow")
             .field("queue", &self.queue)
+            .field("heartbeat_mode", &self.heartbeat_mode)
             .finish_non_exhaustive()
     }
 }
@@ -86,16 +116,19 @@ impl ApprovalFlow {
     /// * `session_manager` - Shared reference to the session manager.
     /// * `on_notify_owner` - Callback to notify the owner about pending approvals.
     /// * `runtime_handle` - Tokio runtime handle for spawning async tasks.
+    /// * `heartbeat_mode` - How heartbeat operations are handled when denied.
     pub fn new(
         session_manager: Arc<dyn SessionLookup>,
         on_notify_owner: Arc<dyn Fn(ApprovalNotification) + Send + Sync>,
         runtime_handle: tokio::runtime::Handle,
+        heartbeat_mode: HeartbeatApprovalMode,
     ) -> Self {
         Self {
             queue: ApprovalQueue::new(),
             session_manager,
             on_notify_owner,
             runtime_handle,
+            heartbeat_mode,
         }
     }
 
@@ -105,6 +138,14 @@ impl ApprovalFlow {
     /// through the registered IM adapters.
     pub fn set_notify_callback(&mut self, cb: Arc<dyn Fn(ApprovalNotification) + Send + Sync>) {
         self.on_notify_owner = cb;
+    }
+
+    /// Set the heartbeat approval mode at runtime.
+    ///
+    /// Allows changing how heartbeat denials are handled without
+    /// recreating the [`ApprovalFlow`].
+    pub fn set_heartbeat_mode(&mut self, mode: HeartbeatApprovalMode) {
+        self.heartbeat_mode = mode;
     }
 
     /// Submit a denied operation for owner approval.

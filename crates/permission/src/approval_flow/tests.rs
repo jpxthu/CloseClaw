@@ -38,20 +38,28 @@ fn test_runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Runtime::new().unwrap()
 }
 
-#[test]
-fn test_submit_denial_enqueues_and_notifies() {
-    let rt = test_runtime();
-    let sm = test_session_lookup();
-    let notify_count = Arc::new(AtomicUsize::new(0));
+fn test_approval_flow(
+    sm: Arc<dyn SessionLookup>,
+    notify_count: Arc<AtomicUsize>,
+    rt: &tokio::runtime::Runtime,
+) -> ApprovalFlow {
     let nc = Arc::clone(&notify_count);
-
-    let mut flow = ApprovalFlow::new(
+    ApprovalFlow::new(
         sm,
         Arc::new(move |_n: ApprovalNotification| {
             nc.fetch_add(1, Ordering::SeqCst);
         }),
         rt.handle().clone(),
-    );
+        HeartbeatApprovalMode::default(),
+    )
+}
+
+#[test]
+fn test_submit_denial_enqueues_and_notifies() {
+    let rt = test_runtime();
+    let sm = test_session_lookup();
+    let notify_count = Arc::new(AtomicUsize::new(0));
+    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
 
     let caller = test_caller();
     let request = test_request();
@@ -66,15 +74,7 @@ fn test_submit_denial_sub_agent_returns_none() {
     let rt = test_runtime();
     let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
-    let nc = Arc::clone(&notify_count);
-
-    let mut flow = ApprovalFlow::new(
-        sm,
-        Arc::new(move |_n: ApprovalNotification| {
-            nc.fetch_add(1, Ordering::SeqCst);
-        }),
-        rt.handle().clone(),
-    );
+    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
 
     let caller = test_caller();
     let request = test_request();
@@ -89,15 +89,7 @@ fn test_submit_denial_heartbeat_skip_returns_none() {
     let rt = test_runtime();
     let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
-    let nc = Arc::clone(&notify_count);
-
-    let mut flow = ApprovalFlow::new(
-        sm,
-        Arc::new(move |_n: ApprovalNotification| {
-            nc.fetch_add(1, Ordering::SeqCst);
-        }),
-        rt.handle().clone(),
-    );
+    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
 
     let caller = test_caller();
     let request = test_heartbeat_request();
@@ -112,15 +104,7 @@ fn test_duplicate_denial_returns_none() {
     let rt = test_runtime();
     let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
-    let nc = Arc::clone(&notify_count);
-
-    let mut flow = ApprovalFlow::new(
-        sm,
-        Arc::new(move |_n: ApprovalNotification| {
-            nc.fetch_add(1, Ordering::SeqCst);
-        }),
-        rt.handle().clone(),
-    );
+    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
 
     let caller = test_caller();
     let request = test_request();
@@ -142,15 +126,7 @@ fn test_approve_request_once() {
     let rt = test_runtime();
     let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
-    let nc = Arc::clone(&notify_count);
-
-    let mut flow = ApprovalFlow::new(
-        sm,
-        Arc::new(move |_n: ApprovalNotification| {
-            nc.fetch_add(1, Ordering::SeqCst);
-        }),
-        rt.handle().clone(),
-    );
+    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
 
     let caller = test_caller();
     let request = test_request();
@@ -168,15 +144,7 @@ fn test_approve_request_whitelist_low_risk() {
     let rt = test_runtime();
     let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
-    let nc = Arc::clone(&notify_count);
-
-    let mut flow = ApprovalFlow::new(
-        sm,
-        Arc::new(move |_n: ApprovalNotification| {
-            nc.fetch_add(1, Ordering::SeqCst);
-        }),
-        rt.handle().clone(),
-    );
+    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
 
     let caller = test_caller();
     let request = test_request();
@@ -194,15 +162,7 @@ fn test_approve_request_whitelist_high_risk() {
     let rt = test_runtime();
     let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
-    let nc = Arc::clone(&notify_count);
-
-    let mut flow = ApprovalFlow::new(
-        sm,
-        Arc::new(move |_n: ApprovalNotification| {
-            nc.fetch_add(1, Ordering::SeqCst);
-        }),
-        rt.handle().clone(),
-    );
+    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
 
     let caller = test_caller();
     let request = test_request();
@@ -220,15 +180,7 @@ fn test_deny_request() {
     let rt = test_runtime();
     let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
-    let nc = Arc::clone(&notify_count);
-
-    let mut flow = ApprovalFlow::new(
-        sm,
-        Arc::new(move |_n: ApprovalNotification| {
-            nc.fetch_add(1, Ordering::SeqCst);
-        }),
-        rt.handle().clone(),
-    );
+    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
 
     let caller = test_caller();
     let request = test_request();
@@ -245,15 +197,7 @@ fn test_clear() {
     let rt = test_runtime();
     let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
-    let nc = Arc::clone(&notify_count);
-
-    let mut flow = ApprovalFlow::new(
-        sm,
-        Arc::new(move |_n: ApprovalNotification| {
-            nc.fetch_add(1, Ordering::SeqCst);
-        }),
-        rt.handle().clone(),
-    );
+    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
 
     let caller = test_caller();
     let request = test_request();
