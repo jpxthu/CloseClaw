@@ -255,18 +255,11 @@ fn build_handler(sm: Arc<SessionManager>) -> crate::session_handler::SessionMess
         vec![],
         Arc::new(CooldownManager::new()),
     ));
-    let llm_caller: Arc<dyn closeclaw_common::LlmCaller> =
-        Arc::new(crate::llm_caller_impl::FallbackLlmCaller(ufc.clone()));
     let fallback_llm_caller = Arc::new(crate::session_handler::ActiveSearcherLlmCaller {
         client: ufc,
         model: String::new(),
     });
-    crate::session_handler::SessionMessageHandler::new_no_output(
-        sm,
-        fallback,
-        llm_caller,
-        fallback_llm_caller,
-    )
+    crate::session_handler::SessionMessageHandler::new_no_output(sm, fallback, fallback_llm_caller)
 }
 
 /// Build Gateway with handler + CapturingPlugin (for busy/queue tests).

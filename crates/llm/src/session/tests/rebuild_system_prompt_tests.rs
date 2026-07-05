@@ -82,7 +82,7 @@ async fn test_rebuild_system_prompt_replaces_prompt() {
     assert!(session.system_prompt().is_none());
 
     session
-        .rebuild_system_prompt("sess_rebuild", "agent_1")
+        .rebuild_system_prompt("sess_rebuild", "agent_1", None)
         .await;
 
     assert_eq!(session.system_prompt(), Some("new system prompt"));
@@ -94,7 +94,7 @@ async fn test_rebuild_system_prompt_overwrites_existing() {
         .with_system_prompt("old prompt");
 
     session
-        .rebuild_system_prompt("sess_rebuild", "agent_1")
+        .rebuild_system_prompt("sess_rebuild", "agent_1", None)
         .await;
 
     assert_eq!(session.system_prompt(), Some("replaced prompt"));
@@ -113,7 +113,7 @@ async fn test_rebuild_system_prompt_with_overrides() {
     }));
 
     session
-        .rebuild_system_prompt("sess_rebuild", "agent_1")
+        .rebuild_system_prompt("sess_rebuild", "agent_1", None)
         .await;
 
     assert_eq!(
@@ -127,7 +127,7 @@ async fn test_rebuild_system_prompt_without_overrides() {
     let mut session = new_session_with_builder(Arc::new(CapturingBuilder));
 
     session
-        .rebuild_system_prompt("sess_rebuild", "agent_1")
+        .rebuild_system_prompt("sess_rebuild", "agent_1", None)
         .await;
 
     assert_eq!(session.system_prompt(), Some("prompt-for-agent_1"));
@@ -141,7 +141,7 @@ async fn test_rebuild_system_prompt_no_builder_is_noop() {
     assert!(!session.has_system_prompt_builder());
 
     session
-        .rebuild_system_prompt("sess_rebuild", "agent_1")
+        .rebuild_system_prompt("sess_rebuild", "agent_1", None)
         .await;
 
     assert!(session.system_prompt().is_none());
@@ -154,7 +154,7 @@ async fn test_rebuild_system_prompt_builder_returns_empty() {
     let mut session = new_session_with_builder(Arc::new(MockBuilder::new("")));
 
     session
-        .rebuild_system_prompt("sess_rebuild", "agent_1")
+        .rebuild_system_prompt("sess_rebuild", "agent_1", None)
         .await;
 
     // Empty string is still set as the prompt

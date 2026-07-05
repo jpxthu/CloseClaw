@@ -5,7 +5,12 @@
 //! (`SessionMessageHandler::call_llm`). The session owns the
 //! [`LlmCaller`] reference and the memory-injection consumption.
 
+use std::pin::Pin;
+
+use futures::Stream;
+
 use crate::types::{InternalMessage, InternalRequest, UnifiedResponse};
+use closeclaw_common::processor::StreamEvent;
 use closeclaw_common::LLMError;
 use closeclaw_session::persistence::ReasoningLevel;
 
@@ -24,13 +29,41 @@ impl ConversationSession {
             ));
         };
 
+        let messages = self.build_llm_messages(content);
+        let request = self.build_llm_request(messages, false);
+        caller.call(request).await
+    }
+
+    /// Make a streaming LLM call via the injected [`LlmCaller`].
+    ///
+    /// Returns a raw event stream. The caller (Gateway) is responsible
+    /// for wrapping with [`SinkUpdater`][crate::SinkUpdater], racing
+    /// against a cancellation token, and dispatching through
+    /// [`Gateway::send_outbound_streaming`].
+    pub async fn invoke_llm_streaming(
+        &self,
+        content: &str,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>>, LLMError> {
+        let Some(caller) = self.llm_caller.as_ref() else {
+            return Err(LLMError::InvalidRequest(
+                "no LlmCaller injected into session".to_string(),
+            ));
+        };
+
+        let messages = self.build_llm_messages(content);
+        let request = self.build_llm_request(messages, true);
+        caller.call_streaming(request).await
+    }
+
+    /// Build the messages list for an LLM request, consuming any
+    /// pending memory-injection slot.
+    fn build_llm_messages(&self, content: &str) -> Vec<InternalMessage> {
         let mut messages = vec![InternalMessage {
             role: "user".to_string(),
             content: content.to_string(),
             tool_call_id: None,
         }];
 
-        // Consume memory_injection slot if present.
         if let Some(injection) = self.take_memory_injection() {
             let tool_msg = InternalMessage {
                 role: "tool".to_string(),
@@ -47,12 +80,17 @@ impl ConversationSession {
             }
         }
 
-        let request = InternalRequest {
+        messages
+    }
+
+    /// Build an [`InternalRequest`] from a pre-built messages list.
+    fn build_llm_request(&self, messages: Vec<InternalMessage>, stream: bool) -> InternalRequest {
+        InternalRequest {
             model: String::new(),
             messages,
             temperature: 0.7,
             max_tokens: None,
-            stream: false,
+            stream,
             extra_body: Default::default(),
             system_static: None,
             system_dynamic: None,
@@ -61,8 +99,6 @@ impl ConversationSession {
             session_id: None,
             reasoning_level: ReasoningLevel::default(),
             turn_count: None,
-        };
-
-        caller.call(request).await
+        }
     }
 }

@@ -606,8 +606,9 @@ impl SessionManager {
         }
     }
 
-    /// Rebuild the system prompt for a session using the session manager's
-    /// builder and overrides. Delegates to `ConversationSession::rebuild_system_prompt`.
+    /// Rebuild the system prompt for a session.
+    /// Delegates to `ConversationSession::rebuild_system_prompt` which
+    /// uses the session's own builder and overrides.
     pub async fn rebuild_system_prompt_for_session(&self, session_id: &str) {
         let cs = match self.get_conversation_session(session_id).await {
             Some(cs) => cs,
@@ -621,7 +622,7 @@ impl SessionManager {
             }
         };
         let mut cs = cs.write().await;
-        cs.rebuild_system_prompt(session_id, &agent_id).await;
+        cs.rebuild_system_prompt(session_id, &agent_id, None).await;
     }
 
     /// Notify all active sessions that a configuration section has been updated.

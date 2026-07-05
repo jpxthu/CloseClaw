@@ -365,23 +365,46 @@ impl ConversationSession {
         self.system_prompt = Some(prompt.into());
     }
 
+    /// Returns the current system prompt, if any.
+    pub fn system_prompt(&self) -> Option<&str> {
+        self.system_prompt.as_deref()
+    }
+
     /// Rebuild the system prompt using the session's own builder and overrides.
     ///
     /// This is the session-side entry point for prompt rebuilds after
     /// compaction or config changes. The session owns the builder and
     /// overrides; no external references are needed.
-    pub async fn rebuild_system_prompt(&mut self, session_id: &str, agent_id: &str) {
+    ///
+    /// * `bootstrap_mode_override` — optional override for the bootstrap mode
+    ///   used when building the prompt. Pass `None` for standard rebuilds;
+    ///   spawn callers should pass the child's bootstrap mode.
+    ///
+    /// Returns the rebuilt prompt string for callers that need it
+    /// (e.g. initial session creation in `resolve.rs`).
+    pub async fn rebuild_system_prompt(
+        &mut self,
+        session_id: &str,
+        agent_id: &str,
+        bootstrap_mode_override: Option<closeclaw_session::bootstrap::loader::BootstrapMode>,
+    ) -> String {
         let Some(builder) = self.system_prompt_builder.as_deref() else {
             tracing::debug!(
                 session_id,
                 "no system prompt builder configured, skipping rebuild"
             );
-            return;
+            return String::new();
         };
         let prompt = builder
-            .build_prompt(session_id, agent_id, self.prompt_overrides.as_ref(), None)
+            .build_prompt(
+                session_id,
+                agent_id,
+                self.prompt_overrides.as_ref(),
+                bootstrap_mode_override,
+            )
             .await;
-        self.replace_system_prompt(prompt);
+        self.replace_system_prompt(prompt.clone());
+        prompt
     }
 
     /// Appends a message to the session.

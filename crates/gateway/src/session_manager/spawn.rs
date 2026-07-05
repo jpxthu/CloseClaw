@@ -321,26 +321,6 @@ impl SessionManager {
 
         // 4. Build system prompt (mirror find_or_create)
         let agent_id = config.id.clone();
-        let prompt = if let Some(builder) = self.system_prompt_builder.read().await.clone() {
-            let overrides = self.prompt_overrides.read().await.clone();
-            builder
-                .build_prompt(
-                    &child_session_id,
-                    &agent_id,
-                    overrides.as_ref(),
-                    Some(bootstrap_mode),
-                )
-                .await
-        } else {
-            String::new()
-        };
-
-        // 4a. Append spawn context to the system prompt so the child
-        //     agent knows its role, depth limits, and communication
-        //     behavior.  Non-spawn sessions never reach this path.
-        let spawn_context =
-            Self::build_spawn_context(depth, max_spawn_depth, parent_session_id, &mode, fork);
-        let prompt = format!("{}\n{}", prompt, spawn_context);
 
         // 5. Create ConversationSession
         // Model priority: explicit model param > parent agent.subagents.model
@@ -383,7 +363,6 @@ impl SessionManager {
             workdir_path.clone(),
             child_token,
         )
-        .with_system_prompt(prompt)
         .with_reasoning_level(self.default_reasoning_level);
 
         // Wire shutdown handle for busy-count tracking.
@@ -398,6 +377,17 @@ impl SessionManager {
             cs.set_system_prompt_builder(builder);
         }
         cs.set_prompt_overrides(self.get_prompt_overrides().await);
+        // Build initial system prompt via session's own builder,
+        // then append spawn context for the child agent.
+        let base_prompt = cs
+            .rebuild_system_prompt(&child_session_id, &agent_id, Some(bootstrap_mode))
+            .await;
+        // 4a. Append spawn context to the system prompt so the child
+        //     agent knows its role, depth limits, and communication
+        //     behavior.  Non-spawn sessions never reach this path.
+        let spawn_context =
+            Self::build_spawn_context(depth, max_spawn_depth, parent_session_id, &mode, fork);
+        cs.replace_system_prompt(format!("{}\n{}", base_prompt, spawn_context));
 
         // 5b. Generate communication config: child may only
         //     communicate with its parent agent.

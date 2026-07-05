@@ -3,7 +3,7 @@
 //! Extracted from `session_handler.rs` to keep file sizes under the
 //! 500-line project limit.
 //!
-//! The LLM stream is opened via the [`LlmCaller`] trait (passed as `&Arc<dyn LlmCaller>`).
+//! The LLM stream is opened via [`ConversationSession::invoke_llm_streaming`].
 //! This file handles Gateway-side orchestration: wrapping the stream with
 //! [`SinkUpdater`][closeclaw_llm::SinkUpdater], racing against
 //! a cancellation token, and dispatching through
@@ -19,7 +19,7 @@ use crate::session_manager::SessionManager;
 use crate::types::GatewayError;
 use crate::Gateway;
 use closeclaw_common::im_plugin::IMPlugin;
-use closeclaw_common::LlmCaller;
+use closeclaw_llm::session::ConversationSession;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::streaming::StreamDone;
 use closeclaw_llm::types::ContentBlock;
@@ -29,14 +29,15 @@ impl SessionMessageHandler {
     /// Make a streaming LLM call and dispatch it through Gateway's
     /// streaming outbound pipeline.
     ///
-    /// Opens the LLM stream via [`FallbackLlmCaller`], then handles:
+    /// Delegates to [`ConversationSession::invoke_llm_streaming`] to
+    /// open the raw LLM stream, then handles:
     /// 1. Wrapping the raw LLM stream with
     ///    [`SinkUpdater`][closeclaw_llm::SinkUpdater].
     /// 2. Racing the stream against a cancellation token.
     /// 3. Dispatching through [`Gateway::send_outbound_streaming`].
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn call_llm_streaming(
-        llm_caller: &Arc<dyn LlmCaller>,
+        cs: &Arc<tokio::sync::RwLock<ConversationSession>>,
         content: &str,
         _meta: &MessageMetadata,
         session_manager: &Arc<SessionManager>,
@@ -45,51 +46,8 @@ impl SessionMessageHandler {
         gateway: &Arc<Gateway>,
         plugin: &Arc<dyn IMPlugin>,
     ) -> Result<StreamResult, LLMError> {
-        use closeclaw_llm::session::InjectionPosition;
-        use closeclaw_llm::types::InternalMessage;
-
-        // ── Build request with memory injection ──
-        let mut messages = vec![InternalMessage {
-            role: "user".to_string(),
-            content: content.to_string(),
-            tool_call_id: None,
-        }];
-        if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-            let inj = { cs.read().await.take_memory_injection() };
-            if let Some(injection) = inj {
-                let tool_msg = InternalMessage {
-                    role: "tool".to_string(),
-                    content: injection.content.clone(),
-                    tool_call_id: None,
-                };
-                match injection.position_mode {
-                    InjectionPosition::AfterCurrent => {
-                        messages.push(tool_msg);
-                    }
-                    InjectionPosition::BeforeNext => {
-                        messages.insert(0, tool_msg);
-                    }
-                }
-            }
-        }
-        let request = closeclaw_llm::types::InternalRequest {
-            model: String::new(),
-            messages,
-            temperature: 0.7,
-            max_tokens: None,
-            stream: true,
-            extra_body: Default::default(),
-            system_static: None,
-            system_dynamic: None,
-            system_blocks: None,
-            tools: None,
-            session_id: None,
-            reasoning_level: closeclaw_session::persistence::ReasoningLevel::default(),
-            turn_count: None,
-        };
-
-        // ── Open LLM stream via LlmCaller trait ──
-        let raw_stream = llm_caller.call_streaming(request).await?;
+        // ── Open LLM stream via ConversationSession ──
+        let raw_stream = cs.read().await.invoke_llm_streaming(content).await?;
 
         // Retrieve the session's streaming sink (if any) for delta notifications.
         let sink: Option<Arc<dyn closeclaw_llm::streaming::StreamingSink>> =
