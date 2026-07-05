@@ -249,9 +249,10 @@ impl ModelInterpreter for MinimaxInterpreter {
 
 /// Interpreter for GLM (Zhipu AI) provider.
 ///
-/// Similar to MinimaxInterpreter but adds a threshold check: `reasoning_content`
-/// is only promoted to a [`ContentBlock::Thinking`] block when its length
-/// exceeds 10 bytes. Shorter reasoning content is treated as normal text.
+/// Maps `reasoning_content` to [`ContentBlock::Text`] when the regular `content`
+/// is empty, following the same rule as other OpenAI-compatible interpreters:
+/// if `content` is empty and `reasoning_content` is non-empty, the latter is
+/// emitted as a single `ContentBlock::Text` block (no `Thinking` block).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct GlmInterpreter;
 
@@ -276,19 +277,21 @@ impl ModelInterpreter for GlmInterpreter {
                 } => text_parts.push(format!("tool_call_id:{tool_call_id} content:{content}")),
             }
         }
-        let content_blocks: Vec<ContentBlock> = if text_parts.iter().all(|s| s.is_empty()) {
-            let reasoning = thinking_parts.join("");
-            if reasoning.len() > 10 {
-                vec![ContentBlock::Thinking {
-                    thinking: reasoning,
-                    signature: None,
-                }]
-            } else {
-                vec![ContentBlock::Text(reasoning)]
-            }
+        let mut content_blocks: Vec<ContentBlock> = vec![];
+        let text_empty = text_parts.iter().all(|s| s.is_empty());
+        if text_empty && !thinking_parts.is_empty() {
+            content_blocks.push(ContentBlock::Text(thinking_parts.join("")));
         } else {
-            vec![ContentBlock::Text(text_parts.join(""))]
-        };
+            if !text_parts.iter().all(|s| s.is_empty()) {
+                content_blocks.push(ContentBlock::Text(text_parts.join("")));
+            }
+            if !thinking_parts.is_empty() {
+                content_blocks.push(ContentBlock::Thinking {
+                    thinking: thinking_parts.join(""),
+                    signature: None,
+                });
+            }
+        }
         UnifiedResponse {
             content_blocks,
             usage: UnifiedUsage {

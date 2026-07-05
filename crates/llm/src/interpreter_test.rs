@@ -279,8 +279,8 @@ fn test_glm_interpreter_reasoning_threshold_exact_boundary() {
     let unified = GlmInterpreter.interpret_response(response);
     assert_eq!(unified.content_blocks.len(), 1);
     assert!(
-        matches!(&unified.content_blocks[0], ContentBlock::Thinking { thinking: s, .. } if s == "12345678901"),
-        "expected Thinking block for 11-byte reasoning, got {:?}",
+        matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s == "12345678901"),
+        "expected Text block for long reasoning (no threshold), got {:?}",
         unified.content_blocks[0]
     );
 }
