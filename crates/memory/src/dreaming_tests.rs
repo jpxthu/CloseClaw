@@ -5,7 +5,7 @@
 
 use crate::dreaming::{DreamingPipeline, EntryCategory, MemoryEntry};
 use crate::test_helpers::TestStorage;
-use closeclaw_config::agents::DreamingDiaryConfig;
+use closeclaw_config::agents::{DreamingConfig, DreamingDiaryConfig};
 use closeclaw_session::persistence::{DreamingStatus, SessionCheckpoint};
 
 use tempfile::TempDir;
@@ -55,7 +55,11 @@ async fn test_dreaming_processes_mined_undreamt_sessions() {
     cp.dreaming_status = DreamingStatus::Pending;
     storage.add_checkpoint(cp);
 
-    let pipeline = DreamingPipeline::new();
+    let config = DreamingConfig {
+        enabled: true,
+        diary: DreamingDiaryConfig::default(),
+    };
+    let pipeline = DreamingPipeline::with_config(config);
     let result = pipeline.run_once(&storage).await;
     assert!(result.is_ok(), "run_once should succeed: {result:?}");
 
@@ -76,6 +80,34 @@ async fn test_dreaming_empty_storage_returns_ok() {
     let pipeline = DreamingPipeline::new();
     let result = pipeline.run_once(&storage).await;
     assert!(result.is_ok());
+}
+
+/// Dreaming pipeline returns Ok immediately when dreaming is disabled.
+#[tokio::test]
+async fn test_dreaming_disabled_skips_processing() {
+    let storage = TestStorage::default();
+
+    let mut cp = SessionCheckpoint::new("sess-pending".into());
+    cp.mined = true;
+    cp.dreaming_status = DreamingStatus::Pending;
+    storage.add_checkpoint(cp);
+
+    let config = DreamingConfig {
+        enabled: false,
+        diary: DreamingDiaryConfig::default(),
+    };
+    let pipeline = DreamingPipeline::with_config(config);
+    let result = pipeline.run_once(&storage).await;
+    assert!(result.is_ok(), "run_once should succeed: {result:?}");
+
+    // Session should NOT be reprocessed (dreaming_status unchanged).
+    let cps = storage.checkpoints.lock().unwrap();
+    let cp = cps.iter().find(|c| c.session_id == "sess-pending").unwrap();
+    assert_eq!(
+        cp.dreaming_status,
+        DreamingStatus::Pending,
+        "disabled dreaming should not process sessions"
+    );
 }
 
 // ── Dream Diary tests ──────────────────────────────────────────────────
@@ -121,11 +153,14 @@ fn make_entry_with_lesson(
 fn test_dream_diary_writes_when_enabled() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
-    let diary_config = DreamingDiaryConfig {
+    let config = DreamingConfig {
         enabled: true,
-        path: diary_path.clone(),
+        diary: DreamingDiaryConfig {
+            enabled: true,
+            path: diary_path.clone(),
+        },
     };
-    let pipeline = DreamingPipeline::with_diary_config(diary_config);
+    let pipeline = DreamingPipeline::with_config(config);
 
     let entries = vec![
         make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 10),
@@ -156,23 +191,30 @@ fn test_dream_diary_writes_when_enabled() {
 }
 
 /// Dream Diary does NOT write a file when diary is disabled.
-/// Testing through run_once: with no undreamt sessions, run_once
-/// returns Ok immediately without touching the diary directory.
-#[tokio::test]
-async fn test_dream_diary_does_not_write_when_disabled() {
+#[test]
+fn test_dream_diary_does_not_write_when_disabled() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
-    let diary_config = DreamingDiaryConfig {
-        enabled: false,
-        path: diary_path,
+    let config = DreamingConfig {
+        enabled: true,
+        diary: DreamingDiaryConfig {
+            enabled: false,
+            path: diary_path,
+        },
     };
-    let pipeline = DreamingPipeline::with_diary_config(diary_config);
-    let storage = TestStorage::default();
+    let pipeline = DreamingPipeline::with_config(config);
 
-    let result = pipeline.run_once(&storage).await;
-    assert!(result.is_ok(), "run_once should succeed: {result:?}");
+    let entries = vec![make_entry(
+        EntryCategory::Decision,
+        "should not appear",
+        "s1",
+        10,
+    )];
 
-    // Diary directory should NOT exist since no sessions were processed.
+    let result = pipeline.write_dream_diary(&entries);
+    assert!(result.is_ok());
+
+    // Diary directory should NOT exist since diary is disabled.
     assert!(
         tmp.path().read_dir().unwrap().next().is_none(),
         "no files should be created when diary is disabled"
@@ -184,11 +226,14 @@ async fn test_dream_diary_does_not_write_when_disabled() {
 fn test_dream_diary_uses_custom_path() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().join("custom/diary");
-    let diary_config = DreamingDiaryConfig {
+    let config = DreamingConfig {
         enabled: true,
-        path: diary_path.to_str().unwrap().to_string(),
+        diary: DreamingDiaryConfig {
+            enabled: true,
+            path: diary_path.to_str().unwrap().to_string(),
+        },
     };
-    let pipeline = DreamingPipeline::with_diary_config(diary_config);
+    let pipeline = DreamingPipeline::with_config(config);
 
     let entries = vec![make_entry(
         EntryCategory::Decision,
@@ -220,11 +265,14 @@ fn test_dream_diary_uses_custom_path() {
 fn test_dream_diary_creates_directory() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().join("new/dir/level");
-    let diary_config = DreamingDiaryConfig {
+    let config = DreamingConfig {
         enabled: true,
-        path: diary_path.to_str().unwrap().to_string(),
+        diary: DreamingDiaryConfig {
+            enabled: true,
+            path: diary_path.to_str().unwrap().to_string(),
+        },
     };
-    let pipeline = DreamingPipeline::with_diary_config(diary_config);
+    let pipeline = DreamingPipeline::with_config(config);
 
     let entries = vec![make_entry(
         EntryCategory::Decision,
@@ -246,11 +294,14 @@ fn test_dream_diary_creates_directory() {
 fn test_dream_diary_empty_entries_no_write() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
-    let diary_config = DreamingDiaryConfig {
+    let config = DreamingConfig {
         enabled: true,
-        path: diary_path,
+        diary: DreamingDiaryConfig {
+            enabled: true,
+            path: diary_path,
+        },
     };
-    let pipeline = DreamingPipeline::with_diary_config(diary_config);
+    let pipeline = DreamingPipeline::with_config(config);
 
     let entries: Vec<MemoryEntry> = vec![];
     let result = pipeline.write_dream_diary(&entries);

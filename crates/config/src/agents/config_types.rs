@@ -231,9 +231,15 @@ pub struct MemoryConfig {
     /// Storage paths for memory subsystem files.
     #[serde(default)]
     pub storage: MemoryStorageConfig,
-    /// Dream Diary configuration.
+    /// Mining subsystem configuration.
+    #[serde(default)]
+    pub mining: MiningConfig,
+    /// Dreaming subsystem configuration.
     #[serde(default)]
     pub dreaming: DreamingConfig,
+    /// Active search subsystem configuration.
+    #[serde(default)]
+    pub search: SearchConfig,
 }
 
 impl Default for MemoryConfig {
@@ -241,7 +247,9 @@ impl Default for MemoryConfig {
         Self {
             active_searcher: None,
             storage: MemoryStorageConfig::default(),
+            mining: MiningConfig::default(),
             dreaming: DreamingConfig::default(),
+            search: SearchConfig::default(),
         }
     }
 }
@@ -250,6 +258,9 @@ impl Default for MemoryConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DreamingConfig {
+    /// Whether dreaming is enabled.
+    #[serde(default)]
+    pub enabled: bool,
     /// Dream Diary settings.
     #[serde(default)]
     pub diary: DreamingDiaryConfig,
@@ -258,6 +269,7 @@ pub struct DreamingConfig {
 impl Default for DreamingConfig {
     fn default() -> Self {
         Self {
+            enabled: false,
             diary: DreamingDiaryConfig::default(),
         }
     }
@@ -321,6 +333,36 @@ fn default_db_path() -> String {
 
 fn default_memory_md_path() -> String {
     "memory/MEMORY.md".to_string()
+}
+
+/// Mining subsystem configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MiningConfig {
+    /// Whether mining is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl Default for MiningConfig {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
+}
+
+/// Active search subsystem configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchConfig {
+    /// Whether active search is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
 }
 
 /// Active-searcher overrides — all fields optional.

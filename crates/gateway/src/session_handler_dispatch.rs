@@ -206,10 +206,12 @@ fn deserialize_memory_config(
 }
 
 /// Build the active-searcher config from model and memory config.
+///
+/// Returns `None` if `search.enabled` is `false` in the agent config.
 fn build_searcher_config(
     model: &str,
     mem_cfg: &Option<closeclaw_config::agents::MemoryConfig>,
-) -> crate::memory::active_searcher::ActiveSearcherConfig {
+) -> Option<crate::memory::active_searcher::ActiveSearcherConfig> {
     use crate::memory::active_searcher::ActiveSearcherConfig;
     ActiveSearcherConfig::from_agent_config(Some(model), mem_cfg.as_ref())
 }
@@ -223,6 +225,7 @@ async fn run_searcher_pipeline(
     let llm_messages = convert_to_llm_messages(&input.context_messages);
     let mem_cfg = deserialize_memory_config(&input.memory_config);
     let config = build_searcher_config(&input.model, &mem_cfg);
+    let config = config?;
     let searcher = ActiveSearcher::new(std::path::PathBuf::from(&input.db_path), config.clone());
 
     let injection = searcher

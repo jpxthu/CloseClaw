@@ -795,7 +795,7 @@ fn test_active_searcher_config_defaults() {
 
 // ── from_agent_config tests ─────────────────────────────────────────────
 
-use closeclaw_config::agents::{ActiveSearcherOverride, MemoryConfig};
+use closeclaw_config::agents::{ActiveSearcherOverride, MemoryConfig, SearchConfig};
 
 /// Full override: all fields specified → all fields correct.
 #[test]
@@ -810,10 +810,12 @@ fn test_from_agent_config_full_override() {
     };
     let memory = MemoryConfig {
         active_searcher: Some(override_cfg),
+        search: SearchConfig { enabled: true },
         ..MemoryConfig::default()
     };
 
     let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory));
+    let config = config.expect("search should be enabled");
 
     assert_eq!(config.model, "claude-opus");
     assert_eq!(config.timeout_ms, 9999);
@@ -836,10 +838,12 @@ fn test_from_agent_config_partial_override() {
     };
     let memory = MemoryConfig {
         active_searcher: Some(override_cfg),
+        search: SearchConfig { enabled: true },
         ..MemoryConfig::default()
     };
 
     let config = ActiveSearcherConfig::from_agent_config(None, Some(&memory));
+    let config = config.expect("search should be enabled");
 
     assert_eq!(config.model, "deepseek-r1");
     assert_eq!(config.timeout_ms, 12000);
@@ -853,6 +857,7 @@ fn test_from_agent_config_partial_override() {
 #[test]
 fn test_from_agent_config_no_override() {
     let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o-mini"), None);
+    let config = config.expect("no memory config means search enabled by default");
 
     assert_eq!(config.model, "gpt-4o-mini");
     assert_eq!(config.timeout_ms, 5000);
@@ -866,6 +871,7 @@ fn test_from_agent_config_no_override() {
 #[test]
 fn test_from_agent_config_no_agent_model_no_override() {
     let config = ActiveSearcherConfig::from_agent_config(None, None);
+    let config = config.expect("no memory config means search enabled by default");
 
     assert_eq!(config.model, "");
     assert_eq!(config.timeout_ms, 5000);
@@ -888,13 +894,30 @@ fn test_from_agent_config_override_overrides_agent_model() {
     };
     let memory = MemoryConfig {
         active_searcher: Some(override_cfg),
+        search: SearchConfig { enabled: true },
         ..MemoryConfig::default()
     };
 
     let config = ActiveSearcherConfig::from_agent_config(Some("agent-global-model"), Some(&memory));
+    let config = config.expect("search should be enabled");
 
     assert_eq!(config.model, "override-model");
     assert_eq!(config.timeout_ms, 5000);
+}
+
+/// Search disabled → from_agent_config returns None.
+#[test]
+fn test_from_agent_config_search_disabled() {
+    let memory = MemoryConfig {
+        search: SearchConfig { enabled: false },
+        ..MemoryConfig::default()
+    };
+
+    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory));
+    assert!(
+        config.is_none(),
+        "should return None when search is disabled"
+    );
 }
 
 // ── Concept extraction prompt dimension tests ─────────────────────────

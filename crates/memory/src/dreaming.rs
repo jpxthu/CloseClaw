@@ -7,7 +7,7 @@
 
 use thiserror::Error;
 
-use closeclaw_config::agents::DreamingDiaryConfig;
+use closeclaw_config::agents::DreamingConfig;
 use closeclaw_session::persistence::{DreamingStatus, PersistenceError, PersistenceService};
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -130,25 +130,25 @@ impl Default for Thresholds {
 pub struct DreamingPipeline {
     weights: ScoringWeights,
     thresholds: Thresholds,
-    diary_config: DreamingDiaryConfig,
+    config: DreamingConfig,
 }
 
 impl DreamingPipeline {
-    /// Create a pipeline with default weights and thresholds.
+    /// Create a pipeline with default weights, thresholds, and config.
     pub fn new() -> Self {
         Self {
             weights: ScoringWeights::default(),
             thresholds: Thresholds::default(),
-            diary_config: DreamingDiaryConfig::default(),
+            config: DreamingConfig::default(),
         }
     }
 
-    /// Create a pipeline with a custom diary configuration.
-    pub fn with_diary_config(diary_config: DreamingDiaryConfig) -> Self {
+    /// Create a pipeline with a custom dreaming configuration.
+    pub fn with_config(config: DreamingConfig) -> Self {
         Self {
             weights: ScoringWeights::default(),
             thresholds: Thresholds::default(),
-            diary_config,
+            config,
         }
     }
 
@@ -158,6 +158,10 @@ impl DreamingPipeline {
     /// through Light → REM → Deep, and writes surviving entries to
     /// MEMORY.md.
     pub async fn run_once(&self, storage: &dyn PersistenceService) -> Result<(), DreamingError> {
+        if !self.config.enabled {
+            return Ok(());
+        }
+
         let session_ids = storage.list_mined_undreamt_sessions().await?;
         if session_ids.is_empty() {
             return Ok(());
@@ -195,7 +199,7 @@ impl DreamingPipeline {
         );
 
         // Write Dream Diary if enabled.
-        if self.diary_config.enabled && !deep.is_empty() {
+        if self.config.diary.enabled && !deep.is_empty() {
             self.write_dream_diary(&deep)?;
         }
 
@@ -389,13 +393,13 @@ impl DreamingPipeline {
     /// The diary is a narrative summary of the entries that passed the
     /// Deep stage, written to `{path}/{date}.md`.
     pub(crate) fn write_dream_diary(&self, entries: &[MemoryEntry]) -> Result<(), DreamingError> {
-        if entries.is_empty() {
+        if !self.config.diary.enabled || entries.is_empty() {
             return Ok(());
         }
 
         let date = chrono::Local::now().format("%Y-%m-%d").to_string();
         let filename = format!("{}.md", date);
-        let diary_dir = std::path::Path::new(&self.diary_config.path);
+        let diary_dir = std::path::Path::new(&self.config.diary.path);
         std::fs::create_dir_all(diary_dir)?;
         let diary_path = diary_dir.join(&filename);
 

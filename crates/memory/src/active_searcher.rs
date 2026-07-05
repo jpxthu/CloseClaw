@@ -112,13 +112,20 @@ pub struct ActiveSearcher {
 impl ActiveSearcherConfig {
     /// Build config from agent-level settings.
     ///
+    /// Returns `None` if `search.enabled` is `false` in the agent config.
     /// Priority: `memory.active_searcher.*` override > `agent_model` > defaults.
     pub fn from_agent_config(
         agent_model: Option<&str>,
         memory_override: Option<&closeclaw_config::agents::MemoryConfig>,
-    ) -> Self {
+    ) -> Option<Self> {
+        // Check search.enabled gate.
+        if let Some(memory) = memory_override {
+            if !memory.search.enabled {
+                return None;
+            }
+        }
         let override_as = memory_override.and_then(|m| m.active_searcher.as_ref());
-        Self {
+        Some(Self {
             timeout_ms: override_as.and_then(|o| o.timeout_ms).unwrap_or(5000),
             max_summary_chars: override_as
                 .and_then(|o| o.max_summary_chars)
@@ -130,7 +137,7 @@ impl ActiveSearcherConfig {
                 .and_then(|o| o.model.clone())
                 .or_else(|| agent_model.map(|m| m.to_string()))
                 .unwrap_or_default(),
-        }
+        })
     }
 }
 
