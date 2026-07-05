@@ -430,6 +430,251 @@ fn test_deepseek_interpreter_stream_event_passthrough() {
     );
 }
 
+// ── Step 1.4: boundary & state-transition tests ────────────────────────────────
+
+#[test]
+fn test_minimax_interpreter_text_and_thinking_both_nonempty() {
+    let response = InternalResponse {
+        content_blocks: vec![
+            RawContentBlock::Text("hello".into()),
+            RawContentBlock::Thinking {
+                thinking: "reasoning".into(),
+                signature: None,
+            },
+        ],
+        usage: RawUsage {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: Some(15),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+    };
+    let unified = MinimaxInterpreter.interpret_response(response);
+    assert_eq!(unified.content_blocks.len(), 2);
+    assert!(
+        matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s == "hello"),
+        "expected Text block, got {:?}",
+        unified.content_blocks[0]
+    );
+    assert!(
+        matches!(&unified.content_blocks[1], ContentBlock::Thinking { thinking: s, .. } if s == "reasoning"),
+        "expected Thinking block, got {:?}",
+        unified.content_blocks[1]
+    );
+}
+
+#[test]
+fn test_minimax_interpreter_empty_thinking_string() {
+    let response = InternalResponse {
+        content_blocks: vec![RawContentBlock::Thinking {
+            thinking: "".into(),
+            signature: None,
+        }],
+        usage: RawUsage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: None,
+    };
+    let unified = MinimaxInterpreter.interpret_response(response);
+    // Empty thinking string still produces a Text block with empty content.
+    assert_eq!(unified.content_blocks.len(), 1);
+    assert!(
+        matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s.is_empty()),
+        "expected empty Text block, got {:?}",
+        unified.content_blocks[0]
+    );
+}
+
+#[test]
+fn test_minimax_interpreter_all_empty_strings() {
+    let response = InternalResponse {
+        content_blocks: vec![
+            RawContentBlock::Text("".into()),
+            RawContentBlock::Thinking {
+                thinking: "".into(),
+                signature: None,
+            },
+        ],
+        usage: RawUsage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: None,
+    };
+    let unified = MinimaxInterpreter.interpret_response(response);
+    // text is all-empty, thinking is non-empty (contains one empty string).
+    // The interpreter treats thinking_parts as non-empty and produces Text("").
+    assert_eq!(unified.content_blocks.len(), 1);
+    assert!(
+        matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s.is_empty()),
+        "expected empty Text block, got {:?}",
+        unified.content_blocks[0]
+    );
+}
+
+// ── GlmInterpreter boundary tests ─────────────────────────────────────────
+
+#[test]
+fn test_glm_interpreter_empty_content_blocks() {
+    let response = InternalResponse {
+        content_blocks: vec![],
+        usage: RawUsage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: None,
+    };
+    let unified = GlmInterpreter.interpret_response(response);
+    assert!(unified.content_blocks.is_empty());
+}
+
+#[test]
+fn test_glm_interpreter_text_and_thinking_both_nonempty() {
+    let response = InternalResponse {
+        content_blocks: vec![
+            RawContentBlock::Text("answer".into()),
+            RawContentBlock::Thinking {
+                thinking: "reasoning".into(),
+                signature: None,
+            },
+        ],
+        usage: RawUsage {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: Some(15),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+    };
+    let unified = GlmInterpreter.interpret_response(response);
+    assert_eq!(unified.content_blocks.len(), 2);
+    assert!(
+        matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s == "answer"),
+        "expected Text block, got {:?}",
+        unified.content_blocks[0]
+    );
+    assert!(
+        matches!(&unified.content_blocks[1], ContentBlock::Thinking { thinking: s, .. } if s == "reasoning"),
+        "expected Thinking block, got {:?}",
+        unified.content_blocks[1]
+    );
+}
+
+#[test]
+fn test_glm_interpreter_empty_thinking_string() {
+    let response = InternalResponse {
+        content_blocks: vec![RawContentBlock::Thinking {
+            thinking: "".into(),
+            signature: None,
+        }],
+        usage: RawUsage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: None,
+    };
+    let unified = GlmInterpreter.interpret_response(response);
+    assert_eq!(unified.content_blocks.len(), 1);
+    assert!(
+        matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s.is_empty()),
+        "expected empty Text block, got {:?}",
+        unified.content_blocks[0]
+    );
+}
+
+// ── DeepSeekInterpreter boundary tests ─────────────────────────────────────
+
+#[test]
+fn test_deepseek_interpreter_empty_content_blocks() {
+    let response = InternalResponse {
+        content_blocks: vec![],
+        usage: RawUsage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: None,
+    };
+    let unified = DeepSeekInterpreter.interpret_response(response);
+    assert!(unified.content_blocks.is_empty());
+}
+
+#[test]
+fn test_deepseek_interpreter_text_and_thinking_both_nonempty() {
+    let response = InternalResponse {
+        content_blocks: vec![
+            RawContentBlock::Text("answer".into()),
+            RawContentBlock::Thinking {
+                thinking: "reasoning".into(),
+                signature: None,
+            },
+        ],
+        usage: RawUsage {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: Some(15),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+    };
+    let unified = DeepSeekInterpreter.interpret_response(response);
+    assert_eq!(unified.content_blocks.len(), 2);
+    assert!(
+        matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s == "answer"),
+        "expected Text block, got {:?}",
+        unified.content_blocks[0]
+    );
+    assert!(
+        matches!(&unified.content_blocks[1], ContentBlock::Thinking { thinking: s, .. } if s == "reasoning"),
+        "expected Thinking block, got {:?}",
+        unified.content_blocks[1]
+    );
+}
+
+#[test]
+fn test_deepseek_interpreter_empty_thinking_string() {
+    let response = InternalResponse {
+        content_blocks: vec![RawContentBlock::Thinking {
+            thinking: "".into(),
+            signature: None,
+        }],
+        usage: RawUsage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: None,
+    };
+    let unified = DeepSeekInterpreter.interpret_response(response);
+    assert_eq!(unified.content_blocks.len(), 1);
+    assert!(
+        matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s.is_empty()),
+        "expected empty Text block, got {:?}",
+        unified.content_blocks[0]
+    );
+}
+
 // ── Gap 2: DefaultInterpreter preserves signature ─────────────────────────────
 
 #[test]

@@ -408,6 +408,105 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_discover_all_known_models_returned() {
+        let dir = tempfile::tempdir().unwrap();
+        let discovery = make_test_discovery(&dir);
+
+        // API returns only known models (MiniMax-M2.7 and MiniMax-M2.5)
+        let api_models = vec![
+            ModelInfo {
+                id: "MiniMax-M2.7".into(),
+                name: "MiniMax M2.7".into(),
+                context_window: 4096,
+                max_tokens: 1024,
+                default_temperature: Some(0.5),
+                reasoning: false,
+                input_types: vec![],
+            },
+            ModelInfo {
+                id: "MiniMax-M2.5".into(),
+                name: "MiniMax M2.5".into(),
+                context_window: 8192,
+                max_tokens: 2048,
+                default_temperature: Some(0.7),
+                reasoning: false,
+                input_types: vec![],
+            },
+        ];
+
+        let result = discovery
+            .discover("minimax", "key", |_| {
+                let value = api_models.clone();
+                async move { Ok(value) }
+            })
+            .await;
+
+        assert_eq!(result.models().len(), 2);
+        let ids: Vec<&str> = result.models().iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"MiniMax-M2.7"));
+        assert!(ids.contains(&"MiniMax-M2.5"));
+    }
+
+    #[tokio::test]
+    async fn test_discover_cache_retains_only_known_models() {
+        let dir = tempfile::tempdir().unwrap();
+        let discovery = make_test_discovery(&dir);
+
+        // First call: API returns mixed known + unknown → only known cached
+        let api_models = vec![
+            ModelInfo {
+                id: "MiniMax-M2.7".into(),
+                name: "MiniMax M2.7".into(),
+                context_window: 4096,
+                max_tokens: 1024,
+                default_temperature: Some(0.5),
+                reasoning: false,
+                input_types: vec![],
+            },
+            ModelInfo {
+                id: "unknown-future".into(),
+                name: "Future".into(),
+                context_window: 16384,
+                max_tokens: 4096,
+                default_temperature: Some(0.5),
+                reasoning: false,
+                input_types: vec![],
+            },
+        ];
+
+        let result1 = discovery
+            .discover("minimax", "key", |_| {
+                let value = api_models.clone();
+                async move { Ok(value) }
+            })
+            .await;
+        assert_eq!(result1.models().len(), 1);
+        assert_eq!(result1.models()[0].id, "MiniMax-M2.7");
+
+        // Second call: should hit cache and return only known model
+        let fetch_count = Arc::new(AtomicUsize::new(0));
+        let fc = fetch_count.clone();
+        let result2 = discovery
+            .discover("minimax", "key", move |_| {
+                let fc = fc.clone();
+                async move {
+                    fc.fetch_add(1, Ordering::SeqCst);
+                    // Should never be called — cache hit
+                    Ok(vec![])
+                }
+            })
+            .await;
+
+        assert_eq!(
+            fetch_count.load(Ordering::SeqCst),
+            0,
+            "fetch should not be called on cache hit"
+        );
+        assert_eq!(result2.models().len(), 1);
+        assert_eq!(result2.models()[0].id, "MiniMax-M2.7");
+    }
+
+    #[tokio::test]
     async fn test_discover_filters_all_unknown_models() {
         let dir = tempfile::tempdir().unwrap();
         let discovery = make_test_discovery(&dir);
