@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::WorkflowError;
+
 /// A complete workflow definition parsed from YAML frontmatter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Workflow {
@@ -28,6 +30,85 @@ fn default_verify_retry_limit() -> usize {
     3
 }
 
+impl Workflow {
+    /// Parse a YAML string into a Workflow definition.
+    ///
+    /// Accepts either:
+    /// - Raw YAML content (the frontmatter body between `---` delimiters), or
+    /// - A full SKILL.md document with `---` delimiters stripped.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkflowError::ParseError`] if the YAML is malformed or
+    /// contains invalid field types.
+    pub fn parse_frontmatter(yaml: &str) -> Result<Self, WorkflowError> {
+        // Strip `---` delimiters if present (handles full SKILL.md input)
+        let content = yaml
+            .strip_prefix("---\n")
+            .or_else(|| yaml.strip_prefix("---\r\n"))
+            .or_else(|| yaml.strip_prefix("---\r"))
+            .unwrap_or(yaml);
+
+        // Strip trailing `---` delimiter (with optional surrounding newlines)
+        let content = content.trim_end_matches(['\n', '\r']);
+        let content = content.strip_suffix("---").unwrap_or(content);
+        let content = content.trim_end();
+
+        let workflow: Workflow =
+            serde_yaml::from_str(content).map_err(WorkflowError::from_yaml_error)?;
+
+        Ok(workflow)
+    }
+
+    /// Parse a complete SKILL.md file containing YAML frontmatter delimited
+    /// by `---` markers.
+    ///
+    /// Unlike [`parse_frontmatter`], this function extracts the YAML block
+    /// between the first pair of `---` delimiters before parsing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkflowError::InvalidDefinition`] if no frontmatter
+    /// delimiters are found, or [`WorkflowError::ParseError`] if the YAML
+    /// content is malformed.
+    pub fn parse_skill_md(content: &str) -> Result<Self, WorkflowError> {
+        let frontmatter = extract_frontmatter(content)?;
+        Self::parse_frontmatter(frontmatter)
+    }
+}
+
+/// Extract the YAML frontmatter block from a SKILL.md document.
+///
+/// Looks for lines that are exactly `---` (with optional surrounding
+/// whitespace stripped). Returns the content between the first pair.
+fn extract_frontmatter(content: &str) -> Result<&str, WorkflowError> {
+    let mut lines = content.lines();
+    let first = lines
+        .next()
+        .ok_or_else(|| WorkflowError::invalid_definition("empty SKILL.md file"))?;
+
+    if first.trim() != "---" {
+        return Err(WorkflowError::invalid_definition(
+            "missing opening `---` delimiter for YAML frontmatter",
+        ));
+    }
+
+    let mut body = String::new();
+    for line in lines {
+        if line.trim() == "---" {
+            return Ok(Box::leak(body.into_boxed_str()));
+        }
+        if !body.is_empty() {
+            body.push('\n');
+        }
+        body.push_str(line);
+    }
+
+    Err(WorkflowError::invalid_definition(
+        "missing closing `---` delimiter for YAML frontmatter",
+    ))
+}
+
 /// A single step within a workflow.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Step {
@@ -41,6 +122,7 @@ pub struct Step {
     /// Step goal description (plain text).
     pub goal: String,
     /// Verification checklist items.
+    #[serde(default)]
     pub verify: Vec<String>,
     /// Jump questions to ask before transitioning.
     #[serde(default)]
