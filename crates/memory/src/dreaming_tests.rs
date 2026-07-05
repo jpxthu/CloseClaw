@@ -58,6 +58,7 @@ async fn test_dreaming_processes_mined_undreamt_sessions() {
     let config = DreamingConfig {
         enabled: true,
         diary: DreamingDiaryConfig::default(),
+        ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
     let result = pipeline.run_once(&storage).await;
@@ -95,6 +96,7 @@ async fn test_dreaming_disabled_skips_processing() {
     let config = DreamingConfig {
         enabled: false,
         diary: DreamingDiaryConfig::default(),
+        ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
     let result = pipeline.run_once(&storage).await;
@@ -159,6 +161,7 @@ fn test_dream_diary_writes_when_enabled() {
             enabled: true,
             path: diary_path.clone(),
         },
+        ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
 
@@ -201,6 +204,7 @@ fn test_dream_diary_does_not_write_when_disabled() {
             enabled: false,
             path: diary_path,
         },
+        ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
 
@@ -232,6 +236,7 @@ fn test_dream_diary_uses_custom_path() {
             enabled: true,
             path: diary_path.to_str().unwrap().to_string(),
         },
+        ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
 
@@ -271,6 +276,7 @@ fn test_dream_diary_creates_directory() {
             enabled: true,
             path: diary_path.to_str().unwrap().to_string(),
         },
+        ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
 
@@ -325,6 +331,7 @@ fn test_error_anger_entries_carry_lesson_in_diary() {
             enabled: true,
             path: diary_path,
         },
+        ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
 
@@ -366,6 +373,7 @@ fn test_dream_diary_empty_entries_no_write() {
             enabled: true,
             path: diary_path,
         },
+        ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
 

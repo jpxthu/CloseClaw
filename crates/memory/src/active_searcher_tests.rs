@@ -810,7 +810,10 @@ fn test_from_agent_config_full_override() {
     };
     let memory = MemoryConfig {
         active_searcher: Some(override_cfg),
-        search: SearchConfig { enabled: true },
+        search: SearchConfig {
+            enabled: true,
+            ..Default::default()
+        },
         ..MemoryConfig::default()
     };
 
@@ -838,7 +841,10 @@ fn test_from_agent_config_partial_override() {
     };
     let memory = MemoryConfig {
         active_searcher: Some(override_cfg),
-        search: SearchConfig { enabled: true },
+        search: SearchConfig {
+            enabled: true,
+            ..Default::default()
+        },
         ..MemoryConfig::default()
     };
 
@@ -894,7 +900,10 @@ fn test_from_agent_config_override_overrides_agent_model() {
     };
     let memory = MemoryConfig {
         active_searcher: Some(override_cfg),
-        search: SearchConfig { enabled: true },
+        search: SearchConfig {
+            enabled: true,
+            ..Default::default()
+        },
         ..MemoryConfig::default()
     };
 
@@ -909,7 +918,10 @@ fn test_from_agent_config_override_overrides_agent_model() {
 #[test]
 fn test_from_agent_config_search_disabled() {
     let memory = MemoryConfig {
-        search: SearchConfig { enabled: false },
+        search: SearchConfig {
+            enabled: false,
+            ..Default::default()
+        },
         ..MemoryConfig::default()
     };
 
