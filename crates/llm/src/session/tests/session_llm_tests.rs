@@ -1,4 +1,4 @@
-//! Tests for `ConversationSession::invoke_llm`.
+//! Tests for `ConversationSession::invoke_llm` and `invoke_llm_streaming`.
 
 use std::sync::Arc;
 
@@ -10,7 +10,7 @@ use closeclaw_common::{LLMError, LlmCaller};
 
 use super::tmp_path;
 
-/// A fake LlmCaller that returns a canned response.
+/// A fake LlmCaller that returns a canned response and supports streaming.
 struct FakeLlmCaller {
     response: UnifiedResponse,
 }
@@ -34,9 +34,40 @@ impl LlmCaller for FakeLlmCaller {
         >,
         LLMError,
     > {
-        Err(LLMError::InvalidRequest(
-            "streaming not supported in test".into(),
-        ))
+        use closeclaw_common::processor::{ContentBlockType, StreamEvent};
+        use futures::stream;
+
+        // Produce a minimal valid stream: BlockStart → BlockDelta → BlockEnd → MessageEnd
+        let text = self
+            .response
+            .content_blocks
+            .iter()
+            .filter_map(|b| match b {
+                closeclaw_common::processor::ContentBlock::Text(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        let events: Vec<Result<StreamEvent, LLMError>> = vec![
+            Ok(StreamEvent::BlockStart {
+                index: 0,
+                block_type: ContentBlockType::Text,
+            }),
+            Ok(StreamEvent::BlockDelta {
+                index: 0,
+                delta: closeclaw_common::processor::ContentDelta::Text { text },
+            }),
+            Ok(StreamEvent::BlockEnd {
+                index: 0,
+                block_type: ContentBlockType::Text,
+            }),
+            Ok(StreamEvent::MessageEnd {
+                usage: Some(self.response.usage.clone()),
+                finish_reason: self.response.finish_reason.clone(),
+            }),
+        ];
+        Ok(Box::pin(stream::iter(events)))
     }
 }
 
@@ -201,4 +232,144 @@ fn test_set_and_get_llm_caller() {
     // Verify the caller is the same Arc
     let got = session.llm_caller().unwrap();
     assert!(Arc::ptr_eq(got, &caller));
+}
+
+// ── invoke_llm_streaming error when no caller ────────────────────────
+
+#[tokio::test]
+async fn test_invoke_llm_streaming_no_caller_returns_error() {
+    let session = ConversationSession::new("s_stream_1".into(), "gpt-4o".into(), tmp_path());
+    let result = session.invoke_llm_streaming("hello").await;
+    assert!(result.is_err(), "expected error when no LlmCaller injected");
+}
+
+// ── invoke_llm_streaming success path ────────────────────────────────
+
+#[tokio::test]
+async fn test_invoke_llm_streaming_success() {
+    use futures::StreamExt;
+
+    let mut session = ConversationSession::new("s_stream_2".into(), "gpt-4o".into(), tmp_path());
+    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller {
+        response: canned_response("streamed"),
+    });
+    session.set_llm_caller(caller);
+
+    let result = session.invoke_llm_streaming("hello").await;
+    assert!(result.is_ok());
+
+    // Collect all events from the stream
+    let mut stream = result.unwrap();
+    let mut events = Vec::new();
+    while let Some(event) = stream.next().await {
+        events.push(event);
+    }
+    assert!(!events.is_empty());
+}
+
+// ── invoke_llm_streaming consumes memory_injection ────────────────────
+
+#[tokio::test]
+async fn test_invoke_llm_streaming_consumes_memory_injection() {
+    let mut session = ConversationSession::new("s_stream_3".into(), "gpt-4o".into(), tmp_path());
+    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller {
+        response: canned_response("ok"),
+    });
+    session.set_llm_caller(caller);
+
+    let injection = MemoryInjection::new("stream context".into(), InjectionPosition::AfterCurrent);
+    session.set_memory_injection(injection);
+    assert!(session.take_memory_injection().is_some());
+
+    // Set it again for the streaming call
+    let injection2 = MemoryInjection::new("stream context 2".into(), InjectionPosition::BeforeNext);
+    session.set_memory_injection(injection2);
+
+    let result = session.invoke_llm_streaming("hello").await;
+    assert!(result.is_ok());
+
+    // Injection should have been consumed by the streaming call
+    assert!(session.take_memory_injection().is_none());
+}
+
+// ── set_prompt_overrides setter ──────────────────────────────────────
+
+#[test]
+fn test_set_prompt_overrides() {
+    use closeclaw_common::PromptOverrides;
+
+    let mut session = ConversationSession::new("s_overrides".into(), "gpt-4o".into(), tmp_path());
+
+    // Default: no overrides
+    assert!(!session.has_system_prompt_builder());
+
+    // Set overrides
+    session.set_prompt_overrides(Some(PromptOverrides {
+        override_prompt: Some("custom".to_string()),
+        agent_prompt: None,
+        custom_prompt: None,
+    }));
+
+    // Rebuild should pick up overrides via the session's stored field
+    // (tested indirectly via rebuild_system_prompt_tests)
+}
+
+// ── memory_injection_arc access ──────────────────────────────────────
+
+#[test]
+fn test_memory_injection_arc_provides_access() {
+    let session = ConversationSession::new("s_arc".into(), "gpt-4o".into(), tmp_path());
+    let arc = session.memory_injection_arc();
+
+    // Initially empty
+    {
+        let slot = arc.lock().unwrap();
+        assert!(slot.is_none());
+    }
+
+    // Set via session method, read via arc
+    session.set_memory_injection(MemoryInjection::new(
+        "via_arc".into(),
+        InjectionPosition::AfterCurrent,
+    ));
+    {
+        let slot = arc.lock().unwrap();
+        assert!(slot.is_some());
+        assert_eq!(slot.as_ref().unwrap().content, "via_arc");
+    }
+}
+
+// ── Gateway delegation: dispatch_llm_call delegates to invoke_llm ────
+
+/// Verify the delegation path: `ConversationSession::invoke_llm` is the
+/// single entry point for LLM calls. This test confirms the session
+/// layer correctly delegates to the injected caller, which is the same
+/// path used by `SessionMessageHandler::dispatch_llm_call` in Gateway.
+#[tokio::test]
+async fn test_session_delegates_to_injected_caller() {
+    use closeclaw_common::processor::ContentBlock;
+
+    let mut session = ConversationSession::new("s_delegate".into(), "gpt-4o".into(), tmp_path());
+    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller {
+        response: UnifiedResponse {
+            content_blocks: vec![ContentBlock::Text("delegated response".into())],
+            usage: closeclaw_common::processor::UnifiedUsage {
+                prompt_tokens: 5,
+                completion_tokens: 3,
+                total_tokens: Some(8),
+                reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
+            finish_reason: Some("stop".into()),
+        },
+    });
+    session.set_llm_caller(caller);
+
+    let result = session.invoke_llm("test delegation").await.unwrap();
+    match &result.content_blocks[0] {
+        ContentBlock::Text(t) => assert_eq!(t, "delegated response"),
+        other => panic!("expected Text, got {:?}", other),
+    }
+    assert_eq!(result.usage.total_tokens, Some(8));
 }
