@@ -169,8 +169,8 @@ fn test_minimax_interpreter_empty_content_uses_reasoning() {
     let unified = MinimaxInterpreter.interpret_response(response);
     assert_eq!(unified.content_blocks.len(), 1);
     assert!(
-        matches!(&unified.content_blocks[0], ContentBlock::Thinking { thinking: s, .. } if s == "Let me think step by step..."),
-        "expected Thinking block, got {:?}",
+        matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s == "Let me think step by step..."),
+        "expected Text block, got {:?}",
         unified.content_blocks[0]
     );
 }
@@ -350,8 +350,8 @@ fn test_deepseek_interpreter_empty_content_uses_reasoning() {
     let unified = DeepSeekInterpreter.interpret_response(response);
     assert_eq!(unified.content_blocks.len(), 1);
     assert!(
-        matches!(&unified.content_blocks[0], ContentBlock::Thinking { thinking: s, .. } if s == "Let me think step by step..."),
-        "expected Thinking block, got {:?}",
+        matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s == "Let me think step by step..."),
+        "expected Text block, got {:?}",
         unified.content_blocks[0]
     );
 }
@@ -398,11 +398,16 @@ fn test_deepseek_interpreter_text_and_reasoning_prefers_text() {
         finish_reason: Some("stop".into()),
     };
     let unified = DeepSeekInterpreter.interpret_response(response);
-    assert_eq!(unified.content_blocks.len(), 1);
+    assert_eq!(unified.content_blocks.len(), 2);
     assert!(
         matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s == "hello"),
         "expected Text block when text is non-empty, got {:?}",
         unified.content_blocks[0]
+    );
+    assert!(
+        matches!(&unified.content_blocks[1], ContentBlock::Thinking { thinking: s, .. } if s == "thinking..."),
+        "expected Thinking block, got {:?}",
+        unified.content_blocks[1]
     );
 }
 
