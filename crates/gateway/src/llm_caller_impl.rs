@@ -25,42 +25,7 @@ use closeclaw_common::processor::{StreamEvent, UnifiedResponse};
 use closeclaw_llm::client::UnifiedChatClient;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::protocol::ProtocolError;
-use closeclaw_llm::session::{InjectionPosition, MemoryInjection};
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper: memory injection
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[allow(dead_code)]
-// These functions and types will be used by session_handler callers in Step 1.5.
-
-/// Convert a [`MemoryInjection`] into a tool-role `InternalMessage`.
-#[allow(dead_code)]
-pub fn memory_injection_to_message(
-    injection: &MemoryInjection,
-) -> closeclaw_common::llm_types::InternalMessage {
-    closeclaw_common::llm_types::InternalMessage {
-        role: "tool".to_string(),
-        content: injection.content.clone(),
-        tool_call_id: None,
-    }
-}
-
-/// Inject memory content into the request's message list if an injection
-/// payload is provided.
-#[allow(dead_code)]
-pub fn inject_memory(request: &mut InternalRequest, injection: &MemoryInjection) {
-    let tool_msg = memory_injection_to_message(injection);
-    match injection.position_mode {
-        InjectionPosition::AfterCurrent => {
-            request.messages.push(tool_msg);
-        }
-        InjectionPosition::BeforeNext => {
-            request.messages.insert(0, tool_msg);
-        }
-    }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Newtype wrappers
@@ -322,34 +287,6 @@ mod tests {
         let _ = stream.next().await;
     }
 
-    #[test]
-    fn test_memory_injection_to_message() {
-        let injection = MemoryInjection {
-            content: "memory content here".to_string(),
-            position_mode: InjectionPosition::AfterCurrent,
-            injected_event_ids: std::collections::HashSet::new(),
-        };
-        let msg = memory_injection_to_message(&injection);
-        assert_eq!(msg.role, "tool");
-        assert_eq!(msg.content, "memory content here");
-        assert!(msg.tool_call_id.is_none());
-    }
-
-    #[test]
-    fn test_inject_memory_after_current() {
-        let mut request = make_request("user msg");
-        let injection = MemoryInjection {
-            content: "injected".to_string(),
-            position_mode: InjectionPosition::AfterCurrent,
-            injected_event_ids: std::collections::HashSet::new(),
-        };
-        inject_memory(&mut request, &injection);
-        assert_eq!(request.messages.len(), 2);
-        assert_eq!(request.messages[0].role, "user");
-        assert_eq!(request.messages[1].role, "tool");
-        assert_eq!(request.messages[1].content, "injected");
-    }
-
     #[tokio::test]
     async fn test_fallback_llm_caller_call_streaming() {
         use closeclaw_llm::cache_adapter::NoopCacheAdapter;
@@ -514,20 +451,5 @@ mod tests {
         let result = execute_compact(&messages, &client, "stub-model", None, false).await;
         // Empty chain returns LLMCallFailed
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_inject_memory_before_next() {
-        let mut request = make_request("user msg");
-        let injection = MemoryInjection {
-            content: "injected".to_string(),
-            position_mode: InjectionPosition::BeforeNext,
-            injected_event_ids: std::collections::HashSet::new(),
-        };
-        inject_memory(&mut request, &injection);
-        assert_eq!(request.messages.len(), 2);
-        assert_eq!(request.messages[0].role, "tool");
-        assert_eq!(request.messages[0].content, "injected");
-        assert_eq!(request.messages[1].role, "user");
     }
 }
