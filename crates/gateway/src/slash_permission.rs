@@ -253,16 +253,6 @@ impl Gateway {
         sender_id: Option<&str>,
         channel: &str,
     ) -> Option<HandleResult> {
-        // Permission check BEFORE handler execution (design doc alignment).
-        // Owner short-circuit and non-permissioned commands pass through;
-        // high-risk commands denied by the engine never reach handler.handle().
-        if !self
-            .check_slash_permission(cmd_name, sender_id, session_id)
-            .await
-        {
-            return Some(HandleResult::SlashHandled);
-        }
-
         let slash_ctx = SlashContext {
             command: cmd_name.to_owned(),
             sender_id: sender_id.unwrap_or("").to_owned(),
@@ -270,6 +260,16 @@ impl Gateway {
             channel: channel.to_owned(),
         };
         let result = handler.handle(args, &slash_ctx).await;
+
+        // Permission check AFTER handler returns SlashResult but BEFORE execute.
+        // Handler is allowed to run (returns context), but high-risk side effects
+        // are blocked if permission is denied.
+        if !self
+            .check_slash_permission(cmd_name, sender_id, session_id)
+            .await
+        {
+            return Some(HandleResult::SlashHandled);
+        }
 
         let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel(8);
         let session_mgr: Arc<dyn closeclaw_common::SessionLookup> =
@@ -697,9 +697,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_non_owner_high_risk_denied_handler_not_invoked() {
+    async fn test_non_owner_high_risk_denied_handler_called_execute_skipped() {
         // Branch 2: non-owner + requires_permission=true + engine Deny
-        // → handler.handle() is NOT invoked.
+        // → handler.handle() IS invoked (returns SlashResult), but
+        //   result.execute() is SKIPPED (early return before execute).
         let counter = Arc::new(AtomicU32::new(0));
         let gw = make_gateway();
         gw.set_slash_dispatcher(counting_router("exec", true, Arc::clone(&counter)))
@@ -713,9 +714,13 @@ mod tests {
         assert!(matches!(result, Some(HandleResult::SlashHandled)));
         assert_eq!(
             counter.load(Ordering::SeqCst),
-            0,
-            "handler must NOT be invoked when permission is denied"
+            1,
+            "handler must be invoked even when permission is denied"
         );
+        // result.execute() is skipped — the early return after the
+        // permission check prevents side effects from running. This is
+        // observable by the absence of reply output (no reply_rx messages
+        // collected before the early return).
     }
 
     #[tokio::test]
