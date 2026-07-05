@@ -23,9 +23,10 @@ use closeclaw_common::{
 };
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_gateway::Message;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::PlatformEntry;
 
@@ -44,15 +45,81 @@ inventory::submit!(PlatformEntry {
     },
 });
 
+/// Root platforms configuration loaded from `platforms.json`.
+///
+/// Each key is a platform name and `enabled` controls whether
+/// the platform plugin is registered at startup.
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+struct PlatformsConfig {
+    platforms: HashMap<String, PlatformEnabledEntry>,
+}
+
+/// A single platform entry in `platforms.json`.
+#[derive(Debug, Clone, Deserialize, Default)]
+struct PlatformEnabledEntry {
+    #[serde(default)]
+    enabled: bool,
+}
+
+impl PlatformsConfig {
+    /// Check whether a platform is explicitly enabled.
+    fn is_enabled(&self, platform: &str) -> bool {
+        self.platforms.get(platform).is_some_and(|e| e.enabled)
+    }
+}
+
+/// Load `{config_dir}/config/platforms.json`.
+///
+/// Returns an empty config when the file is missing or unparseable.
+fn load_platforms_config(config_dir: &str) -> PlatformsConfig {
+    let path = std::path::Path::new(config_dir)
+        .join("config")
+        .join("platforms.json");
+    match std::fs::read_to_string(&path) {
+        Ok(json) => match serde_json::from_str::<PlatformsConfig>(&json) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    path = %path.display(),
+                    "failed to parse platforms.json — all platforms disabled"
+                );
+                PlatformsConfig::default()
+            }
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            info!("platforms.json not found — all platforms disabled");
+            PlatformsConfig::default()
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                path = %path.display(),
+                "failed to read platforms.json — all platforms disabled"
+            );
+            PlatformsConfig::default()
+        }
+    }
+}
+
 /// Register the Feishu plugin with the Gateway.
 ///
-/// Reads credentials from environment variables.  If any required
-/// variable is missing the plugin is silently not registered.
+/// First checks `{config_dir}/config/platforms.json` for an explicit
+/// enable flag.  If the platform is not listed or disabled the plugin
+/// is silently not registered.  When enabled, credentials are read
+/// from environment variables; missing env vars emit a warning.
 ///
 /// Identity mapping is loaded from `{config_dir}/config/identity.json`
 /// (if the file exists).  A missing or empty file results in no
 /// mapping — the fallback uses `sender_id` as `account_id`.
 pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, config_dir: &str) {
+    let platforms = load_platforms_config(config_dir);
+    if !platforms.is_enabled("feishu") {
+        info!("feishu not enabled in platforms.json — skipping");
+        return;
+    }
+
     let app_id = std::env::var("FEISHU_APP_ID").ok();
     let app_secret = std::env::var("FEISHU_APP_SECRET").ok();
     let verification_token = std::env::var("FEISHU_VERIFICATION_TOKEN").ok();
@@ -72,7 +139,7 @@ pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, config_dir: &st
         gateway.register_plugin(plugin).await;
         info!("Feishu plugin registered");
     } else {
-        info!("Feishu credentials not found in env — Feishu plugin not registered");
+        warn!("feishu enabled in platforms.json but credentials missing in env — skipping");
     }
 }
 
