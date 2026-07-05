@@ -180,6 +180,27 @@ fn expand_element(elem: &serde_json::Value) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Quote helpers
+// ---------------------------------------------------------------------------
+
+/// Truncate text to at most 500 characters, appending "..." if truncated.
+fn truncate_to_500(text: &str) -> String {
+    if text.len() <= 500 {
+        text.to_string()
+    } else {
+        format!("{}...", &text[..500])
+    }
+}
+
+/// Format text as a markdown blockquote: each line prefixed with "> ".
+fn to_blockquote(text: &str) -> String {
+    text.lines()
+        .map(|line| format!("> {}", line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+// ---------------------------------------------------------------------------
 // CachedToken
 // ---------------------------------------------------------------------------
 
@@ -507,7 +528,8 @@ impl FeishuAdapter {
         let content: serde_json::Value = serde_json::from_str(&event.event.content)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
-        let _message_id = event.event.message_id.as_deref().unwrap_or("");
+        // Save original parent_id before thread_id merging.
+        let original_parent_id = event.event.parent_id.clone();
         let thread_id = event
             .event
             .thread_id
@@ -548,11 +570,33 @@ impl FeishuAdapter {
             return Ok(None);
         }
 
+        // Fetch and prepend quoted message content if parent_id exists.
+        let content = if let Some(ref pid) = original_parent_id {
+            match self.fetch_message_content(pid).await {
+                Ok(Some(quoted)) => {
+                    let truncated = truncate_to_500(&quoted);
+                    let blockquote = to_blockquote(&truncated);
+                    format!("{}\n\n{}", blockquote, text)
+                }
+                Ok(None) => text,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        parent_id = %pid,
+                        "Failed to fetch quoted message, proceeding without quote"
+                    );
+                    text
+                }
+            }
+        } else {
+            text
+        };
+
         Ok(Some(NormalizedMessage {
             platform: "feishu".to_string(),
             sender_id: sender_open_id.clone(),
             peer_id: event.event.chat_id,
-            content: text,
+            content,
             timestamp: chrono::Utc::now().timestamp_millis(),
             message_type: MessageType::from(event.event.message_type.as_str()),
             media_refs,
