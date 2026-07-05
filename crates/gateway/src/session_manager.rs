@@ -592,14 +592,6 @@ impl SessionManager {
         }
     }
 
-    /// Rebuild the system prompt for an existing session.
-    /// Called after compaction to pick up skill/config changes.
-    /// Lock Safety: acquires its own write lock; callers must NOT hold
-    /// any external write guard on the same session.
-    pub async fn rebuild_system_prompt(&self, session_id: &str) {
-        crate::session_prompt_helper::rebuild_system_prompt_for_session(self, session_id).await;
-    }
-
     /// Notify all active sessions that a configuration section has been updated.
     ///
     /// Iterates through all active sessions and rebuilds their system prompt
@@ -631,7 +623,7 @@ impl SessionManager {
                 section = %section,
                 "rebuilding system prompt for session after config change"
             );
-            self.rebuild_system_prompt(session_id).await;
+            crate::session_prompt_helper::rebuild_system_prompt_for_session(self, session_id).await;
         }
         tracing::info!(
             section = %section,
