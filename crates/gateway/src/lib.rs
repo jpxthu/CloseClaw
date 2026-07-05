@@ -593,8 +593,7 @@ impl Gateway {
                 payload: json!({
                     "content": {
                         "text":
-                            "\u{26A0}\u{FE0F} \u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\
-                            \u{5931}\u{8D25}\u{FF0C}\u{8BF7}\u{91CD}\u{8BD5}"
+                            "\u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\u{5931}\u{8D25}\u{FF0C}\u{8BF7}\u{91CD}\u{8BD5}"
                     }
                 }),
             };
