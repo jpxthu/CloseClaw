@@ -935,6 +935,8 @@ fn build_extra_metadata(input: &InboundChainInput) -> std::collections::HashMap<
 }
 
 #[cfg(test)]
+pub mod compute_session_key_tests;
+#[cfg(test)]
 pub mod inbound_chain_tests;
 #[cfg(test)]
 pub mod non_text_interception_tests;

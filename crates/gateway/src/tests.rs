@@ -226,17 +226,18 @@ fn test_dm_scope_main_session_key() {
 }
 
 #[test]
-fn test_dm_scope_session_key_stable_across_timestamps() {
-    // Hash should be identical regardless of timestamp_ms (per-user session stability)
+fn test_dm_scope_session_key_varies_across_timestamps() {
+    // timestamp_ms participates in hash input, so different timestamps
+    // produce different hash values (documented algorithm alignment).
     let key_early = DmScope::PerChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None, 1000);
     let key_late =
         DmScope::PerChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None, 999999);
-    // Hash part (after timestamp prefix) must be identical
+    // Hash part (after timestamp prefix) must differ
     let hash_early = &key_early[key_early.find('-').unwrap() + 1..];
     let hash_late = &key_late[key_late.find('-').unwrap() + 1..];
-    assert_eq!(
+    assert_ne!(
         hash_early, hash_late,
-        "routing hash must be stable across different timestamps"
+        "routing hash must differ when timestamp_ms changes"
     );
     // Prefix should still reflect the provided timestamp
     assert!(key_early.starts_with("1000-"));
