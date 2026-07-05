@@ -37,7 +37,7 @@ use closeclaw_common::SessionLookup;
 use closeclaw_gateway::sweeper::ArchiveSweeper;
 use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
-use closeclaw_permission::approval_flow::ApprovalFlow;
+use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::{Defaults, PermissionEngine, RuleSet};
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::PersistenceService;
@@ -320,6 +320,7 @@ impl Daemon {
             Arc::clone(session_manager) as Arc<dyn SessionLookup>,
             Arc::new(|_| {}),
             tokio::runtime::Handle::current(),
+            HeartbeatApprovalMode::default(),
         )));
         gateway.set_approval_flow(Arc::clone(&approval_flow)).await;
         let _builtin_skills = builtin_skills_with_engine_and_approval_flow(

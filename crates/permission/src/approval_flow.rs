@@ -9,7 +9,10 @@
 //! ```text
 //! Tool call → Deny → submit_denial()
 //!                     ├─ sub_agent? → None (silent deny)
-//!                     ├─ heartbeat? → None (silent skip)
+//!                     ├─ heartbeat? → mode-dependent:
+//!                     │     Skip  → None (silent)
+//!                     │     Notify → notify owner, None
+//!                     │     Ask   → enqueue (same as normal)
 //!                     └─ normal?    → enqueue → on_notify_owner → Some(id)
 //!
 //! Owner → /approve id → approve_request(id, Once)
@@ -27,6 +30,28 @@ use closeclaw_common::{PendingMessage, SessionLookup};
 
 use super::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectWhitelistReason};
 
+/// How heartbeat operations are handled when denied by the permission engine.
+///
+/// This controls the approval flow behavior for heartbeat tasks that receive
+/// a Deny verdict from the permission engine:
+///
+/// - [`Skip`](HeartbeatApprovalMode::Skip): Silently skip the operation (default).
+///   Heartbeat denials are not enqueued and no notification is sent.
+/// - [`Notify`](HeartbeatApprovalMode::Notify): Notify the owner about the
+///   denial but do not enqueue for approval. This is a one-way notification.
+/// - [`Ask`](HeartbeatApprovalMode::Ask): Enqueue the heartbeat denial for
+///   owner approval, treating it the same as any other denied operation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum HeartbeatApprovalMode {
+    /// Silently skip denied heartbeat operations (no queue, no notification).
+    #[default]
+    Skip,
+    /// Notify the owner about the denial but do not enqueue for approval.
+    Notify,
+    /// Enqueue denied heartbeat operations for owner approval.
+    Ask,
+}
+
 /// Notification sent to the owner when an operation requires approval.
 #[derive(Debug, Clone)]
 pub struct ApprovalNotification {
@@ -40,11 +65,12 @@ pub struct ApprovalNotification {
     pub risk_level: RiskLevel,
 }
 
-/// Operations that should be silently skipped during the approval flow.
+/// Check if a request is a heartbeat operation.
 ///
-/// In the initial implementation this is a hardcoded set; later this may
-/// become configurable via permissions.json.
-fn is_heartbeat_skip_operation(request: &PermissionRequestBody) -> bool {
+/// Heartbeat operations are tool calls with skill="heartbeat" and
+/// method="ping". The handling strategy (skip / notify / ask) is
+/// determined by [`HeartbeatApprovalMode`].
+fn is_heartbeat_operation(request: &PermissionRequestBody) -> bool {
     matches!(
         request,
         PermissionRequestBody::ToolCall {
@@ -69,12 +95,15 @@ pub struct ApprovalFlow {
     on_notify_owner: Arc<dyn Fn(ApprovalNotification) + Send + Sync>,
     /// Tokio runtime handle for spawning async tasks from sync closures.
     runtime_handle: tokio::runtime::Handle,
+    /// How heartbeat operations are handled when denied.
+    heartbeat_mode: HeartbeatApprovalMode,
 }
 
 impl std::fmt::Debug for ApprovalFlow {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ApprovalFlow")
             .field("queue", &self.queue)
+            .field("heartbeat_mode", &self.heartbeat_mode)
             .finish_non_exhaustive()
     }
 }
@@ -86,16 +115,19 @@ impl ApprovalFlow {
     /// * `session_manager` - Shared reference to the session manager.
     /// * `on_notify_owner` - Callback to notify the owner about pending approvals.
     /// * `runtime_handle` - Tokio runtime handle for spawning async tasks.
+    /// * `heartbeat_mode` - How heartbeat operations are handled when denied.
     pub fn new(
         session_manager: Arc<dyn SessionLookup>,
         on_notify_owner: Arc<dyn Fn(ApprovalNotification) + Send + Sync>,
         runtime_handle: tokio::runtime::Handle,
+        heartbeat_mode: HeartbeatApprovalMode,
     ) -> Self {
         Self {
             queue: ApprovalQueue::new(),
             session_manager,
             on_notify_owner,
             runtime_handle,
+            heartbeat_mode,
         }
     }
 
@@ -106,12 +138,92 @@ impl ApprovalFlow {
     pub fn set_notify_callback(&mut self, cb: Arc<dyn Fn(ApprovalNotification) + Send + Sync>) {
         self.on_notify_owner = cb;
     }
+}
+
+// ── Heartbeat mode ──────────────────────────────────────────────────────────
+
+impl ApprovalFlow {
+    /// Set the heartbeat approval mode at runtime.
+    ///
+    /// Allows changing how heartbeat denials are handled without
+    /// recreating the [`ApprovalFlow`].
+    pub fn set_heartbeat_mode(&mut self, mode: HeartbeatApprovalMode) {
+        self.heartbeat_mode = mode;
+    }
+
+    /// Handle a denied heartbeat operation according to the configured mode.
+    ///
+    /// Returns `None` if the operation should not be enqueued (Skip/Notify modes),
+    /// or `Some(())` if it should proceed to the normal enqueue flow (Ask mode).
+    fn handle_heartbeat_denial(
+        &self,
+        caller: &Caller,
+        request: &PermissionRequestBody,
+        risk_level: RiskLevel,
+    ) -> Option<String> {
+        match self.heartbeat_mode {
+            HeartbeatApprovalMode::Skip => None,
+            HeartbeatApprovalMode::Notify => {
+                if let PermissionRequestBody::ToolCall {
+                    agent,
+                    skill,
+                    method,
+                } = request
+                {
+                    (self.on_notify_owner)(ApprovalNotification {
+                        request_id: String::new(),
+                        caller: caller.clone(),
+                        operation_desc: format!("{} tool {}/{}", agent, skill, method),
+                        risk_level,
+                    });
+                }
+                None
+            }
+            HeartbeatApprovalMode::Ask => Some(String::new()),
+        }
+    }
+}
+
+// ── Operation submission ────────────────────────────────────────────────────
+
+impl ApprovalFlow {
+    /// Build a human-readable description of the operation for notifications.
+    fn format_operation_desc(request: &PermissionRequestBody) -> String {
+        match request {
+            PermissionRequestBody::FileOp { agent, path, op } => {
+                format!("{} file {} {}", agent, op, path)
+            }
+            PermissionRequestBody::CommandExec { agent, cmd, .. } => {
+                format!("{} execute {}", agent, cmd)
+            }
+            PermissionRequestBody::NetOp { agent, host, port } => {
+                format!("{} network {}:{}", agent, host, port)
+            }
+            PermissionRequestBody::ToolCall {
+                agent,
+                skill,
+                method,
+            } => format!("{} tool {}/{}", agent, skill, method),
+            PermissionRequestBody::InterAgentMsg { from, to } => {
+                format!("inter-agent {} -> {}", from, to)
+            }
+            PermissionRequestBody::ConfigWrite { agent, config_file } => {
+                format!("{} config write {}", agent, config_file)
+            }
+            PermissionRequestBody::SlashCommand { agent, command } => {
+                format!("{} slash /{}", agent, command)
+            }
+        }
+    }
 
     /// Submit a denied operation for owner approval.
     ///
     /// # Behavior
     /// - `is_sub_agent = true` → returns `None` (silent deny, no queue).
-    /// - Heartbeat-skip operations → returns `None` (silent skip).
+    /// - Heartbeat operations → handled according to [`HeartbeatApprovalMode`]:
+    ///   - `Skip` → returns `None` (silent skip, no notification).
+    ///   - `Notify` → sends owner notification, returns `None` (no queue).
+    ///   - `Ask` → enqueues for approval like normal operations.
     /// - Normal operations → enqueues (dedup via `ApprovalQueue`) → triggers
     ///   `on_notify_owner` → returns `Some(request_id)`.
     ///
@@ -127,74 +239,42 @@ impl ApprovalFlow {
         session_id: &str,
         is_sub_agent: bool,
     ) -> Option<String> {
-        // Sub-agent operations are silently denied.
         if is_sub_agent {
             return None;
         }
-
-        // Heartbeat-skip operations are silently skipped.
-        if is_heartbeat_skip_operation(request) {
+        if is_heartbeat_operation(request)
+            && self
+                .handle_heartbeat_denial(caller, request, risk_level)
+                .is_none()
+        {
             return None;
         }
-
-        let operation_desc = match request {
-            PermissionRequestBody::FileOp { agent, path, op } => {
-                format!("{} file {} {}", agent, op, path)
-            }
-            PermissionRequestBody::CommandExec { agent, cmd, .. } => {
-                format!("{} execute {}", agent, cmd)
-            }
-            PermissionRequestBody::NetOp { agent, host, port } => {
-                format!("{} network {}:{}", agent, host, port)
-            }
-            PermissionRequestBody::ToolCall {
-                agent,
-                skill,
-                method,
-            } => {
-                format!("{} tool {}/{}", agent, skill, method)
-            }
-            PermissionRequestBody::InterAgentMsg { from, to } => {
-                format!("inter-agent {} -> {}", from, to)
-            }
-            PermissionRequestBody::ConfigWrite { agent, config_file } => {
-                format!("{} config write {}", agent, config_file)
-            }
-            PermissionRequestBody::SlashCommand { agent, command } => {
-                format!("{} slash /{}", agent, command)
-            }
-        };
-
-        let session_resume = session_id.to_string();
-        let risk = risk_level;
-
-        // Callback: no-op. The actual push_pending_message calls are in
-        // approve_request / deny_request to avoid duplicate messages.
-        let callback = Box::new(move |_result: ApproveOrDeny| {});
-
-        let request_id = match self.queue.enqueue(
-            request.clone(),
-            caller.clone(),
-            operation_desc.clone(),
-            risk,
-            session_resume,
-            callback,
-        ) {
-            Ok(id) => id,
-            Err(_) => return None, // Duplicate — silently ignore.
-        };
-
-        // Notify the owner about the pending approval.
+        let operation_desc = Self::format_operation_desc(request);
+        let callback = Box::new(|_: ApproveOrDeny| {});
+        let request_id = self
+            .queue
+            .enqueue(
+                request.clone(),
+                caller.clone(),
+                operation_desc.clone(),
+                risk_level,
+                session_id.to_string(),
+                callback,
+            )
+            .ok()?;
         (self.on_notify_owner)(ApprovalNotification {
             request_id: request_id.clone(),
             caller: caller.clone(),
             operation_desc,
-            risk_level: risk,
+            risk_level,
         });
-
         Some(request_id)
     }
+}
 
+// ── Approval resolution ─────────────────────────────────────────────────────
+
+impl ApprovalFlow {
     /// Approve a pending approval request.
     ///
     /// Delegates to [`ApprovalQueue::approve`] with the given [`ApprovalMode`].
