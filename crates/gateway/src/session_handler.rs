@@ -4,7 +4,7 @@
 //! - idle message  → set busy → LLM call → clear busy → drain pending
 //! - busy message  → enqueue pending
 //!
-//! `UnifiedFallbackClient::chat()` (non-streaming) is used for non-streaming LLM calls,
+//! `LlmCaller` trait is used for LLM calls (non-streaming and streaming),
 //! going through the full five-layer architecture (CacheAdapter → PluginPipeline →
 //! Interpreter → Protocol → Provider).
 //! The `output_tx` channel is used to surface LLM response text to callers.

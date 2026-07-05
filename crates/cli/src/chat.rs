@@ -317,10 +317,12 @@ async fn build_session_handler(
     let llm_caller: Arc<dyn LlmCaller> = Arc::new(
         closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(unified_fallback_client.clone()),
     );
-    let fallback_llm_caller = Arc::new(closeclaw_gateway::session_handler::FallbackLlmCaller {
-        client: unified_fallback_client,
-        model: String::new(),
-    });
+    let fallback_llm_caller = Arc::new(
+        closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
+            client: unified_fallback_client,
+            model: String::new(),
+        },
+    );
     Some(
         closeclaw_gateway::session_handler::SessionMessageHandler::new(
             session_manager,

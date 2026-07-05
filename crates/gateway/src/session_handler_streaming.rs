@@ -3,7 +3,7 @@
 //! Extracted from `session_handler.rs` to keep file sizes under the
 //! 500-line project limit.
 //!
-//! The LLM stream is opened via [`crate::llm_caller_impl::FallbackLlmCaller`].
+//! The LLM stream is opened via the [`LlmCaller`] trait (passed as `&Arc<dyn LlmCaller>`).
 //! This file handles Gateway-side orchestration: wrapping the stream with
 //! [`SinkUpdater`][closeclaw_llm::SinkUpdater], racing against
 //! a cancellation token, and dispatching through
