@@ -5,7 +5,11 @@
 use super::*;
 use crate::platforms::feishu::FeishuPlugin;
 use crate::plugin::IMPlugin;
-use axum::{extract::Query, routing::post, Json, Router};
+use axum::{
+    extract::{Path, Query},
+    routing::{get, post},
+    Json, Router,
+};
 use closeclaw_common::MessageType;
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_config::identity::IdentityMapping;
@@ -702,4 +706,258 @@ async fn test_parse_inbound_no_resolver_fallback() {
     let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
     // No resolver at all → fallback to sender_open_id
     assert_eq!(msg.account_id, "ou_sender");
+}
+
+// ===========================================================================
+// Quote/reference (parent_id) tests
+// ===========================================================================
+
+/// Start a mock server that supports GET /im/v1/messages/{message_id}.
+/// `messages` maps message_id → (msg_type, body_json_string).
+async fn start_quote_mock_server(
+    messages: Arc<tokio::sync::Mutex<StdHashMap<String, (String, String)>>>,
+) -> String {
+    let msgs = Arc::clone(&messages);
+    let app = Router::new()
+        .route(
+            "/auth/v3/tenant_access_token/internal",
+            post(|Json(_body): Json<serde_json::Value>| async move {
+                Json(serde_json::json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "mock_token"
+                }))
+            }),
+        )
+        .route(
+            "/im/v1/messages/:message_id",
+            get(move |Path(message_id): Path<String>| async move {
+                let msgs = msgs.lock().await;
+                match msgs.get(&message_id) {
+                    Some((msg_type, body)) => Json(serde_json::json!({
+                        "code": 0,
+                        "msg": "ok",
+                        "items": [{
+                            "msg_type": msg_type,
+                            "body": { "content": body }
+                        }]
+                    })),
+                    None => Json(serde_json::json!({
+                        "code": 1,
+                        "msg": "message not found"
+                    })),
+                }
+            }),
+        );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{}", addr)
+}
+
+/// Build a FeishuEvent with a parent_id for quote testing.
+fn make_message_event_with_parent(
+    message_type: &str,
+    content_json: &str,
+    parent_id: &str,
+) -> FeishuEvent {
+    let mut event = make_message_event(message_type, content_json);
+    event.event.parent_id = Some(parent_id.to_string());
+    event
+}
+
+/// Build a FeishuEvent with both parent_id and root_id.
+fn make_message_event_with_parent_and_root(
+    message_type: &str,
+    content_json: &str,
+    parent_id: &str,
+    root_id: &str,
+) -> FeishuEvent {
+    let mut event = make_message_event(message_type, content_json);
+    event.event.parent_id = Some(parent_id.to_string());
+    event.event.root_id = Some(root_id.to_string());
+    event
+}
+
+// --- Test 1: parent_id + API returns text type → content contains blockquote ---
+
+#[tokio::test]
+async fn test_quote_text_type_prepends_blockquote() {
+    let messages = Arc::new(tokio::sync::Mutex::new(StdHashMap::from([(
+        "om_parent1".to_string(),
+        (
+            "text".to_string(),
+            serde_json::json!({"text": "quoted text"}).to_string(),
+        ),
+    )])));
+    let base_url = start_quote_mock_server(messages).await;
+    let adapter = make_adapter_with_base(&base_url);
+    let event = make_message_event_with_parent(
+        "text",
+        &serde_json::json!({"text": "reply body"}).to_string(),
+        "om_parent1",
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert!(
+        msg.content.starts_with("\u{003e} "),
+        "should start with blockquote prefix"
+    );
+    assert!(msg.content.contains("quoted text"));
+    assert!(msg.content.contains("reply body"));
+}
+
+// --- Test 2: parent_id + API returns post type → content contains expanded blockquote ---
+
+#[tokio::test]
+async fn test_quote_post_type_prepends_expanded_blockquote() {
+    let post_content = serde_json::json!({
+        "title": "Post Title",
+        "content": [[{"tag": "text", "text": "post body"}]]
+    });
+    let messages = Arc::new(tokio::sync::Mutex::new(StdHashMap::from([(
+        "om_parent2".to_string(),
+        ("post".to_string(), post_content.to_string()),
+    )])));
+    let base_url = start_quote_mock_server(messages).await;
+    let adapter = make_adapter_with_base(&base_url);
+    let event = make_message_event_with_parent(
+        "text",
+        &serde_json::json!({"text": "my reply"}).to_string(),
+        "om_parent2",
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert!(msg.content.contains("\u{003e} Post Title"));
+    assert!(msg.content.contains("\u{003e} post body"));
+    assert!(msg.content.contains("my reply"));
+}
+
+// --- Test 3: quote content > 500 chars → truncated with "..." ---
+
+#[tokio::test]
+async fn test_quote_truncates_at_500_chars() {
+    let long_text = "a".repeat(600);
+    let messages = Arc::new(tokio::sync::Mutex::new(StdHashMap::from([(
+        "om_parent3".to_string(),
+        (
+            "text".to_string(),
+            serde_json::json!({"text": &long_text}).to_string(),
+        ),
+    )])));
+    let base_url = start_quote_mock_server(messages).await;
+    let adapter = make_adapter_with_base(&base_url);
+    let event = make_message_event_with_parent(
+        "text",
+        &serde_json::json!({"text": "reply"}).to_string(),
+        "om_parent3",
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    // The blockquote line should be "> " + 500 chars + "..."
+    let first_line = msg.content.lines().next().unwrap();
+    assert!(first_line.starts_with("> "));
+    let quoted_part = &first_line[2..]; // strip "> "
+    assert!(quoted_part.ends_with("..."));
+    assert_eq!(quoted_part.len(), 503); // 500 + "..."
+}
+
+// --- Test 4: quote content exactly 500 chars → no "..." ---
+
+#[tokio::test]
+async fn test_quote_exactly_500_chars_no_truncation() {
+    let exact_text = "b".repeat(500);
+    let messages = Arc::new(tokio::sync::Mutex::new(StdHashMap::from([(
+        "om_parent4".to_string(),
+        (
+            "text".to_string(),
+            serde_json::json!({"text": &exact_text}).to_string(),
+        ),
+    )])));
+    let base_url = start_quote_mock_server(messages).await;
+    let adapter = make_adapter_with_base(&base_url);
+    let event = make_message_event_with_parent(
+        "text",
+        &serde_json::json!({"text": "reply"}).to_string(),
+        "om_parent4",
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    let first_line = msg.content.lines().next().unwrap();
+    let quoted_part = &first_line[2..]; // strip "> "
+    assert_eq!(quoted_part, exact_text);
+    assert!(!quoted_part.ends_with("..."));
+}
+
+// --- Test 5: parent_id exists but API fails → no blockquote ---
+
+#[tokio::test]
+async fn test_quote_api_failure_no_blockquote() {
+    let messages: Arc<tokio::sync::Mutex<StdHashMap<String, (String, String)>>> =
+        Arc::new(tokio::sync::Mutex::new(StdHashMap::new()));
+    let base_url = start_quote_mock_server(messages).await;
+    let adapter = make_adapter_with_base(&base_url);
+    let event = make_message_event_with_parent(
+        "text",
+        &serde_json::json!({"text": "reply"}).to_string(),
+        "om_nonexistent",
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.content, "reply");
+}
+
+// --- Test 6: parent_id exists but message type is image → no blockquote ---
+
+#[tokio::test]
+async fn test_quote_image_type_no_blockquote() {
+    let messages = Arc::new(tokio::sync::Mutex::new(StdHashMap::from([(
+        "om_parent6".to_string(),
+        (
+            "image".to_string(),
+            serde_json::json!({"image_key": "img_xxx"}).to_string(),
+        ),
+    )])));
+    let base_url = start_quote_mock_server(messages).await;
+    let adapter = make_adapter_with_base(&base_url);
+    let event = make_message_event_with_parent(
+        "text",
+        &serde_json::json!({"text": "reply"}).to_string(),
+        "om_parent6",
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.content, "reply");
+}
+
+// --- Test 7: no parent_id → behavior unchanged ---
+
+#[tokio::test]
+async fn test_no_parent_id_unchanged_behavior() {
+    let adapter = make_test_adapter();
+    let event = make_message_event("text", &serde_json::json!({"text": "hello"}).to_string());
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.content, "hello");
+    assert!(!msg.content.contains("> "));
+}
+
+// --- Test 8: parent_id + root_id → thread_id uses root_id, quote still works ---
+
+#[tokio::test]
+async fn test_quote_with_root_id_thread_uses_root_id() {
+    let messages = Arc::new(tokio::sync::Mutex::new(StdHashMap::from([(
+        "om_parent8".to_string(),
+        (
+            "text".to_string(),
+            serde_json::json!({"text": "quoted"}).to_string(),
+        ),
+    )])));
+    let base_url = start_quote_mock_server(messages).await;
+    let adapter = make_adapter_with_base(&base_url);
+    let event = make_message_event_with_parent_and_root(
+        "text",
+        &serde_json::json!({"text": "reply"}).to_string(),
+        "om_parent8",
+        "om_root99",
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    // thread_id should be root_id, not parent_id
+    assert_eq!(msg.thread_id.as_deref(), Some("om_root99"));
+    // quote content should still be present
+    assert!(msg.content.contains("\u{003e} quoted"));
+    assert!(msg.content.contains("reply"));
 }
