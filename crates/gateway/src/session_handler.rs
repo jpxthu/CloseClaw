@@ -327,9 +327,9 @@ impl SessionMessageHandler {
 /// by the active-searcher pipeline.
 pub struct FallbackLlmCaller {
     #[allow(dead_code)]
-    pub(crate) client: Arc<closeclaw_llm::unified_fallback::UnifiedFallbackClient>,
+    pub client: Arc<closeclaw_llm::unified_fallback::UnifiedFallbackClient>,
     #[allow(dead_code)]
-    pub(crate) model: String,
+    pub model: String,
 }
 
 #[async_trait::async_trait]
