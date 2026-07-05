@@ -7,7 +7,6 @@ use crate::context::SlashContext;
 use crate::handler::SlashHandler;
 use crate::registry::HandlerRegistry;
 use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
-use closeclaw_gateway::session_prompt_helper::rebuild_system_prompt_for_session;
 use closeclaw_gateway::SessionManager;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_tools::build_git_status_for;
@@ -72,7 +71,9 @@ impl SlashHandler for ClearHandler {
     }
 
     async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
-        rebuild_system_prompt_for_session(&self.session_manager, &ctx.session_id).await;
+        self.session_manager
+            .rebuild_system_prompt_for_session(&ctx.session_id)
+            .await;
         SlashResult::Reply("System prompt 缓存已清除，下次请求将重新构建。".to_owned())
     }
 }
