@@ -3,7 +3,6 @@
 //! This crate unifies IMPlugin, IMAdapter, NormalizedMessage, AdapterError,
 //! and RenderedOutput under a single entry point.
 
-pub mod code_block;
 pub mod error;
 pub mod normalized;
 #[cfg(test)]
@@ -12,11 +11,13 @@ pub mod platforms;
 pub mod plugin;
 #[cfg(test)]
 pub mod plugin_tests;
-pub mod render_hooks;
 pub mod streaming;
 #[cfg(test)]
 pub mod streaming_tests;
 pub mod tool_registrar;
+
+// Re-export code_block from common for backward compatibility.
+pub use closeclaw_common::code_block::{parse_content_segments, ContentSegment};
 
 pub use error::AdapterError;
 pub use plugin::{IMPlugin, RenderedOutput};

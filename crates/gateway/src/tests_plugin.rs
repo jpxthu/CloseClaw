@@ -73,6 +73,23 @@ impl IMPlugin for MockPlugin {
         }
     }
 
+    fn handle_stream_event(
+        &self,
+        event: closeclaw_common::processor::StreamEvent,
+    ) -> closeclaw_common::im_plugin::StreamingOutput {
+        self.streaming_renderer()
+            .lock()
+            .expect("MockPlugin streaming renderer lock poisoned")
+            .handle_event(event)
+    }
+
+    fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
+        self.streaming_renderer()
+            .lock()
+            .expect("MockPlugin streaming renderer lock poisoned")
+            .flush()
+    }
+
     fn streaming_renderer(
         &self,
     ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
@@ -222,6 +239,23 @@ impl IMPlugin for CapturingPlugin {
             *self.last_card.write().await = Some(output.payload.clone());
         }
         Ok(())
+    }
+
+    fn handle_stream_event(
+        &self,
+        event: closeclaw_common::processor::StreamEvent,
+    ) -> closeclaw_common::im_plugin::StreamingOutput {
+        self.streaming_renderer()
+            .lock()
+            .expect("CapturingPlugin streaming renderer lock poisoned")
+            .handle_event(event)
+    }
+
+    fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
+        self.streaming_renderer()
+            .lock()
+            .expect("CapturingPlugin streaming renderer lock poisoned")
+            .flush()
     }
 
     fn streaming_renderer(
