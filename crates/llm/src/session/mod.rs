@@ -21,7 +21,7 @@ use crate::turn::TurnCounter;
 use crate::types::{ContentBlock, UnifiedUsage};
 use closeclaw_agent::communication::CommunicationConfig;
 use closeclaw_common::VerbosityLevel;
-use closeclaw_common::{PromptOverrides, SystemPromptBuilder};
+use closeclaw_common::{LlmCaller, PromptOverrides, SystemPromptBuilder};
 use closeclaw_session::persistence::ReasoningLevel;
 
 /// Maximum length of an individual append-section item (in characters).
@@ -134,6 +134,9 @@ pub struct ConversationSession {
     shutdown_handle: Option<Arc<dyn closeclaw_common::ShutdownSignal>>,
     /// Verbosity level controlling outbound content filtering.
     verbosity_level: VerbosityLevel,
+    /// LLM caller injected by Gateway for delegating LLM requests.
+    /// Set via [`set_llm_caller`](Self::set_llm_caller) after construction.
+    llm_caller: Option<Arc<dyn LlmCaller>>,
 }
 
 // `impl ConversationSession` is split across multiple blocks so each
@@ -174,6 +177,7 @@ impl ConversationSession {
             last_activity_at: Utc::now().timestamp(),
             shutdown_handle: None,
             verbosity_level: VerbosityLevel::default(),
+            llm_caller: None,
         }
     }
 
@@ -237,6 +241,19 @@ impl ConversationSession {
     /// Set the shutdown handle for busy-count tracking during tool execution.
     pub fn set_shutdown_handle(&mut self, handle: Arc<dyn closeclaw_common::ShutdownSignal>) {
         self.shutdown_handle = Some(handle);
+    }
+
+    /// Inject an [`LlmCaller`] into this session.
+    ///
+    /// Called by Gateway after session creation so the session can
+    /// delegate LLM requests without the Gateway holding the caller.
+    pub fn set_llm_caller(&mut self, caller: Arc<dyn LlmCaller>) {
+        self.llm_caller = Some(caller);
+    }
+
+    /// Returns a reference to the injected [`LlmCaller`], if any.
+    pub fn llm_caller(&self) -> Option<&Arc<dyn LlmCaller>> {
+        self.llm_caller.as_ref()
     }
 
     /// Get a clone of the shutdown handle, if set.
