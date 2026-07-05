@@ -57,7 +57,7 @@ pub use slash_router::{
 
 pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, StorageProvider};
 pub use system_prompt::{PromptOverrides, SystemPromptBuilder};
-pub use task_manager::{BackgroundTask, BackgroundTaskError, TaskManager, TaskState};
+// TaskManager, TaskState, BackgroundTask, BackgroundTaskError migrated to closeclaw-tasks
 pub use tool_registry::{
     ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry, ToolRegistryQuery,
 };

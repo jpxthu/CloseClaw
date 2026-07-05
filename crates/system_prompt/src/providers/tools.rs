@@ -164,7 +164,7 @@ mod tests {
         let registrars: Vec<Box<dyn closeclaw_tools::ToolRegistrar>> = vec![
             Box::new(closeclaw_tools::CoreToolsRegistrar::new(
                 permission_engine.clone(),
-                task_manager as Arc<dyn closeclaw_common::TaskManager>,
+                task_manager as Arc<dyn closeclaw_tasks::TaskManager>,
                 session_manager.clone(),
                 cfg_mgr.clone(),
             )),

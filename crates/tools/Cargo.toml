@@ -8,6 +8,7 @@ license = "MIT"
 [dependencies]
 # Internal crates
 closeclaw-common = { path = "../common" }
+closeclaw-tasks = { path = "../tasks" }
 closeclaw-config = { path = "../config" }
 closeclaw-agent = { path = "../agent" }
 closeclaw-session = { path = "../session" }

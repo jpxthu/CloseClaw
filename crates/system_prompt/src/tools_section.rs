@@ -148,7 +148,7 @@ mod tests {
         vec![
             Box::new(CoreToolsRegistrar::new(
                 permission_engine.clone(),
-                task_manager as Arc<dyn closeclaw_common::TaskManager>,
+                task_manager as Arc<dyn closeclaw_tasks::TaskManager>,
                 session_manager.clone(),
                 config_manager,
             )),

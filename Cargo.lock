@@ -845,7 +845,6 @@ name = "closeclaw-tasks"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "closeclaw-common",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -868,6 +867,7 @@ dependencies = [
  "closeclaw-permission",
  "closeclaw-session",
  "closeclaw-skills",
+ "closeclaw-tasks",
  "futures",
  "glob",
  "regex",
