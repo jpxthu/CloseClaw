@@ -228,6 +228,110 @@ impl Default for AgentConfig {
 pub struct MemoryConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_searcher: Option<ActiveSearcherOverride>,
+    /// Storage paths for memory subsystem files.
+    #[serde(default)]
+    pub storage: MemoryStorageConfig,
+    /// Mining subsystem configuration.
+    #[serde(default)]
+    pub mining: MiningConfig,
+    /// Dreaming subsystem configuration.
+    #[serde(default)]
+    pub dreaming: DreamingConfig,
+    /// Active search subsystem configuration.
+    #[serde(default)]
+    pub search: SearchConfig,
+}
+
+/// Dreaming subsystem configuration.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamingConfig {
+    /// Whether dreaming is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Dream Diary settings.
+    #[serde(default)]
+    pub diary: DreamingDiaryConfig,
+}
+
+/// Dream Diary configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamingDiaryConfig {
+    /// Whether Dream Diary writing is enabled.
+    /// Defaults to `true` when dreaming is active.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Directory path for diary files (relative to data root).
+    #[serde(default = "default_diary_path")]
+    pub path: String,
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for DreamingDiaryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            path: default_diary_path(),
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_diary_path() -> String {
+    "memory/diary/".to_string()
+}
+
+/// Storage paths for memory subsystem.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryStorageConfig {
+    /// SQLite database file path (relative to data root).
+    #[serde(default = "default_db_path")]
+    pub db_path: String,
+    /// MEMORY.md file path (relative to data root).
+    /// Used by system prompt provider and dreaming output.
+    #[serde(default = "default_memory_md_path")]
+    pub memory_md_path: String,
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for MemoryStorageConfig {
+    fn default() -> Self {
+        Self {
+            db_path: default_db_path(),
+            memory_md_path: default_memory_md_path(),
+        }
+    }
+}
+
+fn default_db_path() -> String {
+    "memory/memory.db".to_string()
+}
+
+fn default_memory_md_path() -> String {
+    "memory/MEMORY.md".to_string()
+}
+
+/// Mining subsystem configuration.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MiningConfig {
+    /// Whether mining is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+/// Active search subsystem configuration.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchConfig {
+    /// Whether active search is enabled.
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 /// Active-searcher overrides — all fields optional.

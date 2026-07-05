@@ -31,4 +31,5 @@ closeclaw-config = { path = "../config" }
 closeclaw-permission = { path = "../permission" }
 closeclaw-llm = { path = "../llm" }
 closeclaw-tasks = { path = "../tasks" }
+serial_test = "3.4"
 serde_json = "1.0"
