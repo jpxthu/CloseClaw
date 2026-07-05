@@ -23,3 +23,7 @@ pub struct PromptFragment {
     /// Rendered text content of the section.
     pub content: String,
 }
+
+#[cfg(test)]
+#[path = "fragment_tests.rs"]
+mod fragment_tests;
