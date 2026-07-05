@@ -20,6 +20,7 @@ use closeclaw_session::persistence::{
     PendingMessage, PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
     SessionStatus,
 };
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -252,8 +253,25 @@ impl SessionManager {
     ///
     /// Given a key in the format `{ts}-{sha256_hex}`, this returns
     /// `{sha256_hex}`.  Used by both `resolve` and `rebuild_key_registry`.
+    #[allow(dead_code)]
     pub(crate) fn strip_timestamp_from_session_key(key: &str) -> &str {
         key.find('-').map(|i| &key[i + 1..]).unwrap_or(key)
+    }
+
+    /// Compute a stable routing key from message routing fields.
+    ///
+    /// Format: `sha256("{account_id}:{channel}:{from}:{to}")`.
+    /// This is stable across timestamps and matches the format used by
+    /// `rebuild_key_registry()`.
+    pub(crate) fn compute_routing_key(
+        channel: &str,
+        message: &Message,
+        account_id: Option<&str>,
+    ) -> String {
+        let acc = account_id.unwrap_or("default");
+        let routing_fields = format!("{}:{}:{}:{}", acc, channel, message.from, message.to);
+        let hash = Sha256::digest(routing_fields.as_bytes());
+        format!("{:x}", hash)
     }
 
     /// Attempt to restore an archived session.

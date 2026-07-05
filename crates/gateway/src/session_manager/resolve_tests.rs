@@ -62,8 +62,7 @@ async fn test_resolve_path1_active_hit() {
     let mgr = make_test_mgr(None);
     let msg = test_message();
     let session_key = mgr.compute_session_key("feishu", &msg, None, msg.timestamp);
-    // resolve() strips timestamps before registry lookup — insert routing_key.
-    let routing_key = SessionManager::strip_timestamp_from_session_key(&session_key);
+    let routing_key = SessionManager::compute_routing_key("feishu", &msg, None);
     let session_id = "active_session_1";
     {
         let mut reg = mgr.key_registry.write().await;
@@ -109,8 +108,7 @@ async fn test_resolve_path2_archived_hit_restore() {
     );
     let msg = test_message();
     let session_key = mgr.compute_session_key("feishu", &msg, None, msg.timestamp);
-    // resolve() strips timestamps before registry lookup — insert routing_key.
-    let routing_key = SessionManager::strip_timestamp_from_session_key(&session_key);
+    let routing_key = SessionManager::compute_routing_key("feishu", &msg, None);
     {
         let mut reg = mgr.key_registry.write().await;
         reg.insert(routing_key.to_string(), session_id.to_string());
@@ -136,8 +134,8 @@ async fn test_resolve_path3_miss_creates_new() {
         .unwrap();
     // Verify format
     assert!(result.starts_with("agent-b_"), "bad format: {}", result);
-    // Verify key_registry updated — resolve stores routing_key (timestamps stripped)
-    let routing_key = SessionManager::strip_timestamp_from_session_key(&session_key);
+    // Verify key_registry updated — resolve stores routing_key from message fields
+    let routing_key = SessionManager::compute_routing_key("feishu", &msg, None);
     let reg = mgr.key_registry.read().await;
     assert_eq!(reg.get(routing_key).unwrap(), &result);
     // Verify session exists

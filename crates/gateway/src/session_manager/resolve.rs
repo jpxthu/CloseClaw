@@ -36,19 +36,19 @@ impl SessionManager {
     /// 3. key_registry miss → create new session → register → return session_id
     pub async fn resolve(
         &self,
-        session_key: &str,
+        _session_key: &str,
         channel: &str,
         message: &Message,
         account_id: Option<&str>,
     ) -> Result<String, ProcessError> {
-        // Extract routing_key (sha256 hash) for registry lookups.
-        // Format: {ts}-{sha256_hex} → {sha256_hex}
-        let routing_key = Self::strip_timestamp_from_session_key(session_key);
+        // Compute stable routing_key from message fields (no timestamp).
+        // Format: sha256("{account_id}:{channel}:{from}:{to}")
+        let routing_key = Self::compute_routing_key(channel, message, account_id);
 
         // Path 1: key_registry hit — check if session is active
         let registry_hit = {
             let registry = self.key_registry.read().await;
-            registry.get(routing_key).cloned()
+            registry.get(&routing_key).cloned()
         };
 
         if let Some(session_id) = registry_hit {
