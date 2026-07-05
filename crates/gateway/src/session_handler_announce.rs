@@ -23,10 +23,10 @@ use super::session_handler::{MessageMetadata, SessionMessageHandler};
 use super::OutputTx;
 use crate::outbound::StreamResult;
 use crate::session_manager::SessionManager;
+use closeclaw_common::LlmCaller;
 use closeclaw_llm::session::ChatSession;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 
 impl SessionMessageHandler {
     /// Clear busy flag, send output, and drain pending messages.
@@ -39,17 +39,11 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
         result: Result<StreamResult, closeclaw_llm::LLMError>,
-        unified_fallback_client: &Arc<UnifiedFallbackClient>,
+        llm_caller: &Arc<dyn LlmCaller>,
         output_tx: &OutputTx,
     ) {
         Self::clear_busy_and_send(session_manager, session_id, result, output_tx).await;
-        Self::drain_pending_loop(
-            session_manager,
-            session_id,
-            unified_fallback_client,
-            output_tx,
-        )
-        .await;
+        Self::drain_pending_loop(session_manager, session_id, llm_caller, output_tx).await;
 
         // NOTE: Decrement is handled by the caller (spawned task in
         // `session_handler_dispatch.rs`), NOT here. This avoids a
@@ -127,7 +121,7 @@ impl SessionMessageHandler {
     async fn drain_pending_loop(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
-        unified_fallback_client: &Arc<UnifiedFallbackClient>,
+        llm_caller: &Arc<dyn LlmCaller>,
         output_tx: &OutputTx,
     ) {
         // Step 1.5: drain queued announces.
@@ -149,7 +143,7 @@ impl SessionMessageHandler {
             // Non-streaming path: `call_llm` returns `UnifiedResponse`.
             // Convert to `StreamResult` for the unified `finish_llm` entry point.
             let result: Result<StreamResult, closeclaw_llm::LLMError> = Self::call_llm(
-                unified_fallback_client,
+                llm_caller,
                 &pending.content,
                 &meta,
                 session_manager,
