@@ -1,7 +1,6 @@
 //! Gateway - IM protocol adapters, message routing, authentication
 //!
 //! Central hub that connects IM platforms (Feishu, Discord, etc.) to agents.
-
 pub mod approval;
 pub mod card_action;
 #[cfg(test)]
@@ -25,6 +24,8 @@ pub mod slash_executor;
 #[cfg(test)]
 mod slash_executor_tests;
 pub mod slash_permission;
+#[cfg(test)]
+mod streaming_pipeline_tests;
 pub mod sweeper;
 #[cfg(test)]
 mod sweeper_tests;
@@ -33,12 +34,11 @@ mod tests_plugin;
 #[cfg(feature = "full-tests")]
 mod tests_slash_permission;
 pub mod types;
-pub use types::*;
-
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
+pub use types::*;
 
 use closeclaw_common::im_plugin::{MessageType, RenderedOutput};
 use closeclaw_common::processor::ProcessedMessage;

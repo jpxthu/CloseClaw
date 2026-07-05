@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use super::context::MessageContext;
+use super::dsl_parser::DslParser;
 use super::error::ProcessError;
 use super::processor::{MessageProcessor, ProcessPhase};
 use super::ProcessedMessage;
@@ -231,5 +232,13 @@ impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
 
     fn outbound_len(&self) -> usize {
         self.outbound_len()
+    }
+
+    fn parse_line_for_dsl(
+        &self,
+        line: &str,
+    ) -> (String, closeclaw_common::processor::DslParseResult) {
+        let (dsl_result, clean_text) = DslParser.parse(line);
+        (clean_text, dsl_result)
     }
 }

@@ -301,6 +301,20 @@ pub trait ProcessorChain: Send + Sync {
         msg: ProcessedMessage,
     ) -> Result<ProcessedMessage, ProcessError>;
 
+    /// Parse a single text line for DSL instructions.
+    ///
+    /// Returns the clean text (DSL stripped) and the parsed DSL result.
+    /// Default implementation returns the line unchanged with empty DSL
+    /// result — zero-overhead passthrough when DslParser is not configured.
+    fn parse_line_for_dsl(&self, line: &str) -> (String, DslParseResult) {
+        (
+            line.to_string(),
+            DslParseResult {
+                instructions: vec![],
+            },
+        )
+    }
+
     /// Number of inbound processors in the chain.
     fn inbound_len(&self) -> usize {
         0
