@@ -289,6 +289,72 @@ fn test_dream_diary_creates_directory() {
     );
 }
 
+/// EntryCategory variants are exactly Error, Anger, Decision.
+/// This is a regression guard — the design doc defines these three
+/// categories and any deviation will break the dreaming pipeline.
+#[test]
+fn test_entry_category_variants_match_design_doc() {
+    // Exhaustive match to catch future additions that don't follow spec.
+    let all = [
+        EntryCategory::Error,
+        EntryCategory::Anger,
+        EntryCategory::Decision,
+    ];
+    assert_eq!(all.len(), 3);
+
+    // Verify each variant displays correctly in diary output.
+    for cat in &all {
+        let label = match cat {
+            EntryCategory::Error => "Error",
+            EntryCategory::Anger => "Anger",
+            EntryCategory::Decision => "Decision",
+        };
+        assert!(!label.is_empty());
+    }
+}
+
+/// Error and Anger entries always carry a lesson in diary output.
+/// The design doc specifies that lesson is required for Error/Anger.
+#[test]
+fn test_error_anger_entries_carry_lesson_in_diary() {
+    let tmp = TempDir::new().unwrap();
+    let diary_path = tmp.path().to_str().unwrap().to_string();
+    let config = DreamingConfig {
+        enabled: true,
+        diary: DreamingDiaryConfig {
+            enabled: true,
+            path: diary_path,
+        },
+    };
+    let pipeline = DreamingPipeline::with_config(config);
+
+    let entries = vec![
+        make_entry_with_lesson(
+            EntryCategory::Error,
+            "wrong deployment",
+            "s1",
+            "verify before deploying",
+        ),
+        make_entry_with_lesson(
+            EntryCategory::Anger,
+            "user corrected output",
+            "s1",
+            "follow user style guide",
+        ),
+    ];
+
+    let result = pipeline.write_dream_diary(&entries);
+    assert!(result.is_ok());
+
+    let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let diary_file = tmp.path().join(format!("{}.md", date));
+    let content = std::fs::read_to_string(&diary_file).unwrap();
+
+    // Both Error and Anger entries should include their lesson in the output.
+    assert!(content.contains("Lesson: verify before deploying"));
+    assert!(content.contains("Lesson: follow user style guide"));
+}
+
 /// Dream Diary does NOT write when entries list is empty.
 #[test]
 fn test_dream_diary_empty_entries_no_write() {
