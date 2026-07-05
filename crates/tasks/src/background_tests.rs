@@ -353,3 +353,153 @@ async fn test_backgroundize_captures_child_output() {
         content
     );
 }
+
+// =========================================================================
+// TaskState — type-level tests
+// =========================================================================
+
+#[test]
+fn test_task_state_running() {
+    let state = TaskState::Running;
+    assert_eq!(state, TaskState::Running);
+}
+
+#[test]
+fn test_task_state_completed() {
+    let state = TaskState::Completed { exit_code: 0 };
+    match state {
+        TaskState::Completed { exit_code } => assert_eq!(exit_code, 0),
+        _ => panic!("expected Completed"),
+    }
+}
+
+#[test]
+fn test_task_state_failed() {
+    let state = TaskState::Failed { exit_code: 1 };
+    match state {
+        TaskState::Failed { exit_code } => assert_eq!(exit_code, 1),
+        _ => panic!("expected Failed"),
+    }
+}
+
+#[test]
+fn test_task_state_killed() {
+    let state = TaskState::Killed;
+    assert_eq!(state, TaskState::Killed);
+}
+
+#[test]
+fn test_task_state_clone() {
+    let original = TaskState::Completed { exit_code: 42 };
+    let cloned = original.clone();
+    assert_eq!(original, cloned);
+}
+
+#[test]
+fn test_task_state_debug() {
+    let states = [
+        TaskState::Running,
+        TaskState::Completed { exit_code: 0 },
+        TaskState::Failed { exit_code: 1 },
+        TaskState::Killed,
+    ];
+    for s in &states {
+        let debug = format!("{:?}", s);
+        assert!(!debug.is_empty());
+    }
+}
+
+#[test]
+fn test_task_state_equality_distinct_variants() {
+    assert_ne!(TaskState::Running, TaskState::Completed { exit_code: 0 });
+    assert_ne!(TaskState::Running, TaskState::Failed { exit_code: 1 });
+    assert_ne!(TaskState::Running, TaskState::Killed);
+    assert_ne!(
+        TaskState::Completed { exit_code: 0 },
+        TaskState::Failed { exit_code: 0 }
+    );
+}
+
+// =========================================================================
+// BackgroundTask — construction and derived traits
+// =========================================================================
+
+#[test]
+fn test_background_task_fields() {
+    let task = BackgroundTask {
+        id: "abc-123".to_string(),
+        command: "echo hello".to_string(),
+        state: TaskState::Running,
+        output_path: PathBuf::from("/tmp/out"),
+    };
+    assert_eq!(task.id, "abc-123");
+    assert_eq!(task.command, "echo hello");
+    assert_eq!(task.state, TaskState::Running);
+    assert_eq!(task.output_path, PathBuf::from("/tmp/out"));
+}
+
+#[test]
+fn test_background_task_clone() {
+    let task = BackgroundTask {
+        id: "clone-id".to_string(),
+        command: "ls".to_string(),
+        state: TaskState::Completed { exit_code: 0 },
+        output_path: PathBuf::from("/tmp/clone"),
+    };
+    let cloned = task.clone();
+    assert_eq!(cloned.id, task.id);
+    assert_eq!(cloned.command, task.command);
+    assert_eq!(cloned.state, task.state);
+    assert_eq!(cloned.output_path, task.output_path);
+}
+
+#[test]
+fn test_background_task_debug() {
+    let task = BackgroundTask {
+        id: "debug-id".to_string(),
+        command: "pwd".to_string(),
+        state: TaskState::Running,
+        output_path: PathBuf::from("/tmp/debug"),
+    };
+    let debug = format!("{:?}", task);
+    assert!(debug.contains("BackgroundTask"));
+    assert!(debug.contains("debug-id"));
+}
+
+// =========================================================================
+// BackgroundTaskError — Display and variant tests
+// =========================================================================
+
+#[test]
+fn test_background_task_error_spawn_failed_display() {
+    let err = BackgroundTaskError::SpawnFailed("permission denied".into());
+    assert_eq!(format!("{}", err), "spawn failed: permission denied");
+}
+
+#[test]
+fn test_background_task_error_not_found_display() {
+    let err = BackgroundTaskError::NotFound("task-42".into());
+    assert_eq!(format!("{}", err), "task not found: task-42");
+}
+
+#[test]
+fn test_background_task_error_not_running_display() {
+    let err = BackgroundTaskError::NotRunning("task-99".into());
+    assert_eq!(format!("{}", err), "task not running: task-99");
+}
+
+#[test]
+fn test_background_task_error_io_display() {
+    let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
+    let err = BackgroundTaskError::Io(io_err);
+    let msg = format!("{}", err);
+    assert!(msg.contains("io error"));
+    assert!(msg.contains("file missing"));
+}
+
+#[test]
+fn test_background_task_error_debug() {
+    let err = BackgroundTaskError::SpawnFailed("test".into());
+    let debug = format!("{:?}", err);
+    assert!(debug.contains("SpawnFailed"));
+}

@@ -30,7 +30,7 @@ use tokio::io::AsyncReadExt;
 
 use crate::ToolResult;
 use closeclaw_common::tool_session::KillHandle;
-use closeclaw_common::TaskManager;
+use closeclaw_tasks::TaskManager;
 
 use super::bash_classify;
 

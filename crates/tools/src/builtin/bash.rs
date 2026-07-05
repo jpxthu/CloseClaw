@@ -40,7 +40,7 @@ const AUTO_BG_TIMEOUT_MS: u64 = 15_000;
 /// an async subprocess with timeout control.
 pub struct BashTool {
     permission_engine: Arc<PermissionEngine>,
-    bg_manager: Arc<dyn closeclaw_common::TaskManager>,
+    bg_manager: Arc<dyn closeclaw_tasks::TaskManager>,
     session_manager: Arc<SessionManager>,
     config_manager: Arc<ConfigManager>,
 }
@@ -50,7 +50,7 @@ impl BashTool {
     /// background task manager, and config manager.
     pub fn new(
         permission_engine: Arc<PermissionEngine>,
-        bg_manager: Arc<dyn closeclaw_common::TaskManager>,
+        bg_manager: Arc<dyn closeclaw_tasks::TaskManager>,
         session_manager: Arc<SessionManager>,
         config_manager: Arc<ConfigManager>,
     ) -> Self {
@@ -227,7 +227,7 @@ async fn handle_foreground_result(
     child_arc: Arc<Mutex<Option<tokio::process::Child>>>,
     command: &str,
     bg_timeout: Duration,
-    bg_manager: &Arc<dyn closeclaw_common::TaskManager>,
+    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
 ) -> Result<ToolResult, String> {
     // 1. Extract stdout/stderr (briefly lock). Reattach to the
     //    (still-`Some`) child in the slot for the auto-background
@@ -274,7 +274,7 @@ async fn handle_foreground_result(
 async fn execute_bash_call(
     perm: &PermissionEngine,
     session_manager: &SessionManager,
-    bg: &Arc<dyn closeclaw_common::TaskManager>,
+    bg: &Arc<dyn closeclaw_tasks::TaskManager>,
     config_manager: &ConfigManager,
     args: Value,
     ctx: &ToolContext,
@@ -370,7 +370,7 @@ async fn execute_command(
     cwd: &str,
     timeout_ms: u64,
     run_in_background: bool,
-    bg_manager: &Arc<dyn closeclaw_common::TaskManager>,
+    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
     session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
     call_id: Option<&str>,
 ) -> Result<ToolResult, String> {
@@ -427,7 +427,7 @@ async fn execute_command(
 }
 
 /// Build a [`ToolResult`] for an explicitly backgrounded command.
-fn build_background_result(task: &closeclaw_common::BackgroundTask) -> ToolResult {
+fn build_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
     ToolResult {
         data: serde_json::json!({
             "backgroundTaskId": task.id,
@@ -439,7 +439,7 @@ fn build_background_result(task: &closeclaw_common::BackgroundTask) -> ToolResul
 }
 
 /// Build a [`ToolResult`] for an auto-backgrounded command (15s timeout).
-fn build_auto_background_result(task: &closeclaw_common::BackgroundTask) -> ToolResult {
+fn build_auto_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
     ToolResult {
         data: serde_json::json!({
             "backgroundTaskId": task.id,

@@ -6,7 +6,6 @@ description = "Background task management for CloseClaw"
 license.workspace = true
 
 [dependencies]
-closeclaw-common = { path = "../common" }
 tokio = { version = "=1.35.0", features = ["full"] }
 thiserror = "2.0"
 uuid = { version = "1.6", features = ["v4", "serde"] }

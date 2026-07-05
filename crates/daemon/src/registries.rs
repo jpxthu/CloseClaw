@@ -139,7 +139,7 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
 
     let core_registrar = CoreToolsRegistrar::new(
         Arc::clone(ctx.permission_engine),
-        task_manager as Arc<dyn closeclaw_common::TaskManager>,
+        task_manager as Arc<dyn closeclaw_tasks::TaskManager>,
         Arc::clone(ctx.session_manager),
         Arc::clone(ctx.config_manager),
     );

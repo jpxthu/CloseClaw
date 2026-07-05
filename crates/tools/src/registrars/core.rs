@@ -5,10 +5,10 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use closeclaw_common::TaskManager;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_tasks::TaskManager;
 
 use crate::builtin::{
     BashTool, CodingAgentTool, EditTool, GitCommitTool, GitLogTool, GitPullTool, GitPushTool,

@@ -28,25 +28,25 @@ use tempfile::TempDir;
 struct MockTaskManager;
 
 #[async_trait::async_trait]
-impl closeclaw_common::TaskManager for MockTaskManager {
+impl closeclaw_tasks::TaskManager for MockTaskManager {
     async fn spawn_task(
         &self,
         _command: &str,
         _cwd: &std::path::Path,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
+    ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         unimplemented!("mock")
     }
     async fn backgroundize_task(
         &self,
         _child: tokio::process::Child,
         _command: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
+    ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         unimplemented!("mock")
     }
-    async fn kill_task(&self, _task_id: &str) -> Result<(), closeclaw_common::BackgroundTaskError> {
+    async fn kill_task(&self, _task_id: &str) -> Result<(), closeclaw_tasks::BackgroundTaskError> {
         unimplemented!("mock")
     }
-    async fn get_task(&self, _task_id: &str) -> Option<closeclaw_common::BackgroundTask> {
+    async fn get_task(&self, _task_id: &str) -> Option<closeclaw_tasks::BackgroundTask> {
         None
     }
 }
@@ -59,7 +59,7 @@ fn test_permission_engine() -> Arc<PermissionEngine> {
     ))
 }
 
-fn test_bg_manager() -> Arc<dyn closeclaw_common::TaskManager> {
+fn test_bg_manager() -> Arc<dyn closeclaw_tasks::TaskManager> {
     Arc::new(MockTaskManager)
 }
 
