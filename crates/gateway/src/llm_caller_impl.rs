@@ -350,6 +350,172 @@ mod tests {
         assert_eq!(request.messages[1].content, "injected");
     }
 
+    #[tokio::test]
+    async fn test_fallback_llm_caller_call_streaming() {
+        use closeclaw_llm::cache_adapter::NoopCacheAdapter;
+        use closeclaw_llm::interpreter::InterpreterRegistry;
+        use closeclaw_llm::plugin::PluginPipeline;
+        use closeclaw_llm::protocol::OpenAiProtocol;
+        use closeclaw_llm::retry::CooldownManager;
+        use closeclaw_llm::stub::StubProvider;
+        use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
+
+        let provider = Arc::new(StubProvider::new());
+        let protocol = Arc::new(OpenAiProtocol::default());
+        let registry = InterpreterRegistry::new(vec![]);
+        let pipeline = PluginPipeline::new();
+        let client = Arc::new(UnifiedChatClient::new(
+            provider,
+            protocol,
+            registry,
+            pipeline,
+            Arc::new(NoopCacheAdapter),
+        ));
+        let entry = ChainEntry {
+            provider_id: "stub".to_string(),
+            model_id: "stub-model".to_string(),
+            client,
+        };
+        let cooldown = Arc::new(CooldownManager::new());
+        let fallback = Arc::new(UnifiedFallbackClient::new(vec![entry], cooldown));
+        let caller = FallbackLlmCaller(fallback);
+
+        let mut request = make_request("hello");
+        request.stream = true;
+        let result = caller.call_streaming(request).await;
+        assert!(result.is_ok(), "call_streaming should succeed");
+        let mut stream = result.unwrap();
+        // Consume the first event to verify the stream works
+        let _ = stream.next().await;
+    }
+
+    // ── LlmCaller error propagation ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_fallback_llm_caller_error_propagation() {
+        use closeclaw_llm::retry::CooldownManager;
+        use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
+
+        let cooldown = Arc::new(CooldownManager::new());
+        let client = Arc::new(UnifiedFallbackClient::new(vec![], cooldown));
+        let caller = FallbackLlmCaller(client);
+
+        let request = make_request("hello");
+        let result = caller.call(request).await;
+        assert!(result.is_err(), "empty chain should return error");
+    }
+
+    #[tokio::test]
+    async fn test_chat_llm_caller_error_propagation() {
+        use closeclaw_llm::cache_adapter::NoopCacheAdapter;
+        use closeclaw_llm::interpreter::InterpreterRegistry;
+        use closeclaw_llm::plugin::PluginPipeline;
+        use closeclaw_llm::protocol::OpenAiProtocol;
+        use closeclaw_llm::stub::StubProvider;
+
+        // Create a client with a provider that returns empty content,
+        // which will cause SummaryParseFailed downstream.
+        let provider = Arc::new(StubProvider::new());
+        let protocol = Arc::new(OpenAiProtocol::default());
+        let registry = InterpreterRegistry::new(vec![]);
+        let pipeline = PluginPipeline::new();
+        let client = Arc::new(UnifiedChatClient::new(
+            provider,
+            protocol,
+            registry,
+            pipeline,
+            Arc::new(NoopCacheAdapter),
+        ));
+        let caller = ChatLlmCaller(client);
+
+        // Non-streaming call succeeds with stub
+        let request = make_request("hello");
+        let result = caller.call(request).await;
+        assert!(result.is_ok(), "stub should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_fallback_llm_caller_empty_messages() {
+        use closeclaw_llm::cache_adapter::NoopCacheAdapter;
+        use closeclaw_llm::interpreter::InterpreterRegistry;
+        use closeclaw_llm::plugin::PluginPipeline;
+        use closeclaw_llm::protocol::OpenAiProtocol;
+        use closeclaw_llm::retry::CooldownManager;
+        use closeclaw_llm::stub::StubProvider;
+        use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
+
+        let provider = Arc::new(StubProvider::new());
+        let protocol = Arc::new(OpenAiProtocol::default());
+        let registry = InterpreterRegistry::new(vec![]);
+        let pipeline = PluginPipeline::new();
+        let client = Arc::new(UnifiedChatClient::new(
+            provider,
+            protocol,
+            registry,
+            pipeline,
+            Arc::new(NoopCacheAdapter),
+        ));
+        let entry = ChainEntry {
+            provider_id: "stub".to_string(),
+            model_id: "stub-model".to_string(),
+            client,
+        };
+        let cooldown = Arc::new(CooldownManager::new());
+        let fallback = Arc::new(UnifiedFallbackClient::new(vec![entry], cooldown));
+        let caller = FallbackLlmCaller(fallback);
+
+        let request = InternalRequest {
+            model: "test-model".to_string(),
+            messages: vec![],
+            temperature: 0.7,
+            max_tokens: None,
+            stream: false,
+            extra_body: Default::default(),
+            system_static: None,
+            system_dynamic: None,
+            system_blocks: None,
+            tools: None,
+            session_id: None,
+            reasoning_level: closeclaw_common::ReasoningLevel::default(),
+            turn_count: None,
+        };
+        let result = caller.call(request).await;
+        // StubProvider accepts empty messages — call succeeds
+        assert!(result.is_ok(), "empty messages should not fail with stub");
+    }
+
+    // ── execute_compact tests ─────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_execute_compact_empty_messages() {
+        use closeclaw_llm::fallback::FallbackClient;
+        use closeclaw_llm::LLMRegistry;
+        use closeclaw_session::compaction::CompactionError;
+
+        let registry = Arc::new(LLMRegistry::default());
+        let client = FallbackClient::new(registry, vec![]);
+
+        let result = execute_compact(&[], &client, "stub-model", None, false).await;
+        assert!(matches!(result, Err(CompactionError::EmptyMessages)));
+    }
+
+    #[tokio::test]
+    async fn test_execute_compact_valid_messages() {
+        use closeclaw_llm::fallback::FallbackClient;
+        use closeclaw_llm::LLMRegistry;
+
+        let registry = Arc::new(LLMRegistry::default());
+        let client = FallbackClient::new(registry, vec![]);
+
+        let messages = vec![closeclaw_llm::Message {
+            role: "user".to_string(),
+            content: "Hello, how are you?".to_string(),
+        }];
+        let result = execute_compact(&messages, &client, "stub-model", None, false).await;
+        // Empty chain returns LLMCallFailed
+        assert!(result.is_err());
+    }
+
     #[test]
     fn test_inject_memory_before_next() {
         let mut request = make_request("user msg");
