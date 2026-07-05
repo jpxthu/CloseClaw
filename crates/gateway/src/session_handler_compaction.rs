@@ -19,8 +19,9 @@
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
-use crate::llm_caller::execute_compact;
+use crate::llm_caller_impl::execute_compact;
 use crate::session_manager::SessionManager;
+use crate::session_prompt_helper::rebuild_system_prompt_for_session;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::session::ChatSession;
 use closeclaw_llm::types::ContentBlock;
@@ -71,9 +72,9 @@ async fn apply_compact_result(
         cs.replace_messages(vec![boundary]);
     }
     // Rebuild system prompt after compaction so skills stay fresh.
-    // The write guard above is now dropped, so rebuild_system_prompt
-    // can safely acquire its own write lock.
-    sm.rebuild_system_prompt(session_id).await;
+    // The write guard above is now dropped, so we can safely acquire
+    // a write lock for the rebuild.
+    rebuild_system_prompt_for_session(sm.as_ref(), session_id).await;
 }
 
 /// Push a reply onto the handler's `output_tx` channel. The reply

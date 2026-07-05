@@ -5,6 +5,9 @@ pub mod identity;
 pub mod im_plugin;
 #[cfg(test)]
 pub mod im_plugin_tests;
+pub mod llm_caller;
+pub mod llm_error;
+pub mod llm_types;
 pub mod middleware;
 pub mod plan_state;
 #[cfg(test)]
@@ -40,6 +43,9 @@ pub use im_plugin::{
     AdapterError, CardActionEvent, IMAdapter, IMPlugin, MediaRef, MessageType, NormalizedMessage,
     RenderedOutput, StreamingOutput,
 };
+pub use llm_caller::LlmCaller;
+pub use llm_error::{ErrorKind, LLMError};
+pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinition};
 pub use middleware::{MiddlewareError, OutboundMiddleware};
 pub use plan_state::{PlanPhase, PlanState};
 pub use processor::{

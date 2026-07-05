@@ -21,6 +21,7 @@ use crate::turn::TurnCounter;
 use crate::types::{ContentBlock, UnifiedUsage};
 use closeclaw_agent::communication::CommunicationConfig;
 use closeclaw_common::VerbosityLevel;
+use closeclaw_common::{PromptOverrides, SystemPromptBuilder};
 use closeclaw_session::persistence::ReasoningLevel;
 
 /// Maximum length of an individual append-section item (in characters).
@@ -314,6 +315,25 @@ impl ConversationSession {
     /// Used by `SessionManager::rebuild_system_prompt` after compaction.
     pub fn replace_system_prompt(&mut self, prompt: impl Into<String>) {
         self.system_prompt = Some(prompt.into());
+    }
+
+    /// Rebuild the system prompt using the given builder.
+    ///
+    /// This is the session-side entry point for prompt rebuilds after
+    /// compaction or config changes. The caller provides the builder,
+    /// agent id, and optional overrides; the session owns the final
+    /// prompt replacement.
+    pub async fn rebuild_system_prompt(
+        &mut self,
+        session_id: &str,
+        agent_id: &str,
+        builder: &dyn SystemPromptBuilder,
+        overrides: Option<&PromptOverrides>,
+    ) {
+        let prompt = builder
+            .build_prompt(session_id, agent_id, overrides, None)
+            .await;
+        self.replace_system_prompt(prompt);
     }
 
     /// Appends a message to the session.

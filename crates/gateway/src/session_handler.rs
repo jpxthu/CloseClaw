@@ -10,8 +10,9 @@
 //! The `output_tx` channel is used to surface LLM response text to callers.
 
 use super::Gateway;
-use crate::llm_caller::execute_compact;
+use crate::llm_caller_impl::execute_compact;
 use crate::session_manager::SessionManager;
+use crate::session_prompt_helper::rebuild_system_prompt_for_session;
 use crate::shutdown_handle::ShutdownHandle;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::session::ChatSession;
@@ -253,22 +254,62 @@ impl SessionMessageHandler {
 
 // ── LLM calling ──
 impl SessionMessageHandler {
-    /// Delegate to [`crate::llm_caller::call_llm`].
+    /// Delegate to [`crate::llm_caller_impl::FallbackLlmCaller`].
     pub(super) async fn call_llm(
         unified_fallback_client: &Arc<UnifiedFallbackClient>,
         content: &str,
-        meta: &MessageMetadata,
+        _meta: &MessageMetadata,
         session_manager: &Arc<SessionManager>,
         session_id: &str,
     ) -> Result<UnifiedResponse, closeclaw_llm::LLMError> {
-        crate::llm_caller::call_llm(
-            unified_fallback_client,
-            content,
-            meta,
-            session_manager,
-            session_id,
-        )
-        .await
+        use crate::llm_caller_impl::FallbackLlmCaller;
+        use closeclaw_common::LlmCaller;
+        use closeclaw_llm::session::InjectionPosition;
+
+        let mut messages = vec![closeclaw_llm::types::InternalMessage {
+            role: "user".to_string(),
+            content: content.to_string(),
+            tool_call_id: None,
+        }];
+
+        // Consume memory_injection slot if present.
+        if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+            let inj = { cs.read().await.take_memory_injection() };
+            if let Some(injection) = inj {
+                let tool_msg = closeclaw_llm::types::InternalMessage {
+                    role: "tool".to_string(),
+                    content: injection.content.clone(),
+                    tool_call_id: None,
+                };
+                match injection.position_mode {
+                    InjectionPosition::AfterCurrent => {
+                        messages.push(tool_msg);
+                    }
+                    InjectionPosition::BeforeNext => {
+                        messages.insert(0, tool_msg);
+                    }
+                }
+            }
+        }
+
+        let request = closeclaw_llm::types::InternalRequest {
+            model: String::new(),
+            messages,
+            temperature: 0.7,
+            max_tokens: None,
+            stream: false,
+            extra_body: Default::default(),
+            system_static: None,
+            system_dynamic: None,
+            system_blocks: None,
+            tools: None,
+            session_id: None,
+            reasoning_level: closeclaw_session::persistence::ReasoningLevel::default(),
+            turn_count: None,
+        };
+
+        let caller = FallbackLlmCaller(Arc::clone(unified_fallback_client));
+        caller.call(request).await
     }
 }
 
@@ -381,9 +422,9 @@ async fn apply_compact_result(
     // This ensures plan_state survives a crash before the next periodic flush.
     sm.save_checkpoint_after_compact(session_id).await;
     // Rebuild system prompt after compaction so skills stay fresh.
-    // The write guard above is now dropped, so rebuild_system_prompt
-    // can safely acquire its own write lock.
-    sm.rebuild_system_prompt(session_id).await;
+    // The write guard above is now dropped, so we can safely acquire
+    // a write lock for the rebuild.
+    rebuild_system_prompt_for_session(sm.as_ref(), session_id).await;
 }
 
 async fn send_output(output_tx: &OutputTx, text: &str) {

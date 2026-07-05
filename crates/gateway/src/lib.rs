@@ -9,9 +9,7 @@ mod im_adapter;
 pub mod inbound_queue;
 #[cfg(test)]
 mod inbound_queue_tests;
-mod llm_caller;
-#[cfg(test)]
-mod llm_caller_tests;
+mod llm_caller_impl;
 mod memory;
 pub mod message;
 pub mod outbound;
@@ -22,6 +20,7 @@ mod session_handler_announce;
 mod session_handler_dispatch;
 mod session_handler_streaming;
 pub mod session_manager;
+pub mod session_prompt_helper;
 pub mod shutdown_handle;
 pub mod slash_executor;
 #[cfg(test)]

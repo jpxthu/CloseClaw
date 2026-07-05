@@ -3,11 +3,10 @@
 //! Extracted from `session_handler.rs` to keep file sizes under the
 //! 500-line project limit.
 //!
-//! The actual System Prompt construction and LLM stream opening are
-//! delegated to [`closeclaw_session::llm_caller`]. This file only handles
-//! the Gateway-side orchestration: wrapping the stream with
-//! [`SinkUpdater`][closeclaw_session::llm_caller::SinkUpdater], racing
-//! against a cancellation token, and dispatching through
+//! The LLM stream is opened via [`crate::llm_caller_impl::FallbackLlmCaller`].
+//! This file handles Gateway-side orchestration: wrapping the stream with
+//! [`SinkUpdater`][closeclaw_llm::SinkUpdater], racing against
+//! a cancellation token, and dispatching through
 //! [`Gateway::send_outbound_streaming`].
 
 use std::sync::Arc;
@@ -17,44 +16,90 @@ use tokio_util::sync::CancellationToken;
 use super::session_handler::{MessageMetadata, SessionMessageHandler};
 use crate::outbound::StreamResult;
 use crate::session_manager::SessionManager;
+use crate::types::GatewayError;
 use crate::Gateway;
 use closeclaw_common::im_plugin::IMPlugin;
-use closeclaw_llm::client::UnifiedChatClient;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::streaming::StreamDone;
 use closeclaw_llm::types::ContentBlock;
+use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::LLMError;
 
 impl SessionMessageHandler {
     /// Make a streaming LLM call and dispatch it through Gateway's
     /// streaming outbound pipeline.
     ///
-    /// Delegates prompt construction and LLM stream opening to
-    /// [`closeclaw_session::llm_caller`]. This method only handles:
+    /// Opens the LLM stream via [`FallbackLlmCaller`], then handles:
     /// 1. Wrapping the raw LLM stream with
-    ///    [`SinkUpdater`][closeclaw_session::llm_caller::SinkUpdater].
+    ///    [`SinkUpdater`][closeclaw_llm::SinkUpdater].
     /// 2. Racing the stream against a cancellation token.
     /// 3. Dispatching through [`Gateway::send_outbound_streaming`].
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn call_llm_streaming(
-        unified_client: &Arc<UnifiedChatClient>,
+        unified_fallback_client: &Arc<UnifiedFallbackClient>,
         content: &str,
-        meta: &MessageMetadata,
+        _meta: &MessageMetadata,
         session_manager: &Arc<SessionManager>,
         session_id: &str,
         channel: &str,
         gateway: &Arc<Gateway>,
         plugin: &Arc<dyn IMPlugin>,
     ) -> Result<StreamResult, LLMError> {
-        // ── Delegate prompt building + LLM stream opening to Session layer ──
-        let (raw_stream, sink) = crate::llm_caller::call_llm_streaming(
-            unified_client,
-            content,
-            meta,
-            session_manager,
-            session_id,
-        )
-        .await?;
+        use closeclaw_common::LlmCaller;
+        use closeclaw_llm::session::InjectionPosition;
+        use closeclaw_llm::types::InternalMessage;
+
+        // ── Build request with memory injection ──
+        let mut messages = vec![InternalMessage {
+            role: "user".to_string(),
+            content: content.to_string(),
+            tool_call_id: None,
+        }];
+        if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+            let inj = { cs.read().await.take_memory_injection() };
+            if let Some(injection) = inj {
+                let tool_msg = InternalMessage {
+                    role: "tool".to_string(),
+                    content: injection.content.clone(),
+                    tool_call_id: None,
+                };
+                match injection.position_mode {
+                    InjectionPosition::AfterCurrent => {
+                        messages.push(tool_msg);
+                    }
+                    InjectionPosition::BeforeNext => {
+                        messages.insert(0, tool_msg);
+                    }
+                }
+            }
+        }
+        let request = closeclaw_llm::types::InternalRequest {
+            model: String::new(),
+            messages,
+            temperature: 0.7,
+            max_tokens: None,
+            stream: true,
+            extra_body: Default::default(),
+            system_static: None,
+            system_dynamic: None,
+            system_blocks: None,
+            tools: None,
+            session_id: None,
+            reasoning_level: closeclaw_session::persistence::ReasoningLevel::default(),
+            turn_count: None,
+        };
+
+        // ── Open LLM stream via FallbackLlmCaller ──
+        let caller = crate::llm_caller_impl::FallbackLlmCaller(Arc::clone(unified_fallback_client));
+        let raw_stream = caller.call_streaming(request).await?;
+
+        // Retrieve the session's streaming sink (if any) for delta notifications.
+        let sink: Option<Arc<dyn closeclaw_llm::streaming::StreamingSink>> =
+            if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+                cs.read().await.streaming_sink().map(|s| s.clone())
+            } else {
+                None
+            };
 
         // Acquire this session's cancellation token so a streaming
         // request can be aborted mid-stream by a cascade stop.
@@ -69,15 +114,10 @@ impl SessionMessageHandler {
         // StreamingSink (CLI/websocket) still receives per-delta text
         // notifications in parallel with the IM plugin dispatch in
         // `send_outbound_streaming`.
-        let wrapped = crate::llm_caller::SinkUpdater::new(
-            raw_stream,
-            sink.clone(),
-            Arc::clone(session_manager),
-            session_id.to_string(),
-        );
+        let wrapped = closeclaw_llm::SinkUpdater::new(raw_stream, sink.clone());
 
         // Race the streaming outbound dispatch against the cancel token.
-        let dispatch_result = tokio::select! {
+        let dispatch_result: Result<StreamResult, GatewayError> = tokio::select! {
             res = gateway.send_outbound_streaming(session_id, channel, wrapped, plugin) => res,
             _ = cancel_token.cancelled() => {
                 if let Some(cs) = session_manager.get_conversation_session(session_id).await {
