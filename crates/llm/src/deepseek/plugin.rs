@@ -21,7 +21,7 @@ impl ModelPlugin for DeepSeekPlugin {
 
     fn before_request(&self, request: &mut InternalRequest) {
         let effort = match request.reasoning_level {
-            ReasoningLevel::Low => Some("off"),
+            ReasoningLevel::Low => Some("low"),
             ReasoningLevel::Medium => Some("base"),
             ReasoningLevel::High => Some("high"),
             ReasoningLevel::Max => Some("reasoner"),
