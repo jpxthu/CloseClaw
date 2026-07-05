@@ -2,14 +2,15 @@
 //!
 //! Scans user-level and project-level agent directories, filters by
 //! a registration list (from agents.json), and merges configs using
-//! field-level override (project > user).
+//! field-level override (project > user). Global `memory.json` defaults
+//! are injected as the base layer of memory config merge.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 use tracing::warn;
 
-use crate::agents::config_types::{AgentConfig, AgentPermissions};
+use crate::agents::config_types::{AgentConfig, AgentPermissions, MemoryConfig};
 use crate::agents::resolved::{ConfigSource, ResolvedAgentConfig};
 use crate::ConfigError;
 
@@ -20,6 +21,9 @@ pub struct AgentDirectoryProvider {
     registry: Vec<String>,
     user_agents_dir: PathBuf,
     project_agents_dir: Option<PathBuf>,
+    /// Global memory config from `memory.json`, used as the base layer
+    /// when merging per-agent memory configs.
+    global_memory: Option<MemoryConfig>,
     entries: HashMap<String, ResolvedAgentConfig>,
     permissions: HashMap<String, AgentPermissions>,
 }
@@ -30,15 +34,18 @@ impl AgentDirectoryProvider {
     /// - `registry`: agent IDs from the registration list (agents.json)
     /// - `user_agents_dir`: e.g. `~/.closeclaw/agents/`
     /// - `project_agents_dir`: e.g. `<repo>/.closeclaw/agents/` (optional)
+    /// - `global_memory`: global memory config from `memory.json` (optional)
     pub fn new(
         registry: Vec<String>,
         user_agents_dir: PathBuf,
         project_agents_dir: Option<PathBuf>,
+        global_memory: Option<MemoryConfig>,
     ) -> Result<Self, ConfigError> {
         let mut provider = Self {
             registry,
             user_agents_dir,
             project_agents_dir,
+            global_memory,
             entries: HashMap::new(),
             permissions: HashMap::new(),
         };
@@ -86,12 +93,15 @@ impl AgentDirectoryProvider {
         Self::inject_dirname_id(&mut project_config, id);
         Self::inject_dirname_id(&mut user_config, id);
 
+        let global_memory = self.global_memory.as_ref();
         let resolved = match (project_config, user_config) {
-            (Some(proj), Some(usr)) => ResolvedAgentConfig::merge(proj, usr, id)?,
+            (Some(proj), Some(usr)) => ResolvedAgentConfig::merge(proj, usr, id, global_memory)?,
             (Some(proj), None) => {
-                ResolvedAgentConfig::from_single(proj, ConfigSource::Project, id)?
+                ResolvedAgentConfig::from_single(proj, ConfigSource::Project, id, global_memory)?
             }
-            (None, Some(usr)) => ResolvedAgentConfig::from_single(usr, ConfigSource::User, id)?,
+            (None, Some(usr)) => {
+                ResolvedAgentConfig::from_single(usr, ConfigSource::User, id, global_memory)?
+            }
             (None, None) => {
                 warn!("Agent '{}' in registry but no config.json found", id);
                 return Ok(None);

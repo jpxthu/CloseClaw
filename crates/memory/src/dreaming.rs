@@ -7,7 +7,12 @@
 
 use thiserror::Error;
 
-use closeclaw_config::agents::{DreamingConfig, DreamingScoringConfig};
+use closeclaw_config::agents::{
+    default_capacity_max_rules, default_diary_path, default_scoring_cross_agent,
+    default_scoring_explicitness, default_scoring_frequency, default_scoring_negative_signal,
+    default_scoring_recency, default_threshold_absolute, default_threshold_relative,
+    DreamingConfig, DreamingScoringConfig,
+};
 use closeclaw_session::persistence::{DreamingStatus, PersistenceError, PersistenceService};
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -111,9 +116,18 @@ impl DreamingPipeline {
     pub fn with_config(config: DreamingConfig) -> Self {
         let scoring = config.scoring.clone();
         let thresholds = Thresholds {
-            absolute: config.threshold.absolute,
-            relative: config.threshold.relative,
-            max_rules: config.capacity.max_rules,
+            absolute: config
+                .threshold
+                .absolute
+                .unwrap_or_else(default_threshold_absolute),
+            relative: config
+                .threshold
+                .relative
+                .unwrap_or_else(default_threshold_relative),
+            max_rules: config
+                .capacity
+                .max_rules
+                .unwrap_or_else(default_capacity_max_rules),
         };
         Self {
             scoring,
@@ -321,11 +335,17 @@ impl DreamingPipeline {
         let negative_signal = 0.0; // TODO: detect conflicting info
 
         let w = &self.scoring;
-        entry.score = w.frequency_weight * frequency
-            + w.recency_weight * recency
-            + w.explicitness_weight * explicitness
-            + w.cross_agent_weight * cross_agent
-            + w.negative_signal_weight * negative_signal;
+        entry.score = w.frequency_weight.unwrap_or_else(default_scoring_frequency) * frequency
+            + w.recency_weight.unwrap_or_else(default_scoring_recency) * recency
+            + w.explicitness_weight
+                .unwrap_or_else(default_scoring_explicitness)
+                * explicitness
+            + w.cross_agent_weight
+                .unwrap_or_else(default_scoring_cross_agent)
+                * cross_agent
+            + w.negative_signal_weight
+                .unwrap_or_else(default_scoring_negative_signal)
+                * negative_signal;
 
         entry
     }
@@ -370,7 +390,13 @@ impl DreamingPipeline {
 
         let date = chrono::Local::now().format("%Y-%m-%d").to_string();
         let filename = format!("{}.md", date);
-        let diary_dir = std::path::Path::new(&self.config.diary.path);
+        let diary_path_str = self
+            .config
+            .diary
+            .path
+            .clone()
+            .unwrap_or_else(default_diary_path);
+        let diary_dir = std::path::Path::new(&diary_path_str);
         std::fs::create_dir_all(diary_dir)?;
         let diary_path = diary_dir.join(&filename);
 

@@ -70,39 +70,57 @@ fn test_full_memory_json_all_sections() {
     // Mining
     assert_eq!(data.config.mining.enabled, Some(true));
     assert_eq!(data.config.mining.model.as_deref(), Some("gpt-4o"));
-    assert_eq!(data.config.mining.max_events_per_session, 20);
-    assert_eq!(data.config.mining.dedup_window_days, 14);
-    assert_eq!(data.config.mining.transcript_clean_rules.min_turns, 3);
-    assert_eq!(data.config.mining.transcript_clean_rules.min_owner_msgs, 2);
-    assert_eq!(data.config.mining.transcript_clean_rules.format, "json");
+    assert_eq!(data.config.mining.max_events_per_session, Some(20));
+    assert_eq!(data.config.mining.dedup_window_days, Some(14));
+    assert_eq!(data.config.mining.transcript_clean_rules.min_turns, Some(3));
+    assert_eq!(
+        data.config.mining.transcript_clean_rules.min_owner_msgs,
+        Some(2)
+    );
+    assert_eq!(
+        data.config.mining.transcript_clean_rules.format,
+        Some("json".to_string())
+    );
 
     // Dreaming
     assert_eq!(data.config.dreaming.enabled, Some(true));
     assert_eq!(data.config.dreaming.model.as_deref(), Some("claude-3"));
-    assert_eq!(data.config.dreaming.schedule, "0 4 * * *");
-    assert_eq!(data.config.dreaming.scoring.frequency_weight, 2.0);
-    assert_eq!(data.config.dreaming.scoring.recency_weight, 1.0);
-    assert_eq!(data.config.dreaming.scoring.explicitness_weight, 3.0);
-    assert_eq!(data.config.dreaming.scoring.cross_agent_weight, 2.5);
-    assert_eq!(data.config.dreaming.scoring.negative_signal_weight, -1.0);
-    assert_eq!(data.config.dreaming.threshold.absolute, 3.5);
-    assert_eq!(data.config.dreaming.threshold.relative, 0.6);
-    assert_eq!(data.config.dreaming.capacity.max_rules, 50);
+    assert_eq!(data.config.dreaming.schedule, Some("0 4 * * *".to_string()));
+    assert_eq!(data.config.dreaming.scoring.frequency_weight, Some(2.0));
+    assert_eq!(data.config.dreaming.scoring.recency_weight, Some(1.0));
+    assert_eq!(data.config.dreaming.scoring.explicitness_weight, Some(3.0));
+    assert_eq!(data.config.dreaming.scoring.cross_agent_weight, Some(2.5));
+    assert_eq!(
+        data.config.dreaming.scoring.negative_signal_weight,
+        Some(-1.0)
+    );
+    assert_eq!(data.config.dreaming.threshold.absolute, Some(3.5));
+    assert_eq!(data.config.dreaming.threshold.relative, Some(0.6));
+    assert_eq!(data.config.dreaming.capacity.max_rules, Some(50));
     assert_eq!(data.config.dreaming.diary.enabled, Some(true));
-    assert_eq!(data.config.dreaming.diary.path, "custom/diary/");
+    assert_eq!(
+        data.config.dreaming.diary.path,
+        Some("custom/diary/".to_string())
+    );
 
     // Search
     assert_eq!(data.config.search.enabled, Some(true));
     assert_eq!(data.config.search.model.as_deref(), Some("search-model"));
-    assert_eq!(data.config.search.context_turns, 10);
-    assert_eq!(data.config.search.timeout_ms, 8000);
-    assert_eq!(data.config.search.max_summary_chars, 1000);
-    assert_eq!(data.config.search.min_entity_hits, 3);
-    assert_eq!(data.config.search.top_k_events, 7);
+    assert_eq!(data.config.search.context_turns, Some(10));
+    assert_eq!(data.config.search.timeout_ms, Some(8000));
+    assert_eq!(data.config.search.max_summary_chars, Some(1000));
+    assert_eq!(data.config.search.min_entity_hits, Some(3));
+    assert_eq!(data.config.search.top_k_events, Some(7));
 
     // Storage
-    assert_eq!(data.config.storage.db_path, "custom/memory.db");
-    assert_eq!(data.config.storage.memory_md_path, "custom/MEMORY.md");
+    assert_eq!(
+        data.config.storage.db_path,
+        Some("custom/memory.db".to_string())
+    );
+    assert_eq!(
+        data.config.storage.memory_md_path,
+        Some("custom/MEMORY.md".to_string())
+    );
 
     // is_default should be false (mining enabled)
     assert!(!data.is_default());
@@ -141,12 +159,17 @@ fn test_partial_mining_only() {
 
     // Declared fields
     assert_eq!(data.config.mining.enabled, Some(true));
-    assert_eq!(data.config.mining.max_events_per_session, 5);
+    assert_eq!(data.config.mining.max_events_per_session, Some(5));
 
-    // Undeclared mining fields → defaults
+    // Undeclared mining fields → None (inherit global at merge time)
     assert!(data.config.mining.model.is_none());
-    assert_eq!(data.config.mining.dedup_window_days, 30);
-    assert_eq!(data.config.mining.transcript_clean_rules.min_turns, 5);
+    assert!(data.config.mining.dedup_window_days.is_none());
+    assert!(data
+        .config
+        .mining
+        .transcript_clean_rules
+        .min_turns
+        .is_none());
 
     // Other sections → defaults
     assert!(!data.config.dreaming.enabled.unwrap_or(false));
@@ -159,15 +182,15 @@ fn test_partial_dreaming_threshold_only() {
     let data = parse(json);
 
     // Declared field
-    assert_eq!(data.config.dreaming.threshold.absolute, 5.0);
+    assert_eq!(data.config.dreaming.threshold.absolute, Some(5.0));
 
-    // Undeclared dreaming fields → defaults
+    // Undeclared dreaming fields → None (inherit global at merge time)
     assert!(!data.config.dreaming.enabled.unwrap_or(false));
     assert!(data.config.dreaming.model.is_none());
-    assert_eq!(data.config.dreaming.threshold.relative, 0.3);
-    assert_eq!(data.config.dreaming.capacity.max_rules, 20);
-    assert_eq!(data.config.dreaming.schedule, "0 3 * * *");
-    assert_eq!(data.config.dreaming.scoring.frequency_weight, 1.0);
+    assert!(data.config.dreaming.threshold.relative.is_none());
+    assert!(data.config.dreaming.capacity.max_rules.is_none());
+    assert!(data.config.dreaming.schedule.is_none());
+    assert!(data.config.dreaming.scoring.frequency_weight.is_none());
 }
 
 #[test]
@@ -178,13 +201,13 @@ fn test_partial_search_enabled_only() {
     // Declared field
     assert_eq!(data.config.search.enabled, Some(true));
 
-    // Undeclared search fields → defaults
+    // Undeclared search fields → None (inherit global at merge time)
     assert!(data.config.search.model.is_none());
-    assert_eq!(data.config.search.timeout_ms, 3000);
-    assert_eq!(data.config.search.max_summary_chars, 500);
-    assert_eq!(data.config.search.min_entity_hits, 1);
-    assert_eq!(data.config.search.top_k_events, 3);
-    assert_eq!(data.config.search.context_turns, 5);
+    assert!(data.config.search.timeout_ms.is_none());
+    assert!(data.config.search.max_summary_chars.is_none());
+    assert!(data.config.search.min_entity_hits.is_none());
+    assert!(data.config.search.top_k_events.is_none());
+    assert!(data.config.search.context_turns.is_none());
 }
 
 // ── ConfigProvider trait compliance ──────────────────────────────────────

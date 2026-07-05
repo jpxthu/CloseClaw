@@ -126,11 +126,11 @@ impl ActiveSearcherConfig {
         }
         let search = memory_override.map(|m| &m.search);
         Some(Self {
-            timeout_ms: search.map(|s| s.timeout_ms).unwrap_or(3000),
-            max_summary_chars: search.map(|s| s.max_summary_chars).unwrap_or(500),
-            min_entity_hits: search.map(|s| s.min_entity_hits).unwrap_or(1),
-            top_k_events: search.map(|s| s.top_k_events).unwrap_or(3),
-            context_turns: search.map(|s| s.context_turns).unwrap_or(5),
+            timeout_ms: search.and_then(|s| s.timeout_ms).unwrap_or(3000),
+            max_summary_chars: search.and_then(|s| s.max_summary_chars).unwrap_or(500),
+            min_entity_hits: search.and_then(|s| s.min_entity_hits).unwrap_or(1),
+            top_k_events: search.and_then(|s| s.top_k_events).unwrap_or(3),
+            context_turns: search.and_then(|s| s.context_turns).unwrap_or(5),
             model: search
                 .and_then(|s| s.model.clone())
                 .or_else(|| agent_model.map(|m| m.to_string()))
