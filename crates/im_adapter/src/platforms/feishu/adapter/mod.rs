@@ -3,7 +3,7 @@
 use crate::error::AdapterError;
 use crate::IMAdapter;
 use async_trait::async_trait;
-use closeclaw_common::{CardActionEvent, MessageType, NormalizedMessage};
+use closeclaw_common::{CardActionEvent, MediaRef, MessageType, NormalizedMessage};
 use closeclaw_gateway::Message;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -180,6 +180,32 @@ fn expand_element(elem: &serde_json::Value) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Quote helpers
+// ---------------------------------------------------------------------------
+
+/// Truncate text to at most 500 characters, appending "..." if truncated.
+fn truncate_to_500(text: &str) -> String {
+    let max_chars = 500;
+    if text.chars().count() <= max_chars {
+        text.to_string()
+    } else {
+        let byte_index = text
+            .char_indices()
+            .nth(max_chars)
+            .map_or(text.len(), |(i, _)| i);
+        format!("{}...", &text[..byte_index])
+    }
+}
+
+/// Format text as a markdown blockquote: each line prefixed with "> ".
+fn to_blockquote(text: &str) -> String {
+    text.lines()
+        .map(|line| format!("> {}", line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+// ---------------------------------------------------------------------------
 // CachedToken
 // ---------------------------------------------------------------------------
 
@@ -195,6 +221,28 @@ impl CachedToken {
     pub fn needs_refresh(&self) -> bool {
         Instant::now() > self.expires_at - Duration::from_secs(300)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Feishu API response types
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct FeishuMsgBody {
+    content: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct FeishuMsgItem {
+    msg_type: Option<String>,
+    body: Option<FeishuMsgBody>,
+}
+
+#[derive(Deserialize)]
+struct FeishuGetMessageResponse {
+    code: i32,
+    msg: String,
+    items: Option<Vec<FeishuMsgItem>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -301,6 +349,148 @@ impl FeishuAdapter {
             .ok_or_else(|| AdapterError::SendFailed("No token in response".to_string()))
     }
 
+    /// Fetch the content of a message by its ID via Feishu API.
+    ///
+    /// Returns `Some(text)` for supported types (text, post), or `None` for
+    /// unsupported types or on failure (which logs a warning and degrades
+    /// gracefully).
+    pub async fn fetch_message_content(
+        &self,
+        message_id: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        let (msg_type, raw_content) = match self.fetch_message_raw(message_id).await? {
+            Some(pair) => pair,
+            None => return Ok(None),
+        };
+        self.extract_text_from_message(&msg_type, &raw_content, message_id)
+    }
+
+    /// Fetch the raw message item from Feishu API and return (msg_type, content).
+    async fn fetch_message_raw(
+        &self,
+        message_id: &str,
+    ) -> Result<Option<(String, String)>, AdapterError> {
+        let token = self.get_tenant_token().await?;
+        let resp: FeishuGetMessageResponse = self
+            .http_client
+            .get(format!("{}/im/v1/messages/{}", self.base_url, message_id))
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
+            .json()
+            .await
+            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+
+        if resp.code != 0 {
+            tracing::warn!(
+                code = resp.code,
+                msg = %resp.msg,
+                message_id = %message_id,
+                "Failed to fetch quoted message"
+            );
+            return Ok(None);
+        }
+
+        let item = Self::extract_first_item(resp.items, message_id)?;
+        let msg_type = item.msg_type.unwrap_or_default();
+        let raw_content = match item.body.and_then(|b| b.content) {
+            Some(c) => c,
+            None => {
+                tracing::warn!(
+                    message_id = %message_id,
+                    "Message body has no content"
+                );
+                return Ok(None);
+            }
+        };
+        Ok(Some((msg_type, raw_content)))
+    }
+
+    /// Extract the first item from message response items, logging warnings.
+    fn extract_first_item(
+        items: Option<Vec<FeishuMsgItem>>,
+        message_id: &str,
+    ) -> Result<FeishuMsgItem, AdapterError> {
+        let items = match items {
+            Some(v) => v,
+            None => {
+                tracing::warn!(
+                    message_id = %message_id,
+                    "No items in message response"
+                );
+                return Err(AdapterError::SendFailed(
+                    "No items in message response".to_string(),
+                ));
+            }
+        };
+        items.into_iter().next().ok_or_else(|| {
+            tracing::warn!(message_id = %message_id, "Empty items in message response");
+            AdapterError::SendFailed("Empty items in message response".to_string())
+        })
+    }
+
+    /// Extract readable text from a message's raw content based on msg_type.
+    fn extract_text_from_message(
+        &self,
+        msg_type: &str,
+        raw_content: &str,
+        message_id: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        match msg_type {
+            "text" => {
+                let parsed: serde_json::Value =
+                    serde_json::from_str(raw_content).unwrap_or(serde_json::Value::Null);
+                Ok(parsed
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .map(String::from))
+            }
+            "post" => {
+                let parsed: serde_json::Value =
+                    serde_json::from_str(raw_content).unwrap_or(serde_json::Value::Null);
+                let text = expand_post_content(&parsed);
+                if text.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(text))
+                }
+            }
+            other => {
+                tracing::debug!(
+                    msg_type = other,
+                    message_id = %message_id,
+                    "Unsupported message type for quote"
+                );
+                Ok(None)
+            }
+        }
+    }
+
+    /// Fetch and prepend a markdown blockquote for the quoted message.
+    async fn prepend_quote_blockquote(&self, parent_id: Option<&str>, text: &str) -> String {
+        let pid = match parent_id {
+            Some(p) => p,
+            None => return text.to_string(),
+        };
+        match self.fetch_message_content(pid).await {
+            Ok(Some(quoted)) => {
+                let truncated = truncate_to_500(&quoted);
+                let blockquote = to_blockquote(&truncated);
+                format!("{}\n\n{}", blockquote, text)
+            }
+            Ok(None) => text.to_string(),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    parent_id = %pid,
+                    "Failed to fetch quoted message, proceeding without quote"
+                );
+                text.to_string()
+            }
+        }
+    }
+
     /// Update an existing card message identified by `message_id`.
     pub async fn update_message(
         &self,
@@ -401,7 +591,7 @@ impl FeishuAdapter {
         let content: serde_json::Value = serde_json::from_str(&event.event.content)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
-        let _message_id = event.event.message_id.as_deref().unwrap_or("");
+        let original_parent_id = event.event.parent_id.clone();
         let thread_id = event
             .event
             .thread_id
@@ -409,31 +599,13 @@ impl FeishuAdapter {
             .or(event.event.parent_id);
         let sender_open_id = event.event.sender.sender_id.open_id.clone();
 
-        let (text, media_refs) = match event.event.message_type.as_str() {
-            "text" => (
-                content
-                    .get("text")
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                vec![],
-            ),
-            "post" => (expand_post_content(&content), vec![]),
-            "image" | "file" | "audio" => {
-                tracing::debug!(
-                    message_type = %event.event.message_type,
-                    "Discarding non-text message (media understanding not yet designed)"
-                );
-                return Ok(None);
-            }
-            other => {
-                tracing::debug!(message_type = other, "Discarding unsupported message type");
-                return Ok(None);
-            }
-        };
+        let (text, media_refs) =
+            match Self::extract_message_content(&event.event.message_type, &content) {
+                Ok(pair) => pair,
+                Err(_) => return Ok(None),
+            };
 
-        // Discard text/post messages with empty content per shared-types.md:
-        // "text 类型空 content 消息在解析阶段丢弃，不产 NormalizedMessage"
+        // Discard empty text content.
         if matches!(event.event.message_type.as_str(), "text" | "post") && text.trim().is_empty() {
             tracing::debug!(
                 message_type = %event.event.message_type,
@@ -442,17 +614,54 @@ impl FeishuAdapter {
             return Ok(None);
         }
 
+        let content = self
+            .prepend_quote_blockquote(original_parent_id.as_deref(), &text)
+            .await;
+
         Ok(Some(NormalizedMessage {
             platform: "feishu".to_string(),
             sender_id: sender_open_id.clone(),
             peer_id: event.event.chat_id,
-            content: text,
+            content,
             timestamp: chrono::Utc::now().timestamp_millis(),
             message_type: MessageType::from(event.event.message_type.as_str()),
             media_refs,
             thread_id,
             account_id: sender_open_id,
         }))
+    }
+
+    /// Extract text and media refs from a message event's content.
+    fn extract_message_content(
+        message_type: &str,
+        content: &serde_json::Value,
+    ) -> Result<(String, Vec<MediaRef>), AdapterError> {
+        match message_type {
+            "text" => Ok((
+                content
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                vec![],
+            )),
+            "post" => Ok((expand_post_content(content), vec![])),
+            "image" | "file" | "audio" => {
+                tracing::debug!(
+                    message_type = %message_type,
+                    "Discarding non-text message (media understanding not yet designed)"
+                );
+                Err(AdapterError::InvalidPayload(
+                    "media message not supported".to_string(),
+                ))
+            }
+            other => {
+                tracing::debug!(message_type = other, "Discarding unsupported message type");
+                Err(AdapterError::InvalidPayload(
+                    "unsupported message type".to_string(),
+                ))
+            }
+        }
     }
 }
 
