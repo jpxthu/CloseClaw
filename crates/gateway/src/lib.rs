@@ -10,6 +10,7 @@ pub mod inbound_queue;
 #[cfg(test)]
 mod inbound_queue_tests;
 mod llm_caller;
+mod llm_caller_impl;
 #[cfg(test)]
 mod llm_caller_tests;
 mod memory;
