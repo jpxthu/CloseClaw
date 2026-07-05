@@ -689,8 +689,10 @@ async fn dispatch_text(
             content = %clean_text,
             "streaming outbound text"
         );
-        send_text(ctx, &clean_text).await?;
-        state.content_blocks.push(ContentBlock::Text(clean_text));
+        if !clean_text.is_empty() {
+            send_text(ctx, &clean_text).await?;
+            state.content_blocks.push(ContentBlock::Text(clean_text));
+        }
     }
     Ok(())
 }
