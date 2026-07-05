@@ -223,7 +223,7 @@ impl Default for AgentConfig {
 }
 
 /// Memory subsystem configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -242,20 +242,8 @@ pub struct MemoryConfig {
     pub search: SearchConfig,
 }
 
-impl Default for MemoryConfig {
-    fn default() -> Self {
-        Self {
-            active_searcher: None,
-            storage: MemoryStorageConfig::default(),
-            mining: MiningConfig::default(),
-            dreaming: DreamingConfig::default(),
-            search: SearchConfig::default(),
-        }
-    }
-}
-
 /// Dreaming subsystem configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DreamingConfig {
     /// Whether dreaming is enabled.
@@ -264,15 +252,6 @@ pub struct DreamingConfig {
     /// Dream Diary settings.
     #[serde(default)]
     pub diary: DreamingDiaryConfig,
-}
-
-impl Default for DreamingConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            diary: DreamingDiaryConfig::default(),
-        }
-    }
 }
 
 /// Dream Diary configuration.
@@ -288,6 +267,7 @@ pub struct DreamingDiaryConfig {
     pub path: String,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for DreamingDiaryConfig {
     fn default() -> Self {
         Self {
@@ -318,6 +298,7 @@ pub struct MemoryStorageConfig {
     pub memory_md_path: String,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for MemoryStorageConfig {
     fn default() -> Self {
         Self {
@@ -336,7 +317,7 @@ fn default_memory_md_path() -> String {
 }
 
 /// Mining subsystem configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MiningConfig {
     /// Whether mining is enabled.
@@ -344,25 +325,13 @@ pub struct MiningConfig {
     pub enabled: bool,
 }
 
-impl Default for MiningConfig {
-    fn default() -> Self {
-        Self { enabled: false }
-    }
-}
-
 /// Active search subsystem configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchConfig {
     /// Whether active search is enabled.
     #[serde(default)]
     pub enabled: bool,
-}
-
-impl Default for SearchConfig {
-    fn default() -> Self {
-        Self { enabled: false }
-    }
 }
 
 /// Active-searcher overrides — all fields optional.
