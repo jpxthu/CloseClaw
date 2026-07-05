@@ -299,6 +299,27 @@ impl Gateway {
             }
         };
 
+        // ── Restore notification for archived sessions ──────────────
+        // Per design doc: when a session is restored from archived state,
+        // send "正在恢复会话..." before processing continues.
+        if let Some(chat_id) = self
+            .session_manager
+            .take_restore_notification(&session_id)
+            .await
+        {
+            if let Err(e) = self
+                .send_outbound_simplified(&chat_id, channel, "正在恢复会话...")
+                .await
+            {
+                tracing::warn!(
+                    session_id = %session_id,
+                    chat_id = %chat_id,
+                    error = %e,
+                    "failed to send restore notification"
+                );
+            }
+        }
+
         // ── Non-text message interception ─────────────────────────────
         // Per design doc: non-text messages (image/file/audio) get a
         // simplified outbound reply (no Processor Chain, no Verbosity/DslParser).
