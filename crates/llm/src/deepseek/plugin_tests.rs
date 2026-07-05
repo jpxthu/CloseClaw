@@ -27,13 +27,13 @@ fn test_name() {
 }
 
 #[test]
-fn test_low_maps_to_off() {
+fn test_low_maps_to_low() {
     let plugin = DeepSeekPlugin;
     let mut req = make_request(ReasoningLevel::Low);
     plugin.before_request(&mut req);
     assert_eq!(
         req.extra_body.get("reasoning_effort"),
-        Some(&Value::String("off".into()))
+        Some(&Value::String("low".into()))
     );
 }
 
