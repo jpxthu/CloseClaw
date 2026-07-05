@@ -440,11 +440,16 @@ fn test_dedup_events_already_injected_excluded() {
 // ── Summarize tests ──────────────────────────────────────────────────────
 
 #[test]
-fn test_summarize_short_text_preserved() {
+fn test_summarize_events() {
     let tmp = tempfile::tempdir().unwrap();
     let _conn = create_test_db(tmp.path());
     let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
 
+    // empty events → empty summary
+    let summary = searcher.summarize_events(&[]);
+    assert!(summary.is_empty());
+
+    // short text preserved
     let events = vec![EventRecord {
         id: 1,
         content: "Short event".into(),
@@ -481,54 +486,31 @@ fn test_summarize_long_text_truncated() {
 }
 
 #[test]
-fn test_summarize_empty_events_returns_empty() {
-    let tmp = tempfile::tempdir().unwrap();
-    let _conn = create_test_db(tmp.path());
-    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
-
-    let summary = searcher.summarize_events(&[]);
-    assert!(summary.is_empty());
-}
-
-// ── memory_injection slot tests ──────────────────────────────────────────
-
-#[test]
-fn test_memory_injection_set_and_take() {
+fn test_memory_injection_basics() {
     let session = closeclaw_llm::session::ConversationSession::new(
         "test-session".into(),
         "model".into(),
         tempfile::tempdir().unwrap().keep(),
     );
 
-    assert!(
-        session.take_memory_injection().is_none(),
-        "slot should be empty initially"
-    );
+    // slot empty initially
+    assert!(session.take_memory_injection().is_none());
 
+    // set and take
     let inj = MemoryInjection::new("summary".into(), InjectionPosition::AfterCurrent);
     session.set_memory_injection(inj);
-
     let taken = session.take_memory_injection();
-    assert!(taken.is_some(), "slot should have content after set");
+    assert!(taken.is_some());
     assert_eq!(taken.unwrap().content, "summary");
+    assert!(session.take_memory_injection().is_none());
 
-    assert!(
-        session.take_memory_injection().is_none(),
-        "slot should be empty after take"
-    );
-}
-
-#[test]
-fn test_memory_injection_position_mode() {
+    // position mode
     let after = MemoryInjection::new("a".into(), InjectionPosition::AfterCurrent);
     let before = MemoryInjection::new("b".into(), InjectionPosition::BeforeNext);
     assert_eq!(after.position_mode, InjectionPosition::AfterCurrent);
     assert_eq!(before.position_mode, InjectionPosition::BeforeNext);
-    assert_ne!(after.position_mode, before.position_mode);
-}
 
-#[test]
-fn test_memory_injection_event_id_dedup() {
+    // event id dedup
     let mut inj = MemoryInjection::new("s".into(), InjectionPosition::AfterCurrent);
     assert!(!inj.is_event_injected(42));
     inj.add_injected_event_id(42);
@@ -536,41 +518,27 @@ fn test_memory_injection_event_id_dedup() {
     assert!(!inj.is_event_injected(99));
     inj.add_injected_event_id(42);
     assert_eq!(inj.injected_event_ids.len(), 1);
-}
 
-#[test]
-fn test_memory_injection_add_event_id_noop_when_empty_slot() {
-    let session = closeclaw_llm::session::ConversationSession::new(
+    // noop when empty slot
+    let session2 = closeclaw_llm::session::ConversationSession::new(
         "test".into(),
         "model".into(),
         tempfile::tempdir().unwrap().keep(),
     );
-    session.add_injected_event_id(42);
-    assert!(!session.is_event_injected(42));
+    session2.add_injected_event_id(42);
+    assert!(!session2.is_event_injected(42));
 }
 
 // ── Role exclusion tests ─────────────────────────────────────────────────
 
 #[test]
-fn test_role_exclusion_memory_miner() {
+fn test_role_exclusion_and_trigger() {
     assert!(!should_trigger_role("memory-miner"));
-}
-
-#[test]
-fn test_role_exclusion_dreaming() {
     assert!(!should_trigger_role("dreaming"));
-}
-
-#[test]
-fn test_role_inclusion_normal_session() {
     assert!(should_trigger_role("user"));
     assert!(should_trigger_role("assistant"));
     assert!(should_trigger_role("main_agent"));
     assert!(should_trigger_role("sub_agent"));
-}
-
-#[test]
-fn test_active_searcher_should_trigger_delegates() {
     assert!(!ActiveSearcher::should_trigger("memory-miner"));
     assert!(!ActiveSearcher::should_trigger("dreaming"));
     assert!(ActiveSearcher::should_trigger("user"));
@@ -757,27 +725,13 @@ async fn test_run_dedup_excludes_injected_events() {
 // ── Concept parser tests ─────────────────────────────────────────────────
 
 #[test]
-fn test_parse_concepts_valid_json() {
-    let concepts = parse_concepts(r#"["Alice", "project X"]"#);
-    assert_eq!(concepts, vec!["Alice", "project X"]);
-}
-
-#[test]
-fn test_parse_concepts_with_extra_text() {
-    let concepts = parse_concepts(r#"Here are the concepts: ["Alice", "Bob"]"#);
-    assert_eq!(concepts, vec!["Alice", "Bob"]);
-}
-
-#[test]
-fn test_parse_concepts_empty_array() {
-    let concepts = parse_concepts("[]");
-    assert!(concepts.is_empty());
-}
-
-#[test]
-fn test_parse_concepts_invalid() {
-    let concepts = parse_concepts("no json here");
-    assert!(concepts.is_empty());
+fn test_parse_concepts() {
+    let c = parse_concepts(r#"["Alice", "project X"]"#);
+    assert_eq!(c, vec!["Alice", "project X"]);
+    let c = parse_concepts(r#"Here are the concepts: ["Alice", "Bob"]"#);
+    assert_eq!(c, vec!["Alice", "Bob"]);
+    assert!(parse_concepts("[]").is_empty());
+    assert!(parse_concepts("no json here").is_empty());
 }
 
 // ── Config defaults test ─────────────────────────────────────────────────
@@ -785,11 +739,11 @@ fn test_parse_concepts_invalid() {
 #[test]
 fn test_active_searcher_config_defaults() {
     let config = ActiveSearcherConfig::default();
-    assert_eq!(config.timeout_ms, 5000);
-    assert_eq!(config.max_summary_chars, 2000);
+    assert_eq!(config.timeout_ms, 3000);
+    assert_eq!(config.max_summary_chars, 500);
     assert_eq!(config.min_entity_hits, 1);
-    assert_eq!(config.top_k_events, 10);
-    assert_eq!(config.context_turns, 10);
+    assert_eq!(config.top_k_events, 3);
+    assert_eq!(config.context_turns, 5);
     assert_eq!(config.model, "");
 }
 
@@ -828,7 +782,7 @@ fn test_from_agent_config_full_override() {
     assert_eq!(config.context_turns, 7);
 }
 
-/// Partial override: only model and timeout_ms → other fields use defaults.
+/// Partial override: only model and timeout_ms → other fields use global search or defaults.
 #[test]
 fn test_from_agent_config_partial_override() {
     let override_cfg = ActiveSearcherOverride {
@@ -853,47 +807,73 @@ fn test_from_agent_config_partial_override() {
 
     assert_eq!(config.model, "deepseek-r1");
     assert_eq!(config.timeout_ms, 12000);
-    assert_eq!(config.max_summary_chars, 2000);
+    // non-override fields fall back to global search defaults
+    assert_eq!(config.max_summary_chars, 500);
     assert_eq!(config.min_entity_hits, 1);
-    assert_eq!(config.top_k_events, 10);
-    assert_eq!(config.context_turns, 10);
+    assert_eq!(config.top_k_events, 3);
+    assert_eq!(config.context_turns, 5);
 }
 
 /// No override (None) + agent_model → model uses agent global model, other fields use defaults.
 #[test]
 fn test_from_agent_config_no_override() {
+    // With agent_model
     let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o-mini"), None);
     let config = config.expect("no memory config means search enabled by default");
-
     assert_eq!(config.model, "gpt-4o-mini");
-    assert_eq!(config.timeout_ms, 5000);
-    assert_eq!(config.max_summary_chars, 2000);
+    assert_eq!(config.timeout_ms, 3000);
+    assert_eq!(config.max_summary_chars, 500);
     assert_eq!(config.min_entity_hits, 1);
-    assert_eq!(config.top_k_events, 10);
-    assert_eq!(config.context_turns, 10);
-}
+    assert_eq!(config.top_k_events, 3);
+    assert_eq!(config.context_turns, 5);
 
-/// No agent_model + no override → model is empty string.
-#[test]
-fn test_from_agent_config_no_agent_model_no_override() {
+    // Without agent_model → model is empty string
     let config = ActiveSearcherConfig::from_agent_config(None, None);
     let config = config.expect("no memory config means search enabled by default");
-
     assert_eq!(config.model, "");
-    assert_eq!(config.timeout_ms, 5000);
-    assert_eq!(config.max_summary_chars, 2000);
+    assert_eq!(config.timeout_ms, 3000);
+    assert_eq!(config.max_summary_chars, 500);
     assert_eq!(config.min_entity_hits, 1);
-    assert_eq!(config.top_k_events, 10);
-    assert_eq!(config.context_turns, 10);
+    assert_eq!(config.top_k_events, 3);
+    assert_eq!(config.context_turns, 5);
 }
 
-/// Override model takes priority over agent global model.
+/// Global search config flows through when no active_searcher override.
 #[test]
-fn test_from_agent_config_override_overrides_agent_model() {
+fn test_from_agent_config_global_search_config() {
+    let memory = MemoryConfig {
+        active_searcher: None,
+        search: SearchConfig {
+            enabled: true,
+            timeout_ms: 4000,
+            max_summary_chars: 800,
+            min_entity_hits: 2,
+            top_k_events: 5,
+            context_turns: 8,
+            model: Some("search-model".into()),
+            ..Default::default()
+        },
+        ..MemoryConfig::default()
+    };
+
+    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory));
+    let config = config.expect("search should be enabled");
+
+    assert_eq!(config.timeout_ms, 4000);
+    assert_eq!(config.max_summary_chars, 800);
+    assert_eq!(config.min_entity_hits, 2);
+    assert_eq!(config.top_k_events, 5);
+    assert_eq!(config.context_turns, 8);
+    assert_eq!(config.model, "search-model");
+}
+
+/// active_searcher override takes priority over global search config.
+#[test]
+fn test_from_agent_config_override_overrides_global_search() {
     let override_cfg = ActiveSearcherOverride {
         model: Some("override-model".into()),
-        timeout_ms: None,
-        max_summary_chars: None,
+        timeout_ms: Some(1500),
+        max_summary_chars: Some(300),
         min_entity_hits: None,
         top_k_events: None,
         context_turns: None,
@@ -902,16 +882,62 @@ fn test_from_agent_config_override_overrides_agent_model() {
         active_searcher: Some(override_cfg),
         search: SearchConfig {
             enabled: true,
+            timeout_ms: 4000,
+            max_summary_chars: 800,
+            model: Some("search-model".into()),
             ..Default::default()
         },
         ..MemoryConfig::default()
     };
 
-    let config = ActiveSearcherConfig::from_agent_config(Some("agent-global-model"), Some(&memory));
+    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory));
     let config = config.expect("search should be enabled");
 
+    // override values win
     assert_eq!(config.model, "override-model");
-    assert_eq!(config.timeout_ms, 5000);
+    assert_eq!(config.timeout_ms, 1500);
+    assert_eq!(config.max_summary_chars, 300);
+    // non-override fields fall back to global search
+    assert_eq!(config.min_entity_hits, 1);
+    assert_eq!(config.top_k_events, 3);
+    assert_eq!(config.context_turns, 5);
+}
+
+/// search.model > agent_model when no active_searcher override.
+/// Override model > search.model > agent_model.
+#[test]
+fn test_from_agent_config_model_priority_chain() {
+    // search.model > agent_model (no override)
+    let memory = MemoryConfig {
+        active_searcher: None,
+        search: SearchConfig {
+            enabled: true,
+            model: Some("search-model".into()),
+            ..Default::default()
+        },
+        ..MemoryConfig::default()
+    };
+    let config = ActiveSearcherConfig::from_agent_config(Some("agent-model"), Some(&memory));
+    let config = config.expect("search should be enabled");
+    assert_eq!(config.model, "search-model");
+
+    // override > search.model > agent_model
+    let override_cfg = ActiveSearcherOverride {
+        model: Some("override-model".into()),
+        ..Default::default()
+    };
+    let memory = MemoryConfig {
+        active_searcher: Some(override_cfg),
+        search: SearchConfig {
+            enabled: true,
+            model: Some("search-model".into()),
+            ..Default::default()
+        },
+        ..MemoryConfig::default()
+    };
+    let config = ActiveSearcherConfig::from_agent_config(Some("agent-model"), Some(&memory));
+    let config = config.expect("search should be enabled");
+    assert_eq!(config.model, "override-model");
 }
 
 /// Search disabled → from_agent_config returns None.
@@ -941,38 +967,9 @@ use closeclaw_llm::types::ContentBlock;
 
 /// Verify the concept extraction prompt covers all three dimensions
 /// defined in the design doc: action types, entities/objects,
-/// and scenario characteristics.
+/// and scenario characteristics; also includes message content.
 #[test]
-fn test_concept_extraction_prompt_covers_three_dimensions() {
-    let messages = vec![SessionMessage {
-        role: "user".into(),
-        content_blocks: vec![ContentBlock::Text("hello".into())],
-        timestamp: Utc::now(),
-    }];
-    let prompt = build_concept_extraction_prompt(&messages, "test message");
-
-    // Dimension 1: Action types
-    assert!(
-        prompt.to_lowercase().contains("action"),
-        "prompt should mention action types"
-    );
-    // Dimension 2: Entities/objects
-    assert!(
-        prompt.to_lowercase().contains("entit") || prompt.to_lowercase().contains("object"),
-        "prompt should mention entities or objects"
-    );
-    // Dimension 3: Scenario characteristics
-    assert!(
-        prompt.to_lowercase().contains("scenario")
-            || prompt.to_lowercase().contains("context")
-            || prompt.to_lowercase().contains("characteristic"),
-        "prompt should mention scenario characteristics or context"
-    );
-}
-
-/// Verify the prompt includes the current message and context.
-#[test]
-fn test_concept_extraction_prompt_includes_message_content() {
+fn test_concept_extraction_prompt_coverage() {
     let messages = vec![SessionMessage {
         role: "assistant".into(),
         content_blocks: vec![ContentBlock::Text("context info".into())],
@@ -980,6 +977,19 @@ fn test_concept_extraction_prompt_includes_message_content() {
     }];
     let prompt = build_concept_extraction_prompt(&messages, "current msg");
 
+    let lower = prompt.to_lowercase();
+    assert!(
+        lower.contains("action"),
+        "prompt should mention action types"
+    );
+    assert!(
+        lower.contains("entit") || lower.contains("object"),
+        "prompt should mention entities or objects"
+    );
+    assert!(
+        lower.contains("scenario") || lower.contains("context") || lower.contains("characteristic"),
+        "prompt should mention scenario characteristics or context"
+    );
     assert!(prompt.contains("context info"));
     assert!(prompt.contains("current msg"));
     assert!(prompt.contains("assistant: context info"));

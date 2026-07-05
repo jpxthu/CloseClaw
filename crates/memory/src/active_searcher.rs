@@ -53,11 +53,11 @@ pub struct ActiveSearcherConfig {
 impl Default for ActiveSearcherConfig {
     fn default() -> Self {
         Self {
-            timeout_ms: 5000,
-            max_summary_chars: 2000,
+            timeout_ms: 3000,
+            max_summary_chars: 500,
             min_entity_hits: 1,
-            top_k_events: 10,
-            context_turns: 10,
+            top_k_events: 3,
+            context_turns: 5,
             model: String::new(),
         }
     }
@@ -113,7 +113,8 @@ impl ActiveSearcherConfig {
     /// Build config from agent-level settings.
     ///
     /// Returns `None` if `search.enabled` is `false` in the agent config.
-    /// Priority: `memory.active_searcher.*` override > `agent_model` > defaults.
+    /// Priority: `memory.active_searcher.*` override > `memory.search.*` > defaults.
+    /// Model priority: `active_searcher.model` > `search.model` > `agent_model`.
     pub fn from_agent_config(
         agent_model: Option<&str>,
         memory_override: Option<&closeclaw_config::agents::MemoryConfig>,
@@ -124,17 +125,27 @@ impl ActiveSearcherConfig {
                 return None;
             }
         }
+        let search = memory_override.map(|m| &m.search);
         let override_as = memory_override.and_then(|m| m.active_searcher.as_ref());
         Some(Self {
-            timeout_ms: override_as.and_then(|o| o.timeout_ms).unwrap_or(5000),
+            timeout_ms: override_as
+                .and_then(|o| o.timeout_ms)
+                .unwrap_or_else(|| search.map(|s| s.timeout_ms).unwrap_or(3000)),
             max_summary_chars: override_as
                 .and_then(|o| o.max_summary_chars)
-                .unwrap_or(2000),
-            min_entity_hits: override_as.and_then(|o| o.min_entity_hits).unwrap_or(1),
-            top_k_events: override_as.and_then(|o| o.top_k_events).unwrap_or(10),
-            context_turns: override_as.and_then(|o| o.context_turns).unwrap_or(10),
+                .unwrap_or_else(|| search.map(|s| s.max_summary_chars).unwrap_or(500)),
+            min_entity_hits: override_as
+                .and_then(|o| o.min_entity_hits)
+                .unwrap_or_else(|| search.map(|s| s.min_entity_hits).unwrap_or(1)),
+            top_k_events: override_as
+                .and_then(|o| o.top_k_events)
+                .unwrap_or_else(|| search.map(|s| s.top_k_events).unwrap_or(3)),
+            context_turns: override_as
+                .and_then(|o| o.context_turns)
+                .unwrap_or_else(|| search.map(|s| s.context_turns).unwrap_or(5)),
             model: override_as
                 .and_then(|o| o.model.clone())
+                .or_else(|| search.and_then(|s| s.model.clone()))
                 .or_else(|| agent_model.map(|m| m.to_string()))
                 .unwrap_or_default(),
         })
