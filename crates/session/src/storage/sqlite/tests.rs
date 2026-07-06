@@ -36,6 +36,7 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         depth: 0,
         effective_max_spawn_depth: None,
         mined: false,
+        mined_at: None,
         dreaming_status: DreamingStatus::default(),
         pending_operations: Vec::new(),
         recovery_notification: None,
