@@ -19,7 +19,7 @@ use closeclaw_config::agents::{
 };
 use closeclaw_session::persistence::{DreamingStatus, PersistenceError, PersistenceService};
 
-use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError};
+use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError, PromotedGroupInfo};
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -221,15 +221,16 @@ impl DreamingPipeline {
             self.write_memory_md(&verified)?;
         }
 
+        // Build promoted groups info for Dream Diary.
+        let promoted = self.build_promoted_groups(&deep, &rules, &verified);
+
         self.mark_sessions_completed(storage, &session_ids).await?;
 
         // Write Dream Diary if enabled.
-        {
-            let cfg = self.config.read().unwrap();
-            if cfg.diary.enabled.unwrap_or(true) && !deep.is_empty() {
-                drop(cfg);
-                self.write_dream_diary(&deep)?;
-            }
+        let diary_enabled = self.config.read().unwrap().diary.enabled.unwrap_or(true);
+        if diary_enabled && !promoted.is_empty() {
+            self.write_dream_diary(&promoted, self.llm.as_deref())
+                .await?;
         }
 
         Ok(())
@@ -632,7 +633,14 @@ impl DreamingPipeline {
     // ── Dream Diary ────────────────────────────────────────────────
 
     /// Write a Dream Diary summarizing promoted entity groups.
-    pub(crate) fn write_dream_diary(&self, groups: &[EntityGroup]) -> Result<(), DreamingError> {
+    ///
+    /// Uses LLM narrative when available; falls back to structured
+    /// summary on LLM failure or absence.
+    pub(crate) async fn write_dream_diary(
+        &self,
+        promoted_groups: &[PromotedGroupInfo],
+        llm: Option<&dyn DreamingLlmCaller>,
+    ) -> Result<(), DreamingError> {
         let (diary_enabled, diary_path_str) = {
             let cfg = self.config.read().unwrap();
             (
@@ -640,7 +648,7 @@ impl DreamingPipeline {
                 cfg.diary.path.clone().unwrap_or_else(default_diary_path),
             )
         };
-        if !diary_enabled || groups.is_empty() {
+        if !diary_enabled || promoted_groups.is_empty() {
             return Ok(());
         }
 
@@ -650,26 +658,32 @@ impl DreamingPipeline {
         std::fs::create_dir_all(diary_dir)?;
         let diary_path = diary_dir.join(&filename);
 
-        let total_entries: usize = groups.iter().map(|g| g.entries.len()).sum();
+        let total_lessons: usize = promoted_groups.iter().map(|g| g.lessons.len()).sum();
         let mut content = format!("# Dream Diary — {}\n\n", date);
         content.push_str(&format!(
-            "Promoted {} entries ({} groups) to MEMORY.md.\n\n",
-            total_entries,
-            groups.len()
+            "Promoted {} lessons ({} groups) to MEMORY.md.\n\n",
+            total_lessons,
+            promoted_groups.len()
         ));
 
-        for group in groups {
-            for entry in &group.entries {
-                let category_str = match entry.category {
-                    EntryCategory::Error => "Error",
-                    EntryCategory::Anger => "Anger",
-                    EntryCategory::Decision => "Decision",
-                };
-                content.push_str(&format!("- **[{}]** {}", category_str, entry.body));
-                if let Some(lesson) = &entry.lesson {
-                    content.push_str(&format!(" → _Lesson: {}_", lesson));
+        // Try LLM narrative; fall back to structured summary.
+        let narrative = if let Some(llm) = llm {
+            llm.generate_diary_narrative(promoted_groups).await.ok()
+        } else {
+            None
+        };
+
+        if let Some(text) = narrative {
+            content.push_str(&text);
+        } else {
+            // Structured summary fallback.
+            for group in promoted_groups {
+                for lesson in &group.lessons {
+                    content.push_str(&format!(
+                        "- **{}** ({}): {}\n",
+                        group.entity_name, group.entity_type, lesson
+                    ));
                 }
-                content.push('\n');
             }
         }
 
@@ -711,6 +725,39 @@ impl DreamingPipeline {
     }
 
     // ── Anti-contamination check ─────────────────────────────────────
+
+    /// Build promoted groups info from deep groups, rules, and verified rules.
+    ///
+    /// Matches each rule to its corresponding group and keeps only those
+    /// that passed anti-contamination verification.
+    fn build_promoted_groups(
+        &self,
+        groups: &[EntityGroup],
+        rules: &[String],
+        verified: &[String],
+    ) -> Vec<PromotedGroupInfo> {
+        let verified_set: std::collections::HashSet<usize> = rules
+            .iter()
+            .zip(0..)
+            .filter(|(rule, _)| {
+                verified
+                    .iter()
+                    .any(|v| std::ptr::eq(v, *rule) || v == *rule)
+            })
+            .map(|(_, i)| i)
+            .collect();
+        groups
+            .iter()
+            .zip(rules.iter())
+            .enumerate()
+            .filter(|(i, _)| verified_set.contains(i))
+            .map(|(_, (group, rule))| PromotedGroupInfo {
+                entity_name: group.entity_name.clone(),
+                entity_type: group.entity_type.clone(),
+                lessons: vec![rule.clone()],
+            })
+            .collect()
+    }
 
     /// Verify source events still exist and filter rules accordingly.
     /// Uses event_id + updated_at for anti-contamination check.
