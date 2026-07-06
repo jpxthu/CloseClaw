@@ -444,3 +444,157 @@ async fn test_run_once_diary_only_promoted_groups() {
     let cp = cps.iter().find(|c| c.session_id == "sess-1").unwrap();
     assert_eq!(cp.dreaming_status, DreamingStatus::Completed);
 }
+
+// ── load_entity_type_weight tests ──────────────────────────────
+
+/// Helper: create a temp DB with entity_types seed data.
+fn make_weight_db() -> (TempDir, rusqlite::Connection) {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+    (tmp, conn)
+}
+
+/// is_active=1 type returns its configured weight (subject → 1.5).
+#[test]
+fn test_load_entity_type_weight_active() {
+    let (tmp, _conn) = make_weight_db();
+    // subject has weight=1.5 in seed data and is_active=1.
+    // deep_stage calls load_entity_type_weight internally;
+    // we exercise it via score_entity_group's effect on score.
+    let mut e = make_entry(EntryCategory::Error, "err1", "s1", 10);
+    e.entity_type = "subject".into();
+    e.entity_name = "test".into();
+    let groups = vec![EntityGroup {
+        entity_name: "test".into(),
+        entity_type: "subject".into(),
+        entries: vec![e],
+        frequency: 1,
+        cross_agent_count: 1,
+        score: 0.0,
+    }];
+    let pipeline_scoring = DreamingPipeline::with_config(DreamingConfig {
+        scoring: DreamingScoringConfig {
+            frequency_weight: Some(0.0),
+            recency_weight: Some(0.0),
+            explicitness_weight: Some(0.0),
+            entity_type_weight_weight: Some(1.0),
+            cross_agent_weight: Some(0.0),
+            negative_signal_weight: Some(0.0),
+            ..Default::default()
+        },
+        threshold: DreamingThresholdConfig {
+            absolute: Some(0.0),
+            relative: Some(0.0),
+        },
+        capacity: DreamingCapacityConfig {
+            max_rules: Some(100),
+        },
+        ..Default::default()
+    })
+    .with_db_path(tmp.path().join("test.db"));
+    let deep = pipeline_scoring.deep_stage(groups);
+    assert_eq!(deep.len(), 1);
+    // score = entity_type_weight_weight(1.0) * load_entity_type_weight(subject=1.5) = 1.5
+    assert!(
+        (deep[0].score - 1.5).abs() < 0.001,
+        "subject weight should be 1.5, got {}",
+        deep[0].score
+    );
+}
+
+/// is_active=0 type returns default weight 1.0.
+#[test]
+fn test_load_entity_type_weight_inactive() {
+    let (tmp, conn) = make_weight_db();
+    // Disable the 'person' type.
+    conn.execute(
+        "UPDATE entity_types SET is_active = 0 WHERE type = 'person'",
+        [],
+    )
+    .unwrap();
+    let pipeline = DreamingPipeline::with_config(DreamingConfig {
+        scoring: DreamingScoringConfig {
+            frequency_weight: Some(0.0),
+            recency_weight: Some(0.0),
+            explicitness_weight: Some(0.0),
+            entity_type_weight_weight: Some(1.0),
+            cross_agent_weight: Some(0.0),
+            negative_signal_weight: Some(0.0),
+            ..Default::default()
+        },
+        threshold: DreamingThresholdConfig {
+            absolute: Some(0.0),
+            relative: Some(0.0),
+        },
+        capacity: DreamingCapacityConfig {
+            max_rules: Some(100),
+        },
+        ..Default::default()
+    })
+    .with_db_path(tmp.path().join("test.db"));
+    let mut e = make_entry(EntryCategory::Error, "err1", "s1", 10);
+    e.entity_type = "person".into();
+    e.entity_name = "alice".into();
+    let groups = vec![EntityGroup {
+        entity_name: "alice".into(),
+        entity_type: "person".into(),
+        entries: vec![e],
+        frequency: 1,
+        cross_agent_count: 1,
+        score: 0.0,
+    }];
+    let deep = pipeline.deep_stage(groups);
+    assert_eq!(deep.len(), 1);
+    // person has weight=1.2 but is_active=0 → fallback to 1.0
+    assert!(
+        (deep[0].score - 1.0).abs() < 0.001,
+        "inactive person weight should fallback to 1.0, got {}",
+        deep[0].score
+    );
+}
+
+/// Unknown type returns default weight 1.0.
+#[test]
+fn test_load_entity_type_weight_unknown() {
+    let (tmp, _conn) = make_weight_db();
+    let pipeline = DreamingPipeline::with_config(DreamingConfig {
+        scoring: DreamingScoringConfig {
+            frequency_weight: Some(0.0),
+            recency_weight: Some(0.0),
+            explicitness_weight: Some(0.0),
+            entity_type_weight_weight: Some(1.0),
+            cross_agent_weight: Some(0.0),
+            negative_signal_weight: Some(0.0),
+            ..Default::default()
+        },
+        threshold: DreamingThresholdConfig {
+            absolute: Some(0.0),
+            relative: Some(0.0),
+        },
+        capacity: DreamingCapacityConfig {
+            max_rules: Some(100),
+        },
+        ..Default::default()
+    })
+    .with_db_path(tmp.path().join("test.db"));
+    let mut e = make_entry(EntryCategory::Error, "err1", "s1", 10);
+    e.entity_type = "nonexistent_type".into();
+    e.entity_name = "ghost".into();
+    let groups = vec![EntityGroup {
+        entity_name: "ghost".into(),
+        entity_type: "nonexistent_type".into(),
+        entries: vec![e],
+        frequency: 1,
+        cross_agent_count: 1,
+        score: 0.0,
+    }];
+    let deep = pipeline.deep_stage(groups);
+    assert_eq!(deep.len(), 1);
+    // Unknown type → fallback to 1.0
+    assert!(
+        (deep[0].score - 1.0).abs() < 0.001,
+        "unknown type weight should fallback to 1.0, got {}",
+        deep[0].score
+    );
+}
