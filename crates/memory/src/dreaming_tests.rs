@@ -698,7 +698,8 @@ async fn test_collect_entries_from_sqlite() {
                 category TEXT NOT NULL,
                 lesson TEXT,
                 source_session_id TEXT NOT NULL,
-                timestamp INTEGER NOT NULL
+                timestamp INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE entities (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -713,8 +714,8 @@ async fn test_collect_entries_from_sqlite() {
                 event_id INTEGER NOT NULL,
                 entity_id INTEGER NOT NULL
             );
-            INSERT INTO events (content, category, lesson, source_session_id, timestamp)
-            VALUES ('test content', 'error', 'test lesson', 'sess-1', 1700000000);
+            INSERT INTO events (content, category, lesson, source_session_id, timestamp, updated_at)
+            VALUES ('test content', 'error', 'test lesson', 'sess-1', 1700000000, 1700000000);
             INSERT INTO entities (agent_id, type, name, normalized_name)
             VALUES ('agent-1', 'subject', 'Test Entity', 'test entity');
             INSERT INTO event_entities (event_id, entity_id)
