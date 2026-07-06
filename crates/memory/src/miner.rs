@@ -409,10 +409,19 @@ pub(crate) fn write_to_sqlite(
         let ts = Utc::now().timestamp();
         let event_id: i64 = conn
             .query_row(
-                "INSERT INTO events (title, summary, content, category, lesson, source_session_id, timestamp)
+                "INSERT INTO events (title, summary, content,
+                 category, lesson, source_session_id, timestamp)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  RETURNING id",
-                params![event.title, event.summary, event.body, event.category.to_string(), event.lesson, session_id, ts],
+                params![
+                    event.title,
+                    event.summary,
+                    event.body,
+                    event.category.to_string(),
+                    event.lesson,
+                    session_id,
+                    ts,
+                ],
                 |row| row.get(0),
             )
             .map_err(|e| MinerError::Sqlite(e.to_string()))?;
@@ -427,7 +436,10 @@ pub(crate) fn write_to_sqlite(
             .map_err(|e| MinerError::Sqlite(e.to_string()))?;
             let entity_id: i64 = conn
                 .query_row(
-                    "SELECT id FROM entities WHERE agent_id = ?1 AND type = ?2 AND normalized_name = ?3",
+                    "SELECT id FROM entities 
+                     WHERE agent_id = ?1 
+                     AND type = ?2 
+                     AND normalized_name = ?3",
                     params![agent_id, entity.entity_type, norm_name],
                     |row| row.get(0),
                 )
@@ -575,8 +587,10 @@ mod tests {
         init_schema(&conn).unwrap();
         let ts = Utc::now().timestamp();
         conn.execute(
-            "INSERT INTO events (title, summary, content, category, lesson, source_session_id, timestamp)
-             VALUES ('title', 'summary', 'body', 'error', 'lesson', 'other-sess', ?1)",
+            "INSERT INTO events (title, summary, content,
+             category, lesson, source_session_id, timestamp)
+             VALUES ('title', 'summary', 'body',
+             'error', 'lesson', 'other-sess', ?1)",
             params![ts],
         )
         .unwrap();
@@ -592,8 +606,10 @@ mod tests {
         init_schema(&conn).unwrap();
         let old_ts = Utc::now().timestamp() - (60 * 86400);
         conn.execute(
-            "INSERT INTO events (title, summary, content, category, lesson, source_session_id, timestamp)
-             VALUES ('old', 'old', 'body', 'decision', NULL, 'other', ?1)",
+            "INSERT INTO events (title, summary, content,
+             category, lesson, source_session_id, timestamp)
+             VALUES ('old', 'old', 'body',
+             'decision', NULL, 'other', ?1)",
             params![old_ts],
         )
         .unwrap();
