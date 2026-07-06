@@ -17,7 +17,11 @@ use thiserror::Error;
 use tokio::sync::watch;
 use tracing::{error, info};
 
+use closeclaw_config::providers::MemoryConfigData;
 use closeclaw_config::session::SessionConfigProvider;
+use closeclaw_config::ConfigChangeEvent;
+use closeclaw_config::ConfigManager;
+use closeclaw_config::ConfigSection;
 use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_session::persistence::{PersistenceError, PersistenceService};
@@ -49,6 +53,10 @@ pub struct DreamingScheduler {
     memory_miner: Arc<MemoryMiner>,
     /// Optional cron expression from `DreamingConfig.schedule`.
     pub(crate) schedule: Option<String>,
+    /// Config manager for hot-reload subscriptions.
+    config_manager: Arc<ConfigManager>,
+    /// Broadcast receiver for config change events.
+    config_rx: tokio::sync::broadcast::Receiver<ConfigChangeEvent>,
 }
 
 impl DreamingScheduler {
@@ -58,13 +66,17 @@ impl DreamingScheduler {
         config: Arc<dyn SessionConfigProvider>,
         dreaming_pipeline: Arc<DreamingPipeline>,
         memory_miner: Arc<MemoryMiner>,
+        config_manager: Arc<ConfigManager>,
     ) -> Self {
+        let config_rx = config_manager.subscribe_config_changes();
         Self {
             storage,
             config,
             dreaming_pipeline,
             memory_miner,
             schedule: None,
+            config_manager,
+            config_rx,
         }
     }
 
@@ -74,12 +86,46 @@ impl DreamingScheduler {
         self
     }
 
+    /// Handle a config change for the Memory section.
+    async fn handle_config_change(&mut self) {
+        match self.config_manager.section(ConfigSection::Memory) {
+            Some(value) => {
+                let content = match serde_json::to_string(&value) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        error!(%e, "failed to serialize memory config");
+                        return;
+                    }
+                };
+                let memory_config = match MemoryConfigData::from_json_str(&content) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        error!(%e, "failed to parse memory config");
+                        return;
+                    }
+                };
+                self.dreaming_pipeline
+                    .update_config(memory_config.config.dreaming.clone());
+                self.memory_miner.update_config(
+                    closeclaw_memory::miner::MinerConfig::from_mining_config(
+                        &memory_config.config.mining,
+                    ),
+                );
+                self.schedule = memory_config.config.dreaming.schedule.clone();
+                info!("dreaming config reloaded via config manager");
+            }
+            None => {
+                error!("Memory config section not available");
+            }
+        }
+    }
+
     /// Run the scheduler loop until `shutdown` signal is received.
     ///
     /// Uses cron-based scheduling when a valid expression is available;
     /// falls back to a fixed interval otherwise. Each cycle: dreaming
     /// pipeline first, then mining scan.
-    pub async fn run(&self, mut shutdown: watch::Receiver<()>) {
+    pub async fn run(&mut self, mut shutdown: watch::Receiver<()>) {
         let cron_schedule = self.schedule.as_deref().and_then(parse_cron_schedule);
 
         if let Some(ref sched) = cron_schedule {
@@ -105,7 +151,7 @@ impl DreamingScheduler {
 
     /// Cron-based scheduling loop: compute next fire time from wall clock.
     async fn run_cron_loop(
-        &self,
+        &mut self,
         shutdown: &mut watch::Receiver<()>,
         schedule: &CronSchedule,
         initial_delay: tokio::time::Duration,
@@ -119,6 +165,13 @@ impl DreamingScheduler {
                         "DreamingScheduler received shutdown signal, exiting"
                     );
                     break;
+                }
+                result = self.config_rx.recv() => {
+                    if self.is_memory_config_reload(result) {
+                        self.handle_cron_config_reload(
+                            &mut next_fire,
+                        ).await;
+                    }
                 }
                 _ = tokio::time::sleep_until(next_fire) => {
                     if let Err(e) = self.run_once().await {
@@ -142,9 +195,50 @@ impl DreamingScheduler {
         }
     }
 
+    /// Check if the event is a Memory config reload.
+    fn is_memory_config_reload(
+        &self,
+        result: Result<ConfigChangeEvent, tokio::sync::broadcast::error::RecvError>,
+    ) -> bool {
+        matches!(
+            result,
+            Ok(ConfigChangeEvent::Reloaded {
+                section: ConfigSection::Memory,
+            })
+        )
+    }
+
+    /// Handle a config reload within the cron loop: apply new config,
+    /// re-parse the schedule, and recompute next fire time.
+    async fn handle_cron_config_reload(&mut self, next_fire: &mut tokio::time::Instant) {
+        self.handle_config_change().await;
+        let new_sched = self.schedule.as_deref().and_then(parse_cron_schedule);
+        if let Some(ref new_sched) = new_sched {
+            let next = new_sched.next_fire_time(Local::now());
+            let delay = (next - Local::now())
+                .to_std()
+                .unwrap_or_else(|_| tokio::time::Duration::from_secs(1));
+            *next_fire = tokio::time::Instant::now() + delay;
+            info!(
+                schedule = %new_sched.display(),
+                "schedule updated after config reload"
+            );
+        } else {
+            let interval_secs = self.config.dreaming_interval_secs();
+            let interval = tokio::time::Duration::from_secs(interval_secs);
+            info!(
+                "schedule became invalid after config \
+                 reload, falling back to fixed \
+                 interval {}s",
+                interval_secs
+            );
+            *next_fire = tokio::time::Instant::now() + interval;
+        }
+    }
+
     /// Fixed-interval fallback scheduling loop.
     async fn run_fixed_interval_loop(
-        &self,
+        &mut self,
         shutdown: &mut watch::Receiver<()>,
         interval: tokio::time::Duration,
     ) {
@@ -157,6 +251,11 @@ impl DreamingScheduler {
                         "DreamingScheduler received shutdown signal, exiting"
                     );
                     break;
+                }
+                result = self.config_rx.recv() => {
+                    if self.is_memory_config_reload(result) {
+                        self.handle_config_change().await;
+                    }
                 }
                 _ = tokio::time::sleep_until(next_fire) => {
                     if let Err(e) = self.run_once().await {
@@ -270,6 +369,7 @@ impl std::fmt::Debug for DreamingScheduler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DreamingScheduler")
             .field("schedule", &self.schedule)
+            .field("config_manager", &"<ConfigManager>")
             .finish()
     }
 }

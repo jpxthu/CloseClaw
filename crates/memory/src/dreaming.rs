@@ -6,7 +6,7 @@
 //! Light / REM / Deep are programmatic; lesson consolidation is LLM-driven.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use rusqlite::params;
 use thiserror::Error;
@@ -109,7 +109,7 @@ struct Thresholds {
 pub struct DreamingPipeline {
     scoring: DreamingScoringConfig,
     thresholds: Thresholds,
-    config: DreamingConfig,
+    config: Arc<RwLock<DreamingConfig>>,
     /// Path to the SQLite database (for reading events/entities).
     db_path: Option<PathBuf>,
     /// Output path for MEMORY.md.
@@ -119,6 +119,11 @@ pub struct DreamingPipeline {
 }
 
 impl DreamingPipeline {
+    /// Update the dreaming configuration at runtime.
+    pub fn update_config(&self, config: DreamingConfig) {
+        *self.config.write().unwrap() = config;
+    }
+
     /// Create a pipeline with default weights, thresholds, and config.
     pub fn new() -> Self {
         Self {
@@ -128,7 +133,7 @@ impl DreamingPipeline {
                 relative: 0.3,
                 max_rules: 20,
             },
-            config: DreamingConfig::default(),
+            config: Arc::new(RwLock::new(DreamingConfig::default())),
             db_path: None,
             memory_md_path: default_memory_md_path(),
             llm: None,
@@ -155,7 +160,7 @@ impl DreamingPipeline {
         Self {
             scoring,
             thresholds,
-            config,
+            config: Arc::new(RwLock::new(config)),
             db_path: None,
             memory_md_path: default_memory_md_path(),
             llm: None,
@@ -186,8 +191,11 @@ impl DreamingPipeline {
     /// through Light → REM → Deep → LLM consolidation, and writes
     /// surviving rules to MEMORY.md.
     pub async fn run_once(&self, storage: &dyn PersistenceService) -> Result<(), DreamingError> {
-        if !self.config.enabled.unwrap_or(false) {
-            return Ok(());
+        {
+            let cfg = self.config.read().unwrap();
+            if !cfg.enabled.unwrap_or(false) {
+                return Ok(());
+            }
         }
 
         let session_ids = storage.list_mined_undreamt_sessions().await?;
@@ -229,8 +237,12 @@ impl DreamingPipeline {
         self.mark_sessions_completed(storage, &session_ids).await?;
 
         // Write Dream Diary if enabled.
-        if self.config.diary.enabled.unwrap_or(true) && !deep.is_empty() {
-            self.write_dream_diary(&deep)?;
+        {
+            let cfg = self.config.read().unwrap();
+            if cfg.diary.enabled.unwrap_or(true) && !deep.is_empty() {
+                drop(cfg);
+                self.write_dream_diary(&deep)?;
+            }
         }
 
         Ok(())
@@ -536,18 +548,19 @@ impl DreamingPipeline {
     /// The diary is a narrative summary of the entries that passed the
     /// Deep stage, written to `{path}/{date}.md`.
     pub(crate) fn write_dream_diary(&self, entries: &[MemoryEntry]) -> Result<(), DreamingError> {
-        if !self.config.diary.enabled.unwrap_or(true) || entries.is_empty() {
+        let (diary_enabled, diary_path_str) = {
+            let cfg = self.config.read().unwrap();
+            (
+                cfg.diary.enabled.unwrap_or(true),
+                cfg.diary.path.clone().unwrap_or_else(default_diary_path),
+            )
+        };
+        if !diary_enabled || entries.is_empty() {
             return Ok(());
         }
 
         let date = chrono::Local::now().format("%Y-%m-%d").to_string();
         let filename = format!("{}.md", date);
-        let diary_path_str = self
-            .config
-            .diary
-            .path
-            .clone()
-            .unwrap_or_else(default_diary_path);
         let diary_dir = std::path::Path::new(&diary_path_str);
         std::fs::create_dir_all(diary_dir)?;
         let diary_path = diary_dir.join(&filename);

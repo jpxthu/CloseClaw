@@ -8,6 +8,7 @@ use crate::dreaming_scheduler::DreamingScheduler;
 use crate::test_helpers::TestStorage;
 use closeclaw_common::CompactConfig;
 use closeclaw_config::session::SessionConfigProvider;
+use closeclaw_config::ConfigManager;
 use closeclaw_config::PerAgentSessionConfig;
 use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
@@ -57,6 +58,14 @@ fn make_scheduler(
     storage: Arc<dyn PersistenceService>,
     config: Arc<dyn SessionConfigProvider>,
 ) -> DreamingScheduler {
+    let config_manager = Arc::new(
+        ConfigManager::new(std::path::PathBuf::from("/tmp/test-config")).unwrap_or_else(|_| {
+            // If temp dir doesn't exist, create it
+            let _ = std::fs::create_dir_all("/tmp/test-config");
+            ConfigManager::new(std::path::PathBuf::from("/tmp/test-config"))
+                .expect("failed to create test ConfigManager")
+        }),
+    );
     DreamingScheduler::new(
         storage,
         config,
@@ -68,6 +77,7 @@ fn make_scheduler(
             "/tmp/test-MEMORY.md".to_string(),
             String::new(),
         )),
+        config_manager,
     )
 }
 
@@ -78,7 +88,7 @@ fn make_scheduler(
 async fn test_dreaming_scheduler_shutdown_exits_loop() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config);
+    let mut scheduler = make_scheduler(storage, config);
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
 
@@ -173,7 +183,8 @@ async fn test_dreaming_scheduler_mining_skips_unconfigured_agents() {
 async fn test_dreaming_scheduler_cron_schedule_shutdown() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config).with_schedule(Some("0 3 * * *".to_string()));
+    let mut scheduler =
+        make_scheduler(storage, config).with_schedule(Some("0 3 * * *".to_string()));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
@@ -195,7 +206,8 @@ async fn test_dreaming_scheduler_cron_schedule_shutdown() {
 async fn test_dreaming_scheduler_invalid_cron_fallback() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config).with_schedule(Some("not-a-cron".to_string()));
+    let mut scheduler =
+        make_scheduler(storage, config).with_schedule(Some("not-a-cron".to_string()));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
@@ -217,7 +229,7 @@ async fn test_dreaming_scheduler_invalid_cron_fallback() {
 async fn test_dreaming_scheduler_no_schedule_uses_fixed() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config);
+    let mut scheduler = make_scheduler(storage, config);
 
     assert!(scheduler.schedule.is_none());
 
@@ -261,7 +273,7 @@ fn test_with_schedule_none() {
 async fn test_with_schedule_empty_string_fallback() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config).with_schedule(Some(String::new()));
+    let mut scheduler = make_scheduler(storage, config).with_schedule(Some(String::new()));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
@@ -283,7 +295,8 @@ async fn test_with_schedule_empty_string_fallback() {
 async fn test_dreaming_scheduler_hourly_cron() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config).with_schedule(Some("0 * * * *".to_string()));
+    let mut scheduler =
+        make_scheduler(storage, config).with_schedule(Some("0 * * * *".to_string()));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
@@ -297,5 +310,179 @@ async fn test_dreaming_scheduler_hourly_cron() {
     assert!(
         result.is_ok(),
         "scheduler with hourly cron should exit promptly"
+    );
+}
+
+// ── Step 1.5: Config hot-reload tests ────────────────────────────────
+
+/// Helper to create a ConfigManager backed by a temp directory.
+fn make_test_config_manager(dir: &std::path::Path) -> Arc<ConfigManager> {
+    Arc::new(ConfigManager::new(dir.to_path_buf()).expect("failed to create test ConfigManager"))
+}
+
+/// Receiving ConfigChangeEvent::Reloaded{section:Memory} updates pipeline/miner config.
+#[tokio::test]
+async fn test_config_change_memory_section_updates_components() {
+    let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
+    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let config_manager = make_test_config_manager(std::path::Path::new("/tmp/test-config-reload"));
+
+    // Populate the Memory section cache with dreaming enabled.
+    let memory_value = serde_json::json!({
+        "dreaming": {
+            "enabled": true
+        },
+        "mining": {
+            "enabled": true
+        }
+    });
+    config_manager.update_section_cache(closeclaw_config::ConfigSection::Memory, memory_value);
+
+    // Build a pipeline/miner with dreaming/mining DISABLED initially,
+    // so we can verify the config change flips them on.
+    let pipeline = Arc::new(DreamingPipeline::with_config(
+        closeclaw_config::agents::DreamingConfig {
+            enabled: Some(false),
+            ..Default::default()
+        },
+    ));
+    let miner = Arc::new(MemoryMiner::new(
+        closeclaw_memory::miner::MinerConfig {
+            enabled: false,
+            ..Default::default()
+        },
+        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
+        std::path::PathBuf::from("/tmp/test-memory-reload.db"),
+        "/tmp/test-MEMORY-reload.md".to_string(),
+        String::new(),
+    ));
+
+    let scheduler = DreamingScheduler::new(
+        storage,
+        config,
+        pipeline.clone(),
+        miner.clone(),
+        config_manager.clone(),
+    );
+
+    // Verify initial state: miner is disabled.
+    assert!(!miner.is_enabled(), "miner should start disabled");
+
+    // Send the Memory section reload event through the config manager's broadcaster.
+    config_manager.notify_change(closeclaw_config::ConfigChangeEvent::Reloaded {
+        section: closeclaw_config::ConfigSection::Memory,
+    });
+
+    // Allow the event to propagate (broadcast channel delivery).
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+    // Run one cycle so the scheduler processes the event via its config_rx.
+    // The scheduler's run loop picks up the event and calls handle_config_change.
+    let (shutdown_tx, shutdown_rx) = watch::channel(());
+    let mut scheduler = scheduler;
+    let handle = tokio::spawn(async move {
+        scheduler.run(shutdown_rx).await;
+    });
+
+    // Give the loop time to start, receive the event, and process it.
+    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    shutdown_tx.send(()).unwrap();
+
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    assert!(result.is_ok(), "scheduler should exit promptly");
+
+    // After handle_config_change: pipeline config should have enabled=true.
+    // We verify via run_once behavior: with a mined+undreamt session,
+    // run_once should NOT skip (pipeline is now enabled).
+    let storage2 = TestStorage::default();
+    let mut cp = closeclaw_session::persistence::SessionCheckpoint::new("post-reload".into());
+    cp.mined = true;
+    cp.dreaming_status = closeclaw_session::persistence::DreamingStatus::Pending;
+    storage2.add_checkpoint(cp);
+    let result = pipeline.run_once(&storage2).await;
+    assert!(
+        result.is_ok(),
+        "run_once after config reload should succeed"
+    );
+    // The session should have been processed (status changed from Pending).
+    let cps = storage2.checkpoints.lock().unwrap();
+    let cp = cps.iter().find(|c| c.session_id == "post-reload").unwrap();
+    assert_eq!(
+        cp.dreaming_status,
+        closeclaw_session::persistence::DreamingStatus::Completed,
+        "pipeline should be enabled after config reload"
+    );
+}
+
+/// Non-Memory section events do not trigger pipeline/miner config updates.
+#[tokio::test]
+async fn test_config_change_non_memory_ignored() {
+    let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
+    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let config_manager = make_test_config_manager(std::path::Path::new("/tmp/test-config-ignore"));
+
+    // Build pipeline/miner with dreaming/mining DISABLED.
+    let pipeline = Arc::new(DreamingPipeline::with_config(
+        closeclaw_config::agents::DreamingConfig {
+            enabled: Some(false),
+            ..Default::default()
+        },
+    ));
+    let miner = Arc::new(MemoryMiner::new(
+        closeclaw_memory::miner::MinerConfig {
+            enabled: false,
+            ..Default::default()
+        },
+        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
+        std::path::PathBuf::from("/tmp/test-memory-ignore.db"),
+        "/tmp/test-MEMORY-ignore.md".to_string(),
+        String::new(),
+    ));
+
+    let scheduler = DreamingScheduler::new(
+        storage,
+        config,
+        pipeline.clone(),
+        miner.clone(),
+        config_manager.clone(),
+    );
+
+    // Send a NON-Memory section reload event.
+    config_manager.notify_change(closeclaw_config::ConfigChangeEvent::Reloaded {
+        section: closeclaw_config::ConfigSection::Gateway,
+    });
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(());
+    let mut scheduler = scheduler;
+    let handle = tokio::spawn(async move {
+        scheduler.run(shutdown_rx).await;
+    });
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    shutdown_tx.send(()).unwrap();
+
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    assert!(result.is_ok(), "scheduler should exit promptly");
+
+    // Pipeline should still be disabled (non-Memory event was ignored).
+    let storage2 = TestStorage::default();
+    let mut cp = closeclaw_session::persistence::SessionCheckpoint::new("ignore-test".into());
+    cp.mined = true;
+    cp.dreaming_status = closeclaw_session::persistence::DreamingStatus::Pending;
+    storage2.add_checkpoint(cp);
+    let result = pipeline.run_once(&storage2).await;
+    assert!(
+        result.is_ok(),
+        "run_once should succeed even when pipeline is disabled"
+    );
+    // Session should NOT be processed (pipeline still disabled).
+    let cps = storage2.checkpoints.lock().unwrap();
+    let cp = cps.iter().find(|c| c.session_id == "ignore-test").unwrap();
+    assert_eq!(
+        cp.dreaming_status,
+        closeclaw_session::persistence::DreamingStatus::Pending,
+        "non-Memory event should not enable pipeline"
     );
 }
