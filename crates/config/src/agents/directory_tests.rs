@@ -34,7 +34,7 @@ fn test_empty_registry_produces_no_entries() {
     write_config(user.path(), "stray", "Stray Agent");
 
     let provider =
-        AgentDirectoryProvider::new(Vec::new(), user.path().to_path_buf(), None).unwrap();
+        AgentDirectoryProvider::new(Vec::new(), user.path().to_path_buf(), None, None).unwrap();
 
     assert!(provider.agent_ids().is_empty());
     assert!(provider.entries().is_empty());
@@ -46,9 +46,13 @@ fn test_user_only_load() {
     let user = TempDir::new().unwrap();
     write_config(user.path(), "alpha", "Alpha Agent");
 
-    let provider =
-        AgentDirectoryProvider::new(vec!["alpha".to_string()], user.path().to_path_buf(), None)
-            .unwrap();
+    let provider = AgentDirectoryProvider::new(
+        vec!["alpha".to_string()],
+        user.path().to_path_buf(),
+        None,
+        None,
+    )
+    .unwrap();
 
     assert_eq!(provider.agent_ids().len(), 1);
     let entry = provider.get("alpha").expect("alpha should be loaded");
@@ -66,6 +70,7 @@ fn test_project_only_load() {
         vec!["beta".to_string()],
         PathBuf::from("/nonexistent/user/agents"),
         Some(project.path().to_path_buf()),
+        None,
     )
     .unwrap();
 
@@ -87,6 +92,7 @@ fn test_merge_project_overrides_user() {
         vec!["gamma".to_string()],
         user.path().to_path_buf(),
         Some(project.path().to_path_buf()),
+        None,
     )
     .unwrap();
 
@@ -108,6 +114,7 @@ fn test_ignores_dirs_outside_registry() {
         vec!["registered".to_string()],
         user.path().to_path_buf(),
         None,
+        None,
     )
     .unwrap();
 
@@ -128,6 +135,7 @@ fn test_permissions_project_wins_over_user() {
         vec!["delta".to_string()],
         user.path().to_path_buf(),
         Some(project.path().to_path_buf()),
+        None,
     )
     .unwrap();
 
@@ -149,6 +157,7 @@ fn test_permissions_user_fallback_when_no_project_file() {
         vec!["epsilon".to_string()],
         user.path().to_path_buf(),
         Some(PathBuf::from("/nonexistent/project/agents")),
+        None,
     )
     .unwrap();
 
@@ -173,6 +182,7 @@ fn test_missing_config_json_is_skipped() {
         vec!["zeta".to_string(), "eta".to_string()],
         user.path().to_path_buf(),
         None,
+        None,
     )
     .unwrap();
 
@@ -186,9 +196,13 @@ fn test_missing_config_json_is_skipped() {
 #[test]
 fn test_reload_picks_up_changes() {
     let user = TempDir::new().unwrap();
-    let provider =
-        AgentDirectoryProvider::new(vec!["theta".to_string()], user.path().to_path_buf(), None)
-            .unwrap();
+    let provider = AgentDirectoryProvider::new(
+        vec!["theta".to_string()],
+        user.path().to_path_buf(),
+        None,
+        None,
+    )
+    .unwrap();
     assert!(provider.get("theta").is_none());
 
     // Add a config file and reload.
@@ -200,9 +214,13 @@ fn test_reload_picks_up_changes() {
     // Easier: use the constructor twice.
     drop(provider);
 
-    let provider =
-        AgentDirectoryProvider::new(vec!["theta".to_string()], user.path().to_path_buf(), None)
-            .unwrap();
+    let provider = AgentDirectoryProvider::new(
+        vec!["theta".to_string()],
+        user.path().to_path_buf(),
+        None,
+        None,
+    )
+    .unwrap();
     assert!(provider.get("theta").is_some());
 }
 
@@ -213,6 +231,7 @@ fn test_no_user_dir_no_project_dir() {
     let provider = AgentDirectoryProvider::new(
         vec!["a".to_string(), "b".to_string()],
         PathBuf::from("/nonexistent/user"),
+        None,
         None,
     )
     .unwrap();
@@ -248,6 +267,7 @@ fn test_merge_falls_back_to_user_field_when_project_empty() {
         vec!["iota".to_string()],
         user.path().to_path_buf(),
         Some(project.path().to_path_buf()),
+        None,
     )
     .unwrap();
 
@@ -264,9 +284,13 @@ fn test_no_permissions_file_is_fine() {
     let user = TempDir::new().unwrap();
     write_config(user.path(), "kappa", "Kappa");
 
-    let provider =
-        AgentDirectoryProvider::new(vec!["kappa".to_string()], user.path().to_path_buf(), None)
-            .unwrap();
+    let provider = AgentDirectoryProvider::new(
+        vec!["kappa".to_string()],
+        user.path().to_path_buf(),
+        None,
+        None,
+    )
+    .unwrap();
 
     assert!(provider.get("kappa").is_some());
     assert!(provider.permissions().get("kappa").is_none());
@@ -309,6 +333,7 @@ fn test_directory_provider_id_from_dirname() {
     let provider = AgentDirectoryProvider::new(
         vec!["foo".to_string(), "bar".to_string()],
         user.path().to_path_buf(),
+        None,
         None,
     )
     .unwrap();
@@ -370,9 +395,13 @@ fn test_directory_provider_id_mismatch_warn() {
     )
     .unwrap();
 
-    let provider =
-        AgentDirectoryProvider::new(vec!["foo".to_string()], user.path().to_path_buf(), None)
-            .unwrap();
+    let provider = AgentDirectoryProvider::new(
+        vec!["foo".to_string()],
+        user.path().to_path_buf(),
+        None,
+        None,
+    )
+    .unwrap();
 
     // The config's id wins (the WARN message says so explicitly).
     let entry = provider.get("foo").expect("foo should be loaded");
@@ -408,6 +437,7 @@ fn test_directory_provider_empty_string_id_fails_construction() {
         vec!["empty-id".to_string()],
         user.path().to_path_buf(),
         None,
+        None,
     );
 
     assert!(
@@ -441,6 +471,7 @@ fn test_user_config_parse_error_skips_agent() {
         vec!["bad-user".to_string(), "good-user".to_string()],
         user.path().to_path_buf(),
         None,
+        None,
     )
     .unwrap();
 
@@ -471,6 +502,7 @@ fn test_project_config_parse_error_falls_back_to_user() {
         vec!["mixed".to_string()],
         user.path().to_path_buf(),
         Some(project.path().to_path_buf()),
+        None,
     )
     .unwrap();
 
@@ -499,6 +531,7 @@ fn test_both_configs_parse_error_skips_agent() {
         vec!["both-bad".to_string()],
         user.path().to_path_buf(),
         Some(project.path().to_path_buf()),
+        None,
     )
     .unwrap();
 
@@ -522,6 +555,7 @@ fn test_config_json_is_directory_skips_agent() {
     let provider = AgentDirectoryProvider::new(
         vec!["dir-agent".to_string(), "normal".to_string()],
         user.path().to_path_buf(),
+        None,
         None,
     )
     .unwrap();

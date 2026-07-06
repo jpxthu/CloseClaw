@@ -7,7 +7,7 @@
 use super::spawn::SpawnMode;
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
-use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_llm::session::ChatSession;
 use closeclaw_session::recovery::SpawnTree;
 
@@ -29,7 +29,7 @@ fn test_resolved_config(id: &str) -> ResolvedAgentConfig {
         tools: vec![],
         disallowed_tools: vec![],
         subagents: closeclaw_config::agents::SubagentsConfig::default(),
-        memory: None,
+        memory: MemoryConfig::default(),
         source: ConfigSource::Merged,
     }
 }

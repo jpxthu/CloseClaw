@@ -120,12 +120,29 @@ impl ConfigManager {
             .join("agents");
         let project_agents_dir = repo_root.map(|r| r.join(".closeclaw").join("agents"));
 
-        let provider =
-            AgentDirectoryProvider::new(merged_ids.clone(), user_agents_dir, project_agents_dir)
-                .map_err(|e| ConfigLoadError::ValidationError {
-                    path: agents_json_path.clone(),
-                    message: e.to_string(),
-                })?;
+        let provider = {
+            // Extract global memory config from the loaded sections.
+            let global_memory = self
+                .sections
+                .read()
+                .expect("RwLock for config sections was poisoned")
+                .get(&crate::manager::ConfigSection::Memory)
+                .and_then(|v| {
+                    serde_json::from_value::<crate::providers::memory::MemoryConfigData>(v.clone())
+                        .ok()
+                })
+                .map(|d| d.config);
+            AgentDirectoryProvider::new(
+                merged_ids.clone(),
+                user_agents_dir,
+                project_agents_dir,
+                global_memory,
+            )
+        }
+        .map_err(|e| ConfigLoadError::ValidationError {
+            path: agents_json_path.clone(),
+            message: e.to_string(),
+        })?;
 
         let registry_ids: HashSet<&str> = merged_ids.iter().map(String::as_str).collect();
         Self::validate_parent_ids(&provider, &registry_ids, &agents_json_path)?;

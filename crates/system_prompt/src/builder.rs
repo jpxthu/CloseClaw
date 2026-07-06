@@ -390,7 +390,7 @@ mod tests {
     #[test]
     fn test_workspace_build_config_with_agent_registry() {
         use closeclaw_agent::registry::AgentRegistry;
-        use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+        use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
         use closeclaw_session::bootstrap::loader::BootstrapMode;
 
         let agent_reg = Arc::new(AgentRegistry::new());
@@ -406,7 +406,7 @@ mod tests {
             tools: vec![],
             disallowed_tools: vec![],
             subagents: Default::default(),
-            memory: None,
+            memory: MemoryConfig::default(),
             source: ConfigSource::User,
         }]);
 
@@ -429,7 +429,7 @@ mod tests {
     #[test]
     fn test_agent_registry_query_bootstrap_mode_minimal() {
         use closeclaw_agent::registry::AgentRegistry;
-        use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+        use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
         use closeclaw_session::bootstrap::loader::BootstrapMode;
 
         let agent_reg = Arc::new(AgentRegistry::new());
@@ -445,7 +445,7 @@ mod tests {
             tools: vec![],
             disallowed_tools: vec![],
             subagents: Default::default(),
-            memory: None,
+            memory: MemoryConfig::default(),
             source: ConfigSource::User,
         }]);
 
@@ -456,7 +456,7 @@ mod tests {
     #[test]
     fn test_agent_registry_query_bootstrap_mode_full() {
         use closeclaw_agent::registry::AgentRegistry;
-        use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+        use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
         use closeclaw_session::bootstrap::loader::BootstrapMode;
 
         let agent_reg = Arc::new(AgentRegistry::new());
@@ -472,7 +472,7 @@ mod tests {
             tools: vec![],
             disallowed_tools: vec![],
             subagents: Default::default(),
-            memory: None,
+            memory: MemoryConfig::default(),
             source: ConfigSource::User,
         }]);
 
@@ -539,7 +539,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_from_workspace_override_mode_overrides_registry() {
-        use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+        use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 
         crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
@@ -560,7 +560,7 @@ mod tests {
             tools: vec![],
             disallowed_tools: vec![],
             subagents: Default::default(),
-            memory: None,
+            memory: MemoryConfig::default(),
             source: ConfigSource::User,
         }]);
 
@@ -585,7 +585,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_from_workspace_no_override_uses_registry() {
-        use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+        use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 
         crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
@@ -606,7 +606,7 @@ mod tests {
             tools: vec![],
             disallowed_tools: vec![],
             subagents: Default::default(),
-            memory: None,
+            memory: MemoryConfig::default(),
             source: ConfigSource::User,
         }]);
 

@@ -336,7 +336,8 @@ fn test_resolved_config_name_fallback_to_id() {
         name: None,
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>").unwrap();
+    let resolved =
+        ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>", None).unwrap();
     assert_eq!(resolved.id, "agent-x");
     assert_eq!(resolved.name, "agent-x");
 }
@@ -349,7 +350,8 @@ fn test_resolved_config_name_empty_string_fallback() {
         name: Some("".to_string()),
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>").unwrap();
+    let resolved =
+        ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>", None).unwrap();
     assert_eq!(resolved.id, "agent-y");
     assert_eq!(resolved.name, "agent-y");
 }
@@ -368,7 +370,7 @@ fn test_resolved_config_merge_name_fallback() {
         name: Some("".to_string()),
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.id, "agent-z");
     assert_eq!(resolved.name, "agent-z");
     assert_eq!(resolved.source, ConfigSource::Merged);
@@ -450,7 +452,7 @@ fn test_merge_skills_star_overrides_user() {
         skills: vec!["specific-skill".to_string()],
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
     assert_eq!(
         resolved.skills,
         vec!["*".to_string()],
@@ -470,7 +472,7 @@ fn test_merge_tools_star_overrides_user() {
         tools: vec!["read".to_string(), "grep".to_string()],
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
     assert_eq!(
         resolved.tools,
         vec!["*".to_string()],
@@ -496,7 +498,7 @@ fn test_merge_allow_agents_star_overrides_user() {
         },
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
     assert_eq!(
         resolved.subagents.allow_agents,
         vec!["*".to_string()],
@@ -516,7 +518,7 @@ fn test_merge_skills_empty_project_falls_back_to_user() {
         skills: vec!["user-skill".to_string()],
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
     assert_eq!(
         resolved.skills,
         vec!["user-skill".to_string()],
@@ -549,7 +551,8 @@ fn test_resolved_config_no_permissions_field() {
         id: "test-agent".to_string(),
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>").unwrap();
+    let resolved =
+        ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>", None).unwrap();
     assert_eq!(resolved.id, "test-agent");
 
     // Verify merge path also works without a permissions field (no panic).
@@ -562,7 +565,7 @@ fn test_resolved_config_no_permissions_field() {
         id: "test-agent".to_string(),
         ..Default::default()
     };
-    let merged = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    let merged = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
     assert_eq!(merged.id, "test-agent");
     assert_eq!(merged.source, ConfigSource::Merged);
 
@@ -585,7 +588,7 @@ fn test_merge_tools_empty_project_falls_back_to_user() {
         tools: vec!["read".to_string(), "grep".to_string()],
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
     assert_eq!(
         resolved.tools,
         vec!["read", "grep"],
@@ -612,7 +615,7 @@ fn test_merge_allow_agents_empty_project_falls_back_to_user() {
         },
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
     assert_eq!(
         resolved.subagents.allow_agents,
         vec!["agent-a"],
@@ -754,7 +757,7 @@ fn test_merge_model_project_overrides_user() {
         model: Some(ModelSpec::single("claude-3")),
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.model, Some(ModelSpec::single("gpt-4o")));
 }
 
@@ -773,7 +776,7 @@ fn test_merge_model_project_with_fallback_overrides_user() {
         model: Some(ModelSpec::single("deepseek")),
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
     assert_eq!(
         resolved.model,
         Some(ModelSpec::with_fallback(
@@ -795,7 +798,7 @@ fn test_merge_model_project_none_falls_back_to_user() {
         model: Some(ModelSpec::single("claude-3")),
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.model, Some(ModelSpec::single("claude-3")));
 }
 
@@ -811,7 +814,7 @@ fn test_merge_model_both_none() {
         model: None,
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.model, None);
 }
 
@@ -836,7 +839,7 @@ fn test_merge_subagents_model_project_overrides_user() {
         },
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.model, Some(ModelSpec::single("gpt-4o")));
 }
 
@@ -858,7 +861,7 @@ fn test_merge_subagents_model_project_none_falls_back_to_user() {
         },
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>").unwrap();
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
     assert_eq!(
         resolved.subagents.model,
         Some(ModelSpec::single("claude-3"))

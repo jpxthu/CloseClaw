@@ -12,7 +12,7 @@ mod tests {
     use crate::{
         SpawnError, SpawnValidationResult, SpawnValidator, Tool, ToolCallError, ToolContext,
     };
-    use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+    use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
     use closeclaw_gateway::{GatewayConfig, SessionManager};
     use closeclaw_session::bootstrap::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
@@ -46,7 +46,7 @@ mod tests {
                     tools: vec![],
                     disallowed_tools: vec![],
                     subagents: Default::default(),
-                    memory: None,
+                    memory: MemoryConfig::default(),
                     source: ConfigSource::Merged,
                 },
                 effective_max_spawn_depth: 10,

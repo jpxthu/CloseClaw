@@ -9,7 +9,7 @@ use super::spawn::SpawnMode;
 use super::tests::{clear_global_prompt_state, make_test_mgr, test_config};
 use super::SessionManager;
 use closeclaw_config::agents::SubagentsConfig;
-use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_llm::session::{ChatSession, ConversationSession};
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint};
@@ -32,7 +32,7 @@ fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> ResolvedAgentCo
         tools: vec![],
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
-        memory: None,
+        memory: MemoryConfig::default(),
         source: ConfigSource::Merged,
     }
 }
@@ -443,7 +443,7 @@ async fn test_create_child_session_allowed_tools_override() {
         tools: vec!["ToolA".into(), "ToolB".into(), "ToolC".into()],
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
-        memory: None,
+        memory: MemoryConfig::default(),
         source: ConfigSource::Merged,
     };
 

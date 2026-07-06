@@ -113,39 +113,26 @@ impl ActiveSearcherConfig {
     /// Build config from agent-level settings.
     ///
     /// Returns `None` if `search.enabled` is `false` in the agent config.
-    /// Priority: `memory.active_searcher.*` override > `memory.search.*` > defaults.
-    /// Model priority: `active_searcher.model` > `search.model` > `agent_model`.
+    /// Priority: `memory.search.*` > defaults.
     pub fn from_agent_config(
         agent_model: Option<&str>,
         memory_override: Option<&closeclaw_config::agents::MemoryConfig>,
     ) -> Option<Self> {
         // Check search.enabled gate.
         if let Some(memory) = memory_override {
-            if !memory.search.enabled {
+            if !memory.search.enabled.unwrap_or(false) {
                 return None;
             }
         }
         let search = memory_override.map(|m| &m.search);
-        let override_as = memory_override.and_then(|m| m.active_searcher.as_ref());
         Some(Self {
-            timeout_ms: override_as
-                .and_then(|o| o.timeout_ms)
-                .unwrap_or_else(|| search.map(|s| s.timeout_ms).unwrap_or(3000)),
-            max_summary_chars: override_as
-                .and_then(|o| o.max_summary_chars)
-                .unwrap_or_else(|| search.map(|s| s.max_summary_chars).unwrap_or(500)),
-            min_entity_hits: override_as
-                .and_then(|o| o.min_entity_hits)
-                .unwrap_or_else(|| search.map(|s| s.min_entity_hits).unwrap_or(1)),
-            top_k_events: override_as
-                .and_then(|o| o.top_k_events)
-                .unwrap_or_else(|| search.map(|s| s.top_k_events).unwrap_or(3)),
-            context_turns: override_as
-                .and_then(|o| o.context_turns)
-                .unwrap_or_else(|| search.map(|s| s.context_turns).unwrap_or(5)),
-            model: override_as
-                .and_then(|o| o.model.clone())
-                .or_else(|| search.and_then(|s| s.model.clone()))
+            timeout_ms: search.and_then(|s| s.timeout_ms).unwrap_or(3000),
+            max_summary_chars: search.and_then(|s| s.max_summary_chars).unwrap_or(500),
+            min_entity_hits: search.and_then(|s| s.min_entity_hits).unwrap_or(1),
+            top_k_events: search.and_then(|s| s.top_k_events).unwrap_or(3),
+            context_turns: search.and_then(|s| s.context_turns).unwrap_or(5),
+            model: search
+                .and_then(|s| s.model.clone())
                 .or_else(|| agent_model.map(|m| m.to_string()))
                 .unwrap_or_default(),
         })

@@ -119,7 +119,7 @@ fn make_resolved_config(id: &str, parent_id: Option<&str>) -> ResolvedAgentConfi
     let mut cfg = AgentConfig::default();
     cfg.id = id.to_string();
     cfg.parent_id = parent_id.map(String::from);
-    ResolvedAgentConfig::from_single(cfg, ConfigSource::User, "<test>").unwrap()
+    ResolvedAgentConfig::from_single(cfg, ConfigSource::User, "<test>", None).unwrap()
 }
 
 #[tokio::test]

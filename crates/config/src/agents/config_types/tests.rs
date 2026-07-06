@@ -342,13 +342,13 @@ fn intersect_all_seven_dimensions_checked() {
 #[test]
 fn test_mining_config_defaults() {
     let config = MiningConfig::default();
-    assert!(!config.enabled);
+    assert!(!config.enabled.unwrap_or(false));
     assert!(config.model.is_none());
-    assert_eq!(config.max_events_per_session, 10);
-    assert_eq!(config.dedup_window_days, 30);
-    assert_eq!(config.transcript_clean_rules.min_turns, 5);
-    assert_eq!(config.transcript_clean_rules.min_owner_msgs, 5);
-    assert_eq!(config.transcript_clean_rules.format, "md");
+    assert!(config.max_events_per_session.is_none());
+    assert!(config.dedup_window_days.is_none());
+    assert!(config.transcript_clean_rules.min_turns.is_none());
+    assert!(config.transcript_clean_rules.min_owner_msgs.is_none());
+    assert!(config.transcript_clean_rules.format.is_none());
 }
 
 #[test]
@@ -365,23 +365,26 @@ fn test_mining_config_deserialize_full() {
         }
     }"#;
     let config: MiningConfig = serde_json::from_str(json).unwrap();
-    assert!(config.enabled);
+    assert!(config.enabled == Some(true));
     assert_eq!(config.model.as_deref(), Some("gpt-4o"));
-    assert_eq!(config.max_events_per_session, 20);
-    assert_eq!(config.dedup_window_days, 14);
-    assert_eq!(config.transcript_clean_rules.min_turns, 3);
-    assert_eq!(config.transcript_clean_rules.min_owner_msgs, 2);
-    assert_eq!(config.transcript_clean_rules.format, "json");
+    assert_eq!(config.max_events_per_session, Some(20));
+    assert_eq!(config.dedup_window_days, Some(14));
+    assert_eq!(config.transcript_clean_rules.min_turns, Some(3));
+    assert_eq!(config.transcript_clean_rules.min_owner_msgs, Some(2));
+    assert_eq!(
+        config.transcript_clean_rules.format,
+        Some("json".to_string())
+    );
 }
 
 #[test]
 fn test_mining_config_deserialize_minimal() {
     let json = r#"{"enabled": true}"#;
     let config: MiningConfig = serde_json::from_str(json).unwrap();
-    assert!(config.enabled);
+    assert!(config.enabled == Some(true));
     assert!(config.model.is_none());
-    assert_eq!(config.max_events_per_session, 10);
-    assert_eq!(config.dedup_window_days, 30);
+    assert!(config.max_events_per_session.is_none());
+    assert!(config.dedup_window_days.is_none());
 }
 
 #[test]
@@ -392,8 +395,8 @@ fn test_mining_config_camel_case_roundtrip() {
         "dedupWindowDays": 7
     }"#;
     let config: MiningConfig = serde_json::from_str(json).unwrap();
-    assert_eq!(config.max_events_per_session, 5);
-    assert_eq!(config.dedup_window_days, 7);
+    assert_eq!(config.max_events_per_session, Some(5));
+    assert_eq!(config.dedup_window_days, Some(7));
     let serialized = serde_json::to_string(&config).unwrap();
     assert!(serialized.contains("maxEventsPerSession"));
     assert!(serialized.contains("dedupWindowDays"));
@@ -404,17 +407,17 @@ fn test_mining_config_camel_case_roundtrip() {
 #[test]
 fn test_dreaming_config_defaults() {
     let config = DreamingConfig::default();
-    assert!(!config.enabled);
+    assert!(!config.enabled.unwrap_or(false));
     assert!(config.model.is_none());
-    assert_eq!(config.schedule, "0 3 * * *");
-    assert_eq!(config.scoring.frequency_weight, 1.0);
-    assert_eq!(config.scoring.recency_weight, 0.5);
-    assert_eq!(config.scoring.explicitness_weight, 1.5);
-    assert_eq!(config.scoring.cross_agent_weight, 1.3);
-    assert_eq!(config.scoring.negative_signal_weight, -0.5);
-    assert_eq!(config.threshold.absolute, 2.0);
-    assert_eq!(config.threshold.relative, 0.3);
-    assert_eq!(config.capacity.max_rules, 20);
+    assert!(config.schedule.is_none());
+    assert!(config.scoring.frequency_weight.is_none());
+    assert!(config.scoring.recency_weight.is_none());
+    assert!(config.scoring.explicitness_weight.is_none());
+    assert!(config.scoring.cross_agent_weight.is_none());
+    assert!(config.scoring.negative_signal_weight.is_none());
+    assert!(config.threshold.absolute.is_none());
+    assert!(config.threshold.relative.is_none());
+    assert!(config.capacity.max_rules.is_none());
 }
 
 #[test]
@@ -439,27 +442,27 @@ fn test_dreaming_config_deserialize_full() {
         }
     }"#;
     let config: DreamingConfig = serde_json::from_str(json).unwrap();
-    assert!(config.enabled);
+    assert!(config.enabled == Some(true));
     assert_eq!(config.model.as_deref(), Some("claude-3"));
-    assert_eq!(config.schedule, "0 4 * * *");
-    assert_eq!(config.scoring.frequency_weight, 2.0);
-    assert_eq!(config.scoring.recency_weight, 1.0);
-    assert_eq!(config.scoring.explicitness_weight, 3.0);
-    assert_eq!(config.scoring.cross_agent_weight, 2.5);
-    assert_eq!(config.scoring.negative_signal_weight, -1.0);
-    assert_eq!(config.threshold.absolute, 3.0);
-    assert_eq!(config.threshold.relative, 0.5);
-    assert_eq!(config.capacity.max_rules, 50);
+    assert_eq!(config.schedule, Some("0 4 * * *".to_string()));
+    assert_eq!(config.scoring.frequency_weight, Some(2.0));
+    assert_eq!(config.scoring.recency_weight, Some(1.0));
+    assert_eq!(config.scoring.explicitness_weight, Some(3.0));
+    assert_eq!(config.scoring.cross_agent_weight, Some(2.5));
+    assert_eq!(config.scoring.negative_signal_weight, Some(-1.0));
+    assert_eq!(config.threshold.absolute, Some(3.0));
+    assert_eq!(config.threshold.relative, Some(0.5));
+    assert_eq!(config.capacity.max_rules, Some(50));
 }
 
 #[test]
 fn test_dreaming_config_deserialize_minimal() {
     let json = r#"{"enabled": true}"#;
     let config: DreamingConfig = serde_json::from_str(json).unwrap();
-    assert!(config.enabled);
-    assert_eq!(config.scoring.frequency_weight, 1.0);
-    assert_eq!(config.threshold.absolute, 2.0);
-    assert_eq!(config.capacity.max_rules, 20);
+    assert!(config.enabled == Some(true));
+    assert!(config.scoring.frequency_weight.is_none());
+    assert!(config.threshold.absolute.is_none());
+    assert!(config.capacity.max_rules.is_none());
 }
 
 // ── SearchConfig tests ─────────────────────────────────────────────
@@ -467,13 +470,13 @@ fn test_dreaming_config_deserialize_minimal() {
 #[test]
 fn test_search_config_defaults() {
     let config = SearchConfig::default();
-    assert!(!config.enabled);
+    assert!(!config.enabled.unwrap_or(false));
     assert!(config.model.is_none());
-    assert_eq!(config.context_turns, 5);
-    assert_eq!(config.timeout_ms, 3000);
-    assert_eq!(config.max_summary_chars, 500);
-    assert_eq!(config.min_entity_hits, 1);
-    assert_eq!(config.top_k_events, 3);
+    assert!(config.context_turns.is_none());
+    assert!(config.timeout_ms.is_none());
+    assert!(config.max_summary_chars.is_none());
+    assert!(config.min_entity_hits.is_none());
+    assert!(config.top_k_events.is_none());
 }
 
 #[test]
@@ -488,25 +491,25 @@ fn test_search_config_deserialize_full() {
         "topKEvents": 10
     }"#;
     let config: SearchConfig = serde_json::from_str(json).unwrap();
-    assert!(config.enabled);
+    assert!(config.enabled == Some(true));
     assert_eq!(config.model.as_deref(), Some("search-model"));
-    assert_eq!(config.context_turns, 8);
-    assert_eq!(config.timeout_ms, 5000);
-    assert_eq!(config.max_summary_chars, 1000);
-    assert_eq!(config.min_entity_hits, 2);
-    assert_eq!(config.top_k_events, 10);
+    assert_eq!(config.context_turns, Some(8));
+    assert_eq!(config.timeout_ms, Some(5000));
+    assert_eq!(config.max_summary_chars, Some(1000));
+    assert_eq!(config.min_entity_hits, Some(2));
+    assert_eq!(config.top_k_events, Some(10));
 }
 
 #[test]
 fn test_search_config_deserialize_minimal() {
     let json = r#"{"enabled": true}"#;
     let config: SearchConfig = serde_json::from_str(json).unwrap();
-    assert!(config.enabled);
-    assert_eq!(config.context_turns, 5);
-    assert_eq!(config.timeout_ms, 3000);
-    assert_eq!(config.max_summary_chars, 500);
-    assert_eq!(config.min_entity_hits, 1);
-    assert_eq!(config.top_k_events, 3);
+    assert!(config.enabled == Some(true));
+    assert!(config.context_turns.is_none());
+    assert!(config.timeout_ms.is_none());
+    assert!(config.max_summary_chars.is_none());
+    assert!(config.min_entity_hits.is_none());
+    assert!(config.top_k_events.is_none());
 }
 
 #[test]
@@ -520,7 +523,7 @@ fn test_search_config_camel_case_roundtrip() {
         "topKEvents": 5
     }"#;
     let config: SearchConfig = serde_json::from_str(json).unwrap();
-    assert_eq!(config.context_turns, 7);
+    assert_eq!(config.context_turns, Some(7));
     let serialized = serde_json::to_string(&config).unwrap();
     assert!(serialized.contains("contextTurns"));
     assert!(serialized.contains("timeoutMs"));
@@ -534,9 +537,9 @@ fn test_search_config_camel_case_roundtrip() {
 #[test]
 fn test_transcript_clean_rules_defaults() {
     let rules = TranscriptCleanRules::default();
-    assert_eq!(rules.min_turns, 5);
-    assert_eq!(rules.min_owner_msgs, 5);
-    assert_eq!(rules.format, "md");
+    assert!(rules.min_turns.is_none());
+    assert!(rules.min_owner_msgs.is_none());
+    assert!(rules.format.is_none());
 }
 
 #[test]
@@ -547,9 +550,9 @@ fn test_transcript_clean_rules_camel_case() {
         "format": "json"
     }"#;
     let rules: TranscriptCleanRules = serde_json::from_str(json).unwrap();
-    assert_eq!(rules.min_turns, 3);
-    assert_eq!(rules.min_owner_msgs, 2);
-    assert_eq!(rules.format, "json");
+    assert_eq!(rules.min_turns, Some(3));
+    assert_eq!(rules.min_owner_msgs, Some(2));
+    assert_eq!(rules.format, Some("json".to_string()));
 }
 
 // ── MemoryConfig full deserialization ──────────────────────────────
@@ -571,10 +574,10 @@ fn test_memory_config_full_deserialize() {
         }
     }"#;
     let config: MemoryConfig = serde_json::from_str(json).unwrap();
-    assert!(config.mining.enabled);
-    assert_eq!(config.mining.max_events_per_session, 15);
-    assert!(config.dreaming.enabled);
-    assert_eq!(config.dreaming.threshold.absolute, 1.0);
-    assert!(config.search.enabled);
-    assert_eq!(config.search.timeout_ms, 6000);
+    assert!(config.mining.enabled == Some(true));
+    assert_eq!(config.mining.max_events_per_session, Some(15));
+    assert!(config.dreaming.enabled == Some(true));
+    assert_eq!(config.dreaming.threshold.absolute, Some(1.0));
+    assert!(config.search.enabled == Some(true));
+    assert_eq!(config.search.timeout_ms, Some(6000));
 }

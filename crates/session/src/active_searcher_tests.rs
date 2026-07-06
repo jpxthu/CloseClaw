@@ -407,7 +407,7 @@ mod tests {
             Result<(Option<String>, Option<serde_json::Value>), String>,
         > {
             let cfg = serde_json::json!({
-                "active_searcher": { "timeout_ms": 1 }
+                "search": { "timeout_ms": 1 }
             });
             Box::pin(async move { Ok((Some("m".to_string()), Some(cfg))) })
         });
