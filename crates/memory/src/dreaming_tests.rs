@@ -274,8 +274,8 @@ fn test_deep_entity_type_weight_applied() {
     {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         conn.execute_batch(
-            "CREATE TABLE entity_types (type TEXT PRIMARY KEY, weight REAL NOT NULL);
-             INSERT INTO entity_types VALUES ('person', 2.0);",
+            "CREATE TABLE entity_types (type TEXT PRIMARY KEY, weight REAL NOT NULL, is_active INTEGER NOT NULL DEFAULT 1);
+             INSERT INTO entity_types (type, weight, is_active) VALUES ('person', 2.0, 1);",
         )
         .unwrap();
     }
