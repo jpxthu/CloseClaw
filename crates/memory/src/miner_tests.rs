@@ -4,8 +4,8 @@
 //! assignment, dedup logic, SQLite write operations, and edge cases.
 
 use crate::miner::{
-    load_entity_catalog, load_recent_events, normalize_entity_name, write_to_sqlite, MinerConfig,
-    MiningEntity, MiningEvent, MiningEventCategory,
+    load_entity_catalog, load_recent_events, normalize_entity_name, write_to_sqlite, MemoryMiner,
+    MinerConfig, MiningEntity, MiningEvent, MiningEventCategory,
 };
 use crate::miner_llm::MockMinerLlmCaller;
 use crate::miner_transcript::clean_transcript;
@@ -646,6 +646,129 @@ fn test_update_config_reflects_new_enabled() {
     };
     miner.update_config(new_config);
     assert!(miner.is_enabled(), "should be enabled after update_config");
+}
+
+// ── MinerConfig model propagation tests ───────────────────────────────
+
+/// from_mining_config() copies model from MiningConfig.
+#[test]
+fn test_miner_config_from_mining_config_copies_model() {
+    let mc = MiningConfig {
+        model: Some("gpt-4o-mini".to_string()),
+        ..Default::default()
+    };
+    let config = MinerConfig::from_mining_config(&mc);
+    assert_eq!(config.model.as_deref(), Some("gpt-4o-mini"));
+}
+
+/// from_mining_config() propagates None model as None.
+#[test]
+fn test_miner_config_from_mining_config_none_model() {
+    let mc = MiningConfig::default();
+    let config = MinerConfig::from_mining_config(&mc);
+    assert_eq!(config.model, None);
+}
+
+/// from_mining_config() preserves empty string model.
+#[test]
+fn test_miner_config_from_mining_config_empty_string_model() {
+    let mc = MiningConfig {
+        model: Some(String::new()),
+        ..Default::default()
+    };
+    let config = MinerConfig::from_mining_config(&mc);
+    assert_eq!(config.model.as_deref(), Some(""));
+}
+
+/// Default MinerConfig has model as None.
+#[test]
+fn test_miner_config_default_model_is_none() {
+    let config = MinerConfig::default();
+    assert_eq!(config.model, None);
+}
+
+// ── MemoryMiner model getter tests ────────────────────────────────────
+
+fn make_miner(config: MinerConfig) -> MemoryMiner {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let llm = Box::new(crate::miner_llm::MockMinerLlmCaller::default());
+    crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1")
+}
+
+/// model() returns None when no model is configured.
+#[test]
+fn test_model_returns_none_when_unconfigured() {
+    let miner = make_miner(MinerConfig::default());
+    assert_eq!(miner.model(), None, "model should be None by default");
+}
+
+/// model() returns the configured model name.
+#[test]
+fn test_model_returns_configured_value() {
+    let config = MinerConfig {
+        model: Some("gpt-4o".to_string()),
+        ..Default::default()
+    };
+    let miner = make_miner(config);
+    assert_eq!(miner.model().as_deref(), Some("gpt-4o"));
+}
+
+/// model() returns empty string when configured as empty.
+#[test]
+fn test_model_returns_empty_string() {
+    let config = MinerConfig {
+        model: Some(String::new()),
+        ..Default::default()
+    };
+    let miner = make_miner(config);
+    assert_eq!(miner.model().as_deref(), Some(""));
+}
+
+/// update_config propagates new model to getter.
+#[test]
+fn test_update_config_propagates_model() {
+    let miner = make_miner(MinerConfig::default());
+    assert_eq!(miner.model(), None);
+
+    let new_config = MinerConfig {
+        model: Some("claude-3.5-sonnet".to_string()),
+        ..Default::default()
+    };
+    miner.update_config(new_config);
+    assert_eq!(miner.model().as_deref(), Some("claude-3.5-sonnet"));
+}
+
+/// update_config can set model from Some to None.
+#[test]
+fn test_update_config_clears_model() {
+    let config = MinerConfig {
+        model: Some("gpt-4o".to_string()),
+        ..Default::default()
+    };
+    let miner = make_miner(config);
+    assert_eq!(miner.model().as_deref(), Some("gpt-4o"));
+
+    let new_config = MinerConfig {
+        model: None,
+        ..Default::default()
+    };
+    miner.update_config(new_config);
+    assert_eq!(miner.model(), None);
+}
+
+/// Per-agent override: different miners can have different models.
+#[test]
+fn test_per_agent_override_model() {
+    let miner_a = make_miner(MinerConfig {
+        model: Some("model-a".to_string()),
+        ..Default::default()
+    });
+    let miner_b = make_miner(MinerConfig {
+        model: Some("model-b".to_string()),
+        ..Default::default()
+    });
+    assert_eq!(miner_a.model().as_deref(), Some("model-a"));
+    assert_eq!(miner_b.model().as_deref(), Some("model-b"));
 }
 
 // ── MinerConfig from_mining_config edge cases ─────────────────────────
