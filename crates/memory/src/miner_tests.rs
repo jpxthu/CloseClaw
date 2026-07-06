@@ -502,8 +502,10 @@ fn test_load_recent_events_with_data() {
 
     let ts = chrono::Utc::now().timestamp();
     conn.execute(
-        "INSERT INTO events (title, summary, content, category, lesson, source_session_id, timestamp)
-         VALUES ('Bug Fix', 'Fixed a bug', 'body', 'error', 'lesson', 'other', ?1)",
+        "INSERT INTO events (title, summary, content,
+         category, lesson, source_session_id, timestamp)
+         VALUES ('Bug Fix', 'Fixed a bug', 'body',
+         'error', 'lesson', 'other', ?1)",
         params![ts],
     )
     .unwrap();
@@ -522,8 +524,10 @@ fn test_load_recent_events_excludes_old() {
 
     let old_ts = chrono::Utc::now().timestamp() - (60 * 86400);
     conn.execute(
-        "INSERT INTO events (title, summary, content, category, lesson, source_session_id, timestamp)
-         VALUES ('old', 'old', 'body', 'decision', NULL, 'other', ?1)",
+        "INSERT INTO events (title, summary, content,
+         category, lesson, source_session_id, timestamp)
+         VALUES ('old', 'old', 'body',
+         'decision', NULL, 'other', ?1)",
         params![old_ts],
     )
     .unwrap();
@@ -539,8 +543,10 @@ fn test_load_recent_events_excludes_current_session() {
 
     let ts = chrono::Utc::now().timestamp();
     conn.execute(
-        "INSERT INTO events (title, summary, content, category, lesson, source_session_id, timestamp)
-         VALUES ('Own Event', 'summary', 'body', 'error', NULL, 'my-sess', ?1)",
+        "INSERT INTO events (title, summary, content,
+         category, lesson, source_session_id, timestamp)
+         VALUES ('Own Event', 'summary', 'body',
+         'error', NULL, 'my-sess', ?1)",
         params![ts],
     )
     .unwrap();
