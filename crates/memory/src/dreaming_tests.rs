@@ -860,3 +860,89 @@ fn test_update_config_concurrent_safety() {
 }
 
 // ── Anti-contamination tests ───────────────────────────────────────
+
+// ── DreamingPipeline model propagation tests ───────────────────────
+
+/// with_config() extracts model from DreamingConfig.
+#[test]
+fn test_with_config_extracts_model() {
+    let config = DreamingConfig {
+        model: Some("gpt-4o".to_string()),
+        ..Default::default()
+    };
+    let pipeline = DreamingPipeline::with_config(config);
+    assert_eq!(pipeline.model().as_deref(), Some("gpt-4o"));
+}
+
+/// Default pipeline has model as None.
+#[test]
+fn test_default_model_is_none() {
+    let pipeline = DreamingPipeline::default();
+    assert_eq!(pipeline.model(), None);
+}
+
+/// model() returns None when DreamingConfig has no model.
+#[test]
+fn test_model_none_when_unconfigured() {
+    let config = DreamingConfig::default();
+    let pipeline = DreamingPipeline::with_config(config);
+    assert_eq!(pipeline.model(), None);
+}
+
+/// model() returns empty string when configured as empty.
+#[test]
+fn test_model_returns_empty_string() {
+    let config = DreamingConfig {
+        model: Some(String::new()),
+        ..Default::default()
+    };
+    let pipeline = DreamingPipeline::with_config(config);
+    assert_eq!(pipeline.model().as_deref(), Some(""));
+}
+
+/// update_config propagates new model to getter.
+#[test]
+fn test_update_config_propagates_model() {
+    let pipeline = DreamingPipeline::default();
+    assert_eq!(pipeline.model(), None);
+
+    let new_config = DreamingConfig {
+        model: Some("claude-3.5-sonnet".to_string()),
+        ..Default::default()
+    };
+    pipeline.update_config(new_config);
+    assert_eq!(pipeline.model().as_deref(), Some("claude-3.5-sonnet"));
+}
+
+/// update_config can clear model from Some to None.
+#[test]
+fn test_update_config_clears_model() {
+    let config = DreamingConfig {
+        model: Some("gpt-4o".to_string()),
+        ..Default::default()
+    };
+    let pipeline = DreamingPipeline::with_config(config);
+    assert_eq!(pipeline.model().as_deref(), Some("gpt-4o"));
+
+    let new_config = DreamingConfig {
+        model: None,
+        ..Default::default()
+    };
+    pipeline.update_config(new_config);
+    assert_eq!(pipeline.model(), None);
+}
+
+/// Per-agent override: different pipelines can have different models.
+#[test]
+fn test_per_agent_override_model() {
+    let pipeline_a = DreamingPipeline::with_config(DreamingConfig {
+        model: Some("model-a".to_string()),
+        ..Default::default()
+    });
+    let pipeline_b = DreamingPipeline::with_config(DreamingConfig {
+        model: Some("model-b".to_string()),
+        ..Default::default()
+    });
+    assert_eq!(pipeline_a.model().as_deref(), Some("model-a"));
+    assert_eq!(pipeline_b.model().as_deref(), Some("model-b"));
+}
