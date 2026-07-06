@@ -929,3 +929,49 @@ fn test_summarize_max_summary_chars_zero() {
         "max_summary_chars=0 should produce empty summary"
     );
 }
+
+/// is_active=0 entity types are excluded from search results.
+#[test]
+fn test_active_searcher_excludes_inactive_types() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    conn.execute(
+        "UPDATE entity_types SET is_active = 0 WHERE type = 'person'",
+        [],
+    )
+    .unwrap();
+    insert_entity(&conn, "agent-1", "person", "Alice", "alice");
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+    let results = searcher
+        .search_entities("agent-1", &["alice".into()])
+        .unwrap();
+    assert!(results.is_empty());
+}
+
+/// is_default=1 types rank first among same-weight types.
+#[test]
+fn test_active_searcher_default_type_priority() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    conn.execute(
+        "INSERT INTO entity_types (type, name, description, weight, is_default, is_active)
+         VALUES ('alpha', 'Alpha', 'alpha type', 2.0, 1, 1)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO entity_types (type, name, description, weight, is_default, is_active)
+         VALUES ('beta', 'Beta', 'beta type', 2.0, 0, 1)",
+        [],
+    )
+    .unwrap();
+    insert_entity(&conn, "agent-1", "beta", "shared name", "shared name");
+    insert_entity(&conn, "agent-1", "alpha", "shared name a", "shared name a");
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+    let results = searcher
+        .search_entities("agent-1", &["shared name".into()])
+        .unwrap();
+    assert_eq!(results.len(), 2, "both entities should match");
+    assert_eq!(results[0].entity_type, "alpha");
+    assert_eq!(results[1].entity_type, "beta");
+}

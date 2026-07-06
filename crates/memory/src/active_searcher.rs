@@ -176,9 +176,10 @@ impl ActiveSearcher {
                  FROM entities e
                  JOIN entity_types t ON e.type = t.type
                  WHERE e.agent_id = ?1
+                   AND t.is_active = 1
                    AND (e.normalized_name = ?2
                         OR e.normalized_name LIKE '%' || ?2 || '%')
-                 ORDER BY t.weight DESC",
+                 ORDER BY t.weight DESC, t.is_default DESC",
             )
             .map_err(|e| ActiveSearcherError::Sqlite(e.to_string()))?;
 

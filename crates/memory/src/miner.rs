@@ -552,7 +552,8 @@ pub(crate) fn load_entity_catalog(
     agent_id: &str,
 ) -> Result<String, MinerError> {
     // Load all entity type definitions, sorted alphabetically by type.
-    let type_sql = "SELECT type, name, description FROM entity_types ORDER BY type";
+    let type_sql =
+        "SELECT type, name, description FROM entity_types WHERE is_active = 1 ORDER BY type";
     let mut type_stmt = conn
         .prepare(type_sql)
         .map_err(|e| MinerError::Sqlite(e.to_string()))?;
