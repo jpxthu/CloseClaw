@@ -319,10 +319,14 @@ async fn build_session_handler(
     );
     // Set LLM caller on SessionManager so it can inject into ConversationSession.
     session_manager.set_llm_caller(llm_caller).await;
+    let searcher_model = valid_chain
+        .first()
+        .map(|e| e.model.clone())
+        .unwrap_or_default();
     let fallback_llm_caller = Arc::new(
         closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
             client: unified_fallback_client,
-            model: String::new(),
+            model: searcher_model,
         },
     );
     Some(

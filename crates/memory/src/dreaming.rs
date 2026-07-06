@@ -110,6 +110,8 @@ pub struct DreamingPipeline {
     scoring: DreamingScoringConfig,
     thresholds: Thresholds,
     config: Arc<RwLock<DreamingConfig>>,
+    /// Model for lesson distillation and Dream Diary.
+    model: Arc<RwLock<Option<String>>>,
     /// Path to the SQLite database (for reading events/entities).
     db_path: Option<PathBuf>,
     /// Output path for MEMORY.md.
@@ -119,8 +121,14 @@ pub struct DreamingPipeline {
 }
 
 impl DreamingPipeline {
+    /// Return the configured model, if any.
+    pub fn model(&self) -> Option<String> {
+        self.model.read().unwrap().clone()
+    }
+
     /// Update the dreaming configuration at runtime.
     pub fn update_config(&self, config: DreamingConfig) {
+        *self.model.write().unwrap() = config.model.clone();
         *self.config.write().unwrap() = config;
     }
 
@@ -134,6 +142,7 @@ impl DreamingPipeline {
                 max_rules: 20,
             },
             config: Arc::new(RwLock::new(DreamingConfig::default())),
+            model: Arc::new(RwLock::new(None)),
             db_path: None,
             memory_md_path: default_memory_md_path(),
             llm: None,
@@ -143,6 +152,7 @@ impl DreamingPipeline {
     /// Create a pipeline with a custom dreaming configuration.
     pub fn with_config(config: DreamingConfig) -> Self {
         let scoring = config.scoring.clone();
+        let model = config.model.clone();
         let thresholds = Thresholds {
             absolute: config
                 .threshold
@@ -161,6 +171,7 @@ impl DreamingPipeline {
             scoring,
             thresholds,
             config: Arc::new(RwLock::new(config)),
+            model: Arc::new(RwLock::new(model)),
             db_path: None,
             memory_md_path: default_memory_md_path(),
             llm: None,
