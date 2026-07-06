@@ -143,6 +143,19 @@ impl Default for MinerConfig {
     }
 }
 
+/// Data loaded from SQLite in a blocking context.
+///
+/// Used to pass read results from `spawn_blocking` closures to async
+/// code without holding a `rusqlite::Connection` across `.await` points.
+struct DbReadData {
+    /// Recent events text for Miner 1 dedup context.
+    recent_events: String,
+    /// Current MEMORY.md content for Miner 1 dedup context.
+    memory_md: String,
+    /// Entity/type catalog text for Miner 2.
+    catalog: String,
+}
+
 /// Memory miner — extracts structured entries from session transcripts.
 pub struct MemoryMiner {
     /// Mining configuration.
@@ -207,6 +220,52 @@ impl MemoryMiner {
             });
         }
 
+        self.mine_session_inner(session_id, raw_transcript, &checkpoint, storage)
+            .await
+    }
+
+    /// Mine a session from a pre-loaded checkpoint.
+    ///
+    /// Same as [`mine_session`] but accepts the checkpoint directly,
+    /// avoiding a redundant storage load. The caller is responsible for
+    /// verifying that the session is archived and unmined.
+    pub async fn mine_session_from_checkpoint(
+        &self,
+        session_id: &str,
+        raw_transcript: &str,
+        checkpoint: &closeclaw_session::persistence::SessionCheckpoint,
+        storage: &dyn PersistenceService,
+    ) -> Result<MineResult, MinerError> {
+        if !self.config.enabled {
+            return Ok(MineResult {
+                events: Vec::new(),
+                entity_names: Vec::new(),
+            });
+        }
+
+        if checkpoint.mined {
+            return Ok(MineResult {
+                events: Vec::new(),
+                entity_names: Vec::new(),
+            });
+        }
+
+        self.mine_session_inner(session_id, raw_transcript, checkpoint, storage)
+            .await
+    }
+
+    /// Shared mining implementation.
+    ///
+    /// Separates blocking SQLite operations from async LLM calls to
+    /// ensure the `rusqlite::Connection` (which is not `Send`) is dropped
+    /// before any `.await` point.
+    async fn mine_session_inner(
+        &self,
+        session_id: &str,
+        raw_transcript: &str,
+        _checkpoint: &closeclaw_session::persistence::SessionCheckpoint,
+        storage: &dyn PersistenceService,
+    ) -> Result<MineResult, MinerError> {
         let cleaned = clean_transcript(raw_transcript, &self.config.clean_rules);
         if cleaned.is_empty() {
             return Ok(MineResult {
@@ -215,16 +274,63 @@ impl MemoryMiner {
             });
         }
 
-        let conn = self.open_db()?;
-        let recent_events = self.load_recent_events(&conn, session_id)?;
-        let memory_md = self.load_memory_md();
+        // ── Phase 1: Blocking SQLite reads ────────────────────────
+        // All Connection usage is confined to this closure; the
+        // connection is dropped before we hit any `.await`.
+        let db_path = self.db_path.clone();
+        let dedup_days = self.config.dedup_window_days;
+        let agent_id = self.agent_id.clone();
+        let memory_md_path = self.memory_md_path.clone();
+        let session_id_owned = session_id.to_string();
 
+        let db_data = tokio::task::spawn_blocking(move || -> Result<DbReadData, MinerError> {
+            let conn = rusqlite::Connection::open(&db_path)
+                .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+            init_schema(&conn)?;
+
+            let recent_events = load_recent_events(&conn, &session_id_owned, dedup_days)?;
+            let memory_md = std::fs::read_to_string(&memory_md_path).unwrap_or_default();
+            let catalog = load_entity_catalog(&conn, &agent_id)?;
+
+            Ok(DbReadData {
+                recent_events,
+                memory_md,
+                catalog,
+            })
+        })
+        .await
+        .map_err(|e| MinerError::Sqlite(e.to_string()))??;
+
+        // ── Phase 2: Async LLM extraction (no Connection in scope) ─
         let events = self
-            .extract_events(&cleaned, &recent_events, &memory_md)
+            .extract_events(&cleaned, &db_data.recent_events, &db_data.memory_md)
             .await?;
-        let entities = self.assign_entities(&events, &conn).await?;
 
-        write_to_sqlite(&conn, session_id, &self.agent_id, &events, &entities)?;
+        // ── Phase 3: Async LLM entity assignment ──────────────────
+        let mut entities = self.llm.assign_entities(&events, &db_data.catalog).await?;
+        for event_entities in &mut entities {
+            truncate_entity_names(event_entities);
+        }
+
+        // ── Phase 4: Blocking SQLite writes ───────────────────────
+        let db_path = self.db_path.clone();
+        let agent_id = self.agent_id.clone();
+        let session_id_owned = session_id.to_string();
+        let events_clone = events.clone();
+        let entities_clone = entities.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), MinerError> {
+            let conn = rusqlite::Connection::open(&db_path)
+                .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+            write_to_sqlite(
+                &conn,
+                &session_id_owned,
+                &agent_id,
+                &events_clone,
+                &entities_clone,
+            )
+        })
+        .await
+        .map_err(|e| MinerError::Sqlite(e.to_string()))??;
 
         storage.mark_mined(session_id).await?;
 
@@ -237,33 +343,6 @@ impl MemoryMiner {
             events,
             entity_names,
         })
-    }
-
-    /// Clean raw transcript using configured rules.
-    pub fn clean_transcript_raw(&self, raw: &str) -> String {
-        clean_transcript(raw, &self.config.clean_rules)
-    }
-
-    /// Open the SQLite database connection.
-    fn open_db(&self) -> Result<rusqlite::Connection, MinerError> {
-        let conn = rusqlite::Connection::open(&self.db_path)
-            .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-        init_schema(&conn)?;
-        Ok(conn)
-    }
-
-    /// Load recent events within the dedup window for context.
-    fn load_recent_events(
-        &self,
-        conn: &rusqlite::Connection,
-        exclude_session: &str,
-    ) -> Result<String, MinerError> {
-        load_recent_events(conn, exclude_session, self.config.dedup_window_days)
-    }
-
-    /// Load MEMORY.md content.
-    fn load_memory_md(&self) -> String {
-        std::fs::read_to_string(&self.memory_md_path).unwrap_or_default()
     }
 
     /// Miner 1: extract events from cleaned transcript via LLM.
@@ -279,20 +358,6 @@ impl MemoryMiner {
             .await?;
         events.truncate(self.config.max_events_per_session);
         Ok(events)
-    }
-
-    /// Miner 2: assign entities to events via LLM.
-    async fn assign_entities(
-        &self,
-        events: &[MiningEvent],
-        conn: &rusqlite::Connection,
-    ) -> Result<Vec<Vec<MiningEntity>>, MinerError> {
-        let catalog = load_entity_catalog(conn, &self.agent_id)?;
-        let mut entities = self.llm.assign_entities(events, &catalog).await?;
-        for event_entities in &mut entities {
-            truncate_entity_names(event_entities);
-        }
-        Ok(entities)
     }
 }
 

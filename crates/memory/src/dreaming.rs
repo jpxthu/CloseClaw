@@ -574,35 +574,53 @@ impl DreamingPipeline {
 
     /// Consolidate lessons from Deep-stage entries via LLM.
     ///
-    /// Groups entries by entity tag and consolidates each group's lessons
-    /// into a single behavioral rule. Falls back to raw lesson/body text
-    /// on LLM failure (graceful degradation).
+    /// Groups entries by primary entity tag (fallback: source_session_id)
+    /// and consolidates each group's lessons into a single behavioral rule.
+    /// Falls back to raw lesson/body text on LLM failure.
     pub(crate) async fn consolidate_lessons(
         &self,
         llm: &Arc<dyn DreamingLlmCaller>,
         entries: &[MemoryEntry],
     ) -> Vec<String> {
+        let groups = Self::group_entries_by_entity(entries);
         let mut rules = Vec::new();
-        for entry in entries {
-            let lesson_text = entry.lesson.as_deref().unwrap_or(&entry.body);
-            let entity_name = entry.tags.first().map(String::as_str).unwrap_or("general");
 
-            match llm
-                .consolidate_lessons(&[lesson_text.to_string()], entity_name)
-                .await
-            {
+        for (entity_name, group_entries) in &groups {
+            let lessons: Vec<String> = group_entries
+                .iter()
+                .map(|e| e.lesson.clone().unwrap_or_else(|| e.body.clone()))
+                .collect();
+
+            match llm.consolidate_lessons(&lessons, entity_name).await {
                 Ok(rule) => rules.push(rule),
                 Err(e) => {
                     tracing::warn!(
-                        entity = entity_name,
+                        entity = entity_name.as_str(),
                         %e,
-                        "LLM consolidation failed, using raw lesson"
+                        "LLM consolidation failed, using raw lessons"
                     );
-                    rules.push(lesson_text.to_string());
+                    rules.extend(lessons);
                 }
             }
         }
         rules
+    }
+
+    /// Group entries by primary entity tag, falling back to source_session_id.
+    fn group_entries_by_entity(
+        entries: &[MemoryEntry],
+    ) -> std::collections::BTreeMap<String, Vec<&MemoryEntry>> {
+        let mut groups: std::collections::BTreeMap<String, Vec<&MemoryEntry>> =
+            std::collections::BTreeMap::new();
+        for entry in entries {
+            let key = entry
+                .tags
+                .first()
+                .cloned()
+                .unwrap_or_else(|| format!("session:{}", entry.source_session_id));
+            groups.entry(key).or_default().push(entry);
+        }
+        groups
     }
 
     // ── Anti-contamination check ─────────────────────────────────────
@@ -802,5 +820,103 @@ mod tests {
         let words = DreamingPipeline::extract_words("I am okay to go now");
         assert!(!words.contains(&"i".to_string()));
         assert!(words.contains(&"okay".to_string()));
+    }
+
+    #[test]
+    fn test_group_entries_by_entity_groups_by_tag() {
+        let mut e1 = make_entry(EntryCategory::Error, "err1", "s1", 10);
+        e1.tags = vec!["rust".to_string()];
+        let mut e2 = make_entry(EntryCategory::Error, "err2", "s1", 10);
+        e2.tags = vec!["rust".to_string()];
+        let mut e3 = make_entry(EntryCategory::Error, "err3", "s2", 10);
+        e3.tags = vec!["docker".to_string()];
+        let entries = [e1, e2, e3];
+
+        let groups = DreamingPipeline::group_entries_by_entity(&entries);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups["rust"].len(), 2);
+        assert_eq!(groups["docker"].len(), 1);
+    }
+
+    #[test]
+    fn test_group_entries_fallback_to_session() {
+        let e1 = make_entry(EntryCategory::Error, "err1", "s1", 10);
+        let e2 = make_entry(EntryCategory::Error, "err2", "s2", 10);
+        let entries = [e1, e2];
+
+        let groups = DreamingPipeline::group_entries_by_entity(&entries);
+        assert_eq!(groups.len(), 2);
+        assert!(groups.contains_key("session:s1"));
+        assert!(groups.contains_key("session:s2"));
+    }
+
+    #[test]
+    fn test_group_entries_uses_first_tag() {
+        let mut e1 = make_entry(EntryCategory::Error, "err1", "s1", 10);
+        e1.tags = vec!["primary".to_string(), "secondary".to_string()];
+        let entries = [e1];
+
+        let groups = DreamingPipeline::group_entries_by_entity(&entries);
+        assert_eq!(groups.len(), 1);
+        assert!(groups.contains_key("primary"));
+    }
+
+    #[tokio::test]
+    async fn test_consolidate_lessons_groups_by_entity() {
+        use crate::dreaming_llm::DreamingLlmError;
+        use async_trait::async_trait;
+
+        let calls: std::sync::Arc<std::sync::Mutex<Vec<(Vec<String>, String)>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let calls_for_llm = calls.clone();
+
+        struct RecordingLlm {
+            calls: std::sync::Arc<std::sync::Mutex<Vec<(Vec<String>, String)>>>,
+        }
+
+        #[async_trait]
+        impl crate::dreaming_llm::DreamingLlmCaller for RecordingLlm {
+            async fn consolidate_lessons(
+                &self,
+                lessons: &[String],
+                entity_name: &str,
+            ) -> Result<String, DreamingLlmError> {
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push((lessons.to_vec(), entity_name.to_string()));
+                Ok(format!("rule for {}", entity_name))
+            }
+        }
+
+        let llm: std::sync::Arc<dyn crate::dreaming_llm::DreamingLlmCaller> =
+            std::sync::Arc::new(RecordingLlm {
+                calls: calls_for_llm,
+            });
+        let pipeline = DreamingPipeline::new();
+
+        let mut e1 = make_entry(EntryCategory::Error, "body1", "s1", 10);
+        e1.tags = vec!["rust".to_string()];
+        e1.lesson = Some("lesson1".to_string());
+        let mut e2 = make_entry(EntryCategory::Error, "body2", "s1", 10);
+        e2.tags = vec!["rust".to_string()];
+        e2.lesson = Some("lesson2".to_string());
+        let mut e3 = make_entry(EntryCategory::Error, "body3", "s2", 10);
+        e3.tags = vec!["docker".to_string()];
+        e3.lesson = Some("lesson3".to_string());
+
+        let rules = pipeline.consolidate_lessons(&llm, &[e1, e2, e3]).await;
+        let calls = calls.lock().unwrap();
+        // Should be 2 calls (one per entity group), not 3
+        assert_eq!(calls.len(), 2);
+        // Rust group should have both lessons merged
+        let rust_call = calls.iter().find(|c| c.1 == "rust").unwrap();
+        assert_eq!(rust_call.0.len(), 2);
+        assert!(rust_call.0.contains(&"lesson1".to_string()));
+        assert!(rust_call.0.contains(&"lesson2".to_string()));
+        // Docker group should have 1 lesson
+        let docker_call = calls.iter().find(|c| c.1 == "docker").unwrap();
+        assert_eq!(docker_call.0.len(), 1);
+        assert_eq!(rules.len(), 2);
     }
 }

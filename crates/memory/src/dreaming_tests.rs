@@ -624,22 +624,21 @@ async fn test_consolidate_lessons_produces_rules() {
     let pipeline = DreamingPipeline::new();
     let llm: Arc<dyn DreamingLlmCaller> = Arc::new(MockConsolidationLlm);
 
-    let entries = vec![
-        make_entry_with_lesson(
-            EntryCategory::Error,
-            "wrong deployment",
-            "s1",
-            "verify before deploy",
-        ),
-        make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 5),
-    ];
+    let mut e1 = make_entry_with_lesson(
+        EntryCategory::Error,
+        "wrong deployment",
+        "s1",
+        "verify before deploy",
+    );
+    e1.tags = vec!["deployment".to_string()];
+    let mut e2 = make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 5);
+    e2.tags = vec!["ui".to_string()];
 
-    let rules = pipeline.consolidate_lessons(&llm, &entries).await;
+    let rules = pipeline.consolidate_lessons(&llm, &[e1, e2]).await;
     assert_eq!(rules.len(), 2);
-    // First entry has a lesson, so it should be used.
-    assert!(rules[0].contains("verify before deploy"));
-    // Second entry has no lesson, so body is used.
-    assert!(rules[1].contains("dark mode preferred"));
+    // Each group produces one consolidated rule.
+    assert!(rules[0].contains("deployment") || rules[1].contains("deployment"));
+    assert!(rules[0].contains("ui") || rules[1].contains("ui"));
 }
 
 /// LLM failure falls back to raw lesson/body text.

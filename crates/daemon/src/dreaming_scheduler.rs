@@ -108,23 +108,44 @@ impl DreamingScheduler {
         let unmined = self.storage.list_archived_unmined_sessions().await?;
 
         for session_id in unmined {
-            // Look up agent_id from archived checkpoint to filter by configured agents
-            let checkpoint = self.storage.load_archived_checkpoint(&session_id).await;
-            let agent_id = match checkpoint {
-                Ok(Some(cp)) => cp.agent_id,
-                _ => None,
+            // Load archived checkpoint to get agent_id and transcript.
+            let checkpoint = match self.storage.load_archived_checkpoint(&session_id).await {
+                Ok(Some(cp)) => cp,
+                Ok(None) => {
+                    error!(
+                        session_id = %session_id,
+                        "archived checkpoint not found, skipping"
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    error!(
+                        session_id = %session_id,
+                        %e,
+                        "failed to load archived checkpoint"
+                    );
+                    continue;
+                }
             };
 
-            // Skip sessions whose agent is not in the configured agent list
-            if let Some(ref aid) = agent_id {
+            // Skip sessions whose agent is not in the configured agent list.
+            if let Some(ref aid) = checkpoint.agent_id {
                 if !agents.contains(aid) {
                     continue;
                 }
             }
 
+            // Format transcript from pending_messages.
+            let raw_transcript = format_transcript(&checkpoint.pending_messages);
+
             if let Err(e) = self
                 .memory_miner
-                .mine_session(&session_id, self.storage.as_ref())
+                .mine_session_from_checkpoint(
+                    &session_id,
+                    &raw_transcript,
+                    &checkpoint,
+                    self.storage.as_ref(),
+                )
                 .await
             {
                 error!(session_id = %session_id, %e, "failed to mine session");
@@ -135,8 +156,72 @@ impl DreamingScheduler {
     }
 }
 
+/// Format pending messages into the raw transcript text expected by the miner.
+///
+/// Messages are rendered as `"<role>: <content>"` lines, matching the
+/// format produced by session transcript recording.
+fn format_transcript(messages: &[closeclaw_session::persistence::PendingMessage]) -> String {
+    messages
+        .iter()
+        .map(|m| {
+            let role = m
+                .role
+                .as_deref()
+                .filter(|r| !r.is_empty())
+                .unwrap_or("unknown");
+            format!("{role}: {}", m.content)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 impl std::fmt::Debug for DreamingScheduler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DreamingScheduler").finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_transcript_empty() {
+        let result = format_transcript(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_format_transcript_converts_messages() {
+        use closeclaw_session::persistence::PendingMessage;
+        let messages = vec![
+            PendingMessage::with_role("msg1".into(), "hello".into(), "user".into()),
+            PendingMessage::with_role("msg2".into(), "hi there".into(), "assistant".into()),
+        ];
+        let result = format_transcript(&messages);
+        assert!(result.contains("user: hello"));
+        assert!(result.contains("assistant: hi there"));
+    }
+
+    #[test]
+    fn test_format_transcript_handles_empty_role() {
+        use closeclaw_session::persistence::PendingMessage;
+        let messages = vec![PendingMessage::new("msg1".into(), "content".into())];
+        let result = format_transcript(&messages);
+        assert!(result.contains("unknown: content"));
+    }
+
+    #[test]
+    fn test_format_transcript_uses_role_not_message_id() {
+        use closeclaw_session::persistence::PendingMessage;
+        let messages = vec![
+            PendingMessage::with_role("out-12345".into(), "hello".into(), "assistant".into()),
+            PendingMessage::with_role("pending-67890".into(), "world".into(), "user".into()),
+        ];
+        let result = format_transcript(&messages);
+        assert!(result.contains("assistant: hello"));
+        assert!(result.contains("user: world"));
+        assert!(!result.contains("out-12345"));
+        assert!(!result.contains("pending-67890"));
     }
 }

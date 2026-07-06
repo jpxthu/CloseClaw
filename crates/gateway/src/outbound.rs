@@ -288,9 +288,10 @@ impl Gateway {
                 return;
             }
         };
-        let mut pending = closeclaw_session::persistence::PendingMessage::new(
+        let mut pending = closeclaw_session::persistence::PendingMessage::with_role(
             msg.id.clone(),
             msg.content.clone(),
+            "assistant".to_string(),
         );
         pending.mark_sent();
         let mut cp = checkpoint.add_pending_message(pending);

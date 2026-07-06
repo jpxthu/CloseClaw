@@ -61,7 +61,13 @@ fn make_scheduler(
         storage,
         config,
         Arc::new(DreamingPipeline::new()),
-        Arc::new(MemoryMiner::new()),
+        Arc::new(MemoryMiner::new(
+            closeclaw_memory::miner::MinerConfig::default(),
+            Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
+            std::path::PathBuf::from("/tmp/test-memory.db"),
+            "/tmp/test-MEMORY.md".to_string(),
+            String::new(),
+        )),
     )
 }
 
