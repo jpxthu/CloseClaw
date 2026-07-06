@@ -12,6 +12,17 @@ pub enum DreamingLlmError {
     Llm(String),
 }
 
+/// Information about a promoted entity group for diary generation.
+#[derive(Debug, Clone)]
+pub struct PromotedGroupInfo {
+    /// Human-readable entity name.
+    pub entity_name: String,
+    /// Entity type (e.g. "subject", "person").
+    pub entity_type: String,
+    /// Consolidated lessons / rules for this entity.
+    pub lessons: Vec<String>,
+}
+
 /// Abstract LLM caller for lesson consolidation.
 ///
 /// In production, wrap a real [`Provider`][closeclaw_llm::Provider];
@@ -27,6 +38,15 @@ pub trait DreamingLlmCaller: Send + Sync {
         &self,
         lessons: &[String],
         entity_name: &str,
+    ) -> Result<String, DreamingLlmError>;
+
+    /// Generate a Dream Diary narrative summarizing promoted groups.
+    ///
+    /// `promoted_groups` contains entity groups that were actually
+    /// promoted to MEMORY.md. Returns coherent prose for the diary.
+    async fn generate_diary_narrative(
+        &self,
+        promoted_groups: &[PromotedGroupInfo],
     ) -> Result<String, DreamingLlmError>;
 }
 
@@ -49,6 +69,17 @@ mod tests {
             }
             Ok(format!("consolidated: {}", lessons.join(", ")))
         }
+
+        async fn generate_diary_narrative(
+            &self,
+            promoted_groups: &[PromotedGroupInfo],
+        ) -> Result<String, DreamingLlmError> {
+            let names: Vec<&str> = promoted_groups
+                .iter()
+                .map(|g| g.entity_name.as_str())
+                .collect();
+            Ok(format!("diary about {}", names.join(", ")))
+        }
     }
 
     /// Failing LLM caller for testing degradation.
@@ -60,6 +91,13 @@ mod tests {
             &self,
             _lessons: &[String],
             _entity_name: &str,
+        ) -> Result<String, DreamingLlmError> {
+            Err(DreamingLlmError::Llm("simulated failure".into()))
+        }
+
+        async fn generate_diary_narrative(
+            &self,
+            _promoted_groups: &[PromotedGroupInfo],
         ) -> Result<String, DreamingLlmError> {
             Err(DreamingLlmError::Llm("simulated failure".into()))
         }
@@ -81,6 +119,39 @@ mod tests {
         let llm = FailingLlmCaller;
         let result = llm
             .consolidate_lessons(&["rule".to_string()], "entity")
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mock_llm_diary_narrative() {
+        let llm = MockLlmCaller;
+        let groups = vec![
+            PromotedGroupInfo {
+                entity_name: "deploy".into(),
+                entity_type: "subject".into(),
+                lessons: vec!["always verify".into()],
+            },
+            PromotedGroupInfo {
+                entity_name: "vim".into(),
+                entity_type: "subject".into(),
+                lessons: vec!["use vim".into()],
+            },
+        ];
+        let result = llm.generate_diary_narrative(&groups).await.unwrap();
+        assert!(result.contains("deploy"));
+        assert!(result.contains("vim"));
+    }
+
+    #[tokio::test]
+    async fn test_failing_llm_diary_narrative() {
+        let llm = FailingLlmCaller;
+        let result = llm
+            .generate_diary_narrative(&[PromotedGroupInfo {
+                entity_name: "x".into(),
+                entity_type: "subject".into(),
+                lessons: vec![],
+            }])
             .await;
         assert!(result.is_err());
     }
