@@ -54,9 +54,7 @@ use tracing::info;
 
 mod noop_miner_llm;
 
-/// Parse an .env file into key-value pairs.
-/// Lines starting with # are comments. Whitespace around keys and values is trimmed.
-/// Returns only non-empty key-value pairs.
+/// Parse an .env file into key-value pairs (comments, whitespace trimmed).
 fn parse_env_file(path: &std::path::Path) -> std::io::Result<Vec<(String, String)>> {
     let content = std::fs::read_to_string(path)?;
     let mut pairs = Vec::new();
@@ -75,8 +73,7 @@ fn parse_env_file(path: &std::path::Path) -> std::io::Result<Vec<(String, String
     }
     Ok(pairs)
 }
-/// Load key=value pairs from a .env file and set them as environment variables.
-/// Lines starting with # are treated as comments and ignored.
+/// Load key=value pairs from a .env file and set them as env vars (lines starting with # ignored).
 fn load_env_file(path: &std::path::Path) -> std::io::Result<()> {
     for (key, value) in parse_env_file(path)? {
         std::env::set_var(&key, &value); // load_env_file: allowed exception per CONTRIBUTING.md
@@ -117,10 +114,8 @@ pub struct Daemon {
 }
 // --- Topological startup orchestration ---
 impl Daemon {
-    /// Resolve the deterministic startup order from the component dependency graph.
-    ///
-    /// Returns the layers produced by [`topo_sort_layers`].  If the dependency
-    /// graph contains a cycle the daemon must refuse to start.
+    /// Resolve the deterministic startup order from the component dependency
+    /// graph. Returns topo-sorted layers; errors on circular dependency.
     fn resolve_startup_order() -> Result<StartupPlan, StartupError> {
         let entries = all_component_entries();
         let layers = topo_sort_layers(&entries)?;
@@ -417,9 +412,13 @@ impl Daemon {
         let storage: Arc<dyn PersistenceService> =
             Arc::new(SqliteStorage::new(data_dir).expect("SqliteStorage already initialized"))
                 as Arc<dyn PersistenceService>;
+        // Create mining notification channel: sweeper → scheduler
+        let (mining_notify_tx, mining_notify_rx) = tokio::sync::mpsc::channel(32);
+
         let sweeper = Arc::new(
             ArchiveSweeper::new(Arc::clone(&storage), session_config_provider)
-                .with_session_manager(Arc::clone(session_manager)),
+                .with_session_manager(Arc::clone(session_manager))
+                .with_mining_notify_tx(mining_notify_tx),
         );
         let sweeper_for_task = Arc::clone(&sweeper);
         tokio::spawn(async move {
@@ -470,7 +469,8 @@ impl Daemon {
                 .schedule
                 .clone()
                 .unwrap_or_else(closeclaw_config::agents::default_dreaming_schedule),
-        ));
+        ))
+        .with_mining_notify_rx(mining_notify_rx);
         tokio::spawn(async move {
             dreaming_scheduler.run(dreaming_rx).await;
         });

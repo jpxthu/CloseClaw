@@ -188,6 +188,7 @@ impl SqliteStorage {
             ("mined", "TEXT"),
             ("dreaming_status", "TEXT"),
             ("plan_state", "TEXT"),
+            ("mined_at", "INTEGER"),
         ] {
             Self::add_column_if_not_exists(conn, col, col_type)?;
         }
@@ -352,6 +353,7 @@ impl PersistenceService for SqliteStorage {
             let dreaming_status_str =
                 crate::persistence::dreaming_status_to_db(&checkpoint.dreaming_status);
             let mined_str = if checkpoint.mined { "1" } else { "0" };
+            let mined_at_val = checkpoint.mined_at;
             let plan_state_json = checkpoint
                 .plan_state
                 .as_ref()
@@ -363,12 +365,12 @@ impl PersistenceService for SqliteStorage {
                  (id, agent_id, role, channel, chat_id, status, title,
                   last_message_at, created_at, archived_at, message_count, metadata, thread_id,
                   sender_id, platform, peer_id, account_id, parent_session_id, depth,
-                  mined, dreaming_status, plan_state)
+                  mined, dreaming_status, plan_state, mined_at)
                  VALUES (
                      ?1, ?2, ?3, ?4, ?5, ?6, ?7,
                      ?8, ?9, ?10, ?11, ?12, ?13,
                      ?14, ?15, ?16, ?17, ?18, ?19,
-                     ?20, ?21, ?22
+                     ?20, ?21, ?22, ?23
                  )",
                 params![
                     checkpoint.session_id,
@@ -402,6 +404,7 @@ impl PersistenceService for SqliteStorage {
                     mined_str,
                     dreaming_status_str,
                     plan_state_json.as_deref(),
+                    mined_at_val,
                 ],
             )
             .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
@@ -691,14 +694,15 @@ impl PersistenceService for SqliteStorage {
     async fn mark_mined(&self, session_id: &str) -> Result<(), PersistenceError> {
         let data_dir = self.data_dir.clone();
         let session_id = session_id.to_string();
+        let now = chrono::Utc::now().timestamp();
 
         spawn_blocking(move || {
             let conn = Connection::open(data_dir.join("sessions.sqlite"))
                 .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
             conn.execute(
-                "UPDATE sessions SET mined = 1 WHERE id = ?1",
-                rusqlite::params![session_id],
+                "UPDATE sessions SET mined = 1, mined_at = ?1 WHERE id = ?2",
+                rusqlite::params![now, session_id],
             )
             .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 

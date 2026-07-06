@@ -178,7 +178,7 @@ pub fn load_checkpoint_inner(
             "SELECT agent_id, role, channel, chat_id, status, title,
              last_message_at, created_at, archived_at, message_count, metadata, thread_id,
              sender_id, platform, peer_id, account_id, parent_session_id, depth,
-             mined, dreaming_status, plan_state
+             mined, dreaming_status, plan_state, mined_at
              FROM sessions WHERE id = ?1",
         )
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
@@ -206,6 +206,7 @@ pub fn load_checkpoint_inner(
             row.get::<_, Option<String>>(18)?,
             row.get::<_, Option<String>>(19)?,
             row.get::<_, Option<String>>(20)?,
+            row.get::<_, Option<i64>>(21)?,
         ))
     }) {
         Ok(r) => r,
@@ -235,6 +236,7 @@ pub fn load_checkpoint_inner(
         mined_raw,
         dreaming_status_raw,
         plan_state_raw,
+        mined_at_raw,
     ) = row;
 
     let depth: u32 = depth_str.and_then(|s| s.parse().ok()).unwrap_or(0);
@@ -356,6 +358,7 @@ pub fn load_checkpoint_inner(
         parent_session_id,
         depth,
         mined,
+        mined_at: mined_at_raw,
         dreaming_status,
         effective_max_spawn_depth: None,
         pending_operations: Vec::new(),

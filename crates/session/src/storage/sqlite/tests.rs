@@ -36,6 +36,7 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         depth: 0,
         effective_max_spawn_depth: None,
         mined: false,
+        mined_at: None,
         dreaming_status: DreamingStatus::default(),
         pending_operations: Vec::new(),
         recovery_notification: None,
@@ -352,4 +353,72 @@ async fn test_list_children_sessions_after_delete() {
         .await
         .unwrap();
     assert!(children.is_empty());
+}
+
+// ===================================================================
+// Step 1.3: mined_at tests
+// ===================================================================
+
+/// mark_mined() writes a mined_at timestamp within ±5 seconds of the
+/// call time.
+#[tokio::test]
+async fn test_mark_mined_sets_mined_at_timestamp() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    let mut cp = create_test_checkpoint("mined-at-sqlite");
+    cp.mined = false;
+    assert!(cp.mined_at.is_none(), "mined_at should start as None");
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    let before = Utc::now().timestamp();
+    storage.mark_mined("mined-at-sqlite").await.unwrap();
+    let after = Utc::now().timestamp();
+
+    let loaded = storage.load_checkpoint("mined-at-sqlite").await.unwrap();
+    assert!(loaded.is_some(), "checkpoint should exist after mark_mined");
+    let loaded = loaded.unwrap();
+    assert!(loaded.mined, "checkpoint should be marked mined");
+    let ts = loaded
+        .mined_at
+        .expect("mined_at should be Some after mark_mined");
+    assert!(
+        ts >= before && ts <= after,
+        "mined_at ({ts}) should be between {before} and {after}"
+    );
+}
+
+/// Old sessions (no mined_at column) load with mined_at = None after
+/// migration adds the column with no default value.
+#[tokio::test]
+async fn test_old_session_migration_mined_at_defaults_to_none() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    // Save a checkpoint normally — mined_at starts as None
+    let mut cp = create_test_checkpoint("old-session");
+    cp.mined = false;
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    // Simulate old data: set mined_at to NULL directly in the database
+    // (as if the row existed before the column was added)
+    {
+        let db_path = tmp.path().join("sessions.sqlite");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute(
+            "UPDATE sessions SET mined_at = NULL WHERE id = ?1",
+            params!["old-session"],
+        )
+        .unwrap();
+    }
+
+    // Load — mined_at should be None for old sessions
+    let loaded = storage.load_checkpoint("old-session").await.unwrap();
+    assert!(loaded.is_some(), "old session should still load");
+    let loaded = loaded.unwrap();
+    assert!(!loaded.mined, "old session mined should remain false");
+    assert!(
+        loaded.mined_at.is_none(),
+        "mined_at should be None for old sessions (NULL in DB)"
+    );
 }

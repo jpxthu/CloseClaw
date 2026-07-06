@@ -214,12 +214,14 @@ impl PersistenceService for MemoryStorage {
     }
 
     async fn mark_mined(&self, session_id: &str) -> Result<(), PersistenceError> {
+        let now = chrono::Utc::now().timestamp();
         let mut checkpoints = self
             .checkpoints
             .write()
             .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
         if let Some(cp) = checkpoints.get_mut(session_id) {
             cp.mined = true;
+            cp.mined_at = Some(now);
             return Ok(());
         }
         let mut archived = self
@@ -228,6 +230,7 @@ impl PersistenceService for MemoryStorage {
             .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
         if let Some(cp) = archived.get_mut(session_id) {
             cp.mined = true;
+            cp.mined_at = Some(now);
             return Ok(());
         }
         Ok(())
@@ -297,6 +300,7 @@ mod tests {
             depth: 0,
             effective_max_spawn_depth: None,
             mined: false,
+            mined_at: None,
             dreaming_status: DreamingStatus::default(),
             pending_operations: Vec::new(),
             recovery_notification: None,
