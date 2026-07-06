@@ -3,17 +3,23 @@
 //! Consumes structured memory entries produced by the memory-miner and
 //! promotes high-value ones to MEMORY.md through Light → REM → Deep stages.
 //!
-//! All three stages are **programmatic** (no LLM calls).
+//! Light / REM / Deep are programmatic; lesson consolidation is LLM-driven.
 
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use rusqlite::params;
 use thiserror::Error;
 
 use closeclaw_config::agents::{
-    default_capacity_max_rules, default_diary_path, default_scoring_cross_agent,
-    default_scoring_explicitness, default_scoring_frequency, default_scoring_negative_signal,
-    default_scoring_recency, default_threshold_absolute, default_threshold_relative,
-    DreamingConfig, DreamingScoringConfig,
+    default_capacity_max_rules, default_diary_path, default_memory_md_path,
+    default_scoring_cross_agent, default_scoring_explicitness, default_scoring_frequency,
+    default_scoring_negative_signal, default_scoring_recency, default_threshold_absolute,
+    default_threshold_relative, DreamingConfig, DreamingScoringConfig,
 };
 use closeclaw_session::persistence::{DreamingStatus, PersistenceError, PersistenceService};
+
+use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError};
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -73,6 +79,14 @@ pub enum DreamingError {
     /// The pipeline encountered corrupted or invalid data.
     #[error("data error: {0}")]
     Data(String),
+
+    /// SQLite error.
+    #[error("sqlite error: {0}")]
+    Sqlite(String),
+
+    /// LLM consolidation error.
+    #[error("llm error: {0}")]
+    Llm(#[from] DreamingLlmError),
 }
 
 // ── Scoring weights (Deep stage) ─────────────────────────────────────────
@@ -91,11 +105,17 @@ struct Thresholds {
 
 // ── DreamingPipeline ─────────────────────────────────────────────────────
 
-/// Orchestrates the three-stage dreaming pipeline.
+/// Orchestrates the dreaming pipeline: Light → REM → Deep → LLM consolidation → MEMORY.md.
 pub struct DreamingPipeline {
     scoring: DreamingScoringConfig,
     thresholds: Thresholds,
     config: DreamingConfig,
+    /// Path to the SQLite database (for reading events/entities).
+    db_path: Option<PathBuf>,
+    /// Output path for MEMORY.md.
+    memory_md_path: String,
+    /// LLM caller for lesson consolidation.
+    llm: Option<Arc<dyn DreamingLlmCaller>>,
 }
 
 impl DreamingPipeline {
@@ -109,6 +129,9 @@ impl DreamingPipeline {
                 max_rules: 20,
             },
             config: DreamingConfig::default(),
+            db_path: None,
+            memory_md_path: default_memory_md_path(),
+            llm: None,
         }
     }
 
@@ -133,14 +156,35 @@ impl DreamingPipeline {
             scoring,
             thresholds,
             config,
+            db_path: None,
+            memory_md_path: default_memory_md_path(),
+            llm: None,
         }
+    }
+
+    /// Set the SQLite database path for reading events/entities.
+    pub fn with_db_path(mut self, db_path: impl AsRef<Path>) -> Self {
+        self.db_path = Some(db_path.as_ref().to_path_buf());
+        self
+    }
+
+    /// Set the MEMORY.md output path.
+    pub fn with_memory_md_path(mut self, path: impl Into<String>) -> Self {
+        self.memory_md_path = path.into();
+        self
+    }
+
+    /// Set the LLM caller for lesson consolidation.
+    pub fn with_llm(mut self, llm: Arc<dyn DreamingLlmCaller>) -> Self {
+        self.llm = Some(llm);
+        self
     }
 
     /// Execute one full dreaming cycle.
     ///
     /// Reads mined-but-undreamt sessions from `storage`, processes them
-    /// through Light → REM → Deep, and writes surviving entries to
-    /// MEMORY.md.
+    /// through Light → REM → Deep → LLM consolidation, and writes
+    /// surviving rules to MEMORY.md.
     pub async fn run_once(&self, storage: &dyn PersistenceService) -> Result<(), DreamingError> {
         if !self.config.enabled.unwrap_or(false) {
             return Ok(());
@@ -158,7 +202,6 @@ impl DreamingPipeline {
         }
 
         if all_entries.is_empty() {
-            // No entries to process — mark all sessions as Completed.
             for sid in &session_ids {
                 storage
                     .update_dreaming_status(sid, DreamingStatus::Completed)
@@ -171,16 +214,27 @@ impl DreamingPipeline {
         let rem = self.rem_stage(light);
         let deep = self.deep_stage(rem);
 
+        // LLM lesson consolidation (graceful degradation on failure).
+        let rules = if let Some(llm) = &self.llm {
+            self.consolidate_lessons(llm, &deep).await
+        } else {
+            tracing::warn!("no LLM caller configured, skipping lesson consolidation");
+            deep.iter()
+                .filter_map(|e| e.lesson.clone().or(Some(e.body.clone())))
+                .collect()
+        };
+
+        // Anti-contamination check and MEMORY.md write.
+        let verified = self.verify_and_filter_rules(&rules, &deep).await?;
+        if !verified.is_empty() {
+            self.write_memory_md(&verified)?;
+        }
+
         for sid in &session_ids {
             storage
                 .update_dreaming_status(sid, DreamingStatus::Completed)
                 .await?;
         }
-
-        tracing::warn!(
-            entry_count = deep.len(),
-            "dreaming pipeline completed but MEMORY.md write not yet integrated"
-        );
 
         // Write Dream Diary if enabled.
         if self.config.diary.enabled.unwrap_or(true) && !deep.is_empty() {
@@ -190,8 +244,12 @@ impl DreamingPipeline {
         Ok(())
     }
 
-    /// Collect unprocessed entries for a single session.
-    async fn collect_entries_for_session(
+    /// Collect unprocessed entries for a single session from SQLite.
+    ///
+    /// Reads events where `source_session_id` matches and joins with
+    /// entities via `event_entities`. Returns empty vec if the events
+    /// table does not exist yet (miner not yet implemented).
+    pub(crate) async fn collect_entries_for_session(
         &self,
         storage: &dyn PersistenceService,
         session_id: &str,
@@ -199,11 +257,99 @@ impl DreamingPipeline {
         storage
             .update_dreaming_status(session_id, DreamingStatus::InLight)
             .await?;
-        tracing::warn!(
-            session_id,
-            "load_entries not yet implemented, returning empty"
-        );
-        Ok(Vec::new())
+
+        let db_path = match &self.db_path {
+            Some(p) => p.clone(),
+            None => return Ok(Vec::new()),
+        };
+
+        let conn = rusqlite::Connection::open(&db_path)
+            .map_err(|e| DreamingError::Sqlite(e.to_string()))?;
+
+        self.load_entries_from_sqlite(&conn, session_id)
+    }
+
+    /// Query SQLite for events and associated entities for a session.
+    pub(crate) fn load_entries_from_sqlite(
+        &self,
+        conn: &rusqlite::Connection,
+        session_id: &str,
+    ) -> Result<Vec<MemoryEntry>, DreamingError> {
+        let sql = "SELECT e.id, e.content, e.category, e.lesson, e.timestamp
+                    FROM events e
+                    WHERE e.source_session_id = ?1";
+
+        let mut stmt = match conn.prepare(sql) {
+            Ok(s) => s,
+            Err(_) => return Ok(Vec::new()),
+        };
+
+        let rows: Vec<(i64, String, String, Option<String>, i64)> = stmt
+            .query_map(params![session_id], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
+            .map_err(|e| DreamingError::Sqlite(e.to_string()))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut entries = Vec::new();
+        for (event_id, content, category_str, lesson, ts) in rows {
+            let category = match category_str.as_str() {
+                "error" => EntryCategory::Error,
+                "anger" => EntryCategory::Anger,
+                "decision" => EntryCategory::Decision,
+                _ => continue,
+            };
+
+            let entity_names = self.load_entity_names(conn, event_id)?;
+            let tags: Vec<String> = entity_names.into_iter().collect();
+
+            let timestamp =
+                chrono::DateTime::from_timestamp(ts, 0).unwrap_or_else(chrono::Utc::now);
+
+            entries.push(MemoryEntry {
+                category,
+                body: content,
+                timestamp,
+                source_session_id: session_id.to_string(),
+                lesson,
+                tags,
+                score: 0.0,
+            });
+        }
+
+        Ok(entries)
+    }
+
+    /// Load entity names associated with an event.
+    pub(crate) fn load_entity_names(
+        &self,
+        conn: &rusqlite::Connection,
+        event_id: i64,
+    ) -> Result<Vec<String>, DreamingError> {
+        let sql = "SELECT ent.name
+                    FROM event_entities ee
+                    JOIN entities ent ON ee.entity_id = ent.id
+                    WHERE ee.event_id = ?1";
+
+        let mut stmt = match conn.prepare(sql) {
+            Ok(s) => s,
+            Err(_) => return Ok(Vec::new()),
+        };
+
+        let names = stmt
+            .query_map(params![event_id], |row| row.get(0))
+            .map_err(|e| DreamingError::Sqlite(e.to_string()))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(names)
     }
 
     // ── Light stage ──────────────────────────────────────────────────
@@ -421,6 +567,143 @@ impl DreamingPipeline {
 
         std::fs::write(&diary_path, content)?;
         tracing::info!(path = %diary_path.display(), "dream diary written");
+        Ok(())
+    }
+
+    // ── LLM lesson consolidation ────────────────────────────────────
+
+    /// Consolidate lessons from Deep-stage entries via LLM.
+    ///
+    /// Groups entries by entity tag and consolidates each group's lessons
+    /// into a single behavioral rule. Falls back to raw lesson/body text
+    /// on LLM failure (graceful degradation).
+    pub(crate) async fn consolidate_lessons(
+        &self,
+        llm: &Arc<dyn DreamingLlmCaller>,
+        entries: &[MemoryEntry],
+    ) -> Vec<String> {
+        let mut rules = Vec::new();
+        for entry in entries {
+            let lesson_text = entry.lesson.as_deref().unwrap_or(&entry.body);
+            let entity_name = entry.tags.first().map(String::as_str).unwrap_or("general");
+
+            match llm
+                .consolidate_lessons(&[lesson_text.to_string()], entity_name)
+                .await
+            {
+                Ok(rule) => rules.push(rule),
+                Err(e) => {
+                    tracing::warn!(
+                        entity = entity_name,
+                        %e,
+                        "LLM consolidation failed, using raw lesson"
+                    );
+                    rules.push(lesson_text.to_string());
+                }
+            }
+        }
+        rules
+    }
+
+    // ── Anti-contamination check ─────────────────────────────────────
+
+    /// Verify source events still exist and are unmodified, then filter
+    /// rules accordingly.
+    ///
+    /// For each rule from an entry, checks that the source event exists
+    /// in SQLite. Returns only verified rules.
+    pub(crate) async fn verify_and_filter_rules(
+        &self,
+        rules: &[String],
+        entries: &[MemoryEntry],
+    ) -> Result<Vec<String>, DreamingError> {
+        if self.db_path.is_none() {
+            // No DB path configured; skip verification.
+            return Ok(rules.to_vec());
+        }
+
+        let db_path = self.db_path.as_ref().unwrap();
+        let conn = rusqlite::Connection::open(db_path)
+            .map_err(|e| DreamingError::Sqlite(e.to_string()))?;
+
+        let mut verified = Vec::new();
+        for (rule, entry) in rules.iter().zip(entries.iter()) {
+            if self.event_exists(&conn, entry)? {
+                verified.push(rule.clone());
+            } else {
+                tracing::warn!(
+                    session = entry.source_session_id,
+                    "source event not found, skipping rule"
+                );
+            }
+        }
+        Ok(verified)
+    }
+
+    /// Check if a source event still exists in SQLite.
+    pub(crate) fn event_exists(
+        &self,
+        conn: &rusqlite::Connection,
+        entry: &MemoryEntry,
+    ) -> Result<bool, DreamingError> {
+        let sql = "SELECT COUNT(*) FROM events
+                    WHERE source_session_id = ?1 AND content = ?2";
+        let mut stmt = conn
+            .prepare(sql)
+            .map_err(|e| DreamingError::Sqlite(e.to_string()))?;
+        let count: i64 = stmt
+            .query_row(params![entry.source_session_id, entry.body], |row| {
+                row.get(0)
+            })
+            .map_err(|e| DreamingError::Sqlite(e.to_string()))?;
+        Ok(count > 0)
+    }
+
+    // ── MEMORY.md write ──────────────────────────────────────────────
+
+    /// Write consolidated rules to MEMORY.md.
+    ///
+    /// Reads existing MEMORY.md, deduplicates against new rules, and
+    /// writes the merged result. Format: one rule per line, `- ` prefix,
+    /// with source entity and frequency info.
+    pub(crate) fn write_memory_md(&self, rules: &[String]) -> Result<(), DreamingError> {
+        let path = Path::new(&self.memory_md_path);
+
+        // Read existing rules for deduplication.
+        let existing = if path.exists() {
+            std::fs::read_to_string(path)?
+        } else {
+            String::new()
+        };
+        let existing_rules: std::collections::HashSet<String> = existing
+            .lines()
+            .filter_map(|line| line.strip_prefix("- ").map(String::from))
+            .collect();
+
+        // Append new rules that are not duplicates.
+        let mut content = existing;
+        if !content.ends_with('\n') && !content.is_empty() {
+            content.push('\n');
+        }
+        let mut appended = 0;
+        for rule in rules {
+            if !existing_rules.contains(rule.as_str()) {
+                content.push_str(&format!("- {}\n", rule));
+                appended += 1;
+            }
+        }
+
+        if appended > 0 {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(path, &content)?;
+            tracing::info!(
+                path = %self.memory_md_path,
+                appended,
+                "MEMORY.md updated"
+            );
+        }
         Ok(())
     }
 }

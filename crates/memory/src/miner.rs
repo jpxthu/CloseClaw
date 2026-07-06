@@ -1,13 +1,22 @@
-//! Memory Miner — extract structured memory entries from session transcripts.
+//! Memory Miner — two-stage LLM extraction from session transcripts.
 //!
-//! Runs as an independent task. Input is a session transcript; output is a
-//! set of structured [`MemoryEntry`] items written to the memory store, plus
-//! a `mined=true` flag on the source session.
+//! Miner 1 extracts structured events (title, summary, body, category)
+//! from a cleaned transcript via LLM. Miner 2 assigns entities to each
+//! event from the entity/type catalog. Results are written to SQLite.
 
+use std::path::{Path, PathBuf};
+
+use chrono::Utc;
+use rusqlite::params;
 use thiserror::Error;
 
-use crate::dreaming::MemoryEntry;
+use closeclaw_config::agents::{
+    default_mining_dedup_window_days, default_mining_max_events_per_session, MiningConfig,
+};
 use closeclaw_session::persistence::{PersistenceError, PersistenceService};
+
+use crate::miner_llm::{MinerLlmCaller, MinerLlmError};
+use crate::miner_transcript::clean_transcript;
 
 /// Errors specific to the memory-miner.
 #[derive(Debug, Error)]
@@ -23,40 +32,168 @@ pub enum MinerError {
     /// The transcript could not be parsed.
     #[error("transcript parse error: {0}")]
     TranscriptParse(String),
+
+    /// LLM extraction or assignment failed.
+    #[error("llm error: {0}")]
+    Llm(#[from] MinerLlmError),
+
+    /// SQLite error.
+    #[error("sqlite error: {0}")]
+    Sqlite(String),
+
+    /// Entity name exceeds the 10-word limit.
+    #[error("entity name too long (max 10 words): {0}")]
+    EntityNameTooLong(String),
+}
+
+/// Category of a mining event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MiningEventCategory {
+    /// Agent made a clear error.
+    Error,
+    /// Owner expressed dissatisfaction or correction.
+    Anger,
+    /// Owner made an explicit product decision.
+    Decision,
+}
+
+impl std::fmt::Display for MiningEventCategory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Error => write!(f, "error"),
+            Self::Anger => write!(f, "anger"),
+            Self::Decision => write!(f, "decision"),
+        }
+    }
+}
+
+/// A structured event extracted by Miner 1.
+#[derive(Debug, Clone)]
+pub struct MiningEvent {
+    /// Short title for the event.
+    pub title: String,
+    /// Brief summary of the event.
+    pub summary: String,
+    /// Full body text of the event.
+    pub body: String,
+    /// Event category.
+    pub category: MiningEventCategory,
+    /// Actionable lesson (required for Error/Anger, optional for Decision).
+    pub lesson: Option<String>,
+}
+
+/// An entity assigned to an event by Miner 2.
+#[derive(Debug, Clone)]
+pub struct MiningEntity {
+    /// Entity type (from 11 entity types).
+    pub entity_type: String,
+    /// Human-readable entity name (max 10 words).
+    pub name: String,
+    /// Brief entity description.
+    pub description: String,
+}
+
+/// Result of a single mining operation.
+#[derive(Debug)]
+pub struct MineResult {
+    /// Events extracted from the session.
+    pub events: Vec<MiningEvent>,
+    /// Entity names associated with each event.
+    pub entity_names: Vec<Vec<String>>,
+}
+
+/// Configuration for the memory miner.
+#[derive(Debug, Clone)]
+pub struct MinerConfig {
+    /// Whether mining is enabled.
+    pub enabled: bool,
+    /// Maximum events per session.
+    pub max_events_per_session: usize,
+    /// Dedup window in days for recent event lookup.
+    pub dedup_window_days: i32,
+    /// Transcript clean rules.
+    pub clean_rules: closeclaw_config::agents::TranscriptCleanRules,
+}
+
+impl MinerConfig {
+    /// Create a config from a [`MiningConfig`].
+    pub fn from_mining_config(config: &MiningConfig) -> Self {
+        Self {
+            enabled: config.enabled.unwrap_or(false),
+            max_events_per_session: config
+                .max_events_per_session
+                .unwrap_or_else(default_mining_max_events_per_session)
+                as usize,
+            dedup_window_days: config
+                .dedup_window_days
+                .unwrap_or_else(default_mining_dedup_window_days),
+            clean_rules: config.transcript_clean_rules.clone(),
+        }
+    }
+}
+
+impl Default for MinerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_events_per_session: 10,
+            dedup_window_days: 30,
+            clean_rules: Default::default(),
+        }
+    }
 }
 
 /// Memory miner — extracts structured entries from session transcripts.
 pub struct MemoryMiner {
-    /// Whether mining is enabled.
-    enabled: bool,
+    /// Mining configuration.
+    config: MinerConfig,
+    /// LLM caller for extraction and assignment.
+    llm: Box<dyn MinerLlmCaller>,
+    /// Path to the SQLite database.
+    db_path: PathBuf,
+    /// Path to MEMORY.md for dedup.
+    memory_md_path: String,
+    /// Agent ID for entity scoping.
+    agent_id: String,
 }
 
 impl MemoryMiner {
-    /// Create a new `MemoryMiner` with mining enabled.
-    pub fn new() -> Self {
-        Self { enabled: true }
-    }
-
-    /// Create a new `MemoryMiner` with an explicit enabled flag.
-    pub fn with_enabled(enabled: bool) -> Self {
-        Self { enabled }
+    /// Create a new miner with the given dependencies.
+    pub fn new(
+        config: MinerConfig,
+        llm: Box<dyn MinerLlmCaller>,
+        db_path: impl AsRef<Path>,
+        memory_md_path: impl Into<String>,
+        agent_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            config,
+            llm,
+            db_path: db_path.as_ref().to_path_buf(),
+            memory_md_path: memory_md_path.into(),
+            agent_id: agent_id.into(),
+        }
     }
 
     /// Returns `true` if mining is enabled.
     pub fn is_enabled(&self) -> bool {
-        self.enabled
+        self.config.enabled
     }
 
-    /// Mine a single session: read transcript → extract → write → mark.
+    /// Mine a single session: clean transcript → extract → assign → write → mark.
     ///
-    /// Returns `Ok(())` immediately if mining is disabled.
+    /// `raw_transcript` is the raw session transcript text.
     pub async fn mine_session(
         &self,
         session_id: &str,
+        raw_transcript: &str,
         storage: &dyn PersistenceService,
-    ) -> Result<(), MinerError> {
-        if !self.enabled {
-            return Ok(());
+    ) -> Result<MineResult, MinerError> {
+        if !self.config.enabled {
+            return Ok(MineResult {
+                events: Vec::new(),
+                entity_names: Vec::new(),
+            });
         }
 
         let checkpoint = storage.load_checkpoint(session_id).await?.ok_or_else(|| {
@@ -64,41 +201,379 @@ impl MemoryMiner {
         })?;
 
         if checkpoint.mined {
-            return Ok(());
+            return Ok(MineResult {
+                events: Vec::new(),
+                entity_names: Vec::new(),
+            });
         }
 
-        let entries = self.extract_entries(session_id);
-        self.write_entries(&entries, storage).await?;
+        let cleaned = clean_transcript(raw_transcript, &self.config.clean_rules);
+        if cleaned.is_empty() {
+            return Ok(MineResult {
+                events: Vec::new(),
+                entity_names: Vec::new(),
+            });
+        }
+
+        let conn = self.open_db()?;
+        let recent_events = self.load_recent_events(&conn, session_id)?;
+        let memory_md = self.load_memory_md();
+
+        let events = self
+            .extract_events(&cleaned, &recent_events, &memory_md)
+            .await?;
+        let entities = self.assign_entities(&events, &conn).await?;
+
+        write_to_sqlite(&conn, session_id, &self.agent_id, &events, &entities)?;
+
         storage.mark_mined(session_id).await?;
-        Ok(())
+
+        let entity_names: Vec<Vec<String>> = entities
+            .iter()
+            .map(|es| es.iter().map(|e| e.name.clone()).collect())
+            .collect();
+
+        Ok(MineResult {
+            events,
+            entity_names,
+        })
     }
 
-    /// Extract memory-worthy entries from a session transcript.
-    ///
-    /// This is the core extraction logic. In a full implementation it would
-    /// parse the transcript and apply heuristics. Here we provide the
-    /// structural skeleton.
-    fn extract_entries(&self, session_id: &str) -> Vec<MemoryEntry> {
-        tracing::warn!(
-            session_id,
-            "extract_entries not yet implemented, returning empty"
-        );
-        Vec::new()
+    /// Clean raw transcript using configured rules.
+    pub fn clean_transcript_raw(&self, raw: &str) -> String {
+        clean_transcript(raw, &self.config.clean_rules)
     }
 
-    /// Persist extracted entries to the memory store.
-    async fn write_entries(
+    /// Open the SQLite database connection.
+    fn open_db(&self) -> Result<rusqlite::Connection, MinerError> {
+        let conn = rusqlite::Connection::open(&self.db_path)
+            .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+        init_schema(&conn)?;
+        Ok(conn)
+    }
+
+    /// Load recent events within the dedup window for context.
+    fn load_recent_events(
         &self,
-        _entries: &[MemoryEntry],
-        _storage: &dyn PersistenceService,
-    ) -> Result<(), MinerError> {
-        tracing::warn!("write_entries not yet implemented, no-op");
-        Ok(())
+        conn: &rusqlite::Connection,
+        exclude_session: &str,
+    ) -> Result<String, MinerError> {
+        load_recent_events(conn, exclude_session, self.config.dedup_window_days)
+    }
+
+    /// Load MEMORY.md content.
+    fn load_memory_md(&self) -> String {
+        std::fs::read_to_string(&self.memory_md_path).unwrap_or_default()
+    }
+
+    /// Miner 1: extract events from cleaned transcript via LLM.
+    async fn extract_events(
+        &self,
+        cleaned: &str,
+        existing_events: &str,
+        existing_memory: &str,
+    ) -> Result<Vec<MiningEvent>, MinerError> {
+        let mut events = self
+            .llm
+            .extract_events(cleaned, existing_events, existing_memory)
+            .await?;
+        events.truncate(self.config.max_events_per_session);
+        Ok(events)
+    }
+
+    /// Miner 2: assign entities to events via LLM.
+    async fn assign_entities(
+        &self,
+        events: &[MiningEvent],
+        conn: &rusqlite::Connection,
+    ) -> Result<Vec<Vec<MiningEntity>>, MinerError> {
+        let catalog = load_entity_catalog(conn, &self.agent_id)?;
+        let mut entities = self.llm.assign_entities(events, &catalog).await?;
+        for event_entities in &mut entities {
+            truncate_entity_names(event_entities);
+        }
+        Ok(entities)
     }
 }
 
-impl Default for MemoryMiner {
-    fn default() -> Self {
-        Self::new()
+// ── SQLite operations ─────────────────────────────────────────────────
+
+/// Initialize the SQLite schema for mining tables.
+pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            content TEXT NOT NULL,
+            category TEXT NOT NULL,
+            lesson TEXT,
+            source_session_id TEXT NOT NULL,
+            timestamp INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS entities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id TEXT NOT NULL,
+            type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            normalized_name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            UNIQUE(agent_id, type, normalized_name)
+        );
+        CREATE TABLE IF NOT EXISTS event_entities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            entity_id INTEGER NOT NULL,
+            FOREIGN KEY (event_id) REFERENCES events(id),
+            FOREIGN KEY (entity_id) REFERENCES entities(id)
+        );",
+    )
+    .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    Ok(())
+}
+
+/// Write events and entities to SQLite.
+pub(crate) fn write_to_sqlite(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    agent_id: &str,
+    events: &[MiningEvent],
+    entities: &[Vec<MiningEntity>],
+) -> Result<(), MinerError> {
+    for (event, event_entities) in events.iter().zip(entities.iter()) {
+        let ts = Utc::now().timestamp();
+        let event_id: i64 = conn
+            .query_row(
+                "INSERT INTO events (title, summary, content, category, lesson, source_session_id, timestamp)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 RETURNING id",
+                params![event.title, event.summary, event.body, event.category.to_string(), event.lesson, session_id, ts],
+                |row| row.get(0),
+            )
+            .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+
+        for entity in event_entities {
+            let norm_name = normalize_entity_name(&entity.name);
+            conn.execute(
+                "INSERT OR IGNORE INTO entities (agent_id, type, name, normalized_name, description)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![agent_id, entity.entity_type, entity.name, norm_name, entity.description],
+            )
+            .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+            let entity_id: i64 = conn
+                .query_row(
+                    "SELECT id FROM entities WHERE agent_id = ?1 AND type = ?2 AND normalized_name = ?3",
+                    params![agent_id, entity.entity_type, norm_name],
+                    |row| row.get(0),
+                )
+                .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+            conn.execute(
+                "INSERT OR IGNORE INTO event_entities (event_id, entity_id) VALUES (?1, ?2)",
+                params![event_id, entity_id],
+            )
+            .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Write entries to SQLite (public interface).
+pub fn write_entries_to_db(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    agent_id: &str,
+    events: &[MiningEvent],
+    entities: &[Vec<MiningEntity>],
+) -> Result<(), MinerError> {
+    init_schema(conn)?;
+    write_to_sqlite(conn, session_id, agent_id, events, entities)
+}
+
+/// Load recent events within the dedup window for Miner 1 context.
+pub(crate) fn load_recent_events(
+    conn: &rusqlite::Connection,
+    exclude_session: &str,
+    dedup_window_days: i32,
+) -> Result<String, MinerError> {
+    let cutoff = Utc::now().timestamp() - (dedup_window_days as i64 * 86400);
+    let sql = "SELECT title, summary, category FROM events
+               WHERE source_session_id != ?1 AND timestamp >= ?2
+               ORDER BY timestamp DESC LIMIT 20";
+    let mut stmt = conn
+        .prepare(sql)
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    let rows: Vec<(String, String, String)> = stmt
+        .query_map(params![exclude_session, cutoff], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows
+        .iter()
+        .map(|(title, summary, category)| format!("- [{category}] {title}: {summary}"))
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+/// Load entity/type catalog from SQLite, sorted by type → normalized_name.
+pub(crate) fn load_entity_catalog(
+    conn: &rusqlite::Connection,
+    agent_id: &str,
+) -> Result<String, MinerError> {
+    let sql = "SELECT type, name, description FROM entities
+               WHERE agent_id = ?1
+               ORDER BY type, normalized_name";
+    let mut stmt = conn
+        .prepare(sql)
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    let rows: Vec<(String, String, String)> = stmt
+        .query_map(params![agent_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows
+        .iter()
+        .map(|(typ, name, desc)| format!("- [{typ}] {name}: {desc}"))
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+/// Normalize an entity name: lowercase, replace spaces with underscores.
+pub(crate) fn normalize_entity_name(name: &str) -> String {
+    name.to_lowercase().replace(' ', "_")
+}
+
+/// Truncate entity names to 10 words maximum.
+pub(crate) fn truncate_entity_names(entities: &mut [MiningEntity]) {
+    for entity in entities.iter_mut() {
+        let words: Vec<&str> = entity.name.split_whitespace().collect();
+        if words.len() > 10 {
+            entity.name = words[..10].join(" ");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_entity_name() {
+        assert_eq!(normalize_entity_name("My Entity"), "my_entity");
+        assert_eq!(normalize_entity_name("UPPER CASE"), "upper_case");
+        assert_eq!(normalize_entity_name("single"), "single");
+    }
+
+    #[test]
+    fn test_truncate_entity_names() {
+        let mut entities = vec![MiningEntity {
+            entity_type: "subject".to_string(),
+            name: "one two three four five six seven eight nine ten eleven".to_string(),
+            description: "".to_string(),
+        }];
+        truncate_entity_names(&mut entities);
+        assert_eq!(
+            entities[0].name,
+            "one two three four five six seven eight nine ten"
+        );
+    }
+
+    #[test]
+    fn test_truncate_entity_names_within_limit() {
+        let mut entities = vec![MiningEntity {
+            entity_type: "subject".to_string(),
+            name: "short name".to_string(),
+            description: "".to_string(),
+        }];
+        truncate_entity_names(&mut entities);
+        assert_eq!(entities[0].name, "short name");
+    }
+
+    #[test]
+    fn test_load_recent_events_empty_db() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+        init_schema(&conn).unwrap();
+        let result = load_recent_events(&conn, "other", 30).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_load_recent_events_with_data() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+        init_schema(&conn).unwrap();
+        let ts = Utc::now().timestamp();
+        conn.execute(
+            "INSERT INTO events (title, summary, content, category, lesson, source_session_id, timestamp)
+             VALUES ('title', 'summary', 'body', 'error', 'lesson', 'other-sess', ?1)",
+            params![ts],
+        )
+        .unwrap();
+        let result = load_recent_events(&conn, "my-sess", 30).unwrap();
+        assert!(result.contains("title"));
+        assert!(result.contains("[error]"));
+    }
+
+    #[test]
+    fn test_load_recent_events_excludes_old() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+        init_schema(&conn).unwrap();
+        let old_ts = Utc::now().timestamp() - (60 * 86400);
+        conn.execute(
+            "INSERT INTO events (title, summary, content, category, lesson, source_session_id, timestamp)
+             VALUES ('old', 'old', 'body', 'decision', NULL, 'other', ?1)",
+            params![old_ts],
+        )
+        .unwrap();
+        let result = load_recent_events(&conn, "my-sess", 30).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_load_entity_catalog_empty() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+        init_schema(&conn).unwrap();
+        let result = load_entity_catalog(&conn, "agent-1").unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_load_entity_catalog_sorted() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+        init_schema(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO entities (agent_id, type, name, normalized_name, description)
+             VALUES ('a1', 'subject', 'Banana', 'banana', 'desc1')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO entities (agent_id, type, name, normalized_name, description)
+             VALUES ('a1', 'action', 'Apple', 'apple', 'desc2')",
+            [],
+        )
+        .unwrap();
+        let result = load_entity_catalog(&conn, "a1").unwrap();
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("action"));
+        assert!(lines[1].contains("subject"));
+    }
+
+    #[test]
+    fn test_init_schema_idempotent() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+        init_schema(&conn).unwrap();
+        init_schema(&conn).unwrap();
     }
 }
