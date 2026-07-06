@@ -456,11 +456,12 @@ impl Daemon {
             data_dir.join(md_path).to_string_lossy().into_owned(),
             String::new(),
         ));
-        let dreaming_scheduler = crate::dreaming_scheduler::DreamingScheduler::new(
+        let mut dreaming_scheduler = crate::dreaming_scheduler::DreamingScheduler::new(
             storage,
             dreaming_config_provider,
             dreaming_pipeline,
             memory_miner,
+            Arc::clone(config_manager),
         )
         .with_schedule(Some(
             memory_config
@@ -989,7 +990,6 @@ impl Daemon {
         info!("Slash dispatcher installed");
     }
 }
-
 #[cfg(test)]
 mod dreaming_scheduler_tests;
 #[cfg(test)]

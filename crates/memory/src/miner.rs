@@ -5,6 +5,7 @@
 //! event from the entity/type catalog. Results are written to SQLite.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 
 use chrono::Utc;
 use rusqlite::params;
@@ -159,7 +160,7 @@ struct DbReadData {
 /// Memory miner — extracts structured entries from session transcripts.
 pub struct MemoryMiner {
     /// Mining configuration.
-    config: MinerConfig,
+    config: Arc<RwLock<MinerConfig>>,
     /// LLM caller for extraction and assignment.
     llm: Box<dyn MinerLlmCaller>,
     /// Path to the SQLite database.
@@ -180,7 +181,7 @@ impl MemoryMiner {
         agent_id: impl Into<String>,
     ) -> Self {
         Self {
-            config,
+            config: Arc::new(RwLock::new(config)),
             llm,
             db_path: db_path.as_ref().to_path_buf(),
             memory_md_path: memory_md_path.into(),
@@ -190,7 +191,12 @@ impl MemoryMiner {
 
     /// Returns `true` if mining is enabled.
     pub fn is_enabled(&self) -> bool {
-        self.config.enabled
+        self.config.read().unwrap().enabled
+    }
+
+    /// Update the miner configuration at runtime.
+    pub fn update_config(&self, config: MinerConfig) {
+        *self.config.write().unwrap() = config;
     }
 
     /// Mine a single session: clean transcript → extract → assign → write → mark.
@@ -202,7 +208,7 @@ impl MemoryMiner {
         raw_transcript: &str,
         storage: &dyn PersistenceService,
     ) -> Result<MineResult, MinerError> {
-        if !self.config.enabled {
+        if !self.config.read().unwrap().enabled {
             return Ok(MineResult {
                 events: Vec::new(),
                 entity_names: Vec::new(),
@@ -236,7 +242,7 @@ impl MemoryMiner {
         checkpoint: &closeclaw_session::persistence::SessionCheckpoint,
         storage: &dyn PersistenceService,
     ) -> Result<MineResult, MinerError> {
-        if !self.config.enabled {
+        if !self.config.read().unwrap().enabled {
             return Ok(MineResult {
                 events: Vec::new(),
                 entity_names: Vec::new(),
@@ -266,7 +272,11 @@ impl MemoryMiner {
         _checkpoint: &closeclaw_session::persistence::SessionCheckpoint,
         storage: &dyn PersistenceService,
     ) -> Result<MineResult, MinerError> {
-        let cleaned = clean_transcript(raw_transcript, &self.config.clean_rules);
+        let (cleaned, dedup_days) = {
+            let cfg = self.config.read().unwrap();
+            let cleaned = clean_transcript(raw_transcript, &cfg.clean_rules);
+            (cleaned, cfg.dedup_window_days)
+        };
         if cleaned.is_empty() {
             return Ok(MineResult {
                 events: Vec::new(),
@@ -278,7 +288,6 @@ impl MemoryMiner {
         // All Connection usage is confined to this closure; the
         // connection is dropped before we hit any `.await`.
         let db_path = self.db_path.clone();
-        let dedup_days = self.config.dedup_window_days;
         let agent_id = self.agent_id.clone();
         let memory_md_path = self.memory_md_path.clone();
         let session_id_owned = session_id.to_string();
@@ -356,7 +365,8 @@ impl MemoryMiner {
             .llm
             .extract_events(cleaned, existing_events, existing_memory)
             .await?;
-        events.truncate(self.config.max_events_per_session);
+        let max = self.config.read().unwrap().max_events_per_session;
+        events.truncate(max);
         Ok(events)
     }
 }

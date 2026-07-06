@@ -8,6 +8,7 @@ use crate::dreaming_scheduler::DreamingScheduler;
 use crate::test_helpers::TestStorage;
 use closeclaw_common::CompactConfig;
 use closeclaw_config::session::SessionConfigProvider;
+use closeclaw_config::ConfigManager;
 use closeclaw_config::PerAgentSessionConfig;
 use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
@@ -57,6 +58,14 @@ fn make_scheduler(
     storage: Arc<dyn PersistenceService>,
     config: Arc<dyn SessionConfigProvider>,
 ) -> DreamingScheduler {
+    let config_manager = Arc::new(
+        ConfigManager::new(std::path::PathBuf::from("/tmp/test-config")).unwrap_or_else(|_| {
+            // If temp dir doesn't exist, create it
+            let _ = std::fs::create_dir_all("/tmp/test-config");
+            ConfigManager::new(std::path::PathBuf::from("/tmp/test-config"))
+                .expect("failed to create test ConfigManager")
+        }),
+    );
     DreamingScheduler::new(
         storage,
         config,
@@ -68,6 +77,7 @@ fn make_scheduler(
             "/tmp/test-MEMORY.md".to_string(),
             String::new(),
         )),
+        config_manager,
     )
 }
 
@@ -78,7 +88,7 @@ fn make_scheduler(
 async fn test_dreaming_scheduler_shutdown_exits_loop() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config);
+    let mut scheduler = make_scheduler(storage, config);
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
 
@@ -173,7 +183,8 @@ async fn test_dreaming_scheduler_mining_skips_unconfigured_agents() {
 async fn test_dreaming_scheduler_cron_schedule_shutdown() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config).with_schedule(Some("0 3 * * *".to_string()));
+    let mut scheduler =
+        make_scheduler(storage, config).with_schedule(Some("0 3 * * *".to_string()));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
@@ -195,7 +206,8 @@ async fn test_dreaming_scheduler_cron_schedule_shutdown() {
 async fn test_dreaming_scheduler_invalid_cron_fallback() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config).with_schedule(Some("not-a-cron".to_string()));
+    let mut scheduler =
+        make_scheduler(storage, config).with_schedule(Some("not-a-cron".to_string()));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
@@ -217,7 +229,7 @@ async fn test_dreaming_scheduler_invalid_cron_fallback() {
 async fn test_dreaming_scheduler_no_schedule_uses_fixed() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config);
+    let mut scheduler = make_scheduler(storage, config);
 
     assert!(scheduler.schedule.is_none());
 
@@ -261,7 +273,7 @@ fn test_with_schedule_none() {
 async fn test_with_schedule_empty_string_fallback() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config).with_schedule(Some(String::new()));
+    let mut scheduler = make_scheduler(storage, config).with_schedule(Some(String::new()));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
@@ -283,7 +295,8 @@ async fn test_with_schedule_empty_string_fallback() {
 async fn test_dreaming_scheduler_hourly_cron() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config).with_schedule(Some("0 * * * *".to_string()));
+    let mut scheduler =
+        make_scheduler(storage, config).with_schedule(Some("0 * * * *".to_string()));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
