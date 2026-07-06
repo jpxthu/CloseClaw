@@ -226,6 +226,7 @@ impl Tool for SkillTool {
 mod tests {
     use super::*;
     use crate::{SpawnError, SpawnValidationResult, SpawnValidator, ToolContext};
+    use closeclaw_config::agents::MemoryConfig;
     use closeclaw_session::bootstrap::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
     use closeclaw_skills::disk::types::{
@@ -255,7 +256,7 @@ mod tests {
                     tools: vec![],
                     disallowed_tools: vec![],
                     subagents: Default::default(),
-                    memory: None,
+                    memory: MemoryConfig::default(),
                     source: closeclaw_config::agents::ConfigSource::Merged,
                 },
                 effective_max_spawn_depth: 10,
