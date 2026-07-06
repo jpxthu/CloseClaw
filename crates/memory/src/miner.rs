@@ -108,6 +108,8 @@ pub struct MineResult {
 pub struct MinerConfig {
     /// Whether mining is enabled.
     pub enabled: bool,
+    /// Model for Miner 1 and Miner 2. `None` means inherit global default.
+    pub model: Option<String>,
     /// Maximum events per session.
     pub max_events_per_session: usize,
     /// Dedup window in days for recent event lookup.
@@ -121,6 +123,7 @@ impl MinerConfig {
     pub fn from_mining_config(config: &MiningConfig) -> Self {
         Self {
             enabled: config.enabled.unwrap_or(false),
+            model: config.model.clone(),
             max_events_per_session: config
                 .max_events_per_session
                 .unwrap_or_else(default_mining_max_events_per_session)
@@ -137,6 +140,7 @@ impl Default for MinerConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            model: None,
             max_events_per_session: 10,
             dedup_window_days: 30,
             clean_rules: Default::default(),
