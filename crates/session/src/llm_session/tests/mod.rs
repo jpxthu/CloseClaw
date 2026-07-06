@@ -1,6 +1,6 @@
 use super::*;
-use crate::types::{UnifiedResponse, UnifiedUsage};
-use closeclaw_session::persistence::PendingMessage;
+use crate::persistence::PendingMessage;
+use closeclaw_common::{UnifiedResponse, UnifiedUsage};
 
 mod clone_messages_tests;
 mod exec_state_tests;
@@ -366,8 +366,8 @@ fn test_replace_messages_empty_vec_clears() {
 
 // ── reasoning_level tests ─────────────────────────────────────────────────
 
-use crate::types::ContentBlock;
-use closeclaw_session::persistence::ReasoningLevel;
+use crate::persistence::ReasoningLevel;
+use closeclaw_common::ContentBlock;
 
 #[test]
 fn test_conversation_session_default_reasoning_level() {

@@ -718,9 +718,9 @@ async fn test_execute_route_non_owner_denied_skips_execute() {
 async fn register_session(
     gw: &Gateway,
     session_id: &str,
-) -> Arc<tokio::sync::RwLock<closeclaw_llm::session::ConversationSession>> {
+) -> Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>> {
     use std::path::PathBuf;
-    let cs = closeclaw_llm::session::ConversationSession::new(
+    let cs = closeclaw_session::llm_session::ConversationSession::new(
         session_id.to_owned(),
         "test-model".to_owned(),
         PathBuf::from("/tmp"),

@@ -235,7 +235,7 @@ async fn setup_with_verbosity(
     gw.register_plugin(Arc::new(MockPlugin::new("mock"))).await;
 
     use std::path::PathBuf;
-    let cs = closeclaw_llm::session::ConversationSession::new(
+    let cs = closeclaw_session::llm_session::ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
         PathBuf::from("/tmp"),

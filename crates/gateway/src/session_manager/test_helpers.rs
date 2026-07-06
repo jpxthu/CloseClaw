@@ -10,9 +10,9 @@ use super::SessionManager;
 use chrono::Utc;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
-use closeclaw_llm::session::{ChatSession, ConversationSession, SessionMessage};
 use closeclaw_llm::types::{ContentBlock, UnifiedResponse, UnifiedUsage};
 use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::llm_session::{ChatSession, ConversationSession, SessionMessage};
 use std::path::PathBuf;
 
 /// Build a `ResolvedAgentConfig` for tests. Identical to the one in

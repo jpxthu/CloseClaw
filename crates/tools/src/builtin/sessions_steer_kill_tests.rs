@@ -15,11 +15,11 @@ use crate::builtin::sessions_steer::SessionsSteerTool;
 use crate::{Tool, ToolCallError, ToolContext};
 use closeclaw_gateway::session_manager::{ChildSessionInfo, SpawnMode};
 use closeclaw_gateway::{DmScope, GatewayConfig, Message, Session, SessionManager};
-use closeclaw_llm::session::ConversationSession;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{Action, Effect, Rule, Subject};
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use tokio::sync::RwLock;
 

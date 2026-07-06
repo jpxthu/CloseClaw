@@ -19,11 +19,11 @@ use crate::session_manager::SessionManager;
 use crate::types::GatewayError;
 use crate::Gateway;
 use closeclaw_common::im_plugin::IMPlugin;
-use closeclaw_llm::session::ConversationSession;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::streaming::StreamDone;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::LLMError;
+use closeclaw_session::llm_session::ConversationSession;
 
 impl SessionMessageHandler {
     /// Make a streaming LLM call and dispatch it through Gateway's

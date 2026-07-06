@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::session::{ConversationSession, InjectionPosition, MemoryInjection};
+use crate::llm_session::{ConversationSession, InjectionPosition, MemoryInjection};
 use async_trait::async_trait;
 use closeclaw_common::llm_types::InternalRequest;
 use closeclaw_common::processor::UnifiedResponse;

@@ -117,7 +117,7 @@ async fn test_mark_sent_changes_flag() {
 
 #[tokio::test]
 async fn test_restore_skips_sent_true() {
-    use closeclaw_llm::session::ConversationSession;
+    use closeclaw_session::llm_session::ConversationSession;
 
     let test_root = TempDir::new().unwrap();
     let mut session = ConversationSession::new(

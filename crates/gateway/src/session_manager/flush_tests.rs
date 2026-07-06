@@ -2,8 +2,8 @@ use super::*;
 use crate::{GatewayConfig, Message};
 use async_trait::async_trait;
 use closeclaw_common::shutdown::ShutdownMode;
-use closeclaw_llm::session::ConversationSession;
 use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::persistence::{
     AgentRole, PendingMessage, PersistenceError, SessionCheckpoint,
@@ -420,7 +420,7 @@ async fn test_flush_all_after_stop_preserves_sessions() {
             .insert(sid.to_string(), make_test_session(sid));
         // Register a ConversationSession (required by stop_single_session)
         let cs = Arc::new(tokio::sync::RwLock::new(
-            closeclaw_llm::session::ConversationSession::new(
+            closeclaw_session::llm_session::ConversationSession::new(
                 sid.to_string(),
                 "gpt-4o".to_string(),
                 std::path::PathBuf::from("/tmp"),
@@ -494,7 +494,7 @@ async fn test_flush_all_clears_tracking_after_persist() {
             .await
             .insert(sid.to_string(), make_test_session(sid));
         let cs = Arc::new(tokio::sync::RwLock::new(
-            closeclaw_llm::session::ConversationSession::new(
+            closeclaw_session::llm_session::ConversationSession::new(
                 sid.to_string(),
                 "gpt-4o".to_string(),
                 std::path::PathBuf::from("/tmp"),

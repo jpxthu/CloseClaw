@@ -7,7 +7,7 @@
 //! its next turn and injects each event as a `role="system"` message.
 //!
 //! Step 1.2 introduces the `AnnounceEvent` type and queue storage on
-//! `ConversationSession` (see `closeclaw_llm::session`). This module adds
+//! `ConversationSession` (see `closeclaw_session::llm_session`). This module adds
 //! the `SessionManager`-level accessors (`push_announce`, `drain_announces`)
 //! in Step 1.3 and `try_push_announce` in Step 1.4.
 
@@ -15,7 +15,7 @@ use super::spawn::SpawnMode;
 use super::SessionManager;
 use crate::session_manager::communication::CommunicationError;
 use chrono::Utc;
-use closeclaw_llm::session::{AnnounceEvent, ChatSession, ConversationSession};
+use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSession};
 use tracing::warn;
 
 // ── Queue accessors (push / drain) ─────────────────────────────────────────

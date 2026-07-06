@@ -4,7 +4,7 @@
 //! and is_llm_busy() delegation.
 
 use super::super::*;
-use crate::session_state::{ChildSessionState, LlmState, SessionExecStatus, ToolExecState};
+use closeclaw_common::{ChildSessionState, LlmState, SessionExecStatus, ToolExecState};
 use std::sync::Arc;
 use std::thread;
 

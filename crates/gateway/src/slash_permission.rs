@@ -18,7 +18,7 @@ use closeclaw_permission::engine::engine_types::{
 use closeclaw_session::persistence::PendingMessage;
 
 use super::{Gateway, HandleResult, SessionManager, SessionMessageHandler};
-use closeclaw_llm::session::ConversationSession;
+use closeclaw_session::llm_session::ConversationSession;
 use tokio::sync::RwLock;
 
 /// Parse a slash command from raw content.

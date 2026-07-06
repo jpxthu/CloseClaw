@@ -6,7 +6,7 @@
 //! mapping to a bullet in the plan's "Step 1.5：单元测试" section.
 
 use super::super::*;
-use closeclaw_session::persistence::SessionCheckpoint;
+use crate::persistence::SessionCheckpoint;
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
