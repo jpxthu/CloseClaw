@@ -469,7 +469,7 @@ impl Daemon {
                 .dreaming
                 .schedule
                 .clone()
-                .unwrap_or_else(|| closeclaw_config::agents::default_dreaming_schedule()),
+                .unwrap_or_else(closeclaw_config::agents::default_dreaming_schedule),
         ));
         tokio::spawn(async move {
             dreaming_scheduler.run(dreaming_rx).await;
