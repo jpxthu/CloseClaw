@@ -342,7 +342,7 @@ impl DreamingPipeline {
 
     /// Light stage: deduplicate (batch-internal + MEMORY.md semantic)
     /// and chunk entries by entity type.
-    fn light_stage(
+    pub(crate) fn light_stage(
         &self,
         entries: Vec<MemoryEntry>,
     ) -> Result<Vec<Vec<MemoryEntry>>, DreamingError> {
@@ -460,7 +460,7 @@ impl DreamingPipeline {
     }
 
     /// REM stage: cluster entries by entity, compute frequency and cross-agent counts.
-    fn rem_stage(&self, chunks: Vec<Vec<MemoryEntry>>) -> Vec<EntityGroup> {
+    pub(crate) fn rem_stage(&self, chunks: Vec<Vec<MemoryEntry>>) -> Vec<EntityGroup> {
         let all: Vec<MemoryEntry> = chunks.into_iter().flatten().collect();
         let agent_map = self.load_entity_agent_map();
         let mut groups: std::collections::HashMap<(String, String), Vec<MemoryEntry>> =
@@ -506,7 +506,7 @@ impl DreamingPipeline {
     // ── Deep stage ───────────────────────────────────────────────────
 
     /// Deep stage: score entity groups, apply three thresholds, return survivors.
-    fn deep_stage(&self, groups: Vec<EntityGroup>) -> Vec<EntityGroup> {
+    pub(crate) fn deep_stage(&self, groups: Vec<EntityGroup>) -> Vec<EntityGroup> {
         let mut scored: Vec<EntityGroup> = groups
             .into_iter()
             .map(|g| self.score_entity_group(g))

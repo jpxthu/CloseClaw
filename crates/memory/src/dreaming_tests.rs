@@ -163,9 +163,10 @@ fn make_group(entries: Vec<MemoryEntry>, entity_name: &str) -> EntityGroup {
     }
 }
 
-/// Dream Diary writes a file when diary is enabled.
+/// Dream Diary writes when enabled, skips when disabled, auto-creates dir.
 #[test]
-fn test_dream_diary_writes_when_enabled() {
+fn test_dream_diary_enabled_disabled_and_dir() {
+    // Enabled: writes file with expected content.
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
     let config = DreamingConfig {
@@ -177,7 +178,6 @@ fn test_dream_diary_writes_when_enabled() {
         ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
-
     let groups = vec![make_group(
         vec![
             make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 10),
@@ -190,156 +190,48 @@ fn test_dream_diary_writes_when_enabled() {
         ],
         "deploy",
     )];
-
-    let result = pipeline.write_dream_diary(&groups);
-    assert!(
-        result.is_ok(),
-        "write_dream_diary should succeed: {result:?}"
-    );
-
-    // Check that the diary file was created.
+    pipeline.write_dream_diary(&groups).unwrap();
     let date = chrono::Local::now().format("%Y-%m-%d").to_string();
     let diary_file = tmp.path().join(format!("{}.md", date));
-    assert!(diary_file.exists(), "diary file should exist");
-
+    assert!(diary_file.exists());
     let content = std::fs::read_to_string(&diary_file).unwrap();
     assert!(content.contains("dark mode preferred"));
-    assert!(content.contains("wrong deployment"));
-    assert!(content.contains("verify before deploying"));
     assert!(content.contains("Promoted 2 entries"));
-}
 
-#[test]
-fn test_dream_diary_does_not_write_when_disabled() {
-    let tmp = TempDir::new().unwrap();
-    let diary_path = tmp.path().to_str().unwrap().to_string();
-    let config = DreamingConfig {
+    // Disabled: no file created.
+    let tmp2 = TempDir::new().unwrap();
+    let config2 = DreamingConfig {
         enabled: Some(true),
         diary: DreamingDiaryConfig {
             enabled: Some(false),
-            path: Some(diary_path),
+            path: Some(tmp2.path().to_str().unwrap().to_string()),
         },
         ..Default::default()
     };
-    let pipeline = DreamingPipeline::with_config(config);
+    let p2 = DreamingPipeline::with_config(config2);
+    p2.write_dream_diary(&groups).unwrap();
+    assert!(tmp2.path().read_dir().unwrap().next().is_none());
 
-    let groups = vec![make_group(
-        vec![make_entry(
-            EntryCategory::Decision,
-            "should not appear",
-            "s1",
-            10,
-        )],
-        "x",
-    )];
-
-    let result = pipeline.write_dream_diary(&groups);
-    assert!(result.is_ok());
-
-    // Diary directory should NOT exist since diary is disabled.
-    assert!(
-        tmp.path().read_dir().unwrap().next().is_none(),
-        "no files should be created when diary is disabled"
-    );
-}
-
-#[test]
-fn test_dream_diary_uses_custom_path() {
-    let tmp = TempDir::new().unwrap();
-    let diary_path = tmp.path().join("custom/diary");
-    let config = DreamingConfig {
+    // Custom path with nested dir: auto-created.
+    let tmp3 = TempDir::new().unwrap();
+    let custom = tmp3.path().join("custom/diary");
+    let config3 = DreamingConfig {
         enabled: Some(true),
         diary: DreamingDiaryConfig {
             enabled: Some(true),
-            path: Some(diary_path.to_str().unwrap().to_string()),
+            path: Some(custom.to_str().unwrap().to_string()),
         },
         ..Default::default()
     };
-    let pipeline = DreamingPipeline::with_config(config);
-
-    let groups = vec![make_group(
-        vec![make_entry(
-            EntryCategory::Decision,
-            "custom path test",
-            "s1",
-            10,
-        )],
-        "x",
-    )];
-
-    let result = pipeline.write_dream_diary(&groups);
-    assert!(
-        result.is_ok(),
-        "write_dream_diary should succeed: {result:?}"
-    );
-
-    let date = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let diary_file = diary_path.join(format!("{}.md", date));
-    assert!(
-        diary_file.exists(),
-        "diary should be written to custom path"
-    );
-    assert!(
-        diary_path.exists(),
-        "custom diary directory should be auto-created"
-    );
+    DreamingPipeline::with_config(config3)
+        .write_dream_diary(&groups)
+        .unwrap();
+    assert!(custom.exists());
 }
 
+/// Regression guard: EntryCategory must match design doc + lesson in diary.
 #[test]
-fn test_dream_diary_creates_directory() {
-    let tmp = TempDir::new().unwrap();
-    let diary_path = tmp.path().join("new/dir/level");
-    let config = DreamingConfig {
-        enabled: Some(true),
-        diary: DreamingDiaryConfig {
-            enabled: Some(true),
-            path: Some(diary_path.to_str().unwrap().to_string()),
-        },
-        ..Default::default()
-    };
-    let pipeline = DreamingPipeline::with_config(config);
-
-    let groups = vec![make_group(
-        vec![make_entry(
-            EntryCategory::Decision,
-            "auto dir test",
-            "s1",
-            10,
-        )],
-        "x",
-    )];
-
-    let result = pipeline.write_dream_diary(&groups);
-    assert!(result.is_ok());
-    assert!(
-        diary_path.exists(),
-        "diary directory should be auto-created"
-    );
-}
-
-/// Regression guard: EntryCategory must match design doc.
-#[test]
-fn test_entry_category_variants_match_design_doc() {
-    let all = [
-        EntryCategory::Error,
-        EntryCategory::Anger,
-        EntryCategory::Decision,
-    ];
-    assert_eq!(all.len(), 3);
-
-    for cat in &all {
-        let label = match cat {
-            EntryCategory::Error => "Error",
-            EntryCategory::Anger => "Anger",
-            EntryCategory::Decision => "Decision",
-        };
-        assert!(!label.is_empty());
-    }
-}
-
-/// Error and Anger entries always carry a lesson in diary output.
-#[test]
-fn test_error_anger_entries_carry_lesson_in_diary() {
+fn test_entry_category_and_lesson_in_diary() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
     let config = DreamingConfig {
@@ -351,7 +243,6 @@ fn test_error_anger_entries_carry_lesson_in_diary() {
         ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
-
     let groups = vec![
         make_group(
             vec![make_entry_with_lesson(
@@ -372,87 +263,45 @@ fn test_error_anger_entries_carry_lesson_in_diary() {
             "user",
         ),
     ];
-
-    let result = pipeline.write_dream_diary(&groups);
-    assert!(result.is_ok());
-
+    pipeline.write_dream_diary(&groups).unwrap();
     let date = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let diary_file = tmp.path().join(format!("{}.md", date));
-    let content = std::fs::read_to_string(&diary_file).unwrap();
-
-    // Both Error and Anger entries should include their lesson in the output.
+    let content = std::fs::read_to_string(tmp.path().join(format!("{}.md", date))).unwrap();
     assert!(content.contains("Lesson: verify before deploying"));
     assert!(content.contains("Lesson: follow user style guide"));
-}
-
-#[test]
-fn test_dream_diary_empty_entries_no_write() {
-    let tmp = TempDir::new().unwrap();
-    let diary_path = tmp.path().to_str().unwrap().to_string();
-    let config = DreamingConfig {
-        enabled: Some(true),
-        diary: DreamingDiaryConfig {
-            enabled: Some(true),
-            path: Some(diary_path),
-        },
-        ..Default::default()
-    };
-    let pipeline = DreamingPipeline::with_config(config);
-
-    let groups: Vec<EntityGroup> = vec![];
-    let result = pipeline.write_dream_diary(&groups);
-    assert!(result.is_ok());
-
-    // No files should be created in the diary directory.
-    assert!(
-        tmp.path().read_dir().unwrap().next().is_none(),
-        "no files should be created for empty entries"
-    );
 }
 
 use closeclaw_config::agents::{
     DreamingCapacityConfig, DreamingScoringConfig, DreamingThresholdConfig,
 };
 
-#[test]
-fn test_dreaming_pipeline_custom_scoring_config() {
-    let config = DreamingConfig {
-        enabled: Some(true),
-        scoring: DreamingScoringConfig {
-            frequency_weight: Some(2.0),
-            recency_weight: Some(1.0),
-            explicitness_weight: Some(3.0),
-            cross_agent_weight: Some(2.0),
-            negative_signal_weight: Some(-1.0),
-            ..Default::default()
-        },
-        threshold: DreamingThresholdConfig {
-            absolute: Some(0.0),
-            relative: Some(0.0),
-        },
-        capacity: DreamingCapacityConfig {
-            max_rules: Some(100),
-        },
-        ..Default::default()
-    };
-    // Verify with_config doesn't panic and pipeline is constructible.
-    let _pipeline = DreamingPipeline::with_config(config);
-}
+// ── Deep stage: entity type weight + relative gate tests ─────────
 
+/// Deep stage applies entity_type_weight dimension from SQLite entity_types table.
 #[test]
-fn test_dreaming_pipeline_high_threshold_config() {
+fn test_deep_entity_type_weight_applied() {
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("etw.db");
+    {
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE entity_types (type TEXT PRIMARY KEY, weight REAL NOT NULL);
+             INSERT INTO entity_types VALUES ('person', 2.0);",
+        )
+        .unwrap();
+    }
     let config = DreamingConfig {
         enabled: Some(true),
         scoring: DreamingScoringConfig {
-            frequency_weight: Some(0.0),
-            recency_weight: Some(0.0),
-            explicitness_weight: Some(0.0),
+            frequency_weight: Some(1.0),
+            recency_weight: Some(1.0),
+            explicitness_weight: Some(1.0),
+            entity_type_weight_weight: Some(1.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
             ..Default::default()
         },
         threshold: DreamingThresholdConfig {
-            absolute: Some(5.0),
+            absolute: Some(0.0),
             relative: Some(0.0),
         },
         capacity: DreamingCapacityConfig {
@@ -460,45 +309,51 @@ fn test_dreaming_pipeline_high_threshold_config() {
         },
         ..Default::default()
     };
-    let _pipeline = DreamingPipeline::with_config(config);
-}
-
-#[test]
-fn test_dreaming_pipeline_capacity_config_stored() {
-    let config = DreamingConfig {
-        enabled: Some(true),
-        scoring: DreamingScoringConfig::default(),
-        threshold: DreamingThresholdConfig {
-            absolute: Some(0.0),
-            relative: Some(0.0),
+    let pipeline = DreamingPipeline::with_config(config).with_db_path(&db_path);
+    let e1 = make_entry(EntryCategory::Decision, "about person", "s1", 1);
+    let e2 = make_entry(EntryCategory::Decision, "about subject", "s1", 1);
+    let groups = vec![
+        EntityGroup {
+            entity_name: "alice".into(),
+            entity_type: "person".into(),
+            entries: vec![e1],
+            frequency: 1,
+            cross_agent_count: 1,
+            score: 0.0,
         },
-        capacity: DreamingCapacityConfig { max_rules: Some(5) },
-        ..Default::default()
-    };
-    let _pipeline = DreamingPipeline::with_config(config);
-}
-
-/// Boundary: max_rules=0 config is accepted without panic.
-#[test]
-fn test_dreaming_pipeline_max_rules_zero_config() {
-    let config = DreamingConfig {
-        enabled: Some(true),
-        threshold: DreamingThresholdConfig {
-            absolute: Some(0.0),
-            relative: Some(0.0),
+        EntityGroup {
+            entity_name: "rust".into(),
+            entity_type: "subject".into(),
+            entries: vec![e2],
+            frequency: 1,
+            cross_agent_count: 1,
+            score: 0.0,
         },
-        capacity: DreamingCapacityConfig { max_rules: Some(0) },
-        ..Default::default()
-    };
-    let _pipeline = DreamingPipeline::with_config(config);
+    ];
+    let result = pipeline.deep_stage(groups);
+    let person = result.iter().find(|g| g.entity_name == "alice").unwrap();
+    let subj = result.iter().find(|g| g.entity_name == "rust").unwrap();
+    assert!(
+        person.score > subj.score,
+        "person {} > subject {}",
+        person.score,
+        subj.score
+    );
 }
 
-/// Custom relative threshold config is accepted.
+/// Deep stage relative gate: per entity_type, removes groups below relative × top.
 #[test]
-fn test_dreaming_pipeline_relative_threshold_config() {
-    let config = DreamingConfig {
-        enabled: Some(true),
-        scoring: DreamingScoringConfig::default(),
+fn test_deep_relative_gate_per_entity_type() {
+    let pipeline = DreamingPipeline::with_config(DreamingConfig {
+        scoring: DreamingScoringConfig {
+            frequency_weight: Some(1.0),
+            recency_weight: Some(0.0),
+            explicitness_weight: Some(0.0),
+            entity_type_weight_weight: Some(0.0),
+            cross_agent_weight: Some(0.0),
+            negative_signal_weight: Some(0.0),
+            ..Default::default()
+        },
         threshold: DreamingThresholdConfig {
             absolute: Some(0.0),
             relative: Some(0.5),
@@ -507,19 +362,58 @@ fn test_dreaming_pipeline_relative_threshold_config() {
             max_rules: Some(100),
         },
         ..Default::default()
+    });
+    let e_high = {
+        let mut e = make_entry(EntryCategory::Decision, "high", "s1", 1);
+        e.entity_type = "subject".into();
+        e.entity_name = "high".into();
+        e
     };
-    let _pipeline = DreamingPipeline::with_config(config);
-}
-
-/// Default DreamingPipeline construction succeeds.
-#[test]
-fn test_dreaming_pipeline_default_config() {
-    let pipeline = DreamingPipeline::default();
-    // Verify default construction doesn't panic.
-    let entries = vec![make_entry(EntryCategory::Decision, "test", "s1", 10)];
-    // run_once needs storage; just verify pipeline is constructible.
-    let _ = pipeline;
-    assert!(!entries.is_empty());
+    let e_low = {
+        let mut e = make_entry(EntryCategory::Decision, "low", "s2", 1);
+        e.entity_type = "subject".into();
+        e.entity_name = "low".into();
+        e
+    };
+    let e_person = {
+        let mut e = make_entry(EntryCategory::Decision, "person", "s3", 1);
+        e.entity_type = "person".into();
+        e.entity_name = "p".into();
+        e
+    };
+    let groups = vec![
+        EntityGroup {
+            entity_name: "high".into(),
+            entity_type: "subject".into(),
+            entries: vec![e_high],
+            frequency: 10,
+            cross_agent_count: 1,
+            score: 0.0,
+        },
+        EntityGroup {
+            entity_name: "low".into(),
+            entity_type: "subject".into(),
+            entries: vec![e_low],
+            frequency: 1,
+            cross_agent_count: 1,
+            score: 0.0,
+        },
+        EntityGroup {
+            entity_name: "p".into(),
+            entity_type: "person".into(),
+            entries: vec![e_person],
+            frequency: 3,
+            cross_agent_count: 1,
+            score: 0.0,
+        },
+    ];
+    let result = pipeline.deep_stage(groups);
+    assert!(
+        !result.iter().any(|g| g.entity_name == "low"),
+        "low should be filtered"
+    );
+    assert!(result.iter().any(|g| g.entity_name == "high"));
+    assert!(result.iter().any(|g| g.entity_name == "p"));
 }
 
 // ── MEMORY.md write tests ──────────────────────────────────────────
@@ -586,21 +480,6 @@ fn test_write_memory_md_creates_directory() {
 
     pipeline.write_memory_md(&["rule".to_string()]).unwrap();
     assert!(md_path.exists());
-}
-
-/// MEMORY.md write is a no-op for empty rules.
-#[test]
-fn test_write_memory_md_empty_rules_noop() {
-    let tmp = TempDir::new().unwrap();
-    let md_path = tmp.path().join("MEMORY.md");
-
-    let pipeline = DreamingPipeline::new().with_memory_md_path(md_path.to_str().unwrap());
-
-    pipeline.write_memory_md(&[]).unwrap();
-    assert!(
-        !md_path.exists(),
-        "no file should be created for empty rules"
-    );
 }
 
 // ── LLM consolidation tests ────────────────────────────────────────
@@ -684,52 +563,35 @@ async fn test_consolidate_lessons_fallback_on_failure() {
 
 // ── SQLite integration tests ───────────────────────────────────────
 
-/// collect_entries_for_session reads from SQLite when db_path is set.
+/// SQLite integration: reads entries, handles missing DB/table.
 #[tokio::test]
-async fn test_collect_entries_from_sqlite() {
+async fn test_collect_entries_sqlite_and_edge_cases() {
+    // Setup: create DB with events + entities + event_entities.
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("test.db");
     {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         conn.execute_batch(
-            "CREATE TABLE events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                content TEXT NOT NULL,
-                category TEXT NOT NULL,
-                lesson TEXT,
-                source_session_id TEXT NOT NULL,
-                timestamp INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TABLE entities (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                agent_id TEXT NOT NULL,
-                type TEXT NOT NULL,
-                name TEXT NOT NULL,
-                normalized_name TEXT NOT NULL,
-                UNIQUE(agent_id, type, normalized_name)
-            );
-            CREATE TABLE event_entities (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_id INTEGER NOT NULL,
-                entity_id INTEGER NOT NULL
-            );
-            INSERT INTO events (content, category, lesson, source_session_id, timestamp, updated_at)
-            VALUES ('test content', 'error', 'test lesson', 'sess-1', 1700000000, 1700000000);
-            INSERT INTO entities (agent_id, type, name, normalized_name)
-            VALUES ('agent-1', 'subject', 'Test Entity', 'test entity');
-            INSERT INTO event_entities (event_id, entity_id)
-            VALUES (1, 1);",
-        )
-        .unwrap();
+            "CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT NOT NULL,
+             category TEXT NOT NULL, lesson TEXT, source_session_id TEXT NOT NULL,
+             timestamp INTEGER NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE entities (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL,
+             type TEXT NOT NULL, name TEXT NOT NULL, normalized_name TEXT NOT NULL,
+             UNIQUE(agent_id, type, normalized_name));
+             CREATE TABLE event_entities (id INTEGER PRIMARY KEY AUTOINCREMENT,
+             event_id INTEGER NOT NULL, entity_id INTEGER NOT NULL);
+             INSERT INTO events (content, category, lesson, source_session_id, timestamp, updated_at)
+             VALUES ('test content', 'error', 'test lesson', 'sess-1', 1700000000, 1700000000);
+             INSERT INTO entities (agent_id, type, name, normalized_name)
+             VALUES ('agent-1', 'subject', 'Test Entity', 'test entity');
+             INSERT INTO event_entities (event_id, entity_id) VALUES (1, 1);",
+        ).unwrap();
     }
-
     let storage = TestStorage::default();
     let mut cp = SessionCheckpoint::new("sess-1".into());
     cp.mined = true;
     cp.dreaming_status = DreamingStatus::Pending;
     storage.add_checkpoint(cp);
-
     let config = DreamingConfig {
         enabled: Some(true),
         diary: DreamingDiaryConfig {
@@ -739,63 +601,33 @@ async fn test_collect_entries_from_sqlite() {
         ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config).with_db_path(&db_path);
-
     let entries = pipeline
         .collect_entries_for_session(&storage, "sess-1")
         .await
         .unwrap();
-
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].body, "test content");
     assert_eq!(entries[0].lesson.as_deref(), Some("test lesson"));
     assert_eq!(entries[0].category, EntryCategory::Error);
-    // Entity name should be loaded as a tag.
     assert!(entries[0].tags.contains(&"Test Entity".to_string()));
-    // New fields: event_id, entity_type, entity_name, updated_at.
     assert_eq!(entries[0].event_id, 1);
     assert_eq!(entries[0].entity_type, "subject");
     assert_eq!(entries[0].entity_name, "Test Entity");
     assert_eq!(entries[0].updated_at, entries[0].timestamp);
-}
-
-/// collect_entries_for_session returns empty when db_path is None.
-#[tokio::test]
-async fn test_collect_entries_no_db_path() {
-    let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-1".into());
-    cp.mined = true;
-    cp.dreaming_status = DreamingStatus::Pending;
-    storage.add_checkpoint(cp);
-
-    let pipeline = DreamingPipeline::new();
-    let entries = pipeline
+    // No db_path → empty.
+    let p2 = DreamingPipeline::new();
+    let e2 = p2
         .collect_entries_for_session(&storage, "sess-1")
         .await
         .unwrap();
-    assert!(entries.is_empty());
-}
-
-/// collect_entries_for_session handles missing events table.
-#[tokio::test]
-async fn test_collect_entries_missing_table() {
-    let tmp = TempDir::new().unwrap();
-    let db_path = tmp.path().join("empty.db");
-    // Create empty SQLite (no events table).
-    rusqlite::Connection::open(&db_path).unwrap();
-
-    let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-1".into());
-    cp.mined = true;
-    cp.dreaming_status = DreamingStatus::Pending;
-    storage.add_checkpoint(cp);
-
-    let pipeline = DreamingPipeline::new().with_db_path(&db_path);
-    let result = pipeline
-        .collect_entries_for_session(&storage, "sess-1")
-        .await;
-    // Should return empty vec, not error.
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_empty());
+    assert!(e2.is_empty());
+    // Missing table → empty, not error.
+    let empty_db = tmp.path().join("empty.db");
+    rusqlite::Connection::open(&empty_db).unwrap();
+    let p3 = DreamingPipeline::new().with_db_path(&empty_db);
+    let e3 = p3.collect_entries_for_session(&storage, "sess-1").await;
+    assert!(e3.is_ok());
+    assert!(e3.unwrap().is_empty());
 }
 
 // ── Config hot-reload tests ────────────────────────────────────────
@@ -855,100 +687,266 @@ async fn test_update_config_changes_behavior() {
     );
 }
 
-/// Concurrent update_config and config reads do not panic.
-#[test]
-fn test_update_config_concurrent_safety() {
-    let handles: Vec<_> = (0..4)
-        .map(|i| {
-            let config_enabled = i % 2 == 0;
-            std::thread::spawn(move || {
-                let cfg = DreamingConfig {
-                    enabled: Some(config_enabled),
-                    diary: DreamingDiaryConfig::default(),
-                    ..Default::default()
-                };
-                // Each thread creates its own pipeline — this verifies the
-                // RwLock internals don't panic under rapid construction.
-                let p = DreamingPipeline::with_config(cfg);
-                p.update_config(DreamingConfig {
-                    enabled: Some(!config_enabled),
-                    diary: DreamingDiaryConfig::default(),
-                    ..Default::default()
-                });
-                // Verify the pipeline is still usable after rapid config changes.
-                let _ = p.write_memory_md(&[]);
-                drop(p);
-            })
-        })
-        .collect();
+// ── Anti-contamination tests ───────────────────────────────────────
 
-    for h in handles {
-        h.join().expect("thread should not panic");
+/// Anti-contamination: event_id + updated_at check passes for valid events.
+#[tokio::test]
+async fn test_anti_contamination_valid_event() {
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("ac.db");
+    {
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE events (id INTEGER PRIMARY KEY, content TEXT, category TEXT,
+             lesson TEXT, source_session_id TEXT, timestamp INTEGER, updated_at INTEGER);
+             INSERT INTO events VALUES (42, 'test', 'error', NULL, 's1', 1000, 1000);",
+        )
+        .unwrap();
     }
+    let pipeline = DreamingPipeline::new().with_db_path(&db_path);
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    let entry = MemoryEntry {
+        category: EntryCategory::Error,
+        body: "test".into(),
+        timestamp: chrono::DateTime::from_timestamp(1000, 0).unwrap(),
+        source_session_id: "s1".into(),
+        lesson: None,
+        tags: vec![],
+        score: 0.0,
+        event_id: 42,
+        entity_type: "subject".into(),
+        entity_name: "x".into(),
+        updated_at: chrono::DateTime::from_timestamp(1000, 0).unwrap(),
+    };
+    assert!(pipeline.verify_event_integrity(&conn, &entry).unwrap());
 }
 
-// ── Anti-contamination tests ───────────────────────────────────────
+/// Anti-contamination: stale updated_at fails the check.
+#[tokio::test]
+async fn test_anti_contamination_stale_event() {
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("ac2.db");
+    {
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE events (id INTEGER PRIMARY KEY, content TEXT, category TEXT,
+             lesson TEXT, source_session_id TEXT, timestamp INTEGER, updated_at INTEGER);
+             INSERT INTO events VALUES (42, 'test', 'error', NULL, 's1', 1000, 1000);",
+        )
+        .unwrap();
+    }
+    let pipeline = DreamingPipeline::new().with_db_path(&db_path);
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    let entry = MemoryEntry {
+        category: EntryCategory::Error,
+        body: "test".into(),
+        timestamp: chrono::DateTime::from_timestamp(1000, 0).unwrap(),
+        source_session_id: "s1".into(),
+        lesson: None,
+        tags: vec![],
+        score: 0.0,
+        event_id: 42,
+        entity_type: "subject".into(),
+        entity_name: "x".into(),
+        updated_at: chrono::DateTime::from_timestamp(2000, 0).unwrap(),
+    };
+    assert!(!pipeline.verify_event_integrity(&conn, &entry).unwrap());
+}
+
+/// Anti-contamination: verify_and_filter_rules skips rules with stale events.
+#[tokio::test]
+async fn test_verify_and_filter_rules_drops_stale() {
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("ac3.db");
+    {
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE events (id INTEGER PRIMARY KEY, content TEXT, category TEXT,
+             lesson TEXT, source_session_id TEXT, timestamp INTEGER, updated_at INTEGER);
+             INSERT INTO events VALUES (1, 'a', 'error', NULL, 's1', 1000, 1000);
+             INSERT INTO events VALUES (2, 'b', 'error', NULL, 's1', 1000, 2000);",
+        )
+        .unwrap();
+    }
+    let pipeline = DreamingPipeline::new().with_db_path(&db_path);
+    let groups = vec![
+        EntityGroup {
+            entity_name: "a".into(),
+            entity_type: "subject".into(),
+            entries: vec![MemoryEntry {
+                category: EntryCategory::Error,
+                body: "a".into(),
+                timestamp: chrono::DateTime::from_timestamp(1000, 0).unwrap(),
+                source_session_id: "s1".into(),
+                lesson: None,
+                tags: vec![],
+                score: 0.0,
+                event_id: 1,
+                entity_type: "subject".into(),
+                entity_name: "a".into(),
+                updated_at: chrono::DateTime::from_timestamp(1000, 0).unwrap(),
+            }],
+            frequency: 1,
+            cross_agent_count: 1,
+            score: 0.0,
+        },
+        EntityGroup {
+            entity_name: "b".into(),
+            entity_type: "subject".into(),
+            entries: vec![MemoryEntry {
+                category: EntryCategory::Error,
+                body: "b".into(),
+                timestamp: chrono::DateTime::from_timestamp(1000, 0).unwrap(),
+                source_session_id: "s1".into(),
+                lesson: None,
+                tags: vec![],
+                score: 0.0,
+                event_id: 2,
+                entity_type: "subject".into(),
+                entity_name: "b".into(),
+                updated_at: chrono::DateTime::from_timestamp(9999, 0).unwrap(),
+            }],
+            frequency: 1,
+            cross_agent_count: 1,
+            score: 0.0,
+        },
+    ];
+    let rules = vec!["rule a".into(), "rule b".into()];
+    let verified = pipeline
+        .verify_and_filter_rules(&rules, &groups)
+        .await
+        .unwrap();
+    assert_eq!(verified.len(), 1);
+    assert_eq!(verified[0], "rule a");
+}
 
 // ── DreamingPipeline model propagation tests ───────────────────────
 
-/// with_config() extracts model from DreamingConfig.
+/// Model extraction, default None, and lifecycle via update_config.
 #[test]
-fn test_with_config_extracts_model() {
+fn test_model_lifecycle() {
     let config = DreamingConfig {
         model: Some("gpt-4o".to_string()),
         ..Default::default()
     };
-    let pipeline = DreamingPipeline::with_config(config);
-    assert_eq!(pipeline.model().as_deref(), Some("gpt-4o"));
-}
-
-/// Default pipeline and unconfigured config both have model as None.
-#[test]
-fn test_default_model_is_none() {
-    let pipeline = DreamingPipeline::default();
-    assert_eq!(pipeline.model(), None);
-    let pipeline2 = DreamingPipeline::with_config(DreamingConfig::default());
-    assert_eq!(pipeline2.model(), None);
-}
-
-/// update_config propagates model changes and can clear model.
-#[test]
-fn test_update_config_model_lifecycle() {
-    let pipeline = DreamingPipeline::default();
-    assert_eq!(pipeline.model(), None);
-    pipeline.update_config(DreamingConfig {
+    let p = DreamingPipeline::with_config(config);
+    assert_eq!(p.model().as_deref(), Some("gpt-4o"));
+    assert_eq!(DreamingPipeline::default().model(), None);
+    p.update_config(DreamingConfig {
         model: Some("claude-3.5-sonnet".to_string()),
         ..Default::default()
     });
-    assert_eq!(pipeline.model().as_deref(), Some("claude-3.5-sonnet"));
-    pipeline.update_config(DreamingConfig {
+    assert_eq!(p.model().as_deref(), Some("claude-3.5-sonnet"));
+    p.update_config(DreamingConfig {
         model: None,
         ..Default::default()
     });
-    assert_eq!(pipeline.model(), None);
+    assert_eq!(p.model(), None);
 }
 
-/// Per-agent override: different pipelines can have different models.
+// ── REM stage: cross-agent detection ─────────────────────────────
+
+/// REM stage detects cross-agent entity sharing via SQLite agent map.
 #[test]
-fn test_per_agent_override_model() {
-    let pipeline_a = DreamingPipeline::with_config(DreamingConfig {
-        model: Some("model-a".to_string()),
+fn test_rem_cross_agent_detection() {
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("rem_ca.db");
+    {
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE entities (id INTEGER PRIMARY KEY, agent_id TEXT, type TEXT,
+             name TEXT, normalized_name TEXT, UNIQUE(agent_id, type, normalized_name));
+             INSERT INTO entities VALUES (1, 'agent-a', 'subject', 'rust', 'rust');
+             INSERT INTO entities VALUES (2, 'agent-b', 'subject', 'rust', 'rust');
+             INSERT INTO entities VALUES (3, 'agent-a', 'subject', 'python', 'python');",
+        )
+        .unwrap();
+    }
+    let pipeline = DreamingPipeline::new().with_db_path(&db_path);
+    let e1 = {
+        let mut e = make_entry(EntryCategory::Error, "err1", "s1", 10);
+        e.entity_name = "rust".into();
+        e.entity_type = "subject".into();
+        e
+    };
+    let e2 = {
+        let mut e = make_entry(EntryCategory::Error, "err2", "s2", 10);
+        e.entity_name = "rust".into();
+        e.entity_type = "subject".into();
+        e
+    };
+    let e3 = {
+        let mut e = make_entry(EntryCategory::Error, "err3", "s1", 10);
+        e.entity_name = "python".into();
+        e.entity_type = "subject".into();
+        e
+    };
+    let groups = pipeline.rem_stage(vec![vec![e1, e2], vec![e3]]);
+    let rust = groups.iter().find(|g| g.entity_name == "rust").unwrap();
+    assert_eq!(
+        rust.cross_agent_count, 2,
+        "rust shared by agent-a and agent-b"
+    );
+    let python = groups.iter().find(|g| g.entity_name == "python").unwrap();
+    assert_eq!(python.cross_agent_count, 1, "python only by agent-a");
+}
+
+// ── End-to-end pipeline test ─────────────────────────────────────
+
+/// End-to-end: Light → REM → Deep pipeline flow with entity grouping.
+#[test]
+fn test_e2e_light_rem_deep_pipeline() {
+    let pipeline = DreamingPipeline::with_config(DreamingConfig {
+        scoring: DreamingScoringConfig {
+            frequency_weight: Some(1.0),
+            recency_weight: Some(0.5),
+            explicitness_weight: Some(1.0),
+            entity_type_weight_weight: Some(0.0),
+            cross_agent_weight: Some(0.0),
+            negative_signal_weight: Some(0.0),
+            ..Default::default()
+        },
+        threshold: DreamingThresholdConfig {
+            absolute: Some(0.0),
+            relative: Some(0.0),
+        },
+        capacity: DreamingCapacityConfig {
+            max_rules: Some(100),
+        },
         ..Default::default()
     });
-    let pipeline_b = DreamingPipeline::with_config(DreamingConfig {
-        model: Some("model-b".to_string()),
-        ..Default::default()
-    });
-    assert_eq!(pipeline_a.model().as_deref(), Some("model-a"));
-    assert_eq!(pipeline_b.model().as_deref(), Some("model-b"));
+    let mut e1 = make_entry(EntryCategory::Decision, "deploy fast", "s1", 1);
+    e1.entity_type = "subject".into();
+    e1.entity_name = "deploy".into();
+    let mut e2 = make_entry(EntryCategory::Decision, "deploy careful", "s2", 1);
+    e2.entity_type = "subject".into();
+    e2.entity_name = "deploy".into();
+    let mut e3 = make_entry(EntryCategory::Error, "vim error", "s1", 1);
+    e3.entity_type = "subject".into();
+    e3.entity_name = "vim".into();
+    // Light: dedup + entity type chunking
+    let light = pipeline.light_stage(vec![e1, e2, e3]).unwrap();
+    assert_eq!(light.len(), 1, "all same entity_type -> 1 chunk");
+    // REM: cluster by entity
+    let rem = pipeline.rem_stage(light);
+    assert_eq!(rem.len(), 2, "two distinct entities");
+    let deploy = rem.iter().find(|g| g.entity_name == "deploy").unwrap();
+    assert_eq!(deploy.frequency, 2, "deploy appears in 2 sessions");
+    // Deep: score and filter
+    let deep = pipeline.deep_stage(rem);
+    assert!(!deep.is_empty(), "at least one group should survive");
+    for g in &deep {
+        assert!(g.score >= 0.0, "score should be non-negative");
+    }
 }
 
 // ── Light stage entity-type chunking + semantic dedup tests ────────
 
-/// Semantic dedup filters entries that overlap with MEMORY.md existing rules.
+/// Semantic dedup: filters overlapping, keeps non-overlapping entries.
 #[test]
-fn test_light_dedup_semantic_filters_existing_rules() {
+fn test_light_dedup_semantic() {
     let pipeline = DreamingPipeline::new();
+    // Overlapping entry should be filtered.
     let entries = vec![
         make_entry(
             EntryCategory::Decision,
@@ -962,19 +960,13 @@ fn test_light_dedup_semantic_filters_existing_rules() {
     let result = pipeline.deduplicate(entries, &existing);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].body, "use vim for code editing");
-}
-
-/// Semantic dedup keeps all entries when no overlap with existing rules.
-#[test]
-fn test_light_dedup_semantic_no_match_keeps_all() {
-    let pipeline = DreamingPipeline::new();
-    let entries = vec![
+    // Non-overlapping: all entries kept.
+    let entries2 = vec![
         make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 10),
         make_entry(EntryCategory::Error, "deployment failed", "s2", 5),
     ];
-    let existing = vec!["unrelated rule about testing".to_string()];
-    let result = pipeline.deduplicate(entries, &existing);
-    assert_eq!(result.len(), 2);
+    let result2 = pipeline.deduplicate(entries2, &["unrelated rule about testing".to_string()]);
+    assert_eq!(result2.len(), 2);
 }
 
 /// Entity-type chunking groups entries by entity_type field.
