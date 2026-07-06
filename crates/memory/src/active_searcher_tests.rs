@@ -694,11 +694,11 @@ fn test_from_agent_config_full_search_config() {
         search: SearchConfig {
             enabled: Some(true),
             model: Some("claude-opus".into()),
-            timeout_ms: 9999,
-            max_summary_chars: 8000,
-            min_entity_hits: 5,
-            top_k_events: 20,
-            context_turns: 7,
+            timeout_ms: Some(9999),
+            max_summary_chars: Some(8000),
+            min_entity_hits: Some(5),
+            top_k_events: Some(20),
+            context_turns: Some(7),
         },
         ..MemoryConfig::default()
     };
@@ -721,7 +721,7 @@ fn test_from_agent_config_partial_search_config() {
         search: SearchConfig {
             enabled: Some(true),
             model: Some("deepseek-r1".into()),
-            timeout_ms: 12000,
+            timeout_ms: Some(12000),
             ..Default::default()
         },
         ..MemoryConfig::default()
@@ -755,11 +755,11 @@ fn test_from_agent_config_search_config_values() {
     let memory = MemoryConfig {
         search: SearchConfig {
             enabled: Some(true),
-            timeout_ms: 4000,
-            max_summary_chars: 800,
-            min_entity_hits: 2,
-            top_k_events: 5,
-            context_turns: 8,
+            timeout_ms: Some(4000),
+            max_summary_chars: Some(800),
+            min_entity_hits: Some(2),
+            top_k_events: Some(5),
+            context_turns: Some(8),
             model: Some("search-model".into()),
             ..Default::default()
         },
