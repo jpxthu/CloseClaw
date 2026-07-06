@@ -167,3 +167,135 @@ async fn test_dreaming_scheduler_mining_skips_unconfigured_agents() {
         "run_once with unconfigured agent should succeed: {result:?}"
     );
 }
+
+/// Scheduler with valid cron schedule uses cron-based scheduling.
+#[tokio::test]
+async fn test_dreaming_scheduler_cron_schedule_shutdown() {
+    let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
+    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let scheduler = make_scheduler(storage, config).with_schedule(Some("0 3 * * *".to_string()));
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(());
+    let handle = tokio::spawn(async move {
+        scheduler.run(shutdown_rx).await;
+    });
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    shutdown_tx.send(()).unwrap();
+
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    assert!(
+        result.is_ok(),
+        "scheduler with cron schedule should exit promptly"
+    );
+}
+
+/// Scheduler with invalid cron falls back to fixed interval.
+#[tokio::test]
+async fn test_dreaming_scheduler_invalid_cron_fallback() {
+    let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
+    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let scheduler = make_scheduler(storage, config).with_schedule(Some("not-a-cron".to_string()));
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(());
+    let handle = tokio::spawn(async move {
+        scheduler.run(shutdown_rx).await;
+    });
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    shutdown_tx.send(()).unwrap();
+
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    assert!(
+        result.is_ok(),
+        "scheduler with invalid cron should exit promptly (fallback)"
+    );
+}
+
+/// Scheduler with no schedule uses fixed interval (backward compat).
+#[tokio::test]
+async fn test_dreaming_scheduler_no_schedule_uses_fixed() {
+    let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
+    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let scheduler = make_scheduler(storage, config);
+
+    assert!(scheduler.schedule.is_none());
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(());
+    let handle = tokio::spawn(async move {
+        scheduler.run(shutdown_rx).await;
+    });
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    shutdown_tx.send(()).unwrap();
+
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    assert!(
+        result.is_ok(),
+        "scheduler without schedule should exit promptly"
+    );
+}
+
+// ── Step 1.6: Cron schedule consumption tests ─────────────────────────
+
+/// Scheduler with_schedule() correctly stores the cron expression.
+#[test]
+fn test_with_schedule_stores_cron_expression() {
+    let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
+    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let scheduler = make_scheduler(storage, config).with_schedule(Some("0 3 * * *".to_string()));
+    assert_eq!(scheduler.schedule.as_deref(), Some("0 3 * * *"));
+}
+
+/// Scheduler with None schedule stores None.
+#[test]
+fn test_with_schedule_none() {
+    let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
+    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let scheduler = make_scheduler(storage, config).with_schedule(None);
+    assert!(scheduler.schedule.is_none());
+}
+
+/// Scheduler with empty string falls back to fixed interval (invalid cron).
+#[tokio::test]
+async fn test_with_schedule_empty_string_fallback() {
+    let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
+    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let scheduler = make_scheduler(storage, config).with_schedule(Some(String::new()));
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(());
+    let handle = tokio::spawn(async move {
+        scheduler.run(shutdown_rx).await;
+    });
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    shutdown_tx.send(()).unwrap();
+
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    assert!(
+        result.is_ok(),
+        "scheduler with empty schedule string should exit promptly"
+    );
+}
+
+/// Scheduler with hourly cron parses and runs correctly.
+#[tokio::test]
+async fn test_dreaming_scheduler_hourly_cron() {
+    let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
+    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let scheduler = make_scheduler(storage, config).with_schedule(Some("0 * * * *".to_string()));
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(());
+    let handle = tokio::spawn(async move {
+        scheduler.run(shutdown_rx).await;
+    });
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    shutdown_tx.send(()).unwrap();
+
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    assert!(
+        result.is_ok(),
+        "scheduler with hourly cron should exit promptly"
+    );
+}

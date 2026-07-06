@@ -244,6 +244,7 @@ fn setup_with_config(
 /// MinerConfig with permissive thresholds for short test transcripts.
 fn test_miner_config() -> MinerConfig {
     MinerConfig {
+        enabled: true,
         clean_rules: closeclaw_config::agents::TranscriptCleanRules {
             min_turns: Some(1),
             min_owner_msgs: Some(1),

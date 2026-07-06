@@ -283,7 +283,7 @@ async fn handle_search_result(
 ///
 /// Looks for `search.timeout_ms` in the config object.
 /// Falls back to 3000 ms (the default in config.md).
-fn extract_timeout_ms(memory_config: &Option<serde_json::Value>) -> u64 {
+pub(crate) fn extract_timeout_ms(memory_config: &Option<serde_json::Value>) -> u64 {
     memory_config
         .as_ref()
         .and_then(|c| c.get("search"))

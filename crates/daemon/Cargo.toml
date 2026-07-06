@@ -16,6 +16,9 @@ path = "src/mod.rs"
 # Async runtime
 tokio = { version = "=1.35.0", features = ["full"] }
 
+# Time
+chrono = "0.4"
+
 # Logging
 tracing = "=0.1.43"
 

@@ -8,7 +8,8 @@ mod tests {
     use std::time::Duration;
 
     use crate::active_searcher::{
-        spawn_active_searcher, SearcherDependencies, SearcherInput, SessionMessageSnapshot,
+        extract_context_turns, extract_timeout_ms, spawn_active_searcher, SearcherDependencies,
+        SearcherInput, SessionMessageSnapshot,
     };
 
     // ── Helpers ──────────────────────────────────────────────────────
@@ -435,5 +436,49 @@ mod tests {
             !*injection_called.lock().await,
             "set_injection should not be called when searcher times out"
         );
+    }
+
+    // ── Step 1.1: config default value tests ───────────────────────
+
+    /// When memory_config is None, extract_timeout_ms returns 3000
+    /// (matching config.md search.timeout_ms default).
+    #[test]
+    fn test_extract_timeout_ms_default_when_none() {
+        assert_eq!(extract_timeout_ms(&None), 3000);
+    }
+
+    /// When memory_config has no search.timeout_ms, fallback is 3000.
+    #[test]
+    fn test_extract_timeout_ms_default_when_empty_object() {
+        let config = serde_json::json!({});
+        assert_eq!(extract_timeout_ms(&Some(config)), 3000);
+    }
+
+    /// When memory_config has search.timeout_ms set, that value is used.
+    #[test]
+    fn test_extract_timeout_ms_explicit_value() {
+        let config = serde_json::json!({ "search": { "timeout_ms": 5000 } });
+        assert_eq!(extract_timeout_ms(&Some(config)), 5000);
+    }
+
+    /// When memory_config is None, extract_context_turns returns 5
+    /// (matching config.md search.context_turns default).
+    #[test]
+    fn test_extract_context_turns_default_when_none() {
+        assert_eq!(extract_context_turns(&None), 5);
+    }
+
+    /// When memory_config has no search.context_turns, fallback is 5.
+    #[test]
+    fn test_extract_context_turns_default_when_empty_object() {
+        let config = serde_json::json!({});
+        assert_eq!(extract_context_turns(&Some(config)), 5);
+    }
+
+    /// When memory_config has search.context_turns set, that value is used.
+    #[test]
+    fn test_extract_context_turns_explicit_value() {
+        let config = serde_json::json!({ "search": { "context_turns": 10 } });
+        assert_eq!(extract_context_turns(&Some(config)), 10);
     }
 }

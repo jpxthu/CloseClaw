@@ -414,12 +414,9 @@ impl Daemon {
                 )
             });
         let dreaming_config_provider = Arc::clone(&session_config_provider);
-        let storage: Arc<dyn PersistenceService> = {
-            let s = Arc::new(
-                SqliteStorage::new(data_dir).expect("SqliteStorage should already be initialized"),
-            );
-            s as Arc<dyn PersistenceService>
-        };
+        let storage: Arc<dyn PersistenceService> =
+            Arc::new(SqliteStorage::new(data_dir).expect("SqliteStorage already initialized"))
+                as Arc<dyn PersistenceService>;
         let sweeper = Arc::new(
             ArchiveSweeper::new(Arc::clone(&storage), session_config_provider)
                 .with_session_manager(Arc::clone(session_manager)),
@@ -449,7 +446,6 @@ impl Daemon {
             .memory_md_path
             .as_deref()
             .unwrap_or("memory/MEMORY.md");
-        // NoopMinerLlmCaller returns empty events until a real LLM caller is wired up.
         let dreaming_pipeline = Arc::new(DreamingPipeline::with_config(
             memory_config.config.dreaming.clone(),
         ));
@@ -465,7 +461,15 @@ impl Daemon {
             dreaming_config_provider,
             dreaming_pipeline,
             memory_miner,
-        );
+        )
+        .with_schedule(Some(
+            memory_config
+                .config
+                .dreaming
+                .schedule
+                .clone()
+                .unwrap_or_else(|| closeclaw_config::agents::default_dreaming_schedule()),
+        ));
         tokio::spawn(async move {
             dreaming_scheduler.run(dreaming_rx).await;
         });

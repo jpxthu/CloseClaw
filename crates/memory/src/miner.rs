@@ -540,6 +540,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_miner_config_default_enabled_is_false() {
+        let config = MinerConfig::default();
+        assert!(
+            !config.enabled,
+            "MinerConfig::default().enabled should be false per config.md mining.enabled default"
+        );
+    }
+
+    #[test]
     fn test_normalize_entity_name() {
         assert_eq!(normalize_entity_name("My Entity"), "my_entity");
         assert_eq!(normalize_entity_name("UPPER CASE"), "upper_case");
