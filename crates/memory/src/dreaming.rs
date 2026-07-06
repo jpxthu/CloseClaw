@@ -23,7 +23,16 @@ use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError, PromotedGroupInfo
 
 // ── Types ────────────────────────────────────────────────────────────────
 
-type EventEntityRow = (i64, String, String, Option<String>, i64, String, String);
+type EventEntityRow = (
+    i64,
+    String,
+    String,
+    Option<String>,
+    i64,
+    i64,
+    String,
+    String,
+);
 
 /// A structured memory entry produced by the memory-miner.
 #[derive(Debug, Clone, PartialEq)]
@@ -297,7 +306,7 @@ impl DreamingPipeline {
         session_id: &str,
     ) -> Result<Vec<MemoryEntry>, DreamingError> {
         let sql = "SELECT e.id, e.content, e.category, e.lesson, e.timestamp,
-                         ent.type AS entity_type, ent.name AS entity_name
+                         e.updated_at, ent.type AS entity_type, ent.name AS entity_name
                     FROM events e
                     JOIN event_entities ee ON ee.event_id = e.id
                     JOIN entities ent ON ent.id = ee.entity_id
@@ -318,6 +327,7 @@ impl DreamingPipeline {
                     row.get(4)?,
                     row.get(5)?,
                     row.get(6)?,
+                    row.get(7)?,
                 ))
             })
             .map_err(|e| DreamingError::Sqlite(e.to_string()))?
@@ -325,7 +335,17 @@ impl DreamingPipeline {
             .collect();
 
         let mut entries = Vec::new();
-        for (event_id, content, category_str, lesson, ts, entity_type, entity_name) in rows {
+        for (
+            event_id,
+            content,
+            category_str,
+            lesson,
+            ts,
+            updated_at_ts,
+            entity_type,
+            entity_name,
+        ) in rows
+        {
             let category = match category_str.as_str() {
                 "error" => EntryCategory::Error,
                 "anger" => EntryCategory::Anger,
@@ -335,6 +355,8 @@ impl DreamingPipeline {
 
             let timestamp =
                 chrono::DateTime::from_timestamp(ts, 0).unwrap_or_else(chrono::Utc::now);
+            let updated_at =
+                chrono::DateTime::from_timestamp(updated_at_ts, 0).unwrap_or_else(chrono::Utc::now);
 
             // Tags are temporarily filled with entity_name; REM stage will
             // override with keyword aggregation later.
@@ -351,9 +373,7 @@ impl DreamingPipeline {
                 event_id,
                 entity_type,
                 entity_name,
-                // updated_at temporarily uses timestamp; events table has no
-                // updated_at column yet (Step 1.5 will add it).
-                updated_at: timestamp,
+                updated_at,
             });
         }
 
