@@ -565,6 +565,58 @@ fn test_load_recent_events_excludes_current_session() {
     assert!(result.is_empty());
 }
 
+// ── entity_types table tests ──────────────────────────────────────────
+
+/// init_schema creates entity_types table with 11 seed rows.
+#[test]
+fn test_init_schema_creates_entity_types() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM entity_types", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 11, "entity_types should have 11 seed rows");
+}
+
+/// catalog includes type definitions for all 11 types.
+#[test]
+fn test_load_entity_catalog_includes_type_definitions() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+    // Insert an entity to verify the catalog merges both tables.
+    conn.execute(
+        "INSERT INTO entities (agent_id, type, name, normalized_name, description)
+         VALUES ('a1', 'subject', 'rust', 'rust', 'a language')",
+        [],
+    )
+    .unwrap();
+    let catalog = load_entity_catalog(&conn, "a1").unwrap();
+    // All 11 type headers must be present.
+    let expected_types = [
+        "action",
+        "group",
+        "location",
+        "metric",
+        "organization",
+        "person",
+        "product",
+        "subject",
+        "tags",
+        "time",
+        "work",
+    ];
+    for t in expected_types {
+        assert!(
+            catalog.contains(&format!("## {t} ")),
+            "catalog should contain type header for {t}",
+        );
+    }
+    // Entity should also appear.
+    assert!(catalog.contains("- rust: a language"));
+}
+
 // ── normalize_entity_name tests ───────────────────────────────────────
 
 #[test]
