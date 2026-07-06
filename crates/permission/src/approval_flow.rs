@@ -304,9 +304,10 @@ impl ApprovalFlow {
 
                 handle.spawn(async move {
                     let content = format!("[审批 {}] 操作已批准", rid);
-                    let msg = PendingMessage::new(
+                    let msg = PendingMessage::with_role(
                         format!("approval-{}", chrono::Utc::now().timestamp_millis()),
                         content,
+                        "assistant".to_string(),
                     );
                     if let Err(e) = sm.push_pending_message(&session_id, msg).await {
                         tracing::warn!(
@@ -343,9 +344,10 @@ impl ApprovalFlow {
 
                 handle.spawn(async move {
                     let content = format!("[审批 {}] 操作已拒绝", rid);
-                    let msg = PendingMessage::new(
+                    let msg = PendingMessage::with_role(
                         format!("approval-{}", chrono::Utc::now().timestamp_millis()),
                         content,
+                        "assistant".to_string(),
                     );
                     if let Err(e) = sm.push_pending_message(&session_id, msg).await {
                         tracing::warn!(

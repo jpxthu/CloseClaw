@@ -405,8 +405,11 @@ impl SessionManager {
         }
 
         // 6. Inject task as pending message
-        let pending_msg =
-            PendingMessage::new(format!("{}-task", child_session_id), task.to_string());
+        let pending_msg = PendingMessage::with_role(
+            format!("{}-task", child_session_id),
+            task.to_string(),
+            "assistant".to_string(),
+        );
         cs.push_pending(pending_msg);
 
         // 7. Register to conversation_sessions and sessions mappings
@@ -649,7 +652,11 @@ impl SessionManager {
             .get_conversation_session(child_id)
             .await
             .ok_or_else(|| format!("child session not found: {}", child_id))?;
-        let pending_msg = PendingMessage::new(format!("{}-steer", child_id), task.to_string());
+        let pending_msg = PendingMessage::with_role(
+            format!("{}-steer", child_id),
+            task.to_string(),
+            "assistant".to_string(),
+        );
         cs.write().await.push_pending(pending_msg);
         Ok(())
     }

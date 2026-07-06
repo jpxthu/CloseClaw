@@ -52,6 +52,8 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 use tracing::info;
 
+mod noop_miner_llm;
+
 /// Parse an .env file into key-value pairs.
 /// Lines starting with # are comments. Whitespace around keys and values is trimmed.
 /// Returns only non-empty key-value pairs.
@@ -427,8 +429,19 @@ impl Daemon {
             sweeper_for_task.run(sweeper_rx).await;
         });
         info!("ArchiveSweeper spawned");
+        // Construct dreaming pipeline and memory miner with defaults.
+        // NoopMinerLlmCaller returns empty events until a real LLM caller is wired up.
         let dreaming_pipeline = Arc::new(DreamingPipeline::new());
-        let memory_miner = Arc::new(MemoryMiner::new());
+        let memory_miner = Arc::new(MemoryMiner::new(
+            closeclaw_memory::miner::MinerConfig::default(),
+            Box::new(noop_miner_llm::NoopMinerLlmCaller),
+            data_dir.join("memory/memory.db"),
+            data_dir
+                .join("memory/MEMORY.md")
+                .to_string_lossy()
+                .into_owned(),
+            String::new(),
+        ));
         let dreaming_scheduler = crate::dreaming_scheduler::DreamingScheduler::new(
             storage,
             dreaming_config_provider,

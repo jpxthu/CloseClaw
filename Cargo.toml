@@ -90,6 +90,7 @@ proptest = "=1.4"
 tempfile = "3.10"
 serial_test = "3.4"
 mockito = "1.2"
+rusqlite = { version = "0.31", features = ["bundled"] }
 sha2 = "0.10"
 hex = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }

@@ -510,9 +510,10 @@ impl SessionMessageHandler {
     }
 
     pub(super) async fn enqueue_pending(&self, session_id: &str, content: String) {
-        let msg = PendingMessage::new(
+        let msg = PendingMessage::with_role(
             format!("pending-{}", chrono::Utc::now().timestamp_millis()),
             content,
+            "user".to_string(),
         );
         if let Err(e) = self
             .session_manager

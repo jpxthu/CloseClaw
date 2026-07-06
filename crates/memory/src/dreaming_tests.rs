@@ -502,3 +502,272 @@ fn test_dreaming_pipeline_default_config() {
     let _ = pipeline;
     assert!(!entries.is_empty());
 }
+
+// ── MEMORY.md write tests ──────────────────────────────────────────
+
+/// MEMORY.md write creates file with rules.
+#[test]
+fn test_write_memory_md_creates_file() {
+    let tmp = TempDir::new().unwrap();
+    let md_path = tmp.path().join("MEMORY.md");
+    let pipeline = DreamingPipeline::new().with_memory_md_path(md_path.to_str().unwrap());
+
+    let rules = vec!["always verify before deploying".to_string()];
+    let result = pipeline.write_memory_md(&rules);
+    assert!(result.is_ok(), "write_memory_md should succeed: {result:?}");
+
+    let content = std::fs::read_to_string(&md_path).unwrap();
+    assert!(content.contains("- always verify before deploying"));
+}
+
+/// MEMORY.md write deduplicates existing rules.
+#[test]
+fn test_write_memory_md_deduplicates() {
+    let tmp = TempDir::new().unwrap();
+    let md_path = tmp.path().join("MEMORY.md");
+    // Pre-existing content with one rule.
+    std::fs::write(&md_path, "- existing rule\n").unwrap();
+
+    let pipeline = DreamingPipeline::new().with_memory_md_path(md_path.to_str().unwrap());
+
+    let rules = vec!["existing rule".to_string(), "new rule".to_string()];
+    pipeline.write_memory_md(&rules).unwrap();
+
+    let content = std::fs::read_to_string(&md_path).unwrap();
+    // existing rule should appear only once.
+    assert_eq!(content.matches("existing rule").count(), 1);
+    assert!(content.contains("- new rule"));
+}
+
+/// MEMORY.md write appends without overwriting existing content.
+#[test]
+fn test_write_memory_md_appends() {
+    let tmp = TempDir::new().unwrap();
+    let md_path = tmp.path().join("MEMORY.md");
+    std::fs::write(&md_path, "- old rule\n").unwrap();
+
+    let pipeline = DreamingPipeline::new().with_memory_md_path(md_path.to_str().unwrap());
+
+    pipeline
+        .write_memory_md(&["added rule".to_string()])
+        .unwrap();
+
+    let content = std::fs::read_to_string(&md_path).unwrap();
+    assert!(content.contains("- old rule"));
+    assert!(content.contains("- added rule"));
+}
+
+/// MEMORY.md write creates parent directory if missing.
+#[test]
+fn test_write_memory_md_creates_directory() {
+    let tmp = TempDir::new().unwrap();
+    let md_path = tmp.path().join("deep/nested/MEMORY.md");
+
+    let pipeline = DreamingPipeline::new().with_memory_md_path(md_path.to_str().unwrap());
+
+    pipeline.write_memory_md(&["rule".to_string()]).unwrap();
+    assert!(md_path.exists());
+}
+
+/// MEMORY.md write is a no-op for empty rules.
+#[test]
+fn test_write_memory_md_empty_rules_noop() {
+    let tmp = TempDir::new().unwrap();
+    let md_path = tmp.path().join("MEMORY.md");
+
+    let pipeline = DreamingPipeline::new().with_memory_md_path(md_path.to_str().unwrap());
+
+    pipeline.write_memory_md(&[]).unwrap();
+    assert!(
+        !md_path.exists(),
+        "no file should be created for empty rules"
+    );
+}
+
+// ── LLM consolidation tests ────────────────────────────────────────
+
+use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError};
+use async_trait::async_trait;
+use std::sync::Arc;
+
+/// Mock LLM caller that returns formatted rules.
+struct MockConsolidationLlm;
+
+#[async_trait]
+impl DreamingLlmCaller for MockConsolidationLlm {
+    async fn consolidate_lessons(
+        &self,
+        lessons: &[String],
+        entity_name: &str,
+    ) -> Result<String, DreamingLlmError> {
+        Ok(format!("[{}] {}", entity_name, lessons.join(", ")))
+    }
+}
+
+/// Failing LLM caller for testing degradation.
+struct FailingConsolidationLlm;
+
+#[async_trait]
+impl DreamingLlmCaller for FailingConsolidationLlm {
+    async fn consolidate_lessons(
+        &self,
+        _lessons: &[String],
+        _entity_name: &str,
+    ) -> Result<String, DreamingLlmError> {
+        Err(DreamingLlmError::Llm("simulated failure".into()))
+    }
+}
+
+/// LLM consolidation produces rules from entries.
+#[tokio::test]
+async fn test_consolidate_lessons_produces_rules() {
+    let pipeline = DreamingPipeline::new();
+    let llm: Arc<dyn DreamingLlmCaller> = Arc::new(MockConsolidationLlm);
+
+    let mut e1 = make_entry_with_lesson(
+        EntryCategory::Error,
+        "wrong deployment",
+        "s1",
+        "verify before deploy",
+    );
+    e1.tags = vec!["deployment".to_string()];
+    let mut e2 = make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 5);
+    e2.tags = vec!["ui".to_string()];
+
+    let rules = pipeline.consolidate_lessons(&llm, &[e1, e2]).await;
+    assert_eq!(rules.len(), 2);
+    // Each group produces one consolidated rule.
+    assert!(rules[0].contains("deployment") || rules[1].contains("deployment"));
+    assert!(rules[0].contains("ui") || rules[1].contains("ui"));
+}
+
+/// LLM failure falls back to raw lesson/body text.
+#[tokio::test]
+async fn test_consolidate_lessons_fallback_on_failure() {
+    let pipeline = DreamingPipeline::new();
+    let llm: Arc<dyn DreamingLlmCaller> = Arc::new(FailingConsolidationLlm);
+
+    let entries = vec![make_entry_with_lesson(
+        EntryCategory::Error,
+        "wrong deploy",
+        "s1",
+        "verify first",
+    )];
+
+    let rules = pipeline.consolidate_lessons(&llm, &entries).await;
+    assert_eq!(rules.len(), 1);
+    // Should fall back to raw lesson text.
+    assert_eq!(rules[0], "verify first");
+}
+
+// ── SQLite integration tests ───────────────────────────────────────
+
+/// collect_entries_for_session reads from SQLite when db_path is set.
+#[tokio::test]
+async fn test_collect_entries_from_sqlite() {
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("test.db");
+    {
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content TEXT NOT NULL,
+                category TEXT NOT NULL,
+                lesson TEXT,
+                source_session_id TEXT NOT NULL,
+                timestamp INTEGER NOT NULL
+            );
+            CREATE TABLE entities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT NOT NULL,
+                type TEXT NOT NULL,
+                name TEXT NOT NULL,
+                normalized_name TEXT NOT NULL,
+                UNIQUE(agent_id, type, normalized_name)
+            );
+            CREATE TABLE event_entities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER NOT NULL,
+                entity_id INTEGER NOT NULL
+            );
+            INSERT INTO events (content, category, lesson, source_session_id, timestamp)
+            VALUES ('test content', 'error', 'test lesson', 'sess-1', 1700000000);
+            INSERT INTO entities (agent_id, type, name, normalized_name)
+            VALUES ('agent-1', 'subject', 'Test Entity', 'test entity');
+            INSERT INTO event_entities (event_id, entity_id)
+            VALUES (1, 1);",
+        )
+        .unwrap();
+    }
+
+    let storage = TestStorage::default();
+    let mut cp = SessionCheckpoint::new("sess-1".into());
+    cp.mined = true;
+    cp.dreaming_status = DreamingStatus::Pending;
+    storage.add_checkpoint(cp);
+
+    let config = DreamingConfig {
+        enabled: Some(true),
+        diary: DreamingDiaryConfig {
+            enabled: Some(false),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let pipeline = DreamingPipeline::with_config(config).with_db_path(&db_path);
+
+    let entries = pipeline
+        .collect_entries_for_session(&storage, "sess-1")
+        .await
+        .unwrap();
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].body, "test content");
+    assert_eq!(entries[0].lesson.as_deref(), Some("test lesson"));
+    assert_eq!(entries[0].category, EntryCategory::Error);
+    // Entity name should be loaded as a tag.
+    assert!(entries[0].tags.contains(&"Test Entity".to_string()));
+}
+
+/// collect_entries_for_session returns empty when db_path is None.
+#[tokio::test]
+async fn test_collect_entries_no_db_path() {
+    let storage = TestStorage::default();
+    let mut cp = SessionCheckpoint::new("sess-1".into());
+    cp.mined = true;
+    cp.dreaming_status = DreamingStatus::Pending;
+    storage.add_checkpoint(cp);
+
+    let pipeline = DreamingPipeline::new();
+    let entries = pipeline
+        .collect_entries_for_session(&storage, "sess-1")
+        .await
+        .unwrap();
+    assert!(entries.is_empty());
+}
+
+/// collect_entries_for_session handles missing events table.
+#[tokio::test]
+async fn test_collect_entries_missing_table() {
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("empty.db");
+    // Create empty SQLite (no events table).
+    rusqlite::Connection::open(&db_path).unwrap();
+
+    let storage = TestStorage::default();
+    let mut cp = SessionCheckpoint::new("sess-1".into());
+    cp.mined = true;
+    cp.dreaming_status = DreamingStatus::Pending;
+    storage.add_checkpoint(cp);
+
+    let pipeline = DreamingPipeline::new().with_db_path(&db_path);
+    let result = pipeline
+        .collect_entries_for_session(&storage, "sess-1")
+        .await;
+    // Should return empty vec, not error.
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_empty());
+}
+
+// ── Anti-contamination tests ───────────────────────────────────────
