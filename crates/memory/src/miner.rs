@@ -135,7 +135,7 @@ impl MinerConfig {
 impl Default for MinerConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             max_events_per_session: 10,
             dedup_window_days: 30,
             clean_rules: Default::default(),
