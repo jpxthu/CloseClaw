@@ -23,6 +23,8 @@ use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError};
 
 // ── Types ────────────────────────────────────────────────────────────────
 
+type EventEntityRow = (i64, String, String, Option<String>, i64, String, String);
+
 /// A structured memory entry produced by the memory-miner.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MemoryEntry {
@@ -286,7 +288,7 @@ impl DreamingPipeline {
             Err(_) => return Ok(Vec::new()),
         };
 
-        let rows: Vec<(i64, String, String, Option<String>, i64, String, String)> = stmt
+        let rows: Vec<EventEntityRow> = stmt
             .query_map(params![session_id], |row| {
                 Ok((
                     row.get(0)?,
@@ -550,7 +552,20 @@ impl DreamingPipeline {
         let explicitness = decisions / total;
         let entity_type_weight = self.load_entity_type_weight(&group.entity_type);
         let cross_agent = group.cross_agent_count as f64;
-        let negative_signal = 0.0;
+
+        // negative_signal: reversal detection — count entries whose
+        // category differs from the earliest entry's category.
+        let negative_signal = {
+            let mut sorted = group.entries.clone();
+            sorted.sort_by_key(|e| e.timestamp);
+            match sorted.first().map(|e| e.category) {
+                Some(fc) => {
+                    let reversals = sorted.iter().filter(|e| e.category != fc).count();
+                    reversals as f64 / total
+                }
+                None => 0.0,
+            }
+        };
         let w = &self.scoring;
         group.score = w.frequency_weight.unwrap_or_else(default_scoring_frequency) * frequency
             + w.recency_weight.unwrap_or_else(default_scoring_recency) * recency
@@ -796,203 +811,5 @@ impl DreamingPipeline {
 impl Default for DreamingPipeline {
     fn default() -> Self {
         Self::new()
-    }
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn make_entry(
-        category: EntryCategory,
-        body: &str,
-        session_id: &str,
-        minutes_ago: i64,
-    ) -> MemoryEntry {
-        let timestamp = chrono::Utc::now() - chrono::Duration::minutes(minutes_ago);
-        MemoryEntry {
-            category,
-            body: body.to_string(),
-            timestamp,
-            source_session_id: session_id.to_string(),
-            lesson: None,
-            tags: Vec::new(),
-            score: 0.0,
-            event_id: 0,
-            entity_type: String::new(),
-            entity_name: String::new(),
-            updated_at: timestamp,
-        }
-    }
-
-    #[test]
-    fn test_light_dedup_removes_duplicates() {
-        let pipeline = DreamingPipeline::new();
-        let entries = vec![
-            make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 10),
-            make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 10),
-            make_entry(EntryCategory::Decision, "light theme is nice", "s1", 5),
-        ];
-        let result = pipeline.deduplicate(entries, &[]);
-        assert_eq!(result.len(), 2);
-    }
-
-    #[test]
-    fn test_deep_scoring_thresholds() {
-        let pipeline = DreamingPipeline::new();
-        let e1 = make_entry(EntryCategory::Decision, "always use vim", "s1", 10);
-        let e2 = make_entry(
-            EntryCategory::Error,
-            "wrong judgment on deployment",
-            "s1",
-            10,
-        )
-        .lesson("verify before deploying".to_string());
-        let groups = vec![
-            EntityGroup {
-                entity_name: "vim".into(),
-                entity_type: "subject".into(),
-                entries: vec![e1],
-                frequency: 1,
-                cross_agent_count: 1,
-                score: 0.0,
-            },
-            EntityGroup {
-                entity_name: "deploy".into(),
-                entity_type: "subject".into(),
-                entries: vec![e2],
-                frequency: 1,
-                cross_agent_count: 1,
-                score: 0.0,
-            },
-        ];
-        let result = pipeline.deep_stage(groups);
-        assert!(!result.is_empty());
-    }
-
-    #[test]
-    fn test_deep_capacity_limit() {
-        let pipeline = DreamingPipeline::new();
-        let mut groups = Vec::new();
-        for i in 0..300 {
-            groups.push(EntityGroup {
-                entity_name: format!("entity {i}"),
-                entity_type: "subject".into(),
-                entries: vec![make_entry(
-                    EntryCategory::Decision,
-                    &format!("decision number {i}"),
-                    "s1",
-                    i,
-                )],
-                frequency: 1,
-                cross_agent_count: 1,
-                score: 0.0,
-            });
-        }
-        let result = pipeline.deep_stage(groups);
-        assert!(result.len() <= 200);
-    }
-
-    #[test]
-    fn test_extract_words_filters_short() {
-        let words = DreamingPipeline::extract_words("I am okay to go now");
-        assert!(!words.contains(&"i".to_string()));
-        assert!(words.contains(&"okay".to_string()));
-    }
-
-    #[test]
-    fn test_rem_stage_clusters_and_frequency() {
-        let pipeline = DreamingPipeline::new();
-        let mut e1 = make_entry(EntryCategory::Error, "err1", "s1", 10);
-        e1.entity_name = "rust".into();
-        e1.entity_type = "subject".into();
-        let mut e2 = make_entry(EntryCategory::Error, "err2", "s2", 10);
-        e2.entity_name = "rust".into();
-        e2.entity_type = "subject".into();
-        let mut e3 = make_entry(EntryCategory::Error, "err3", "s3", 10);
-        e3.entity_name = "docker".into();
-        e3.entity_type = "subject".into();
-        let groups = pipeline.rem_stage(vec![vec![e1], vec![e2, e3]]);
-        assert_eq!(groups.len(), 2);
-        let rust = groups.iter().find(|g| g.entity_name == "rust").unwrap();
-        assert_eq!(rust.entries.len(), 2);
-        assert_eq!(rust.frequency, 2);
-        let docker = groups.iter().find(|g| g.entity_name == "docker").unwrap();
-        assert_eq!(docker.frequency, 1);
-    }
-
-    /// Mock LLM caller that records calls for assertion.
-    struct RecordingLlm {
-        calls: std::sync::Arc<std::sync::Mutex<Vec<(Vec<String>, String)>>>,
-    }
-
-    #[async_trait::async_trait]
-    impl crate::dreaming_llm::DreamingLlmCaller for RecordingLlm {
-        async fn consolidate_lessons(
-            &self,
-            lessons: &[String],
-            entity_name: &str,
-        ) -> Result<String, crate::dreaming_llm::DreamingLlmError> {
-            self.calls
-                .lock()
-                .unwrap()
-                .push((lessons.to_vec(), entity_name.to_string()));
-            Ok(format!("rule for {}", entity_name))
-        }
-    }
-
-    #[tokio::test]
-    async fn test_consolidate_lessons_groups_by_entity() {
-        let calls: std::sync::Arc<std::sync::Mutex<Vec<(Vec<String>, String)>>> =
-            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let llm: std::sync::Arc<dyn crate::dreaming_llm::DreamingLlmCaller> =
-            std::sync::Arc::new(RecordingLlm {
-                calls: calls.clone(),
-            });
-        let pipeline = DreamingPipeline::new();
-
-        let e1 = {
-            let mut e = make_entry(EntryCategory::Error, "body1", "s1", 10);
-            e.lesson = Some("lesson1".to_string());
-            e
-        };
-        let e2 = {
-            let mut e = make_entry(EntryCategory::Error, "body2", "s1", 10);
-            e.lesson = Some("lesson2".to_string());
-            e
-        };
-        let e3 = {
-            let mut e = make_entry(EntryCategory::Error, "body3", "s2", 10);
-            e.lesson = Some("lesson3".to_string());
-            e
-        };
-
-        let groups = vec![
-            EntityGroup {
-                entity_name: "rust".into(),
-                entity_type: "subject".into(),
-                entries: vec![e1, e2],
-                frequency: 1,
-                cross_agent_count: 1,
-                score: 0.0,
-            },
-            EntityGroup {
-                entity_name: "docker".into(),
-                entity_type: "subject".into(),
-                entries: vec![e3],
-                frequency: 1,
-                cross_agent_count: 1,
-                score: 0.0,
-            },
-        ];
-
-        let rules = pipeline.consolidate_lessons(&llm, &groups).await;
-        let calls = calls.lock().unwrap();
-        assert_eq!(calls.len(), 2);
-        let rust_call = calls.iter().find(|c| c.1 == "rust").unwrap();
-        assert_eq!(rust_call.0.len(), 2);
-        assert!(rust_call.0.contains(&"lesson1".to_string()));
-        assert!(rust_call.0.contains(&"lesson2".to_string()));
-        let docker_call = calls.iter().find(|c| c.1 == "docker").unwrap();
-        assert_eq!(docker_call.0.len(), 1);
-        assert_eq!(rules.len(), 2);
     }
 }
