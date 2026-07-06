@@ -23,6 +23,8 @@ use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError};
 
 // ── Types ────────────────────────────────────────────────────────────────
 
+type EventEntityRow = (i64, String, String, Option<String>, i64, String, String);
+
 /// A structured memory entry produced by the memory-miner.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MemoryEntry {
@@ -286,7 +288,7 @@ impl DreamingPipeline {
             Err(_) => return Ok(Vec::new()),
         };
 
-        let rows: Vec<(i64, String, String, Option<String>, i64, String, String)> = stmt
+        let rows: Vec<EventEntityRow> = stmt
             .query_map(params![session_id], |row| {
                 Ok((
                     row.get(0)?,
