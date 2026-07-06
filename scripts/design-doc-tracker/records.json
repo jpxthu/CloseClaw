@@ -286,5 +286,13 @@
     "confirmed_time": "2026-07-06T21:42:04.318010+08:00",
     "comment": "",
     "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/system_prompt/appends.md",
+    "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
+    "commit_time": "2026-07-07T01:07:02+08:00",
+    "confirmed_time": "2026-07-07T01:21:44.946986+08:00",
+    "comment": "",
+    "blocked_reason": ""
   }
 ]
