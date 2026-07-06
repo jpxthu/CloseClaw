@@ -282,20 +282,20 @@ async fn handle_search_result(
 /// Extract the timeout in milliseconds from the memory config JSON.
 ///
 /// Looks for `search.timeout_ms` in the config object.
-/// Falls back to 5000 ms (the default in `ActiveSearcherConfig`).
+/// Falls back to 3000 ms (the default in config.md).
 fn extract_timeout_ms(memory_config: &Option<serde_json::Value>) -> u64 {
     memory_config
         .as_ref()
         .and_then(|c| c.get("search"))
         .and_then(|c| c.get("timeout_ms"))
         .and_then(|v| v.as_u64())
-        .unwrap_or(5000)
+        .unwrap_or(3000)
 }
 
 /// Extract `context_turns` from the memory config JSON.
 ///
 /// Looks for `search.context_turns` in the config object.
-/// Falls back to 10 turns.
+/// Falls back to 5 turns (the default in config.md).
 pub fn extract_context_turns(memory_config: &Option<serde_json::Value>) -> usize {
     memory_config
         .as_ref()
@@ -303,5 +303,5 @@ pub fn extract_context_turns(memory_config: &Option<serde_json::Value>) -> usize
         .and_then(|c| c.get("context_turns"))
         .and_then(|v| v.as_u64())
         .map(|v| v as usize)
-        .unwrap_or(10)
+        .unwrap_or(5)
 }
