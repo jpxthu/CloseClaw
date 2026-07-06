@@ -108,51 +108,47 @@ impl DreamingScheduler {
         let unmined = self.storage.list_archived_unmined_sessions().await?;
 
         for session_id in unmined {
-            // Load archived checkpoint to get agent_id and transcript.
-            let checkpoint = match self.storage.load_archived_checkpoint(&session_id).await {
-                Ok(Some(cp)) => cp,
-                Ok(None) => {
-                    error!(
-                        session_id = %session_id,
-                        "archived checkpoint not found, skipping"
-                    );
-                    continue;
-                }
-                Err(e) => {
-                    error!(
-                        session_id = %session_id,
-                        %e,
-                        "failed to load archived checkpoint"
-                    );
-                    continue;
-                }
-            };
-
-            // Skip sessions whose agent is not in the configured agent list.
-            if let Some(ref aid) = checkpoint.agent_id {
-                if !agents.contains(aid) {
-                    continue;
-                }
-            }
-
-            // Format transcript from pending_messages.
-            let raw_transcript = format_transcript(&checkpoint.pending_messages);
-
-            if let Err(e) = self
-                .memory_miner
-                .mine_session_from_checkpoint(
-                    &session_id,
-                    &raw_transcript,
-                    &checkpoint,
-                    self.storage.as_ref(),
-                )
-                .await
-            {
-                error!(session_id = %session_id, %e, "failed to mine session");
-            }
+            self.mine_session(&session_id, &agents).await;
         }
 
         Ok(())
+    }
+
+    /// Mine a single archived session: load checkpoint, filter by agent,
+    /// format transcript, and invoke the memory miner.
+    async fn mine_session(&self, session_id: &str, agents: &[String]) {
+        let checkpoint = match self.storage.load_archived_checkpoint(session_id).await {
+            Ok(Some(cp)) => cp,
+            Ok(None) => {
+                error!(session_id = %session_id, "archived checkpoint not found, skipping");
+                return;
+            }
+            Err(e) => {
+                error!(session_id = %session_id, %e, "failed to load archived checkpoint");
+                return;
+            }
+        };
+
+        if let Some(ref aid) = checkpoint.agent_id {
+            if !agents.contains(aid) {
+                return;
+            }
+        }
+
+        let raw_transcript = format_transcript(&checkpoint.pending_messages);
+
+        if let Err(e) = self
+            .memory_miner
+            .mine_session_from_checkpoint(
+                session_id,
+                &raw_transcript,
+                &checkpoint,
+                self.storage.as_ref(),
+            )
+            .await
+        {
+            error!(session_id = %session_id, %e, "failed to mine session");
+        }
     }
 }
 

@@ -202,11 +202,7 @@ impl DreamingPipeline {
         }
 
         if all_entries.is_empty() {
-            for sid in &session_ids {
-                storage
-                    .update_dreaming_status(sid, DreamingStatus::Completed)
-                    .await?;
-            }
+            self.mark_sessions_completed(storage, &session_ids).await?;
             return Ok(());
         }
 
@@ -230,17 +226,27 @@ impl DreamingPipeline {
             self.write_memory_md(&verified)?;
         }
 
-        for sid in &session_ids {
-            storage
-                .update_dreaming_status(sid, DreamingStatus::Completed)
-                .await?;
-        }
+        self.mark_sessions_completed(storage, &session_ids).await?;
 
         // Write Dream Diary if enabled.
         if self.config.diary.enabled.unwrap_or(true) && !deep.is_empty() {
             self.write_dream_diary(&deep)?;
         }
 
+        Ok(())
+    }
+
+    /// Mark all given sessions as `DreamingStatus::Completed`.
+    async fn mark_sessions_completed(
+        &self,
+        storage: &dyn PersistenceService,
+        session_ids: &[String],
+    ) -> Result<(), DreamingError> {
+        for sid in session_ids {
+            storage
+                .update_dreaming_status(sid, DreamingStatus::Completed)
+                .await?;
+        }
         Ok(())
     }
 
@@ -861,37 +867,33 @@ mod tests {
         assert!(groups.contains_key("primary"));
     }
 
+    /// Mock LLM caller that records calls for assertion.
+    struct RecordingLlm {
+        calls: std::sync::Arc<std::sync::Mutex<Vec<(Vec<String>, String)>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::dreaming_llm::DreamingLlmCaller for RecordingLlm {
+        async fn consolidate_lessons(
+            &self,
+            lessons: &[String],
+            entity_name: &str,
+        ) -> Result<String, crate::dreaming_llm::DreamingLlmError> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push((lessons.to_vec(), entity_name.to_string()));
+            Ok(format!("rule for {}", entity_name))
+        }
+    }
+
     #[tokio::test]
     async fn test_consolidate_lessons_groups_by_entity() {
-        use crate::dreaming_llm::DreamingLlmError;
-        use async_trait::async_trait;
-
         let calls: std::sync::Arc<std::sync::Mutex<Vec<(Vec<String>, String)>>> =
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let calls_for_llm = calls.clone();
-
-        struct RecordingLlm {
-            calls: std::sync::Arc<std::sync::Mutex<Vec<(Vec<String>, String)>>>,
-        }
-
-        #[async_trait]
-        impl crate::dreaming_llm::DreamingLlmCaller for RecordingLlm {
-            async fn consolidate_lessons(
-                &self,
-                lessons: &[String],
-                entity_name: &str,
-            ) -> Result<String, DreamingLlmError> {
-                self.calls
-                    .lock()
-                    .unwrap()
-                    .push((lessons.to_vec(), entity_name.to_string()));
-                Ok(format!("rule for {}", entity_name))
-            }
-        }
-
         let llm: std::sync::Arc<dyn crate::dreaming_llm::DreamingLlmCaller> =
             std::sync::Arc::new(RecordingLlm {
-                calls: calls_for_llm,
+                calls: calls.clone(),
             });
         let pipeline = DreamingPipeline::new();
 
