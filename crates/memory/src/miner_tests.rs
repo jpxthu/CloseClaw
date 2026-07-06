@@ -648,6 +648,49 @@ fn test_update_config_reflects_new_enabled() {
     assert!(miner.is_enabled(), "should be enabled after update_config");
 }
 
+/// model() returns None when no model is configured.
+#[test]
+fn test_model_returns_none_when_unconfigured() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let config = MinerConfig::default();
+    let llm = Box::new(crate::miner_llm::MockMinerLlmCaller::default());
+    let miner =
+        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    assert_eq!(miner.model(), None, "model should be None by default");
+}
+
+/// model() returns the configured model name.
+#[test]
+fn test_model_returns_configured_value() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let config = MinerConfig {
+        model: Some("gpt-4o".to_string()),
+        ..Default::default()
+    };
+    let llm = Box::new(crate::miner_llm::MockMinerLlmCaller::default());
+    let miner =
+        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    assert_eq!(miner.model().as_deref(), Some("gpt-4o"));
+}
+
+/// update_config propagates new model to getter.
+#[test]
+fn test_update_config_propagates_model() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let config = MinerConfig::default();
+    let llm = Box::new(crate::miner_llm::MockMinerLlmCaller::default());
+    let miner =
+        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    assert_eq!(miner.model(), None);
+
+    let new_config = MinerConfig {
+        model: Some("claude-3.5-sonnet".to_string()),
+        ..Default::default()
+    };
+    miner.update_config(new_config);
+    assert_eq!(miner.model().as_deref(), Some("claude-3.5-sonnet"));
+}
+
 // ── MinerConfig from_mining_config edge cases ─────────────────────────
 
 #[test]

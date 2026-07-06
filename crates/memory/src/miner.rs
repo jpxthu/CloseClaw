@@ -198,6 +198,11 @@ impl MemoryMiner {
         self.config.read().unwrap().enabled
     }
 
+    /// Returns the configured LLM model, or `None` to inherit the global default.
+    pub fn model(&self) -> Option<String> {
+        self.config.read().unwrap().model.clone()
+    }
+
     /// Update the miner configuration at runtime.
     pub fn update_config(&self, config: MinerConfig) {
         *self.config.write().unwrap() = config;
