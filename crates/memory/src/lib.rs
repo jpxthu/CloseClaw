@@ -22,6 +22,8 @@ mod active_searcher_tests;
 #[cfg(test)]
 mod dreaming_scoring_tests;
 #[cfg(test)]
+mod dreaming_status_tests;
+#[cfg(test)]
 mod dreaming_tests;
 #[cfg(test)]
 mod miner_tests;
