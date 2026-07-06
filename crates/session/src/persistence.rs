@@ -88,6 +88,12 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 false）。
     #[serde(default)]
     pub mined: bool,
+    /// memory-miner 挖掘完成的时间戳（Unix 秒）
+    ///
+    /// `None` 表示尚未挖掘；`Some(ts)` 表示 `mark_mined()` 被调用时的 UTC 时间戳。
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
+    #[serde(default)]
+    pub mined_at: Option<i64>,
     /// dreaming 处理状态（Light → REM → Deep → Completed）
     ///
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 Completed）。
@@ -162,6 +168,7 @@ impl SessionCheckpoint {
             depth: 0,
             effective_max_spawn_depth: None,
             mined: false,
+            mined_at: None,
             dreaming_status: DreamingStatus::Pending,
             pending_operations: Vec::new(),
             recovery_notification: None,
@@ -277,6 +284,9 @@ impl SessionCheckpoint {
     /// Update the mined flag
     pub fn with_mined(mut self, mined: bool) -> Self {
         self.mined = mined;
+        if mined && self.mined_at.is_none() {
+            self.mined_at = Some(Utc::now().timestamp());
+        }
         self
     }
     /// Update the dreaming status

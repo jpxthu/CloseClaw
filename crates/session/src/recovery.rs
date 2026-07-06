@@ -2,7 +2,6 @@
 //!
 //! Provides functionality to recover sessions from persisted checkpoints
 //! during gateway startup, including spawn_tree reconstruction.
-
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -518,6 +517,7 @@ mod tests {
             depth: 0,
             effective_max_spawn_depth: None,
             mined: false,
+            mined_at: None,
             dreaming_status: DreamingStatus::default(),
             pending_operations: Vec::new(),
             recovery_notification: None,

@@ -153,6 +153,79 @@ async fn test_mark_mined_nonexistent_is_noop() {
     storage.mark_mined("nonexistent").await.unwrap();
 }
 
+// ── mined_at ─────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_mark_mined_sets_mined_at_on_active() {
+    let storage = MemoryStorage::new();
+    let mut cp = make_checkpoint("mined-at-active");
+    cp.mined = false;
+    assert!(cp.mined_at.is_none(), "mined_at should start as None");
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    let before = chrono::Utc::now().timestamp();
+    storage.mark_mined("mined-at-active").await.unwrap();
+    let after = chrono::Utc::now().timestamp();
+
+    let loaded = storage
+        .load_checkpoint("mined-at-active")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(loaded.mined, "should be marked mined");
+    let ts = loaded
+        .mined_at
+        .expect("mined_at should be Some after mark_mined");
+    assert!(
+        ts >= before && ts <= after,
+        "mined_at ({ts}) should be between {before} and {after}"
+    );
+}
+
+#[tokio::test]
+async fn test_mark_mined_sets_mined_at_on_archived() {
+    let storage = MemoryStorage::new();
+    let mut cp = make_checkpoint("mined-at-archived");
+    cp.mined = false;
+    storage.archive_checkpoint(&cp).await.unwrap();
+
+    let before = chrono::Utc::now().timestamp();
+    storage.mark_mined("mined-at-archived").await.unwrap();
+    let after = chrono::Utc::now().timestamp();
+
+    let loaded = storage
+        .restore_checkpoint("mined-at-archived")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(loaded.mined);
+    let ts = loaded
+        .mined_at
+        .expect("mined_at should be Some after mark_mined");
+    assert!(
+        ts >= before && ts <= after,
+        "mined_at ({ts}) should be between {before} and {after}"
+    );
+}
+
+#[tokio::test]
+async fn test_mined_at_defaults_none_before_mark() {
+    let storage = MemoryStorage::new();
+    let cp = make_checkpoint("mined-at-default");
+    assert!(cp.mined_at.is_none());
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    let loaded = storage
+        .load_checkpoint("mined-at-default")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        loaded.mined_at.is_none(),
+        "mined_at should remain None before mark_mined"
+    );
+}
+
 // ── update_dreaming_status ───────────────────────────────────────────────
 
 #[tokio::test]

@@ -8,7 +8,7 @@ use std::panic;
 use std::sync::Arc;
 
 use thiserror::Error;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 use tracing::{error, info, warn};
 
@@ -37,6 +37,9 @@ pub struct ArchiveSweeper {
     /// Optional runtime session manager for cleaning up child sessions
     /// when archiving a parent (design doc §生命周期联动).
     session_manager: Option<Arc<SessionManager>>,
+    /// Channel sender for notifying the DreamingScheduler about archived
+    /// sessions, enabling immediate mining (design doc §即时 hook).
+    mining_notify_tx: Option<mpsc::Sender<String>>,
 }
 
 impl ArchiveSweeper {
@@ -49,6 +52,7 @@ impl ArchiveSweeper {
             storage,
             config,
             session_manager: None,
+            mining_notify_tx: None,
         }
     }
 
@@ -56,6 +60,14 @@ impl ArchiveSweeper {
     /// cascade-terminate children when archiving a parent session.
     pub fn with_session_manager(mut self, sm: Arc<SessionManager>) -> Self {
         self.session_manager = Some(sm);
+        self
+    }
+
+    /// Attach a mining notify channel sender.  When a session is
+    /// archived, the sender emits the session ID so the
+    /// [`DreamingScheduler`] can trigger mining immediately.
+    pub fn with_mining_notify_tx(mut self, tx: mpsc::Sender<String>) -> Self {
+        self.mining_notify_tx = Some(tx);
         self
     }
 
@@ -89,9 +101,11 @@ impl ArchiveSweeper {
                         storage: Arc::clone(&self.storage),
                         config: Arc::clone(&self.config),
                         session_manager: self.session_manager.clone(),
+                        mining_notify_tx: self.mining_notify_tx.clone(),
                     };
                     let task = tokio::task::spawn(async move {
-                        if let Err(e) = sweeper.run_once().await {
+                        let notify_tx = sweeper.mining_notify_tx.clone();
+                        if let Err(e) = sweeper.run_once_with_notify(notify_tx).await {
                             error!(%e, "run_once returned error");
                         }
                     });
@@ -167,6 +181,15 @@ impl ArchiveSweeper {
     /// Panics inside `run_once` are caught so a buggy callback does not kill
     /// the sweeper — the error is logged and the sweep continues.
     pub async fn run_once(&self) -> Result<(), ArchiveSweeperError> {
+        self.run_once_with_notify(None).await
+    }
+
+    /// Execute one sweep, optionally forwarding mining notifications
+    /// via `notify_tx`.
+    async fn run_once_with_notify(
+        &self,
+        notify_tx: Option<mpsc::Sender<String>>,
+    ) -> Result<(), ArchiveSweeperError> {
         // Wrap in AssertUnwindSafe + catch_unwind so panics in storage
         // methods do not kill the async task.
         // Use spawn_blocking + block_on so catch_unwind can catch panics
@@ -184,6 +207,7 @@ impl ArchiveSweeper {
                     Arc::clone(&storage),
                     Arc::clone(&config),
                     session_manager,
+                    notify_tx,
                 ))
             }))
         });
@@ -213,6 +237,7 @@ impl ArchiveSweeper {
         storage: Arc<dyn PersistenceService>,
         config: Arc<dyn SessionConfigProvider>,
         session_manager: Option<Arc<SessionManager>>,
+        notify_tx: Option<mpsc::Sender<String>>,
     ) -> Result<(), ArchiveSweeperError> {
         let agents = config.list_agents();
         if agents.is_empty() {
@@ -227,6 +252,7 @@ impl ArchiveSweeper {
                     agent_id,
                     role,
                     session_manager.as_ref(),
+                    notify_tx.as_ref(),
                 )
                 .await;
             }
@@ -242,6 +268,7 @@ impl ArchiveSweeper {
         agent_id: &str,
         role: AgentRole,
         session_manager: Option<&Arc<SessionManager>>,
+        notify_tx: Option<&mpsc::Sender<String>>,
     ) {
         let cfg = config.session_config_for(agent_id, role);
 
@@ -253,9 +280,15 @@ impl ArchiveSweeper {
             for sid in idle_ids {
                 let sid_err = sid.clone();
                 if let Err(e) =
-                    Self::cascade_archive_impl(Arc::clone(&storage), sid, session_manager).await
+                    Self::cascade_archive_impl(Arc::clone(&storage), sid.clone(), session_manager)
+                        .await
                 {
                     error!(session_id = %sid_err, %e, "failed to archive idle session");
+                } else if let Some(tx) = notify_tx {
+                    // Notify DreamingScheduler for immediate mining
+                    if let Err(e) = tx.try_send(sid) {
+                        warn!(session_id = %sid_err, %e, "failed to send mining notification");
+                    }
                 }
             }
         }

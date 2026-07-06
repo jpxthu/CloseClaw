@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use chrono::{Datelike, Local, Timelike};
 use thiserror::Error;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tracing::{error, info};
 
 use closeclaw_config::providers::MemoryConfigData;
@@ -57,6 +57,9 @@ pub struct DreamingScheduler {
     config_manager: Arc<ConfigManager>,
     /// Broadcast receiver for config change events.
     config_rx: tokio::sync::broadcast::Receiver<ConfigChangeEvent>,
+    /// Optional channel receiver for immediate mining notifications
+    /// from ArchiveSweeper (design doc §即时 hook).
+    mining_notify_rx: Option<mpsc::Receiver<String>>,
 }
 
 impl DreamingScheduler {
@@ -77,12 +80,21 @@ impl DreamingScheduler {
             schedule: None,
             config_manager,
             config_rx,
+            mining_notify_rx: None,
         }
     }
 
     /// Set the cron schedule expression for dreaming.
     pub fn with_schedule(mut self, schedule: Option<String>) -> Self {
         self.schedule = schedule;
+        self
+    }
+
+    /// Attach the mining notify channel receiver.  When a session is
+    /// archived by the [`ArchiveSweeper`], the sender emits the
+    /// session ID through this channel so mining starts immediately.
+    pub fn with_mining_notify_rx(mut self, rx: mpsc::Receiver<String>) -> Self {
+        self.mining_notify_rx = Some(rx);
         self
     }
 
@@ -173,6 +185,21 @@ impl DreamingScheduler {
                         ).await;
                     }
                 }
+                Some(session_id) = async {
+                    match &mut self.mining_notify_rx {
+                        Some(rx) => rx.recv().await,
+                        None => None,
+                    }
+                } => {
+                    let agents = self.config.list_agents();
+                    if !agents.is_empty() {
+                        info!(
+                            session_id = %session_id,
+                            "mining triggered by archive notification"
+                        );
+                        self.mine_session(&session_id, &agents).await;
+                    }
+                }
                 _ = tokio::time::sleep_until(next_fire) => {
                     if let Err(e) = self.run_once().await {
                         error!(
@@ -255,6 +282,21 @@ impl DreamingScheduler {
                 result = self.config_rx.recv() => {
                     if self.is_memory_config_reload(result) {
                         self.handle_config_change().await;
+                    }
+                }
+                Some(session_id) = async {
+                    match &mut self.mining_notify_rx {
+                        Some(rx) => rx.recv().await,
+                        None => None,
+                    }
+                } => {
+                    let agents = self.config.list_agents();
+                    if !agents.is_empty() {
+                        info!(
+                            session_id = %session_id,
+                            "mining triggered by archive notification"
+                        );
+                        self.mine_session(&session_id, &agents).await;
                     }
                 }
                 _ = tokio::time::sleep_until(next_fire) => {

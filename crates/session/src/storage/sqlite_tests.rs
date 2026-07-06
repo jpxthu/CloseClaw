@@ -37,6 +37,7 @@ mod tests {
             depth: 0,
             effective_max_spawn_depth: None,
             mined: false,
+            mined_at: None,
             dreaming_status: DreamingStatus::default(),
             pending_operations: Vec::new(),
             recovery_notification: None,
@@ -405,6 +406,7 @@ mod tests {
             depth: 0,
             effective_max_spawn_depth: None,
             mined: false,
+            mined_at: None,
             dreaming_status: DreamingStatus::default(),
             pending_operations: Vec::new(),
             recovery_notification: None,
@@ -455,6 +457,7 @@ mod tests {
             depth: 0,
             effective_max_spawn_depth: None,
             mined: false,
+            mined_at: None,
             dreaming_status: DreamingStatus::default(),
             pending_operations: Vec::new(),
             recovery_notification: None,
@@ -505,6 +508,7 @@ mod tests {
             depth: 0,
             effective_max_spawn_depth: None,
             mined: false,
+            mined_at: None,
             dreaming_status: DreamingStatus::default(),
             pending_operations: Vec::new(),
             recovery_notification: None,
@@ -653,5 +657,32 @@ mod tests {
         assert_eq!(ps.phase, PlanPhase::Design);
         assert_eq!(ps.pending_steps, vec!["analyze"]);
         assert_eq!(ps.plan_file_path, "/tmp/p.md");
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_mark_mined_sets_mined_at() {
+        let tmp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+        let cp = make_checkpoint("mined-at-sqlite", SessionStatus::Active);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let before = chrono::Utc::now().timestamp();
+        storage.mark_mined("mined-at-sqlite").await.unwrap();
+        let after = chrono::Utc::now().timestamp();
+
+        let loaded = storage
+            .load_checkpoint("mined-at-sqlite")
+            .await
+            .unwrap()
+            .expect("checkpoint should exist");
+        assert!(loaded.mined, "should be marked mined");
+        let ts = loaded
+            .mined_at
+            .expect("mined_at should be Some after mark_mined");
+        assert!(
+            ts >= before && ts <= after,
+            "mined_at ({ts}) should be between {before} and {after}"
+        );
     }
 }
