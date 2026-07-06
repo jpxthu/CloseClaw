@@ -121,14 +121,19 @@ fn make_entry(
     session_id: &str,
     minutes_ago: i64,
 ) -> MemoryEntry {
+    let timestamp = chrono::Utc::now() - chrono::Duration::minutes(minutes_ago);
     MemoryEntry {
         category,
         body: body.to_string(),
-        timestamp: chrono::Utc::now() - chrono::Duration::minutes(minutes_ago),
+        timestamp,
         source_session_id: session_id.to_string(),
         lesson: None,
         tags: Vec::new(),
         score: 0.0,
+        event_id: 0,
+        entity_type: String::new(),
+        entity_name: String::new(),
+        updated_at: timestamp,
     }
 }
 
@@ -139,14 +144,19 @@ fn make_entry_with_lesson(
     session_id: &str,
     lesson: &str,
 ) -> MemoryEntry {
+    let timestamp = chrono::Utc::now();
     MemoryEntry {
         category,
         body: body.to_string(),
-        timestamp: chrono::Utc::now(),
+        timestamp,
         source_session_id: session_id.to_string(),
         lesson: Some(lesson.to_string()),
         tags: Vec::new(),
         score: 0.0,
+        event_id: 0,
+        entity_type: String::new(),
+        entity_name: String::new(),
+        updated_at: timestamp,
     }
 }
 
@@ -405,6 +415,7 @@ fn test_dreaming_pipeline_custom_scoring_config() {
             explicitness_weight: Some(3.0),
             cross_agent_weight: Some(2.0),
             negative_signal_weight: Some(-1.0),
+            ..Default::default()
         },
         threshold: DreamingThresholdConfig {
             absolute: Some(0.0),
@@ -430,6 +441,7 @@ fn test_dreaming_pipeline_high_threshold_config() {
             explicitness_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
+            ..Default::default()
         },
         threshold: DreamingThresholdConfig {
             absolute: Some(5.0),
@@ -728,6 +740,11 @@ async fn test_collect_entries_from_sqlite() {
     assert_eq!(entries[0].category, EntryCategory::Error);
     // Entity name should be loaded as a tag.
     assert!(entries[0].tags.contains(&"Test Entity".to_string()));
+    // New fields: event_id, entity_type, entity_name, updated_at.
+    assert_eq!(entries[0].event_id, 1);
+    assert_eq!(entries[0].entity_type, "subject");
+    assert_eq!(entries[0].entity_name, "Test Entity");
+    assert_eq!(entries[0].updated_at, entries[0].timestamp);
 }
 
 /// collect_entries_for_session returns empty when db_path is None.

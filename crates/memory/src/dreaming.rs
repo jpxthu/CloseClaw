@@ -41,6 +41,14 @@ pub struct MemoryEntry {
     pub(crate) tags: Vec<String>,
     /// Aggregate score from the Deep stage.
     pub(crate) score: f64,
+    /// SQLite events.id for this entry.
+    pub event_id: i64,
+    /// Entity type (e.g. "subject", "person").
+    pub entity_type: String,
+    /// Entity name.
+    pub entity_name: String,
+    /// Event updated_at timestamp.
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl MemoryEntry {
@@ -299,13 +307,19 @@ impl DreamingPipeline {
     }
 
     /// Query SQLite for events and associated entities for a session.
+    ///
+    /// Uses entity-level joins via event_entities to get entity_type and
+    /// entity_name for each event.
     pub(crate) fn load_entries_from_sqlite(
         &self,
         conn: &rusqlite::Connection,
         session_id: &str,
     ) -> Result<Vec<MemoryEntry>, DreamingError> {
-        let sql = "SELECT e.id, e.content, e.category, e.lesson, e.timestamp
+        let sql = "SELECT e.id, e.content, e.category, e.lesson, e.timestamp,
+                         ent.type AS entity_type, ent.name AS entity_name
                     FROM events e
+                    JOIN event_entities ee ON ee.event_id = e.id
+                    JOIN entities ent ON ent.id = ee.entity_id
                     WHERE e.source_session_id = ?1";
 
         let mut stmt = match conn.prepare(sql) {
@@ -313,7 +327,7 @@ impl DreamingPipeline {
             Err(_) => return Ok(Vec::new()),
         };
 
-        let rows: Vec<(i64, String, String, Option<String>, i64)> = stmt
+        let rows: Vec<(i64, String, String, Option<String>, i64, String, String)> = stmt
             .query_map(params![session_id], |row| {
                 Ok((
                     row.get(0)?,
@@ -321,6 +335,8 @@ impl DreamingPipeline {
                     row.get(2)?,
                     row.get(3)?,
                     row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
                 ))
             })
             .map_err(|e| DreamingError::Sqlite(e.to_string()))?
@@ -328,7 +344,7 @@ impl DreamingPipeline {
             .collect();
 
         let mut entries = Vec::new();
-        for (event_id, content, category_str, lesson, ts) in rows {
+        for (event_id, content, category_str, lesson, ts, entity_type, entity_name) in rows {
             let category = match category_str.as_str() {
                 "error" => EntryCategory::Error,
                 "anger" => EntryCategory::Anger,
@@ -336,11 +352,12 @@ impl DreamingPipeline {
                 _ => continue,
             };
 
-            let entity_names = self.load_entity_names(conn, event_id)?;
-            let tags: Vec<String> = entity_names.into_iter().collect();
-
             let timestamp =
                 chrono::DateTime::from_timestamp(ts, 0).unwrap_or_else(chrono::Utc::now);
+
+            // Tags are temporarily filled with entity_name; REM stage will
+            // override with keyword aggregation later.
+            let tags: Vec<String> = vec![entity_name.clone()];
 
             entries.push(MemoryEntry {
                 category,
@@ -350,35 +367,16 @@ impl DreamingPipeline {
                 lesson,
                 tags,
                 score: 0.0,
+                event_id,
+                entity_type,
+                entity_name,
+                // updated_at temporarily uses timestamp; events table has no
+                // updated_at column yet (Step 1.5 will add it).
+                updated_at: timestamp,
             });
         }
 
         Ok(entries)
-    }
-
-    /// Load entity names associated with an event.
-    pub(crate) fn load_entity_names(
-        &self,
-        conn: &rusqlite::Connection,
-        event_id: i64,
-    ) -> Result<Vec<String>, DreamingError> {
-        let sql = "SELECT ent.name
-                    FROM event_entities ee
-                    JOIN entities ent ON ee.entity_id = ent.id
-                    WHERE ee.event_id = ?1";
-
-        let mut stmt = match conn.prepare(sql) {
-            Ok(s) => s,
-            Err(_) => return Ok(Vec::new()),
-        };
-
-        let names = stmt
-            .query_map(params![event_id], |row| row.get(0))
-            .map_err(|e| DreamingError::Sqlite(e.to_string()))?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        Ok(names)
     }
 
     // ── Light stage ──────────────────────────────────────────────────
@@ -770,14 +768,19 @@ mod tests {
         session_id: &str,
         minutes_ago: i64,
     ) -> MemoryEntry {
+        let timestamp = chrono::Utc::now() - chrono::Duration::minutes(minutes_ago);
         MemoryEntry {
             category,
             body: body.to_string(),
-            timestamp: chrono::Utc::now() - chrono::Duration::minutes(minutes_ago),
+            timestamp,
             source_session_id: session_id.to_string(),
             lesson: None,
             tags: Vec::new(),
             score: 0.0,
+            event_id: 0,
+            entity_type: String::new(),
+            entity_name: String::new(),
+            updated_at: timestamp,
         }
     }
 
