@@ -9,10 +9,10 @@ use std::pin::Pin;
 
 use futures::Stream;
 
-use crate::types::{InternalMessage, InternalRequest, UnifiedResponse};
+use crate::persistence::ReasoningLevel;
 use closeclaw_common::processor::StreamEvent;
 use closeclaw_common::LLMError;
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::{InternalMessage, InternalRequest, UnifiedResponse};
 
 use super::ConversationSession;
 
@@ -37,7 +37,7 @@ impl ConversationSession {
     /// Make a streaming LLM call via the injected [`LlmCaller`].
     ///
     /// Returns a raw event stream. The caller (Gateway) is responsible
-    /// for wrapping with [`SinkUpdater`][crate::SinkUpdater], racing
+    /// for wrapping with [`SinkUpdater`], racing
     /// against a cancellation token, and dispatching through
     /// [`Gateway::send_outbound_streaming`].
     pub async fn invoke_llm_streaming(

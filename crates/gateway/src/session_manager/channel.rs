@@ -6,7 +6,7 @@
 
 use super::SessionManager;
 use crate::Session;
-use closeclaw_llm::session::ConversationSession;
+use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{SessionCheckpoint, SessionStatus};
 use std::sync::Arc;
 use tokio::sync::RwLock;

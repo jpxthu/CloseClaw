@@ -10,8 +10,8 @@ use super::tests::{clear_global_prompt_state, make_test_mgr, test_config};
 use super::SessionManager;
 use closeclaw_config::agents::SubagentsConfig;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
-use closeclaw_llm::session::{ChatSession, ConversationSession};
 use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::llm_session::{ChatSession, ConversationSession};
 use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint};
 use closeclaw_session::ReasoningLevel;
 use serial_test::serial;
@@ -887,7 +887,7 @@ async fn test_child_session_communication_config_has_parent() {
 #[test]
 fn test_non_spawn_session_no_communication_config() {
     use std::path::PathBuf;
-    let cs = closeclaw_llm::session::ConversationSession::new(
+    let cs = closeclaw_session::llm_session::ConversationSession::new(
         "regular-session".to_string(),
         "test-model".to_string(),
         PathBuf::from("/tmp"),

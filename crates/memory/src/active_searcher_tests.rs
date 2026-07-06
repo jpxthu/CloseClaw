@@ -12,7 +12,7 @@ use crate::active_searcher::{
     ActiveSearcher, ActiveSearcherConfig, ActiveSearcherError, EventRecord,
 };
 use crate::active_searcher_llm::{parse_concepts, should_trigger_role, LlmCaller};
-use closeclaw_llm::session::{InjectionPosition, MemoryInjection};
+use closeclaw_session::llm_session::{InjectionPosition, MemoryInjection};
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -449,7 +449,7 @@ fn test_summarize_events() {
 
 #[test]
 fn test_memory_injection_basics() {
-    let session = closeclaw_llm::session::ConversationSession::new(
+    let session = closeclaw_session::llm_session::ConversationSession::new(
         "test-session".into(),
         "model".into(),
         tempfile::tempdir().unwrap().keep(),
@@ -482,7 +482,7 @@ fn test_memory_injection_basics() {
     assert_eq!(inj.injected_event_ids.len(), 1);
 
     // noop when empty slot
-    let session2 = closeclaw_llm::session::ConversationSession::new(
+    let session2 = closeclaw_session::llm_session::ConversationSession::new(
         "test".into(),
         "model".into(),
         tempfile::tempdir().unwrap().keep(),
@@ -807,8 +807,8 @@ fn test_from_agent_config_search_disabled() {
 
 use crate::active_searcher_llm::build_concept_extraction_prompt;
 use chrono::Utc;
-use closeclaw_llm::session::SessionMessage;
 use closeclaw_llm::types::ContentBlock;
+use closeclaw_session::llm_session::SessionMessage;
 
 /// Verify the concept extraction prompt covers all three dimensions
 /// defined in the design doc: action types, entities/objects,

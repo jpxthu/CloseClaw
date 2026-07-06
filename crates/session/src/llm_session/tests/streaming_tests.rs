@@ -39,7 +39,7 @@ fn test_build_api_request_stream_flag_reflects_state() {
 
 #[test]
 fn test_set_streaming_sink() {
-    use crate::streaming::{StreamDone, StreamingSink};
+    use closeclaw_common::{StreamDone, StreamingSink};
     use std::sync::{Arc, Mutex};
 
     #[derive(Debug)]

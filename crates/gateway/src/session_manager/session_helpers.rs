@@ -161,7 +161,7 @@ pub(super) async fn try_restore_archived_session_inner(
             return RestoreResult {
                 restored: false,
                 notification_chat_id: None,
-            }
+            };
         }
     };
     if checkpoint.status != SessionStatus::Archived {

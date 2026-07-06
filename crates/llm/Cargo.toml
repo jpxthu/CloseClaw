@@ -10,13 +10,11 @@ fake-llm = []
 
 [dependencies]
 # Internal crates
-closeclaw-agent = { path = "../agent" }
 closeclaw-common = { path = "../common" }
 closeclaw-session = { path = "../session" }
 
 # Async runtime
 tokio = { version = "=1.35.0", features = ["full"] }
-tokio-util = "0.7"
 futures = "0.3"
 
 # Serialization

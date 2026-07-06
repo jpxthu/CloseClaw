@@ -14,8 +14,8 @@ use closeclaw_common::{
 };
 use closeclaw_config::manager::{ConfigManager, ConfigSnapshot};
 use closeclaw_config::ConfigSection;
-use closeclaw_llm::session::{ChatSession, ConversationSession};
 use closeclaw_session::bootstrap::loader::BootstrapMode;
+use closeclaw_session::llm_session::{ChatSession, ConversationSession};
 use closeclaw_session::persistence::{
     PendingMessage, PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
     SessionStatus,

@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use closeclaw_llm::session::ConversationSession;
+use closeclaw_session::llm_session::ConversationSession;
 
 fn test_resolved_config(
     id: &str,

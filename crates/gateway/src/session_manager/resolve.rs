@@ -10,7 +10,7 @@ use super::SessionManager;
 use crate::Message;
 use closeclaw_common::processor::ProcessError;
 use closeclaw_config::agents::ResolvedAgentConfig;
-use closeclaw_llm::session::ConversationSession;
+use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{SessionCheckpoint, SessionStatus};
 use closeclaw_session::workspace;
 use std::path::PathBuf;

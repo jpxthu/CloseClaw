@@ -14,12 +14,12 @@ use crate::llm_caller_impl::execute_compact;
 use crate::session_manager::SessionManager;
 use crate::shutdown_handle::ShutdownHandle;
 use closeclaw_llm::fallback::FallbackClient;
-use closeclaw_llm::session::ChatSession;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::Message as ChatMessage;
 use closeclaw_session::compaction::{
     CompactConfig, CompactionMessage, CompactionResult, CompactionService,
 };
+use closeclaw_session::llm_session::ChatSession;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
@@ -332,7 +332,9 @@ pub(crate) fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
         .join("\n")
 }
 
-fn build_compact_messages(messages: &[closeclaw_llm::session::SessionMessage]) -> Vec<ChatMessage> {
+fn build_compact_messages(
+    messages: &[closeclaw_session::llm_session::SessionMessage],
+) -> Vec<ChatMessage> {
     messages
         .iter()
         .filter(|m| m.role == "user" || m.role == "assistant")
@@ -355,7 +357,7 @@ async fn apply_compact_result(
     let Some(cs) = sm.get_conversation_session(session_id).await else {
         return;
     };
-    let boundary = closeclaw_llm::session::SessionMessage {
+    let boundary = closeclaw_session::llm_session::SessionMessage {
         role: "assistant".to_string(),
         content_blocks: vec![ContentBlock::Text(result.boundary_message.clone())],
         timestamp: chrono::Utc::now(),

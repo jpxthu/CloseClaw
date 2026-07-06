@@ -1,7 +1,7 @@
 //! Integration tests for ConversationSession + RunningStats.
 
 use super::*;
-use crate::types::UnifiedUsage;
+use closeclaw_common::UnifiedUsage;
 
 fn make_usage(
     prompt: u32,
