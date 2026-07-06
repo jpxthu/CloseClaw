@@ -270,5 +270,13 @@
     "confirmed_time": "2026-07-06T14:18:34.359708+08:00",
     "comment": "",
     "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/memory/dreaming.md",
+    "commit": "7dc1cb3684535af7b1cfb9dfc32828cfb6eb4475",
+    "commit_time": "2026-07-06T20:20:24+08:00",
+    "confirmed_time": "2026-07-06T20:26:38.493159+08:00",
+    "comment": "",
+    "blocked_reason": ""
   }
 ]
