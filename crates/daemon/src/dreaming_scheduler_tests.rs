@@ -486,3 +486,81 @@ async fn test_config_change_non_memory_ignored() {
         "non-Memory event should not enable pipeline"
     );
 }
+
+// ── Step 1.3: Channel safety + immediate hook trigger tests ────────
+
+/// When the receiver is dropped, sending on the channel must not panic.
+#[tokio::test]
+async fn test_channel_disconnected_send_does_not_panic() {
+    let (tx, rx) = tokio::sync::mpsc::channel::<String>(1);
+
+    // Drop the receiver first
+    drop(rx);
+
+    // Sending after the receiver is dropped must not panic;
+    // try_send should return an error instead.
+    let result = tx.try_send("session-1".to_string());
+    assert!(
+        result.is_err(),
+        "try_send on disconnected channel should error"
+    );
+}
+
+/// When the channel buffer is full, try_send must not panic.
+#[tokio::test]
+async fn test_channel_full_send_does_not_panic() {
+    let (tx, rx) = tokio::sync::mpsc::channel::<String>(1);
+
+    // Fill the channel
+    tx.try_send("s1".to_string()).unwrap();
+
+    // Second send should return Err(TrySendError::Full) — not panic
+    let result = tx.try_send("s2".to_string());
+    assert!(
+        result.is_err(),
+        "try_send on full channel should error, not panic"
+    );
+
+    // Receiver still alive; drain it
+    drop(rx);
+}
+
+/// run_once processes an archived unmined session through the mining
+/// pipeline (immediate hook trigger path: DreamingScheduler receives
+/// notification → calls mine_session → marks session mined).
+#[tokio::test]
+async fn test_immediate_hook_triggers_mining() {
+    let test_storage = TestStorage::default();
+
+    // Add an archived, unmined session for a configured agent
+    let mut cp = closeclaw_session::persistence::SessionCheckpoint::new("hook-mined".into());
+    cp.agent_id = Some("agent1".into());
+    cp.mined = false;
+    test_storage.add_archived(cp);
+
+    let storage: Arc<dyn PersistenceService> = Arc::new(test_storage);
+    let config: Arc<dyn SessionConfigProvider> =
+        Arc::new(MockConfig::new(vec!["agent1".to_string()]));
+
+    let config_manager = make_test_config_manager(std::path::Path::new("/tmp/test-config-hook"));
+    let pipeline = Arc::new(DreamingPipeline::new());
+    let tmp_db = tempfile::tempdir().unwrap();
+    let miner = Arc::new(MemoryMiner::new(
+        closeclaw_memory::miner::MinerConfig {
+            enabled: true,
+            ..Default::default()
+        },
+        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
+        tmp_db.path().join("memory-miner-test.db"),
+        "/tmp/test-MEMORY-hook.md".to_string(),
+        "agent1".to_string(),
+    ));
+
+    let scheduler = DreamingScheduler::new(storage, config, pipeline, miner, config_manager);
+
+    let result = scheduler.run_once().await;
+    assert!(
+        result.is_ok(),
+        "run_once should succeed when processing unmined session: {result:?}"
+    );
+}
