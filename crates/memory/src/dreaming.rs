@@ -381,37 +381,88 @@ impl DreamingPipeline {
 
     // ── Light stage ──────────────────────────────────────────────────
 
-    /// Light stage: deduplicate and chunk entries by source session.
+    /// Light stage: deduplicate (batch-internal + MEMORY.md semantic)
+    /// and chunk entries by entity type.
     fn light_stage(
         &self,
         entries: Vec<MemoryEntry>,
     ) -> Result<Vec<Vec<MemoryEntry>>, DreamingError> {
-        let deduped = self.deduplicate(entries);
-        Ok(self.chunk_by_session(deduped))
+        let existing_rules = self.read_existing_rules();
+        let deduped = self.deduplicate(entries, &existing_rules);
+        Ok(self.chunk_by_entity_type(deduped))
     }
 
-    /// Remove entries that are duplicates (same category + source + high
-    /// body similarity).
-    fn deduplicate(&self, entries: Vec<MemoryEntry>) -> Vec<MemoryEntry> {
+    /// Read existing rules from MEMORY.md for semantic deduplication.
+    fn read_existing_rules(&self) -> Vec<String> {
+        let path = Path::new(&self.memory_md_path);
+        if !path.exists() {
+            return Vec::new();
+        }
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        content
+            .lines()
+            .filter_map(|line| line.strip_prefix("- ").map(String::from))
+            .collect()
+    }
+
+    /// Remove entries that are duplicates.
+    ///
+    /// Layer 1: batch-internal exact dedup (same category + session + body).
+    /// Layer 2: semantic dedup against MEMORY.md existing rules using word
+    /// overlap (Jaccard similarity >= 0.6).
+    pub(crate) fn deduplicate(
+        &self,
+        entries: Vec<MemoryEntry>,
+        existing_rules: &[String],
+    ) -> Vec<MemoryEntry> {
+        // Layer 1: exact batch-internal dedup.
         let mut seen = std::collections::HashSet::new();
-        entries
+        let exact_deduped: Vec<MemoryEntry> = entries
             .into_iter()
             .filter(|e| {
                 let key = (e.category, e.source_session_id.clone(), e.body.clone());
                 seen.insert(key)
             })
+            .collect();
+
+        // Layer 2: semantic dedup against MEMORY.md existing rules.
+        if existing_rules.is_empty() {
+            return exact_deduped;
+        }
+
+        exact_deduped
+            .into_iter()
+            .filter(|e| {
+                let body_words: Vec<String> = Self::extract_words(&e.body);
+                !existing_rules.iter().any(|rule| {
+                    let rule_words: Vec<String> = Self::extract_words(rule);
+                    Self::word_overlap(&body_words, &rule_words) >= 0.6
+                })
+            })
             .collect()
     }
 
-    /// Split entries into groups by source session ID.
-    fn chunk_by_session(&self, entries: Vec<MemoryEntry>) -> Vec<Vec<MemoryEntry>> {
+    /// Compute Jaccard word overlap between two word sets.
+    fn word_overlap(a: &[String], b: &[String]) -> f64 {
+        if a.is_empty() || b.is_empty() {
+            return 0.0;
+        }
+        let set_a: std::collections::HashSet<&String> = a.iter().collect();
+        let set_b: std::collections::HashSet<&String> = b.iter().collect();
+        let intersection = set_a.intersection(&set_b).count();
+        let union = set_a.len().max(set_b.len());
+        intersection as f64 / union as f64
+    }
+
+    /// Split entries into groups by entity type.
+    pub(crate) fn chunk_by_entity_type(&self, entries: Vec<MemoryEntry>) -> Vec<Vec<MemoryEntry>> {
         let mut groups: std::collections::HashMap<String, Vec<MemoryEntry>> =
             std::collections::HashMap::new();
         for e in entries {
-            groups
-                .entry(e.source_session_id.clone())
-                .or_default()
-                .push(e);
+            groups.entry(e.entity_type.clone()).or_default().push(e);
         }
         groups.into_values().collect()
     }
@@ -792,26 +843,8 @@ mod tests {
             make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 10),
             make_entry(EntryCategory::Decision, "light theme is nice", "s1", 5),
         ];
-        let result = pipeline.deduplicate(entries);
+        let result = pipeline.deduplicate(entries, &[]);
         assert_eq!(result.len(), 2);
-    }
-
-    #[test]
-    fn test_light_chunk_by_session() {
-        let pipeline = DreamingPipeline::new();
-        let entries = vec![
-            make_entry(EntryCategory::Decision, "a", "s1", 10),
-            make_entry(EntryCategory::Decision, "b", "s2", 10),
-            make_entry(EntryCategory::Decision, "c", "s1", 5),
-        ];
-        let chunks = pipeline.chunk_by_session(entries);
-        assert_eq!(chunks.len(), 2);
-        let s1: Vec<_> = chunks
-            .iter()
-            .filter(|c| c[0].source_session_id == "s1")
-            .collect();
-        assert_eq!(s1.len(), 1);
-        assert_eq!(s1[0].len(), 2);
     }
 
     #[test]

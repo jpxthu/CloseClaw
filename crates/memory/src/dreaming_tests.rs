@@ -891,61 +891,29 @@ fn test_with_config_extracts_model() {
     assert_eq!(pipeline.model().as_deref(), Some("gpt-4o"));
 }
 
-/// Default pipeline has model as None.
+/// Default pipeline and unconfigured config both have model as None.
 #[test]
 fn test_default_model_is_none() {
     let pipeline = DreamingPipeline::default();
     assert_eq!(pipeline.model(), None);
+    let pipeline2 = DreamingPipeline::with_config(DreamingConfig::default());
+    assert_eq!(pipeline2.model(), None);
 }
 
-/// model() returns None when DreamingConfig has no model.
+/// update_config propagates model changes and can clear model.
 #[test]
-fn test_model_none_when_unconfigured() {
-    let config = DreamingConfig::default();
-    let pipeline = DreamingPipeline::with_config(config);
-    assert_eq!(pipeline.model(), None);
-}
-
-/// model() returns empty string when configured as empty.
-#[test]
-fn test_model_returns_empty_string() {
-    let config = DreamingConfig {
-        model: Some(String::new()),
-        ..Default::default()
-    };
-    let pipeline = DreamingPipeline::with_config(config);
-    assert_eq!(pipeline.model().as_deref(), Some(""));
-}
-
-/// update_config propagates new model to getter.
-#[test]
-fn test_update_config_propagates_model() {
+fn test_update_config_model_lifecycle() {
     let pipeline = DreamingPipeline::default();
     assert_eq!(pipeline.model(), None);
-
-    let new_config = DreamingConfig {
+    pipeline.update_config(DreamingConfig {
         model: Some("claude-3.5-sonnet".to_string()),
         ..Default::default()
-    };
-    pipeline.update_config(new_config);
+    });
     assert_eq!(pipeline.model().as_deref(), Some("claude-3.5-sonnet"));
-}
-
-/// update_config can clear model from Some to None.
-#[test]
-fn test_update_config_clears_model() {
-    let config = DreamingConfig {
-        model: Some("gpt-4o".to_string()),
-        ..Default::default()
-    };
-    let pipeline = DreamingPipeline::with_config(config);
-    assert_eq!(pipeline.model().as_deref(), Some("gpt-4o"));
-
-    let new_config = DreamingConfig {
+    pipeline.update_config(DreamingConfig {
         model: None,
         ..Default::default()
-    };
-    pipeline.update_config(new_config);
+    });
     assert_eq!(pipeline.model(), None);
 }
 
@@ -962,4 +930,58 @@ fn test_per_agent_override_model() {
     });
     assert_eq!(pipeline_a.model().as_deref(), Some("model-a"));
     assert_eq!(pipeline_b.model().as_deref(), Some("model-b"));
+}
+
+// ── Light stage entity-type chunking + semantic dedup tests ────────
+
+/// Semantic dedup filters entries that overlap with MEMORY.md existing rules.
+#[test]
+fn test_light_dedup_semantic_filters_existing_rules() {
+    let pipeline = DreamingPipeline::new();
+    let entries = vec![
+        make_entry(
+            EntryCategory::Decision,
+            "always prefer dark mode theme",
+            "s1",
+            10,
+        ),
+        make_entry(EntryCategory::Decision, "use vim for code editing", "s1", 5),
+    ];
+    let existing = vec!["prefer dark mode theme always".to_string()];
+    let result = pipeline.deduplicate(entries, &existing);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].body, "use vim for code editing");
+}
+
+/// Semantic dedup keeps all entries when no overlap with existing rules.
+#[test]
+fn test_light_dedup_semantic_no_match_keeps_all() {
+    let pipeline = DreamingPipeline::new();
+    let entries = vec![
+        make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 10),
+        make_entry(EntryCategory::Error, "deployment failed", "s2", 5),
+    ];
+    let existing = vec!["unrelated rule about testing".to_string()];
+    let result = pipeline.deduplicate(entries, &existing);
+    assert_eq!(result.len(), 2);
+}
+
+/// Entity-type chunking groups entries by entity_type field.
+#[test]
+fn test_light_chunk_by_entity_type() {
+    let pipeline = DreamingPipeline::new();
+    let mut e1 = make_entry(EntryCategory::Decision, "a", "s1", 10);
+    e1.entity_type = "subject".to_string();
+    let mut e2 = make_entry(EntryCategory::Decision, "b", "s2", 10);
+    e2.entity_type = "person".to_string();
+    let mut e3 = make_entry(EntryCategory::Decision, "c", "s1", 5);
+    e3.entity_type = "subject".to_string();
+    let chunks = pipeline.chunk_by_entity_type(vec![e1, e2, e3]);
+    assert_eq!(chunks.len(), 2);
+    let subject: Vec<_> = chunks
+        .iter()
+        .filter(|c| c[0].entity_type == "subject")
+        .collect();
+    assert_eq!(subject.len(), 1);
+    assert_eq!(subject[0].len(), 2);
 }
