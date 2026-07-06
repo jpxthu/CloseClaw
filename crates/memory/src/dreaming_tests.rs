@@ -4,6 +4,7 @@
 //! mock PersistenceService interactions.
 
 use crate::dreaming::{DreamingPipeline, EntityGroup, EntryCategory, MemoryEntry};
+use crate::dreaming_llm::PromotedGroupInfo;
 use crate::test_helpers::TestStorage;
 use closeclaw_config::agents::{DreamingConfig, DreamingDiaryConfig};
 use closeclaw_session::persistence::{DreamingStatus, SessionCheckpoint};
@@ -164,8 +165,8 @@ fn make_group(entries: Vec<MemoryEntry>, entity_name: &str) -> EntityGroup {
 }
 
 /// Dream Diary writes when enabled, skips when disabled, auto-creates dir.
-#[test]
-fn test_dream_diary_enabled_disabled_and_dir() {
+#[tokio::test]
+async fn test_dream_diary_enabled_disabled_and_dir() {
     // Enabled: writes file with expected content.
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
@@ -178,25 +179,21 @@ fn test_dream_diary_enabled_disabled_and_dir() {
         ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
-    let groups = vec![make_group(
-        vec![
-            make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 10),
-            make_entry_with_lesson(
-                EntryCategory::Error,
-                "wrong deployment",
-                "s1",
-                "verify before deploying",
-            ),
+    let promoted = vec![PromotedGroupInfo {
+        entity_name: "deploy".into(),
+        entity_type: "subject".into(),
+        lessons: vec![
+            "dark mode preferred".into(),
+            "verify before deploying".into(),
         ],
-        "deploy",
-    )];
-    pipeline.write_dream_diary(&groups).unwrap();
+    }];
+    pipeline.write_dream_diary(&promoted, None).await.unwrap();
     let date = chrono::Local::now().format("%Y-%m-%d").to_string();
     let diary_file = tmp.path().join(format!("{}.md", date));
     assert!(diary_file.exists());
     let content = std::fs::read_to_string(&diary_file).unwrap();
     assert!(content.contains("dark mode preferred"));
-    assert!(content.contains("Promoted 2 entries"));
+    assert!(content.contains("Promoted 2 lessons"));
 
     // Disabled: no file created.
     let tmp2 = TempDir::new().unwrap();
@@ -209,7 +206,7 @@ fn test_dream_diary_enabled_disabled_and_dir() {
         ..Default::default()
     };
     let p2 = DreamingPipeline::with_config(config2);
-    p2.write_dream_diary(&groups).unwrap();
+    p2.write_dream_diary(&promoted, None).await.unwrap();
     assert!(tmp2.path().read_dir().unwrap().next().is_none());
 
     // Custom path with nested dir: auto-created.
@@ -224,14 +221,15 @@ fn test_dream_diary_enabled_disabled_and_dir() {
         ..Default::default()
     };
     DreamingPipeline::with_config(config3)
-        .write_dream_diary(&groups)
+        .write_dream_diary(&promoted, None)
+        .await
         .unwrap();
     assert!(custom.exists());
 }
 
 /// Regression guard: EntryCategory must match design doc + lesson in diary.
-#[test]
-fn test_entry_category_and_lesson_in_diary() {
+#[tokio::test]
+async fn test_entry_category_and_lesson_in_diary() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
     let config = DreamingConfig {
@@ -243,31 +241,23 @@ fn test_entry_category_and_lesson_in_diary() {
         ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
-    let groups = vec![
-        make_group(
-            vec![make_entry_with_lesson(
-                EntryCategory::Error,
-                "wrong deployment",
-                "s1",
-                "verify before deploying",
-            )],
-            "deploy",
-        ),
-        make_group(
-            vec![make_entry_with_lesson(
-                EntryCategory::Anger,
-                "user corrected output",
-                "s1",
-                "follow user style guide",
-            )],
-            "user",
-        ),
+    let promoted = vec![
+        PromotedGroupInfo {
+            entity_name: "deploy".into(),
+            entity_type: "subject".into(),
+            lessons: vec!["verify before deploying".into()],
+        },
+        PromotedGroupInfo {
+            entity_name: "user".into(),
+            entity_type: "subject".into(),
+            lessons: vec!["follow user style guide".into()],
+        },
     ];
-    pipeline.write_dream_diary(&groups).unwrap();
+    pipeline.write_dream_diary(&promoted, None).await.unwrap();
     let date = chrono::Local::now().format("%Y-%m-%d").to_string();
     let content = std::fs::read_to_string(tmp.path().join(format!("{}.md", date))).unwrap();
-    assert!(content.contains("Lesson: verify before deploying"));
-    assert!(content.contains("Lesson: follow user style guide"));
+    assert!(content.contains("verify before deploying"));
+    assert!(content.contains("follow user style guide"));
 }
 
 use closeclaw_config::agents::{
@@ -500,6 +490,17 @@ impl DreamingLlmCaller for MockConsolidationLlm {
     ) -> Result<String, DreamingLlmError> {
         Ok(format!("[{}] {}", entity_name, lessons.join(", ")))
     }
+
+    async fn generate_diary_narrative(
+        &self,
+        promoted_groups: &[PromotedGroupInfo],
+    ) -> Result<String, DreamingLlmError> {
+        let names: Vec<&str> = promoted_groups
+            .iter()
+            .map(|g| g.entity_name.as_str())
+            .collect();
+        Ok(format!("diary about {}", names.join(", ")))
+    }
 }
 
 /// Failing LLM caller for testing degradation.
@@ -511,6 +512,13 @@ impl DreamingLlmCaller for FailingConsolidationLlm {
         &self,
         _lessons: &[String],
         _entity_name: &str,
+    ) -> Result<String, DreamingLlmError> {
+        Err(DreamingLlmError::Llm("simulated failure".into()))
+    }
+
+    async fn generate_diary_narrative(
+        &self,
+        _promoted_groups: &[PromotedGroupInfo],
     ) -> Result<String, DreamingLlmError> {
         Err(DreamingLlmError::Llm("simulated failure".into()))
     }
