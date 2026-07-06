@@ -227,7 +227,6 @@ fn setup_with_config(
         miner_llm,
         &db_path,
         memory_md_path.to_str().unwrap(),
-        "test-agent",
     );
 
     let dreaming_config = closeclaw_config::agents::DreamingConfig {
@@ -315,7 +314,13 @@ async fn test_full_pipeline_transcript_to_memory_md() {
         .unwrap();
     let raw_transcript = format_transcript(&archived.pending_messages);
     let result = miner
-        .mine_session_from_checkpoint("sess-1", &raw_transcript, &archived, storage.as_ref())
+        .mine_session_from_checkpoint(
+            "sess-1",
+            &raw_transcript,
+            "test-agent",
+            &archived,
+            storage.as_ref(),
+        )
         .await
         .unwrap();
 
@@ -397,7 +402,7 @@ async fn test_empty_transcript_no_events() {
         .unwrap()
         .unwrap();
     let result = miner
-        .mine_session_from_checkpoint("sess-empty", "", &archived, storage.as_ref())
+        .mine_session_from_checkpoint("sess-empty", "", "test-agent", &archived, storage.as_ref())
         .await
         .unwrap();
 
@@ -427,7 +432,13 @@ async fn test_llm_failure_during_mining() {
         .unwrap();
     let raw_transcript = format_transcript(&archived.pending_messages);
     let result = miner
-        .mine_session_from_checkpoint("sess-fail", &raw_transcript, &archived, storage.as_ref())
+        .mine_session_from_checkpoint(
+            "sess-fail",
+            &raw_transcript,
+            "test-agent",
+            &archived,
+            storage.as_ref(),
+        )
         .await;
 
     assert!(result.is_err(), "LLM failure should propagate as error");
@@ -484,7 +495,13 @@ async fn test_duplicate_events_deduplicated() {
         .unwrap();
     let raw_transcript = format_transcript(&archived.pending_messages);
     let result = miner
-        .mine_session_from_checkpoint("sess-dup", &raw_transcript, &archived, storage.as_ref())
+        .mine_session_from_checkpoint(
+            "sess-dup",
+            &raw_transcript,
+            "test-agent",
+            &archived,
+            storage.as_ref(),
+        )
         .await
         .unwrap();
 
@@ -524,7 +541,13 @@ async fn test_already_mined_session_skipped() {
         .unwrap();
     let raw_transcript = format_transcript(&archived.pending_messages);
     let result = miner
-        .mine_session_from_checkpoint("sess-mined", &raw_transcript, &archived, storage.as_ref())
+        .mine_session_from_checkpoint(
+            "sess-mined",
+            &raw_transcript,
+            "test-agent",
+            &archived,
+            storage.as_ref(),
+        )
         .await
         .unwrap();
 
