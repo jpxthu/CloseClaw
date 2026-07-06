@@ -20,6 +20,8 @@ pub use closeclaw_llm::session::{InjectionPosition, MemoryInjection};
 #[cfg(test)]
 mod active_searcher_tests;
 #[cfg(test)]
+mod dreaming_gap_fix_tests;
+#[cfg(test)]
 mod dreaming_scoring_tests;
 #[cfg(test)]
 mod dreaming_status_tests;

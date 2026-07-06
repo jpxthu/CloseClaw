@@ -193,6 +193,8 @@ impl DreamingLlmCaller for MockDiaryLlm {
         &self,
         lessons: &[String],
         _entity_name: &str,
+        _entity_type: &str,
+        _frequency: usize,
     ) -> Result<String, DreamingLlmError> {
         Ok(lessons.join("; "))
     }
@@ -218,6 +220,8 @@ impl DreamingLlmCaller for FailingDiaryLlm {
         &self,
         _lessons: &[String],
         _entity_name: &str,
+        _entity_type: &str,
+        _frequency: usize,
     ) -> Result<String, DreamingLlmError> {
         Err(DreamingLlmError::Llm("fail".into()))
     }
