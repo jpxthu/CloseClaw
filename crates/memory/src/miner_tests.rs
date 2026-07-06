@@ -624,6 +624,30 @@ async fn test_mine_session_persists_to_sqlite() {
     assert_eq!(title, "persisted event");
 }
 
+// ── Config hot-reload tests ────────────────────────────────────────
+
+/// update_config reflects new enabled value in is_enabled().
+#[test]
+fn test_update_config_reflects_new_enabled() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let config = MinerConfig {
+        enabled: false,
+        ..Default::default()
+    };
+    let llm = Box::new(crate::miner_llm::MockMinerLlmCaller::default());
+    let miner =
+        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    assert!(!miner.is_enabled(), "should start disabled");
+
+    // Hot-reload: enable mining.
+    let new_config = MinerConfig {
+        enabled: true,
+        ..Default::default()
+    };
+    miner.update_config(new_config);
+    assert!(miner.is_enabled(), "should be enabled after update_config");
+}
+
 // ── MinerConfig from_mining_config edge cases ─────────────────────────
 
 #[test]

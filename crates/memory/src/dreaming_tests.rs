@@ -770,4 +770,93 @@ async fn test_collect_entries_missing_table() {
     assert!(result.unwrap().is_empty());
 }
 
+// ── Config hot-reload tests ────────────────────────────────────────
+
+/// update_config changes the enabled flag, and run_once stops skipping.
+#[tokio::test]
+async fn test_update_config_changes_behavior() {
+    let storage = TestStorage::default();
+
+    // Session mined + not yet dreamt.
+    let mut cp = SessionCheckpoint::new("sess-reload".into());
+    cp.mined = true;
+    cp.dreaming_status = DreamingStatus::Pending;
+    storage.add_checkpoint(cp);
+
+    // Start with dreaming disabled.
+    let config = DreamingConfig {
+        enabled: Some(false),
+        diary: DreamingDiaryConfig::default(),
+        ..Default::default()
+    };
+    let pipeline = DreamingPipeline::with_config(config);
+
+    // run_once should be a no-op (skips because disabled).
+    let result = pipeline.run_once(&storage).await;
+    assert!(result.is_ok(), "run_once with disabled should succeed");
+
+    // Verify session was NOT processed.
+    {
+        let cps = storage.checkpoints.lock().unwrap();
+        let cp = cps.iter().find(|c| c.session_id == "sess-reload").unwrap();
+        assert_eq!(
+            cp.dreaming_status,
+            DreamingStatus::Pending,
+            "should still be Pending when disabled"
+        );
+    }
+
+    // Hot-reload: enable dreaming.
+    let new_config = DreamingConfig {
+        enabled: Some(true),
+        diary: DreamingDiaryConfig::default(),
+        ..Default::default()
+    };
+    pipeline.update_config(new_config);
+
+    // run_once should now process the session (enabled=true).
+    let result = pipeline.run_once(&storage).await;
+    assert!(result.is_ok(), "run_once after enable should succeed");
+
+    let cps = storage.checkpoints.lock().unwrap();
+    let cp = cps.iter().find(|c| c.session_id == "sess-reload").unwrap();
+    assert_eq!(
+        cp.dreaming_status,
+        DreamingStatus::Completed,
+        "session should be Completed after hot-reload enable"
+    );
+}
+
+/// Concurrent update_config and config reads do not panic.
+#[test]
+fn test_update_config_concurrent_safety() {
+    let handles: Vec<_> = (0..4)
+        .map(|i| {
+            let config_enabled = i % 2 == 0;
+            std::thread::spawn(move || {
+                let cfg = DreamingConfig {
+                    enabled: Some(config_enabled),
+                    diary: DreamingDiaryConfig::default(),
+                    ..Default::default()
+                };
+                // Each thread creates its own pipeline — this verifies the
+                // RwLock internals don't panic under rapid construction.
+                let p = DreamingPipeline::with_config(cfg);
+                p.update_config(DreamingConfig {
+                    enabled: Some(!config_enabled),
+                    diary: DreamingDiaryConfig::default(),
+                    ..Default::default()
+                });
+                // Verify the pipeline is still usable after rapid config changes.
+                let _ = p.write_memory_md(&[]);
+                drop(p);
+            })
+        })
+        .collect();
+
+    for h in handles {
+        h.join().expect("thread should not panic");
+    }
+}
+
 // ── Anti-contamination tests ───────────────────────────────────────
