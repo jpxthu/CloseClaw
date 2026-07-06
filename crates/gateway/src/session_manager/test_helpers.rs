@@ -8,7 +8,7 @@
 use super::spawn::{ChildSessionInfo, SpawnMode};
 use super::SessionManager;
 use chrono::Utc;
-use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
 use closeclaw_llm::session::{ChatSession, ConversationSession, SessionMessage};
 use closeclaw_llm::types::{ContentBlock, UnifiedResponse, UnifiedUsage};
@@ -31,7 +31,7 @@ pub(super) fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> Reso
         tools: vec![],
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
-        memory: None,
+        memory: MemoryConfig::default(),
         source: ConfigSource::Merged,
     }
 }
