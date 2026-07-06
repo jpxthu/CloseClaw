@@ -6,7 +6,10 @@
 pub mod active_searcher;
 pub mod active_searcher_llm;
 pub mod dreaming;
+pub mod dreaming_llm;
 pub mod miner;
+pub mod miner_llm;
+pub mod miner_transcript;
 
 #[cfg(test)]
 pub mod test_helpers;

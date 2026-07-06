@@ -15,6 +15,9 @@ pub struct PendingMessage {
     pub created_at: DateTime<Utc>,
     /// 是否已发送
     pub sent: bool,
+    /// 消息角色（"user" / "assistant"），用于 transcript 格式化
+    #[serde(default)]
+    pub role: Option<String>,
 }
 
 impl PendingMessage {
@@ -25,6 +28,18 @@ impl PendingMessage {
             content,
             created_at: Utc::now(),
             sent: false,
+            role: None,
+        }
+    }
+
+    /// Create a new pending message with an explicit role.
+    pub fn with_role(message_id: String, content: String, role: String) -> Self {
+        Self {
+            message_id,
+            content,
+            created_at: Utc::now(),
+            sent: false,
+            role: Some(role),
         }
     }
 

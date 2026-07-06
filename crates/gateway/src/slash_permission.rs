@@ -94,9 +94,10 @@ impl Gateway {
 
         // Non-immediate commands: if session is busy, enqueue for later.
         if !dispatcher.is_immediate(cmd) && self.session_manager.is_session_busy(session_id).await {
-            let msg = PendingMessage::new(
+            let msg = PendingMessage::with_role(
                 format!("pending-{}", chrono::Utc::now().timestamp_millis()),
                 content.to_owned(),
+                "user".to_string(),
             );
             if let Err(e) = self
                 .session_manager

@@ -53,8 +53,9 @@ pub fn write_transcript(
     let file = std::fs::File::create(path).map_err(PersistenceError::Io)?;
     let mut writer = std::io::BufWriter::new(file);
     for msg in &checkpoint.pending_messages {
+        let role = msg.role.clone().unwrap_or_else(|| msg.message_id.clone());
         let entry = TranscriptEntry {
-            role: msg.message_id.clone(),
+            role,
             content: msg.content.clone(),
             timestamp: msg.created_at,
         };
@@ -383,10 +384,11 @@ fn read_transcript(
         }
         let entry: Entry = serde_json::from_str(line).map_err(PersistenceError::Serialization)?;
         messages.push(crate::persistence::PendingMessage {
-            message_id: entry.role,
+            message_id: entry.role.clone(),
             content: entry.content,
             created_at: entry.timestamp,
             sent: true,
+            role: Some(entry.role),
         });
     }
     Ok(messages)
