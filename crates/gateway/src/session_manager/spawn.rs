@@ -9,9 +9,9 @@ use super::SessionManager;
 use crate::session_manager::communication::{CommunicationConfig, CommunicationError};
 use crate::Session;
 use closeclaw_config::agents::ResolvedAgentConfig;
-use closeclaw_llm::session::ChatSession;
-use closeclaw_llm::session::ConversationSession;
 use closeclaw_session::bootstrap::loader::BootstrapMode;
+use closeclaw_session::llm_session::ChatSession;
+use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{
     PendingMessage, PersistenceError, SessionCheckpoint, SessionStatus,
 };

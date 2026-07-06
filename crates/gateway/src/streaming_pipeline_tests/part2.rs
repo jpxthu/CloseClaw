@@ -353,7 +353,7 @@ async fn test_streaming_verbosity_off_filters_thinking_sends_text() {
     let plugin = Arc::new(CapturingPlugin::new("mock"));
     let (gw, _sm, sid) = setup_streaming(chain.clone(), plugin.clone()).await;
 
-    let cs = closeclaw_llm::session::ConversationSession::new(
+    let cs = closeclaw_session::llm_session::ConversationSession::new(
         sid.clone(),
         "test-model".to_string(),
         std::path::PathBuf::from("/tmp"),

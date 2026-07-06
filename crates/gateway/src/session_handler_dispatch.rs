@@ -153,10 +153,12 @@ impl SearcherTriggerDeps {
                 Box::pin(async move {
                     if let Some(cs) = sm.get_conversation_session(&sid).await {
                         let pos_mode = match position.as_str() {
-                            "before_next" => closeclaw_llm::session::InjectionPosition::BeforeNext,
-                            _ => closeclaw_llm::session::InjectionPosition::AfterCurrent,
+                            "before_next" => {
+                                closeclaw_session::llm_session::InjectionPosition::BeforeNext
+                            }
+                            _ => closeclaw_session::llm_session::InjectionPosition::AfterCurrent,
                         };
-                        let injection = closeclaw_llm::session::MemoryInjection {
+                        let injection = closeclaw_session::llm_session::MemoryInjection {
                             content,
                             position_mode: pos_mode,
                             injected_event_ids: event_ids,
@@ -187,10 +189,12 @@ impl SearcherTriggerDeps {
 // ── build_run_searcher helpers ─────────────────────────────────────
 
 /// Convert session message snapshots to LLM session messages.
-fn convert_to_llm_messages(snapshots: &[Snapshot]) -> Vec<closeclaw_llm::session::SessionMessage> {
+fn convert_to_llm_messages(
+    snapshots: &[Snapshot],
+) -> Vec<closeclaw_session::llm_session::SessionMessage> {
     snapshots
         .iter()
-        .map(|m| closeclaw_llm::session::SessionMessage {
+        .map(|m| closeclaw_session::llm_session::SessionMessage {
             role: m.role.clone(),
             content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(m.content.clone())],
             timestamp: chrono::Utc::now(),
@@ -240,8 +244,10 @@ async fn run_searcher_pipeline(
         .await?;
 
     let pos_str = match injection.position_mode {
-        closeclaw_llm::session::InjectionPosition::BeforeNext => "before_next".to_string(),
-        closeclaw_llm::session::InjectionPosition::AfterCurrent => "after_current".to_string(),
+        closeclaw_session::llm_session::InjectionPosition::BeforeNext => "before_next".to_string(),
+        closeclaw_session::llm_session::InjectionPosition::AfterCurrent => {
+            "after_current".to_string()
+        }
     };
     Some((injection.content, pos_str, injection.injected_event_ids))
 }

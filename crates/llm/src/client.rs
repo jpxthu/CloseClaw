@@ -10,11 +10,10 @@
 //! The non-streaming [`chat`](UnifiedChatClient::chat) flow is:
 //! ```ignore
 //! PluginPipeline.before_request
-//!   → Interpreter.inject_extra_body
-//!     → ChatProtocol.build_request
-//!       → Provider.send
-//!         → Interpreter.interpret_response
-//!           → PluginPipeline.after_response
+//!   → ChatProtocol.build_request
+//!     → Provider.send
+//!       → Interpreter.interpret_response
+//!         → PluginPipeline.after_response
 //! ```
 
 use std::sync::Arc;
@@ -148,11 +147,10 @@ impl UnifiedChatClient {
     ///
     /// # Pipeline steps (in order)
     /// 1. **PluginPipeline.before_request** — each plugin may mutate the request.
-    /// 2. **Interpreter.inject_extra_body** — provider-specific field injection.
-    /// 3. **ChatProtocol.build_request** — serialises the request to a JSON body.
-    /// 4. **Provider.send** — performs the HTTP request.
-    /// 5. **Interpreter.interpret_response** — normalises the internal response.
-    /// 6. **PluginPipeline.after_response** — each plugin may mutate the final
+    /// 2. **ChatProtocol.build_request** — serialises the request to a JSON body.
+    /// 3. **Provider.send** — performs the HTTP request.
+    /// 4. **Interpreter.interpret_response** — normalises the internal response.
+    /// 5. **PluginPipeline.after_response** — each plugin may mutate the final
     ///    [`UnifiedResponse`] before it is returned.
     pub async fn chat(&self, mut request: InternalRequest) -> Result<UnifiedResponse> {
         let model = request.model.clone();
@@ -160,7 +158,6 @@ impl UnifiedChatClient {
         self.cache_adapter.apply(&mut request);
         self.plugin_pipeline.before_request(&mut request);
         let interpreter = self.interpreter_registry.resolve(provider_id, &model);
-        interpreter.inject_extra_body(&mut request);
         let body = self
             .protocol
             .build_request(&request)
@@ -184,12 +181,11 @@ impl UnifiedChatClient {
     ///
     /// # Pipeline steps (in order)
     /// 1. **PluginPipeline.before_request** — mutates the request.
-    /// 2. **Interpreter.inject_extra_body** — provider-specific field injection.
-    /// 3. **ChatProtocol.build_request** — serialises with `stream: true`.
-    /// 4. **Provider.send_streaming** — returns a raw SSE channel.
-    /// 5. **ChatProtocol.parse_sse_stream** — parses SSE chunks into events.
-    /// 6. **Interpreter.interpret_stream_event** — normalises each event.
-    /// 7. **PluginPipeline.on_stream_event** — each plugin may forward, modify, or suppress each event.
+    /// 2. **ChatProtocol.build_request** — serialises with `stream: true`.
+    /// 3. **Provider.send_streaming** — returns a raw SSE channel.
+    /// 4. **ChatProtocol.parse_sse_stream** — parses SSE chunks into events.
+    /// 5. **Interpreter.interpret_stream_event** — normalises each event.
+    /// 6. **PluginPipeline.on_stream_event** — each plugin may forward, modify, or suppress each event.
     ///
     /// # Errors
     ///
@@ -203,8 +199,6 @@ impl UnifiedChatClient {
         let provider_id = self.provider.id();
         self.cache_adapter.apply(&mut request);
         self.plugin_pipeline.before_request(&mut request);
-        let interpreter = self.interpreter_registry.resolve(provider_id, &model);
-        interpreter.inject_extra_body(&mut request);
         request.stream = true;
         let body = self
             .protocol

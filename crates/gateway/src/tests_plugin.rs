@@ -178,7 +178,7 @@ async fn test_register_plugin_uses_plugin_platform_as_key() {
 
 use crate::Session;
 use closeclaw_common::shutdown::ShutdownMode;
-use closeclaw_llm::session::ConversationSession;
+use closeclaw_session::llm_session::ConversationSession;
 use std::path::PathBuf;
 use tokio::sync::RwLock;
 

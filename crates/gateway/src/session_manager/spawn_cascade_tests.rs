@@ -8,7 +8,7 @@ use super::spawn::{ChildSessionInfo, SpawnMode};
 use super::test_helpers::test_resolved_config;
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
-use closeclaw_llm::session::ConversationSession;
+use closeclaw_session::llm_session::ConversationSession;
 use serial_test::serial;
 use std::path::PathBuf;
 use std::sync::Arc;

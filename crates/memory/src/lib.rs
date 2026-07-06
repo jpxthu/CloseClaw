@@ -15,7 +15,7 @@ pub mod miner_transcript;
 pub mod test_helpers;
 
 pub use active_searcher::{ActiveSearcher, ActiveSearcherConfig};
-pub use closeclaw_llm::session::{InjectionPosition, MemoryInjection};
+pub use closeclaw_session::llm_session::{InjectionPosition, MemoryInjection};
 
 #[cfg(test)]
 mod active_searcher_tests;

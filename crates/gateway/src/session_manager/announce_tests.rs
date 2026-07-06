@@ -22,8 +22,8 @@ use super::test_helpers::{
 };
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use chrono::Utc;
-use closeclaw_llm::session::AnnounceEvent;
 use closeclaw_llm::types::ContentBlock;
+use closeclaw_session::llm_session::AnnounceEvent;
 use serial_test::serial;
 use std::collections::HashSet;
 use tempfile::TempDir;

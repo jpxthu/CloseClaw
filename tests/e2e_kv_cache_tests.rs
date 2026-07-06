@@ -9,8 +9,8 @@
 //!
 //! Run with: `cargo test --features fake-llm --test e2e_kv_cache_tests`
 
-use closeclaw_llm::session::ConversationSession;
 use closeclaw_llm::types::UnifiedUsage;
+use closeclaw_session::llm_session::ConversationSession;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tempfile::TempDir;

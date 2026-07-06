@@ -20,10 +20,10 @@ use crate::session_manager::test_helpers::{register_child_only, setup_parent_wit
 use crate::session_manager::SessionManager;
 use crate::Session;
 use closeclaw_common::shutdown::ShutdownMode;
-use closeclaw_llm::session::{ChatSession, ConversationSession};
 use closeclaw_llm::session_state::{LlmState, ToolExecState};
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::llm_session::{ChatSession, ConversationSession};
 
 use std::path::PathBuf;
 use std::sync::Arc;

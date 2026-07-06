@@ -26,8 +26,8 @@ use tokio_util::sync::CancellationToken;
 
 use closeclaw_common::tool_session::KillHandle;
 
-use super::session::ConversationSession;
-use super::session_state::LlmState;
+use super::ConversationSession;
+use closeclaw_common::LlmState;
 
 /// Default kill-handle timeout (5 seconds) applied per handle in
 /// [`ConversationSession::kill_tool_handles`] and per child session in

@@ -11,11 +11,11 @@ use closeclaw_llm::fake::FakeProvider;
 #[cfg(feature = "fake-llm")]
 use closeclaw_llm::provider::Provider;
 #[cfg(feature = "fake-llm")]
-use closeclaw_llm::session::ConversationSession;
-#[cfg(feature = "fake-llm")]
 use closeclaw_llm::ChatSession;
 #[cfg(feature = "fake-llm")]
 use closeclaw_llm::LLMRegistry;
+#[cfg(feature = "fake-llm")]
+use closeclaw_session::llm_session::ConversationSession;
 #[cfg(feature = "fake-llm")]
 use closeclaw_session::persistence::PendingMessage;
 #[cfg(feature = "fake-llm")]

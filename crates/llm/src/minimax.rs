@@ -288,7 +288,7 @@ impl ModelLister for MiniMaxProvider {
             Err(_) => {
                 return Err(LLMError::NetworkError(
                     "fetch_model_list timed out after 10s".to_string(),
-                ))
+                ));
             }
         };
 

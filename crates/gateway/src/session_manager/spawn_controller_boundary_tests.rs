@@ -97,7 +97,7 @@ fn inject_agents(cm: &ConfigManager, agents: Vec<(&str, ResolvedAgentConfig)>) {
 async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
     for i in 0..count {
         let child_id = format!("boundary-child-{}", i);
-        let cs = closeclaw_llm::session::ConversationSession::new(
+        let cs = closeclaw_session::llm_session::ConversationSession::new(
             child_id.clone(),
             "test-model".to_string(),
             std::path::PathBuf::from("/tmp"),

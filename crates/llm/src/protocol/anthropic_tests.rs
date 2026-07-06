@@ -526,7 +526,9 @@ fn test_build_request_tools_section_cache_control() {
 
     let proto = AnthropicProtocol::new();
     let mut request = make_request();
-    let full_static = format!("Role: You are a helpful assistant.\n\n## Tools\n\n- web_search: search the web\n- read: read files");
+    let full_static = format!(
+        "Role: You are a helpful assistant.\n\n## Tools\n\n- web_search: search the web\n- read: read files"
+    );
     request.system_blocks = Some(vec![SystemBlock {
         text: full_static,
         cache: true,

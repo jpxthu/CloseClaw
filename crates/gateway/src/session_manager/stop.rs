@@ -638,7 +638,7 @@ mod tests {
         register_child_only(&mgr, parent_id, child_id, "worker", SpawnMode::Session).await;
         // Create a ConversationSession for the child
         let cs = std::sync::Arc::new(tokio::sync::RwLock::new(
-            closeclaw_llm::session::ConversationSession::new(
+            closeclaw_session::llm_session::ConversationSession::new(
                 child_id.to_string(),
                 "test-model".to_string(),
                 std::path::PathBuf::from("/tmp"),
@@ -744,7 +744,7 @@ mod tests {
 
         // Create a ConversationSession for the child
         let cs = Arc::new(tokio::sync::RwLock::new(
-            closeclaw_llm::session::ConversationSession::new(
+            closeclaw_session::llm_session::ConversationSession::new(
                 child_id.to_string(),
                 "test-model".to_string(),
                 std::path::PathBuf::from("/tmp"),
@@ -797,7 +797,7 @@ mod tests {
         register_child_only(&mgr, parent_id, child_id, "worker", SpawnMode::Session).await;
 
         let cs = Arc::new(tokio::sync::RwLock::new(
-            closeclaw_llm::session::ConversationSession::new(
+            closeclaw_session::llm_session::ConversationSession::new(
                 child_id.to_string(),
                 "test-model".to_string(),
                 std::path::PathBuf::from("/tmp"),

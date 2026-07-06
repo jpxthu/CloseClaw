@@ -13,7 +13,7 @@ use tokio::time::timeout;
 use super::active_searcher_llm::{
     extract_concepts_llm, should_trigger_role, summarize_events_llm, LlmCaller,
 };
-use closeclaw_llm::session::{InjectionPosition, MemoryInjection};
+use closeclaw_session::llm_session::{InjectionPosition, MemoryInjection};
 
 // ── Errors ───────────────────────────────────────────────────────────────
 
@@ -347,7 +347,7 @@ impl ActiveSearcher {
         agent_id: &str,
         session_role: &str,
         current_message: &str,
-        context_messages: &[closeclaw_llm::session::SessionMessage],
+        context_messages: &[closeclaw_session::llm_session::SessionMessage],
         injected_event_ids: &HashSet<i64>,
         llm: &dyn LlmCaller,
     ) -> Option<MemoryInjection> {

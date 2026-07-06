@@ -5,8 +5,8 @@
 //! them into `PendingOperation` entries.
 
 use super::super::*;
-use crate::types::ContentBlock;
-use closeclaw_session::persistence::PendingOperationType;
+use crate::persistence::PendingOperationType;
+use closeclaw_common::ContentBlock;
 
 // ── helpers ──────────────────────────────────────────────────────────────
 

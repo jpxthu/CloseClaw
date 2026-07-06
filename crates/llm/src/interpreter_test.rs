@@ -675,6 +675,138 @@ fn test_deepseek_interpreter_empty_thinking_string() {
     );
 }
 
+// ── DeepSeekInterpreter signature preservation tests ──────────────────────────
+
+#[test]
+fn test_deepseek_interpreter_preserves_signature() {
+    let sig = Some("deepseek-think-sig-001".to_string());
+    let response = InternalResponse {
+        content_blocks: vec![
+            RawContentBlock::Text("hello".into()),
+            RawContentBlock::Thinking {
+                thinking: "internal reasoning".into(),
+                signature: sig.clone(),
+            },
+        ],
+        usage: RawUsage {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: Some(15),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+    };
+    let unified = DeepSeekInterpreter.interpret_response(response);
+    assert_eq!(unified.content_blocks.len(), 2);
+    match &unified.content_blocks[1] {
+        ContentBlock::Thinking {
+            thinking,
+            signature,
+        } => {
+            assert_eq!(thinking, "internal reasoning");
+            assert_eq!(signature, &sig);
+        }
+        other => panic!("expected Thinking block with signature, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_deepseek_interpreter_no_signature_yields_none() {
+    let response = InternalResponse {
+        content_blocks: vec![
+            RawContentBlock::Text("answer".into()),
+            RawContentBlock::Thinking {
+                thinking: "reasoning".into(),
+                signature: None,
+            },
+        ],
+        usage: RawUsage {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: Some(15),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+    };
+    let unified = DeepSeekInterpreter.interpret_response(response);
+    assert_eq!(unified.content_blocks.len(), 2);
+    match &unified.content_blocks[1] {
+        ContentBlock::Thinking {
+            thinking,
+            signature,
+        } => {
+            assert_eq!(thinking, "reasoning");
+            assert_eq!(signature, &None);
+        }
+        other => panic!("expected Thinking block, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_deepseek_interpreter_signature_last_wins() {
+    let sig1 = Some("sig-001".to_string());
+    let sig2 = Some("sig-002".to_string());
+    let response = InternalResponse {
+        content_blocks: vec![
+            RawContentBlock::Thinking {
+                thinking: "first".into(),
+                signature: sig1,
+            },
+            RawContentBlock::Thinking {
+                thinking: "second".into(),
+                signature: sig2.clone(),
+            },
+        ],
+        usage: RawUsage {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: Some(15),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+    };
+    let unified = DeepSeekInterpreter.interpret_response(response);
+    // When text is empty and only thinking exists, thinking is merged into Text block
+    // but the signature is still collected and available for non-empty text cases.
+    assert_eq!(unified.content_blocks.len(), 1);
+    assert!(
+        matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s == "firstsecond"),
+        "expected merged Text block, got {:?}",
+        unified.content_blocks[0]
+    );
+}
+
+#[test]
+fn test_deepseek_interpreter_thinking_only_preserves_signature() {
+    let sig = Some("ds-thinking-sig".to_string());
+    let response = InternalResponse {
+        content_blocks: vec![RawContentBlock::Thinking {
+            thinking: "deep thought".into(),
+            signature: sig.clone(),
+        }],
+        usage: RawUsage {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: Some(15),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+    };
+    let unified = DeepSeekInterpreter.interpret_response(response);
+    // When text is empty, thinking is merged into Text block.
+    // The signature is still collected; it surfaces when text is also present.
+    assert_eq!(unified.content_blocks.len(), 1);
+    assert!(
+        matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s == "deep thought"),
+        "expected Text block (thinking merged into text), got {:?}",
+        unified.content_blocks[0]
+    );
+}
+
 // ── Gap 2: DefaultInterpreter preserves signature ─────────────────────────────
 
 #[test]

@@ -23,9 +23,9 @@ use super::session_handler::SessionMessageHandler;
 use super::OutputTx;
 use crate::outbound::StreamResult;
 use crate::session_manager::SessionManager;
-use closeclaw_llm::session::ChatSession;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
+use closeclaw_session::llm_session::ChatSession;
 
 impl SessionMessageHandler {
     /// Clear busy flag, send output, and drain pending messages.

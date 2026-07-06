@@ -83,7 +83,7 @@ async fn test_stop_false_kills_tools_cancels_llm_clears_state() {
     // Pretend an LLM request is in flight.
     cs.read()
         .await
-        .set_llm_state(crate::session_state::LlmState::Requesting);
+        .set_llm_state(closeclaw_common::LlmState::Requesting);
     assert!(cs.read().await.cancel_token().is_cancelled() == false);
 
     // Register a kill handle and a tool state.
@@ -93,10 +93,7 @@ async fn test_stop_false_kills_tools_cancels_llm_clears_state() {
         let s = cs.read().await;
         s.register_tool_handle("call-1", handle as Arc<dyn KillHandle>);
         s.register_tool_call("call-1");
-        s.update_tool_state(
-            "call-1",
-            crate::session_state::ToolExecState::RunningForeground,
-        );
+        s.update_tool_state("call-1", closeclaw_common::ToolExecState::RunningForeground);
     }
 
     cs.read().await.stop(false).await;
@@ -107,7 +104,7 @@ async fn test_stop_false_kills_tools_cancels_llm_clears_state() {
         s.cancel_token().is_cancelled(),
         "cancel_token must be fired"
     );
-    assert_eq!(s.llm_state(), crate::session_state::LlmState::Idle);
+    assert_eq!(s.llm_state(), closeclaw_common::LlmState::Idle);
     assert!(
         s.tool_states
             .read()

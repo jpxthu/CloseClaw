@@ -72,7 +72,7 @@ impl GlmProvider {
                     "fetch_model_list timed out \
                      after 10s"
                         .to_string(),
-                ))
+                ));
             }
         };
 

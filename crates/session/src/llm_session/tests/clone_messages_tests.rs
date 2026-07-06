@@ -1,5 +1,5 @@
 use super::*;
-use crate::types::UnifiedResponse;
+use closeclaw_common::UnifiedResponse;
 
 #[test]
 fn test_clone_messages_from() {

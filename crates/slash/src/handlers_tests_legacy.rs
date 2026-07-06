@@ -52,7 +52,7 @@ fn test_dispatcher_all_handlers() {
 
 #[test]
 fn test_reasoning_level_with_builder() {
-    let s = closeclaw_llm::session::ConversationSession::new(
+    let s = closeclaw_session::llm_session::ConversationSession::new(
         "test-b".to_owned(),
         "test-model".to_owned(),
         std::path::PathBuf::from("/tmp"),

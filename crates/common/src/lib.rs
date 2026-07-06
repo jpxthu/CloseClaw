@@ -8,6 +8,8 @@ pub mod im_plugin;
 pub mod im_plugin_tests;
 pub mod llm_caller;
 pub mod llm_error;
+pub mod llm_stats;
+pub mod llm_streaming;
 pub mod llm_types;
 pub mod middleware;
 pub mod plan_state;
@@ -17,6 +19,7 @@ pub mod processor;
 #[cfg(test)]
 pub mod processor_tests;
 pub mod session_lookup;
+pub mod session_state;
 pub mod session_types;
 pub mod shutdown;
 pub mod skill_registry;
@@ -36,6 +39,7 @@ pub mod tool_session_tests;
 pub mod tool_trait;
 #[cfg(test)]
 pub mod tool_trait_tests;
+pub mod turn;
 pub mod verbosity;
 
 pub use bootstrap::BootstrapMode;
@@ -48,6 +52,8 @@ pub use im_plugin::{
 };
 pub use llm_caller::LlmCaller;
 pub use llm_error::{ErrorKind, LLMError};
+pub use llm_stats::{detect_cache_break, CacheBreakInfo, RunningStats};
+pub use llm_streaming::{StreamDone, StreamingSink};
 pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinition};
 pub use middleware::{MiddlewareError, OutboundMiddleware};
 pub use plan_state::{PlanPhase, PlanState};
@@ -56,6 +62,7 @@ pub use processor::{
     ProcessedMessage, ProcessorChain, StreamEvent, UnifiedResponse, UnifiedUsage,
 };
 pub use session_lookup::{PendingMessage, SessionLookup};
+pub use session_state::{ChildSessionState, LlmState, SessionExecStatus, ToolExecState};
 pub use session_types::{AgentRole, ReasoningLevel};
 pub use shutdown::{DrainStatus, ShutdownMode, ShutdownSignal, ShutdownState};
 pub use skill_registry::SkillRegistryQuery;
@@ -63,6 +70,7 @@ pub use slash_router::{
     SlashContext, SlashDispatcherTrait, SlashHandler, SlashResult, SlashRouter, SystemAppendAction,
 };
 pub use streaming::{DefaultStreamingRenderer, LineBuffer, StreamingRenderer};
+pub use turn::TurnCounter;
 
 pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, StorageProvider};
 pub use system_prompt::{PromptOverrides, SystemPromptBuilder};

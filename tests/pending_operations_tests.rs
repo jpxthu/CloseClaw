@@ -6,8 +6,8 @@
 //! - Recovery injection with non-empty pending_operations
 //! - Recovery flow unaffected when pending_operations is empty
 
-use closeclaw_llm::session::ConversationSession;
 use closeclaw_llm::session_state::{ChildSessionState, ToolExecState};
+use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{
     PendingOperation, PendingOperationType, PersistenceService, SessionCheckpoint,
 };

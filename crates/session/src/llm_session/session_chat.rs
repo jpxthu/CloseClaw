@@ -15,9 +15,9 @@
 use std::sync::Arc;
 
 use super::{ConversationSession, SessionMessage};
-use crate::session_state::SessionExecStatus;
-use crate::streaming::StreamingSink;
-use crate::types::{ContentBlock, InternalMessage, InternalRequest, UnifiedResponse};
+use closeclaw_common::SessionExecStatus;
+use closeclaw_common::StreamingSink;
+use closeclaw_common::{ContentBlock, InternalMessage, InternalRequest, UnifiedResponse};
 
 /// Trait for managing conversation session state.
 ///

@@ -9,6 +9,7 @@ pub mod bootstrap;
 pub mod checkpoint_manager;
 pub mod compaction;
 pub mod events;
+pub mod llm_session;
 pub mod persistence;
 pub mod recovery;
 pub mod storage;

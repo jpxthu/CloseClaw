@@ -33,7 +33,7 @@ pub trait SessionManagerOps: Send + Sync {
     async fn get_conversation_session(
         &self,
         session_id: &str,
-    ) -> Option<Arc<RwLock<crate::session::ConversationSession>>>;
+    ) -> Option<Arc<RwLock<closeclaw_session::llm_session::ConversationSession>>>;
 }
 
 /// Make a non-streaming LLM call.

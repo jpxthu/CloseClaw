@@ -1,5 +1,5 @@
 use super::*;
-use crate::types::{UnifiedResponse, UnifiedUsage};
+use closeclaw_common::{UnifiedResponse, UnifiedUsage};
 
 #[test]
 fn test_clean_thinking_mixed_text_and_thinking_unchanged() {

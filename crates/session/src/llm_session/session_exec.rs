@@ -1,17 +1,12 @@
 //! Three-dimensional execution state methods for `ConversationSession`.
 //!
 //! Implements state transition and inspection for the LLM / tool / child
-//! session dimensions defined in `session_state.rs`. The overall
-//! `exec_status()` combines the three dimensions according to the state
-//! table in `docs/design/session/session-execution.md`.
-//!
-//! The handle / cancel-token / cascade-stop surface lives in
-//! [`super::session_handles`]; the state transitions below are kept
-//! independent of kill handling so the two concerns can evolve
-//! separately.
+//! session dimensions defined in `closeclaw_common::session_state`. The
+//! overall `exec_status()` combines the three dimensions according to the
+//! state table in `docs/design/session/session-execution.md`.
 
-use super::session::ConversationSession;
-use super::session_state::{ChildSessionState, LlmState, SessionExecStatus, ToolExecState};
+use super::ConversationSession;
+use closeclaw_common::{ChildSessionState, LlmState, SessionExecStatus, ToolExecState};
 
 #[allow(dead_code)] // Callers (gateway, tests) are integrated in later steps.
 impl ConversationSession {

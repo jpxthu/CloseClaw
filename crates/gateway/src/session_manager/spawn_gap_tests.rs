@@ -8,7 +8,7 @@ use super::spawn::SpawnMode;
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
-use closeclaw_llm::session::ChatSession;
+use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::recovery::SpawnTree;
 
 use serial_test::serial;
@@ -37,7 +37,7 @@ fn test_resolved_config(id: &str) -> ResolvedAgentConfig {
 /// Register a parent `ConversationSession` so child creation can
 /// derive the cancel token from the parent's token tree.
 async fn register_parent(mgr: &SessionManager, parent_id: &str, workdir: PathBuf) {
-    use closeclaw_llm::session::ConversationSession;
+    use closeclaw_session::llm_session::ConversationSession;
     use tokio::sync::RwLock;
 
     let cs = ConversationSession::new(parent_id.to_string(), "test-model".to_string(), workdir);

@@ -100,7 +100,7 @@ async fn setup(action: SystemAppendAction) -> (Arc<Gateway>, Arc<AtomicBool>) {
 
     // Register a conversation session so execute_system_append can find it.
     {
-        let cs = closeclaw_llm::session::ConversationSession::new(
+        let cs = closeclaw_session::llm_session::ConversationSession::new(
             "sess-sys".to_owned(),
             "test-model".to_owned(),
             std::path::PathBuf::from("/tmp"),
@@ -241,7 +241,7 @@ async fn test_clear_without_callback_no_panic() {
         ReasoningLevel::default(),
     ));
     {
-        let cs = closeclaw_llm::session::ConversationSession::new(
+        let cs = closeclaw_session::llm_session::ConversationSession::new(
             "sess-nocb".to_owned(),
             "test-model".to_owned(),
             std::path::PathBuf::from("/tmp"),
@@ -287,7 +287,7 @@ async fn test_callback_called_on_clear() {
         ReasoningLevel::default(),
     ));
     {
-        let cs = closeclaw_llm::session::ConversationSession::new(
+        let cs = closeclaw_session::llm_session::ConversationSession::new(
             "sess-cb".to_owned(),
             "test-model".to_owned(),
             std::path::PathBuf::from("/tmp"),

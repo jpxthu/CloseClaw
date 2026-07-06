@@ -63,7 +63,7 @@ async fn test_rebuild_spawn_tree_basic() {
 
     // Register child-1 in conversation_sessions so count_active_children
     // (which checks session liveness) counts it correctly.
-    let child_cs = closeclaw_llm::session::ConversationSession::new(
+    let child_cs = closeclaw_session::llm_session::ConversationSession::new(
         "child-1".to_string(),
         "test-model".to_string(),
         std::path::PathBuf::from("/tmp"),

@@ -2,7 +2,7 @@
 //!
 //! Provides `SessionMessage`, `ChatSession` trait and `ConversationSession`
 //! for managing conversation state. The handle / cancel / cascade-stop
-//! surface lives in [`super::session_handles`]; the public
+//! surface lives in [`crate::session_handles`]; the public
 //! [`ChatSession`] trait and its `ConversationSession` impl live in
 //! [`super::session_chat`].
 
@@ -14,15 +14,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use crate::session_state::{ChildSessionState, LlmState, ToolExecState};
-use crate::stats::RunningStats;
-use crate::streaming::StreamingSink;
-use crate::turn::TurnCounter;
-use crate::types::{ContentBlock, UnifiedUsage};
+use crate::persistence::ReasoningLevel;
 use closeclaw_agent::communication::CommunicationConfig;
+use closeclaw_common::RunningStats;
+use closeclaw_common::StreamingSink;
+use closeclaw_common::TurnCounter;
 use closeclaw_common::VerbosityLevel;
+use closeclaw_common::{ChildSessionState, LlmState, ToolExecState};
+use closeclaw_common::{ContentBlock, UnifiedUsage};
 use closeclaw_common::{LlmCaller, PromptOverrides, SystemPromptBuilder};
-use closeclaw_session::persistence::ReasoningLevel;
 
 /// Maximum length of an individual append-section item (in characters).
 ///
@@ -46,6 +46,8 @@ pub use memory_injection::{InjectionPosition, MemoryInjection};
 mod session_chat;
 pub use session_chat::ChatSession;
 
+mod session_exec;
+mod session_handles;
 mod session_llm;
 
 /// A single message in a conversation session.
@@ -88,7 +90,7 @@ pub struct ConversationSession {
     model: String,
     compaction_state: Option<String>,
     is_llm_busy: Arc<AtomicBool>,
-    pending_messages: VecDeque<closeclaw_session::persistence::PendingMessage>,
+    pending_messages: VecDeque<crate::persistence::PendingMessage>,
     reasoning_level: ReasoningLevel,
     workdir: PathBuf,
     stats: RunningStats,
@@ -386,7 +388,7 @@ impl ConversationSession {
         &mut self,
         session_id: &str,
         agent_id: &str,
-        bootstrap_mode_override: Option<closeclaw_session::bootstrap::loader::BootstrapMode>,
+        bootstrap_mode_override: Option<crate::bootstrap::loader::BootstrapMode>,
     ) -> String {
         let Some(builder) = self.system_prompt_builder.as_deref() else {
             tracing::debug!(
@@ -438,7 +440,7 @@ impl ConversationSession {
     /// return `None` if no assistant message exists. `Thinking` blocks
     /// are intentionally excluded.
     pub fn collect_last_assistant_text(messages: &[SessionMessage]) -> Option<String> {
-        use crate::types::ContentBlock;
+        use closeclaw_common::ContentBlock;
         let mut text_buf = String::new();
         for msg in messages.iter().rev() {
             if msg.role == "assistant" {
@@ -481,7 +483,7 @@ impl ConversationSession {
     pub fn detect_cache_break_for_usage(
         &mut self,
         current_cache_read: Option<u32>,
-    ) -> Option<crate::stats::CacheBreakInfo> {
+    ) -> Option<closeclaw_common::CacheBreakInfo> {
         self.stats.detect_cache_break_and_update(current_cache_read)
     }
 
@@ -494,12 +496,12 @@ impl ConversationSession {
 /// Pending messages and announce queue.
 impl ConversationSession {
     /// Pushes a pending message onto the queue.
-    pub fn push_pending(&mut self, msg: closeclaw_session::persistence::PendingMessage) {
+    pub fn push_pending(&mut self, msg: crate::persistence::PendingMessage) {
         self.pending_messages.push_back(msg);
     }
 
     /// Pops the oldest pending message, if any.
-    pub fn pop_pending(&mut self) -> Option<closeclaw_session::persistence::PendingMessage> {
+    pub fn pop_pending(&mut self) -> Option<crate::persistence::PendingMessage> {
         self.pending_messages.pop_front()
     }
 
@@ -522,16 +524,13 @@ impl ConversationSession {
     }
 
     /// Returns a clone of all pending messages without consuming the queue.
-    pub fn get_pending_messages(&self) -> Vec<closeclaw_session::persistence::PendingMessage> {
+    pub fn get_pending_messages(&self) -> Vec<crate::persistence::PendingMessage> {
         self.pending_messages.iter().cloned().collect()
     }
 
     /// Restores pending messages from checkpoint data.
     /// Only pushes messages where `sent == false` back into the queue.
-    pub fn restore_pending_messages(
-        &mut self,
-        messages: Vec<closeclaw_session::persistence::PendingMessage>,
-    ) {
+    pub fn restore_pending_messages(&mut self, messages: Vec<crate::persistence::PendingMessage>) {
         for msg in messages {
             if !msg.sent {
                 self.pending_messages.push_back(msg);
@@ -578,10 +577,8 @@ impl ConversationSession {
     /// Unlike [`collect_pending_operations`](Self::collect_pending_operations)
     /// (which inspects tool_states / child_states), this method reads
     /// directly from the conversation history.
-    pub fn extract_pending_tool_calls(
-        &self,
-    ) -> Vec<closeclaw_session::persistence::PendingOperation> {
-        use closeclaw_session::persistence::{PendingOperation, PendingOperationType};
+    pub fn extract_pending_tool_calls(&self) -> Vec<crate::persistence::PendingOperation> {
+        use crate::persistence::{PendingOperation, PendingOperationType};
 
         let last_assistant = self.messages.iter().rev().find(|m| m.role == "assistant");
 
@@ -613,12 +610,10 @@ impl ConversationSession {
     /// Scans tool_states, child_states, and pending_messages to build a
     /// list of operations that were in progress when the session stopped.
     /// Used by the shutdown path to record what needs recovery on restart.
-    pub fn collect_pending_operations(
-        &self,
-    ) -> Vec<closeclaw_session::persistence::PendingOperation> {
-        use crate::session_state::{ChildSessionState, ToolExecState};
+    pub fn collect_pending_operations(&self) -> Vec<crate::persistence::PendingOperation> {
+        use crate::persistence::{PendingOperation, PendingOperationType};
         use chrono::Utc;
-        use closeclaw_session::persistence::{PendingOperation, PendingOperationType};
+        use closeclaw_common::{ChildSessionState, ToolExecState};
 
         let mut ops = Vec::new();
         let now = Utc::now();
