@@ -617,6 +617,25 @@ fn test_load_entity_catalog_includes_type_definitions() {
     assert!(catalog.contains("- rust: a language"));
 }
 
+/// Inactive types (is_active = 0) should not appear in the catalog.
+#[test]
+fn test_load_entity_catalog_excludes_inactive_types() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+    // Deactivate the 'tags' type (id=11 in seed data).
+    conn.execute("UPDATE entity_types SET is_active = 0 WHERE id = 11", [])
+        .unwrap();
+    let catalog = load_entity_catalog(&conn, "a1").unwrap();
+    assert!(
+        !catalog.contains("## tags "),
+        "inactive type 'tags' should not appear in catalog",
+    );
+    // Active types should still be present.
+    assert!(catalog.contains("## subject "));
+    assert!(catalog.contains("## action "));
+}
+
 // ── normalize_entity_name tests ───────────────────────────────────────
 
 #[test]
