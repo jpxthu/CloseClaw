@@ -450,14 +450,19 @@ fn test_load_entity_catalog_sorts_by_type_then_name() {
     .unwrap();
 
     let catalog = load_entity_catalog(&conn, "a1").unwrap();
-    let lines: Vec<&str> = catalog.lines().collect();
-    assert_eq!(lines.len(), 3);
-    assert!(lines[0].contains("action"));
-    assert!(lines[0].contains("Alpha"));
-    assert!(lines[1].contains("subject"));
-    assert!(lines[1].contains("Apple"));
-    assert!(lines[2].contains("subject"));
-    assert!(lines[2].contains("Zebra"));
+    // Types are sorted alphabetically: action before subject.
+    let action_pos = catalog.find("## action (动作):").unwrap();
+    let subject_pos = catalog.find("## subject (主题):").unwrap();
+    assert!(
+        action_pos < subject_pos,
+        "action should come before subject"
+    );
+    // Entities within subject type are sorted by normalized_name.
+    let apple_pos = catalog.find("- Apple: ap").unwrap();
+    let zebra_pos = catalog.find("- Zebra: z").unwrap();
+    assert!(apple_pos < zebra_pos, "Apple should come before Zebra");
+    // Action entity appears under action header.
+    assert!(catalog.contains("- Alpha: a"));
 }
 
 #[test]
@@ -480,12 +485,12 @@ fn test_load_entity_catalog_scoped_by_agent() {
     .unwrap();
 
     let catalog_a1 = load_entity_catalog(&conn, "a1").unwrap();
-    assert!(catalog_a1.contains("Entity A1"));
+    assert!(catalog_a1.contains("- Entity A1:"));
     assert!(!catalog_a1.contains("Entity A2"));
 
     let catalog_a2 = load_entity_catalog(&conn, "a2").unwrap();
     assert!(!catalog_a2.contains("Entity A1"));
-    assert!(catalog_a2.contains("Entity A2"));
+    assert!(catalog_a2.contains("- Entity A2:"));
 }
 
 // ── Recent events load tests ──────────────────────────────────────────
