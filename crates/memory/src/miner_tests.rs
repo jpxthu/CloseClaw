@@ -450,14 +450,19 @@ fn test_load_entity_catalog_sorts_by_type_then_name() {
     .unwrap();
 
     let catalog = load_entity_catalog(&conn, "a1").unwrap();
-    let lines: Vec<&str> = catalog.lines().collect();
-    assert_eq!(lines.len(), 3);
-    assert!(lines[0].contains("action"));
-    assert!(lines[0].contains("Alpha"));
-    assert!(lines[1].contains("subject"));
-    assert!(lines[1].contains("Apple"));
-    assert!(lines[2].contains("subject"));
-    assert!(lines[2].contains("Zebra"));
+    // Types are sorted alphabetically: action before subject.
+    let action_pos = catalog.find("## action (动作):").unwrap();
+    let subject_pos = catalog.find("## subject (主题):").unwrap();
+    assert!(
+        action_pos < subject_pos,
+        "action should come before subject"
+    );
+    // Entities within subject type are sorted by normalized_name.
+    let apple_pos = catalog.find("- Apple: ap").unwrap();
+    let zebra_pos = catalog.find("- Zebra: z").unwrap();
+    assert!(apple_pos < zebra_pos, "Apple should come before Zebra");
+    // Action entity appears under action header.
+    assert!(catalog.contains("- Alpha: a"));
 }
 
 #[test]
@@ -480,12 +485,12 @@ fn test_load_entity_catalog_scoped_by_agent() {
     .unwrap();
 
     let catalog_a1 = load_entity_catalog(&conn, "a1").unwrap();
-    assert!(catalog_a1.contains("Entity A1"));
+    assert!(catalog_a1.contains("- Entity A1:"));
     assert!(!catalog_a1.contains("Entity A2"));
 
     let catalog_a2 = load_entity_catalog(&conn, "a2").unwrap();
     assert!(!catalog_a2.contains("Entity A1"));
-    assert!(catalog_a2.contains("Entity A2"));
+    assert!(catalog_a2.contains("- Entity A2:"));
 }
 
 // ── Recent events load tests ──────────────────────────────────────────
@@ -558,6 +563,58 @@ fn test_load_recent_events_excludes_current_session() {
 
     let result = load_recent_events(&conn, "my-sess", 30).unwrap();
     assert!(result.is_empty());
+}
+
+// ── entity_types table tests ──────────────────────────────────────────
+
+/// init_schema creates entity_types table with 11 seed rows.
+#[test]
+fn test_init_schema_creates_entity_types() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM entity_types", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 11, "entity_types should have 11 seed rows");
+}
+
+/// catalog includes type definitions for all 11 types.
+#[test]
+fn test_load_entity_catalog_includes_type_definitions() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+    // Insert an entity to verify the catalog merges both tables.
+    conn.execute(
+        "INSERT INTO entities (agent_id, type, name, normalized_name, description)
+         VALUES ('a1', 'subject', 'rust', 'rust', 'a language')",
+        [],
+    )
+    .unwrap();
+    let catalog = load_entity_catalog(&conn, "a1").unwrap();
+    // All 11 type headers must be present.
+    let expected_types = [
+        "action",
+        "group",
+        "location",
+        "metric",
+        "organization",
+        "person",
+        "product",
+        "subject",
+        "tags",
+        "time",
+        "work",
+    ];
+    for t in expected_types {
+        assert!(
+            catalog.contains(&format!("## {t} ")),
+            "catalog should contain type header for {t}",
+        );
+    }
+    // Entity should also appear.
+    assert!(catalog.contains("- rust: a language"));
 }
 
 // ── normalize_entity_name tests ───────────────────────────────────────

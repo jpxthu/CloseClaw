@@ -637,7 +637,7 @@ impl DreamingPipeline {
             Err(_) => return 1.0,
         };
         conn.query_row(
-            "SELECT weight FROM entity_types WHERE type = ?1",
+            "SELECT weight FROM entity_types WHERE type = ?1 AND is_active = 1",
             params![entity_type],
             |row| row.get::<_, f64>(0),
         )

@@ -383,6 +383,10 @@ impl MemoryMiner {
 // ── SQLite operations ─────────────────────────────────────────────────
 
 /// Initialize the SQLite schema for mining tables.
+///
+/// Creates the `events`, `entities`, `event_entities`, and `entity_types`
+/// tables. The `entity_types` table is seeded with the 11 SAG entity types
+/// (INSERT OR IGNORE ensures idempotency).
 pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS events (
@@ -411,7 +415,29 @@ pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError>
             entity_id INTEGER NOT NULL,
             FOREIGN KEY (event_id) REFERENCES events(id),
             FOREIGN KEY (entity_id) REFERENCES entities(id)
-        );",
+        );
+        CREATE TABLE IF NOT EXISTS entity_types (
+            id INTEGER PRIMARY KEY,
+            type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            weight REAL NOT NULL DEFAULT 1.0,
+            similarity_threshold REAL NOT NULL DEFAULT 0.80,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1
+        );
+        INSERT OR IGNORE INTO entity_types (id, type, name, description, weight, similarity_threshold, is_default, is_active) VALUES
+            (1,  'time',         '时间',     '时间点、时期、日期、年份等时间表达', 1.0, 0.90, 0, 1),
+            (2,  'location',      '地点',     '国家、城市、地区、地点等物理位置', 1.0, 0.75, 0, 1),
+            (3,  'person',        '人物',     '人物和具名个体（含 agent 角色、用户身份）', 1.2, 0.80, 0, 1),
+            (4,  'organization',  '组织',     '公司、机构、团队等组织', 1.1, 0.80, 0, 1),
+            (5,  'subject',       '主题',     '主要主题、概念和课题', 1.5, 0.78, 1, 1),
+            (6,  'product',       '产品',     '产品、服务、项目和命名交付物', 1.1, 0.80, 0, 1),
+            (7,  'metric',        '指标',     '数字、指标、度量、金额和统计数据', 1.2, 0.85, 0, 1),
+            (8,  'action',        '动作',     '重要动作、变更、决策和操作', 1.3, 0.78, 1, 1),
+            (9,  'work',          '作品',     '创作物、文档、论文、书籍、报告', 1.0, 0.80, 0, 1),
+            (10, 'group',         '群体',     '群体、社区、受众和人口', 1.0, 0.78, 0, 1),
+            (11, 'tags',          '标签',     '兜底标签，当无特定类型匹配时使用', 0.5, 0.70, 1, 1);",
     )
     .map_err(|e| MinerError::Sqlite(e.to_string()))?;
     Ok(())
@@ -515,17 +541,35 @@ pub(crate) fn load_recent_events(
 }
 
 /// Load entity/type catalog from SQLite, sorted by type → normalized_name.
+///
+/// Merges `entity_types` table (type definitions) with `entities` table
+/// (existing entities). Output groups by type: each section starts with
+/// a type header (`## type (name): description`), followed by entity lines
+/// (`- entity_name: description`). All 11 types are always listed even
+/// when no entities exist for that type.
 pub(crate) fn load_entity_catalog(
     conn: &rusqlite::Connection,
     agent_id: &str,
 ) -> Result<String, MinerError> {
-    let sql = "SELECT type, name, description FROM entities
-               WHERE agent_id = ?1
-               ORDER BY type, normalized_name";
-    let mut stmt = conn
-        .prepare(sql)
+    // Load all entity type definitions, sorted alphabetically by type.
+    let type_sql = "SELECT type, name, description FROM entity_types ORDER BY type";
+    let mut type_stmt = conn
+        .prepare(type_sql)
         .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-    let rows: Vec<(String, String, String)> = stmt
+    let types: Vec<(String, String, String)> = type_stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Load existing entities for this agent, sorted by type → normalized_name.
+    let entity_sql = "SELECT type, name, description FROM entities
+                      WHERE agent_id = ?1
+                      ORDER BY type, normalized_name";
+    let mut entity_stmt = conn
+        .prepare(entity_sql)
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    let entities: Vec<(String, String, String)> = entity_stmt
         .query_map(params![agent_id], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
         })
@@ -533,11 +577,45 @@ pub(crate) fn load_entity_catalog(
         .filter_map(|r| r.ok())
         .collect();
 
-    Ok(rows
-        .iter()
-        .map(|(typ, name, desc)| format!("- [{typ}] {name}: {desc}"))
-        .collect::<Vec<_>>()
-        .join("\n"))
+    // Group entities by type.
+    let mut entities_by_type: std::collections::HashMap<String, Vec<(String, String)>> =
+        std::collections::HashMap::new();
+    let mut extra_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (typ, name, desc) in entities {
+        entities_by_type
+            .entry(typ.clone())
+            .or_default()
+            .push((name, desc));
+        extra_types.insert(typ);
+    }
+
+    // Build output: type header + entities for each defined type.
+    let mut sections = Vec::new();
+    for (typ, name, desc) in &types {
+        let mut section = format!("## {typ} ({name}): {desc}");
+        if let Some(type_entities) = entities_by_type.get(typ) {
+            for (entity_name, entity_desc) in type_entities {
+                section.push_str(&format!("\n- {entity_name}: {entity_desc}"));
+            }
+        }
+        sections.push(section);
+        extra_types.remove(typ);
+    }
+
+    // Handle entity types not present in entity_types table.
+    let mut remaining: Vec<_> = extra_types.into_iter().collect();
+    remaining.sort();
+    for typ in remaining {
+        if let Some(type_entities) = entities_by_type.get(&typ) {
+            let mut section = format!("## {typ}");
+            for (entity_name, entity_desc) in type_entities {
+                section.push_str(&format!("\n- {entity_name}: {entity_desc}"));
+            }
+            sections.push(section);
+        }
+    }
+
+    Ok(sections.join("\n\n"))
 }
 
 /// Normalize an entity name: lowercase, replace spaces with underscores.
@@ -652,7 +730,12 @@ mod tests {
         let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
         init_schema(&conn).unwrap();
         let result = load_entity_catalog(&conn, "agent-1").unwrap();
-        assert!(result.is_empty());
+        // No entities, but all 11 type definitions should be present.
+        assert!(result.contains("## subject (主题):"));
+        assert!(result.contains("## action (动作):"));
+        assert!(result.contains("## tags (标签):"));
+        let sections: Vec<&str> = result.split("\n\n").collect();
+        assert_eq!(sections.len(), 11, "should contain all 11 type definitions");
     }
 
     #[test]
@@ -673,10 +756,16 @@ mod tests {
         )
         .unwrap();
         let result = load_entity_catalog(&conn, "a1").unwrap();
-        let lines: Vec<&str> = result.lines().collect();
-        assert_eq!(lines.len(), 2);
-        assert!(lines[0].contains("action"));
-        assert!(lines[1].contains("subject"));
+        // Types are sorted alphabetically: action before subject.
+        let action_pos = result.find("## action (动作):").unwrap();
+        let subject_pos = result.find("## subject (主题):").unwrap();
+        assert!(
+            action_pos < subject_pos,
+            "action should come before subject"
+        );
+        // Entities appear under their type headers.
+        assert!(result.contains("- Apple: desc2"));
+        assert!(result.contains("- Banana: desc1"));
     }
 
     #[test]
