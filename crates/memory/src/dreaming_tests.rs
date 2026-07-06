@@ -3,20 +3,14 @@
 //! Complements the inline tests in dreaming.rs with tests that require
 //! mock PersistenceService interactions.
 
-use crate::dreaming::{DreamingPipeline, EntryCategory, MemoryEntry};
+use crate::dreaming::{DreamingPipeline, EntityGroup, EntryCategory, MemoryEntry};
 use crate::test_helpers::TestStorage;
 use closeclaw_config::agents::{DreamingConfig, DreamingDiaryConfig};
 use closeclaw_session::persistence::{DreamingStatus, SessionCheckpoint};
 
 use tempfile::TempDir;
 
-// ── Tests ────────────────────────────────────────────────────────────────
-
 /// Dreaming pipeline does not reprocess sessions already marked Completed.
-///
-/// When `list_mined_undreamt_sessions()` returns empty (all sessions are
-/// already Completed), `run_once()` should return Ok immediately without
-/// attempting to process any entries.
 #[tokio::test]
 async fn test_dreaming_does_not_reprocess_completed() {
     let storage = TestStorage::default();
@@ -44,7 +38,7 @@ async fn test_dreaming_does_not_reprocess_completed() {
     );
 }
 
-/// Dreaming pipeline processes sessions that are mined but not yet dreamt.
+/// Pipeline processes mined but not yet dreamt sessions.
 #[tokio::test]
 async fn test_dreaming_processes_mined_undreamt_sessions() {
     let storage = TestStorage::default();
@@ -83,7 +77,7 @@ async fn test_dreaming_empty_storage_returns_ok() {
     assert!(result.is_ok());
 }
 
-/// Dreaming pipeline returns Ok immediately when dreaming is disabled.
+/// Pipeline returns Ok immediately when dreaming is disabled.
 #[tokio::test]
 async fn test_dreaming_disabled_skips_processing() {
     let storage = TestStorage::default();
@@ -112,8 +106,6 @@ async fn test_dreaming_disabled_skips_processing() {
     );
 }
 
-// ── Dream Diary tests ──────────────────────────────────────────────────
-
 /// Helper to create a MemoryEntry for testing.
 fn make_entry(
     category: EntryCategory,
@@ -137,7 +129,6 @@ fn make_entry(
     }
 }
 
-/// Helper to create an entry with a lesson.
 fn make_entry_with_lesson(
     category: EntryCategory,
     body: &str,
@@ -160,7 +151,19 @@ fn make_entry_with_lesson(
     }
 }
 
-/// Dream Diary writes a file when diary is enabled and entries exist.
+/// Helper to create an EntityGroup for testing.
+fn make_group(entries: Vec<MemoryEntry>, entity_name: &str) -> EntityGroup {
+    EntityGroup {
+        entity_name: entity_name.to_string(),
+        entity_type: "subject".to_string(),
+        entries,
+        frequency: 1,
+        cross_agent_count: 1,
+        score: 0.0,
+    }
+}
+
+/// Dream Diary writes a file when diary is enabled.
 #[test]
 fn test_dream_diary_writes_when_enabled() {
     let tmp = TempDir::new().unwrap();
@@ -175,17 +178,20 @@ fn test_dream_diary_writes_when_enabled() {
     };
     let pipeline = DreamingPipeline::with_config(config);
 
-    let entries = vec![
-        make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 10),
-        make_entry_with_lesson(
-            EntryCategory::Error,
-            "wrong deployment",
-            "s1",
-            "verify before deploying",
-        ),
-    ];
+    let groups = vec![make_group(
+        vec![
+            make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 10),
+            make_entry_with_lesson(
+                EntryCategory::Error,
+                "wrong deployment",
+                "s1",
+                "verify before deploying",
+            ),
+        ],
+        "deploy",
+    )];
 
-    let result = pipeline.write_dream_diary(&entries);
+    let result = pipeline.write_dream_diary(&groups);
     assert!(
         result.is_ok(),
         "write_dream_diary should succeed: {result:?}"
@@ -203,7 +209,6 @@ fn test_dream_diary_writes_when_enabled() {
     assert!(content.contains("Promoted 2 entries"));
 }
 
-/// Dream Diary does NOT write a file when diary is disabled.
 #[test]
 fn test_dream_diary_does_not_write_when_disabled() {
     let tmp = TempDir::new().unwrap();
@@ -218,14 +223,17 @@ fn test_dream_diary_does_not_write_when_disabled() {
     };
     let pipeline = DreamingPipeline::with_config(config);
 
-    let entries = vec![make_entry(
-        EntryCategory::Decision,
-        "should not appear",
-        "s1",
-        10,
+    let groups = vec![make_group(
+        vec![make_entry(
+            EntryCategory::Decision,
+            "should not appear",
+            "s1",
+            10,
+        )],
+        "x",
     )];
 
-    let result = pipeline.write_dream_diary(&entries);
+    let result = pipeline.write_dream_diary(&groups);
     assert!(result.is_ok());
 
     // Diary directory should NOT exist since diary is disabled.
@@ -235,7 +243,6 @@ fn test_dream_diary_does_not_write_when_disabled() {
     );
 }
 
-/// Dream Diary uses custom path from config.
 #[test]
 fn test_dream_diary_uses_custom_path() {
     let tmp = TempDir::new().unwrap();
@@ -250,14 +257,17 @@ fn test_dream_diary_uses_custom_path() {
     };
     let pipeline = DreamingPipeline::with_config(config);
 
-    let entries = vec![make_entry(
-        EntryCategory::Decision,
-        "custom path test",
-        "s1",
-        10,
+    let groups = vec![make_group(
+        vec![make_entry(
+            EntryCategory::Decision,
+            "custom path test",
+            "s1",
+            10,
+        )],
+        "x",
     )];
 
-    let result = pipeline.write_dream_diary(&entries);
+    let result = pipeline.write_dream_diary(&groups);
     assert!(
         result.is_ok(),
         "write_dream_diary should succeed: {result:?}"
@@ -275,7 +285,6 @@ fn test_dream_diary_uses_custom_path() {
     );
 }
 
-/// Dream Diary auto-creates the diary directory if it does not exist.
 #[test]
 fn test_dream_diary_creates_directory() {
     let tmp = TempDir::new().unwrap();
@@ -290,14 +299,17 @@ fn test_dream_diary_creates_directory() {
     };
     let pipeline = DreamingPipeline::with_config(config);
 
-    let entries = vec![make_entry(
-        EntryCategory::Decision,
-        "auto dir test",
-        "s1",
-        10,
+    let groups = vec![make_group(
+        vec![make_entry(
+            EntryCategory::Decision,
+            "auto dir test",
+            "s1",
+            10,
+        )],
+        "x",
     )];
 
-    let result = pipeline.write_dream_diary(&entries);
+    let result = pipeline.write_dream_diary(&groups);
     assert!(result.is_ok());
     assert!(
         diary_path.exists(),
@@ -305,12 +317,9 @@ fn test_dream_diary_creates_directory() {
     );
 }
 
-/// EntryCategory variants are exactly Error, Anger, Decision.
-/// This is a regression guard — the design doc defines these three
-/// categories and any deviation will break the dreaming pipeline.
+/// Regression guard: EntryCategory must match design doc.
 #[test]
 fn test_entry_category_variants_match_design_doc() {
-    // Exhaustive match to catch future additions that don't follow spec.
     let all = [
         EntryCategory::Error,
         EntryCategory::Anger,
@@ -318,7 +327,6 @@ fn test_entry_category_variants_match_design_doc() {
     ];
     assert_eq!(all.len(), 3);
 
-    // Verify each variant displays correctly in diary output.
     for cat in &all {
         let label = match cat {
             EntryCategory::Error => "Error",
@@ -330,7 +338,6 @@ fn test_entry_category_variants_match_design_doc() {
 }
 
 /// Error and Anger entries always carry a lesson in diary output.
-/// The design doc specifies that lesson is required for Error/Anger.
 #[test]
 fn test_error_anger_entries_carry_lesson_in_diary() {
     let tmp = TempDir::new().unwrap();
@@ -345,22 +352,28 @@ fn test_error_anger_entries_carry_lesson_in_diary() {
     };
     let pipeline = DreamingPipeline::with_config(config);
 
-    let entries = vec![
-        make_entry_with_lesson(
-            EntryCategory::Error,
-            "wrong deployment",
-            "s1",
-            "verify before deploying",
+    let groups = vec![
+        make_group(
+            vec![make_entry_with_lesson(
+                EntryCategory::Error,
+                "wrong deployment",
+                "s1",
+                "verify before deploying",
+            )],
+            "deploy",
         ),
-        make_entry_with_lesson(
-            EntryCategory::Anger,
-            "user corrected output",
-            "s1",
-            "follow user style guide",
+        make_group(
+            vec![make_entry_with_lesson(
+                EntryCategory::Anger,
+                "user corrected output",
+                "s1",
+                "follow user style guide",
+            )],
+            "user",
         ),
     ];
 
-    let result = pipeline.write_dream_diary(&entries);
+    let result = pipeline.write_dream_diary(&groups);
     assert!(result.is_ok());
 
     let date = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -372,7 +385,6 @@ fn test_error_anger_entries_carry_lesson_in_diary() {
     assert!(content.contains("Lesson: follow user style guide"));
 }
 
-/// Dream Diary does NOT write when entries list is empty.
 #[test]
 fn test_dream_diary_empty_entries_no_write() {
     let tmp = TempDir::new().unwrap();
@@ -387,8 +399,8 @@ fn test_dream_diary_empty_entries_no_write() {
     };
     let pipeline = DreamingPipeline::with_config(config);
 
-    let entries: Vec<MemoryEntry> = vec![];
-    let result = pipeline.write_dream_diary(&entries);
+    let groups: Vec<EntityGroup> = vec![];
+    let result = pipeline.write_dream_diary(&groups);
     assert!(result.is_ok());
 
     // No files should be created in the diary directory.
@@ -398,13 +410,10 @@ fn test_dream_diary_empty_entries_no_write() {
     );
 }
 
-// ── Custom scoring/threshold/capacity config tests ─────────────────
-
 use closeclaw_config::agents::{
     DreamingCapacityConfig, DreamingScoringConfig, DreamingThresholdConfig,
 };
 
-/// Custom scoring config is accepted by with_config constructor.
 #[test]
 fn test_dreaming_pipeline_custom_scoring_config() {
     let config = DreamingConfig {
@@ -430,7 +439,6 @@ fn test_dreaming_pipeline_custom_scoring_config() {
     let _pipeline = DreamingPipeline::with_config(config);
 }
 
-/// High absolute threshold config is accepted.
 #[test]
 fn test_dreaming_pipeline_high_threshold_config() {
     let config = DreamingConfig {
@@ -455,7 +463,6 @@ fn test_dreaming_pipeline_high_threshold_config() {
     let _pipeline = DreamingPipeline::with_config(config);
 }
 
-/// Capacity config with small max_rules is accepted.
 #[test]
 fn test_dreaming_pipeline_capacity_config_stored() {
     let config = DreamingConfig {
@@ -630,25 +637,26 @@ impl DreamingLlmCaller for FailingConsolidationLlm {
     }
 }
 
-/// LLM consolidation produces rules from entries.
+/// LLM consolidation produces rules from entity groups.
 #[tokio::test]
 async fn test_consolidate_lessons_produces_rules() {
     let pipeline = DreamingPipeline::new();
     let llm: Arc<dyn DreamingLlmCaller> = Arc::new(MockConsolidationLlm);
 
-    let mut e1 = make_entry_with_lesson(
+    let e1 = make_entry_with_lesson(
         EntryCategory::Error,
         "wrong deployment",
         "s1",
         "verify before deploy",
     );
-    e1.tags = vec!["deployment".to_string()];
-    let mut e2 = make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 5);
-    e2.tags = vec!["ui".to_string()];
+    let e2 = make_entry(EntryCategory::Decision, "dark mode preferred", "s1", 5);
 
-    let rules = pipeline.consolidate_lessons(&llm, &[e1, e2]).await;
+    let groups = vec![
+        make_group(vec![e1], "deployment"),
+        make_group(vec![e2], "ui"),
+    ];
+    let rules = pipeline.consolidate_lessons(&llm, &groups).await;
     assert_eq!(rules.len(), 2);
-    // Each group produces one consolidated rule.
     assert!(rules[0].contains("deployment") || rules[1].contains("deployment"));
     assert!(rules[0].contains("ui") || rules[1].contains("ui"));
 }
@@ -659,16 +667,18 @@ async fn test_consolidate_lessons_fallback_on_failure() {
     let pipeline = DreamingPipeline::new();
     let llm: Arc<dyn DreamingLlmCaller> = Arc::new(FailingConsolidationLlm);
 
-    let entries = vec![make_entry_with_lesson(
-        EntryCategory::Error,
-        "wrong deploy",
-        "s1",
-        "verify first",
+    let groups = vec![make_group(
+        vec![make_entry_with_lesson(
+            EntryCategory::Error,
+            "wrong deploy",
+            "s1",
+            "verify first",
+        )],
+        "x",
     )];
 
-    let rules = pipeline.consolidate_lessons(&llm, &entries).await;
+    let rules = pipeline.consolidate_lessons(&llm, &groups).await;
     assert_eq!(rules.len(), 1);
-    // Should fall back to raw lesson text.
     assert_eq!(rules[0], "verify first");
 }
 

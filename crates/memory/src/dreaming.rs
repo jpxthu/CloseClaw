@@ -13,9 +13,9 @@ use thiserror::Error;
 
 use closeclaw_config::agents::{
     default_capacity_max_rules, default_diary_path, default_memory_md_path,
-    default_scoring_cross_agent, default_scoring_explicitness, default_scoring_frequency,
-    default_scoring_negative_signal, default_scoring_recency, default_threshold_absolute,
-    default_threshold_relative, DreamingConfig, DreamingScoringConfig,
+    default_scoring_cross_agent, default_scoring_entity_type_weight, default_scoring_explicitness,
+    default_scoring_frequency, default_scoring_negative_signal, default_scoring_recency,
+    default_threshold_absolute, default_threshold_relative, DreamingConfig, DreamingScoringConfig,
 };
 use closeclaw_session::persistence::{DreamingStatus, PersistenceError, PersistenceService};
 
@@ -26,28 +26,16 @@ use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError};
 /// A structured memory entry produced by the memory-miner.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MemoryEntry {
-    /// Entry category.
     pub category: EntryCategory,
-    /// Human-readable body text.
     pub body: String,
-    /// When the entry was produced.
     pub timestamp: chrono::DateTime<chrono::Utc>,
-    /// Source session that generated this entry.
     pub source_session_id: String,
-    /// Actionable lesson extracted from Error/Anger events.
-    /// Required for Error and Anger categories; None for Decision.
     pub lesson: Option<String>,
-    /// Concept tags assigned during the REM stage.
     pub(crate) tags: Vec<String>,
-    /// Aggregate score from the Deep stage.
     pub(crate) score: f64,
-    /// SQLite events.id for this entry.
     pub event_id: i64,
-    /// Entity type (e.g. "subject", "person").
     pub entity_type: String,
-    /// Entity name.
     pub entity_name: String,
-    /// Event updated_at timestamp.
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -59,88 +47,70 @@ impl MemoryEntry {
     }
 }
 
-/// Memory entry category (matches design doc).
-///
-/// Miner 1 produces events with one of these categories.
-/// Error and Anger entries carry a required `lesson` field.
+/// Entity group: entries sharing the same (entity_name, entity_type).
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub(crate) struct EntityGroup {
+    pub entity_name: String,
+    pub entity_type: String,
+    pub entries: Vec<MemoryEntry>,
+    pub frequency: usize,
+    pub cross_agent_count: usize,
+    pub score: f64,
+}
+
+/// Memory entry category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EntryCategory {
-    /// Agent made a clear error (wrong judgment, poor execution, misunderstood request).
     Error,
-    /// Owner expressed dissatisfaction or correction.
     Anger,
-    /// Owner made an explicit product decision or design choice.
     Decision,
 }
 
 /// Errors specific to the dreaming pipeline.
 #[derive(Debug, Error)]
 pub enum DreamingError {
-    /// Storage layer error.
     #[error("storage error: {0}")]
     Storage(#[from] PersistenceError),
-
-    /// An I/O error occurred while writing MEMORY.md.
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
-
-    /// The pipeline encountered corrupted or invalid data.
     #[error("data error: {0}")]
     Data(String),
-
-    /// SQLite error.
     #[error("sqlite error: {0}")]
     Sqlite(String),
-
-    /// LLM consolidation error.
     #[error("llm error: {0}")]
     Llm(#[from] DreamingLlmError),
 }
 
-// ── Scoring weights (Deep stage) ─────────────────────────────────────────
-
 /// Thresholds for the Deep stage three-gate filtering.
 #[derive(Debug, Clone)]
 struct Thresholds {
-    /// Absolute minimum score; entries below this are discarded.
     absolute: f64,
-    /// Relative minimum within the same category; entries scoring
-    /// below this fraction of the top entry are discarded.
     relative: f64,
-    /// Maximum number of entries in the final MEMORY.md.
     max_rules: usize,
 }
-
-// ── DreamingPipeline ─────────────────────────────────────────────────────
 
 /// Orchestrates the dreaming pipeline: Light → REM → Deep → LLM consolidation → MEMORY.md.
 pub struct DreamingPipeline {
     scoring: DreamingScoringConfig,
     thresholds: Thresholds,
     config: Arc<RwLock<DreamingConfig>>,
-    /// Model for lesson distillation and Dream Diary.
     model: Arc<RwLock<Option<String>>>,
-    /// Path to the SQLite database (for reading events/entities).
     db_path: Option<PathBuf>,
-    /// Output path for MEMORY.md.
     memory_md_path: String,
-    /// LLM caller for lesson consolidation.
     llm: Option<Arc<dyn DreamingLlmCaller>>,
 }
 
 impl DreamingPipeline {
-    /// Return the configured model, if any.
     pub fn model(&self) -> Option<String> {
         self.model.read().unwrap().clone()
     }
 
-    /// Update the dreaming configuration at runtime.
     pub fn update_config(&self, config: DreamingConfig) {
         *self.model.write().unwrap() = config.model.clone();
         *self.config.write().unwrap() = config;
     }
 
-    /// Create a pipeline with default weights, thresholds, and config.
     pub fn new() -> Self {
         Self {
             scoring: DreamingScoringConfig::default(),
@@ -157,7 +127,6 @@ impl DreamingPipeline {
         }
     }
 
-    /// Create a pipeline with a custom dreaming configuration.
     pub fn with_config(config: DreamingConfig) -> Self {
         let scoring = config.scoring.clone();
         let model = config.model.clone();
@@ -186,29 +155,22 @@ impl DreamingPipeline {
         }
     }
 
-    /// Set the SQLite database path for reading events/entities.
     pub fn with_db_path(mut self, db_path: impl AsRef<Path>) -> Self {
         self.db_path = Some(db_path.as_ref().to_path_buf());
         self
     }
 
-    /// Set the MEMORY.md output path.
     pub fn with_memory_md_path(mut self, path: impl Into<String>) -> Self {
         self.memory_md_path = path.into();
         self
     }
 
-    /// Set the LLM caller for lesson consolidation.
     pub fn with_llm(mut self, llm: Arc<dyn DreamingLlmCaller>) -> Self {
         self.llm = Some(llm);
         self
     }
 
     /// Execute one full dreaming cycle.
-    ///
-    /// Reads mined-but-undreamt sessions from `storage`, processes them
-    /// through Light → REM → Deep → LLM consolidation, and writes
-    /// surviving rules to MEMORY.md.
     pub async fn run_once(&self, storage: &dyn PersistenceService) -> Result<(), DreamingError> {
         {
             let cfg = self.config.read().unwrap();
@@ -234,8 +196,8 @@ impl DreamingPipeline {
         }
 
         let light = self.light_stage(all_entries)?;
-        let rem = self.rem_stage(light);
-        let deep = self.deep_stage(rem);
+        let entity_groups = self.rem_stage(light);
+        let deep = self.deep_stage(entity_groups);
 
         // LLM lesson consolidation (graceful degradation on failure).
         let rules = if let Some(llm) = &self.llm {
@@ -243,7 +205,11 @@ impl DreamingPipeline {
         } else {
             tracing::warn!("no LLM caller configured, skipping lesson consolidation");
             deep.iter()
-                .filter_map(|e| e.lesson.clone().or(Some(e.body.clone())))
+                .flat_map(|g| {
+                    g.entries
+                        .iter()
+                        .filter_map(|e| e.lesson.clone().or(Some(e.body.clone())))
+                })
                 .collect()
         };
 
@@ -282,10 +248,6 @@ impl DreamingPipeline {
     }
 
     /// Collect unprocessed entries for a single session from SQLite.
-    ///
-    /// Reads events where `source_session_id` matches and joins with
-    /// entities via `event_entities`. Returns empty vec if the events
-    /// table does not exist yet (miner not yet implemented).
     pub(crate) async fn collect_entries_for_session(
         &self,
         storage: &dyn PersistenceService,
@@ -306,10 +268,7 @@ impl DreamingPipeline {
         self.load_entries_from_sqlite(&conn, session_id)
     }
 
-    /// Query SQLite for events and associated entities for a session.
-    ///
-    /// Uses entity-level joins via event_entities to get entity_type and
-    /// entity_name for each event.
+    /// Query SQLite for events and entities for a session.
     pub(crate) fn load_entries_from_sqlite(
         &self,
         conn: &rusqlite::Connection,
@@ -408,11 +367,7 @@ impl DreamingPipeline {
             .collect()
     }
 
-    /// Remove entries that are duplicates.
-    ///
-    /// Layer 1: batch-internal exact dedup (same category + session + body).
-    /// Layer 2: semantic dedup against MEMORY.md existing rules using word
-    /// overlap (Jaccard similarity >= 0.6).
+    /// Remove duplicates: batch-internal exact + MEMORY.md semantic dedup.
     pub(crate) fn deduplicate(
         &self,
         entries: Vec<MemoryEntry>,
@@ -469,38 +424,75 @@ impl DreamingPipeline {
 
     // ── REM stage ────────────────────────────────────────────────────
 
-    /// REM stage: statistical extraction and concept tag aggregation.
-    fn rem_stage(&self, chunks: Vec<Vec<MemoryEntry>>) -> Vec<MemoryEntry> {
-        let mut all_entries: Vec<MemoryEntry> = chunks.into_iter().flatten().collect();
-        self.aggregate_tags(&mut all_entries);
-        all_entries
-    }
-
-    /// Assign concept tags to entries based on keyword co-occurrence.
-    fn aggregate_tags(&self, entries: &mut [MemoryEntry]) {
-        let mut word_freq: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
-        for e in entries.iter() {
-            for word in Self::extract_words(&e.body) {
-                *word_freq.entry(word).or_insert(0) += 1;
+    /// Load entity → agent_id mapping from SQLite for cross-agent detection.
+    fn load_entity_agent_map(
+        &self,
+    ) -> std::collections::HashMap<(String, String), std::collections::HashSet<String>> {
+        let db_path = match &self.db_path {
+            Some(p) => p,
+            None => return std::collections::HashMap::new(),
+        };
+        let conn = match rusqlite::Connection::open(db_path) {
+            Ok(c) => c,
+            Err(_) => return std::collections::HashMap::new(),
+        };
+        let mut stmt =
+            match conn.prepare("SELECT ent.name, ent.type, ent.agent_id FROM entities ent") {
+                Ok(s) => s,
+                Err(_) => return std::collections::HashMap::new(),
+            };
+        let mut map: std::collections::HashMap<
+            (String, String),
+            std::collections::HashSet<String>,
+        > = std::collections::HashMap::new();
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        }) {
+            for row in rows.flatten() {
+                map.entry((row.0, row.1)).or_default().insert(row.2);
             }
         }
+        map
+    }
 
-        let top_words: Vec<String> = {
-            let mut pairs: Vec<_> = word_freq.into_iter().collect();
-            pairs.sort_by_key(|a| std::cmp::Reverse(a.1));
-            pairs.into_iter().take(10).map(|(w, _)| w).collect()
-        };
-
-        for e in entries.iter_mut() {
-            let body_words: std::collections::HashSet<String> =
-                Self::extract_words(&e.body).into_iter().collect();
-            e.tags = top_words
-                .iter()
-                .filter(|w| body_words.contains(*w))
-                .cloned()
-                .collect();
+    /// REM stage: cluster entries by entity, compute frequency and cross-agent counts.
+    fn rem_stage(&self, chunks: Vec<Vec<MemoryEntry>>) -> Vec<EntityGroup> {
+        let all: Vec<MemoryEntry> = chunks.into_iter().flatten().collect();
+        let agent_map = self.load_entity_agent_map();
+        let mut groups: std::collections::HashMap<(String, String), Vec<MemoryEntry>> =
+            std::collections::HashMap::new();
+        for e in all {
+            groups
+                .entry((e.entity_name.clone(), e.entity_type.clone()))
+                .or_default()
+                .push(e);
         }
+        groups
+            .into_iter()
+            .map(|((name, etype), entries)| {
+                let frequency = entries
+                    .iter()
+                    .map(|e| &e.source_session_id)
+                    .collect::<std::collections::HashSet<_>>()
+                    .len();
+                let cross_agent_count = agent_map
+                    .get(&(name.clone(), etype.clone()))
+                    .map(std::collections::HashSet::len)
+                    .unwrap_or(1);
+                EntityGroup {
+                    entity_name: name,
+                    entity_type: etype,
+                    entries,
+                    frequency,
+                    cross_agent_count,
+                    score: 0.0,
+                }
+            })
+            .collect()
     }
 
     /// Split body text into lowercase words for keyword extraction.
@@ -513,11 +505,12 @@ impl DreamingPipeline {
 
     // ── Deep stage ───────────────────────────────────────────────────
 
-    /// Deep stage: score each entry, apply three thresholds, return
-    /// survivors.
-    fn deep_stage(&self, entries: Vec<MemoryEntry>) -> Vec<MemoryEntry> {
-        let mut scored: Vec<MemoryEntry> =
-            entries.into_iter().map(|e| self.score_entry(e)).collect();
+    /// Deep stage: score entity groups, apply three thresholds, return survivors.
+    fn deep_stage(&self, groups: Vec<EntityGroup>) -> Vec<EntityGroup> {
+        let mut scored: Vec<EntityGroup> = groups
+            .into_iter()
+            .map(|g| self.score_entity_group(g))
+            .collect();
 
         scored.sort_by(|a, b| {
             b.score
@@ -526,88 +519,105 @@ impl DreamingPipeline {
         });
 
         // Gate 1: absolute threshold
-        scored.retain(|e| e.score >= self.thresholds.absolute);
+        scored.retain(|g| g.score >= self.thresholds.absolute);
 
-        // Gate 2: relative threshold (per-category)
+        // Gate 2: relative threshold (per entity_type)
         self.apply_relative_filter(&mut scored);
 
-        // Gate 3: capacity limit
+        // Gate 3: capacity limit (entity group count)
         scored.truncate(self.thresholds.max_rules);
 
         scored
     }
 
-    /// Compute a weighted score for a single entry.
-    fn score_entry(&self, mut entry: MemoryEntry) -> MemoryEntry {
-        let age_hours = (chrono::Utc::now() - entry.timestamp).num_hours().max(0) as f64;
-        let recency = 1.0 / (1.0 + age_hours / 168.0); // half-life ≈ 1 week
-
-        let explicitness = match entry.category {
-            EntryCategory::Decision => 1.0,
-            EntryCategory::Error | EntryCategory::Anger => 0.8,
-        };
-
-        let persistence = match entry.category {
-            EntryCategory::Decision => 1.0,
-            EntryCategory::Error | EntryCategory::Anger => 0.6,
-        };
-
-        let frequency = 1.0; // TODO: compute from cross-session duplicates
-        let relevance = entry.tags.len() as f64 / 10.0;
-        // persistence + relevance → cross_agent dimension
-        let cross_agent = persistence * 0.5 + relevance * 0.5;
-        let negative_signal = 0.0; // TODO: detect conflicting info
-
+    /// Compute a weighted score for an entity group across 6 dimensions.
+    fn score_entity_group(&self, mut group: EntityGroup) -> EntityGroup {
+        let frequency = group.frequency as f64;
+        let latest = group
+            .entries
+            .iter()
+            .map(|e| e.timestamp)
+            .max()
+            .unwrap_or_else(chrono::Utc::now);
+        let age_hours = (chrono::Utc::now() - latest).num_hours().max(0) as f64;
+        let recency = 1.0 / (1.0 + age_hours / 168.0);
+        let decisions = group
+            .entries
+            .iter()
+            .filter(|e| e.category == EntryCategory::Decision)
+            .count() as f64;
+        let total = group.entries.len().max(1) as f64;
+        let explicitness = decisions / total;
+        let entity_type_weight = self.load_entity_type_weight(&group.entity_type);
+        let cross_agent = group.cross_agent_count as f64;
+        let negative_signal = 0.0;
         let w = &self.scoring;
-        entry.score = w.frequency_weight.unwrap_or_else(default_scoring_frequency) * frequency
+        group.score = w.frequency_weight.unwrap_or_else(default_scoring_frequency) * frequency
             + w.recency_weight.unwrap_or_else(default_scoring_recency) * recency
             + w.explicitness_weight
                 .unwrap_or_else(default_scoring_explicitness)
                 * explicitness
+            + w.entity_type_weight_weight
+                .unwrap_or_else(default_scoring_entity_type_weight)
+                * entity_type_weight
             + w.cross_agent_weight
                 .unwrap_or_else(default_scoring_cross_agent)
                 * cross_agent
             + w.negative_signal_weight
                 .unwrap_or_else(default_scoring_negative_signal)
                 * negative_signal;
-
-        entry
+        group
     }
 
-    /// Remove entries scoring below `relative × top_score`
-    /// within the same category.
-    fn apply_relative_filter(&self, entries: &mut Vec<MemoryEntry>) {
-        if entries.is_empty() {
+    /// Query the `entity_types` table for a type's weight.
+    fn load_entity_type_weight(&self, entity_type: &str) -> f64 {
+        let db_path = match &self.db_path {
+            Some(p) => p,
+            None => return 1.0,
+        };
+        let conn = match rusqlite::Connection::open(db_path) {
+            Ok(c) => c,
+            Err(_) => return 1.0,
+        };
+        conn.query_row(
+            "SELECT weight FROM entity_types WHERE type = ?1",
+            params![entity_type],
+            |row| row.get::<_, f64>(0),
+        )
+        .unwrap_or(1.0)
+    }
+
+    /// Remove entity groups below `relative × top_score` within same entity_type.
+    fn apply_relative_filter(&self, groups: &mut Vec<EntityGroup>) {
+        if groups.is_empty() {
             return;
         }
 
-        let categories: Vec<EntryCategory> = entries.iter().map(|e| e.category).collect();
-        let unique_cats: std::collections::HashSet<EntryCategory> =
-            categories.into_iter().collect();
+        let types: Vec<String> = groups.iter().map(|g| g.entity_type.clone()).collect();
+        let unique_types: std::collections::HashSet<String> = types.into_iter().collect();
 
-        for cat in unique_cats {
-            let cat_scores: Vec<f64> = entries
+        for etype in unique_types {
+            let type_scores: Vec<f64> = groups
                 .iter()
-                .filter(|e| e.category == cat)
-                .map(|e| e.score)
+                .filter(|g| g.entity_type == etype)
+                .map(|g| g.score)
                 .collect();
-            if cat_scores.is_empty() {
+            if type_scores.is_empty() {
                 continue;
             }
-            let max_score = cat_scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let max_score = type_scores
+                .iter()
+                .cloned()
+                .fold(f64::NEG_INFINITY, f64::max);
             let cutoff = max_score * self.thresholds.relative;
-
-            entries.retain(|e| e.category != cat || e.score >= cutoff);
+            groups.retain(|g| g.entity_type != etype || g.score >= cutoff);
         }
     }
 
     // ── Dream Diary ────────────────────────────────────────────────
 
-    /// Write a Dream Diary file summarizing the promoted entries.
-    ///
-    /// The diary is a narrative summary of the entries that passed the
-    /// Deep stage, written to `{path}/{date}.md`.
-    pub(crate) fn write_dream_diary(&self, entries: &[MemoryEntry]) -> Result<(), DreamingError> {
+    /// Write a Dream Diary summarizing promoted entity groups.
+    pub(crate) fn write_dream_diary(&self, groups: &[EntityGroup]) -> Result<(), DreamingError> {
         let (diary_enabled, diary_path_str) = {
             let cfg = self.config.read().unwrap();
             (
@@ -615,7 +625,7 @@ impl DreamingPipeline {
                 cfg.diary.path.clone().unwrap_or_else(default_diary_path),
             )
         };
-        if !diary_enabled || entries.is_empty() {
+        if !diary_enabled || groups.is_empty() {
             return Ok(());
         }
 
@@ -625,23 +635,27 @@ impl DreamingPipeline {
         std::fs::create_dir_all(diary_dir)?;
         let diary_path = diary_dir.join(&filename);
 
+        let total_entries: usize = groups.iter().map(|g| g.entries.len()).sum();
         let mut content = format!("# Dream Diary — {}\n\n", date);
         content.push_str(&format!(
-            "Promoted {} entries to MEMORY.md.\n\n",
-            entries.len()
+            "Promoted {} entries ({} groups) to MEMORY.md.\n\n",
+            total_entries,
+            groups.len()
         ));
 
-        for entry in entries {
-            let category_str = match entry.category {
-                EntryCategory::Error => "Error",
-                EntryCategory::Anger => "Anger",
-                EntryCategory::Decision => "Decision",
-            };
-            content.push_str(&format!("- **[{}]** {}", category_str, entry.body));
-            if let Some(lesson) = &entry.lesson {
-                content.push_str(&format!(" → _Lesson: {}_", lesson));
+        for group in groups {
+            for entry in &group.entries {
+                let category_str = match entry.category {
+                    EntryCategory::Error => "Error",
+                    EntryCategory::Anger => "Anger",
+                    EntryCategory::Decision => "Decision",
+                };
+                content.push_str(&format!("- **[{}]** {}", category_str, entry.body));
+                if let Some(lesson) = &entry.lesson {
+                    content.push_str(&format!(" → _Lesson: {}_", lesson));
+                }
+                content.push('\n');
             }
-            content.push('\n');
         }
 
         std::fs::write(&diary_path, content)?;
@@ -651,30 +665,26 @@ impl DreamingPipeline {
 
     // ── LLM lesson consolidation ────────────────────────────────────
 
-    /// Consolidate lessons from Deep-stage entries via LLM.
-    ///
-    /// Groups entries by primary entity tag (fallback: source_session_id)
-    /// and consolidates each group's lessons into a single behavioral rule.
-    /// Falls back to raw lesson/body text on LLM failure.
+    /// Consolidate lessons from entity groups via LLM.
     pub(crate) async fn consolidate_lessons(
         &self,
         llm: &Arc<dyn DreamingLlmCaller>,
-        entries: &[MemoryEntry],
+        groups: &[EntityGroup],
     ) -> Vec<String> {
-        let groups = Self::group_entries_by_entity(entries);
         let mut rules = Vec::new();
 
-        for (entity_name, group_entries) in &groups {
-            let lessons: Vec<String> = group_entries
+        for group in groups {
+            let lessons: Vec<String> = group
+                .entries
                 .iter()
                 .map(|e| e.lesson.clone().unwrap_or_else(|| e.body.clone()))
                 .collect();
 
-            match llm.consolidate_lessons(&lessons, entity_name).await {
+            match llm.consolidate_lessons(&lessons, &group.entity_name).await {
                 Ok(rule) => rules.push(rule),
                 Err(e) => {
                     tracing::warn!(
-                        entity = entity_name.as_str(),
+                        entity = group.entity_name.as_str(),
                         %e,
                         "LLM consolidation failed, using raw lessons"
                     );
@@ -685,37 +695,16 @@ impl DreamingPipeline {
         rules
     }
 
-    /// Group entries by primary entity tag, falling back to source_session_id.
-    fn group_entries_by_entity(
-        entries: &[MemoryEntry],
-    ) -> std::collections::BTreeMap<String, Vec<&MemoryEntry>> {
-        let mut groups: std::collections::BTreeMap<String, Vec<&MemoryEntry>> =
-            std::collections::BTreeMap::new();
-        for entry in entries {
-            let key = entry
-                .tags
-                .first()
-                .cloned()
-                .unwrap_or_else(|| format!("session:{}", entry.source_session_id));
-            groups.entry(key).or_default().push(entry);
-        }
-        groups
-    }
-
     // ── Anti-contamination check ─────────────────────────────────────
 
-    /// Verify source events still exist and are unmodified, then filter
-    /// rules accordingly.
-    ///
-    /// For each rule from an entry, checks that the source event exists
-    /// in SQLite. Returns only verified rules.
+    /// Verify source events still exist and filter rules accordingly.
+    /// Uses event_id + updated_at for anti-contamination check.
     pub(crate) async fn verify_and_filter_rules(
         &self,
         rules: &[String],
-        entries: &[MemoryEntry],
+        groups: &[EntityGroup],
     ) -> Result<Vec<String>, DreamingError> {
         if self.db_path.is_none() {
-            // No DB path configured; skip verification.
             return Ok(rules.to_vec());
         }
 
@@ -724,45 +713,44 @@ impl DreamingPipeline {
             .map_err(|e| DreamingError::Sqlite(e.to_string()))?;
 
         let mut verified = Vec::new();
-        for (rule, entry) in rules.iter().zip(entries.iter()) {
-            if self.event_exists(&conn, entry)? {
+        for (rule, group) in rules.iter().zip(groups.iter()) {
+            let all_valid = group
+                .entries
+                .iter()
+                .all(|e| self.verify_event_integrity(&conn, e).unwrap_or(false));
+            if all_valid {
                 verified.push(rule.clone());
             } else {
                 tracing::warn!(
-                    session = entry.source_session_id,
-                    "source event not found, skipping rule"
+                    entity = group.entity_name.as_str(),
+                    "source event integrity check failed, skipping rule"
                 );
             }
         }
         Ok(verified)
     }
 
-    /// Check if a source event still exists in SQLite.
-    pub(crate) fn event_exists(
+    /// Check event integrity via event_id + updated_at.
+    pub(crate) fn verify_event_integrity(
         &self,
         conn: &rusqlite::Connection,
         entry: &MemoryEntry,
     ) -> Result<bool, DreamingError> {
         let sql = "SELECT COUNT(*) FROM events
-                    WHERE source_session_id = ?1 AND content = ?2";
+                    WHERE id = ?1 AND updated_at = ?2";
         let mut stmt = conn
             .prepare(sql)
             .map_err(|e| DreamingError::Sqlite(e.to_string()))?;
+        let ts = entry.updated_at.timestamp();
         let count: i64 = stmt
-            .query_row(params![entry.source_session_id, entry.body], |row| {
-                row.get(0)
-            })
+            .query_row(params![entry.event_id, ts], |row| row.get(0))
             .map_err(|e| DreamingError::Sqlite(e.to_string()))?;
         Ok(count > 0)
     }
 
     // ── MEMORY.md write ──────────────────────────────────────────────
 
-    /// Write consolidated rules to MEMORY.md.
-    ///
-    /// Reads existing MEMORY.md, deduplicates against new rules, and
-    /// writes the merged result. Format: one rule per line, `- ` prefix,
-    /// with source entity and frequency info.
+    /// Write consolidated rules to MEMORY.md (dedup against existing).
     pub(crate) fn write_memory_md(&self, rules: &[String]) -> Result<(), DreamingError> {
         let path = Path::new(&self.memory_md_path);
 
@@ -850,34 +838,56 @@ mod tests {
     #[test]
     fn test_deep_scoring_thresholds() {
         let pipeline = DreamingPipeline::new();
-        let entries = vec![
-            make_entry(EntryCategory::Decision, "always use vim", "s1", 10),
-            make_entry(
-                EntryCategory::Error,
-                "wrong judgment on deployment",
-                "s1",
-                10,
-            )
-            .lesson("verify before deploying".to_string()),
+        let e1 = make_entry(EntryCategory::Decision, "always use vim", "s1", 10);
+        let e2 = make_entry(
+            EntryCategory::Error,
+            "wrong judgment on deployment",
+            "s1",
+            10,
+        )
+        .lesson("verify before deploying".to_string());
+        let groups = vec![
+            EntityGroup {
+                entity_name: "vim".into(),
+                entity_type: "subject".into(),
+                entries: vec![e1],
+                frequency: 1,
+                cross_agent_count: 1,
+                score: 0.0,
+            },
+            EntityGroup {
+                entity_name: "deploy".into(),
+                entity_type: "subject".into(),
+                entries: vec![e2],
+                frequency: 1,
+                cross_agent_count: 1,
+                score: 0.0,
+            },
         ];
-        let result = pipeline.deep_stage(entries);
-        // Decision gets higher score than Error due to clarity/persistence
+        let result = pipeline.deep_stage(groups);
         assert!(!result.is_empty());
     }
 
     #[test]
     fn test_deep_capacity_limit() {
         let pipeline = DreamingPipeline::new();
-        let mut entries = Vec::new();
+        let mut groups = Vec::new();
         for i in 0..300 {
-            entries.push(make_entry(
-                EntryCategory::Decision,
-                &format!("decision number {i}"),
-                "s1",
-                i,
-            ));
+            groups.push(EntityGroup {
+                entity_name: format!("entity {i}"),
+                entity_type: "subject".into(),
+                entries: vec![make_entry(
+                    EntryCategory::Decision,
+                    &format!("decision number {i}"),
+                    "s1",
+                    i,
+                )],
+                frequency: 1,
+                cross_agent_count: 1,
+                score: 0.0,
+            });
         }
-        let result = pipeline.deep_stage(entries);
+        let result = pipeline.deep_stage(groups);
         assert!(result.len() <= 200);
     }
 
@@ -889,42 +899,24 @@ mod tests {
     }
 
     #[test]
-    fn test_group_entries_by_entity_groups_by_tag() {
+    fn test_rem_stage_clusters_and_frequency() {
+        let pipeline = DreamingPipeline::new();
         let mut e1 = make_entry(EntryCategory::Error, "err1", "s1", 10);
-        e1.tags = vec!["rust".to_string()];
-        let mut e2 = make_entry(EntryCategory::Error, "err2", "s1", 10);
-        e2.tags = vec!["rust".to_string()];
-        let mut e3 = make_entry(EntryCategory::Error, "err3", "s2", 10);
-        e3.tags = vec!["docker".to_string()];
-        let entries = [e1, e2, e3];
-
-        let groups = DreamingPipeline::group_entries_by_entity(&entries);
+        e1.entity_name = "rust".into();
+        e1.entity_type = "subject".into();
+        let mut e2 = make_entry(EntryCategory::Error, "err2", "s2", 10);
+        e2.entity_name = "rust".into();
+        e2.entity_type = "subject".into();
+        let mut e3 = make_entry(EntryCategory::Error, "err3", "s3", 10);
+        e3.entity_name = "docker".into();
+        e3.entity_type = "subject".into();
+        let groups = pipeline.rem_stage(vec![vec![e1], vec![e2, e3]]);
         assert_eq!(groups.len(), 2);
-        assert_eq!(groups["rust"].len(), 2);
-        assert_eq!(groups["docker"].len(), 1);
-    }
-
-    #[test]
-    fn test_group_entries_fallback_to_session() {
-        let e1 = make_entry(EntryCategory::Error, "err1", "s1", 10);
-        let e2 = make_entry(EntryCategory::Error, "err2", "s2", 10);
-        let entries = [e1, e2];
-
-        let groups = DreamingPipeline::group_entries_by_entity(&entries);
-        assert_eq!(groups.len(), 2);
-        assert!(groups.contains_key("session:s1"));
-        assert!(groups.contains_key("session:s2"));
-    }
-
-    #[test]
-    fn test_group_entries_uses_first_tag() {
-        let mut e1 = make_entry(EntryCategory::Error, "err1", "s1", 10);
-        e1.tags = vec!["primary".to_string(), "secondary".to_string()];
-        let entries = [e1];
-
-        let groups = DreamingPipeline::group_entries_by_entity(&entries);
-        assert_eq!(groups.len(), 1);
-        assert!(groups.contains_key("primary"));
+        let rust = groups.iter().find(|g| g.entity_name == "rust").unwrap();
+        assert_eq!(rust.entries.len(), 2);
+        assert_eq!(rust.frequency, 2);
+        let docker = groups.iter().find(|g| g.entity_name == "docker").unwrap();
+        assert_eq!(docker.frequency, 1);
     }
 
     /// Mock LLM caller that records calls for assertion.
@@ -957,26 +949,48 @@ mod tests {
             });
         let pipeline = DreamingPipeline::new();
 
-        let mut e1 = make_entry(EntryCategory::Error, "body1", "s1", 10);
-        e1.tags = vec!["rust".to_string()];
-        e1.lesson = Some("lesson1".to_string());
-        let mut e2 = make_entry(EntryCategory::Error, "body2", "s1", 10);
-        e2.tags = vec!["rust".to_string()];
-        e2.lesson = Some("lesson2".to_string());
-        let mut e3 = make_entry(EntryCategory::Error, "body3", "s2", 10);
-        e3.tags = vec!["docker".to_string()];
-        e3.lesson = Some("lesson3".to_string());
+        let e1 = {
+            let mut e = make_entry(EntryCategory::Error, "body1", "s1", 10);
+            e.lesson = Some("lesson1".to_string());
+            e
+        };
+        let e2 = {
+            let mut e = make_entry(EntryCategory::Error, "body2", "s1", 10);
+            e.lesson = Some("lesson2".to_string());
+            e
+        };
+        let e3 = {
+            let mut e = make_entry(EntryCategory::Error, "body3", "s2", 10);
+            e.lesson = Some("lesson3".to_string());
+            e
+        };
 
-        let rules = pipeline.consolidate_lessons(&llm, &[e1, e2, e3]).await;
+        let groups = vec![
+            EntityGroup {
+                entity_name: "rust".into(),
+                entity_type: "subject".into(),
+                entries: vec![e1, e2],
+                frequency: 1,
+                cross_agent_count: 1,
+                score: 0.0,
+            },
+            EntityGroup {
+                entity_name: "docker".into(),
+                entity_type: "subject".into(),
+                entries: vec![e3],
+                frequency: 1,
+                cross_agent_count: 1,
+                score: 0.0,
+            },
+        ];
+
+        let rules = pipeline.consolidate_lessons(&llm, &groups).await;
         let calls = calls.lock().unwrap();
-        // Should be 2 calls (one per entity group), not 3
         assert_eq!(calls.len(), 2);
-        // Rust group should have both lessons merged
         let rust_call = calls.iter().find(|c| c.1 == "rust").unwrap();
         assert_eq!(rust_call.0.len(), 2);
         assert!(rust_call.0.contains(&"lesson1".to_string()));
         assert!(rust_call.0.contains(&"lesson2".to_string()));
-        // Docker group should have 1 lesson
         let docker_call = calls.iter().find(|c| c.1 == "docker").unwrap();
         assert_eq!(docker_call.0.len(), 1);
         assert_eq!(rules.len(), 2);
