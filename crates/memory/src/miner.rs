@@ -383,6 +383,10 @@ impl MemoryMiner {
 // ── SQLite operations ─────────────────────────────────────────────────
 
 /// Initialize the SQLite schema for mining tables.
+///
+/// Creates the `events`, `entities`, `event_entities`, and `entity_types`
+/// tables. The `entity_types` table is seeded with the 11 SAG entity types
+/// (INSERT OR IGNORE ensures idempotency).
 pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS events (
@@ -411,7 +415,29 @@ pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError>
             entity_id INTEGER NOT NULL,
             FOREIGN KEY (event_id) REFERENCES events(id),
             FOREIGN KEY (entity_id) REFERENCES entities(id)
-        );",
+        );
+        CREATE TABLE IF NOT EXISTS entity_types (
+            id INTEGER PRIMARY KEY,
+            type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            weight REAL NOT NULL DEFAULT 1.0,
+            similarity_threshold REAL NOT NULL DEFAULT 0.80,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1
+        );
+        INSERT OR IGNORE INTO entity_types (id, type, name, description, weight, similarity_threshold, is_default, is_active) VALUES
+            (1,  'time',         '时间',     '时间点、时期、日期、年份等时间表达', 1.0, 0.90, 0, 1),
+            (2,  'location',      '地点',     '国家、城市、地区、地点等物理位置', 1.0, 0.75, 0, 1),
+            (3,  'person',        '人物',     '人物和具名个体（含 agent 角色、用户身份）', 1.2, 0.80, 0, 1),
+            (4,  'organization',  '组织',     '公司、机构、团队等组织', 1.1, 0.80, 0, 1),
+            (5,  'subject',       '主题',     '主要主题、概念和课题', 1.5, 0.78, 1, 1),
+            (6,  'product',       '产品',     '产品、服务、项目和命名交付物', 1.1, 0.80, 0, 1),
+            (7,  'metric',        '指标',     '数字、指标、度量、金额和统计数据', 1.2, 0.85, 0, 1),
+            (8,  'action',        '动作',     '重要动作、变更、决策和操作', 1.3, 0.78, 1, 1),
+            (9,  'work',          '作品',     '创作物、文档、论文、书籍、报告', 1.0, 0.80, 0, 1),
+            (10, 'group',         '群体',     '群体、社区、受众和人口', 1.0, 0.78, 0, 1),
+            (11, 'tags',          '标签',     '兜底标签，当无特定类型匹配时使用', 0.5, 0.70, 1, 1);",
     )
     .map_err(|e| MinerError::Sqlite(e.to_string()))?;
     Ok(())
