@@ -198,7 +198,17 @@ impl DreamingPipeline {
         }
 
         let light = self.light_stage(all_entries)?;
+
+        // Transition: Light → REM
+        self.mark_sessions_status(storage, &session_ids, DreamingStatus::InRem)
+            .await?;
+
         let entity_groups = self.rem_stage(light);
+
+        // Transition: REM → Deep
+        self.mark_sessions_status(storage, &session_ids, DreamingStatus::InDeep)
+            .await?;
+
         let deep = self.deep_stage(entity_groups);
 
         // LLM lesson consolidation (graceful degradation on failure).
@@ -236,18 +246,27 @@ impl DreamingPipeline {
         Ok(())
     }
 
+    /// Batch-update dreaming status for all given sessions.
+    async fn mark_sessions_status(
+        &self,
+        storage: &dyn PersistenceService,
+        session_ids: &[String],
+        status: DreamingStatus,
+    ) -> Result<(), DreamingError> {
+        for sid in session_ids {
+            storage.update_dreaming_status(sid, status).await?;
+        }
+        Ok(())
+    }
+
     /// Mark all given sessions as `DreamingStatus::Completed`.
     async fn mark_sessions_completed(
         &self,
         storage: &dyn PersistenceService,
         session_ids: &[String],
     ) -> Result<(), DreamingError> {
-        for sid in session_ids {
-            storage
-                .update_dreaming_status(sid, DreamingStatus::Completed)
-                .await?;
-        }
-        Ok(())
+        self.mark_sessions_status(storage, session_ids, DreamingStatus::Completed)
+            .await
     }
 
     /// Collect unprocessed entries for a single session from SQLite.
