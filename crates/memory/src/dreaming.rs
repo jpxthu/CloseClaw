@@ -247,7 +247,7 @@ impl DreamingPipeline {
     }
 
     /// Batch-update dreaming status for all given sessions.
-    async fn mark_sessions_status(
+    pub(crate) async fn mark_sessions_status(
         &self,
         storage: &dyn PersistenceService,
         session_ids: &[String],
