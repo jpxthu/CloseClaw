@@ -204,7 +204,7 @@ active-searcher 写入槽位（tool role 摘要 + 位置模式）
 ### 上游
 
 - **Gateway**：用户消息入口，调用 SessionManager 获取/创建 session。
-- **Slash Command**：以下斜杠指令类别直接操作 Session 模块（完整指令清单见 slash/README.md Handler 清单）：
+- **Slash Command**：以下斜杠指令类别直接操作 Session 模块（完整指令清单见 [slash/README.md](../slash/README.md) Handler 清单）：
 
   | 类别 | 涉及 Session 的操作 |
   |------|-------------------|
@@ -218,7 +218,7 @@ active-searcher 写入槽位（tool role 摘要 + 位置模式）
 ### 下游
 
 - **System Prompt Builder**：注入链路依赖此模块完成 bootstrap/tools/skills 的组装。
-- **LLM Provider**：ConversationSession 构建 API 请求发送给 provider；stop 时通过 cancel token 取消进行中的请求。
+- **LLM Client（UnifiedChatClient）**：ConversationSession 构建 API 请求发送给 LLM Client，经内部五层链路（CacheAdapter → Plugin → Protocol → Provider）完成调用；stop 时通过 cancel token 取消进行中的请求。
 - **ToolRegistry**：通过 [ToolRegistrar](../common/core-traits.md#toolregistrar) trait 向 ToolRegistry 注册 sessions 分组工具（sessions_spawn / sessions_steer / sessions_kill）；注入时获取工具列表和 skill 列表。
 - **PersistenceService**：CheckpointManager 通过此 trait 调用具体存储后端。
 - **Permission 模块**：Session 向 ToolRegistry 注册 sessions 分组工具（sessions_spawn / sessions_steer / sessions_kill）。工具调用时，tools 模块解析操作上下文后调用 Permission 引擎完成权限检查（详见 session-tools.md）。
