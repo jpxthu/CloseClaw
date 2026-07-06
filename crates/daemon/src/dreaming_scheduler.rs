@@ -167,33 +167,10 @@ impl DreamingScheduler {
                     break;
                 }
                 result = self.config_rx.recv() => {
-                    if let Ok(ConfigChangeEvent::Reloaded { section: ConfigSection::Memory }) = result {
-                        self.handle_config_change().await;
-                        // Re-parse schedule and recompute next fire time.
-                        let new_sched = self.schedule.as_deref().and_then(parse_cron_schedule);
-                        if let Some(ref new_sched) = new_sched {
-                            let next = new_sched.next_fire_time(Local::now());
-                            let delay = (next - Local::now())
-                                .to_std()
-                                .unwrap_or_else(|_| {
-                                    tokio::time::Duration::from_secs(1)
-                                });
-                            next_fire = tokio::time::Instant::now() + delay;
-                            info!(
-                                schedule = %new_sched.display(),
-                                "schedule updated after config reload"
-                            );
-                        } else {
-                            // Invalid schedule — re-enter run() loop with
-                            // the updated (possibly None) schedule.
-                            let interval_secs = self.config.dreaming_interval_secs();
-                            let interval = tokio::time::Duration::from_secs(interval_secs);
-                            info!(
-                                "schedule became invalid after config reload, falling back to fixed interval {}s",
-                                interval_secs
-                            );
-                            next_fire = tokio::time::Instant::now() + interval;
-                        }
+                    if self.is_memory_config_reload(result) {
+                        self.handle_cron_config_reload(
+                            &mut next_fire,
+                        ).await;
                     }
                 }
                 _ = tokio::time::sleep_until(next_fire) => {
@@ -218,6 +195,47 @@ impl DreamingScheduler {
         }
     }
 
+    /// Check if the event is a Memory config reload.
+    fn is_memory_config_reload(
+        &self,
+        result: Result<ConfigChangeEvent, tokio::sync::broadcast::error::RecvError>,
+    ) -> bool {
+        matches!(
+            result,
+            Ok(ConfigChangeEvent::Reloaded {
+                section: ConfigSection::Memory,
+            })
+        )
+    }
+
+    /// Handle a config reload within the cron loop: apply new config,
+    /// re-parse the schedule, and recompute next fire time.
+    async fn handle_cron_config_reload(&mut self, next_fire: &mut tokio::time::Instant) {
+        self.handle_config_change().await;
+        let new_sched = self.schedule.as_deref().and_then(parse_cron_schedule);
+        if let Some(ref new_sched) = new_sched {
+            let next = new_sched.next_fire_time(Local::now());
+            let delay = (next - Local::now())
+                .to_std()
+                .unwrap_or_else(|_| tokio::time::Duration::from_secs(1));
+            *next_fire = tokio::time::Instant::now() + delay;
+            info!(
+                schedule = %new_sched.display(),
+                "schedule updated after config reload"
+            );
+        } else {
+            let interval_secs = self.config.dreaming_interval_secs();
+            let interval = tokio::time::Duration::from_secs(interval_secs);
+            info!(
+                "schedule became invalid after config \
+                 reload, falling back to fixed \
+                 interval {}s",
+                interval_secs
+            );
+            *next_fire = tokio::time::Instant::now() + interval;
+        }
+    }
+
     /// Fixed-interval fallback scheduling loop.
     async fn run_fixed_interval_loop(
         &mut self,
@@ -235,7 +253,7 @@ impl DreamingScheduler {
                     break;
                 }
                 result = self.config_rx.recv() => {
-                    if let Ok(ConfigChangeEvent::Reloaded { section: ConfigSection::Memory }) = result {
+                    if self.is_memory_config_reload(result) {
                         self.handle_config_change().await;
                     }
                 }
