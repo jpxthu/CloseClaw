@@ -206,6 +206,14 @@ impl MinerLlmCaller for MockMinerLlm {
 /// Create a temp dir, SqliteStorage-backed miner, and dreaming pipeline
 /// configured for integration testing.
 fn setup(miner_llm: Box<dyn MinerLlmCaller>) -> (TempDir, MemoryMiner, DreamingPipeline) {
+    setup_with_config(miner_llm, MinerConfig::default())
+}
+
+/// Like [`setup`] but accepts a custom [`MinerConfig`].
+fn setup_with_config(
+    miner_llm: Box<dyn MinerLlmCaller>,
+    miner_config: MinerConfig,
+) -> (TempDir, MemoryMiner, DreamingPipeline) {
     let tmp = tempfile::TempDir::new().unwrap();
     let data_dir = tmp.path().to_path_buf();
     let db_path = data_dir.join("memory/memory.db");
@@ -214,7 +222,6 @@ fn setup(miner_llm: Box<dyn MinerLlmCaller>) -> (TempDir, MemoryMiner, DreamingP
     // Ensure parent dirs exist.
     std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
 
-    let miner_config = MinerConfig::default();
     let miner = MemoryMiner::new(
         miner_config,
         miner_llm,
@@ -223,11 +230,27 @@ fn setup(miner_llm: Box<dyn MinerLlmCaller>) -> (TempDir, MemoryMiner, DreamingP
         "test-agent",
     );
 
-    let dreaming = DreamingPipeline::new()
+    let dreaming_config = closeclaw_config::agents::DreamingConfig {
+        enabled: Some(true),
+        ..Default::default()
+    };
+    let dreaming = DreamingPipeline::with_config(dreaming_config)
         .with_db_path(&db_path)
         .with_memory_md_path(memory_md_path.to_str().unwrap());
 
     (tmp, miner, dreaming)
+}
+
+/// MinerConfig with permissive thresholds for short test transcripts.
+fn test_miner_config() -> MinerConfig {
+    MinerConfig {
+        clean_rules: closeclaw_config::agents::TranscriptCleanRules {
+            min_turns: Some(1),
+            min_owner_msgs: Some(1),
+            format: Some("md".to_string()),
+        },
+        ..MinerConfig::default()
+    }
 }
 
 /// Create an archived, unmined checkpoint with pending messages
@@ -258,64 +281,13 @@ fn make_archived_checkpoint(
 
 // ── Tests ────────────────────────────────────────────────────────────────
 
-/// Helper: create a DreamingPipeline with dreaming enabled.
-fn setup_with_dreaming_enabled(
-    tmp: &TempDir,
-    llm: Option<std::sync::Arc<dyn closeclaw_memory::dreaming_llm::DreamingLlmCaller>>,
-) -> DreamingPipeline {
-    let db_path = tmp.path().join("memory/memory.db");
-    let memory_md_path = tmp.path().join("memory/MEMORY.md");
-    let config = closeclaw_config::agents::DreamingConfig {
-        enabled: Some(true),
-        diary: closeclaw_config::agents::DreamingDiaryConfig {
-            enabled: Some(true),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let mut pipeline = DreamingPipeline::with_config(config)
-        .with_db_path(&db_path)
-        .with_memory_md_path(memory_md_path.to_str().unwrap());
-    if let Some(llm) = llm {
-        pipeline = pipeline.with_llm(llm);
-    }
-    pipeline
-}
-
-/// Mock dreaming LLM that consolidates lessons into a single rule.
-struct MockDreamingLlm;
-
-#[async_trait]
-impl closeclaw_memory::dreaming_llm::DreamingLlmCaller for MockDreamingLlm {
-    async fn consolidate_lessons(
-        &self,
-        lessons: &[String],
-        _entity_name: &str,
-    ) -> Result<String, closeclaw_memory::dreaming_llm::DreamingLlmError> {
-        Ok(format!("rule from: {}", lessons.join(", ")))
-    }
-}
-
-/// Mock dreaming LLM that always fails.
-struct FailingDreamingLlm;
-
-#[async_trait]
-impl closeclaw_memory::dreaming_llm::DreamingLlmCaller for FailingDreamingLlm {
-    async fn consolidate_lessons(
-        &self,
-        _lessons: &[String],
-        _entity_name: &str,
-    ) -> Result<String, closeclaw_memory::dreaming_llm::DreamingLlmError> {
-        Err(closeclaw_memory::dreaming_llm::DreamingLlmError::Llm(
-            "simulated failure".into(),
-        ))
-    }
-}
-
 /// Full pipeline: transcript → mining → SQLite → dreaming (enabled) → MEMORY.md.
 #[tokio::test]
 async fn test_full_pipeline_transcript_to_memory_md() {
-    let (tmp, miner, dreaming) = setup(Box::new(MockMinerLlm::single_error_event()));
+    let (tmp, miner, dreaming) = setup_with_config(
+        Box::new(MockMinerLlm::single_error_event()),
+        test_miner_config(),
+    );
     let storage = Arc::new(TestPersistence::default());
 
     let transcript = vec![
@@ -438,7 +410,8 @@ async fn test_empty_transcript_no_events() {
 /// Edge case: LLM failure during mining degrades gracefully.
 #[tokio::test]
 async fn test_llm_failure_during_mining() {
-    let (_tmp, miner, _dreaming) = setup(Box::new(MockMinerLlm::failing()));
+    let (_tmp, miner, _dreaming) =
+        setup_with_config(Box::new(MockMinerLlm::failing()), test_miner_config());
     let storage = Arc::new(TestPersistence::default());
 
     let transcript = vec![("user", "hello"), ("assistant", "hi")];
@@ -495,7 +468,7 @@ async fn test_duplicate_events_deduplicated() {
         fail_assign: false,
     };
 
-    let (tmp, miner, _dreaming) = setup(Box::new(llm));
+    let (tmp, miner, _dreaming) = setup_with_config(Box::new(llm), test_miner_config());
     let storage = Arc::new(TestPersistence::default());
 
     let transcript = vec![("user", "hello"), ("assistant", "hi")];
