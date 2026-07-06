@@ -75,7 +75,6 @@ fn make_scheduler(
             Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
             std::path::PathBuf::from("/tmp/test-memory.db"),
             "/tmp/test-MEMORY.md".to_string(),
-            String::new(),
         )),
         config_manager,
     )
@@ -354,7 +353,6 @@ async fn test_config_change_memory_section_updates_components() {
         Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
         std::path::PathBuf::from("/tmp/test-memory-reload.db"),
         "/tmp/test-MEMORY-reload.md".to_string(),
-        String::new(),
     ));
 
     let scheduler = DreamingScheduler::new(
@@ -436,7 +434,6 @@ async fn test_config_change_non_memory_ignored() {
         Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
         std::path::PathBuf::from("/tmp/test-memory-ignore.db"),
         "/tmp/test-MEMORY-ignore.md".to_string(),
-        String::new(),
     ));
 
     let scheduler = DreamingScheduler::new(
@@ -553,7 +550,6 @@ async fn test_immediate_hook_triggers_mining() {
         Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
         tmp_db.path().join("memory-miner-test.db"),
         "/tmp/test-MEMORY-hook.md".to_string(),
-        "agent1".to_string(),
     ));
 
     let scheduler = DreamingScheduler::new(storage, config, pipeline, miner, config_manager);

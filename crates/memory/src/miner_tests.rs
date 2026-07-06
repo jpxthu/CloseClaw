@@ -17,7 +17,6 @@ use rusqlite::params;
 use tempfile::TempDir;
 
 // ── Helpers ────────────────────────────────────────────────────────────
-
 fn make_event(title: &str, category: MiningEventCategory) -> MiningEvent {
     let has_lesson = category != MiningEventCategory::Decision;
     MiningEvent {
@@ -60,7 +59,6 @@ fn make_transcript(n_owner: usize, n_agent: usize) -> String {
     }
     lines.join("\n")
 }
-
 // ── Transcript cleaning tests ─────────────────────────────────────────
 
 #[test]
@@ -140,7 +138,6 @@ fn test_transcript_clean_normalizes_owner_prefixes() {
     assert!(cleaned.contains("b"));
     assert!(cleaned.contains("c"));
 }
-
 // ── MinerConfig tests ─────────────────────────────────────────────────
 
 #[test]
@@ -171,7 +168,6 @@ fn test_miner_config_defaults() {
     assert_eq!(config.max_events_per_session, 10);
     assert_eq!(config.dedup_window_days, 30);
 }
-
 // ── Mine session tests ────────────────────────────────────────────────
 
 #[tokio::test]
@@ -187,11 +183,10 @@ async fn test_mine_session_skips_when_disabled() {
     };
     let llm = Box::new(MockMinerLlmCaller::default());
     let tmp = TempDir::new().unwrap();
-    let miner =
-        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
 
     let result = miner
-        .mine_session("sess-1", "Owner: hi\nAgent: bye", &storage)
+        .mine_session("sess-1", "Owner: hi\nAgent: bye", "a1", &storage)
         .await
         .unwrap();
     assert!(result.events.is_empty());
@@ -210,11 +205,10 @@ async fn test_mine_session_skips_already_mined() {
         ..Default::default()
     });
     let tmp = TempDir::new().unwrap();
-    let miner =
-        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
 
     let result = miner
-        .mine_session("sess-1", "Owner: hi\nAgent: bye", &storage)
+        .mine_session("sess-1", "Owner: hi\nAgent: bye", "a1", &storage)
         .await
         .unwrap();
     assert!(result.events.is_empty());
@@ -233,11 +227,10 @@ async fn test_mine_session_empty_transcript() {
         ..Default::default()
     });
     let tmp = TempDir::new().unwrap();
-    let miner =
-        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
 
     let result = miner
-        .mine_session("sess-1", "Owner: hi", &storage)
+        .mine_session("sess-1", "Owner: hi", "a1", &storage)
         .await
         .unwrap();
     assert!(result.events.is_empty());
@@ -252,11 +245,10 @@ async fn test_mine_session_nonexistent_returns_error() {
     };
     let llm = Box::new(MockMinerLlmCaller::default());
     let tmp = TempDir::new().unwrap();
-    let miner =
-        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
 
     let result = miner
-        .mine_session("does-not-exist", "Owner: hi\nAgent: bye", &storage)
+        .mine_session("does-not-exist", "Owner: hi\nAgent: bye", "a1", &storage)
         .await;
     assert!(result.is_err());
 }
@@ -282,10 +274,10 @@ async fn test_mine_session_happy_path() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("mining.db");
-    let miner = crate::miner::MemoryMiner::new(config, llm, &db_path, "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, &db_path, "memory.md");
 
     let result = miner
-        .mine_session("sess-1", "Owner: hello\nAgent: response", &storage)
+        .mine_session("sess-1", "Owner: hello\nAgent: response", "a1", &storage)
         .await
         .unwrap();
 
@@ -318,17 +310,15 @@ async fn test_mine_session_respects_max_events_limit() {
         ..Default::default()
     });
     let tmp = TempDir::new().unwrap();
-    let miner =
-        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
 
     let result = miner
-        .mine_session("sess-1", "Owner: hello\nAgent: response", &storage)
+        .mine_session("sess-1", "Owner: hello\nAgent: response", "a1", &storage)
         .await
         .unwrap();
 
     assert_eq!(result.events.len(), 5, "should truncate to max_events");
 }
-
 // ── SQLite write tests ────────────────────────────────────────────────
 
 #[test]
@@ -421,7 +411,6 @@ fn test_write_to_sqlite_stores_event_fields() {
     assert_eq!(category, "anger");
     assert_eq!(lesson.as_deref(), Some("My Lesson"));
 }
-
 // ── Entity catalog tests ──────────────────────────────────────────────
 
 #[test]
@@ -492,7 +481,6 @@ fn test_load_entity_catalog_scoped_by_agent() {
     assert!(!catalog_a2.contains("Entity A1"));
     assert!(catalog_a2.contains("- Entity A2:"));
 }
-
 // ── Recent events load tests ──────────────────────────────────────────
 
 #[test]
@@ -564,7 +552,6 @@ fn test_load_recent_events_excludes_current_session() {
     let result = load_recent_events(&conn, "my-sess", 30).unwrap();
     assert!(result.is_empty());
 }
-
 // ── entity_types table tests ──────────────────────────────────────────
 
 /// init_schema creates entity_types table with 11 seed rows.
@@ -635,7 +622,6 @@ fn test_load_entity_catalog_excludes_inactive_types() {
     assert!(catalog.contains("## subject "));
     assert!(catalog.contains("## action "));
 }
-
 // ── normalize_entity_name tests ───────────────────────────────────────
 
 #[test]
@@ -648,7 +634,160 @@ fn test_normalize_entity_name_various() {
         "multiple___spaces"
     );
 }
+// ── Per-agent entity isolation tests ─────────────────────────────────
 
+/// Mining with different agent_id values produces isolated entity catalogs.
+#[tokio::test]
+async fn test_per_agent_isolation_different_agent_ids() {
+    let storage = TestStorage::default();
+    let mut cp_a = SessionCheckpoint::new("sess-a".into());
+    cp_a.mined = false;
+    storage.add_checkpoint(cp_a);
+    let mut cp_b = SessionCheckpoint::new("sess-b".into());
+    cp_b.mined = false;
+    storage.add_checkpoint(cp_b);
+
+    let events_a = vec![make_event("agent-A event", MiningEventCategory::Error)];
+    let entities_a = vec![vec![make_entity("Entity From A", "subject")]];
+    let config = MinerConfig {
+        enabled: true,
+        clean_rules: lenient_rules(),
+        ..Default::default()
+    };
+    let llm_a = Box::new(MockMinerLlmCaller {
+        events_response: events_a,
+        entities_response: entities_a,
+        ..Default::default()
+    });
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("isolation.db");
+    let miner_a = MemoryMiner::new(config.clone(), llm_a, &db_path, "memory.md");
+    miner_a
+        .mine_session(
+            "sess-a",
+            "Owner: hello\nAgent: response",
+            "agent-A",
+            &storage,
+        )
+        .await
+        .unwrap();
+
+    // Mine a different session with agent-B producing a different entity.
+    let events_b = vec![make_event("agent-B event", MiningEventCategory::Error)];
+    let entities_b = vec![vec![make_entity("Entity From B", "subject")]];
+    let llm_b = Box::new(MockMinerLlmCaller {
+        events_response: events_b,
+        entities_response: entities_b,
+        ..Default::default()
+    });
+    let miner_b = MemoryMiner::new(config, llm_b, &db_path, "memory.md");
+    miner_b
+        .mine_session(
+            "sess-b",
+            "Owner: hello\nAgent: response",
+            "agent-B",
+            &storage,
+        )
+        .await
+        .unwrap();
+
+    // Verify isolation: each agent's catalog contains only its own entity.
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    let catalog_a = load_entity_catalog(&conn, "agent-A").unwrap();
+    assert!(
+        catalog_a.contains("- Entity From A:"),
+        "agent-A should have its own entity"
+    );
+    assert!(
+        !catalog_a.contains("Entity From B"),
+        "agent-A must not see agent-B's entity"
+    );
+
+    let catalog_b = load_entity_catalog(&conn, "agent-B").unwrap();
+    assert!(
+        catalog_b.contains("- Entity From B:"),
+        "agent-B should have its own entity"
+    );
+    assert!(
+        !catalog_b.contains("Entity From A"),
+        "agent-B must not see agent-A's entity"
+    );
+}
+/// Empty agent_id should not panic.
+#[tokio::test]
+async fn test_per_agent_empty_agent_id_no_panic() {
+    let storage = TestStorage::default();
+    let mut cp = SessionCheckpoint::new("sess-empty".into());
+    cp.mined = false;
+    storage.add_checkpoint(cp);
+
+    let events = vec![make_event(
+        "empty agent event",
+        MiningEventCategory::Decision,
+    )];
+    let entities = vec![vec![make_entity("Empty Agent Entity", "action")]];
+    let config = MinerConfig {
+        enabled: true,
+        clean_rules: lenient_rules(),
+        ..Default::default()
+    };
+    let llm = Box::new(MockMinerLlmCaller {
+        events_response: events,
+        entities_response: entities,
+        ..Default::default()
+    });
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("empty_agent.db");
+    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+
+    let result = miner
+        .mine_session("sess-empty", "Owner: hi\nAgent: bye", "", &storage)
+        .await;
+    assert!(
+        result.is_ok(),
+        "mining with empty agent_id should not panic"
+    );
+    assert_eq!(result.unwrap().events.len(), 1);
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    let catalog = load_entity_catalog(&conn, "").unwrap();
+    assert!(
+        catalog.contains("- Empty Agent Entity:"),
+        "empty agent should have entity"
+    );
+}
+
+/// Same agent_id + type + normalized_name must dedup via UNIQUE constraint.
+#[test]
+fn test_per_agent_dedup_same_agent_type_name() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("dedup.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+
+    let events = vec![
+        make_event("event 1", MiningEventCategory::Error),
+        make_event("event 2", MiningEventCategory::Error),
+    ];
+    // Both events assign the same entity with same agent_id.
+    let entities = vec![
+        vec![make_entity("Shared Entity", "subject")],
+        vec![make_entity("Shared Entity", "subject")],
+    ];
+
+    write_to_sqlite(&conn, "sess-1", "agent-A", &events, &entities).unwrap();
+    // Only one entity row should exist (UNIQUE constraint).
+    let entity_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM entities", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        entity_count, 1,
+        "duplicate entity for same agent_id should be deduped"
+    );
+    // Both events should link to that single entity.
+    let link_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM event_entities", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(link_count, 2);
+}
 // ── MiningEventCategory Display ───────────────────────────────────────
 
 #[test]
@@ -657,7 +796,6 @@ fn test_mining_event_category_display() {
     assert_eq!(MiningEventCategory::Anger.to_string(), "anger");
     assert_eq!(MiningEventCategory::Decision.to_string(), "decision");
 }
-
 // ── Integration: mine_session writes to SQLite ────────────────────────
 
 #[tokio::test]
@@ -681,10 +819,10 @@ async fn test_mine_session_persists_to_sqlite() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("persist.db");
-    let miner = crate::miner::MemoryMiner::new(config, llm, &db_path, "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, &db_path, "memory.md");
 
     miner
-        .mine_session("sess-1", "Owner: hello\nAgent: response", &storage)
+        .mine_session("sess-1", "Owner: hello\nAgent: response", "a1", &storage)
         .await
         .unwrap();
 
@@ -699,7 +837,6 @@ async fn test_mine_session_persists_to_sqlite() {
         .unwrap();
     assert_eq!(title, "persisted event");
 }
-
 // ── Config hot-reload tests ────────────────────────────────────────
 
 /// update_config reflects new enabled value in is_enabled().
@@ -711,8 +848,7 @@ fn test_update_config_reflects_new_enabled() {
         ..Default::default()
     };
     let llm = Box::new(crate::miner_llm::MockMinerLlmCaller::default());
-    let miner =
-        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
     assert!(!miner.is_enabled(), "should start disabled");
 
     // Hot-reload: enable mining.
@@ -723,7 +859,6 @@ fn test_update_config_reflects_new_enabled() {
     miner.update_config(new_config);
     assert!(miner.is_enabled(), "should be enabled after update_config");
 }
-
 // ── MinerConfig model propagation tests ───────────────────────────────
 
 /// from_mining_config() copies model from MiningConfig.
@@ -762,13 +897,12 @@ fn test_miner_config_default_model_is_none() {
     let config = MinerConfig::default();
     assert_eq!(config.model, None);
 }
-
 // ── MemoryMiner model getter tests ────────────────────────────────────
 
 fn make_miner(config: MinerConfig) -> MemoryMiner {
     let tmp = tempfile::TempDir::new().unwrap();
     let llm = Box::new(crate::miner_llm::MockMinerLlmCaller::default());
-    crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1")
+    crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md")
 }
 
 /// model() returns None when no model is configured.
@@ -846,7 +980,6 @@ fn test_per_agent_override_model() {
     assert_eq!(miner_a.model().as_deref(), Some("model-a"));
     assert_eq!(miner_b.model().as_deref(), Some("model-b"));
 }
-
 // ── MinerConfig from_mining_config edge cases ─────────────────────────
 
 #[test]

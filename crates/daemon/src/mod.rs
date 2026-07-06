@@ -453,7 +453,6 @@ impl Daemon {
             Box::new(noop_miner_llm::NoopMinerLlmCaller),
             data_dir.join(db_path),
             data_dir.join(md_path).to_string_lossy().into_owned(),
-            String::new(),
         ));
         let mut dreaming_scheduler = crate::dreaming_scheduler::DreamingScheduler::new(
             storage,
