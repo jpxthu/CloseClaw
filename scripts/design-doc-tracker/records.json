@@ -281,10 +281,10 @@
   },
   {
     "path": "docs/design/memory/entity-types.md",
-    "commit": "527b492f65fb8e479da24173fa1f37f44d3d14da",
-    "commit_time": "2026-07-06T21:18:50+08:00",
-    "confirmed_time": "2026-07-06T21:34:14.290720+08:00",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-07-06T21:18:03.569718+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "similarity_threshold: doc claims active use in Miner 2 and active-searcher while simultaneously stating vector storage is pending (self-contradictory). is_default: doc says priority matching within type, but code uses it for cross-type sorting and each type has only one record."
   }
 ]
