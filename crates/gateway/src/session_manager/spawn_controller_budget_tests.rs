@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_session::bootstrap::BootstrapMode;
@@ -49,7 +49,7 @@ fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
         tools: vec![],
         disallowed_tools: vec![],
         subagents,
-        memory: None,
+        memory: MemoryConfig::default(),
         source: ConfigSource::User,
     }
 }

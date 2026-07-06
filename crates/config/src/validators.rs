@@ -28,6 +28,7 @@ pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {
         ConfigSection::Session => Box::new(validate_session),
         ConfigSection::Credentials => Box::new(|_| Ok(())),
         ConfigSection::Accounts => Box::new(validate_accounts),
+        ConfigSection::Memory => Box::new(validate_memory),
     }
 }
 
@@ -530,6 +531,16 @@ fn validate_non_negative_field(value: &serde_json::Value, field: &str) -> Result
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/// Validate the **memory** config section.
+///
+/// - Top-level must be a JSON object.
+/// - Structural validation is delegated to serde deserialization;
+///   this function ensures the top-level shape is correct.
+fn validate_memory(value: &serde_json::Value) -> Result<(), String> {
+    ensure_object(value, "memory")?;
+    Ok(())
+}
 
 /// Ensure a field in a JSON object is a non-empty string.
 ///

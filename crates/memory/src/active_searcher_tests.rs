@@ -685,24 +685,20 @@ fn test_active_searcher_config_defaults() {
 
 // ── from_agent_config tests ─────────────────────────────────────────────
 
-use closeclaw_config::agents::{ActiveSearcherOverride, MemoryConfig, SearchConfig};
+use closeclaw_config::agents::{MemoryConfig, SearchConfig};
 
-/// Full override: all fields specified → all fields correct.
+/// Full search config: all fields specified → all fields correct.
 #[test]
-fn test_from_agent_config_full_override() {
-    let override_cfg = ActiveSearcherOverride {
-        model: Some("claude-opus".into()),
-        timeout_ms: Some(9999),
-        max_summary_chars: Some(8000),
-        min_entity_hits: Some(5),
-        top_k_events: Some(20),
-        context_turns: Some(7),
-    };
+fn test_from_agent_config_full_search_config() {
     let memory = MemoryConfig {
-        active_searcher: Some(override_cfg),
         search: SearchConfig {
-            enabled: true,
-            ..Default::default()
+            enabled: Some(true),
+            model: Some("claude-opus".into()),
+            timeout_ms: Some(9999),
+            max_summary_chars: Some(8000),
+            min_entity_hits: Some(5),
+            top_k_events: Some(20),
+            context_turns: Some(7),
         },
         ..MemoryConfig::default()
     };
@@ -718,21 +714,14 @@ fn test_from_agent_config_full_override() {
     assert_eq!(config.context_turns, 7);
 }
 
-/// Partial override: only model and timeout_ms → other fields use global search or defaults.
+/// Partial search config: only model and timeout_ms → other fields use defaults.
 #[test]
-fn test_from_agent_config_partial_override() {
-    let override_cfg = ActiveSearcherOverride {
-        model: Some("deepseek-r1".into()),
-        timeout_ms: Some(12000),
-        max_summary_chars: None,
-        min_entity_hits: None,
-        top_k_events: None,
-        context_turns: None,
-    };
+fn test_from_agent_config_partial_search_config() {
     let memory = MemoryConfig {
-        active_searcher: Some(override_cfg),
         search: SearchConfig {
-            enabled: true,
+            enabled: Some(true),
+            model: Some("deepseek-r1".into()),
+            timeout_ms: Some(12000),
             ..Default::default()
         },
         ..MemoryConfig::default()
@@ -743,7 +732,7 @@ fn test_from_agent_config_partial_override() {
 
     assert_eq!(config.model, "deepseek-r1");
     assert_eq!(config.timeout_ms, 12000);
-    // non-override fields fall back to global search defaults
+    // non-specified fields fall back to defaults
     assert_eq!(config.max_summary_chars, 500);
     assert_eq!(config.min_entity_hits, 1);
     assert_eq!(config.top_k_events, 3);
@@ -760,18 +749,17 @@ fn test_from_agent_config_no_override() {
     assert_eq!(config.model, "");
 }
 
-/// Global search config flows through when no active_searcher override.
+/// Search config values flow through correctly.
 #[test]
-fn test_from_agent_config_global_search_config() {
+fn test_from_agent_config_search_config_values() {
     let memory = MemoryConfig {
-        active_searcher: None,
         search: SearchConfig {
-            enabled: true,
-            timeout_ms: 4000,
-            max_summary_chars: 800,
-            min_entity_hits: 2,
-            top_k_events: 5,
-            context_turns: 8,
+            enabled: Some(true),
+            timeout_ms: Some(4000),
+            max_summary_chars: Some(800),
+            min_entity_hits: Some(2),
+            top_k_events: Some(5),
+            context_turns: Some(8),
             model: Some("search-model".into()),
             ..Default::default()
         },
@@ -786,46 +774,12 @@ fn test_from_agent_config_global_search_config() {
     assert_eq!(config.model, "search-model");
 }
 
-/// active_searcher override takes priority over global search config.
+/// search.model > agent_model.
 #[test]
-fn test_from_agent_config_override_overrides_global_search() {
-    let override_cfg = ActiveSearcherOverride {
-        model: Some("override-model".into()),
-        timeout_ms: Some(1500),
-        max_summary_chars: Some(300),
-        min_entity_hits: None,
-        top_k_events: None,
-        context_turns: None,
-    };
+fn test_from_agent_config_model_priority() {
     let memory = MemoryConfig {
-        active_searcher: Some(override_cfg),
         search: SearchConfig {
-            enabled: true,
-            timeout_ms: 4000,
-            max_summary_chars: 800,
-            model: Some("search-model".into()),
-            ..Default::default()
-        },
-        ..MemoryConfig::default()
-    };
-    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory)).unwrap();
-    assert_eq!(config.model, "override-model");
-    assert_eq!(config.timeout_ms, 1500);
-    assert_eq!(config.max_summary_chars, 300);
-    assert_eq!(config.min_entity_hits, 1);
-    assert_eq!(config.top_k_events, 3);
-    assert_eq!(config.context_turns, 5);
-}
-
-/// search.model > agent_model when no active_searcher override.
-/// Override model > search.model > agent_model.
-#[test]
-fn test_from_agent_config_model_priority_chain() {
-    // search.model > agent_model (no override)
-    let memory = MemoryConfig {
-        active_searcher: None,
-        search: SearchConfig {
-            enabled: true,
+            enabled: Some(true),
             model: Some("search-model".into()),
             ..Default::default()
         },
@@ -834,24 +788,6 @@ fn test_from_agent_config_model_priority_chain() {
     let config =
         ActiveSearcherConfig::from_agent_config(Some("agent-model"), Some(&memory)).unwrap();
     assert_eq!(config.model, "search-model");
-
-    // override > search.model > agent_model
-    let override_cfg = ActiveSearcherOverride {
-        model: Some("override-model".into()),
-        ..Default::default()
-    };
-    let memory = MemoryConfig {
-        active_searcher: Some(override_cfg),
-        search: SearchConfig {
-            enabled: true,
-            model: Some("search-model".into()),
-            ..Default::default()
-        },
-        ..MemoryConfig::default()
-    };
-    let config =
-        ActiveSearcherConfig::from_agent_config(Some("agent-model"), Some(&memory)).unwrap();
-    assert_eq!(config.model, "override-model");
 }
 
 /// Search disabled → from_agent_config returns None.
@@ -859,7 +795,7 @@ fn test_from_agent_config_model_priority_chain() {
 fn test_from_agent_config_search_disabled() {
     let memory = MemoryConfig {
         search: SearchConfig {
-            enabled: false,
+            enabled: Some(false),
             ..Default::default()
         },
         ..MemoryConfig::default()

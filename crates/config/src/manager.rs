@@ -160,6 +160,7 @@ pub enum ConfigSection {
     Session,
     Credentials,
     Accounts,
+    Memory,
 }
 
 impl ConfigSection {
@@ -174,6 +175,7 @@ impl ConfigSection {
             ConfigSection::Session => "session.json",
             ConfigSection::Credentials => "credentials/",
             ConfigSection::Accounts => "accounts.json",
+            ConfigSection::Memory => "memory.json",
         }
     }
 
@@ -432,6 +434,31 @@ impl ConfigManager {
             sections.insert(ConfigSection::Credentials, json);
         }
 
+        // Load global memory config (optional — absent file uses defaults).
+        let memory_path = ConfigSection::Memory.path(&self.config_dir);
+        if memory_path.exists() {
+            match fs::read_to_string(&memory_path) {
+                Ok(content) => {
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                        sections.insert(ConfigSection::Memory, value);
+                        info!(
+                            path = %memory_path.display(),
+                            "global memory config loaded"
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        path = %memory_path.display(),
+                        error = %e,
+                        "failed to read memory.json, using defaults"
+                    );
+                }
+            }
+        } else {
+            info!("memory.json not found, using defaults");
+        }
+
         // Cross-validate credentials against models.json references.
         if let Some(models_value) = sections.get(&ConfigSection::Models) {
             match serde_json::from_value::<ModelsConfigData>(models_value.clone()) {
@@ -659,6 +686,7 @@ impl ConfigManager {
             ConfigSection::Plugins,
             ConfigSection::System,
             ConfigSection::Session,
+            ConfigSection::Memory,
         ];
 
         let mut infos = Vec::new();

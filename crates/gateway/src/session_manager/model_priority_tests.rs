@@ -11,7 +11,7 @@ use super::spawn::SpawnMode;
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
 use closeclaw_config::agents::SubagentsConfig;
-use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_session::bootstrap::BootstrapMode;
 use serial_test::serial;
 use std::path::PathBuf;
@@ -37,7 +37,7 @@ fn test_resolved_config(
         tools: vec![],
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
-        memory: None,
+        memory: MemoryConfig::default(),
         source: ConfigSource::Merged,
     }
 }

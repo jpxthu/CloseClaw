@@ -1,3 +1,4 @@
+use crate::config::MemoryConfig;
 use crate::config::SubagentsConfig;
 use crate::registry::AgentRegistry;
 use closeclaw_common::BootstrapMode;
@@ -44,7 +45,7 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         tools: vec![],
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
-        memory: None,
+        memory: MemoryConfig::default(),
         source: ConfigSource::User,
     }
 }

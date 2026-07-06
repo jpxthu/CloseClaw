@@ -28,8 +28,8 @@ fn test_resolved_config(
     id: &str,
     workspace: Option<PathBuf>,
 ) -> closeclaw_config::agents::ResolvedAgentConfig {
-    use closeclaw_config::agents::ConfigSource;
     use closeclaw_config::agents::SubagentsConfig;
+    use closeclaw_config::agents::{ConfigSource, MemoryConfig};
 
     closeclaw_config::agents::ResolvedAgentConfig {
         id: id.to_string(),
@@ -43,7 +43,7 @@ fn test_resolved_config(
         tools: vec![],
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
-        memory: None,
+        memory: MemoryConfig::default(),
         source: ConfigSource::Merged,
     }
 }

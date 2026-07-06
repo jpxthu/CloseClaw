@@ -259,10 +259,7 @@ async fn load_agent_config_with_context_turns(
 ) -> (Option<String>, Option<serde_json::Value>, usize) {
     match session_manager.get_agent_config(agent_id).await {
         Some(cfg) => {
-            let mem_json = cfg
-                .memory
-                .as_ref()
-                .and_then(|m| serde_json::to_value(m).ok());
+            let mem_json = serde_json::to_value(&cfg.memory).ok();
             let ctx_turns = closeclaw_session::active_searcher::extract_context_turns(&mem_json);
             (cfg.model.map(|m| m.primary), mem_json, ctx_turns)
         }

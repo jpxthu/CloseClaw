@@ -504,7 +504,7 @@ async fn test_build_tools_section_empty() {
 // For now, marked #[ignore] until moved to integration tests.
 
 use closeclaw_common::bootstrap::BootstrapMode;
-use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 
 #[allow(dead_code)]
 fn make_agent_config(
@@ -524,7 +524,7 @@ fn make_agent_config(
         tools,
         disallowed_tools,
         subagents: Default::default(),
-        memory: None,
+        memory: MemoryConfig::default(),
         source: ConfigSource::User,
     }
 }

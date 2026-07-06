@@ -56,7 +56,7 @@ async fn test_dreaming_processes_mined_undreamt_sessions() {
     storage.add_checkpoint(cp);
 
     let config = DreamingConfig {
-        enabled: true,
+        enabled: Some(true),
         diary: DreamingDiaryConfig::default(),
         ..Default::default()
     };
@@ -94,7 +94,7 @@ async fn test_dreaming_disabled_skips_processing() {
     storage.add_checkpoint(cp);
 
     let config = DreamingConfig {
-        enabled: false,
+        enabled: Some(false),
         diary: DreamingDiaryConfig::default(),
         ..Default::default()
     };
@@ -156,10 +156,10 @@ fn test_dream_diary_writes_when_enabled() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
     let config = DreamingConfig {
-        enabled: true,
+        enabled: Some(true),
         diary: DreamingDiaryConfig {
-            enabled: true,
-            path: diary_path.clone(),
+            enabled: Some(true),
+            path: Some(diary_path.clone()),
         },
         ..Default::default()
     };
@@ -199,10 +199,10 @@ fn test_dream_diary_does_not_write_when_disabled() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
     let config = DreamingConfig {
-        enabled: true,
+        enabled: Some(true),
         diary: DreamingDiaryConfig {
-            enabled: false,
-            path: diary_path,
+            enabled: Some(false),
+            path: Some(diary_path),
         },
         ..Default::default()
     };
@@ -231,10 +231,10 @@ fn test_dream_diary_uses_custom_path() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().join("custom/diary");
     let config = DreamingConfig {
-        enabled: true,
+        enabled: Some(true),
         diary: DreamingDiaryConfig {
-            enabled: true,
-            path: diary_path.to_str().unwrap().to_string(),
+            enabled: Some(true),
+            path: Some(diary_path.to_str().unwrap().to_string()),
         },
         ..Default::default()
     };
@@ -271,10 +271,10 @@ fn test_dream_diary_creates_directory() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().join("new/dir/level");
     let config = DreamingConfig {
-        enabled: true,
+        enabled: Some(true),
         diary: DreamingDiaryConfig {
-            enabled: true,
-            path: diary_path.to_str().unwrap().to_string(),
+            enabled: Some(true),
+            path: Some(diary_path.to_str().unwrap().to_string()),
         },
         ..Default::default()
     };
@@ -326,10 +326,10 @@ fn test_error_anger_entries_carry_lesson_in_diary() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
     let config = DreamingConfig {
-        enabled: true,
+        enabled: Some(true),
         diary: DreamingDiaryConfig {
-            enabled: true,
-            path: diary_path,
+            enabled: Some(true),
+            path: Some(diary_path),
         },
         ..Default::default()
     };
@@ -368,10 +368,10 @@ fn test_dream_diary_empty_entries_no_write() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
     let config = DreamingConfig {
-        enabled: true,
+        enabled: Some(true),
         diary: DreamingDiaryConfig {
-            enabled: true,
-            path: diary_path,
+            enabled: Some(true),
+            path: Some(diary_path),
         },
         ..Default::default()
     };
@@ -398,19 +398,21 @@ use closeclaw_config::agents::{
 #[test]
 fn test_dreaming_pipeline_custom_scoring_config() {
     let config = DreamingConfig {
-        enabled: true,
+        enabled: Some(true),
         scoring: DreamingScoringConfig {
-            frequency_weight: 2.0,
-            recency_weight: 1.0,
-            explicitness_weight: 3.0,
-            cross_agent_weight: 2.0,
-            negative_signal_weight: -1.0,
+            frequency_weight: Some(2.0),
+            recency_weight: Some(1.0),
+            explicitness_weight: Some(3.0),
+            cross_agent_weight: Some(2.0),
+            negative_signal_weight: Some(-1.0),
         },
         threshold: DreamingThresholdConfig {
-            absolute: 0.0,
-            relative: 0.0,
+            absolute: Some(0.0),
+            relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig { max_rules: 100 },
+        capacity: DreamingCapacityConfig {
+            max_rules: Some(100),
+        },
         ..Default::default()
     };
     // Verify with_config doesn't panic and pipeline is constructible.
@@ -421,19 +423,21 @@ fn test_dreaming_pipeline_custom_scoring_config() {
 #[test]
 fn test_dreaming_pipeline_high_threshold_config() {
     let config = DreamingConfig {
-        enabled: true,
+        enabled: Some(true),
         scoring: DreamingScoringConfig {
-            frequency_weight: 0.0,
-            recency_weight: 0.0,
-            explicitness_weight: 0.0,
-            cross_agent_weight: 0.0,
-            negative_signal_weight: 0.0,
+            frequency_weight: Some(0.0),
+            recency_weight: Some(0.0),
+            explicitness_weight: Some(0.0),
+            cross_agent_weight: Some(0.0),
+            negative_signal_weight: Some(0.0),
         },
         threshold: DreamingThresholdConfig {
-            absolute: 5.0,
-            relative: 0.0,
+            absolute: Some(5.0),
+            relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig { max_rules: 100 },
+        capacity: DreamingCapacityConfig {
+            max_rules: Some(100),
+        },
         ..Default::default()
     };
     let _pipeline = DreamingPipeline::with_config(config);
@@ -443,13 +447,13 @@ fn test_dreaming_pipeline_high_threshold_config() {
 #[test]
 fn test_dreaming_pipeline_capacity_config_stored() {
     let config = DreamingConfig {
-        enabled: true,
+        enabled: Some(true),
         scoring: DreamingScoringConfig::default(),
         threshold: DreamingThresholdConfig {
-            absolute: 0.0,
-            relative: 0.0,
+            absolute: Some(0.0),
+            relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig { max_rules: 5 },
+        capacity: DreamingCapacityConfig { max_rules: Some(5) },
         ..Default::default()
     };
     let _pipeline = DreamingPipeline::with_config(config);
@@ -459,12 +463,12 @@ fn test_dreaming_pipeline_capacity_config_stored() {
 #[test]
 fn test_dreaming_pipeline_max_rules_zero_config() {
     let config = DreamingConfig {
-        enabled: true,
+        enabled: Some(true),
         threshold: DreamingThresholdConfig {
-            absolute: 0.0,
-            relative: 0.0,
+            absolute: Some(0.0),
+            relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig { max_rules: 0 },
+        capacity: DreamingCapacityConfig { max_rules: Some(0) },
         ..Default::default()
     };
     let _pipeline = DreamingPipeline::with_config(config);
@@ -474,13 +478,15 @@ fn test_dreaming_pipeline_max_rules_zero_config() {
 #[test]
 fn test_dreaming_pipeline_relative_threshold_config() {
     let config = DreamingConfig {
-        enabled: true,
+        enabled: Some(true),
         scoring: DreamingScoringConfig::default(),
         threshold: DreamingThresholdConfig {
-            absolute: 0.0,
-            relative: 0.5,
+            absolute: Some(0.0),
+            relative: Some(0.5),
         },
-        capacity: DreamingCapacityConfig { max_rules: 100 },
+        capacity: DreamingCapacityConfig {
+            max_rules: Some(100),
+        },
         ..Default::default()
     };
     let _pipeline = DreamingPipeline::with_config(config);

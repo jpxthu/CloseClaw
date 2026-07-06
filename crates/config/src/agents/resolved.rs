@@ -21,10 +21,17 @@
 //!   wins, otherwise the user's non-empty value, otherwise falls back
 //!   to the resolved `id`. `None` and `Some("")` are both treated as
 //!   "not provided" and trigger the fallback.
+//!
+//! # Memory config three-layer merge
+//!
+//! Memory config follows a three-layer merge: global `memory.json`
+//! (base) → user-level agent memory (middle) → project-level agent
+//! memory (top). Each layer's declared fields override the layer below;
+//! undeclared fields inherit from below.
 
 use std::path::PathBuf;
 
-use crate::agents::config_types::{AgentConfig, ModelSpec, SubagentsConfig};
+use crate::agents::config_types::{AgentConfig, MemoryConfig, ModelSpec, SubagentsConfig};
 use crate::ConfigError;
 use closeclaw_common::BootstrapMode;
 
@@ -69,7 +76,7 @@ pub struct ResolvedAgentConfig {
     pub tools: Vec<String>,
     pub disallowed_tools: Vec<String>,
     pub subagents: SubagentsConfig,
-    pub memory: Option<crate::agents::config_types::MemoryConfig>,
+    pub memory: crate::agents::config_types::MemoryConfig,
     /// Which configuration level this was resolved from.
     pub source: ConfigSource,
 }
@@ -120,6 +127,9 @@ impl ResolvedAgentConfig {
     /// with the given `source` level. The `path` argument is used purely
     /// for error reporting when `id` validation fails.
     ///
+    /// If `global_memory` is provided, the agent's memory config is merged
+    /// on top of the global defaults (agent fields override global fields).
+    ///
     /// Name fallback: a missing (`None`) or empty (`Some("")`) `name`
     /// falls back to `id`. Both levels are treated as "not provided"
     /// to keep the behavior consistent with the design doc
@@ -131,6 +141,7 @@ impl ResolvedAgentConfig {
         config: AgentConfig,
         source: ConfigSource,
         path: &str,
+        global_memory: Option<&MemoryConfig>,
     ) -> Result<Self, ConfigError> {
         if config.id.is_empty() {
             return Err(ConfigError::MissingId {
@@ -141,6 +152,12 @@ impl ResolvedAgentConfig {
             .name
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| config.id.clone());
+        let memory = match (global_memory, config.memory) {
+            (Some(global), Some(agent)) => global.merge_overrides(&agent),
+            (Some(global), None) => global.clone(),
+            (None, Some(agent)) => agent,
+            (None, None) => MemoryConfig::default(),
+        };
         Ok(Self {
             id: config.id,
             name,
@@ -153,7 +170,7 @@ impl ResolvedAgentConfig {
             tools: config.tools,
             disallowed_tools: config.disallowed_tools,
             subagents: config.subagents,
-            memory: config.memory.clone(),
+            memory,
             source,
         })
     }
@@ -164,6 +181,9 @@ impl ResolvedAgentConfig {
     /// always [`ConfigSource::Merged`]. The `path` argument is used
     /// purely for error reporting when `id` validation fails.
     ///
+    /// Memory config follows a three-layer merge: `global_memory` (base)
+    /// → user-level agent memory (middle) → project-level agent memory (top).
+    ///
     /// Name resolution: project's non-empty value wins, otherwise the
     /// user's non-empty value, otherwise the resolved `id` is used as
     /// a fallback. `None` and `Some("")` are both treated as "not
@@ -171,7 +191,12 @@ impl ResolvedAgentConfig {
     ///
     /// Returns [`ConfigError::MissingId`] when the resolved `id` is
     /// empty after the project-then-user fallback.
-    pub fn merge(project: AgentConfig, user: AgentConfig, path: &str) -> Result<Self, ConfigError> {
+    pub fn merge(
+        project: AgentConfig,
+        user: AgentConfig,
+        path: &str,
+        global_memory: Option<&MemoryConfig>,
+    ) -> Result<Self, ConfigError> {
         let id = if !project.id.is_empty() {
             project.id
         } else {
@@ -211,7 +236,18 @@ impl ResolvedAgentConfig {
                 user.disallowed_tools,
             ),
             subagents: merge_subagents(project.subagents, user.subagents),
-            memory: project.memory.or(user.memory),
+            memory: {
+                // Three-layer merge: global (base) → user (middle) → project (top)
+                let base = global_memory.cloned().unwrap_or_default();
+                let after_user = match &user.memory {
+                    Some(u) => base.merge_overrides(u),
+                    None => base,
+                };
+                match &project.memory {
+                    Some(p) => after_user.merge_overrides(p),
+                    None => after_user,
+                }
+            },
             source: ConfigSource::Merged,
         })
     }
@@ -221,12 +257,13 @@ impl TryFrom<AgentConfig> for ResolvedAgentConfig {
     type Error = ConfigError;
 
     /// Convert via [`ResolvedAgentConfig::from_single`], defaulting the
-    /// source to [`ConfigSource::User`]. Callers that know the source
-    /// should call [`ResolvedAgentConfig::from_single`] directly. The
-    /// `path` used for error reporting is `"<unknown>"` since the
-    /// `TryFrom` trait does not expose a source location.
+    /// source to [`ConfigSource::User`] and passing no global memory config.
+    /// Callers that know the source or have global config should call
+    /// [`ResolvedAgentConfig::from_single`] directly. The `path` used for
+    /// error reporting is `"<unknown>"` since the `TryFrom` trait does not
+    /// expose a source location.
     fn try_from(config: AgentConfig) -> Result<Self, Self::Error> {
-        Self::from_single(config, ConfigSource::User, "<unknown>")
+        Self::from_single(config, ConfigSource::User, "<unknown>", None)
     }
 }
 
