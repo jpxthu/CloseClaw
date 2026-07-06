@@ -9,8 +9,7 @@
 //! appropriate interpreter by glob-pattern matching.
 
 use crate::types::{
-    ContentBlock, InternalRequest, InternalResponse, RawContentBlock, StreamEvent, UnifiedResponse,
-    UnifiedUsage,
+    ContentBlock, InternalResponse, RawContentBlock, StreamEvent, UnifiedResponse, UnifiedUsage,
 };
 
 use glob::Pattern;
@@ -40,12 +39,6 @@ pub trait ModelInterpreter: Send + Sync {
     /// Returns `Some(normalised_event)` when the event should be forwarded,
     /// or `None` when the event should be suppressed.
     fn interpret_stream_event(&self, event: StreamEvent) -> Option<StreamEvent>;
-
-    /// Injects additional fields into an [`InternalRequest`] before it is sent
-    /// to the provider (e.g. provider-specific `extra_body` values).
-    ///
-    /// The default implementation is a no-op.
-    fn inject_extra_body(&self, _request: &mut InternalRequest) {}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
