@@ -567,7 +567,9 @@ impl DreamingPipeline {
         self.apply_relative_filter(&mut scored);
 
         // Gate 3: capacity limit (entity group count)
-        scored.truncate(self.thresholds.max_rules);
+        let existing_count = self.read_existing_rules().len();
+        let remaining = self.thresholds.max_rules.saturating_sub(existing_count);
+        scored.truncate(remaining.min(scored.len()));
 
         scored
     }
