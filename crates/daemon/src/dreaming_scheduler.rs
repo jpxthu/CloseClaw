@@ -367,12 +367,14 @@ impl DreamingScheduler {
         }
 
         let raw_transcript = format_transcript(&checkpoint.pending_messages);
+        let agent_id = checkpoint.agent_id.as_deref().unwrap_or("");
 
         if let Err(e) = self
             .memory_miner
             .mine_session_from_checkpoint(
                 session_id,
                 &raw_transcript,
+                agent_id,
                 &checkpoint,
                 self.storage.as_ref(),
             )
