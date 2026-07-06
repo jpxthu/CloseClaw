@@ -393,7 +393,8 @@ pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError>
             category TEXT NOT NULL,
             lesson TEXT,
             source_session_id TEXT NOT NULL,
-            timestamp INTEGER NOT NULL
+            timestamp INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS entities (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -429,8 +430,8 @@ pub(crate) fn write_to_sqlite(
         let event_id: i64 = conn
             .query_row(
                 "INSERT INTO events (title, summary, content,
-                 category, lesson, source_session_id, timestamp)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 category, lesson, source_session_id, timestamp, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
                  RETURNING id",
                 params![
                     event.title,
@@ -616,9 +617,9 @@ mod tests {
         let ts = Utc::now().timestamp();
         conn.execute(
             "INSERT INTO events (title, summary, content,
-             category, lesson, source_session_id, timestamp)
+             category, lesson, source_session_id, timestamp, updated_at)
              VALUES ('title', 'summary', 'body',
-             'error', 'lesson', 'other-sess', ?1)",
+             'error', 'lesson', 'other-sess', ?1, ?1)",
             params![ts],
         )
         .unwrap();
@@ -635,9 +636,9 @@ mod tests {
         let old_ts = Utc::now().timestamp() - (60 * 86400);
         conn.execute(
             "INSERT INTO events (title, summary, content,
-             category, lesson, source_session_id, timestamp)
+             category, lesson, source_session_id, timestamp, updated_at)
              VALUES ('old', 'old', 'body',
-             'decision', NULL, 'other', ?1)",
+             'decision', NULL, 'other', ?1, ?1)",
             params![old_ts],
         )
         .unwrap();

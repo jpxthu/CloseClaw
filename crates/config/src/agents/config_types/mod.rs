@@ -352,6 +352,9 @@ pub struct DreamingScoringConfig {
     /// Negative signal penalty weight. `None` means inherit global default.
     #[serde(default)]
     pub negative_signal_weight: Option<f64>,
+    /// Entity type weight dimension scoring weight. `None` means inherit global default.
+    #[serde(default)]
+    pub entity_type_weight_weight: Option<f64>,
 }
 
 impl DreamingScoringConfig {
@@ -363,6 +366,9 @@ impl DreamingScoringConfig {
             explicitness_weight: agent.explicitness_weight.or(self.explicitness_weight),
             cross_agent_weight: agent.cross_agent_weight.or(self.cross_agent_weight),
             negative_signal_weight: agent.negative_signal_weight.or(self.negative_signal_weight),
+            entity_type_weight_weight: agent
+                .entity_type_weight_weight
+                .or(self.entity_type_weight_weight),
         }
     }
 }
@@ -390,6 +396,11 @@ pub fn default_scoring_cross_agent() -> f64 {
 /// Default scoring negative signal weight.
 pub fn default_scoring_negative_signal() -> f64 {
     -0.5
+}
+
+/// Default scoring entity type weight.
+pub fn default_scoring_entity_type_weight() -> f64 {
+    1.0
 }
 
 /// Dreaming threshold configuration.
