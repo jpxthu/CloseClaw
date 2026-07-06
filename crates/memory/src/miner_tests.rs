@@ -246,7 +246,10 @@ async fn test_mine_session_empty_transcript() {
 #[tokio::test]
 async fn test_mine_session_nonexistent_returns_error() {
     let storage = TestStorage::default();
-    let config = MinerConfig::default();
+    let config = MinerConfig {
+        enabled: true,
+        ..Default::default()
+    };
     let llm = Box::new(MockMinerLlmCaller::default());
     let tmp = TempDir::new().unwrap();
     let miner =
@@ -268,6 +271,7 @@ async fn test_mine_session_happy_path() {
     let events = vec![make_event("error event", MiningEventCategory::Error)];
     let entities = vec![vec![make_entity("Test Entity", "subject")]];
     let config = MinerConfig {
+        enabled: true,
         clean_rules: lenient_rules(),
         ..Default::default()
     };
@@ -304,6 +308,7 @@ async fn test_mine_session_respects_max_events_limit() {
         .map(|i| make_event(&format!("event {i}"), MiningEventCategory::Decision))
         .collect();
     let config = MinerConfig {
+        enabled: true,
         max_events_per_session: 5,
         clean_rules: lenient_rules(),
         ..Default::default()
@@ -589,6 +594,7 @@ async fn test_mine_session_persists_to_sqlite() {
     let events = vec![make_event("persisted event", MiningEventCategory::Decision)];
     let entities = vec![vec![make_entity("Persisted Entity", "subject")]];
     let config = MinerConfig {
+        enabled: true,
         clean_rules: lenient_rules(),
         ..Default::default()
     };
@@ -632,7 +638,7 @@ fn test_miner_config_from_mining_config_none_values() {
 #[test]
 fn test_miner_config_default_values() {
     let config = MinerConfig::default();
-    assert!(config.enabled);
+    assert!(!config.enabled);
     assert_eq!(config.max_events_per_session, 10);
     assert_eq!(config.dedup_window_days, 30);
 }

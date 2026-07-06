@@ -91,6 +91,10 @@ mod reload_tests {
             filename_to_section("accounts.json"),
             Some(ConfigSection::Accounts)
         );
+        assert_eq!(
+            filename_to_section("memory.json"),
+            Some(ConfigSection::Memory)
+        );
         assert_eq!(filename_to_section("agents.json"), None);
         assert_eq!(filename_to_section("unknown.json"), None);
     }
@@ -303,6 +307,11 @@ mod reload_tests {
                 "session.json",
                 ConfigSection::Session,
                 r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":999}"#,
+            ),
+            (
+                "memory.json",
+                ConfigSection::Memory,
+                r#"{"mining":{"enabled":true}}"#,
             ),
         ];
 

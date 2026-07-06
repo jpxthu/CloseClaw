@@ -341,6 +341,7 @@ fn register_watched_paths(
         "system.json",
         "accounts.json",
         "session.json",
+        "memory.json",
     ];
     for name in &config_files {
         let path = config_path.join(name);
@@ -524,6 +525,7 @@ fn filename_to_section(filename: &str) -> Option<ConfigSection> {
         "system.json" => Some(ConfigSection::System),
         "session.json" => Some(ConfigSection::Session),
         "accounts.json" => Some(ConfigSection::Accounts),
+        "memory.json" => Some(ConfigSection::Memory),
         _ => None,
     }
 }

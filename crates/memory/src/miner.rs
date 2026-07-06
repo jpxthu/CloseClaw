@@ -135,7 +135,7 @@ impl MinerConfig {
 impl Default for MinerConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             max_events_per_session: 10,
             dedup_window_days: 30,
             clean_rules: Default::default(),
@@ -538,6 +538,15 @@ pub(crate) fn truncate_entity_names(entities: &mut [MiningEntity]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_miner_config_default_enabled_is_false() {
+        let config = MinerConfig::default();
+        assert!(
+            !config.enabled,
+            "MinerConfig::default().enabled should be false per config.md mining.enabled default"
+        );
+    }
 
     #[test]
     fn test_normalize_entity_name() {
