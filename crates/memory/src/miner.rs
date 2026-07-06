@@ -171,8 +171,6 @@ pub struct MemoryMiner {
     db_path: PathBuf,
     /// Path to MEMORY.md for dedup.
     memory_md_path: String,
-    /// Agent ID for entity scoping.
-    agent_id: String,
 }
 
 impl MemoryMiner {
@@ -182,14 +180,12 @@ impl MemoryMiner {
         llm: Box<dyn MinerLlmCaller>,
         db_path: impl AsRef<Path>,
         memory_md_path: impl Into<String>,
-        agent_id: impl Into<String>,
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(config)),
             llm,
             db_path: db_path.as_ref().to_path_buf(),
             memory_md_path: memory_md_path.into(),
-            agent_id: agent_id.into(),
         }
     }
 
@@ -215,6 +211,7 @@ impl MemoryMiner {
         &self,
         session_id: &str,
         raw_transcript: &str,
+        agent_id: &str,
         storage: &dyn PersistenceService,
     ) -> Result<MineResult, MinerError> {
         if !self.config.read().unwrap().enabled {
@@ -235,7 +232,7 @@ impl MemoryMiner {
             });
         }
 
-        self.mine_session_inner(session_id, raw_transcript, &checkpoint, storage)
+        self.mine_session_inner(session_id, raw_transcript, agent_id, &checkpoint, storage)
             .await
     }
 
@@ -248,6 +245,7 @@ impl MemoryMiner {
         &self,
         session_id: &str,
         raw_transcript: &str,
+        agent_id: &str,
         checkpoint: &closeclaw_session::persistence::SessionCheckpoint,
         storage: &dyn PersistenceService,
     ) -> Result<MineResult, MinerError> {
@@ -265,7 +263,7 @@ impl MemoryMiner {
             });
         }
 
-        self.mine_session_inner(session_id, raw_transcript, checkpoint, storage)
+        self.mine_session_inner(session_id, raw_transcript, agent_id, checkpoint, storage)
             .await
     }
 
@@ -278,6 +276,7 @@ impl MemoryMiner {
         &self,
         session_id: &str,
         raw_transcript: &str,
+        agent_id: &str,
         _checkpoint: &closeclaw_session::persistence::SessionCheckpoint,
         storage: &dyn PersistenceService,
     ) -> Result<MineResult, MinerError> {
@@ -297,7 +296,7 @@ impl MemoryMiner {
         // All Connection usage is confined to this closure; the
         // connection is dropped before we hit any `.await`.
         let db_path = self.db_path.clone();
-        let agent_id = self.agent_id.clone();
+        let agent_id_owned = agent_id.to_string();
         let memory_md_path = self.memory_md_path.clone();
         let session_id_owned = session_id.to_string();
 
@@ -308,7 +307,7 @@ impl MemoryMiner {
 
             let recent_events = load_recent_events(&conn, &session_id_owned, dedup_days)?;
             let memory_md = std::fs::read_to_string(&memory_md_path).unwrap_or_default();
-            let catalog = load_entity_catalog(&conn, &agent_id)?;
+            let catalog = load_entity_catalog(&conn, &agent_id_owned)?;
 
             Ok(DbReadData {
                 recent_events,
@@ -332,7 +331,7 @@ impl MemoryMiner {
 
         // ── Phase 4: Blocking SQLite writes ───────────────────────
         let db_path = self.db_path.clone();
-        let agent_id = self.agent_id.clone();
+        let agent_id_owned = agent_id.to_string();
         let session_id_owned = session_id.to_string();
         let events_clone = events.clone();
         let entities_clone = entities.clone();
@@ -342,7 +341,7 @@ impl MemoryMiner {
             write_to_sqlite(
                 &conn,
                 &session_id_owned,
-                &agent_id,
+                &agent_id_owned,
                 &events_clone,
                 &entities_clone,
             )
