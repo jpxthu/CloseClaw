@@ -748,7 +748,15 @@ impl DreamingPipeline {
                 .map(|e| e.lesson.clone().unwrap_or_else(|| e.body.clone()))
                 .collect();
 
-            match llm.consolidate_lessons(&lessons, &group.entity_name).await {
+            match llm
+                .consolidate_lessons(
+                    &lessons,
+                    &group.entity_name,
+                    &group.entity_type,
+                    group.frequency,
+                )
+                .await
+            {
                 Ok(rule) => rules.push(rule),
                 Err(e) => {
                     tracing::warn!(

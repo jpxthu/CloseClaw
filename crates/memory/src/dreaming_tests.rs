@@ -487,6 +487,8 @@ impl DreamingLlmCaller for MockConsolidationLlm {
         &self,
         lessons: &[String],
         entity_name: &str,
+        _entity_type: &str,
+        _frequency: usize,
     ) -> Result<String, DreamingLlmError> {
         Ok(format!("[{}] {}", entity_name, lessons.join(", ")))
     }
@@ -512,6 +514,8 @@ impl DreamingLlmCaller for FailingConsolidationLlm {
         &self,
         _lessons: &[String],
         _entity_name: &str,
+        _entity_type: &str,
+        _frequency: usize,
     ) -> Result<String, DreamingLlmError> {
         Err(DreamingLlmError::Llm("simulated failure".into()))
     }
@@ -827,7 +831,6 @@ async fn test_verify_and_filter_rules_drops_stale() {
     assert_eq!(verified.len(), 1);
     assert_eq!(verified[0], "rule a");
 }
-
 // ── DreamingPipeline model propagation tests ───────────────────────
 
 /// Model extraction, default None, and lifecycle via update_config.
@@ -947,7 +950,6 @@ fn test_e2e_light_rem_deep_pipeline() {
         assert!(g.score >= 0.0, "score should be non-negative");
     }
 }
-
 // ── Light stage entity-type chunking + semantic dedup tests ────────
 
 /// Semantic dedup: filters overlapping, keeps non-overlapping entries.

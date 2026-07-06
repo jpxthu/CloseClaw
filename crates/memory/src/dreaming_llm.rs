@@ -38,6 +38,8 @@ pub trait DreamingLlmCaller: Send + Sync {
         &self,
         lessons: &[String],
         entity_name: &str,
+        entity_type: &str,
+        frequency: usize,
     ) -> Result<String, DreamingLlmError>;
 
     /// Generate a Dream Diary narrative summarizing promoted groups.
@@ -63,6 +65,8 @@ mod tests {
             &self,
             lessons: &[String],
             _entity_name: &str,
+            _entity_type: &str,
+            _frequency: usize,
         ) -> Result<String, DreamingLlmError> {
             if lessons.is_empty() {
                 return Err(DreamingLlmError::Llm("no lessons".into()));
@@ -91,6 +95,8 @@ mod tests {
             &self,
             _lessons: &[String],
             _entity_name: &str,
+            _entity_type: &str,
+            _frequency: usize,
         ) -> Result<String, DreamingLlmError> {
             Err(DreamingLlmError::Llm("simulated failure".into()))
         }
@@ -107,7 +113,12 @@ mod tests {
     async fn test_mock_llm_returns_consolidated() {
         let llm = MockLlmCaller;
         let result = llm
-            .consolidate_lessons(&["rule a".to_string(), "rule b".to_string()], "test-entity")
+            .consolidate_lessons(
+                &["rule a".to_string(), "rule b".to_string()],
+                "test-entity",
+                "subject",
+                3,
+            )
             .await
             .unwrap();
         assert!(result.contains("rule a"));
@@ -118,7 +129,7 @@ mod tests {
     async fn test_failing_llm_returns_error() {
         let llm = FailingLlmCaller;
         let result = llm
-            .consolidate_lessons(&["rule".to_string()], "entity")
+            .consolidate_lessons(&["rule".to_string()], "entity", "subject", 1)
             .await;
         assert!(result.is_err());
     }
