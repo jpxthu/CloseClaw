@@ -316,6 +316,8 @@ impl ModelInterpreter for GlmInterpreter {
 /// When both text and reasoning content are present, they are emitted as
 /// separate [`ContentBlock::Text`] and [`ContentBlock::Thinking`] blocks
 /// respectively. This mirrors the merging rule used by [`MinimaxInterpreter`].
+/// Signature fields are collected and forwarded to preserve traceability
+/// (same pattern as [`MinimaxInterpreter`]).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DeepSeekInterpreter;
 
@@ -327,10 +329,19 @@ impl ModelInterpreter for DeepSeekInterpreter {
     fn interpret_response(&self, response: InternalResponse) -> UnifiedResponse {
         let mut text_parts: Vec<String> = vec![];
         let mut thinking_parts: Vec<String> = vec![];
+        let mut last_signature: Option<String> = None;
         for block in response.content_blocks {
             match block {
                 RawContentBlock::Text(s) => text_parts.push(s),
-                RawContentBlock::Thinking { thinking: s, .. } => thinking_parts.push(s),
+                RawContentBlock::Thinking {
+                    thinking: s,
+                    signature,
+                } => {
+                    thinking_parts.push(s);
+                    if signature.is_some() {
+                        last_signature = signature;
+                    }
+                }
                 RawContentBlock::ToolUse { id, name, input } => {
                     text_parts.push(format!("id:{id} name:{name} input:{input}"))
                 }
@@ -351,7 +362,7 @@ impl ModelInterpreter for DeepSeekInterpreter {
             if !thinking_parts.is_empty() {
                 content_blocks.push(ContentBlock::Thinking {
                     thinking: thinking_parts.join(""),
-                    signature: None,
+                    signature: last_signature,
                 });
             }
         }
