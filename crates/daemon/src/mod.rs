@@ -414,12 +414,9 @@ impl Daemon {
                 )
             });
         let dreaming_config_provider = Arc::clone(&session_config_provider);
-        let storage: Arc<dyn PersistenceService> = {
-            let s = Arc::new(
-                SqliteStorage::new(data_dir).expect("SqliteStorage should already be initialized"),
-            );
-            s as Arc<dyn PersistenceService>
-        };
+        let storage: Arc<dyn PersistenceService> =
+            Arc::new(SqliteStorage::new(data_dir).expect("SqliteStorage already initialized"))
+                as Arc<dyn PersistenceService>;
         let sweeper = Arc::new(
             ArchiveSweeper::new(Arc::clone(&storage), session_config_provider)
                 .with_session_manager(Arc::clone(session_manager)),
@@ -429,17 +426,34 @@ impl Daemon {
             sweeper_for_task.run(sweeper_rx).await;
         });
         info!("ArchiveSweeper spawned");
-        // Construct dreaming pipeline and memory miner with defaults.
-        // NoopMinerLlmCaller returns empty events until a real LLM caller is wired up.
-        let dreaming_pipeline = Arc::new(DreamingPipeline::new());
+        // Load memory config from ConfigManager (replaces hardcoded defaults).
+        let memory_config = config_manager
+            .section(closeclaw_config::ConfigSection::Memory)
+            .and_then(|v| {
+                let content = serde_json::to_string(&v).ok()?;
+                closeclaw_config::providers::MemoryConfigData::from_json_str(&content).ok()
+            })
+            .unwrap_or_default();
+        let db_path = memory_config
+            .config
+            .storage
+            .db_path
+            .as_deref()
+            .unwrap_or("memory/memory.db");
+        let md_path = memory_config
+            .config
+            .storage
+            .memory_md_path
+            .as_deref()
+            .unwrap_or("memory/MEMORY.md");
+        let dreaming_pipeline = Arc::new(DreamingPipeline::with_config(
+            memory_config.config.dreaming.clone(),
+        ));
         let memory_miner = Arc::new(MemoryMiner::new(
-            closeclaw_memory::miner::MinerConfig::default(),
+            closeclaw_memory::miner::MinerConfig::from_mining_config(&memory_config.config.mining),
             Box::new(noop_miner_llm::NoopMinerLlmCaller),
-            data_dir.join("memory/memory.db"),
-            data_dir
-                .join("memory/MEMORY.md")
-                .to_string_lossy()
-                .into_owned(),
+            data_dir.join(db_path),
+            data_dir.join(md_path).to_string_lossy().into_owned(),
             String::new(),
         ));
         let dreaming_scheduler = crate::dreaming_scheduler::DreamingScheduler::new(
@@ -447,7 +461,15 @@ impl Daemon {
             dreaming_config_provider,
             dreaming_pipeline,
             memory_miner,
-        );
+        )
+        .with_schedule(Some(
+            memory_config
+                .config
+                .dreaming
+                .schedule
+                .clone()
+                .unwrap_or_else(|| closeclaw_config::agents::default_dreaming_schedule()),
+        ));
         tokio::spawn(async move {
             dreaming_scheduler.run(dreaming_rx).await;
         });
@@ -568,23 +590,17 @@ impl Daemon {
         tokio::select! {
             _ = sigint.recv() => {
                 info!("Received Ctrl+C, initiating forceful shutdown...");
-                // SIGINT → forceful mode: atomically transition
-                // from Running → ForcefulShuttingDown.
                 self.shutdown.try_start_forceful_shutdown();
             }
             _ = sigterm.recv() => {
                 info!("Received SIGTERM, initiating graceful shutdown...");
-                // Set gate immediately so new operations are rejected
-                // at the same moment the signal is confirmed.
                 self.shutdown.try_start_shutdown();
             }
         }
 
-        // Phase 1: Inbound shutdown + drain
         self.phase_1_inbound_drain(&mut sigint, &mut sigterm).await;
         let mode = self.shutdown.mode();
         info!(phase = 1, "inbound shutdown complete");
-        // Phase 2: Session stop
         let stop_result = self.phase_2_session_stop(mode).await;
         info!(
             phase = 2,
@@ -593,19 +609,14 @@ impl Daemon {
             skipped = stop_result.skipped,
             "session stop complete"
         );
-        // Phase 3: Background task stop
         self.phase_3_background_stop().await;
         info!(phase = 3, "background tasks stopped");
-        // Phase 4: Final persistence
         self.phase_4_final_persist(mode).await;
         info!(phase = 4, "final persistence complete");
-        // Phase 5: Outbound shutdown
         self.phase_5_outbound_close().await;
         info!(phase = 5, "outbound shutdown complete");
-        // Phase 6: Storage close (RAII — explicit drop for ordering)
         self.phase_6_storage_close().await;
         info!(phase = 6, "storage closed");
-        // Phase 7: Exit cleanup
         self.phase_7_exit().await;
         info!(phase = 7, "shutdown complete — exiting");
         Ok(())
@@ -733,33 +744,22 @@ impl Daemon {
                 }
 
                 _ = async {
+                    // Wait for any escalation signal regardless of
+                    // which handlers are available.
+                    let escalate = || {
+                        if self.shutdown.escalate_to_forceful() {
+                            info!("Phase 2: escalated to forceful shutdown");
+                        }
+                    };
                     match (&mut sigint, &mut sigterm) {
                         (Some(i), Some(t)) => {
                             tokio::select! {
-                                _ = i.recv() => {
-                                    if self.shutdown.escalate_to_forceful() {
-                                        info!("Phase 2: escalated to forceful shutdown");
-                                    }
-                                }
-                                _ = t.recv() => {
-                                    if self.shutdown.escalate_to_forceful() {
-                                        info!("Phase 2: escalated to forceful shutdown");
-                                    }
-                                }
+                                _ = i.recv() => escalate(),
+                                _ = t.recv() => escalate(),
                             }
                         }
-                        (Some(i), None) => {
-                            let _ = i.recv().await;
-                            if self.shutdown.escalate_to_forceful() {
-                                info!("Phase 2: escalated to forceful shutdown");
-                            }
-                        }
-                        (None, Some(t)) => {
-                            let _ = t.recv().await;
-                            if self.shutdown.escalate_to_forceful() {
-                                info!("Phase 2: escalated to forceful shutdown");
-                            }
-                        }
+                        (Some(i), None) => { let _ = i.recv().await; escalate(); }
+                        (None, Some(t)) => { let _ = t.recv().await; escalate(); }
                         (None, None) => { std::future::pending::<()>().await; }
                     }
                 } => {
