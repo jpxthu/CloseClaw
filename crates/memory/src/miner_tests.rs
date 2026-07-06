@@ -187,11 +187,10 @@ async fn test_mine_session_skips_when_disabled() {
     };
     let llm = Box::new(MockMinerLlmCaller::default());
     let tmp = TempDir::new().unwrap();
-    let miner =
-        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
 
     let result = miner
-        .mine_session("sess-1", "Owner: hi\nAgent: bye", &storage)
+        .mine_session("sess-1", "Owner: hi\nAgent: bye", "a1", &storage)
         .await
         .unwrap();
     assert!(result.events.is_empty());
@@ -210,11 +209,10 @@ async fn test_mine_session_skips_already_mined() {
         ..Default::default()
     });
     let tmp = TempDir::new().unwrap();
-    let miner =
-        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
 
     let result = miner
-        .mine_session("sess-1", "Owner: hi\nAgent: bye", &storage)
+        .mine_session("sess-1", "Owner: hi\nAgent: bye", "a1", &storage)
         .await
         .unwrap();
     assert!(result.events.is_empty());
@@ -233,11 +231,10 @@ async fn test_mine_session_empty_transcript() {
         ..Default::default()
     });
     let tmp = TempDir::new().unwrap();
-    let miner =
-        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
 
     let result = miner
-        .mine_session("sess-1", "Owner: hi", &storage)
+        .mine_session("sess-1", "Owner: hi", "a1", &storage)
         .await
         .unwrap();
     assert!(result.events.is_empty());
@@ -252,11 +249,10 @@ async fn test_mine_session_nonexistent_returns_error() {
     };
     let llm = Box::new(MockMinerLlmCaller::default());
     let tmp = TempDir::new().unwrap();
-    let miner =
-        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
 
     let result = miner
-        .mine_session("does-not-exist", "Owner: hi\nAgent: bye", &storage)
+        .mine_session("does-not-exist", "Owner: hi\nAgent: bye", "a1", &storage)
         .await;
     assert!(result.is_err());
 }
@@ -282,10 +278,10 @@ async fn test_mine_session_happy_path() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("mining.db");
-    let miner = crate::miner::MemoryMiner::new(config, llm, &db_path, "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, &db_path, "memory.md");
 
     let result = miner
-        .mine_session("sess-1", "Owner: hello\nAgent: response", &storage)
+        .mine_session("sess-1", "Owner: hello\nAgent: response", "a1", &storage)
         .await
         .unwrap();
 
@@ -318,11 +314,10 @@ async fn test_mine_session_respects_max_events_limit() {
         ..Default::default()
     });
     let tmp = TempDir::new().unwrap();
-    let miner =
-        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
 
     let result = miner
-        .mine_session("sess-1", "Owner: hello\nAgent: response", &storage)
+        .mine_session("sess-1", "Owner: hello\nAgent: response", "a1", &storage)
         .await
         .unwrap();
 
@@ -681,10 +676,10 @@ async fn test_mine_session_persists_to_sqlite() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("persist.db");
-    let miner = crate::miner::MemoryMiner::new(config, llm, &db_path, "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, &db_path, "memory.md");
 
     miner
-        .mine_session("sess-1", "Owner: hello\nAgent: response", &storage)
+        .mine_session("sess-1", "Owner: hello\nAgent: response", "a1", &storage)
         .await
         .unwrap();
 
@@ -711,8 +706,7 @@ fn test_update_config_reflects_new_enabled() {
         ..Default::default()
     };
     let llm = Box::new(crate::miner_llm::MockMinerLlmCaller::default());
-    let miner =
-        crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1");
+    let miner = crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
     assert!(!miner.is_enabled(), "should start disabled");
 
     // Hot-reload: enable mining.
@@ -768,7 +762,7 @@ fn test_miner_config_default_model_is_none() {
 fn make_miner(config: MinerConfig) -> MemoryMiner {
     let tmp = tempfile::TempDir::new().unwrap();
     let llm = Box::new(crate::miner_llm::MockMinerLlmCaller::default());
-    crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md", "a1")
+    crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md")
 }
 
 /// model() returns None when no model is configured.
