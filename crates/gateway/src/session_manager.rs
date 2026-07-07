@@ -96,6 +96,9 @@ pub struct SessionManager {
     /// Injected by the daemon (composition root) so gateway avoids
     /// depending on `closeclaw-system-prompt` directly.
     cache_invalidator: RwLock<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Channel sender for notifying the DreamingScheduler about completed
+    /// sub-agent sessions, enabling immediate mining (design doc §触发 1).
+    mining_notify_tx: std::sync::RwLock<Option<tokio::sync::mpsc::Sender<String>>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -139,7 +142,15 @@ impl SessionManager {
             shutdown_handle: RwLock::new(None),
             pending_restore_notifications: RwLock::new(HashMap::new()),
             cache_invalidator: RwLock::new(None),
+            mining_notify_tx: std::sync::RwLock::new(None),
         }
+    }
+
+    /// Attach a mining notify channel sender. When a run-mode sub-agent
+    /// session completes, the sender emits the session ID so the
+    /// DreamingScheduler can trigger mining immediately.
+    pub fn set_mining_notify_tx(&self, tx: tokio::sync::mpsc::Sender<String>) {
+        *self.mining_notify_tx.write().unwrap() = Some(tx);
     }
 
     /// Set the config manager for agent-level tool/skill filtering.
@@ -717,13 +728,9 @@ impl SessionLookup for SessionManager {
 
 // Unit tests
 #[cfg(test)]
+mod announce_tests;
+#[cfg(test)]
 mod bug904_tests;
-#[cfg(test)]
-mod test_helpers;
-#[cfg(test)]
-mod tests;
-// #[cfg(test)]
-// mod announce_tests;  // DISABLED: imports from full-tests only modules
 #[cfg(test)]
 mod flush_tests;
 #[cfg(test)]
@@ -742,5 +749,9 @@ mod spawn_controller_permission_tests;
 mod spawn_controller_tests;
 #[cfg(test)]
 mod spawn_tree_tests;
+#[cfg(test)]
+mod test_helpers;
+#[cfg(test)]
+mod tests;
 // #[cfg(test)]
 // mod tests_get_thread_id;  // DISABLED: imports from full-tests only modules

@@ -408,19 +408,22 @@ fn test_deep_relative_gate_per_entity_type() {
 
 // ── MEMORY.md write tests ──────────────────────────────────────────
 
-/// MEMORY.md write creates file with rules.
+/// MEMORY.md write creates file and parent directory.
 #[test]
-fn test_write_memory_md_creates_file() {
+fn test_write_memory_md_creates_file_and_directory() {
+    // Basic: creates file with rules.
     let tmp = TempDir::new().unwrap();
     let md_path = tmp.path().join("MEMORY.md");
     let pipeline = DreamingPipeline::new().with_memory_md_path(md_path.to_str().unwrap());
-
     let rules = vec!["always verify before deploying".to_string()];
-    let result = pipeline.write_memory_md(&rules);
-    assert!(result.is_ok(), "write_memory_md should succeed: {result:?}");
-
+    pipeline.write_memory_md(&rules).unwrap();
     let content = std::fs::read_to_string(&md_path).unwrap();
     assert!(content.contains("- always verify before deploying"));
+    // Nested path: auto-creates parent directory.
+    let md_path2 = tmp.path().join("deep/nested/MEMORY.md");
+    let pipeline2 = DreamingPipeline::new().with_memory_md_path(md_path2.to_str().unwrap());
+    pipeline2.write_memory_md(&["rule".to_string()]).unwrap();
+    assert!(md_path2.exists());
 }
 
 /// MEMORY.md write deduplicates existing rules.
@@ -458,18 +461,6 @@ fn test_write_memory_md_appends() {
     let content = std::fs::read_to_string(&md_path).unwrap();
     assert!(content.contains("- old rule"));
     assert!(content.contains("- added rule"));
-}
-
-/// MEMORY.md write creates parent directory if missing.
-#[test]
-fn test_write_memory_md_creates_directory() {
-    let tmp = TempDir::new().unwrap();
-    let md_path = tmp.path().join("deep/nested/MEMORY.md");
-
-    let pipeline = DreamingPipeline::new().with_memory_md_path(md_path.to_str().unwrap());
-
-    pipeline.write_memory_md(&["rule".to_string()]).unwrap();
-    assert!(md_path.exists());
 }
 
 // ── LLM consolidation tests ────────────────────────────────────────
@@ -578,13 +569,14 @@ async fn test_consolidate_lessons_fallback_on_failure() {
 /// SQLite integration: reads entries, handles missing DB/table.
 #[tokio::test]
 async fn test_collect_entries_sqlite_and_edge_cases() {
-    // Setup: create DB with events + entities + event_entities.
+    // Setup: create DB with sessions + events + entities.
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("test.db");
     {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         conn.execute_batch(
-            "CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT NOT NULL,
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, mined INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT NOT NULL,
              category TEXT NOT NULL, lesson TEXT, source_session_id TEXT NOT NULL,
              timestamp INTEGER NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0);
              CREATE TABLE entities (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL,
@@ -592,6 +584,7 @@ async fn test_collect_entries_sqlite_and_edge_cases() {
              UNIQUE(agent_id, type, normalized_name));
              CREATE TABLE event_entities (id INTEGER PRIMARY KEY AUTOINCREMENT,
              event_id INTEGER NOT NULL, entity_id INTEGER NOT NULL);
+             INSERT INTO sessions (id, mined) VALUES ('sess-1', 1);
              INSERT INTO events (content, category, lesson, source_session_id, timestamp, updated_at)
              VALUES ('test content', 'error', 'test lesson', 'sess-1', 1700000000, 1700000000);
              INSERT INTO entities (agent_id, type, name, normalized_name)
@@ -640,6 +633,40 @@ async fn test_collect_entries_sqlite_and_edge_cases() {
     let e3 = p3.collect_entries_for_session(&storage, "sess-1").await;
     assert!(e3.is_ok());
     assert!(e3.unwrap().is_empty());
+    // Unminted session → entries filtered out.
+    let unminted_db = tmp.path().join("unminted.db");
+    {
+        let conn = rusqlite::Connection::open(&unminted_db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, mined INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT NOT NULL,
+             category TEXT NOT NULL, lesson TEXT, source_session_id TEXT NOT NULL,
+             timestamp INTEGER NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE entities (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL,
+             type TEXT NOT NULL, name TEXT NOT NULL, normalized_name TEXT NOT NULL,
+             UNIQUE(agent_id, type, normalized_name));
+             CREATE TABLE event_entities (id INTEGER PRIMARY KEY AUTOINCREMENT,
+             event_id INTEGER NOT NULL, entity_id INTEGER NOT NULL);
+             INSERT INTO sessions (id, mined) VALUES ('sess-unminted', 0);
+             INSERT INTO events (content, category, lesson, source_session_id, timestamp, updated_at)
+             VALUES ('unminted content', 'error', NULL, 'sess-unminted', 1700000000, 1700000000);
+             INSERT INTO entities (agent_id, type, name, normalized_name)
+             VALUES ('agent-1', 'subject', 'Unminted Entity', 'unminted entity');
+             INSERT INTO event_entities (event_id, entity_id) VALUES (1, 1);",
+        ).unwrap();
+    }
+    let mut cp_unminted = SessionCheckpoint::new("sess-unminted".into());
+    cp_unminted.mined = false;
+    storage.add_checkpoint(cp_unminted);
+    let p4 = DreamingPipeline::new().with_db_path(&unminted_db);
+    let e4 = p4
+        .collect_entries_for_session(&storage, "sess-unminted")
+        .await
+        .unwrap();
+    assert!(
+        e4.is_empty(),
+        "entries from unminted session should not be returned"
+    );
 }
 
 // ── Config hot-reload tests ────────────────────────────────────────
@@ -700,16 +727,18 @@ async fn test_update_config_changes_behavior() {
 }
 
 // ── Anti-contamination tests ───────────────────────────────────────
-
-/// Anti-contamination: event_id + updated_at check passes for valid events.
+/// Anti-contamination: event_id + updated_at check passes for valid events
+/// and fails for stale events.
 #[tokio::test]
-async fn test_anti_contamination_valid_event() {
+async fn test_anti_contamination_valid_and_stale_events() {
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("ac.db");
     {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         conn.execute_batch(
-            "CREATE TABLE events (id INTEGER PRIMARY KEY, content TEXT, category TEXT,
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, mined INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO sessions (id, mined) VALUES ('s1', 1);
+             CREATE TABLE events (id INTEGER PRIMARY KEY, content TEXT, category TEXT,
              lesson TEXT, source_session_id TEXT, timestamp INTEGER, updated_at INTEGER);
              INSERT INTO events VALUES (42, 'test', 'error', NULL, 's1', 1000, 1000);",
         )
@@ -717,7 +746,7 @@ async fn test_anti_contamination_valid_event() {
     }
     let pipeline = DreamingPipeline::new().with_db_path(&db_path);
     let conn = rusqlite::Connection::open(&db_path).unwrap();
-    let entry = MemoryEntry {
+    let valid = MemoryEntry {
         category: EntryCategory::Error,
         body: "test".into(),
         timestamp: chrono::DateTime::from_timestamp(1000, 0).unwrap(),
@@ -730,39 +759,12 @@ async fn test_anti_contamination_valid_event() {
         entity_name: "x".into(),
         updated_at: chrono::DateTime::from_timestamp(1000, 0).unwrap(),
     };
-    assert!(pipeline.verify_event_integrity(&conn, &entry).unwrap());
-}
-
-/// Anti-contamination: stale updated_at fails the check.
-#[tokio::test]
-async fn test_anti_contamination_stale_event() {
-    let tmp = TempDir::new().unwrap();
-    let db_path = tmp.path().join("ac2.db");
-    {
-        let conn = rusqlite::Connection::open(&db_path).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE events (id INTEGER PRIMARY KEY, content TEXT, category TEXT,
-             lesson TEXT, source_session_id TEXT, timestamp INTEGER, updated_at INTEGER);
-             INSERT INTO events VALUES (42, 'test', 'error', NULL, 's1', 1000, 1000);",
-        )
-        .unwrap();
-    }
-    let pipeline = DreamingPipeline::new().with_db_path(&db_path);
-    let conn = rusqlite::Connection::open(&db_path).unwrap();
-    let entry = MemoryEntry {
-        category: EntryCategory::Error,
-        body: "test".into(),
-        timestamp: chrono::DateTime::from_timestamp(1000, 0).unwrap(),
-        source_session_id: "s1".into(),
-        lesson: None,
-        tags: vec![],
-        score: 0.0,
-        event_id: 42,
-        entity_type: "subject".into(),
-        entity_name: "x".into(),
+    assert!(pipeline.verify_event_integrity(&conn, &valid).unwrap());
+    let stale = MemoryEntry {
         updated_at: chrono::DateTime::from_timestamp(2000, 0).unwrap(),
+        ..valid.clone()
     };
-    assert!(!pipeline.verify_event_integrity(&conn, &entry).unwrap());
+    assert!(!pipeline.verify_event_integrity(&conn, &stale).unwrap());
 }
 
 /// Anti-contamination: verify_and_filter_rules skips rules with stale events.
@@ -773,7 +775,9 @@ async fn test_verify_and_filter_rules_drops_stale() {
     {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         conn.execute_batch(
-            "CREATE TABLE events (id INTEGER PRIMARY KEY, content TEXT, category TEXT,
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, mined INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO sessions (id, mined) VALUES ('s1', 1);
+             CREATE TABLE events (id INTEGER PRIMARY KEY, content TEXT, category TEXT,
              lesson TEXT, source_session_id TEXT, timestamp INTEGER, updated_at INTEGER);
              INSERT INTO events VALUES (1, 'a', 'error', NULL, 's1', 1000, 1000);
              INSERT INTO events VALUES (2, 'b', 'error', NULL, 's1', 1000, 2000);",
@@ -832,7 +836,6 @@ async fn test_verify_and_filter_rules_drops_stale() {
     assert_eq!(verified[0], "rule a");
 }
 // ── DreamingPipeline model propagation tests ───────────────────────
-
 /// Model extraction, default None, and lifecycle via update_config.
 #[test]
 fn test_model_lifecycle() {
@@ -856,7 +859,6 @@ fn test_model_lifecycle() {
 }
 
 // ── REM stage: cross-agent detection ─────────────────────────────
-
 /// REM stage detects cross-agent entity sharing via SQLite agent map.
 #[test]
 fn test_rem_cross_agent_detection() {
@@ -903,7 +905,6 @@ fn test_rem_cross_agent_detection() {
 }
 
 // ── End-to-end pipeline test ─────────────────────────────────────
-
 /// End-to-end: Light → REM → Deep pipeline flow with entity grouping.
 #[test]
 fn test_e2e_light_rem_deep_pipeline() {
@@ -951,7 +952,6 @@ fn test_e2e_light_rem_deep_pipeline() {
     }
 }
 // ── Light stage entity-type chunking + semantic dedup tests ────────
-
 /// Semantic dedup: filters overlapping, keeps non-overlapping entries.
 #[test]
 fn test_light_dedup_semantic() {
