@@ -21,6 +21,7 @@ pub mod processor;
 #[cfg(test)]
 pub mod processor_tests;
 pub mod session_lookup;
+pub mod session_mode;
 pub mod session_state;
 pub mod session_types;
 pub mod shutdown;
@@ -79,6 +80,7 @@ pub use slash_router::{
 pub use streaming::{DefaultStreamingRenderer, LineBuffer, StreamingRenderer};
 pub use turn::TurnCounter;
 
+pub use session_mode::SessionMode;
 pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, StorageProvider};
 pub use system_prompt::{PromptOverrides, SystemPromptBuilder};
 // TaskManager, TaskState, BackgroundTask, BackgroundTaskError migrated to closeclaw-tasks
