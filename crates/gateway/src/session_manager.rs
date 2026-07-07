@@ -489,7 +489,7 @@ impl SessionManager {
                 if let Some(cs) = conv_sessions.get(sid) {
                     let cs = cs.read().await;
                     pending_map.insert(sid.clone(), cs.get_pending_messages());
-                    appends_map.insert(sid.clone(), cs.system_appends().to_vec());
+                    appends_map.insert(sid.clone(), cs.user_system_appends().to_vec());
                 }
             }
         } // Drop conv_sessions read lock before checkpoint persistence

@@ -114,6 +114,48 @@ impl PlanState {
         self.current_step
     }
 
+    /// 生成格式化的执行进度摘要
+    ///
+    /// 返回空字符串当无执行步骤时。
+    /// 格式示例：
+    /// ```text
+    /// ## Execution Progress
+    /// Step 1/3: completed (done)
+    /// → Step 2/3: in_progress
+    /// Step 3/3: pending
+    /// ```
+    pub fn progress_summary(&self) -> String {
+        if self.execution_steps.is_empty() {
+            return String::new();
+        }
+        let total = self.execution_steps.len();
+        let mut lines = Vec::with_capacity(total + 1);
+        lines.push("## Execution Progress".to_string());
+        for step in &self.execution_steps {
+            let idx = step.step_index + 1;
+            let is_current = self.current_step == Some(step.step_index);
+            let marker = if is_current { "→ " } else { "" };
+            let status_str = match step.status {
+                ExecutionStepStatus::Pending => "pending".to_string(),
+                ExecutionStepStatus::InProgress => "in_progress".to_string(),
+                ExecutionStepStatus::Completed => {
+                    if step.summary.is_empty() {
+                        "completed".to_string()
+                    } else {
+                        format!("completed ({})", step.summary)
+                    }
+                }
+                ExecutionStepStatus::Failed => match &step.error_message {
+                    Some(e) => format!("failed ({})", e),
+                    None => "failed".to_string(),
+                },
+                ExecutionStepStatus::Skipped => "skipped".to_string(),
+            };
+            lines.push(format!("{marker}Step {idx}/{total}: {status_str}"));
+        }
+        lines.join("\n")
+    }
+
     /// 校验步骤状态转换是否合法
     pub fn validate_transition(
         &self,

@@ -6,7 +6,7 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use closeclaw_common::{ExecutionStepStatus, PlanState};
+use closeclaw_common::{ExecutionStepStatus, NoopNotifier, PlanState};
 use closeclaw_execution::error::ExecutionError;
 use closeclaw_execution::event::ExecutionEvent;
 use closeclaw_execution::spawn::SpawnAdapter;
@@ -130,7 +130,7 @@ fn new_engine_with_config(
     config: ExecutionConfig,
 ) -> ExecutionEngine<impl SpawnAdapter> {
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
-    ExecutionEngine::new(plan_state, config, adapter)
+    ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier))
 }
 
 // ---------------------------------------------------------------------------
@@ -237,7 +237,12 @@ async fn test_spawn_all_steps_single_spawn() {
     let adapter = CallRecordingMock::new(success_result(0, "all done"));
     let calls = adapter.calls.clone();
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
-    let engine = ExecutionEngine::new(plan_state, spawn_all_config(3), adapter);
+    let engine = ExecutionEngine::new(
+        plan_state,
+        spawn_all_config(3),
+        adapter,
+        Arc::new(NoopNotifier),
+    );
     let report = engine
         .execute(&["s0".into(), "s1".into(), "s2".into()])
         .await
@@ -465,7 +470,12 @@ async fn test_plan_state_updated_after_full_execution() {
         Ok(success_result(1, "done")),
     ]);
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
-    let engine = ExecutionEngine::new(plan_state.clone(), spawn_per_step_config(3), adapter);
+    let engine = ExecutionEngine::new(
+        plan_state.clone(),
+        spawn_per_step_config(3),
+        adapter,
+        Arc::new(NoopNotifier),
+    );
     let _ = engine.execute(&["s0".into(), "s1".into()]).await.unwrap();
 
     let state = plan_state.lock().unwrap();
