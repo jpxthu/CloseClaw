@@ -46,7 +46,9 @@ fn test_anti_contamination_updated_at_from_db() {
     {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         conn.execute_batch(
-            "CREATE TABLE events (
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, mined INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO sessions (id, mined) VALUES ('sess-1', 1);
+             CREATE TABLE events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 content TEXT NOT NULL, category TEXT NOT NULL,
                 lesson TEXT, source_session_id TEXT NOT NULL,

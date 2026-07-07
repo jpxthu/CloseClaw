@@ -412,8 +412,9 @@ impl Daemon {
         let storage: Arc<dyn PersistenceService> =
             Arc::new(SqliteStorage::new(data_dir).expect("SqliteStorage already initialized"))
                 as Arc<dyn PersistenceService>;
-        // Create mining notification channel: sweeper → scheduler
+        // Create mining notification channel: sweeper + sub-agent → scheduler
         let (mining_notify_tx, mining_notify_rx) = tokio::sync::mpsc::channel(32);
+        session_manager.set_mining_notify_tx(mining_notify_tx.clone());
 
         let sweeper = Arc::new(
             ArchiveSweeper::new(Arc::clone(&storage), session_config_provider)

@@ -357,3 +357,155 @@ async fn test_parallel_announce_ordering() {
 
     assert!(mgr.drain_announces(&parent_id).await.is_empty());
 }
+
+// ── 8. test_try_push_announce_sends_mining_notification ─────────────────────
+
+/// When a run-mode sub-agent session completes, `try_push_announce` must
+/// send the child session ID through the `mining_notify_tx` channel so
+/// the DreamingScheduler can trigger mining immediately (design doc
+/// §触发 1).
+#[tokio::test]
+#[serial]
+async fn test_try_push_announce_sends_mining_notification() {
+    clear_global_prompt_state();
+
+    let tmp = TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let parent_id = setup_parent_with_conv(&mgr, "parent-mine").await;
+
+    // Wire mining notify channel.
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(8);
+    mgr.set_mining_notify_tx(tx);
+
+    let child_id = mgr
+        .create_child_session(
+            &test_resolved_config("worker-mine", None),
+            &parent_id,
+            1,
+            "mine this",
+            true,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+            3, // max_spawn_depth
+        )
+        .await
+        .expect("create_child_session should succeed");
+
+    append_assistant_to_child(
+        &mgr,
+        &child_id,
+        vec![ContentBlock::Text("mined result".to_string())],
+    )
+    .await;
+
+    mgr.try_push_announce(&child_id).await;
+
+    // Verify mining notification was sent.
+    let received = rx
+        .recv()
+        .await
+        .expect("mining notification should have been sent");
+    assert_eq!(received, child_id);
+}
+
+// ── 9. test_try_push_announce_no_notification_without_tx ────────────────────
+
+/// When no `mining_notify_tx` is set, `try_push_announce` must not panic
+/// — the mining notification path is simply skipped.
+#[tokio::test]
+#[serial]
+async fn test_try_push_announce_no_notification_without_tx() {
+    clear_global_prompt_state();
+
+    let tmp = TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let parent_id = setup_parent_with_conv(&mgr, "parent-no-mine").await;
+
+    // Do NOT set mining_notify_tx — should still work.
+    let child_id = mgr
+        .create_child_session(
+            &test_resolved_config("worker-no-mine", None),
+            &parent_id,
+            1,
+            "no mine",
+            true,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+            3, // max_spawn_depth
+        )
+        .await
+        .expect("create_child_session should succeed");
+
+    append_assistant_to_child(
+        &mgr,
+        &child_id,
+        vec![ContentBlock::Text("done".to_string())],
+    )
+    .await;
+
+    // Should not panic even without mining_notify_tx.
+    mgr.try_push_announce(&child_id).await;
+
+    // Announce should still be pushed.
+    let drained = mgr.drain_announces(&parent_id).await;
+    assert_eq!(drained.len(), 1);
+}
+
+// ── 10. test_session_mode_no_mining_notification ────────────────────────────
+
+/// A session-mode child must NOT trigger a mining notification — only
+/// run-mode sub-agent sessions trigger §触发 1.
+#[tokio::test]
+#[serial]
+async fn test_session_mode_no_mining_notification() {
+    clear_global_prompt_state();
+
+    let tmp = TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let parent_id = setup_parent_with_conv(&mgr, "parent-sess-mine").await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(8);
+    mgr.set_mining_notify_tx(tx);
+
+    let child_id = mgr
+        .create_child_session(
+            &test_resolved_config("worker-sess-mine", None),
+            &parent_id,
+            1,
+            "session work",
+            true,
+            None,
+            SpawnMode::Session,
+            false,
+            None,
+            None,
+            None,
+            3, // max_spawn_depth
+        )
+        .await
+        .expect("create_child_session should succeed");
+
+    append_assistant_to_child(
+        &mgr,
+        &child_id,
+        vec![ContentBlock::Text("session result".to_string())],
+    )
+    .await;
+
+    mgr.try_push_announce(&child_id).await;
+
+    // No mining notification should be sent for session-mode child.
+    let result = tokio::time::timeout(std::time::Duration::from_millis(50), rx.recv()).await;
+    assert!(
+        result.is_err() || result.unwrap().is_none(),
+        "session-mode child must not trigger mining notification"
+    );
+}

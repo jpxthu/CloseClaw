@@ -183,6 +183,19 @@ impl SessionManager {
             );
         }
 
+        // ── Notify DreamingScheduler for immediate mining (design doc §触发 1).
+        // Only run-mode sub-agent sessions trigger this; owner sessions
+        // still go through the ArchiveSweeper idle→archive path.
+        if let Some(tx) = self.mining_notify_tx.read().unwrap().as_ref() {
+            if let Err(e) = tx.try_send(child_session_id.to_string()) {
+                warn!(
+                    child_session_id = %child_session_id,
+                    %e,
+                    "try_push_announce: mining notification failed"
+                );
+            }
+        }
+
         // ── Decrement busy count for drain tracking ────────────────────
         // The child session result has been injected into the parent;
         // decrement the parent's busy count that was incremented in
