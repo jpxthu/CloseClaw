@@ -114,13 +114,18 @@ impl SlashResultExecutor for SlashResult {
             SlashResult::Reply(text) => {
                 actions.push(ReplyAction::Reply(vec![ContentBlock::Text(text)]));
             }
-            SlashResult::SetMode(mode) => {
+            SlashResult::SetMode {
+                mode,
+                plan_file_path,
+            } => {
                 ctx.executor.execute_set_mode(&ctx.session_id, &mode).await;
+                let mut reply = format!("Mode set to: {mode}");
+                if let Some(path) = &plan_file_path {
+                    reply.push_str(&format!("\nPlan file: {}", path.display()));
+                }
                 let _ = ctx
                     .reply_tx
-                    .send(ReplyAction::Reply(vec![ContentBlock::Text(format!(
-                        "Mode set to: {mode}"
-                    ))]))
+                    .send(ReplyAction::Reply(vec![ContentBlock::Text(reply)]))
                     .await;
             }
             SlashResult::NewSession => {

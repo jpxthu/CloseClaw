@@ -177,7 +177,12 @@ async fn test_reply_sends_text_block() {
 #[tokio::test]
 async fn test_set_mode_sends_confirmation() {
     let (ctx, mut rx, exec) = make_ctx();
-    SlashResult::SetMode("plan".into()).execute(&ctx).await;
+    SlashResult::SetMode {
+        mode: "plan".into(),
+        plan_file_path: None,
+    }
+    .execute(&ctx)
+    .await;
     drop(ctx);
 
     // Verify executor was called with correct args

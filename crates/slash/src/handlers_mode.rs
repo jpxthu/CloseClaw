@@ -9,16 +9,25 @@ use crate::handler::SlashHandler;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_gateway::SessionManager;
+use closeclaw_session::plan_file;
 
 // ── PlanModeHandler ───────────────────────────────────────────────────────
 
 /// `/plan` — enter Plan Mode with an optional task description.
 ///
-/// - With arguments: returns `SlashResult::SetMode("plan")` so the gateway
-///   triggers the mode switch and (in future steps) injects plan-related
-///   system prompt instructions.
+/// - With arguments: creates a plan file in the session's workdir,
+///   returns `SlashResult::SetMode` with the plan file path.
 /// - Without arguments: replies with a usage hint.
-pub struct PlanModeHandler;
+pub struct PlanModeHandler {
+    session_manager: Arc<SessionManager>,
+}
+
+impl PlanModeHandler {
+    /// Create a new PlanModeHandler with access to session state.
+    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+        Self { session_manager }
+    }
+}
 
 #[async_trait::async_trait]
 impl SlashHandler for PlanModeHandler {
@@ -34,13 +43,30 @@ impl SlashHandler for PlanModeHandler {
         false
     }
 
-    async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
+    async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
         if args.trim().is_empty() {
             return SlashResult::Reply(
                 "用法：/plan <任务描述>\n进入 Plan Mode 进行任务规划。".to_owned(),
             );
         }
-        SlashResult::SetMode("plan".to_owned())
+
+        let title = args.trim();
+        let plan_file_path = if let Some(conv) = self
+            .session_manager
+            .get_conversation_session(&ctx.session_id)
+            .await
+        {
+            let cs = conv.read().await;
+            let workdir = cs.workdir().to_path_buf();
+            plan_file::create_plan_file(&workdir, title).ok()
+        } else {
+            None
+        };
+
+        SlashResult::SetMode {
+            mode: "plan".to_owned(),
+            plan_file_path,
+        }
     }
 }
 
@@ -95,7 +121,10 @@ impl SlashHandler for ModeHandler {
 
         // With argument — validate and return SetMode.
         match SessionMode::from_str_opt(arg) {
-            Some(mode) => SlashResult::SetMode(mode.to_string()),
+            Some(mode) => SlashResult::SetMode {
+                mode: mode.to_string(),
+                plan_file_path: None,
+            },
             None => {
                 SlashResult::Reply(format!("无效的会话模式：{arg}。可选值：normal, plan, auto"))
             }
