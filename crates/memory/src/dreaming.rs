@@ -308,9 +308,10 @@ impl DreamingPipeline {
         let sql = "SELECT e.id, e.content, e.category, e.lesson, e.timestamp,
                          e.updated_at, ent.type AS entity_type, ent.name AS entity_name
                     FROM events e
+                    JOIN sessions s ON s.id = e.source_session_id
                     JOIN event_entities ee ON ee.event_id = e.id
                     JOIN entities ent ON ent.id = ee.entity_id
-                    WHERE e.source_session_id = ?1";
+                    WHERE e.source_session_id = ?1 AND s.mined = 1";
 
         let mut stmt = match conn.prepare(sql) {
             Ok(s) => s,
