@@ -4,6 +4,7 @@
 //! handled by the individual [`ToolRegistrar`] implementations in
 //! `crate::registrars`.
 
+pub(crate) mod approval_utils;
 pub mod bash;
 pub mod bash_classify;
 pub mod bash_kill;
@@ -45,3 +46,19 @@ mod sessions_spawn_permission_tests;
 #[cfg(test)]
 #[path = "sessions_steer_kill_tests.rs"]
 mod sessions_steer_kill_tests;
+
+#[cfg(test)]
+#[path = "bash_approval_tests.rs"]
+mod bash_approval_tests;
+
+#[cfg(test)]
+#[path = "sessions_kill_approval_tests.rs"]
+mod sessions_kill_approval_tests;
+
+#[cfg(test)]
+#[path = "sessions_steer_approval_tests.rs"]
+mod sessions_steer_approval_tests;
+
+#[cfg(test)]
+#[path = "sessions_spawn_approval_tests.rs"]
+mod sessions_spawn_approval_tests;

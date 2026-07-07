@@ -1,5 +1,6 @@
 //! Built-in sessions_steer tool — injects a new task into a persistent child session.
 
+use crate::builtin::approval_utils::build_approval_pending;
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use closeclaw_gateway::{session_manager::SpawnMode, SessionManager};
 use closeclaw_permission::approval_flow::ApprovalFlow;
@@ -173,14 +174,4 @@ impl Tool for SessionsSteerTool {
             context_modifier: None,
         })
     }
-}
-
-/// Build the ToolResult data for an approval-pending response.
-fn build_approval_pending(request_id: String) -> Value {
-    use serde_json::Map;
-    let mut m = Map::new();
-    m.insert("status".into(), "approval_pending".into());
-    m.insert("request_id".into(), request_id.into());
-    m.insert("message".into(), "Operation pending owner approval".into());
-    Value::Object(m)
 }

@@ -243,8 +243,8 @@ fn test_resolve_cwd_with_cwd_arg() {
 
 // --- BashTool metadata ---
 
-#[test]
-fn test_bash_tool_name_and_group() {
+#[tokio::test]
+async fn test_bash_tool_name_and_group() {
     let tool = BashTool::new(
         test_permission_engine(),
         test_bg_manager(),
@@ -256,8 +256,8 @@ fn test_bash_tool_name_and_group() {
     assert_eq!(tool.group(), "bash");
 }
 
-#[test]
-fn test_bash_tool_flags() {
+#[tokio::test]
+async fn test_bash_tool_flags() {
     let tool = BashTool::new(
         test_permission_engine(),
         test_bg_manager(),
@@ -272,8 +272,8 @@ fn test_bash_tool_flags() {
 
 // --- input_schema ---
 
-#[test]
-fn test_input_schema_command_required() {
+#[tokio::test]
+async fn test_input_schema_command_required() {
     let tool = BashTool::new(
         test_permission_engine(),
         test_bg_manager(),
@@ -286,8 +286,8 @@ fn test_input_schema_command_required() {
     assert!(required.contains(&json!("command")));
 }
 
-#[test]
-fn test_input_schema_six_properties() {
+#[tokio::test]
+async fn test_input_schema_six_properties() {
     let tool = BashTool::new(
         test_permission_engine(),
         test_bg_manager(),

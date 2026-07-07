@@ -101,7 +101,7 @@ fn make_permission_engine_allow_inter_agent() -> Arc<PermissionEngine> {
 /// Mock ApprovalFlow for tests — never enqueues anything.
 fn make_mock_approval_flow() -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
     Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
-        Arc::new(make_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
+        make_session_manager() as Arc<dyn closeclaw_common::SessionLookup>,
         Arc::new(|_| {}),
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
@@ -481,17 +481,15 @@ async fn test_steer_permission_denied() {
         .call(json!({"sessionId": "child-pd", "task": "new task"}), &ctx)
         .await;
 
-    let err = result.expect_err("steer should fail when permission denied");
-    match err {
-        ToolCallError::ExecutionFailed(msg) => {
-            assert!(
-                msg.contains("denied") || msg.contains("permission"),
-                "error should mention permission denial, got: {}",
-                msg
-            );
-        }
-        other => panic!("expected ExecutionFailed, got {:?}", other),
-    }
+    let output = result.expect("steer permission denied should route through approval flow");
+    assert_eq!(
+        output.data["status"], "approval_pending",
+        "should return approval_pending when permission denied"
+    );
+    assert!(
+        output.data["request_id"].is_string(),
+        "should include request_id"
+    );
 }
 
 // ===========================================================================
@@ -548,17 +546,15 @@ async fn test_kill_permission_denied() {
 
     let result = tool.call(json!({"sessionId": "child-kd"}), &ctx).await;
 
-    let err = result.expect_err("kill should fail when permission denied");
-    match err {
-        ToolCallError::ExecutionFailed(msg) => {
-            assert!(
-                msg.contains("denied") || msg.contains("permission"),
-                "error should mention permission denial, got: {}",
-                msg
-            );
-        }
-        other => panic!("expected ExecutionFailed, got {:?}", other),
-    }
+    let output = result.expect("kill permission denied should route through approval flow");
+    assert_eq!(
+        output.data["status"], "approval_pending",
+        "should return approval_pending when permission denied"
+    );
+    assert!(
+        output.data["request_id"].is_string(),
+        "should include request_id"
+    );
 }
 
 // ===========================================================================
