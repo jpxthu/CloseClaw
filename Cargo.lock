@@ -597,6 +597,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "closeclaw-execution"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "closeclaw-common",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "closeclaw-gateway"
 version = "0.1.0"
 dependencies = [
