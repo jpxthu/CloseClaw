@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
+use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_tasks::TaskManager;
 
@@ -26,6 +27,7 @@ pub struct CoreToolsRegistrar {
     task_manager: Arc<dyn TaskManager>,
     session_manager: Arc<SessionManager>,
     config_manager: Arc<ConfigManager>,
+    approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
 }
 
 impl CoreToolsRegistrar {
@@ -35,12 +37,14 @@ impl CoreToolsRegistrar {
         task_manager: Arc<dyn TaskManager>,
         session_manager: Arc<SessionManager>,
         config_manager: Arc<ConfigManager>,
+        approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     ) -> Self {
         Self {
             permission_engine,
             task_manager,
             session_manager,
             config_manager,
+            approval_flow,
         }
     }
 }
@@ -83,6 +87,7 @@ impl ToolRegistrar for CoreToolsRegistrar {
                 self.task_manager.clone(),
                 self.session_manager.clone(),
                 self.config_manager.clone(),
+                self.approval_flow.clone(),
             ),
             r
         );

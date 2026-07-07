@@ -3,11 +3,15 @@
 use super::prompt_template::PromptTemplate;
 use crate::{SpawnValidator, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use closeclaw_gateway::session_manager::{SessionManager, SpawnMode};
+use closeclaw_permission::approval_flow::ApprovalFlow;
+use closeclaw_permission::engine::engine_risk::RiskLevel;
+use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody};
 
 use async_trait::async_trait;
 use closeclaw_agent::AgentConfigLookup;
 use serde_json::{json, Value};
 use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 
 /// Tool that spawns child sessions for sub-agent execution.
 ///
@@ -17,6 +21,7 @@ pub struct SessionsSpawnTool {
     spawn_validator: Arc<dyn SpawnValidator>,
     session_manager: Arc<SessionManager>,
     agent_config_lookup: Arc<dyn AgentConfigLookup>,
+    approval_flow: Arc<TokioMutex<ApprovalFlow>>,
 }
 
 /// Parsed arguments for a `sessions_spawn` tool call.
@@ -39,11 +44,13 @@ impl SessionsSpawnTool {
         spawn_validator: Arc<dyn SpawnValidator>,
         session_manager: Arc<SessionManager>,
         agent_config_lookup: Arc<dyn AgentConfigLookup>,
+        approval_flow: Arc<TokioMutex<ApprovalFlow>>,
     ) -> Self {
         Self {
             spawn_validator,
             session_manager,
             agent_config_lookup,
+            approval_flow,
         }
     }
 
@@ -240,18 +247,46 @@ impl Tool for SessionsSpawnTool {
         let parent_session_id = ctx.session_id.as_deref().ok_or_else(|| {
             ToolCallError::ExecutionFailed("no session_id in tool context".into())
         })?;
-        let spawn_result = self
+        let spawn_result = match self
             .spawn_validator
             .validate_spawn(parent_session_id, spawn_args.agent_id.as_deref())
             .await
-            .map_err(|e| match e {
-                crate::SpawnError::PermissionDenied { .. } => {
-                    ToolCallError::PermissionDenied("spawn".to_string())
+        {
+            Ok(result) => result,
+            Err(crate::SpawnError::PermissionDenied { agent_id, reason }) => {
+                let caller = Caller {
+                    user_id: String::new(),
+                    agent: ctx.agent_id.clone(),
+                    creator_id: String::new(),
+                };
+                let body = PermissionRequestBody::InterAgentMsg {
+                    from: ctx.agent_id.clone(),
+                    to: agent_id,
+                };
+                let session_id = ctx.session_id.as_deref().unwrap_or("");
+                let mut flow = self.approval_flow.lock().await;
+                if let Some(request_id) =
+                    flow.submit_denial(&caller, &body, RiskLevel::Medium, session_id, false)
+                {
+                    return Ok(ToolResult {
+                        data: json!({
+                            "status": "approval_pending",
+                            "request_id": request_id,
+                            "message": "Operation pending owner approval",
+                        }),
+                        new_messages: vec![],
+                        context_modifier: None,
+                    });
                 }
-                other => {
-                    ToolCallError::ExecutionFailed(format!("spawn validation failed: {}", other))
-                }
-            })?;
+                return Err(ToolCallError::PermissionDenied(reason));
+            }
+            Err(other) => {
+                return Err(ToolCallError::ExecutionFailed(format!(
+                    "spawn validation failed: {}",
+                    other
+                )));
+            }
+        };
         let config = spawn_result.config;
         let effective_max_spawn_depth = spawn_result.effective_max_spawn_depth;
         // Look up the parent agent's subagents.model config
