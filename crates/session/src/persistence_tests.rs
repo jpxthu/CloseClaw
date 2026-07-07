@@ -9,7 +9,7 @@ mod tests {
     use crate::checkpoint_manager::CheckpointManager;
     use crate::persistence::{
         DreamingStatus, PendingMessage, PersistenceService, ReasoningMode, ReasoningModeState,
-        SessionCheckpoint, SessionStatus,
+        SessionCheckpoint, SessionMode, SessionStatus,
     };
     use crate::storage::memory::MemoryStorage;
 
@@ -812,5 +812,118 @@ mod tests {
             after.plan_state.is_none(),
             "plan_state should remain None after compaction"
         );
+    }
+
+    // ===================================================================
+    // session_mode persistence tests
+    // ===================================================================
+
+    #[test]
+    fn test_checkpoint_session_mode_default_is_normal() {
+        let cp = SessionCheckpoint::new("s-mode-default".into());
+        assert_eq!(cp.session_mode, SessionMode::Normal);
+    }
+
+    #[test]
+    fn test_checkpoint_with_session_mode_builder() {
+        let cp =
+            SessionCheckpoint::new("s-mode-builder".into()).with_session_mode(SessionMode::Auto);
+        assert_eq!(cp.session_mode, SessionMode::Auto);
+    }
+
+    #[test]
+    fn test_checkpoint_session_mode_roundtrip() {
+        for mode in [SessionMode::Normal, SessionMode::Plan, SessionMode::Auto] {
+            let cp = SessionCheckpoint::new(format!("s-mode-rt-{}", mode)).with_session_mode(mode);
+            let json = serde_json::to_string(&cp).unwrap();
+            let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed.session_mode, mode);
+        }
+    }
+
+    #[test]
+    fn test_checkpoint_session_mode_missing_json_defaults_normal() {
+        let cp = SessionCheckpoint::new("s-mode-old".into())
+            .with_session_mode(SessionMode::Auto)
+            .with_message_count(5);
+        let mut json_value: serde_json::Value = serde_json::to_value(&cp).unwrap();
+        json_value.as_object_mut().unwrap().remove("session_mode");
+        let json_str = serde_json::to_string(&json_value).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(
+            parsed.session_mode,
+            SessionMode::Normal,
+            "old data without session_mode should default to Normal"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_manager_save_load_with_session_mode() {
+        let storage = Arc::new(MemoryStorage::new());
+        let manager = CheckpointManager::new(storage);
+
+        let checkpoint =
+            SessionCheckpoint::new("session-mode-save".into()).with_session_mode(SessionMode::Auto);
+        manager.save_sync(checkpoint).await.unwrap();
+
+        let loaded = manager.load("session-mode-save").await.unwrap();
+        assert!(loaded.is_some());
+        assert_eq!(loaded.unwrap().session_mode, SessionMode::Auto);
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_session_mode_persists_through_memory_storage() {
+        let storage = MemoryStorage::new();
+        let cp = SessionCheckpoint::new("s-mode-mem".into())
+            .with_session_mode(SessionMode::Plan)
+            .with_message_count(3);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let loaded = storage.load_checkpoint("s-mode-mem").await.unwrap();
+        assert!(loaded.is_some());
+        assert_eq!(loaded.unwrap().session_mode, SessionMode::Plan);
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_session_mode_update_via_builder() {
+        let storage = MemoryStorage::new();
+        let cp = SessionCheckpoint::new("s-mode-update".into())
+            .with_session_mode(SessionMode::Normal)
+            .with_message_count(1);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        // Load, change mode, save again
+        let mut loaded = storage
+            .load_checkpoint("s-mode-update")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.session_mode, SessionMode::Normal);
+        loaded.session_mode = SessionMode::Auto;
+        loaded.touch();
+        storage.save_checkpoint(&loaded).await.unwrap();
+
+        let reloaded = storage
+            .load_checkpoint("s-mode-update")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(reloaded.session_mode, SessionMode::Auto);
+    }
+
+    #[test]
+    fn test_checkpoint_session_mode_not_affected_by_reasoning_mode() {
+        // SessionMode and ReasoningMode are orthogonal — changing one
+        // should not affect the other.
+        let cp = SessionCheckpoint::new("s-mode-ortho".into())
+            .with_session_mode(SessionMode::Auto)
+            .with_mode(ReasoningMode::Plan);
+        assert_eq!(cp.session_mode, SessionMode::Auto);
+        assert_eq!(cp.mode, ReasoningMode::Plan);
+
+        let json = serde_json::to_string(&cp).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.session_mode, SessionMode::Auto);
+        assert_eq!(parsed.mode, ReasoningMode::Plan);
     }
 }

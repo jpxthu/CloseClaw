@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::warn;
 
-pub use closeclaw_common::{AgentRole, PendingMessage, PlanState, ReasoningLevel};
+pub use closeclaw_common::{AgentRole, PendingMessage, PlanState, ReasoningLevel, SessionMode};
 
 /// A single ProgressTool call record for recovery fallback.
 ///
@@ -167,6 +167,15 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
     #[serde(default)]
     pub progress_tool_calls: Vec<ProgressToolCallRecord>,
+    /// Session Mode — controls session-level behavior constraints.
+    ///
+    /// `SessionMode` is **orthogonal** to `ReasoningMode` / `ReasoningModeState`:
+    /// - `ReasoningMode` governs LLM reasoning presentation (Direct/Plan/Stream/Hidden)
+    /// - `SessionMode` governs session behavior constraints (Normal/Plan/Auto)
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 Normal）。
+    #[serde(default)]
+    pub session_mode: SessionMode,
 }
 
 impl SessionCheckpoint {
@@ -206,6 +215,7 @@ impl SessionCheckpoint {
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
             plan_state: None,
             progress_tool_calls: Vec::new(),
+            session_mode: SessionMode::default(),
         }
     }
 
@@ -350,6 +360,11 @@ impl SessionCheckpoint {
         self.plan_state = Some(state);
         self
     }
+    /// Update the session mode
+    pub fn with_session_mode(mut self, mode: SessionMode) -> Self {
+        self.session_mode = mode;
+        self
+    }
     /// Set the ProgressTool call history for recovery fallback (layer 4).
     pub fn with_progress_tool_calls(mut self, records: Vec<ProgressToolCallRecord>) -> Self {
         self.progress_tool_calls = records;
@@ -369,6 +384,12 @@ impl SessionCheckpoint {
 }
 
 /// Reasoning Mode State — 推理模式的状态
+///
+/// **Orthogonal to `SessionMode`**: `ReasoningModeState` tracks LLM
+/// reasoning step progress (current_step, is_complete), while
+/// `SessionMode` controls session-level behavior constraints
+/// (tool visibility, permission boundaries, prompt instructions).
+/// The two are stored independently and switched independently.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ReasoningModeState {
     /// 当前步骤编号（1-indexed）

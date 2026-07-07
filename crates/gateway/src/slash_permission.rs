@@ -423,6 +423,32 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         cs.write().await.set_verbosity_level(level);
     }
 
+    async fn execute_set_mode(&self, session_id: &str, mode: &str) {
+        let cs: Option<Arc<RwLock<ConversationSession>>> = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await;
+        let Some(cs) = cs else {
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply("session 不存在，无法设置 mode".to_owned())
+                    .await;
+            }
+            return;
+        };
+        match closeclaw_common::SessionMode::from_str_opt(mode) {
+            Some(parsed) => {
+                cs.write().await.set_session_mode(parsed);
+            }
+            None => {
+                tracing::warn!(
+                    session_id,
+                    mode,
+                    "unknown session mode; keeping current mode"
+                );
+            }
+        }
+    }
+
     async fn execute_exec(
         &self,
         _session_id: &str,
