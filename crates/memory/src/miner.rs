@@ -504,6 +504,16 @@ pub(crate) fn write_to_sqlite(
             .map_err(|e| MinerError::Sqlite(e.to_string()))?;
         }
     }
+
+    // Mark session as mined so dreaming can JOIN on it.
+    let mined_at = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO sessions (id, mined, mined_at) VALUES (?1, 1, ?2)
+         ON CONFLICT(id) DO UPDATE SET mined = 1, mined_at = ?2",
+        params![session_id, mined_at],
+    )
+    .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+
     Ok(())
 }
 
