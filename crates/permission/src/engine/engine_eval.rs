@@ -8,8 +8,10 @@ use super::engine_types::{
     Subject,
 };
 use super::engine_workspace;
+use closeclaw_common::session_mode_query::SessionModeQuery;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::info;
 // NOTE: Cache fields (agent_permissions, user_effective_permissions) removed per
 // design doc: "权限评估每次新鲜计算，不缓存评估结果"
@@ -26,6 +28,10 @@ pub struct PermissionEngine {
     templates: HashMap<String, crate::templates::Template>,
     /// Data root directory for workspace path resolution
     data_root: PathBuf,
+    /// Optional session mode query for mode-aware filtering.
+    /// When set, `evaluate` will consult the agent's session mode
+    /// for additional access-control decisions.
+    session_mode_query: Option<Arc<dyn SessionModeQuery>>,
 }
 
 // --- Construction & index management ---
@@ -39,6 +45,7 @@ impl PermissionEngine {
             user_agent_rule_index: HashMap::new(),
             templates: HashMap::new(),
             data_root,
+            session_mode_query: None,
         };
         engine.rebuild_indices_with_rules(&rules);
         engine
@@ -85,6 +92,20 @@ impl PermissionEngine {
     /// Load templates into the engine
     pub fn load_templates(&mut self, templates: HashMap<String, crate::templates::Template>) {
         self.templates = templates;
+    }
+
+    /// Inject a session mode query for mode-aware permission evaluation.
+    ///
+    /// When provided, `evaluate` will look up the agent's current
+    /// `SessionMode` and apply mode-specific access rules.
+    pub fn with_session_mode_query(mut self, query: Arc<dyn SessionModeQuery>) -> Self {
+        self.session_mode_query = Some(query);
+        self
+    }
+
+    /// Get a reference to the session mode query, if set.
+    pub fn session_mode_query(&self) -> Option<&Arc<dyn SessionModeQuery>> {
+        self.session_mode_query.as_ref()
     }
 }
 
