@@ -62,6 +62,7 @@ fn test_plan_state_serde_roundtrip() {
         phase: PlanPhase::Design,
         pending_steps: vec!["step1".into(), "step2".into()],
         plan_file_path: "/tmp/plan.md".into(),
+        ..PlanState::default()
     };
     let json = serde_json::to_string(&state).unwrap();
     let deserialized: PlanState = serde_json::from_str(&json).unwrap();
@@ -87,4 +88,214 @@ fn test_plan_state_serialization_field_names_snake_case() {
     assert!(json.get("phase").is_some());
     assert!(json.get("pending_steps").is_some());
     assert!(json.get("plan_file_path").is_some());
+}
+
+#[test]
+fn test_init_execution_steps() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into(), "step2".into(), "step3".into()]);
+    assert_eq!(state.execution_steps.len(), 3);
+    assert!(state.current_step.is_none());
+    for (i, step) in state.execution_steps.iter().enumerate() {
+        assert_eq!(step.step_index, i);
+        assert_eq!(step.status, ExecutionStepStatus::Pending);
+        assert!(step.error_message.is_none());
+    }
+    assert_eq!(
+        state.get_step_status(0),
+        Some(&ExecutionStepStatus::Pending)
+    );
+    assert_eq!(
+        state.get_step_status(2),
+        Some(&ExecutionStepStatus::Pending)
+    );
+    assert_eq!(state.get_step_status(3), None);
+}
+
+#[test]
+fn test_step_status_serde_roundtrip() {
+    let statuses = [
+        ExecutionStepStatus::Pending,
+        ExecutionStepStatus::InProgress,
+        ExecutionStepStatus::Completed,
+        ExecutionStepStatus::Failed,
+        ExecutionStepStatus::Skipped,
+    ];
+    for status in &statuses {
+        let json = serde_json::to_string(status).unwrap();
+        let deserialized: ExecutionStepStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(&deserialized, status);
+    }
+}
+
+#[test]
+fn test_transition_pending_to_in_progress() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    assert!(state
+        .validate_transition(0, &ExecutionStepStatus::InProgress)
+        .is_ok());
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    assert_eq!(
+        state.get_step_status(0),
+        Some(&ExecutionStepStatus::InProgress)
+    );
+}
+
+#[test]
+fn test_transition_in_progress_to_completed() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into(), "step2".into()]);
+    state.current_step = Some(0);
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    state
+        .apply_transition(0, ExecutionStepStatus::Completed)
+        .unwrap();
+    assert_eq!(
+        state.get_step_status(0),
+        Some(&ExecutionStepStatus::Completed)
+    );
+    assert_eq!(state.current_step, Some(1));
+}
+
+#[test]
+fn test_transition_in_progress_to_failed() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    state.current_step = Some(0);
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    state
+        .apply_transition(0, ExecutionStepStatus::Failed)
+        .unwrap();
+    assert_eq!(state.get_step_status(0), Some(&ExecutionStepStatus::Failed));
+    assert_eq!(state.current_step, Some(0));
+}
+
+#[test]
+fn test_transition_failed_to_in_progress() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    state.current_step = Some(0);
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    state
+        .apply_transition(0, ExecutionStepStatus::Failed)
+        .unwrap();
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    assert_eq!(
+        state.get_step_status(0),
+        Some(&ExecutionStepStatus::InProgress)
+    );
+}
+
+#[test]
+fn test_transition_completed_cannot_go_back() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    state.current_step = Some(0);
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    state
+        .apply_transition(0, ExecutionStepStatus::Completed)
+        .unwrap();
+    let err = state.validate_transition(0, &ExecutionStepStatus::InProgress);
+    assert!(err.is_err());
+    assert!(matches!(
+        err.unwrap_err(),
+        TransitionError::InvalidTransition { .. }
+    ));
+}
+
+#[test]
+fn test_transition_skip_step_rejected() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into(), "step2".into()]);
+    let err = state.validate_transition(1, &ExecutionStepStatus::InProgress);
+    assert!(err.is_err());
+    assert!(matches!(
+        err.unwrap_err(),
+        TransitionError::SkippedStep {
+            expected: 0,
+            got: 1
+        }
+    ));
+}
+
+#[test]
+fn test_transition_out_of_bounds() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    let err = state.validate_transition(5, &ExecutionStepStatus::InProgress);
+    assert!(err.is_err());
+    assert!(matches!(
+        err.unwrap_err(),
+        TransitionError::OutOfBounds { index: 5, len: 1 }
+    ));
+}
+
+#[test]
+fn test_transition_skipped_from_pending() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    assert!(state
+        .validate_transition(0, &ExecutionStepStatus::Skipped)
+        .is_ok());
+    state
+        .apply_transition(0, ExecutionStepStatus::Skipped)
+        .unwrap();
+    assert_eq!(
+        state.get_step_status(0),
+        Some(&ExecutionStepStatus::Skipped)
+    );
+}
+
+#[test]
+fn test_init_then_full_flow() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into(), "step2".into(), "step3".into()]);
+    // Step 0: pending → in_progress → completed
+    state.current_step = Some(0);
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    state
+        .apply_transition(0, ExecutionStepStatus::Completed)
+        .unwrap();
+    // Step 1: pending → in_progress → completed
+    state.current_step = Some(1);
+    state
+        .apply_transition(1, ExecutionStepStatus::InProgress)
+        .unwrap();
+    state
+        .apply_transition(1, ExecutionStepStatus::Completed)
+        .unwrap();
+    // Step 2: pending → in_progress → completed
+    state.current_step = Some(2);
+    state
+        .apply_transition(2, ExecutionStepStatus::InProgress)
+        .unwrap();
+    state
+        .apply_transition(2, ExecutionStepStatus::Completed)
+        .unwrap();
+    // All done
+    for (i, step) in state.execution_steps.iter().enumerate() {
+        assert_eq!(
+            step.status,
+            ExecutionStepStatus::Completed,
+            "step {} should be Completed",
+            i
+        );
+    }
+    // current_step stays at last index (no next step)
+    assert_eq!(state.current_step, Some(2));
 }

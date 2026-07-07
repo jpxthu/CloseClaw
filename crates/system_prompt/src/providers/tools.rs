@@ -189,6 +189,9 @@ mod tests {
                 spawn_controller as Arc<dyn closeclaw_tools::SpawnValidator>,
                 session_manager,
             )),
+            Box::new(closeclaw_tools::PlanToolsRegistrar::new(Arc::new(
+                std::sync::Mutex::new(closeclaw_common::PlanState::new()),
+            ))),
         ];
         registry.register_all(registrars).await.unwrap();
 
