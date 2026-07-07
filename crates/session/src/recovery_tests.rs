@@ -6,7 +6,7 @@ mod tests {
     use crate::persistence::{
         DreamingStatus, PendingOperation, PendingOperationType, PersistenceError,
         PersistenceService, ReasoningLevel, ReasoningMode, ReasoningModeState, SessionCheckpoint,
-        SessionStatus,
+        SessionMode, SessionStatus,
     };
     use crate::recovery::{
         extract_tasks_from_content, RecoveryReport, SessionRecoveryService, SpawnTree,
@@ -53,6 +53,7 @@ mod tests {
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
             plan_state: None,
             progress_tool_calls: Vec::new(),
+            session_mode: SessionMode::default(),
         }
     }
 

@@ -9,6 +9,7 @@
 use crate::builder::PromptOverrides;
 use crate::sections::Section;
 use crate::workdir;
+use closeclaw_common::SessionMode;
 use closeclaw_gateway::session_handler::MessageMetadata;
 
 /// Build dynamic sections from metadata and session state.
@@ -28,8 +29,14 @@ pub fn build_dynamic_sections(
     workdir_path: Option<&str>,
     system_appends: &[String],
     session_timestamp: Option<i64>,
+    session_mode: SessionMode,
 ) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
+
+    // Inject mode-specific instructions when not in Normal mode.
+    if session_mode != SessionMode::Normal {
+        sections.push(Section::ModeInstruction(session_mode));
+    }
 
     sections.push(Section::ChannelContext {
         chat_name: meta.channel.clone(),
@@ -158,5 +165,66 @@ pub fn build_full_system_prompt(
         }
     } else {
         dynamic_rendered
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use closeclaw_common::SessionMode;
+
+    fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
+        MessageMetadata {
+            sender_id: sender.to_string(),
+            channel: channel.to_string(),
+            timestamp: ts,
+        }
+    }
+
+    #[test]
+    fn test_build_dynamic_sections_normal_mode_no_instruction() {
+        let meta = make_meta("u", "ch", 0);
+        let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
+        assert!(!sections.iter().any(|s| s.name() == "mode_instruction"));
+    }
+
+    #[test]
+    fn test_build_dynamic_sections_plan_mode_injects_instruction() {
+        let meta = make_meta("u", "ch", 0);
+        let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Plan);
+        let mode_sec = sections.iter().find(|s| s.name() == "mode_instruction");
+        assert!(
+            mode_sec.is_some(),
+            "Plan mode should inject ModeInstruction"
+        );
+        let rendered = mode_sec.unwrap().render();
+        assert!(rendered.contains("Plan"));
+    }
+
+    #[test]
+    fn test_build_dynamic_sections_auto_mode_injects_instruction() {
+        let meta = make_meta("u", "ch", 0);
+        let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Auto);
+        let mode_sec = sections.iter().find(|s| s.name() == "mode_instruction");
+        assert!(
+            mode_sec.is_some(),
+            "Auto mode should inject ModeInstruction"
+        );
+        let rendered = mode_sec.unwrap().render();
+        assert!(rendered.contains("Auto"));
+    }
+
+    #[test]
+    fn test_build_dynamic_sections_mode_instruction_before_session_state() {
+        let meta = make_meta("u", "ch", 0);
+        let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Plan);
+        let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
+        let ss_idx = sections.iter().position(|s| s.name() == "session_state");
+        assert!(mode_idx.is_some());
+        assert!(ss_idx.is_some());
+        assert!(
+            mode_idx.unwrap() < ss_idx.unwrap(),
+            "ModeInstruction should come before SessionState"
+        );
     }
 }

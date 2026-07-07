@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use crate::persistence::ReasoningLevel;
+use crate::persistence::{ReasoningLevel, SessionMode};
 use closeclaw_agent::communication::CommunicationConfig;
 use closeclaw_common::RunningStats;
 use closeclaw_common::StreamingSink;
@@ -147,6 +147,9 @@ pub struct ConversationSession {
     progress_appends: Arc<Mutex<Vec<String>>>,
     /// Verbosity level controlling outbound content filtering.
     verbosity_level: VerbosityLevel,
+    /// Session mode controlling session-level behavior constraints.
+    /// Orthogonal to `ReasoningMode` — see [`SessionMode`] docs.
+    session_mode: SessionMode,
     /// LLM caller injected by Gateway for delegating LLM requests.
     /// Set via [`set_llm_caller`](Self::set_llm_caller) after construction.
     llm_caller: Option<Arc<dyn LlmCaller>>,
@@ -196,6 +199,7 @@ impl ConversationSession {
             last_activity_at: Utc::now().timestamp(),
             shutdown_handle: None,
             verbosity_level: VerbosityLevel::default(),
+            session_mode: SessionMode::default(),
             progress_appends: Arc::new(Mutex::new(Vec::new())),
             llm_caller: None,
             system_prompt_builder: None,
@@ -246,6 +250,12 @@ impl ConversationSession {
     /// Sets the reasoning level.
     pub fn with_reasoning_level(mut self, level: ReasoningLevel) -> Self {
         self.reasoning_level = level;
+        self
+    }
+
+    /// Sets the session mode.
+    pub fn with_session_mode(mut self, mode: SessionMode) -> Self {
+        self.session_mode = mode;
         self
     }
 
@@ -322,6 +332,16 @@ impl ConversationSession {
     /// Overrides the verbosity level at runtime.
     pub fn set_verbosity_level(&mut self, level: VerbosityLevel) {
         self.verbosity_level = level;
+    }
+
+    /// Returns the current session mode.
+    pub fn session_mode(&self) -> SessionMode {
+        self.session_mode
+    }
+
+    /// Overrides the session mode at runtime.
+    pub fn set_session_mode(&mut self, mode: SessionMode) {
+        self.session_mode = mode;
     }
 
     /// Returns a reference to the memory-injection Arc.
@@ -805,6 +825,7 @@ impl std::fmt::Debug for ConversationSession {
             .field("stopped", &self.stopped.load(Ordering::SeqCst))
             .field("communication_config", &self.communication_config)
             .field("verbosity_level", &self.verbosity_level)
+            .field("session_mode", &self.session_mode)
             .field(
                 "memory_injection",
                 &*self

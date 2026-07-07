@@ -5,6 +5,7 @@
 use super::session_handler::MessageMetadata;
 use closeclaw_common::system_prompt::builder::PromptOverrides;
 use closeclaw_common::system_prompt::inject::{build_dynamic_sections, build_full_system_prompt};
+use closeclaw_common::SessionMode;
 
 fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
     MessageMetadata {
@@ -24,7 +25,7 @@ fn test_priority_override_wins_over_agent_and_custom() {
         custom_prompt: Some("custom prompt".into()),
     };
     let meta = make_meta("u", "ch", 0);
-    let dynamic = build_dynamic_sections(&meta, None, &[], None);
+    let dynamic = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
     let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
 
     assert!(full.contains("override prompt"));
@@ -41,7 +42,7 @@ fn test_priority_agent_wins_over_custom() {
         custom_prompt: Some("custom prompt".into()),
     };
     let meta = make_meta("u", "ch", 0);
-    let dynamic = build_dynamic_sections(&meta, None, &[], None);
+    let dynamic = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
     let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
 
     assert!(full.contains("agent prompt"));
@@ -57,7 +58,7 @@ fn test_priority_custom_fallback() {
         custom_prompt: Some("custom prompt".into()),
     };
     let meta = make_meta("u", "ch", 0);
-    let dynamic = build_dynamic_sections(&meta, None, &[], None);
+    let dynamic = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
     let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
 
     assert!(full.contains("custom prompt"));
@@ -72,7 +73,7 @@ fn test_priority_override_mutual_exclusivity() {
         custom_prompt: Some("custom ignored".into()),
     };
     let meta = make_meta("u", "ch", 0);
-    let dynamic = build_dynamic_sections(&meta, None, &[], None);
+    let dynamic = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
     let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
 
     // Only override prompt appears
@@ -93,7 +94,13 @@ fn test_priority_hit_only_appends_append_section() {
         custom_prompt: None,
     };
     let meta = make_meta("alice", "telegram", 1700000000);
-    let dynamic = build_dynamic_sections(&meta, None, &["extra instruction".into()], None);
+    let dynamic = build_dynamic_sections(
+        &meta,
+        None,
+        &["extra instruction".into()],
+        None,
+        SessionMode::Normal,
+    );
     let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
 
     // Override prompt is the base
@@ -124,7 +131,13 @@ fn test_priority_hit_multiple_appends() {
         ..Default::default()
     };
     let meta = make_meta("u", "ch", 0);
-    let dynamic = build_dynamic_sections(&meta, None, &["first".into(), "second".into()], None);
+    let dynamic = build_dynamic_sections(
+        &meta,
+        None,
+        &["first".into(), "second".into()],
+        None,
+        SessionMode::Normal,
+    );
     let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
 
     assert!(full.contains("agent prompt"));
@@ -139,7 +152,7 @@ fn test_priority_hit_multiple_appends() {
 fn test_priority_no_hit_normal_behavior() {
     let overrides = PromptOverrides::default(); // all None
     let meta = make_meta("bob", "feishu", 1700000000);
-    let dynamic = build_dynamic_sections(&meta, None, &[], None);
+    let dynamic = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
     let full = build_full_system_prompt(Some("static prompt"), &dynamic, Some(&overrides));
 
     // Static prompt is preserved
@@ -155,7 +168,8 @@ fn test_priority_no_hit_normal_behavior() {
 #[test]
 fn test_priority_none_overrides_normal_behavior() {
     let meta = make_meta("carol", "ch", 1700000000);
-    let dynamic = build_dynamic_sections(&meta, None, &["appendix".into()], None);
+    let dynamic =
+        build_dynamic_sections(&meta, None, &["appendix".into()], None, SessionMode::Normal);
     let full_none = build_full_system_prompt(Some("static"), &dynamic, None);
     let full_default =
         build_full_system_prompt(Some("static"), &dynamic, Some(&PromptOverrides::default()));

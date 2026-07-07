@@ -57,6 +57,9 @@ pub trait SlashEffectExecutor: Send + Sync {
     /// Set the verbosity level for the session.
     async fn execute_set_verbosity(&self, session_id: &str, level: VerbosityLevel);
 
+    /// Set the session mode for the session.
+    async fn execute_set_mode(&self, session_id: &str, mode: &str);
+
     /// Execute a shell command for the given agent.
     ///
     /// The implementation evaluates command-level permissions via the
@@ -112,9 +115,13 @@ impl SlashResultExecutor for SlashResult {
                 actions.push(ReplyAction::Reply(vec![ContentBlock::Text(text)]));
             }
             SlashResult::SetMode(mode) => {
-                actions.push(ReplyAction::Reply(vec![ContentBlock::Text(format!(
-                    "Mode set to: {mode}"
-                ))]));
+                ctx.executor.execute_set_mode(&ctx.session_id, &mode).await;
+                let _ = ctx
+                    .reply_tx
+                    .send(ReplyAction::Reply(vec![ContentBlock::Text(format!(
+                        "Mode set to: {mode}"
+                    ))]))
+                    .await;
             }
             SlashResult::NewSession => {
                 ctx.executor

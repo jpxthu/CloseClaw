@@ -54,6 +54,8 @@ struct MockExecutor {
     system_append_action: std::sync::Mutex<Option<SystemAppendAction>>,
     set_reasoning_called: std::sync::Mutex<bool>,
     set_verbosity_called: std::sync::Mutex<bool>,
+    set_mode_called: std::sync::Mutex<bool>,
+    set_mode_arg: std::sync::Mutex<String>,
     exec_output: Vec<ContentBlock>,
 }
 
@@ -68,6 +70,8 @@ impl MockExecutor {
             system_append_action: std::sync::Mutex::new(None),
             set_reasoning_called: std::sync::Mutex::new(false),
             set_verbosity_called: std::sync::Mutex::new(false),
+            set_mode_called: std::sync::Mutex::new(false),
+            set_mode_arg: std::sync::Mutex::new(String::new()),
             exec_output: vec![ContentBlock::Text("exec output".into())],
         }
     }
@@ -99,6 +103,11 @@ impl SlashEffectExecutor for MockExecutor {
 
     async fn execute_set_verbosity(&self, _session_id: &str, _level: VerbosityLevel) {
         *self.set_verbosity_called.lock().unwrap() = true;
+    }
+
+    async fn execute_set_mode(&self, _session_id: &str, mode: &str) {
+        *self.set_mode_called.lock().unwrap() = true;
+        *self.set_mode_arg.lock().unwrap() = mode.to_owned();
     }
 
     async fn execute_exec(
@@ -167,9 +176,13 @@ async fn test_reply_sends_text_block() {
 
 #[tokio::test]
 async fn test_set_mode_sends_confirmation() {
-    let (ctx, mut rx, _exec) = make_ctx();
+    let (ctx, mut rx, exec) = make_ctx();
     SlashResult::SetMode("plan".into()).execute(&ctx).await;
     drop(ctx);
+
+    // Verify executor was called with correct args
+    assert!(*exec.set_mode_called.lock().unwrap());
+    assert_eq!(*exec.set_mode_arg.lock().unwrap(), "plan");
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);

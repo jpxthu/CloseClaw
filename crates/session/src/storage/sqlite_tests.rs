@@ -5,7 +5,7 @@
 mod tests {
     use crate::persistence::{
         DreamingStatus, PersistenceError, PersistenceService, ReasoningLevel, ReasoningMode,
-        ReasoningModeState, SessionCheckpoint, SessionStatus,
+        ReasoningModeState, SessionCheckpoint, SessionMode, SessionStatus,
     };
     use crate::storage::SqliteStorage;
     use chrono::Utc;
@@ -45,6 +45,7 @@ mod tests {
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
             plan_state: None,
             progress_tool_calls: Vec::new(),
+            session_mode: SessionMode::default(),
         }
     }
 
@@ -415,6 +416,7 @@ mod tests {
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
             plan_state: None,
             progress_tool_calls: Vec::new(),
+            session_mode: SessionMode::default(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -467,6 +469,7 @@ mod tests {
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
             plan_state: None,
             progress_tool_calls: Vec::new(),
+            session_mode: SessionMode::default(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -519,6 +522,7 @@ mod tests {
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
             plan_state: None,
             progress_tool_calls: Vec::new(),
+            session_mode: SessionMode::default(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 

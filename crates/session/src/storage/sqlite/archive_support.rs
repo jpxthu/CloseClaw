@@ -367,6 +367,7 @@ pub fn load_checkpoint_inner(
         verbosity_level: closeclaw_common::VerbosityLevel::default(),
         plan_state: plan_state_raw.and_then(|s| serde_json::from_str(&s).ok()),
         progress_tool_calls: Vec::new(),
+        session_mode: crate::persistence::SessionMode::default(),
     }))
 }
 

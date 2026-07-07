@@ -10,6 +10,8 @@ use std::sync::LazyLock;
 use std::sync::RwLock;
 use std::time::SystemTime;
 
+use closeclaw_common::SessionMode;
+
 /// Represents a system prompt section
 #[derive(Debug, Clone)]
 pub enum Section {
@@ -31,6 +33,9 @@ pub enum Section {
     AppendSection(String),
     GitStatus(String),
     WorkingDirectory(String),
+    /// Mode-specific instruction section, injected when session mode is
+    /// not Normal.
+    ModeInstruction(SessionMode),
 }
 
 impl Section {
@@ -55,6 +60,7 @@ impl Section {
             Section::AppendSection(_) => "append",
             Section::GitStatus(_) => "git_status",
             Section::WorkingDirectory(_) => "working_directory",
+            Section::ModeInstruction(_) => "mode_instruction",
         }
     }
     fn format_session_state(&self, pending_tasks: &[String]) -> String {
@@ -114,6 +120,41 @@ impl Section {
                 let sanitized = sanitize_workdir_path(path);
                 format!("## Working Directory\n当前工作目录：{}\n", sanitized)
             }
+            Section::ModeInstruction(mode) => render_mode_instruction(*mode),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Mode Instruction Rendering
+// ---------------------------------------------------------------------------
+
+/// Render mode-specific instructions based on session mode.
+///
+/// - Normal: no extra instructions (returns empty string)
+/// - Plan: Plan Mode workflow instructions
+/// - Auto: Auto Mode execution instructions
+fn render_mode_instruction(mode: SessionMode) -> String {
+    match mode {
+        SessionMode::Normal => String::new(),
+        SessionMode::Plan => {
+            "## Mode: Plan\n".to_string()
+                + "You are in **Plan Mode**. Follow the workflow:\n"
+                + "1. **Research** — gather context, read code, understand the problem\n"
+                + "2. **Design** — produce a concrete implementation plan\n"
+                + "3. **Review** — self-check the plan for correctness and completeness\n"
+                + "\nConstraints:\n"
+                + "- Do NOT execute code changes directly\n"
+                + "- Use research tools to gather information\n"
+                + "- Present the plan for approval before proceeding\n"
+        }
+        SessionMode::Auto => {
+            "## Mode: Auto\n".to_string()
+                + "You are in **Auto Mode**. Execute tasks autonomously:\n"
+                + "- Complete each task step by step\n"
+                + "- Run tests to verify your changes\n"
+                + "- Dangerous operations (file deletion, force push) require approval\n"
+                + "- Commit and report when done\n"
         }
     }
 }
@@ -473,5 +514,48 @@ mod tests {
     fn test_git_status_name() {
         let s = Section::GitStatus("On branch main".to_string());
         assert_eq!(s.name(), "git_status");
+    }
+
+    // -----------------------------------------------------------------------
+    // ModeInstruction tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_mode_instruction_name() {
+        let s = Section::ModeInstruction(SessionMode::Normal);
+        assert_eq!(s.name(), "mode_instruction");
+    }
+
+    #[test]
+    fn test_mode_instruction_not_cacheable() {
+        let s = Section::ModeInstruction(SessionMode::Plan);
+        assert!(!s.is_cacheable());
+    }
+
+    #[test]
+    fn test_mode_instruction_normal_renders_empty() {
+        let s = Section::ModeInstruction(SessionMode::Normal);
+        assert_eq!(s.render(), "");
+    }
+
+    #[test]
+    fn test_mode_instruction_plan_renders_instructions() {
+        let s = Section::ModeInstruction(SessionMode::Plan);
+        let rendered = s.render();
+        assert!(rendered.contains("## Mode: Plan"));
+        assert!(rendered.contains("Plan Mode"));
+        assert!(rendered.contains("Research"));
+        assert!(rendered.contains("Design"));
+        assert!(rendered.contains("Review"));
+    }
+
+    #[test]
+    fn test_mode_instruction_auto_renders_instructions() {
+        let s = Section::ModeInstruction(SessionMode::Auto);
+        let rendered = s.render();
+        assert!(rendered.contains("## Mode: Auto"));
+        assert!(rendered.contains("Auto Mode"));
+        assert!(rendered.contains("autonomously"));
+        assert!(rendered.contains("approval"));
     }
 }

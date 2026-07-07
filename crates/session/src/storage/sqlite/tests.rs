@@ -1,7 +1,7 @@
 use super::*;
 use crate::persistence::{
     DreamingStatus, PersistenceService, ReasoningLevel, ReasoningMode, ReasoningModeState,
-    SessionStatus,
+    SessionMode, SessionStatus,
 };
 use chrono::Utc;
 
@@ -44,6 +44,7 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         verbosity_level: closeclaw_common::VerbosityLevel::default(),
         plan_state: None,
         progress_tool_calls: Vec::new(),
+        session_mode: SessionMode::default(),
     }
 }
 
