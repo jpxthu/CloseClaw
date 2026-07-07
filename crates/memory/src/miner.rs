@@ -438,7 +438,12 @@ pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError>
             (8,  'action',        '动作',     '重要动作、变更、决策和操作', 1.3, 0.78, 1, 1),
             (9,  'work',          '作品',     '创作物、文档、论文、书籍、报告', 1.0, 0.80, 0, 1),
             (10, 'group',         '群体',     '群体、社区、受众和人口', 1.0, 0.78, 0, 1),
-            (11, 'tags',          '标签',     '兜底标签，当无特定类型匹配时使用', 0.5, 0.70, 1, 1);",
+            (11, 'tags',          '标签',     '兜底标签，当无特定类型匹配时使用', 0.5, 0.70, 1, 1);
+        CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            mined INTEGER NOT NULL DEFAULT 0,
+            mined_at INTEGER
+        );"
     )
     .map_err(|e| MinerError::Sqlite(e.to_string()))?;
     Ok(())
@@ -499,6 +504,16 @@ pub(crate) fn write_to_sqlite(
             .map_err(|e| MinerError::Sqlite(e.to_string()))?;
         }
     }
+
+    // Mark session as mined so dreaming can JOIN on it.
+    let mined_at = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO sessions (id, mined, mined_at) VALUES (?1, 1, ?2)
+         ON CONFLICT(id) DO UPDATE SET mined = 1, mined_at = ?2",
+        params![session_id, mined_at],
+    )
+    .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+
     Ok(())
 }
 
