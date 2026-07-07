@@ -28,3 +28,6 @@ mod handlers_tests_legacy;
 
 #[cfg(test)]
 mod handlers_tests_system;
+
+#[cfg(test)]
+mod handlers_mode_tests;
