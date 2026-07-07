@@ -288,6 +288,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/memory/memory-miner.md",
+    "commit": "4a2c8fbe65365a98d2f5de7ac4627d48f72fbc9f",
+    "commit_time": "2026-07-07T17:58:01+08:00",
+    "confirmed_time": "2026-07-07T18:04:41.047241+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/system_prompt/appends.md",
     "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
     "commit_time": "2026-07-07T01:07:02+08:00",
