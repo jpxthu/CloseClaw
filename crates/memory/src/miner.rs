@@ -305,7 +305,8 @@ impl MemoryMiner {
                 .map_err(|e| MinerError::Sqlite(e.to_string()))?;
             init_schema(&conn)?;
 
-            let recent_events = load_recent_events(&conn, &session_id_owned, dedup_days)?;
+            let recent_events =
+                load_recent_events(&conn, &session_id_owned, &agent_id_owned, dedup_days)?;
             let memory_md = std::fs::read_to_string(&memory_md_path).unwrap_or_default();
             let catalog = load_entity_catalog(&conn, &agent_id_owned)?;
 
@@ -396,6 +397,7 @@ pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError>
             category TEXT NOT NULL,
             lesson TEXT,
             source_session_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL DEFAULT '',
             timestamp INTEGER NOT NULL,
             updated_at INTEGER NOT NULL DEFAULT 0
         );
@@ -455,8 +457,8 @@ pub(crate) fn write_to_sqlite(
         let event_id: i64 = conn
             .query_row(
                 "INSERT INTO events (title, summary, content,
-                 category, lesson, source_session_id, timestamp, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+                 category, lesson, source_session_id, agent_id, timestamp, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
                  RETURNING id",
                 params![
                     event.title,
@@ -465,6 +467,7 @@ pub(crate) fn write_to_sqlite(
                     event.category.to_string(),
                     event.lesson,
                     session_id,
+                    agent_id,
                     ts,
                 ],
                 |row| row.get(0),
@@ -515,17 +518,18 @@ pub fn write_entries_to_db(
 pub(crate) fn load_recent_events(
     conn: &rusqlite::Connection,
     exclude_session: &str,
+    agent_id: &str,
     dedup_window_days: i32,
 ) -> Result<String, MinerError> {
     let cutoff = Utc::now().timestamp() - (dedup_window_days as i64 * 86400);
     let sql = "SELECT title, summary, category FROM events
-               WHERE source_session_id != ?1 AND timestamp >= ?2
+               WHERE source_session_id != ?1 AND timestamp >= ?2 AND agent_id = ?3
                ORDER BY timestamp DESC LIMIT 20";
     let mut stmt = conn
         .prepare(sql)
         .map_err(|e| MinerError::Sqlite(e.to_string()))?;
     let rows: Vec<(String, String, String)> = stmt
-        .query_map(params![exclude_session, cutoff], |row| {
+        .query_map(params![exclude_session, cutoff, agent_id], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
         })
         .map_err(|e| MinerError::Sqlite(e.to_string()))?
@@ -683,7 +687,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
         init_schema(&conn).unwrap();
-        let result = load_recent_events(&conn, "other", 30).unwrap();
+        let result = load_recent_events(&conn, "other", "agent-1", 30).unwrap();
         assert!(result.is_empty());
     }
 
@@ -695,13 +699,13 @@ mod tests {
         let ts = Utc::now().timestamp();
         conn.execute(
             "INSERT INTO events (title, summary, content,
-             category, lesson, source_session_id, timestamp, updated_at)
+             category, lesson, source_session_id, agent_id, timestamp, updated_at)
              VALUES ('title', 'summary', 'body',
-             'error', 'lesson', 'other-sess', ?1, ?1)",
+             'error', 'lesson', 'other-sess', 'agent-1', ?1, ?1)",
             params![ts],
         )
         .unwrap();
-        let result = load_recent_events(&conn, "my-sess", 30).unwrap();
+        let result = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
         assert!(result.contains("title"));
         assert!(result.contains("[error]"));
     }
@@ -714,14 +718,44 @@ mod tests {
         let old_ts = Utc::now().timestamp() - (60 * 86400);
         conn.execute(
             "INSERT INTO events (title, summary, content,
-             category, lesson, source_session_id, timestamp, updated_at)
+             category, lesson, source_session_id, agent_id, timestamp, updated_at)
              VALUES ('old', 'old', 'body',
-             'decision', NULL, 'other', ?1, ?1)",
+             'decision', NULL, 'other', 'agent-1', ?1, ?1)",
             params![old_ts],
         )
         .unwrap();
-        let result = load_recent_events(&conn, "my-sess", 30).unwrap();
+        let result = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_load_recent_events_cross_agent_isolation() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+        init_schema(&conn).unwrap();
+        let ts = Utc::now().timestamp();
+        conn.execute(
+            "INSERT INTO events (title, summary, content,
+             category, lesson, source_session_id, agent_id, timestamp, updated_at)
+             VALUES ('a1-event', 'a1-summary', 'body',
+             'error', 'lesson', 'sess-a', 'agent-1', ?1, ?1)",
+            params![ts],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO events (title, summary, content,
+             category, lesson, source_session_id, agent_id, timestamp, updated_at)
+             VALUES ('a2-event', 'a2-summary', 'body',
+             'error', 'lesson', 'sess-b', 'agent-2', ?1, ?1)",
+            params![ts],
+        )
+        .unwrap();
+        let result_a1 = load_recent_events(&conn, "other", "agent-1", 30).unwrap();
+        assert!(result_a1.contains("a1-event"));
+        assert!(!result_a1.contains("a2-event"));
+        let result_a2 = load_recent_events(&conn, "other", "agent-2", 30).unwrap();
+        assert!(result_a2.contains("a2-event"));
+        assert!(!result_a2.contains("a1-event"));
     }
 
     #[test]
