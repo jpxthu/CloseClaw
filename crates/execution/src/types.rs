@@ -34,11 +34,11 @@ pub enum RetryStrategy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VerifyTrigger {
-    /// Always verify after every step.
+    /// Never verify after any step.
     Never,
     /// Verify only after non-trivial steps.
     NonTrivial,
-    /// Never verify.
+    /// Always verify after every step.
     Always,
 }
 

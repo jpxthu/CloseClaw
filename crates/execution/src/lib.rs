@@ -19,3 +19,6 @@ pub use mode::{ExecutionStrategy, InlineMode, SpawnAllStepsMode, SpawnPerStepMod
 pub use notification::{parse_subagent_result, ParseError};
 pub use spawn::SpawnAdapter;
 pub use types::{ExecutionConfig, ExecutionMode, RetryStrategy, SubAgentResult, VerifyTrigger};
+
+#[cfg(test)]
+mod engine_tests;
