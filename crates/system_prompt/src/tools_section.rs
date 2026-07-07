@@ -164,13 +164,14 @@ mod tests {
                 task_manager as Arc<dyn closeclaw_tasks::TaskManager>,
                 session_manager.clone(),
                 config_manager,
-                approval_flow,
+                approval_flow.clone(),
             )),
             Box::new(SessionToolsRegistrar::new(
                 spawn_controller.clone() as Arc<dyn closeclaw_tools::SpawnValidator>,
                 session_manager.clone(),
                 agent_registry.clone() as Arc<dyn closeclaw_agent::AgentConfigLookup>,
                 permission_engine,
+                approval_flow.clone(),
             )),
             Box::new(SkillsToolsRegistrar::new(
                 disk_registry,

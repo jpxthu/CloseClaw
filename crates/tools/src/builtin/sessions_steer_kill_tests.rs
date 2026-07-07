@@ -15,6 +15,7 @@ use crate::builtin::sessions_steer::SessionsSteerTool;
 use crate::{Tool, ToolCallError, ToolContext};
 use closeclaw_gateway::session_manager::{ChildSessionInfo, SpawnMode};
 use closeclaw_gateway::{DmScope, GatewayConfig, Message, Session, SessionManager};
+use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{Action, Effect, Rule, Subject};
 use closeclaw_permission::rules::RuleSetBuilder;
@@ -95,6 +96,16 @@ fn make_permission_engine_allow_inter_agent() -> Arc<PermissionEngine> {
             .build()
             .unwrap(),
     ))
+}
+
+/// Mock ApprovalFlow for tests — never enqueues anything.
+fn make_mock_approval_flow() -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
+    Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
+        Arc::new(make_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
+        Arc::new(|_| {}),
+        tokio::runtime::Handle::current(),
+        HeartbeatApprovalMode::default(),
+    )))
 }
 
 fn ctx_with_session(session_id: &str) -> ToolContext {
@@ -217,7 +228,11 @@ async fn setup_child_session(
 #[tokio::test]
 async fn test_steer_missing_session_id() {
     let mgr = make_session_manager();
-    let tool = SessionsSteerTool::new(mgr, make_permission_engine_deny_all());
+    let tool = SessionsSteerTool::new(
+        mgr,
+        make_permission_engine_deny_all(),
+        make_mock_approval_flow(),
+    );
     let ctx = ctx_with_session("parent-x");
 
     let result = tool.call(json!({"task": "something"}), &ctx).await;
@@ -238,7 +253,11 @@ async fn test_steer_missing_session_id() {
 #[tokio::test]
 async fn test_steer_missing_task() {
     let mgr = make_session_manager();
-    let tool = SessionsSteerTool::new(mgr, make_permission_engine_deny_all());
+    let tool = SessionsSteerTool::new(
+        mgr,
+        make_permission_engine_deny_all(),
+        make_mock_approval_flow(),
+    );
     let ctx = ctx_with_session("parent-x");
 
     let result = tool.call(json!({"sessionId": "some-id"}), &ctx).await;
@@ -259,7 +278,11 @@ async fn test_steer_missing_task() {
 #[tokio::test]
 async fn test_steer_no_session_id_in_context() {
     let mgr = make_session_manager();
-    let tool = SessionsSteerTool::new(mgr, make_permission_engine_deny_all());
+    let tool = SessionsSteerTool::new(
+        mgr,
+        make_permission_engine_deny_all(),
+        make_mock_approval_flow(),
+    );
     let ctx = ctx_without_session();
 
     let result = tool
@@ -286,7 +309,11 @@ async fn test_steer_no_session_id_in_context() {
 #[tokio::test]
 async fn test_kill_missing_session_id() {
     let mgr = make_session_manager();
-    let tool = SessionsKillTool::new(mgr, make_permission_engine_deny_all());
+    let tool = SessionsKillTool::new(
+        mgr,
+        make_permission_engine_deny_all(),
+        make_mock_approval_flow(),
+    );
     let ctx = ctx_with_session("parent-x");
 
     let result = tool.call(json!({}), &ctx).await;
@@ -307,7 +334,11 @@ async fn test_kill_missing_session_id() {
 #[tokio::test]
 async fn test_kill_no_session_id_in_context() {
     let mgr = make_session_manager();
-    let tool = SessionsKillTool::new(mgr, make_permission_engine_deny_all());
+    let tool = SessionsKillTool::new(
+        mgr,
+        make_permission_engine_deny_all(),
+        make_mock_approval_flow(),
+    );
     let ctx = ctx_without_session();
 
     let result = tool.call(json!({"sessionId": "some-id"}), &ctx).await;
@@ -334,7 +365,11 @@ async fn test_steer_child_not_found() {
     let mgr = make_session_manager();
     setup_parent_session(&mgr, "parent-nf").await;
 
-    let tool = SessionsSteerTool::new(mgr, make_permission_engine_deny_all());
+    let tool = SessionsSteerTool::new(
+        mgr,
+        make_permission_engine_deny_all(),
+        make_mock_approval_flow(),
+    );
     let ctx = ctx_with_session("parent-nf");
 
     let result = tool
@@ -366,7 +401,11 @@ async fn test_kill_child_not_found() {
     let mgr = make_session_manager();
     setup_parent_session(&mgr, "parent-knf").await;
 
-    let tool = SessionsKillTool::new(mgr, make_permission_engine_deny_all());
+    let tool = SessionsKillTool::new(
+        mgr,
+        make_permission_engine_deny_all(),
+        make_mock_approval_flow(),
+    );
     let ctx = ctx_with_session("parent-knf");
 
     let result = tool
@@ -396,7 +435,11 @@ async fn test_steer_rejects_mode_run() {
     setup_parent_session(&mgr, "parent-run").await;
     setup_child_session(&mgr, "parent-run", "child-run", SpawnMode::Run).await;
 
-    let tool = SessionsSteerTool::new(mgr, make_permission_engine_allow_inter_agent());
+    let tool = SessionsSteerTool::new(
+        mgr,
+        make_permission_engine_allow_inter_agent(),
+        make_mock_approval_flow(),
+    );
     let ctx = ctx_with_session("parent-run");
 
     let result = tool
@@ -427,7 +470,11 @@ async fn test_steer_permission_denied() {
     setup_child_session(&mgr, "parent-pd", "child-pd", SpawnMode::Session).await;
 
     // Default ruleset denies everything
-    let tool = SessionsSteerTool::new(mgr, make_permission_engine_deny_all());
+    let tool = SessionsSteerTool::new(
+        mgr,
+        make_permission_engine_deny_all(),
+        make_mock_approval_flow(),
+    );
     let ctx = ctx_with_session("parent-pd");
 
     let result = tool
@@ -457,7 +504,11 @@ async fn test_steer_success_mode_session_permission_allowed() {
     setup_parent_session(&mgr, "parent-ok").await;
     setup_child_session(&mgr, "parent-ok", "child-ok", SpawnMode::Session).await;
 
-    let tool = SessionsSteerTool::new(mgr, make_permission_engine_allow_inter_agent());
+    let tool = SessionsSteerTool::new(
+        mgr,
+        make_permission_engine_allow_inter_agent(),
+        make_mock_approval_flow(),
+    );
     let ctx = ctx_with_session("parent-ok");
 
     let result = tool
@@ -488,7 +539,11 @@ async fn test_kill_permission_denied() {
     setup_parent_session(&mgr, "parent-kd").await;
     setup_child_session(&mgr, "parent-kd", "child-kd", SpawnMode::Session).await;
 
-    let tool = SessionsKillTool::new(mgr, make_permission_engine_deny_all());
+    let tool = SessionsKillTool::new(
+        mgr,
+        make_permission_engine_deny_all(),
+        make_mock_approval_flow(),
+    );
     let ctx = ctx_with_session("parent-kd");
 
     let result = tool.call(json!({"sessionId": "child-kd"}), &ctx).await;
@@ -516,7 +571,11 @@ async fn test_kill_success_mode_session_permission_allowed() {
     setup_parent_session(&mgr, "parent-ks").await;
     setup_child_session(&mgr, "parent-ks", "child-ks", SpawnMode::Session).await;
 
-    let tool = SessionsKillTool::new(mgr, make_permission_engine_allow_inter_agent());
+    let tool = SessionsKillTool::new(
+        mgr,
+        make_permission_engine_allow_inter_agent(),
+        make_mock_approval_flow(),
+    );
     let ctx = ctx_with_session("parent-ks");
 
     let result = tool.call(json!({"sessionId": "child-ks"}), &ctx).await;
@@ -542,7 +601,11 @@ async fn test_kill_success_mode_run_permission_allowed() {
     setup_parent_session(&mgr, "parent-kr").await;
     setup_child_session(&mgr, "parent-kr", "child-kr", SpawnMode::Run).await;
 
-    let tool = SessionsKillTool::new(mgr, make_permission_engine_allow_inter_agent());
+    let tool = SessionsKillTool::new(
+        mgr,
+        make_permission_engine_allow_inter_agent(),
+        make_mock_approval_flow(),
+    );
     let ctx = ctx_with_session("parent-kr");
 
     let result = tool.call(json!({"sessionId": "child-kr"}), &ctx).await;
