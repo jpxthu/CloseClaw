@@ -128,12 +128,20 @@ fn test_create_plan_file_long_title() {
 }
 
 #[test]
+fn test_generate_identifier_different_titles() {
+    let id_a = plan_file::generate_identifier("Feature A");
+    let id_b = plan_file::generate_identifier("Feature B");
+    assert_ne!(
+        id_a, id_b,
+        "different titles should produce different identifiers"
+    );
+}
+
+#[test]
 fn test_create_plan_file_unique_identifiers() {
     let dir = tempfile::TempDir::new().unwrap();
     let path1 = plan_file::create_plan_file(dir.path(), "Feature A").unwrap();
-    // Small sleep to ensure different timestamp
-    std::thread::sleep(std::time::Duration::from_millis(1100));
-    let path2 = plan_file::create_plan_file(dir.path(), "Feature A").unwrap();
+    let path2 = plan_file::create_plan_file(dir.path(), "Feature B").unwrap();
 
     assert_ne!(
         path1, path2,

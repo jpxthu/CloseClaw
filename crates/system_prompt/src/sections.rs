@@ -154,6 +154,11 @@ fn render_mode_instruction(mode: SessionMode) -> String {
                   understand the true scope.\n\n"
                 + "You may also choose the Interview Path if early exploration \
                   reveals unexpected complexity or scope creep.\n\n"
+                + "**Explicit path specification** — the user may explicitly \\
+                  request a specific path via command arguments (e.g., \\
+                  `--path standard` or `--path interview`). When an \\
+                  explicit path is specified, the system adopts it directly \\
+                  without performing automatic clarity analysis.\n\n"
                 + "### Standard Path (4 Phases)\n\n"
                 + "1. **Research** — gather context, read code, understand the \
                      problem space. Spawn Explore agents for parallel \

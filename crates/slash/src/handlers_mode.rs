@@ -10,6 +10,7 @@ use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_gateway::SessionManager;
 use closeclaw_session::plan_file;
+use tracing;
 
 // ── PlanModeHandler ───────────────────────────────────────────────────────
 
@@ -58,7 +59,17 @@ impl SlashHandler for PlanModeHandler {
         {
             let cs = conv.read().await;
             let workdir = cs.workdir().to_path_buf();
-            plan_file::create_plan_file(&workdir, title).ok()
+            match plan_file::create_plan_file(&workdir, title) {
+                Ok(path) => Some(path),
+                Err(e) => {
+                    tracing::warn!(
+                        title = %title,
+                        error = %e,
+                        "Failed to create plan file, proceeding without it"
+                    );
+                    None
+                }
+            }
         } else {
             None
         };
