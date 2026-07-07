@@ -257,6 +257,7 @@ async fn test_full_flow_completed_hook_notifies_system_prompt() {
         adapter,
         notifier,
         runner,
+        None,
     );
 
     let report = engine
@@ -336,6 +337,7 @@ async fn test_retry_hook_only_fires_on_final_completed() {
         adapter,
         notifier,
         runner,
+        None,
     );
 
     let report = engine
@@ -392,6 +394,7 @@ async fn test_hook_and_notifier_coordination() {
         adapter,
         tracking_notifier,
         runner,
+        None,
     );
 
     let _report = engine.execute(&["step A".into()]).await.unwrap();
@@ -429,6 +432,7 @@ async fn test_hook_failure_does_not_block_notifier() {
         adapter,
         notifier,
         runner,
+        None,
     );
 
     let report = engine.execute(&["step".into()]).await.unwrap();
@@ -492,6 +496,7 @@ async fn test_nontrivial_hook_with_progress_tracking() {
         adapter,
         notifier,
         runner,
+        None,
     );
 
     let report = engine
@@ -541,6 +546,7 @@ async fn test_retry_with_hook_failure_still_completes() {
         adapter,
         notifier,
         runner,
+        None,
     );
 
     let report = engine.execute(&["step".into()]).await.unwrap();
@@ -578,7 +584,7 @@ async fn test_multi_step_mixed_hook_results() {
 
     let adapter = SequenceMock::new(vec![
         Ok(success_result(0, "step 0 done")),
-        Ok(success_result(1, "step 1 done")),
+        // Step 1 should never be executed due to hook block on step 0
     ]);
 
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
@@ -588,6 +594,7 @@ async fn test_multi_step_mixed_hook_results() {
         adapter,
         notifier,
         runner,
+        None,
     );
 
     let report = engine
@@ -595,20 +602,35 @@ async fn test_multi_step_mixed_hook_results() {
         .await
         .unwrap();
 
-    assert!(report.all_completed);
-    // Both steps have HookFailed events (block recorded for each)
+    // Hook blocked on step 0, so execution stopped — not all steps completed
+    assert!(!report.all_completed);
+    // Only step 0 executed (hook blocked, stopped before step 1)
+    assert_eq!(report.steps.len(), 1);
+    assert!(matches!(
+        report.steps[0].status,
+        ExecutionStepStatus::Completed
+    ));
+    // Hook block is recorded on the step result
+    assert_eq!(
+        report.steps[0].hook_blocked.as_deref(),
+        Some("intentional block")
+    );
+    // hook_blocked flag on report
+    assert!(report.hook_blocked);
+    // HookFailed event recorded for step 0
     assert!(report
         .events
         .iter()
         .any(|e| matches!(e, ExecutionEvent::HookFailed { step_index: 0, .. })));
-    assert!(report
+    // Step 1 never executed, so no HookFailed for step 1
+    assert!(!report
         .events
         .iter()
         .any(|e| matches!(e, ExecutionEvent::HookFailed { step_index: 1, .. })));
     // The second hook never ran (blocked by first)
     assert_eq!(hook0_count.load(Ordering::SeqCst), 0);
-    // Progress shows both steps completed
+    // Progress shows only step 0 completed (step 1 was never reached)
     let appends = system_appends.appends();
     assert_eq!(appends.len(), 1);
-    assert!(appends[0].contains("Step 2/2: completed"));
+    assert!(appends[0].contains("Step 1/2: completed"));
 }

@@ -259,3 +259,130 @@ pub enum TransitionError {
     #[error("skipped step: expected {expected}, got {got}")]
     SkippedStep { expected: usize, got: usize },
 }
+
+// ---------------------------------------------------------------------------
+// PlanStateWriter — plan file synchronization trait
+// ---------------------------------------------------------------------------
+
+/// Writes plan execution progress back to a plan markdown file.
+///
+/// Implemented by consumers who need to synchronize in-memory [`PlanState`]
+/// changes to the on-disk plan file (e.g., updating status markers).
+pub trait PlanStateWriter: Send + Sync {
+    /// Write the current progress markers from `plan_state` into the plan
+    /// markdown file at `plan_file_path`.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read or written.
+    fn write_progress_to_plan_file(
+        &self,
+        plan_file_path: &str,
+        plan_state: &PlanState,
+    ) -> Result<(), Box<dyn std::error::Error>>;
+}
+
+/// Default implementation of [`PlanStateWriter`] that reads a plan markdown
+/// file, locates the "## 进度" progress table, and updates status markers
+/// (`✅` / `🔄` / `❌` / empty) in the first column of each step row.
+pub struct DefaultPlanStateWriter;
+
+impl DefaultPlanStateWriter {
+    /// Create a new `DefaultPlanStateWriter`.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for DefaultPlanStateWriter {
+    fn default() -> Self {
+        Self
+    }
+}
+
+impl PlanStateWriter for DefaultPlanStateWriter {
+    fn write_progress_to_plan_file(
+        &self,
+        plan_file_path: &str,
+        plan_state: &PlanState,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use std::fs;
+        use std::path::Path;
+
+        let path = Path::new(plan_file_path);
+        if !path.exists() {
+            return Err(format!("plan file not found: {plan_file_path}").into());
+        }
+
+        let content = fs::read_to_string(path)?;
+        let lines: Vec<&str> = content.lines().collect();
+        let mut result = Vec::with_capacity(lines.len());
+        let mut in_progress_table = false;
+
+        for line in &lines {
+            if line.trim_start().starts_with("## 进度") {
+                in_progress_table = true;
+            }
+
+            if in_progress_table && line.contains('|') {
+                if let Some(updated) = self.update_step_row(line, plan_state) {
+                    result.push(updated);
+                    continue;
+                }
+            }
+
+            result.push((*line).to_string());
+        }
+
+        let new_content = result.join("\n");
+        fs::write(path, new_content)?;
+        Ok(())
+    }
+}
+
+impl DefaultPlanStateWriter {
+    /// Update a single table row with the matching step's status marker.
+    fn update_step_row(&self, line: &str, plan_state: &PlanState) -> Option<String> {
+        // Match table rows like: | ✅ | 1.1 | ... | or | | 1.1 | ... |
+        let parts: Vec<&str> = line.split('|').collect();
+        if parts.len() < 3 {
+            return None;
+        }
+
+        // The step name is in the second data column (parts[2] after
+        // leading empty split element).
+        let step_name = parts[2].trim();
+
+        // Skip header and separator rows
+        if step_name == "Step" || step_name == "---" || step_name.is_empty() {
+            return None;
+        }
+
+        // Find matching execution step.
+        // Plan table uses 1-based step numbers (1.1, 2.1, ...),
+        // while step_index is 0-based.
+        let matching_step = plan_state.execution_steps.iter().find(|s| {
+            let prefix = format!("{}.", s.step_index + 1);
+            step_name.starts_with(&prefix)
+        });
+
+        let matching_step = matching_step?;
+        let marker = step_status_to_marker(&matching_step.status);
+
+        // Rebuild the row: replace the first data column (parts[1])
+        // with the new marker.
+        let mut new_parts: Vec<&str> = parts.to_vec();
+        new_parts[1] = &marker;
+
+        Some(new_parts.join("|"))
+    }
+}
+
+/// Map an [`ExecutionStepStatus`] to the corresponding plan file marker.
+fn step_status_to_marker(status: &ExecutionStepStatus) -> String {
+    match status {
+        ExecutionStepStatus::Completed => "✅".to_string(),
+        ExecutionStepStatus::InProgress => "🔄".to_string(),
+        ExecutionStepStatus::Failed => "❌".to_string(),
+        ExecutionStepStatus::Pending | ExecutionStepStatus::Skipped => String::new(),
+    }
+}

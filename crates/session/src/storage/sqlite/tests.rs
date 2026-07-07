@@ -43,6 +43,7 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         pending_tool_failures: Vec::new(),
         verbosity_level: closeclaw_common::VerbosityLevel::default(),
         plan_state: None,
+        progress_tool_calls: Vec::new(),
     }
 }
 

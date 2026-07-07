@@ -11,6 +11,26 @@ use tracing::warn;
 
 pub use closeclaw_common::{AgentRole, PendingMessage, PlanState, ReasoningLevel};
 
+/// A single ProgressTool call record for recovery fallback.
+///
+/// Stored in [`SessionCheckpoint::progress_tool_calls`] so that the
+/// recovery service can rebuild [`PlanState`] when the first three
+/// layers (PlanState persistence, system prompt injection, plan file
+/// injection) all fail.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProgressToolCallRecord {
+    /// Step index (0-based).
+    pub step_index: usize,
+    /// New status applied by the ProgressTool call.
+    pub status: closeclaw_common::ExecutionStepStatus,
+    /// Optional summary attached to the call.
+    #[serde(default)]
+    pub summary: Option<String>,
+    /// Optional error message (for failed status).
+    #[serde(default)]
+    pub error_message: Option<String>,
+}
+
 /// Session Checkpoint — 用于持久化恢复的核心数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionCheckpoint {
@@ -137,6 +157,16 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
     #[serde(default)]
     pub plan_state: Option<PlanState>,
+    /// ProgressTool call history for recovery fallback (layer 4).
+    ///
+    /// Stores serialized ProgressTool calls (step_index, status, summary,
+    /// error_message) so that when PlanState checkpoint, system prompt
+    /// injection, and plan file injection all fail, the recovery service
+    /// can rebuild progress from this history.
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
+    #[serde(default)]
+    pub progress_tool_calls: Vec<ProgressToolCallRecord>,
 }
 
 impl SessionCheckpoint {
@@ -175,6 +205,7 @@ impl SessionCheckpoint {
             pending_tool_failures: Vec::new(),
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
             plan_state: None,
+            progress_tool_calls: Vec::new(),
         }
     }
 
@@ -318,6 +349,18 @@ impl SessionCheckpoint {
     pub fn with_plan_state(mut self, state: PlanState) -> Self {
         self.plan_state = Some(state);
         self
+    }
+    /// Set the ProgressTool call history for recovery fallback (layer 4).
+    pub fn with_progress_tool_calls(mut self, records: Vec<ProgressToolCallRecord>) -> Self {
+        self.progress_tool_calls = records;
+        self
+    }
+    /// Record a ProgressTool call in the checkpoint's history.
+    ///
+    /// Appends the call record so it is available during recovery
+    /// as a layer 4 fallback when the first three layers fail.
+    pub fn record_progress_call(&mut self, record: ProgressToolCallRecord) {
+        self.progress_tool_calls.push(record);
     }
     /// Touch the updated_at timestamp
     pub fn touch(&mut self) {

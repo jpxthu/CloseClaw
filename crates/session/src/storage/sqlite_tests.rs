@@ -44,6 +44,7 @@ mod tests {
             pending_tool_failures: Vec::new(),
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
             plan_state: None,
+            progress_tool_calls: Vec::new(),
         }
     }
 
@@ -413,6 +414,7 @@ mod tests {
             pending_tool_failures: Vec::new(),
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
             plan_state: None,
+            progress_tool_calls: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -464,6 +466,7 @@ mod tests {
             pending_tool_failures: Vec::new(),
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
             plan_state: None,
+            progress_tool_calls: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -515,6 +518,7 @@ mod tests {
             pending_tool_failures: Vec::new(),
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
             plan_state: None,
+            progress_tool_calls: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 

@@ -130,7 +130,7 @@ fn new_engine_with_config(
     config: ExecutionConfig,
 ) -> ExecutionEngine<impl SpawnAdapter> {
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
-    ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier))
+    ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None)
 }
 
 // ---------------------------------------------------------------------------
@@ -242,6 +242,7 @@ async fn test_spawn_all_steps_single_spawn() {
         spawn_all_config(3),
         adapter,
         Arc::new(NoopNotifier),
+        None,
     );
     let report = engine
         .execute(&["s0".into(), "s1".into(), "s2".into()])
@@ -475,6 +476,7 @@ async fn test_plan_state_updated_after_full_execution() {
         spawn_per_step_config(3),
         adapter,
         Arc::new(NoopNotifier),
+        None,
     );
     let _ = engine.execute(&["s0".into(), "s1".into()]).await.unwrap();
 

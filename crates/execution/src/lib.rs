@@ -29,3 +29,9 @@ mod engine_tests;
 
 #[cfg(test)]
 mod hook_tests;
+
+#[cfg(test)]
+mod types_tests;
+
+#[cfg(test)]
+mod permission_tests;
