@@ -303,7 +303,7 @@ impl Gateway {
             .await
         {
             let cs = cs.read().await;
-            cp.system_appends = cs.system_appends().to_vec();
+            cp.system_appends = cs.user_system_appends().to_vec();
         }
         cp.touch();
         if let Err(e) = cm.save(cp).await {

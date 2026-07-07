@@ -299,3 +299,129 @@ fn test_init_then_full_flow() {
     // current_step stays at last index (no next step)
     assert_eq!(state.current_step, Some(2));
 }
+
+// --- progress_summary tests ---
+
+#[test]
+fn test_progress_summary_empty_steps() {
+    let state = PlanState::new();
+    assert_eq!(state.progress_summary(), "");
+}
+
+#[test]
+fn test_progress_summary_single_pending() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    let summary = state.progress_summary();
+    assert!(summary.contains("## Execution Progress"));
+    assert!(summary.contains("Step 1/1: pending"));
+}
+
+#[test]
+fn test_progress_summary_single_completed() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["do stuff".into()]);
+    state.current_step = Some(0);
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    state
+        .apply_transition(0, ExecutionStepStatus::Completed)
+        .unwrap();
+    let summary = state.progress_summary();
+    assert!(summary.contains("Step 1/1: completed (do stuff)"));
+}
+
+#[test]
+fn test_progress_summary_completed_no_summary() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["".into()]);
+    state.current_step = Some(0);
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    state
+        .apply_transition(0, ExecutionStepStatus::Completed)
+        .unwrap();
+    let summary = state.progress_summary();
+    assert!(summary.contains("Step 1/1: completed"));
+}
+
+#[test]
+fn test_progress_summary_multi_mixed() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into(), "step2".into(), "step3".into()]);
+    // Step 0 completed (auto-advances current_step to 1)
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    state
+        .apply_transition(0, ExecutionStepStatus::Completed)
+        .unwrap();
+    // Step 1 in_progress (current_step already == 1)
+    state
+        .apply_transition(1, ExecutionStepStatus::InProgress)
+        .unwrap();
+    let summary = state.progress_summary();
+    assert!(summary.contains("Step 1/3: completed (step1)"));
+    assert!(summary.contains("→ Step 2/3: in_progress"));
+    assert!(summary.contains("Step 3/3: pending"));
+    // Arrow only on current step
+    let lines: Vec<&str> = summary.lines().collect();
+    assert!(lines[1].starts_with("Step 1"));
+    assert!(lines[2].starts_with("→ Step 2"));
+    assert!(lines[3].starts_with("Step 3"));
+}
+
+#[test]
+fn test_progress_summary_failed_with_error() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    state.current_step = Some(0);
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    state
+        .apply_transition(0, ExecutionStepStatus::Failed)
+        .unwrap();
+    state.execution_steps[0].error_message = Some("timeout".into());
+    let summary = state.progress_summary();
+    assert!(summary.contains("Step 1/1: failed (timeout)"));
+}
+
+#[test]
+fn test_progress_summary_failed_no_error() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    state.current_step = Some(0);
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    state
+        .apply_transition(0, ExecutionStepStatus::Failed)
+        .unwrap();
+    let summary = state.progress_summary();
+    assert!(summary.contains("Step 1/1: failed"));
+}
+
+#[test]
+fn test_progress_summary_skipped() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    state
+        .apply_transition(0, ExecutionStepStatus::Skipped)
+        .unwrap();
+    let summary = state.progress_summary();
+    assert!(summary.contains("Step 1/1: skipped"));
+}
+
+#[test]
+fn test_progress_summary_no_current_step() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into(), "step2".into()]);
+    // current_step is None — no arrow
+    let summary = state.progress_summary();
+    let lines: Vec<&str> = summary.lines().collect();
+    assert!(lines[1].starts_with("Step 1"));
+    assert!(lines[2].starts_with("Step 2"));
+}

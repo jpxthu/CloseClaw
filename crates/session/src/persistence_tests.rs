@@ -662,6 +662,8 @@ mod tests {
             phase: PlanPhase::Design,
             pending_steps: vec!["step1".into(), "step2".into()],
             plan_file_path: "/tmp/plan.md".into(),
+            execution_steps: vec![],
+            current_step: None,
         };
         let cp = SessionCheckpoint::new("s-plan-builder".into()).with_plan_state(plan.clone());
         let ps = cp.plan_state.unwrap();
@@ -678,6 +680,8 @@ mod tests {
             phase: PlanPhase::Review,
             pending_steps: vec!["a".into()],
             plan_file_path: "/p.md".into(),
+            execution_steps: vec![],
+            current_step: None,
         };
         let cp = SessionCheckpoint::new("s-plan-rt".into()).with_plan_state(plan);
         let json = serde_json::to_string(&cp).unwrap();
@@ -722,6 +726,8 @@ mod tests {
             phase: PlanPhase::Interview,
             pending_steps: vec!["todo1".into()],
             plan_file_path: "/workspace/plan.md".into(),
+            execution_steps: vec![],
+            current_step: None,
         };
         let checkpoint = SessionCheckpoint::new("session-plan".into()).with_plan_state(plan);
 
@@ -750,6 +756,8 @@ mod tests {
             phase: PlanPhase::Design,
             pending_steps: vec!["s1".into(), "s2".into()],
             plan_file_path: "/plan.md".into(),
+            execution_steps: vec![],
+            current_step: None,
         };
         let cp = SessionCheckpoint::new("compact-test".into()).with_plan_state(plan);
         storage.save_checkpoint(&cp).await.unwrap();
