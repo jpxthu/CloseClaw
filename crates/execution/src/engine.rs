@@ -12,7 +12,7 @@ use closeclaw_common::{ExecutionStepStatus, PlanState};
 use crate::error::ExecutionError;
 use crate::event::ExecutionEvent;
 use crate::spawn::SpawnAdapter;
-use crate::types::ExecutionConfig;
+use crate::types::{ExecutionConfig, ExecutionMode};
 
 /// Result of executing a single step.
 #[derive(Debug, Clone)]
@@ -42,6 +42,8 @@ pub struct ExecutionReport {
     pub all_completed: bool,
     /// Index of the first step that failed, if any.
     pub failed_step: Option<usize>,
+    /// Events emitted during execution.
+    pub events: Vec<ExecutionEvent>,
 }
 
 /// Core execution engine — drives the step-by-step scheduling loop.
@@ -81,12 +83,27 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             state.init_execution_steps(steps_owned.clone());
         }
 
+        // Dispatch based on execution mode
+        match self.config.mode {
+            ExecutionMode::SpawnAllSteps => self.execute_spawn_all(&steps_owned).await,
+            ExecutionMode::SpawnPerStep | ExecutionMode::Inline => {
+                self.execute_step_by_step(&steps_owned).await
+            }
+        }
+    }
+
+    /// Execute step-by-step (SpawnPerStep / Inline mode).
+    async fn execute_step_by_step(
+        &self,
+        steps_owned: &[String],
+    ) -> Result<ExecutionReport, ExecutionError> {
         let mut results: Vec<StepResult> = Vec::new();
+        let mut events: Vec<ExecutionEvent> = Vec::new();
         let mut failed_step: Option<usize> = None;
 
         for (i, description) in steps_owned.iter().enumerate() {
             let step_result = self
-                .execute_step_with_retries(i, description, &results)
+                .execute_step_with_retries(i, description, &results, &mut events)
                 .await?;
             let is_failed = matches!(step_result.status, ExecutionStepStatus::Failed);
             results.push(step_result);
@@ -97,10 +114,11 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             }
         }
 
-        let all_completed = failed_step.is_none() && results.len() == steps.len();
+        let all_completed = failed_step.is_none() && results.len() == steps_owned.len();
 
         if all_completed {
-            tracing::info!("all {} steps completed successfully", steps.len());
+            tracing::info!("all {} steps completed successfully", steps_owned.len());
+            events.push(ExecutionEvent::AllCompleted);
         } else if let Some(idx) = failed_step {
             tracing::warn!("execution stopped at step {idx}");
         }
@@ -109,7 +127,176 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             steps: results,
             all_completed,
             failed_step,
+            events,
         })
+    }
+
+    /// Execute all steps in a single spawn (SpawnAllSteps mode).
+    ///
+    /// The adapter receives all step descriptions in a single `spawn_run`
+    /// call. Steps 1+ are tracked via `StepResult` only (not through
+    /// PlanState transitions) because the state machine enforces sequential
+    /// `current_step` advancement and doesn't support batch transitions.
+    async fn execute_spawn_all(
+        &self,
+        steps_owned: &[String],
+    ) -> Result<ExecutionReport, ExecutionError> {
+        let mut events: Vec<ExecutionEvent> = Vec::new();
+        let task = steps_owned.join("\n");
+        let mut attempt: u32 = 0;
+        let max_attempts = self.config.max_retries + 1;
+
+        // Emit StepStarted for all steps
+        for i in 0..steps_owned.len() {
+            Self::emit_event(&mut events, ExecutionEvent::StepStarted { step_index: i });
+        }
+
+        loop {
+            attempt += 1;
+
+            // Mark step 0 as InProgress (only step 0 goes through PlanState)
+            self.mark_step_status(0, ExecutionStepStatus::InProgress)?;
+
+            let result = self.adapter.spawn_run(&task, "").await;
+
+            match result {
+                Ok(sub_result) => {
+                    let mut results: Vec<StepResult> = Vec::new();
+                    let mut failed_step: Option<usize> = None;
+
+                    // Process step 0 through PlanState
+                    let step0_status = sub_result.status;
+                    let step0_failed = matches!(step0_status, ExecutionStepStatus::Failed);
+
+                    if step0_failed {
+                        self.mark_step_status(0, ExecutionStepStatus::Failed)?;
+                        Self::emit_event(
+                            &mut events,
+                            ExecutionEvent::StepFailed {
+                                step_index: 0,
+                                error_message: sub_result.error_message.clone().unwrap_or_default(),
+                            },
+                        );
+                        failed_step = Some(0);
+                    } else {
+                        self.mark_step_status(0, ExecutionStepStatus::Completed)?;
+                        Self::emit_event(
+                            &mut events,
+                            ExecutionEvent::StepCompleted {
+                                step_index: 0,
+                                summary: sub_result.summary.clone(),
+                            },
+                        );
+                    }
+
+                    results.push(StepResult {
+                        step_index: 0,
+                        description: steps_owned[0].clone(),
+                        status: step0_status,
+                        summary: sub_result.summary.clone(),
+                        changed_files: sub_result.changed_files.clone(),
+                        error_message: sub_result.error_message.clone(),
+                        attempts: attempt,
+                    });
+
+                    // Process steps 1+ (tracked via StepResult only)
+                    for (i, description) in steps_owned.iter().enumerate().skip(1) {
+                        let is_failed = step0_failed && failed_step == Some(0);
+                        let status = if is_failed {
+                            ExecutionStepStatus::Failed
+                        } else {
+                            ExecutionStepStatus::Completed
+                        };
+
+                        if is_failed {
+                            Self::emit_event(
+                                &mut events,
+                                ExecutionEvent::StepFailed {
+                                    step_index: i,
+                                    error_message: sub_result
+                                        .error_message
+                                        .clone()
+                                        .unwrap_or_default(),
+                                },
+                            );
+                        } else {
+                            Self::emit_event(
+                                &mut events,
+                                ExecutionEvent::StepCompleted {
+                                    step_index: i,
+                                    summary: sub_result.summary.clone(),
+                                },
+                            );
+                        }
+
+                        results.push(StepResult {
+                            step_index: i,
+                            description: description.clone(),
+                            status,
+                            summary: sub_result.summary.clone(),
+                            changed_files: sub_result.changed_files.clone(),
+                            error_message: sub_result.error_message.clone(),
+                            attempts: attempt,
+                        });
+                    }
+
+                    let all_completed = failed_step.is_none() && results.len() == steps_owned.len();
+
+                    if all_completed {
+                        events.push(ExecutionEvent::AllCompleted);
+                    }
+
+                    return Ok(ExecutionReport {
+                        steps: results,
+                        all_completed,
+                        failed_step,
+                        events,
+                    });
+                }
+                Err(e) => {
+                    if attempt < max_attempts {
+                        // Mark step 0 as Failed for retry
+                        self.mark_step_status(0, ExecutionStepStatus::Failed)?;
+                        Self::emit_event(
+                            &mut events,
+                            ExecutionEvent::RetryTriggered {
+                                step_index: 0,
+                                attempt: attempt + 1,
+                            },
+                        );
+                        continue;
+                    }
+
+                    // Retries exhausted — mark step 0 as Failed
+                    self.mark_step_status(0, ExecutionStepStatus::Failed)?;
+                    let mut results: Vec<StepResult> = Vec::new();
+                    for (i, description) in steps_owned.iter().enumerate() {
+                        Self::emit_event(
+                            &mut events,
+                            ExecutionEvent::StepFailed {
+                                step_index: i,
+                                error_message: e.to_string(),
+                            },
+                        );
+                        results.push(StepResult {
+                            step_index: i,
+                            description: description.clone(),
+                            status: ExecutionStepStatus::Failed,
+                            summary: String::new(),
+                            changed_files: Vec::new(),
+                            error_message: Some(e.to_string()),
+                            attempts: attempt,
+                        });
+                    }
+                    return Ok(ExecutionReport {
+                        steps: results,
+                        all_completed: false,
+                        failed_step: Some(0),
+                        events,
+                    });
+                }
+            }
+        }
     }
 
     /// Execute a single step, retrying on failure up to `max_retries`.
@@ -120,6 +307,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         step_index: usize,
         description: &str,
         _previous: &[StepResult],
+        events: &mut Vec<ExecutionEvent>,
     ) -> Result<StepResult, ExecutionError> {
         let mut attempt: u32 = 0;
         let max_attempts = self.config.max_retries + 1;
@@ -127,6 +315,10 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         loop {
             attempt += 1;
 
+            // Emit StepStarted only on first attempt
+            if attempt == 1 {
+                Self::emit_event(events, ExecutionEvent::StepStarted { step_index });
+            }
             // Mark step as in-progress
             self.mark_step_status(step_index, ExecutionStepStatus::InProgress)?;
 
@@ -143,6 +335,14 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
                         self.mark_step_status(step_index, ExecutionStepStatus::Completed)?;
                         tracing::info!(step_index, "step completed");
 
+                        Self::emit_event(
+                            events,
+                            ExecutionEvent::StepCompleted {
+                                step_index,
+                                summary: sub_result.summary.clone(),
+                            },
+                        );
+
                         return Ok(StepResult {
                             step_index,
                             description: description.to_string(),
@@ -158,16 +358,26 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
                     tracing::warn!(step_index, attempt, "step failed per sub-agent result");
 
                     if attempt < max_attempts {
-                        self.emit_event(ExecutionEvent::RetryTriggered {
-                            step_index,
-                            attempt: attempt + 1,
-                        });
+                        Self::emit_event(
+                            events,
+                            ExecutionEvent::RetryTriggered {
+                                step_index,
+                                attempt: attempt + 1,
+                            },
+                        );
                         // Mark failed to allow next InProgress transition
                         self.mark_step_status(step_index, ExecutionStepStatus::Failed)?;
                         continue;
                     }
 
-                    // Retries exhausted — step already marked Failed by loop
+                    // Retries exhausted
+                    Self::emit_event(
+                        events,
+                        ExecutionEvent::StepFailed {
+                            step_index,
+                            error_message: sub_result.error_message.clone().unwrap_or_default(),
+                        },
+                    );
                     return Ok(StepResult {
                         step_index,
                         description: description.to_string(),
@@ -182,15 +392,25 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
                     tracing::error!(step_index, attempt, error = %e, "spawn error");
 
                     if attempt < max_attempts {
-                        self.emit_event(ExecutionEvent::RetryTriggered {
-                            step_index,
-                            attempt: attempt + 1,
-                        });
+                        Self::emit_event(
+                            events,
+                            ExecutionEvent::RetryTriggered {
+                                step_index,
+                                attempt: attempt + 1,
+                            },
+                        );
                         self.mark_step_status(step_index, ExecutionStepStatus::Failed)?;
                         continue;
                     }
 
-                    // Retries exhausted — step already marked Failed by loop
+                    // Retries exhausted
+                    Self::emit_event(
+                        events,
+                        ExecutionEvent::StepFailed {
+                            step_index,
+                            error_message: e.to_string(),
+                        },
+                    );
                     return Ok(StepResult {
                         step_index,
                         description: description.to_string(),
@@ -227,9 +447,10 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         Ok(())
     }
 
-    /// Emit an execution event (currently logs only).
-    fn emit_event(&self, event: ExecutionEvent) {
+    /// Emit an execution event — logs it and appends to the events list.
+    fn emit_event(events: &mut Vec<ExecutionEvent>, event: ExecutionEvent) {
         tracing::info!(?event, "execution event");
+        events.push(event);
     }
 
     /// Access a snapshot of the current plan state.
