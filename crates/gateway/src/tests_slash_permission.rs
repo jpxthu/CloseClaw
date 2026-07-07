@@ -482,7 +482,13 @@ impl SlashHandler for ResultHandler {
             SlashResult::Unknown(t) => SlashResult::Unknown(t.clone()),
             SlashResult::NewSession => SlashResult::NewSession,
             SlashResult::Stop => SlashResult::Stop,
-            SlashResult::SetMode(t) => SlashResult::SetMode(t.clone()),
+            SlashResult::SetMode {
+                mode,
+                plan_file_path,
+            } => SlashResult::SetMode {
+                mode: mode.clone(),
+                plan_file_path: plan_file_path.clone(),
+            },
             SlashResult::SystemAppend { action } => SlashResult::SystemAppend {
                 action: action.clone(),
             },
@@ -652,7 +658,13 @@ async fn test_execute_route_all_variants_return_slash_handled() {
         ("f", SlashResult::Unknown("?".to_owned())),
         ("g", SlashResult::NewSession),
         ("h", SlashResult::Stop),
-        ("i", SlashResult::SetMode("dark".to_owned())),
+        (
+            "i",
+            SlashResult::SetMode {
+                mode: "dark".to_owned(),
+                plan_file_path: None,
+            },
+        ),
     ];
     for (cmd, result) in cases {
         gw.set_slash_dispatcher(result_dispatcher(cmd, result))

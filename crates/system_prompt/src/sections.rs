@@ -138,15 +138,69 @@ fn render_mode_instruction(mode: SessionMode) -> String {
     match mode {
         SessionMode::Normal => String::new(),
         SessionMode::Plan => {
-            "## Mode: Plan\n".to_string()
-                + "You are in **Plan Mode**. Follow the workflow:\n"
-                + "1. **Research** — gather context, read code, understand the problem\n"
-                + "2. **Design** — produce a concrete implementation plan\n"
-                + "3. **Review** — self-check the plan for correctness and completeness\n"
-                + "\nConstraints:\n"
-                + "- Do NOT execute code changes directly\n"
-                + "- Use research tools to gather information\n"
-                + "- Present the plan for approval before proceeding\n"
+            "## Mode: Plan\n\n".to_string()
+                + "You are in **Plan Mode**. Your goal is to produce a clear, \
+                  implementable plan that can be reviewed and approved before \
+                  any code changes are made.\n\n"
+                + "### Path Selection\n\n"
+                + "Before starting work, assess whether the user's request is \
+                  sufficiently clear. Use the following criteria:\n\n"
+                + "**Standard Path** — use when the request includes:\n"
+                + "- Explicit file, module, or interface references\n"
+                + "- Quantifiable acceptance criteria\n"
+                + "- Sufficient context to proceed without further clarification\n\n"
+                + "**Interview Path** — use when the request is ambiguous, \
+                  lacks specificity, or requires deeper exploration to \
+                  understand the true scope.\n\n"
+                + "You may also choose the Interview Path if early exploration \
+                  reveals unexpected complexity or scope creep.\n\n"
+                + "**Explicit path specification** — the user may explicitly \\
+                  request a specific path via command arguments (e.g., \\
+                  `--path standard` or `--path interview`). When an \\
+                  explicit path is specified, the system adopts it directly \\
+                  without performing automatic clarity analysis.\n\n"
+                + "### Standard Path (4 Phases)\n\n"
+                + "1. **Research** — gather context, read code, understand the \
+                     problem space. Spawn Explore agents for parallel \
+                     codebase exploration.\n"
+                + "2. **Design** — produce a concrete implementation plan \
+                     with file-level granularity. Identify key files, \
+                     interfaces, and data flows.\n"
+                + "3. **Review** — self-check the plan for correctness and \
+                     completeness. Use AskUserQuestion for any remaining \
+                     requirement clarification only.\n"
+                + "4. **Final Plan** — write the validated plan into the plan \
+                     file (the only write operation in Plan Mode).\n\n"
+                + "### Interview Path\n\n"
+                + "The Interview Path has no fixed phases. You operate in a \
+                  loop:\n"
+                + "1. **Explore** — spawn Explore agents to understand \
+                     existing code and constraints\n"
+                + "2. **Update plan** — incrementally write findings and \
+                     emerging understanding into the plan file\n"
+                + "3. **Ask** — use AskUserQuestion to clarify remaining \
+                     ambiguities with the user\n"
+                + "4. **Evaluate** — if ambiguities remain, repeat from step 1. \
+                     If requirements converge, proceed to Review and \
+                     Final Plan (same as Standard Path steps 3–4).\n\n"
+                + "### Constraints\n\n"
+                + "- **Read-only tools only** — you may not modify source code \
+                     or configuration files\n"
+                + "- **plans/ directory is the sole writable area** — the plan \
+                     file under `workspace/plans/` is the only file you \
+                     may create or modify\n"
+                + "- **No execution** — do not run builds, tests, or deploy \
+                     commands\n"
+                + "- **Approval required to exit** — once your plan is \
+                     complete, use the approval tool to submit it for \
+                     user review. The plan must be confirmed before \
+                     any code execution is permitted\n\n"
+                + "### Approval\n\n"
+                + "When you have finished preparing the plan, call the \
+                  approval tool with a plan summary. The framework will \
+                  present a confirmation dialog to the user. Upon \
+                  approval, Plan Mode ends and Auto Mode begins for \
+                  execution."
         }
         SessionMode::Auto => {
             "## Mode: Auto\n".to_string()
@@ -544,9 +598,44 @@ mod tests {
         let rendered = s.render();
         assert!(rendered.contains("## Mode: Plan"));
         assert!(rendered.contains("Plan Mode"));
+        // Standard path phases
         assert!(rendered.contains("Research"));
         assert!(rendered.contains("Design"));
         assert!(rendered.contains("Review"));
+        assert!(rendered.contains("Final Plan"));
+        // Interview path
+        assert!(rendered.contains("Interview"));
+        // Path selection logic
+        assert!(rendered.contains("Path Selection"));
+        assert!(rendered.contains("Standard Path"));
+        assert!(rendered.contains("Interview Path"));
+        // Constraints
+        assert!(rendered.contains("Read-only"));
+        assert!(rendered.contains("plans/"));
+        // Approval exit
+        assert!(rendered.contains("approval tool"));
+    }
+
+    #[test]
+    fn test_mode_instruction_plan_dual_path_description() {
+        let rendered = render_mode_instruction(SessionMode::Plan);
+        // Verify both paths are described with distinct characteristics
+        assert!(rendered.contains("4 Phases"));
+        assert!(rendered.contains("loop"));
+    }
+
+    #[test]
+    fn test_mode_instruction_plan_readonly_constraint() {
+        let rendered = render_mode_instruction(SessionMode::Plan);
+        assert!(rendered.contains("writable area"));
+        assert!(rendered.contains("No execution"));
+    }
+
+    #[test]
+    fn test_mode_instruction_plan_approval_exit() {
+        let rendered = render_mode_instruction(SessionMode::Plan);
+        assert!(rendered.contains("Approval required to exit"));
+        assert!(rendered.contains("confirmation dialog"));
     }
 
     #[test]
@@ -557,5 +646,14 @@ mod tests {
         assert!(rendered.contains("Auto Mode"));
         assert!(rendered.contains("autonomously"));
         assert!(rendered.contains("approval"));
+    }
+
+    #[test]
+    fn test_mode_instruction_auto_unchanged() {
+        // Verify Auto mode output is identical to the original implementation
+        let rendered = render_mode_instruction(SessionMode::Auto);
+        assert!(rendered.contains("Execute tasks autonomously"));
+        assert!(rendered.contains("Commit and report when done"));
+        assert!(rendered.contains("Dangerous operations"));
     }
 }

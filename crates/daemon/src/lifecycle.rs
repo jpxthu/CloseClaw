@@ -489,7 +489,7 @@ impl Daemon {
         slash_registry.register(Arc::new(NewSessionHandler));
         slash_registry.register(Arc::new(StopHandler));
         slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(session_manager))));
-        slash_registry.register(Arc::new(PlanModeHandler));
+        slash_registry.register(Arc::new(PlanModeHandler::new(Arc::clone(session_manager))));
         slash_registry.register(Arc::new(ModeHandler::new(Arc::clone(session_manager))));
         let slash_dispatcher = Arc::new(crate::bridge::SlashDispatcherWrapper(
             SlashDispatcher::from_shared(slash_registry),
