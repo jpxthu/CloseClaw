@@ -41,7 +41,7 @@ docs/requirements/
 
 ## 用户场景
 每条格式：作为<角色>，我想<做什么>，以便<获得什么价值>
-覆盖模块涉及的所有角色视角（如 Owner / 非Owner User / Agent 中的适用角色）
+覆盖模块涉及的所有角色视角（如 Owner、非Owner User、Agent 等）
 
 每条场景前标注优先级：
 - 【P0】— MVP 必须有，缺了产品不可用
