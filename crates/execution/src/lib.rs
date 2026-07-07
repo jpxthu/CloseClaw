@@ -3,12 +3,15 @@
 //! Provides core scheduling, retry logic, execution mode strategies,
 //! and sub-agent result parsing for the Plan execution pipeline.
 
+pub mod engine;
 pub mod error;
 pub mod event;
 pub mod mode;
 pub mod notification;
 pub mod spawn;
 pub mod types;
+
+pub use engine::{ExecutionEngine, ExecutionReport, StepResult};
 
 pub use error::ExecutionError;
 pub use event::ExecutionEvent;

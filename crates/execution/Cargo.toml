@@ -5,6 +5,9 @@ edition = "2021"
 description = "Plan execution engine: scheduling, retry, and sub-agent orchestration"
 license = "MIT"
 
+[dev-dependencies]
+tokio = { version = "=1.35.0", features = ["rt", "macros", "time"] }
+
 [dependencies]
 closeclaw-common = { path = "../common" }
 serde = { version = "1.0", features = ["derive"] }
