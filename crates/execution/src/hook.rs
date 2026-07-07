@@ -215,7 +215,7 @@ impl HookRunner {
     }
 
     /// Determine whether hooks should run for the given step.
-    fn should_run(&self, step: &StepResult) -> bool {
+    pub fn should_run(&self, step: &StepResult) -> bool {
         match self.trigger {
             VerifyTrigger::Never => false,
             VerifyTrigger::NonTrivial => !step.changed_files.is_empty(),

@@ -1,5 +1,6 @@
 use crate::engine::ExecutionEngine;
 use crate::error::ExecutionError;
+use crate::hook::{HookResult, HookRunner, StepHook};
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, RetryStrategy, SubAgentResult, VerifyTrigger};
 use async_trait::async_trait;
@@ -206,6 +207,169 @@ async fn test_failure_stops_subsequent_steps() {
         report.steps[1].status,
         ExecutionStepStatus::Failed
     ));
+}
+
+// ---------------------------------------------------------------------------
+// Hook integration tests
+// ---------------------------------------------------------------------------
+
+/// Mock hook that records calls.
+struct RecordingHook {
+    call_count: Arc<Mutex<usize>>,
+}
+
+impl RecordingHook {
+    fn new(call_count: Arc<Mutex<usize>>) -> Self {
+        Self { call_count }
+    }
+}
+
+#[async_trait]
+impl StepHook for RecordingHook {
+    async fn execute(
+        &self,
+        _step: &crate::engine::StepResult,
+    ) -> Result<HookResult, crate::hook::HookError> {
+        let mut count = self.call_count.lock().unwrap();
+        *count += 1;
+        Ok(HookResult::Continue)
+    }
+}
+
+/// Mock hook that blocks.
+struct BlockingHook;
+
+#[async_trait]
+impl StepHook for BlockingHook {
+    async fn execute(
+        &self,
+        _step: &crate::engine::StepResult,
+    ) -> Result<HookResult, crate::hook::HookError> {
+        Ok(HookResult::Block("blocked by hook".into()))
+    }
+}
+
+/// Mock hook that fails.
+struct ErrorHook;
+
+#[async_trait]
+impl StepHook for ErrorHook {
+    async fn execute(
+        &self,
+        _step: &crate::engine::StepResult,
+    ) -> Result<HookResult, crate::hook::HookError> {
+        Err(crate::hook::HookError::CustomFailed {
+            message: "hook error".into(),
+        })
+    }
+}
+
+fn engine_with_hooks(
+    adapter: MockSpawnAdapter,
+    trigger: VerifyTrigger,
+    hooks: Vec<Box<dyn StepHook>>,
+) -> ExecutionEngine<MockSpawnAdapter> {
+    let mut runner = HookRunner::new(trigger);
+    for hook in hooks {
+        runner.register(hook);
+    }
+    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    ExecutionEngine::with_hook_runner(
+        plan_state,
+        default_config(),
+        adapter,
+        Arc::new(NoopNotifier),
+        runner,
+    )
+}
+
+#[tokio::test]
+async fn test_hook_never_skips_hooks() {
+    let count = Arc::new(Mutex::new(0usize));
+    let adapter = MockSpawnAdapter::new(vec![Ok(SubAgentResult {
+        step_index: 0,
+        status: ExecutionStepStatus::Completed,
+        summary: "done".into(),
+        changed_files: vec!["file.rs".into()],
+        error_message: None,
+    })]);
+    let engine = engine_with_hooks(
+        adapter,
+        VerifyTrigger::Never,
+        vec![Box::new(RecordingHook::new(count.clone()))],
+    );
+    let report = engine.execute(&["step 0".into()]).await.unwrap();
+
+    assert!(report.all_completed);
+    assert_eq!(*count.lock().unwrap(), 0);
+    assert!(!report
+        .events
+        .iter()
+        .any(|e| matches!(e, crate::event::ExecutionEvent::HookExecuted { .. })));
+}
+
+#[tokio::test]
+async fn test_hook_always_triggers() {
+    let count = Arc::new(Mutex::new(0usize));
+    let adapter = MockSpawnAdapter::new(vec![Ok(SubAgentResult {
+        step_index: 0,
+        status: ExecutionStepStatus::Completed,
+        summary: "done".into(),
+        changed_files: vec![],
+        error_message: None,
+    })]);
+    let engine = engine_with_hooks(
+        adapter,
+        VerifyTrigger::Always,
+        vec![Box::new(RecordingHook::new(count.clone()))],
+    );
+    let report = engine.execute(&["step 0".into()]).await.unwrap();
+
+    assert!(report.all_completed);
+    assert_eq!(*count.lock().unwrap(), 1);
+    assert!(report.events.iter().any(|e| matches!(
+        e,
+        crate::event::ExecutionEvent::HookExecuted { step_index: 0 }
+    )));
+}
+
+#[tokio::test]
+async fn test_hook_block_records_event() {
+    let adapter = MockSpawnAdapter::new(vec![Ok(SubAgentResult {
+        step_index: 0,
+        status: ExecutionStepStatus::Completed,
+        summary: "done".into(),
+        changed_files: vec![],
+        error_message: None,
+    })]);
+    let engine = engine_with_hooks(adapter, VerifyTrigger::Always, vec![Box::new(BlockingHook)]);
+    let report = engine.execute(&["step 0".into()]).await.unwrap();
+
+    // Step still completes even though hook blocked
+    assert!(report.all_completed);
+    assert!(report
+        .events
+        .iter()
+        .any(|e| matches!(e, crate::event::ExecutionEvent::HookFailed {
+        step_index: 0,
+        error_message,
+    } if error_message == "blocked by hook")));
+}
+
+#[tokio::test]
+async fn test_hook_failure_does_not_block_step() {
+    let adapter = MockSpawnAdapter::new(vec![Ok(SubAgentResult {
+        step_index: 0,
+        status: ExecutionStepStatus::Completed,
+        summary: "done".into(),
+        changed_files: vec![],
+        error_message: None,
+    })]);
+    let engine = engine_with_hooks(adapter, VerifyTrigger::Always, vec![Box::new(ErrorHook)]);
+    let report = engine.execute(&["step 0".into()]).await.unwrap();
+
+    assert!(report.all_completed);
+    assert!(report.steps[0].status == ExecutionStepStatus::Completed);
 }
 
 #[tokio::test]

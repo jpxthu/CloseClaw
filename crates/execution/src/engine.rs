@@ -11,6 +11,7 @@ use closeclaw_common::{ExecutionStepStatus, PlanState, PlanStateNotifier};
 
 use crate::error::ExecutionError;
 use crate::event::ExecutionEvent;
+use crate::hook::HookRunner;
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult};
 
@@ -59,6 +60,8 @@ pub struct ExecutionEngine<S> {
     adapter: S,
     /// Notifier for progress changes — called after each status transition.
     notifier: Arc<dyn PlanStateNotifier>,
+    /// Optional hook runner for post-step actions.
+    hook_runner: Option<HookRunner>,
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +81,24 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             config,
             adapter,
             notifier,
+            hook_runner: None,
+        }
+    }
+
+    /// Create a new execution engine with a hook runner.
+    pub fn with_hook_runner(
+        plan_state: Arc<Mutex<PlanState>>,
+        config: ExecutionConfig,
+        adapter: S,
+        notifier: Arc<dyn PlanStateNotifier>,
+        hook_runner: HookRunner,
+    ) -> Self {
+        Self {
+            plan_state,
+            config,
+            adapter,
+            notifier,
+            hook_runner: Some(hook_runner),
         }
     }
 
@@ -519,13 +540,18 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
                 summary: sub_result.summary.clone(),
             },
         );
-        Ok(Some(self.build_step_result(
+
+        let step_result = self.build_step_result(
             step_index,
             description,
             sub_result.status,
             sub_result,
             attempt,
-        )))
+        );
+
+        self.run_hooks_for_step(&step_result, events).await;
+
+        Ok(Some(step_result))
     }
 
     /// Emit final failure event and build failed result.
@@ -641,6 +667,34 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
 // ---------------------------------------------------------------------------
 
 impl<S: SpawnAdapter> ExecutionEngine<S> {
+    /// Run hooks for a completed step if a hook runner is configured.
+    async fn run_hooks_for_step(&self, step_result: &StepResult, events: &mut Vec<ExecutionEvent>) {
+        if let Some(ref runner) = self.hook_runner {
+            if !runner.should_run(step_result) {
+                return;
+            }
+            match runner.run_hooks(step_result).await {
+                crate::hook::HookResult::Continue => {
+                    Self::emit_event(
+                        events,
+                        ExecutionEvent::HookExecuted {
+                            step_index: step_result.step_index,
+                        },
+                    );
+                }
+                crate::hook::HookResult::Block(reason) => {
+                    Self::emit_event(
+                        events,
+                        ExecutionEvent::HookFailed {
+                            step_index: step_result.step_index,
+                            error_message: reason,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
     /// Apply a status transition to the given step in plan state.
     /// After a successful transition, notifies the progress listener.
     async fn mark_step_status(

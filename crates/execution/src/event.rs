@@ -36,4 +36,16 @@ pub enum ExecutionEvent {
         /// Current attempt number (1-based).
         attempt: u32,
     },
+    /// A hook was executed after a step completed.
+    HookExecuted {
+        /// Index of the step that triggered the hook.
+        step_index: usize,
+    },
+    /// A hook execution failed.
+    HookFailed {
+        /// Index of the step that triggered the hook.
+        step_index: usize,
+        /// Error message.
+        error_message: String,
+    },
 }
