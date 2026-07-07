@@ -62,6 +62,7 @@ fn test_plan_state_serde_roundtrip() {
         phase: PlanPhase::Design,
         pending_steps: vec!["step1".into(), "step2".into()],
         plan_file_path: "/tmp/plan.md".into(),
+        ..PlanState::default()
     };
     let json = serde_json::to_string(&state).unwrap();
     let deserialized: PlanState = serde_json::from_str(&json).unwrap();
