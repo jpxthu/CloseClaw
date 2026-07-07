@@ -16,6 +16,7 @@ use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::engine::engine_risk::RiskLevel;
 use closeclaw_permission::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
@@ -277,55 +278,59 @@ async fn handle_foreground_result(
     }
 }
 
-/// Execute the BashTool call: parse args, check permissions, run command.
-async fn execute_bash_call(
+/// Route a `PermissionResponse::Denied` through the approval flow.
+///
+/// Attempts to enqueue the denial for owner approval. Returns `Ok(ToolResult)`
+/// if the request was enqueued (`approval_pending`), or `Err(PermissionDenied)`
+/// if the flow rejected it (e.g. sub-agent or duplicate).
+async fn route_denial_to_approval(
+    caller: &Caller,
+    body: &PermissionRequestBody,
+    risk_level: RiskLevel,
+    session_id: &str,
+    approval_flow: &Arc<TokioMutex<ApprovalFlow>>,
+    reason: String,
+) -> Result<ToolResult, ToolCallError> {
+    let mut flow = approval_flow.lock().await;
+    if let Some(request_id) = flow.submit_denial(caller, body, risk_level, session_id, false) {
+        return Ok(ToolResult {
+            data: super::approval_utils::build_approval_pending(request_id),
+            new_messages: vec![],
+            context_modifier: None,
+        });
+    }
+    Err(ToolCallError::PermissionDenied(reason))
+}
+
+/// Analyze command security. Returns `Err` if the command is untrusted.
+fn analyze_security(command: &str) -> Result<(), ToolCallError> {
+    let sec_result = BashSecurityAnalyzer::new()
+        .map_err(ToolCallError::ExecutionFailed)?
+        .analyze(command);
+    if let TrustLevel::Uncertain | TrustLevel::Malicious = sec_result.trust_level {
+        return Err(ToolCallError::ExecutionFailed(format!(
+            "Command {} (reason: {})",
+            if sec_result.trust_level == TrustLevel::Malicious {
+                "blocked"
+            } else {
+                "requires approval"
+            },
+            sec_result.reason.unwrap_or_default()
+        )));
+    }
+    Ok(())
+}
+
+/// Check permissions and route denial through approval flow.
+/// Returns `Ok(Some(ToolResult))` on approval-pending, `Ok(None)` if allowed,
+/// or `Err` for errors / unapproved denials.
+async fn check_permission_and_route(
     perm: &PermissionEngine,
     session_manager: &SessionManager,
-    bg: &Arc<dyn closeclaw_tasks::TaskManager>,
     config_manager: &ConfigManager,
     approval_flow: &Arc<TokioMutex<ApprovalFlow>>,
-    args: Value,
     ctx: &ToolContext,
-) -> Result<ToolResult, ToolCallError> {
-    // --- 1. Parse parameters ---
-    let err_msg = "missing required parameter: command";
-    let command = args
-        .get("command")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ToolCallError::InvalidArgs(err_msg.into()))?;
-    if command.is_empty() {
-        return Err(ToolCallError::InvalidArgs(
-            "command must not be empty".into(),
-        ));
-    }
-
-    let timeout_ms = parse_timeout(&args);
-    let cwd = resolve_cwd(&args, ctx);
-    let run_in_background = args.get("run_in_background") == Some(&Value::Bool(true));
-
-    // `description` and `dangerouslyDisableSandbox` are ignored.
-    let _ = args.get("description");
-    let _ = args.get("dangerouslyDisableSandbox");
-
-    // --- 2. Security analysis ---
-    let mut analyzer = BashSecurityAnalyzer::new().map_err(ToolCallError::ExecutionFailed)?;
-    let sec_result = analyzer.analyze(command);
-    match sec_result.trust_level {
-        TrustLevel::Trusted => {}
-        TrustLevel::Uncertain | TrustLevel::Malicious => {
-            return Err(ToolCallError::ExecutionFailed(format!(
-                "Command {} (reason: {})",
-                if sec_result.trust_level == TrustLevel::Malicious {
-                    "blocked"
-                } else {
-                    "requires approval"
-                },
-                sec_result.reason.unwrap_or_default()
-            )));
-        }
-    }
-
-    // --- 3. Permission check (chain-aware) ---
+) -> Result<Option<ToolResult>, ToolCallError> {
     let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
         agent: ctx.agent_id.clone(),
         cmd: "*".to_string(),
@@ -353,37 +358,57 @@ async fn execute_bash_call(
             method: "call".to_string(),
         };
         let session_id = ctx.session_id.as_deref().unwrap_or("");
-        let mut flow = approval_flow.lock().await;
-        if let Some(request_id) = flow.submit_denial(&caller, &body, risk_level, session_id, false)
-        {
-            return Ok(ToolResult {
-                data: serde_json::json!({
-                    "status": "approval_pending",
-                    "request_id": request_id,
-                    "message": "Operation pending owner approval",
-                }),
-                new_messages: vec![],
-                context_modifier: None,
-            });
-        }
-        return Err(ToolCallError::PermissionDenied(reason));
+        let result = route_denial_to_approval(
+            &caller,
+            &body,
+            risk_level,
+            session_id,
+            approval_flow,
+            reason,
+        )
+        .await?;
+        return Ok(Some(result));
     }
+    Ok(None)
+}
 
-    // --- 4. Execute subprocess ---
-    let result = execute_command(
+/// Execute the BashTool call: parse args, check permissions, run command.
+async fn execute_bash_call(
+    perm: &PermissionEngine,
+    session_manager: &SessionManager,
+    bg: &Arc<dyn closeclaw_tasks::TaskManager>,
+    config_manager: &ConfigManager,
+    approval_flow: &Arc<TokioMutex<ApprovalFlow>>,
+    args: Value,
+    ctx: &ToolContext,
+) -> Result<ToolResult, ToolCallError> {
+    let command = args
+        .get("command")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolCallError::InvalidArgs("missing required parameter: command".into()))?;
+    if command.is_empty() {
+        return Err(ToolCallError::InvalidArgs(
+            "command must not be empty".into(),
+        ));
+    }
+    analyze_security(command)?;
+    if let Some(result) =
+        check_permission_and_route(perm, session_manager, config_manager, approval_flow, ctx)
+            .await?
+    {
+        return Ok(result);
+    }
+    execute_command(
         command,
-        &cwd,
-        timeout_ms,
-        run_in_background,
+        &resolve_cwd(&args, ctx),
+        parse_timeout(&args),
+        args.get("run_in_background") == Some(&Value::Bool(true)),
         bg,
         ctx.session.as_ref(),
         ctx.call_id.as_deref(),
     )
-    .await;
-    match result {
-        Ok(r) => Ok(r),
-        Err(e) => Err(ToolCallError::ExecutionFailed(e)),
-    }
+    .await
+    .map_err(ToolCallError::ExecutionFailed)
 }
 
 /// Execute a shell command via `sh -c` with timeout.
