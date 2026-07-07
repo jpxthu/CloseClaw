@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use closeclaw_agent::AgentConfigLookup;
 use closeclaw_gateway::SessionManager;
+use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 
 use crate::builtin::{SessionsKillTool, SessionsSpawnTool, SessionsSteerTool};
@@ -21,6 +22,7 @@ pub struct SessionToolsRegistrar {
     session_manager: Arc<SessionManager>,
     agent_config_lookup: Arc<dyn AgentConfigLookup>,
     permission_engine: Arc<PermissionEngine>,
+    approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
 }
 
 impl SessionToolsRegistrar {
@@ -30,12 +32,14 @@ impl SessionToolsRegistrar {
         session_manager: Arc<SessionManager>,
         agent_config_lookup: Arc<dyn AgentConfigLookup>,
         permission_engine: Arc<PermissionEngine>,
+        approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     ) -> Self {
         Self {
             spawn_validator,
             session_manager,
             agent_config_lookup,
             permission_engine,
+            approval_flow,
         }
     }
 }
@@ -63,19 +67,28 @@ impl ToolRegistrar for SessionToolsRegistrar {
                 self.spawn_validator.clone(),
                 self.session_manager.clone(),
                 self.agent_config_lookup.clone(),
+                self.approval_flow.clone(),
             ),
             r
         );
         try_register!(
             registry,
             registered,
-            SessionsSteerTool::new(self.session_manager.clone(), self.permission_engine.clone()),
+            SessionsSteerTool::new(
+                self.session_manager.clone(),
+                self.permission_engine.clone(),
+                self.approval_flow.clone()
+            ),
             r
         );
         try_register!(
             registry,
             registered,
-            SessionsKillTool::new(self.session_manager.clone(), self.permission_engine.clone()),
+            SessionsKillTool::new(
+                self.session_manager.clone(),
+                self.permission_engine.clone(),
+                self.approval_flow.clone()
+            ),
             r
         );
         if registered == 0 {

@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::builtin::bash_kill::{persist_output, process_output, MAX_OUTPUT_CHARS};
+use closeclaw_permission::approval_flow::HeartbeatApprovalMode;
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -118,6 +119,15 @@ fn test_config_manager() -> Arc<closeclaw_config::ConfigManager> {
         closeclaw_config::ConfigManager::new(tmp.path().to_path_buf())
             .expect("ConfigManager::new should succeed"),
     )
+}
+
+fn test_mock_approval_flow() -> Arc<TokioMutex<ApprovalFlow>> {
+    Arc::new(TokioMutex::new(ApprovalFlow::new(
+        Arc::clone(&test_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
+        Arc::new(|_| {}),
+        tokio::runtime::Handle::current(),
+        HeartbeatApprovalMode::default(),
+    )))
 }
 
 fn test_tool_context() -> ToolContext {
@@ -233,25 +243,27 @@ fn test_resolve_cwd_with_cwd_arg() {
 
 // --- BashTool metadata ---
 
-#[test]
-fn test_bash_tool_name_and_group() {
+#[tokio::test]
+async fn test_bash_tool_name_and_group() {
     let tool = BashTool::new(
         test_permission_engine(),
         test_bg_manager(),
         test_session_manager(),
         test_config_manager(),
+        test_mock_approval_flow(),
     );
     assert_eq!(tool.name(), "Bash");
     assert_eq!(tool.group(), "bash");
 }
 
-#[test]
-fn test_bash_tool_flags() {
+#[tokio::test]
+async fn test_bash_tool_flags() {
     let tool = BashTool::new(
         test_permission_engine(),
         test_bg_manager(),
         test_session_manager(),
         test_config_manager(),
+        test_mock_approval_flow(),
     );
     let flags = tool.flags();
     assert!(flags.is_destructive);
@@ -260,26 +272,28 @@ fn test_bash_tool_flags() {
 
 // --- input_schema ---
 
-#[test]
-fn test_input_schema_command_required() {
+#[tokio::test]
+async fn test_input_schema_command_required() {
     let tool = BashTool::new(
         test_permission_engine(),
         test_bg_manager(),
         test_session_manager(),
         test_config_manager(),
+        test_mock_approval_flow(),
     );
     let schema = tool.input_schema();
     let required = schema["required"].as_array().unwrap();
     assert!(required.contains(&json!("command")));
 }
 
-#[test]
-fn test_input_schema_six_properties() {
+#[tokio::test]
+async fn test_input_schema_six_properties() {
     let tool = BashTool::new(
         test_permission_engine(),
         test_bg_manager(),
         test_session_manager(),
         test_config_manager(),
+        test_mock_approval_flow(),
     );
     let schema = tool.input_schema();
     let props = schema["properties"].as_object().unwrap();

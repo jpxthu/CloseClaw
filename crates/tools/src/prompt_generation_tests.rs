@@ -17,6 +17,7 @@ use crate::WorkdirContext;
 use crate::{PromptGenerationContext, Tool};
 use closeclaw_gateway::GatewayConfig;
 use closeclaw_gateway::SessionManager;
+use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_session::bootstrap::BootstrapMode;
@@ -93,7 +94,17 @@ fn test_bash_tool() -> BashTool {
         test_bg_manager(),
         test_session_manager(),
         test_config_manager(),
+        test_mock_approval_flow(),
     )
+}
+
+fn test_mock_approval_flow() -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
+    Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
+        Arc::clone(&test_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
+        Arc::new(|_| {}),
+        tokio::runtime::Handle::current(),
+        HeartbeatApprovalMode::default(),
+    )))
 }
 
 // --- generate_prompt: workdir-aware behavior ---
