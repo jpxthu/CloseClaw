@@ -200,7 +200,13 @@ async fn test_spawn_approval_allow_path() {
             // If it fails, it should be an ExecutionFailed from
             // create_child_session, not approval_pending or PermissionDenied.
             match e {
-                ToolCallError::ExecutionFailed(_) => {} // acceptable
+                ToolCallError::ExecutionFailed(msg) => {
+                    assert!(
+                        msg.contains("child session creation failed"),
+                        "allow path ExecutionFailed must come from create_child_session, got: {}",
+                        msg
+                    );
+                }
                 other => panic!("unexpected error: {:?}", other),
             }
         }
