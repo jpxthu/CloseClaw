@@ -88,6 +88,37 @@ async fn test_plan_mode_handler_with_args_returns_set_mode() {
 }
 
 #[tokio::test]
+async fn test_plan_mode_handler_with_args_sets_plan_file_path() {
+    let sm = make_session_manager();
+    let sid = create_test_session(&sm).await;
+    let h = PlanModeHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("实现一个新功能", &ctx).await {
+        SlashResult::SetMode {
+            mode,
+            plan_file_path,
+        } => {
+            assert_eq!(mode, "plan");
+            assert!(
+                plan_file_path.is_some(),
+                "plan_file_path should be Some when args are provided"
+            );
+            let path = plan_file_path.unwrap();
+            assert!(
+                path.to_string_lossy().contains("plans"),
+                "plan file path should be under plans/ directory, got: {:?}",
+                path
+            );
+            assert!(path.exists(), "plan file should exist on disk");
+        }
+        other => {
+            panic!("expected SetMode{{mode: \"plan\", plan_file_path: Some(..)}}, got {other:?}")
+        }
+    }
+}
+
+#[tokio::test]
 async fn test_plan_mode_handler_with_whitespace_args_returns_set_mode() {
     let h = make_plan_handler();
     let ctx = dummy_ctx();
