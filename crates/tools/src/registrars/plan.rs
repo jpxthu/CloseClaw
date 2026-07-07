@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use closeclaw_common::{PlanState, PlanStateWriter};
 
+use crate::builtin::plan_approval::PlanApprovalTool;
 use crate::builtin::ProgressTool;
 use crate::try_register;
 use crate::Tool;
@@ -63,9 +64,11 @@ impl ToolRegistrar for PlanToolsRegistrar {
             None => ProgressTool::new(Arc::clone(&self.plan_state)),
         };
         try_register!(registry, registered, progress_tool, r);
+        let plan_approval = PlanApprovalTool::new();
+        try_register!(registry, registered, plan_approval, r);
         if registered == 0 {
             return Err(ToolRegistrarError::Internal(
-                "all 1 plan tools failed to register".to_string(),
+                "all 2 plan tools failed to register".to_string(),
             ));
         }
         Ok(())
