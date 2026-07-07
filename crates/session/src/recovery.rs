@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use crate::llm_session::PROGRESS_APPEND_PREFIX;
 use crate::persistence::{
     PersistenceError, PersistenceService, ProgressToolCallRecord, SessionCheckpoint,
 };
@@ -318,31 +319,42 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
 
     /// Inject ProgressTool call history into checkpoint's system_appends (layer 4 fallback).
     ///
-    /// When a checkpoint has no `plan_state` (layer 1 failed) and no plan file
-    /// content was injected (layer 3 failed), this method checks
+    /// When the first three layers are all unavailable — no `plan_state`
+    /// (layer 1), no progress summary in `system_appends` (layer 2), and no
+    /// plan file content injected (layer 3) — this method checks
     /// `progress_tool_calls` in the checkpoint. If non-empty, it builds a
     /// progress summary and adds it to `system_appends` with
     /// [`PROGRESS_HISTORY_APPEND_PREFIX`].
     ///
-    /// The trigger condition is explicit: only when the first three layers
-    /// are all unavailable.
+    /// The trigger condition is explicit: only when layers 1–3 are all
+    /// unavailable.
     fn inject_progress_from_tool_calls(
         &self,
         session_id: &str,
         checkpoint: &mut SessionCheckpoint,
     ) {
-        // Only trigger when layer 1 (plan_state) is unavailable
+        // Layer 1: Only trigger when plan_state is unavailable
         if checkpoint.plan_state.is_some() {
             return;
         }
 
-        // Only trigger when layer 3 (plan file) was NOT injected
+        // Layer 3: Only trigger when plan file content was NOT injected
         // (i.e., no PLAN_TASKS_APPEND_PREFIX entry exists)
         let has_plan_tasks = checkpoint
             .system_appends
             .iter()
             .any(|s| s.starts_with(PLAN_TASKS_APPEND_PREFIX));
         if has_plan_tasks {
+            return;
+        }
+
+        // Layer 2: Only trigger when progress summary was NOT injected
+        // (i.e., no PROGRESS_APPEND_PREFIX entry exists in system_appends)
+        let has_progress_summary = checkpoint
+            .system_appends
+            .iter()
+            .any(|s| s.starts_with(PROGRESS_APPEND_PREFIX));
+        if has_progress_summary {
             return;
         }
 

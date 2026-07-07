@@ -7,11 +7,12 @@ mod tests {
     use chrono::Utc;
 
     use crate::llm_session::SessionMessage;
+    use crate::llm_session::PROGRESS_APPEND_PREFIX;
     use crate::persistence::{PersistenceService, ProgressToolCallRecord};
     use crate::recovery::{
         parse_progress_call_record, rebuild_plan_state_from_calls,
         rebuild_progress_summary_from_calls, scan_progress_tool_calls, SessionRecoveryService,
-        PROGRESS_HISTORY_APPEND_PREFIX,
+        PLAN_TASKS_APPEND_PREFIX, PROGRESS_HISTORY_APPEND_PREFIX,
     };
     use crate::storage::memory::MemoryStorage;
     use closeclaw_common::{ContentBlock, ExecutionStepStatus};
@@ -291,6 +292,249 @@ mod tests {
         assert!(
             pa2.is_none(),
             "layer 4 should not inject when plan_state exists"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_layer2_check_skips_layer4_when_progress_summary_exists() {
+        // Normal path: system_appends has PROGRESS_APPEND_PREFIX →
+        // layer 4 should NOT trigger
+        let storage = Arc::new(MemoryStorage::new());
+        let mut cp = create_test_checkpoint("has-progress-summary");
+        cp.plan_state = None;
+        cp.system_appends
+            .push(format!("{}Step 1 done", PROGRESS_APPEND_PREFIX));
+        cp.progress_tool_calls = vec![ProgressToolCallRecord {
+            step_index: 0,
+            status: ExecutionStepStatus::Completed,
+            summary: None,
+            error_message: None,
+        }];
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let _report = service.recover().await.unwrap();
+
+        let loaded = storage
+            .load_checkpoint("has-progress-summary")
+            .await
+            .unwrap()
+            .unwrap();
+        let history = loaded
+            .system_appends
+            .iter()
+            .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX));
+        assert!(
+            history.is_none(),
+            "layer 4 should NOT inject when layer 2 progress summary exists"
+        );
+        // The original layer 2 entry must remain untouched
+        let progress = loaded
+            .system_appends
+            .iter()
+            .find(|s| s.starts_with(PROGRESS_APPEND_PREFIX));
+        assert!(
+            progress.is_some(),
+            "layer 2 progress summary should still be present"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_layer4_triggers_when_no_progress_summary() {
+        // Reverse verification: no PROGRESS_APPEND_PREFIX and other layers
+        // unavailable → layer 4 should trigger
+        let storage = Arc::new(MemoryStorage::new());
+        let mut cp = create_test_checkpoint("no-progress-summary");
+        cp.plan_state = None;
+        // system_appends is empty — no layer 2 or layer 3 entries
+        cp.progress_tool_calls = vec![
+            ProgressToolCallRecord {
+                step_index: 0,
+                status: ExecutionStepStatus::InProgress,
+                summary: None,
+                error_message: None,
+            },
+            ProgressToolCallRecord {
+                step_index: 0,
+                status: ExecutionStepStatus::Completed,
+                summary: None,
+                error_message: None,
+            },
+            ProgressToolCallRecord {
+                step_index: 1,
+                status: ExecutionStepStatus::InProgress,
+                summary: None,
+                error_message: None,
+            },
+        ];
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let _report = service.recover().await.unwrap();
+
+        let loaded = storage
+            .load_checkpoint("no-progress-summary")
+            .await
+            .unwrap()
+            .unwrap();
+        let history = loaded
+            .system_appends
+            .iter()
+            .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX));
+        assert!(
+            history.is_some(),
+            "layer 4 should trigger when no layer 2 progress summary exists"
+        );
+        assert!(
+            history.unwrap().contains("Step 1/2: completed"),
+            "layer 4 should inject rebuilt progress summary"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_layer3_hits_before_layer2_boundary() {
+        // Boundary: both PROGRESS_APPEND_PREFIX and PLAN_TASKS_APPEND_PREFIX
+        // present → layer 3 check hits first (returns early before layer 2)
+        let storage = Arc::new(MemoryStorage::new());
+        let mut cp = create_test_checkpoint("both-layers-2-and-3");
+        cp.plan_state = None;
+        cp.system_appends
+            .push(format!("{}Step 1 done", PROGRESS_APPEND_PREFIX));
+        cp.system_appends
+            .push(format!("{}task content", PLAN_TASKS_APPEND_PREFIX));
+        cp.progress_tool_calls = vec![
+            ProgressToolCallRecord {
+                step_index: 0,
+                status: ExecutionStepStatus::InProgress,
+                summary: None,
+                error_message: None,
+            },
+            ProgressToolCallRecord {
+                step_index: 0,
+                status: ExecutionStepStatus::Completed,
+                summary: None,
+                error_message: None,
+            },
+        ];
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let _report = service.recover().await.unwrap();
+
+        let loaded = storage
+            .load_checkpoint("both-layers-2-and-3")
+            .await
+            .unwrap()
+            .unwrap();
+        // Layer 4 should not inject — either layer 3 or layer 2 short-circuits
+        let history = loaded
+            .system_appends
+            .iter()
+            .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX));
+        assert!(
+            history.is_none(),
+            "layer 4 should NOT inject when both layer 2 and layer 3 exist"
+        );
+        // Both original entries must remain untouched
+        assert!(
+            loaded
+                .system_appends
+                .iter()
+                .any(|s| s.starts_with(PROGRESS_APPEND_PREFIX)),
+            "layer 2 entry should remain"
+        );
+        assert!(
+            loaded
+                .system_appends
+                .iter()
+                .any(|s| s.starts_with(PLAN_TASKS_APPEND_PREFIX)),
+            "layer 3 entry should remain"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_state_transition_layer2_absent_to_present() {
+        // State transition: from having layer 2 data (no layer 4) to not
+        // having it (layer 4 triggers)
+        let storage = Arc::new(MemoryStorage::new());
+
+        // Checkpoint A: has layer 2 progress summary → layer 4 skipped
+        let mut cp_a = create_test_checkpoint("transition-with-layer2");
+        cp_a.plan_state = None;
+        cp_a.system_appends
+            .push(format!("{}Step 0 done", PROGRESS_APPEND_PREFIX));
+        cp_a.progress_tool_calls = vec![
+            ProgressToolCallRecord {
+                step_index: 0,
+                status: ExecutionStepStatus::InProgress,
+                summary: None,
+                error_message: None,
+            },
+            ProgressToolCallRecord {
+                step_index: 0,
+                status: ExecutionStepStatus::Completed,
+                summary: None,
+                error_message: None,
+            },
+        ];
+        storage.save_checkpoint(&cp_a).await.unwrap();
+
+        // Checkpoint B: no layer 2 progress summary → layer 4 triggers
+        let mut cp_b = create_test_checkpoint("transition-without-layer2");
+        cp_b.plan_state = None;
+        cp_b.progress_tool_calls = vec![
+            ProgressToolCallRecord {
+                step_index: 0,
+                status: ExecutionStepStatus::InProgress,
+                summary: None,
+                error_message: None,
+            },
+            ProgressToolCallRecord {
+                step_index: 0,
+                status: ExecutionStepStatus::Completed,
+                summary: None,
+                error_message: None,
+            },
+            ProgressToolCallRecord {
+                step_index: 1,
+                status: ExecutionStepStatus::InProgress,
+                summary: None,
+                error_message: None,
+            },
+        ];
+        storage.save_checkpoint(&cp_b).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let _report = service.recover().await.unwrap();
+
+        // Checkpoint A: layer 4 should NOT have injected
+        let loaded_a = storage
+            .load_checkpoint("transition-with-layer2")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            loaded_a
+                .system_appends
+                .iter()
+                .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX))
+                .is_none(),
+            "layer 4 should NOT inject when layer 2 exists"
+        );
+
+        // Checkpoint B: layer 4 SHOULD have injected
+        let loaded_b = storage
+            .load_checkpoint("transition-without-layer2")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            loaded_b
+                .system_appends
+                .iter()
+                .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX))
+                .is_some(),
+            "layer 4 SHOULD inject when layer 2 is absent"
         );
     }
 }
