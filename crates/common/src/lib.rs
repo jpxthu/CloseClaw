@@ -56,7 +56,7 @@ pub use llm_stats::{detect_cache_break, CacheBreakInfo, RunningStats};
 pub use llm_streaming::{StreamDone, StreamingSink};
 pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinition};
 pub use middleware::{MiddlewareError, OutboundMiddleware};
-pub use plan_state::{PlanPhase, PlanState};
+pub use plan_state::{ExecutionStep, ExecutionStepStatus, PlanPhase, PlanState, TransitionError};
 pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
     ProcessedMessage, ProcessorChain, StreamEvent, UnifiedResponse, UnifiedUsage,

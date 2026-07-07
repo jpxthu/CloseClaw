@@ -12,6 +12,7 @@ pub mod coding_agent;
 pub mod file_ops;
 pub mod git_ops;
 pub mod permission;
+pub mod progress;
 pub mod prompt_template;
 pub mod search;
 pub mod sessions_kill;
@@ -25,12 +26,16 @@ pub use coding_agent::CodingAgentTool;
 pub use file_ops::{EditTool, GrepTool, LsTool, ReadTool, WriteTool};
 pub use git_ops::{GitCommitTool, GitLogTool, GitPullTool, GitPushTool, GitStatusTool};
 pub use permission::PermissionQueryTool;
+pub use progress::ProgressTool;
 pub use search::ToolSearchTool;
 pub use sessions_kill::SessionsKillTool;
 pub use sessions_spawn::SessionsSpawnTool;
 pub use sessions_steer::SessionsSteerTool;
 pub use skill_creator::SkillCreatorTool;
 pub use skill_tool::SkillTool;
+
+#[cfg(test)]
+mod progress_tests;
 
 #[cfg(test)]
 mod skill_tool_tests;
