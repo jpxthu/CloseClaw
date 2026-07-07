@@ -36,4 +36,13 @@ pub enum ExecutionError {
         /// Error message from the step.
         message: String,
     },
+
+    /// Permission check denied the step execution.
+    #[error("permission denied for step {step_index}: {reason}")]
+    PermissionDenied {
+        /// The step index that was denied.
+        step_index: usize,
+        /// Reason for the denial.
+        reason: String,
+    },
 }

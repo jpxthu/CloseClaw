@@ -12,6 +12,8 @@ pub mod llm_stats;
 pub mod llm_streaming;
 pub mod llm_types;
 pub mod middleware;
+pub mod notifier;
+pub mod permission_check;
 pub mod plan_state;
 #[cfg(test)]
 pub mod plan_state_tests;
@@ -56,7 +58,12 @@ pub use llm_stats::{detect_cache_break, CacheBreakInfo, RunningStats};
 pub use llm_streaming::{StreamDone, StreamingSink};
 pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinition};
 pub use middleware::{MiddlewareError, OutboundMiddleware};
-pub use plan_state::{ExecutionStep, ExecutionStepStatus, PlanPhase, PlanState, TransitionError};
+pub use notifier::{NoopNotifier, PlanStateNotifier};
+pub use permission_check::{ExecutionPermissionCheck, PermissionDenied};
+pub use plan_state::{
+    DefaultPlanStateWriter, ExecutionStep, ExecutionStepStatus, PlanPhase, PlanState,
+    PlanStateWriter, TransitionError,
+};
 pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
     ProcessedMessage, ProcessorChain, StreamEvent, UnifiedResponse, UnifiedUsage,

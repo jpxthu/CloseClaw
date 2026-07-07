@@ -349,6 +349,8 @@ mod tests {
             phase: PlanPhase::Design,
             pending_steps: vec!["step-a".into(), "step-b".into()],
             plan_file_path: "/plans/design.md".into(),
+            execution_steps: vec![],
+            current_step: None,
         };
 
         // Simulate pre-compaction checkpoint fields with long messages

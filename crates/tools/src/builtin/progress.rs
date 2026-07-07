@@ -8,7 +8,7 @@ use crate::{Tool, ToolCallError, ToolFlags, ToolResult};
 
 use async_trait::async_trait;
 
-use closeclaw_common::{ExecutionStepStatus, PlanState, TransitionError};
+use closeclaw_common::{ExecutionStepStatus, PlanState, PlanStateWriter, TransitionError};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 
@@ -40,12 +40,28 @@ use std::sync::{Arc, Mutex};
 ///   `current_step` (or 0 if no step started yet)
 pub struct ProgressTool {
     plan_state: Arc<Mutex<PlanState>>,
+    writer: Option<Arc<dyn PlanStateWriter>>,
 }
 
 impl ProgressTool {
     /// Create a new `ProgressTool` backed by the given `PlanState`.
     pub fn new(plan_state: Arc<Mutex<PlanState>>) -> Self {
-        Self { plan_state }
+        Self {
+            plan_state,
+            writer: None,
+        }
+    }
+
+    /// Create a new `ProgressTool` with a [`PlanStateWriter`] for plan file
+    /// synchronization.
+    pub fn with_writer(
+        plan_state: Arc<Mutex<PlanState>>,
+        writer: Arc<dyn PlanStateWriter>,
+    ) -> Self {
+        Self {
+            plan_state,
+            writer: Some(writer),
+        }
     }
 
     /// Validate the transition and apply it to the inner `PlanState`.
@@ -70,6 +86,20 @@ impl ProgressTool {
         }
         if let Some(e) = error_message {
             ps.execution_steps[step_index].error_message = Some(e);
+        }
+
+        // Sync progress to plan file if writer is available.
+        // Failure is logged as a warning and does not block the main flow.
+        if let Some(writer) = &self.writer {
+            if !ps.plan_file_path.is_empty() {
+                let plan_file_path = ps.plan_file_path.clone();
+                if let Err(e) = writer.write_progress_to_plan_file(&plan_file_path, &ps) {
+                    tracing::warn!(
+                        "failed to sync progress to plan file \
+                         {plan_file_path}: {e}"
+                    );
+                }
+            }
         }
 
         Ok(())

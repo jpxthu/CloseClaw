@@ -347,3 +347,298 @@ async fn test_progress_tool_detail_contains_rules() {
     assert!(detail.contains("completed"));
     assert!(detail.contains("failed"));
 }
+
+// ---------------------------------------------------------------------------
+// Plan file synchronization tests
+// ---------------------------------------------------------------------------
+
+use closeclaw_common::{DefaultPlanStateWriter, PlanStateWriter};
+
+/// Helper: create a ProgressTool with writer and a PlanState whose
+/// `plan_file_path` points to the given temp file.
+fn make_tool_with_writer(plan_file_path: &str) -> (ProgressTool, Arc<Mutex<PlanState>>) {
+    let mut ps = PlanState::new();
+    ps.init_execution_steps(vec!["Step 1".into(), "Step 2".into()]);
+    ps.plan_file_path = plan_file_path.to_string();
+    let ps = Arc::new(Mutex::new(ps));
+    let writer: Arc<dyn PlanStateWriter> = Arc::new(DefaultPlanStateWriter::new());
+    let tool = ProgressTool::with_writer(Arc::clone(&ps), writer);
+    (tool, ps)
+}
+
+/// Helper: create a sample plan markdown file with a progress table.
+fn create_sample_plan(path: &str) {
+    let content = concat!(
+        "# Plan\n",
+        "\n",
+        "Some description.\n",
+        "\n",
+        "## Steps\n",
+        "\n",
+        "- Step 1: do something\n",
+        "- Step 2: do something else\n",
+        "\n",
+        "## \u{8fdb}\u{5ea6}\n",
+        "\n",
+        "| | Step | \u{72b6}\u{6001} | Time | Tokens | Context |\n",
+        "|------|------|------|------|--------|---------|\n",
+        "| | 1.1 | | | | |\n",
+        "| | 2.1 | | | | |\n",
+    );
+    std::fs::write(path, content).unwrap();
+}
+
+#[tokio::test]
+async fn test_progress_tool_with_writer_syncs_plan_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan_path = dir.path().join("plan.md");
+    create_sample_plan(plan_path.to_str().unwrap());
+
+    let (tool, _ps) = make_tool_with_writer(plan_path.to_str().unwrap());
+    let ctx = test_ctx();
+
+    // Start step 0 → in_progress
+    let result = tool
+        .call(json!({"step_index": 0, "status": "in_progress"}), &ctx)
+        .await;
+    assert!(result.is_ok());
+
+    // Verify the plan file was updated
+    let content = std::fs::read_to_string(&plan_path).unwrap();
+    assert!(
+        content.contains("🔄"),
+        "expected 🔄 marker after in_progress: {content}"
+    );
+
+    // Complete step 0
+    let result = tool
+        .call(json!({"step_index": 0, "status": "completed"}), &ctx)
+        .await;
+    assert!(result.is_ok());
+
+    let content = std::fs::read_to_string(&plan_path).unwrap();
+    assert!(
+        content.contains("✅"),
+        "expected ✅ marker after completed: {content}"
+    );
+    assert!(
+        !content.contains("🔄"),
+        "should not contain 🔄 after completed: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_progress_tool_with_writer_file_not_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let fake_path = dir.path().join("nonexistent_plan.md");
+
+    let (tool, _ps) = make_tool_with_writer(fake_path.to_str().unwrap());
+    let ctx = test_ctx();
+
+    // Should succeed even though file doesn't exist
+    let result = tool
+        .call(json!({"step_index": 0, "status": "in_progress"}), &ctx)
+        .await;
+    assert!(
+        result.is_ok(),
+        "ProgressTool should not fail when plan file is missing"
+    );
+}
+
+#[tokio::test]
+async fn test_progress_tool_without_writer_no_sync() {
+    let (tool, ps) = make_tool();
+    let ctx = test_ctx();
+
+    // Without writer, should still work normally
+    let result = tool
+        .call(json!({"step_index": 0, "status": "in_progress"}), &ctx)
+        .await;
+    assert!(result.is_ok());
+    assert_eq!(
+        *ps.lock().unwrap().get_step_status(0).unwrap(),
+        ExecutionStepStatus::InProgress
+    );
+}
+
+#[tokio::test]
+async fn test_progress_tool_with_writer_empty_plan_path() {
+    let mut ps = PlanState::new();
+    ps.init_execution_steps(vec!["Step 1".into()]);
+    // plan_file_path is empty by default
+    let ps = Arc::new(Mutex::new(ps));
+    let writer: Arc<dyn PlanStateWriter> = Arc::new(DefaultPlanStateWriter::new());
+    let tool = ProgressTool::with_writer(Arc::clone(&ps), writer);
+    let ctx = test_ctx();
+
+    // Should succeed without attempting to write
+    let result = tool
+        .call(json!({"step_index": 0, "status": "in_progress"}), &ctx)
+        .await;
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_default_plan_state_writer_marker_mapping() {
+    let writer = DefaultPlanStateWriter::new();
+    let dir = tempfile::tempdir().unwrap();
+    let plan_path = dir.path().join("plan.md");
+
+    // Create plan with step 0
+    let content = concat!(
+        "# Plan\n",
+        "\n",
+        "## \u{8fdb}\u{5ea6}\n",
+        "\n",
+        "| | Step | Status |\n",
+        "|---|---|---|\n",
+        "| | 1.1 | detail |\n",
+    );
+    std::fs::write(&plan_path, content).unwrap();
+
+    // Test InProgress -> \u{1f504}
+    let mut ps = PlanState::new();
+    ps.plan_file_path = plan_path.to_str().unwrap().to_string();
+    ps.execution_steps.push(closeclaw_common::ExecutionStep {
+        step_index: 0,
+        status: ExecutionStepStatus::InProgress,
+        summary: "Step 1".into(),
+        error_message: None,
+    });
+    writer
+        .write_progress_to_plan_file(plan_path.to_str().unwrap(), &ps)
+        .unwrap();
+    let content = std::fs::read_to_string(&plan_path).unwrap();
+    assert!(content.contains("🔄"));
+}
+
+#[test]
+fn test_default_plan_state_writer_completed_marker() {
+    let writer = DefaultPlanStateWriter::new();
+    let dir = tempfile::tempdir().unwrap();
+    let plan_path = dir.path().join("plan.md");
+
+    let content = concat!(
+        "# Plan\n",
+        "\n",
+        "## \u{8fdb}\u{5ea6}\n",
+        "\n",
+        "| | Step | Status |\n",
+        "|---|---|---|\n",
+        "| | 1.1 | detail |\n",
+    );
+    std::fs::write(&plan_path, content).unwrap();
+
+    let mut ps = PlanState::new();
+    ps.plan_file_path = plan_path.to_str().unwrap().to_string();
+    ps.execution_steps.push(closeclaw_common::ExecutionStep {
+        step_index: 0,
+        status: ExecutionStepStatus::Completed,
+        summary: "Step 1".into(),
+        error_message: None,
+    });
+    writer
+        .write_progress_to_plan_file(plan_path.to_str().unwrap(), &ps)
+        .unwrap();
+    let content = std::fs::read_to_string(&plan_path).unwrap();
+    assert!(content.contains("\u{2705}"));
+}
+
+#[test]
+fn test_default_plan_state_writer_failed_marker() {
+    let writer = DefaultPlanStateWriter::new();
+    let dir = tempfile::tempdir().unwrap();
+    let plan_path = dir.path().join("plan.md");
+
+    let content = concat!(
+        "# Plan\n",
+        "\n",
+        "## \u{8fdb}\u{5ea6}\n",
+        "\n",
+        "| | Step | Status |\n",
+        "|---|---|---|\n",
+        "| | 1.1 | detail |\n",
+    );
+    std::fs::write(&plan_path, content).unwrap();
+
+    let mut ps = PlanState::new();
+    ps.plan_file_path = plan_path.to_str().unwrap().to_string();
+    ps.execution_steps.push(closeclaw_common::ExecutionStep {
+        step_index: 0,
+        status: ExecutionStepStatus::Failed,
+        summary: "Step 1".into(),
+        error_message: Some("error".into()),
+    });
+    writer
+        .write_progress_to_plan_file(plan_path.to_str().unwrap(), &ps)
+        .unwrap();
+    let content = std::fs::read_to_string(&plan_path).unwrap();
+    assert!(content.contains("\u{274c}"));
+}
+
+#[test]
+fn test_default_plan_state_writer_file_not_found() {
+    let writer = DefaultPlanStateWriter::new();
+    let ps = PlanState::new();
+    let result = writer.write_progress_to_plan_file("/nonexistent/path/plan.md", &ps);
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(err_msg.contains("plan file not found"));
+}
+
+#[test]
+fn test_default_plan_state_writer_preserves_other_content() {
+    let writer = DefaultPlanStateWriter::new();
+    let dir = tempfile::tempdir().unwrap();
+    let plan_path = dir.path().join("plan.md");
+
+    let content = concat!(
+        "# Plan\n",
+        "\n",
+        "Some description here.\n",
+        "\n",
+        "## Steps\n",
+        "\n",
+        "- Step 1\n",
+        "- Step 2\n",
+        "\n",
+        "## \u{8fdb}\u{5ea6}\n",
+        "\n",
+        "| | Step | Status |\n",
+        "|---|---|---|\n",
+        "| | 1.1 | detail |\n",
+        "| | 2.1 | detail |\n",
+        "\n",
+        "## Notes\n",
+        "\n",
+        "Keep this section.\n",
+    );
+    std::fs::write(&plan_path, content).unwrap();
+
+    let mut ps = PlanState::new();
+    ps.plan_file_path = plan_path.to_str().unwrap().to_string();
+    ps.execution_steps.push(closeclaw_common::ExecutionStep {
+        step_index: 0,
+        status: ExecutionStepStatus::Completed,
+        summary: "Step 1".into(),
+        error_message: None,
+    });
+    ps.execution_steps.push(closeclaw_common::ExecutionStep {
+        step_index: 1,
+        status: ExecutionStepStatus::InProgress,
+        summary: "Step 2".into(),
+        error_message: None,
+    });
+    writer
+        .write_progress_to_plan_file(plan_path.to_str().unwrap(), &ps)
+        .unwrap();
+
+    let result = std::fs::read_to_string(&plan_path).unwrap();
+    assert!(result.contains("# Plan"));
+    assert!(result.contains("Some description here."));
+    assert!(result.contains("## Steps"));
+    assert!(result.contains("## Notes"));
+    assert!(result.contains("Keep this section."));
+    assert!(result.contains("\u{2705}"));
+    assert!(result.contains("\u{1f504}"));
+}

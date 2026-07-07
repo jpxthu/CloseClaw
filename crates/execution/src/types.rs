@@ -56,6 +56,17 @@ pub struct ExecutionConfig {
     pub verify_trigger: VerifyTrigger,
 }
 
+impl Default for ExecutionConfig {
+    fn default() -> Self {
+        Self {
+            mode: ExecutionMode::Inline,
+            max_retries: 3,
+            retry_strategy: RetryStrategy::Fresh,
+            verify_trigger: VerifyTrigger::NonTrivial,
+        }
+    }
+}
+
 /// Sub-agent result — structured output returned after a sub-agent
 /// completes a step.
 ///

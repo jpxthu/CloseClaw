@@ -6,7 +6,23 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
+use crate::persistence::{
+    PersistenceError, PersistenceService, ProgressToolCallRecord, SessionCheckpoint,
+};
+
+/// Prefix marker for ProgressTool call history entries in `system_appends`.
+///
+/// When injected as a fallback (layer 4), this prefix tags the entry
+/// so it can be identified in subsequent recovery scans.
+pub const PROGRESS_HISTORY_APPEND_PREFIX: &str = "__progress_history__:";
+
+/// Prefix marker for plan file Tasks section entries in `system_appends`.
+///
+/// When a checkpoint has a `plan_state` with a non-empty `plan_file_path`,
+/// the recovery service reads the plan file and extracts the Tasks section
+/// ("## 开发步骤" or "## Tasks"). The extracted content is tagged with this
+/// prefix so it can be identified and replaced in subsequent recovery scans.
+pub const PLAN_TASKS_APPEND_PREFIX: &str = "__plan_tasks__:";
 
 /// Recovery report containing results of the recovery process
 #[derive(Debug)]
@@ -143,17 +159,11 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
                         failed.push(session_id.clone());
                         continue;
                     }
-                    // Load the restored checkpoint for notification injection
+                    // Load the restored checkpoint — plan file content and
+                    // recovery notifications will be injected in the unified
+                    // loop after all sessions are collected.
                     match self.storage.load_checkpoint(session_id).await {
-                        Ok(Some(mut restored_cp)) => {
-                            self.inject_recovery_notifications(session_id, &mut restored_cp);
-                            if let Err(e) = self.storage.save_checkpoint(&restored_cp).await {
-                                tracing::error!(
-                                    session_id = %session_id,
-                                    "Failed to persist restored checkpoint: {}",
-                                    e
-                                );
-                            }
+                        Ok(Some(restored_cp)) => {
                             checkpoints.insert(session_id.clone(), restored_cp);
                             recovered.push(session_id.clone());
                         }
@@ -199,20 +209,29 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             .map(|(id, _)| id.clone())
             .collect();
 
-        // Inject recovery notifications for dirty sessions
-        for session_id in &dirty_sessions {
+        // Inject plan file content, progress history fallback, and recovery
+        // notifications for all recovered sessions.
+        for session_id in &recovered {
             if let Some(cp) = checkpoints.get_mut(session_id) {
-                self.inject_recovery_notifications(session_id, cp);
+                // Layer 3: inject plan file Tasks section into system_appends
+                self.inject_plan_file_content(session_id, cp);
+                // Layer 4: fallback — inject ProgressTool call history when
+                // layers 1–3 are all unavailable
+                self.inject_progress_from_tool_calls(session_id, cp);
+                // Inject recovery notifications for dirty sessions
+                if !cp.pending_operations.is_empty() {
+                    self.inject_recovery_notifications(session_id, cp);
+                }
             }
         }
 
-        // Persist dirty checkpoints with injected notifications
-        for session_id in &dirty_sessions {
+        // Persist checkpoints with injected plan file content and notifications
+        for session_id in &recovered {
             if let Some(cp) = checkpoints.get(session_id) {
                 if let Err(e) = self.storage.save_checkpoint(cp).await {
                     tracing::error!(
                         session_id = %session_id,
-                        "Failed to persist checkpoint with recovery notification: {}",
+                        "Failed to persist checkpoint with injected content: {}",
                         e
                     );
                 }
@@ -240,6 +259,121 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             spawn_tree,
             dirty_sessions,
         })
+    }
+
+    /// Inject plan file Tasks section content into checkpoint's system_appends.
+    ///
+    /// When a checkpoint has a `plan_state` with a non-empty `plan_file_path`,
+    /// this method reads the plan file and extracts the Tasks section
+    /// ("## 开发步骤" or "## Tasks"). The extracted content is added to
+    /// `system_appends` with [`PLAN_TASKS_APPEND_PREFIX`] so it is available
+    /// when the session is restored.
+    ///
+    /// If the plan file does not exist, a warning is logged and the
+    /// checkpoint is left unchanged (graceful degradation to layer 2
+    /// progress summary only).
+    fn inject_plan_file_content(&self, session_id: &str, checkpoint: &mut SessionCheckpoint) {
+        let plan_file_path = match checkpoint.plan_state.as_ref() {
+            Some(ps) if !ps.plan_file_path.is_empty() => ps.plan_file_path.clone(),
+            _ => return,
+        };
+
+        match extract_plan_tasks_section(&plan_file_path) {
+            Some(tasks_content) if !tasks_content.is_empty() => {
+                let tagged = format!("{}{}", PLAN_TASKS_APPEND_PREFIX, tasks_content);
+
+                // Replace existing entry in-place if present, otherwise append.
+                if let Some(slot) = checkpoint
+                    .system_appends
+                    .iter_mut()
+                    .find(|s| s.starts_with(PLAN_TASKS_APPEND_PREFIX))
+                {
+                    *slot = tagged;
+                } else {
+                    checkpoint.system_appends.push(tagged);
+                }
+
+                tracing::info!(
+                    session_id = %session_id,
+                    plan_file = %plan_file_path,
+                    "injected plan file Tasks section into system_appends"
+                );
+            }
+            Some(_) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    plan_file = %plan_file_path,
+                    "plan file Tasks section is empty — skipping injection"
+                );
+            }
+            None => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    plan_file = %plan_file_path,
+                    "plan file not found — degrading to progress summary only (layer 2)"
+                );
+            }
+        }
+    }
+
+    /// Inject ProgressTool call history into checkpoint's system_appends (layer 4 fallback).
+    ///
+    /// When a checkpoint has no `plan_state` (layer 1 failed) and no plan file
+    /// content was injected (layer 3 failed), this method checks
+    /// `progress_tool_calls` in the checkpoint. If non-empty, it builds a
+    /// progress summary and adds it to `system_appends` with
+    /// [`PROGRESS_HISTORY_APPEND_PREFIX`].
+    ///
+    /// The trigger condition is explicit: only when the first three layers
+    /// are all unavailable.
+    fn inject_progress_from_tool_calls(
+        &self,
+        session_id: &str,
+        checkpoint: &mut SessionCheckpoint,
+    ) {
+        // Only trigger when layer 1 (plan_state) is unavailable
+        if checkpoint.plan_state.is_some() {
+            return;
+        }
+
+        // Only trigger when layer 3 (plan file) was NOT injected
+        // (i.e., no PLAN_TASKS_APPEND_PREFIX entry exists)
+        let has_plan_tasks = checkpoint
+            .system_appends
+            .iter()
+            .any(|s| s.starts_with(PLAN_TASKS_APPEND_PREFIX));
+        if has_plan_tasks {
+            return;
+        }
+
+        // Only trigger when progress_tool_calls is non-empty
+        if checkpoint.progress_tool_calls.is_empty() {
+            return;
+        }
+
+        let summary = rebuild_progress_summary_from_calls(&checkpoint.progress_tool_calls);
+        if summary.is_empty() {
+            return;
+        }
+
+        let tagged = format!("{}{}", PROGRESS_HISTORY_APPEND_PREFIX, summary);
+
+        // Replace existing entry in-place if present, otherwise append.
+        if let Some(slot) = checkpoint
+            .system_appends
+            .iter_mut()
+            .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX))
+        {
+            *slot = tagged;
+        } else {
+            checkpoint.system_appends.push(tagged);
+        }
+
+        tracing::info!(
+            session_id = %session_id,
+            call_count = checkpoint.progress_tool_calls.len(),
+            "layer 4 fallback: injected ProgressTool call history into system_appends"
+        );
     }
 
     /// Recover a single session
@@ -477,524 +611,228 @@ impl SpawnTree {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::persistence::{
-        DreamingStatus, PendingOperation, PendingOperationType, ReasoningLevel, ReasoningMode,
-        ReasoningModeState, SessionStatus,
+/// Extract the Tasks section ("## 开发步骤" or "## Tasks") from a plan file.
+///
+/// Returns `Some(content)` where `content` is the text between the Tasks
+/// heading and the next `##` heading (or end of file), with leading/trailing
+/// whitespace trimmed. Returns `None` if the file cannot be read or does not
+/// contain a recognized Tasks heading.
+pub fn extract_plan_tasks_section(plan_file_path: &str) -> Option<String> {
+    let content = match std::fs::read_to_string(plan_file_path) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(
+                plan_file = %plan_file_path,
+                error = %e,
+                "failed to read plan file for Tasks section extraction"
+            );
+            return None;
+        }
     };
-    use crate::storage::memory::MemoryStorage;
-    use chrono::Utc;
-    fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
-        SessionCheckpoint {
-            session_id: session_id.to_string(),
-            last_message_id: Some("msg123".to_string()),
-            mode_state: ReasoningModeState {
-                current_step: 1,
-                total_steps: 3,
-                step_messages: vec!["Step 1".to_string()],
-                is_complete: false,
-            },
-            pending_messages: Vec::new(),
-            mode: ReasoningMode::Plan,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-            ttl_seconds: 604800,
-            status: SessionStatus::Active,
-            last_message_at: None,
-            message_count: 0,
-            platform: None,
-            peer_id: None,
-            account_id: None,
-            agent_id: None,
-            role: None,
-            reasoning_level: ReasoningLevel::default(),
-            system_appends: Vec::new(),
-            thread_id: None,
-            sender_id: None,
-            parent_session_id: None,
-            depth: 0,
-            effective_max_spawn_depth: None,
-            mined: false,
-            mined_at: None,
-            dreaming_status: DreamingStatus::default(),
-            pending_operations: Vec::new(),
-            recovery_notification: None,
-            pending_tool_failures: Vec::new(),
-            verbosity_level: closeclaw_common::VerbosityLevel::default(),
-            plan_state: None,
+
+    extract_tasks_from_content(&content)
+}
+
+/// Extract the Tasks section from plan file content.
+///
+/// Looks for a heading line matching `## 开发步骤` or `## Tasks` (case-sensitive,
+/// with optional leading `#` variants). Returns the content between that heading
+/// and the next `##` heading or end of file.
+pub(crate) fn extract_tasks_from_content(content: &str) -> Option<String> {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut start = None;
+
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed == "## 开发步骤" || trimmed == "## Tasks" {
+            start = Some(i + 1);
+            break;
         }
     }
 
-    #[tokio::test]
-    async fn test_recovery_report_is_full_success() {
-        let report = RecoveryReport {
-            recovered: vec!["s1".to_string(), "s2".to_string()],
-            failed: Vec::new(),
-            spawn_tree: SpawnTree::default(),
-            dirty_sessions: Vec::new(),
-        };
-        assert!(report.is_full_success());
-        assert_eq!(report.total(), 2);
-    }
+    let start = start?;
 
-    #[tokio::test]
-    async fn test_recovery_report_has_failures() {
-        let report = RecoveryReport {
-            recovered: vec!["s1".to_string()],
-            failed: vec!["s2".to_string()],
-            spawn_tree: SpawnTree::default(),
-            dirty_sessions: Vec::new(),
-        };
-        assert!(!report.is_full_success());
-        assert_eq!(report.total(), 2);
-    }
-
-    #[tokio::test]
-    async fn test_recovery_service_recover_empty() {
-        let storage = Arc::new(MemoryStorage::new());
-        let service = SessionRecoveryService::new(storage);
-
-        let report = service.recover().await.unwrap();
-        assert!(report.recovered.is_empty());
-        assert!(report.failed.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_recovery_service_recover_with_callback() {
-        use chrono::Utc;
-        let storage = Arc::new(MemoryStorage::new());
-        let now = Utc::now();
-
-        // Clean session
-        storage
-            .save_checkpoint(&create_test_checkpoint("session1"))
-            .await
-            .unwrap();
-        // Dirty session with tool call
-        let dirty = SessionCheckpoint::new("session2".into()).with_pending_operations(vec![
-            PendingOperation {
-                op_id: "op_1".into(),
-                op_type: PendingOperationType::ToolCall,
-                name: "bash".into(),
-                args: String::new(),
-                created_at: now,
-            },
-        ]);
-        storage.save_checkpoint(&dirty).await.unwrap();
-
-        let service = SessionRecoveryService::new(Arc::clone(&storage));
-
-        // Capture callback parameters
-        let restored = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let captured_notification = Arc::new(std::sync::Mutex::new(Vec::<Option<String>>::new()));
-        let captured_failures = Arc::new(std::sync::Mutex::new(Vec::<Vec<String>>::new()));
-        let r = Arc::clone(&restored);
-        let cn = Arc::clone(&captured_notification);
-        let cf = Arc::clone(&captured_failures);
-
-        service
-            .set_restore_callback(
-                move |session_id, _checkpoint, notification, tool_failures| {
-                    r.lock().unwrap().push(session_id.to_string());
-                    cn.lock().unwrap().push(notification.map(String::from));
-                    cf.lock().unwrap().push(tool_failures.to_vec());
-                    Ok(())
-                },
-            )
-            .await;
-
-        let report = service.recover().await.unwrap();
-        assert_eq!(report.recovered.len(), 2);
-        assert!(report.failed.is_empty());
-
-        let mut restored_sessions = restored.lock().unwrap();
-        restored_sessions.sort();
-        assert_eq!(restored_sessions[0], "session1");
-        assert_eq!(restored_sessions[1], "session2");
-
-        // Dirty session callback should receive notification
-        let notifs = captured_notification.lock().unwrap();
-        let notif = notifs.iter().find(|n| n.is_some()).unwrap();
-        assert!(notif.as_ref().unwrap().contains("网关已重启"));
-
-        // Dirty session callback should receive tool failures
-        let failures = captured_failures.lock().unwrap();
-        let dirty_failures = failures.iter().find(|f| !f.is_empty()).unwrap();
-        assert_eq!(dirty_failures.len(), 1);
-        assert!(dirty_failures[0].contains("进程中断：网关重启"));
-    }
-
-    // -----------------------------------------------------------------
-    // Spawn tree tests
-    // -----------------------------------------------------------------
-
-    #[tokio::test]
-    async fn test_recovery_spawn_tree_root_sessions() {
-        let storage = Arc::new(MemoryStorage::new());
-        storage
-            .save_checkpoint(&create_test_checkpoint("root1"))
-            .await
-            .unwrap();
-        storage
-            .save_checkpoint(&create_test_checkpoint("root2"))
-            .await
-            .unwrap();
-
-        let service = SessionRecoveryService::new(Arc::clone(&storage));
-        let report = service.recover().await.unwrap();
-
-        assert_eq!(report.recovered.len(), 2);
-        let tree = &report.spawn_tree;
-        assert_eq!(tree.roots.len(), 2);
-        assert!(tree.roots.contains(&"root1".to_string()));
-        assert!(tree.roots.contains(&"root2".to_string()));
-        assert!(tree.children.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_recovery_spawn_tree_parent_child() {
-        let storage = Arc::new(MemoryStorage::new());
-
-        // Parent session
-        let mut parent_cp = create_test_checkpoint("parent");
-        parent_cp.parent_session_id = None;
-        parent_cp.depth = 0;
-        storage.save_checkpoint(&parent_cp).await.unwrap();
-
-        // Child session
-        let mut child_cp = create_test_checkpoint("child");
-        child_cp.parent_session_id = Some("parent".to_string());
-        child_cp.depth = 1;
-        storage.save_checkpoint(&child_cp).await.unwrap();
-
-        let service = SessionRecoveryService::new(Arc::clone(&storage));
-        let report = service.recover().await.unwrap();
-
-        assert_eq!(report.recovered.len(), 2);
-        let tree = &report.spawn_tree;
-
-        // Parent is root, child is registered under parent
-        assert!(tree.is_root("parent"));
-        assert!(!tree.is_root("child"));
-        let children = tree.get_children("parent").unwrap();
-        assert_eq!(children.len(), 1);
-        assert_eq!(children[0], "child");
-    }
-
-    #[tokio::test]
-    async fn test_recovery_spawn_tree_orphan_demoted_to_root() {
-        let storage = Arc::new(MemoryStorage::new());
-
-        // Child session whose parent is NOT in storage (swept)
-        let mut child_cp = create_test_checkpoint("orphan_child");
-        child_cp.parent_session_id = Some("missing_parent".to_string());
-        child_cp.depth = 2;
-        storage.save_checkpoint(&child_cp).await.unwrap();
-
-        let service = SessionRecoveryService::new(Arc::clone(&storage));
-        let report = service.recover().await.unwrap();
-
-        assert_eq!(report.recovered.len(), 1);
-        let tree = &report.spawn_tree;
-
-        // Orphan child is demoted to root
-        assert!(tree.is_root("orphan_child"));
-        assert!(tree.children.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_recovery_spawn_tree_multi_level() {
-        let storage = Arc::new(MemoryStorage::new());
-
-        // root -> child1 -> grandchild
-        let mut root_cp = create_test_checkpoint("root");
-        root_cp.parent_session_id = None;
-        root_cp.depth = 0;
-        storage.save_checkpoint(&root_cp).await.unwrap();
-
-        let mut child_cp = create_test_checkpoint("child1");
-        child_cp.parent_session_id = Some("root".to_string());
-        child_cp.depth = 1;
-        storage.save_checkpoint(&child_cp).await.unwrap();
-
-        let mut grandchild_cp = create_test_checkpoint("grandchild");
-        grandchild_cp.parent_session_id = Some("child1".to_string());
-        grandchild_cp.depth = 2;
-        storage.save_checkpoint(&grandchild_cp).await.unwrap();
-
-        let service = SessionRecoveryService::new(Arc::clone(&storage));
-        let report = service.recover().await.unwrap();
-
-        assert_eq!(report.recovered.len(), 3);
-        let tree = &report.spawn_tree;
-
-        assert!(tree.is_root("root"));
-        assert!(!tree.is_root("child1"));
-        assert!(!tree.is_root("grandchild"));
-
-        let root_children = tree.get_children("root").unwrap();
-        assert_eq!(root_children, &vec!["child1".to_string()]);
-
-        let child1_children = tree.get_children("child1").unwrap();
-        assert_eq!(child1_children, &vec!["grandchild".to_string()]);
-    }
-
-    #[test]
-    fn test_spawn_tree_unit() {
-        // is_root
-        let tree = SpawnTree {
-            roots: vec!["r1".to_string(), "r2".to_string()],
-            children: HashMap::new(),
-        };
-        assert!(tree.is_root("r1"));
-        assert!(tree.is_root("r2"));
-        assert!(!tree.is_root("r3"));
-
-        // get_children
-        let mut children = HashMap::new();
-        children.insert("p1".to_string(), vec!["c1".to_string(), "c2".to_string()]);
-        let tree = SpawnTree {
-            roots: vec![],
-            children,
-        };
-        assert_eq!(tree.get_children("p1").unwrap().len(), 2);
-        assert!(tree.get_children("p2").is_none());
-
-        // root_ids
-        let tree = SpawnTree {
-            roots: vec!["a".to_string(), "b".to_string()],
-            children: HashMap::new(),
-        };
-        assert_eq!(tree.root_ids(), &["a", "b"]);
-    }
-
-    #[test]
-    fn test_build_spawn_tree_demoted_depth_reset() {
-        // orphan child with depth=2 should be demoted to root with depth=0
-        let mut checkpoints = HashMap::new();
-        let mut orphan_cp = create_test_checkpoint("orphan");
-        orphan_cp.parent_session_id = Some("missing_parent".to_string());
-        orphan_cp.depth = 2;
-        checkpoints.insert("orphan".to_string(), orphan_cp);
-
-        let recovered = vec!["orphan".to_string()];
-        let (tree, demoted) =
-            SessionRecoveryService::<MemoryStorage>::build_spawn_tree(&mut checkpoints, &recovered);
-
-        assert!(tree.is_root("orphan"));
-        assert_eq!(checkpoints["orphan"].depth, 0);
-        assert!(demoted.contains(&"orphan".to_string()));
-    }
-
-    #[test]
-    fn test_build_spawn_tree_empty() {
-        let mut checkpoints = HashMap::new();
-        let recovered: Vec<String> = vec![];
-        let (tree, demoted) =
-            SessionRecoveryService::<MemoryStorage>::build_spawn_tree(&mut checkpoints, &recovered);
-        assert!(tree.roots.is_empty());
-        assert!(tree.children.is_empty());
-        assert!(demoted.is_empty());
-    }
-
-    #[test]
-    fn test_build_spawn_tree_partial_recovery() {
-        // parent recovered, child NOT recovered → child not in tree at all
-        let mut checkpoints = HashMap::new();
-        let mut parent_cp = create_test_checkpoint("parent");
-        parent_cp.parent_session_id = None;
-        checkpoints.insert("parent".to_string(), parent_cp);
-
-        let recovered = vec!["parent".to_string()];
-        let (tree, demoted) =
-            SessionRecoveryService::<MemoryStorage>::build_spawn_tree(&mut checkpoints, &recovered);
-        assert_eq!(tree.roots, vec!["parent".to_string()]);
-        assert!(tree.children.is_empty());
-        assert!(demoted.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_recovery_notifications_and_tool_failures() {
-        let storage = Arc::new(MemoryStorage::new());
-        let now = Utc::now();
-
-        // Dirty session: tool call + sub-spawn
-        let dirty = SessionCheckpoint::new("dirty_tools".into()).with_pending_operations(vec![
-            PendingOperation {
-                op_id: "call_1".into(),
-                op_type: PendingOperationType::ToolCall,
-                name: "exec".into(),
-                args: r#"{"command":"kubectl get pods"}"#.into(),
-                created_at: now,
-            },
-            PendingOperation {
-                op_id: "child_1".into(),
-                op_type: PendingOperationType::SubSessionSpawn,
-                name: "sub-agent".into(),
-                args: String::new(),
-                created_at: now,
-            },
-        ]);
-        storage.save_checkpoint(&dirty).await.unwrap();
-
-        // Clean session: no pending ops
-        let clean = SessionCheckpoint::new("clean_notif".into());
-        storage.save_checkpoint(&clean).await.unwrap();
-
-        let service = SessionRecoveryService::new(Arc::clone(&storage));
-        let report = service.recover().await.unwrap();
-
-        assert_eq!(report.recovered.len(), 2);
-        assert!(report.dirty_sessions.contains(&"dirty_tools".to_string()));
-        assert!(
-            report.dirty_sessions.is_empty()
-                || !report.dirty_sessions.contains(&"clean_notif".to_string())
-        );
-
-        // Dirty: notification stored, tool failures built
-        let loaded = storage
-            .load_checkpoint("dirty_tools")
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(loaded.recovery_notification.is_some());
-        let notif = loaded.recovery_notification.unwrap();
-        assert!(notif.contains("网关已重启"));
-        assert!(notif.contains("工具调用: exec"));
-        assert_eq!(loaded.pending_tool_failures.len(), 1);
-        assert!(loaded.pending_tool_failures[0].contains("exec"));
-
-        // Clean: no notification
-        let loaded = storage
-            .load_checkpoint("clean_notif")
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(loaded.recovery_notification.is_none());
-    }
-
-    // ── Step 1.3: archived session recovery tests ───────────────────
-
-    /// Minimal mock storage for testing the "checkpoint not found" path.
-    struct MockNotFoundStorage;
-
-    #[async_trait::async_trait]
-    impl PersistenceService for MockNotFoundStorage {
-        async fn save_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
-            Ok(())
-        }
-        async fn load_checkpoint(
-            &self,
-            _: &str,
-        ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-            Ok(None)
-        }
-        async fn delete_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
-            Ok(())
-        }
-        async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-            Ok(Vec::new())
-        }
-        async fn list_archived_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-            Ok(vec!["archived-not-found".to_string()])
+    // Find the next ## heading after start
+    let mut end = lines.len();
+    for (i, line) in lines.iter().enumerate().skip(start) {
+        let trimmed = line.trim();
+        if trimmed.starts_with("## ") || trimmed.starts_with("# ") {
+            end = i;
+            break;
         }
     }
 
-    #[tokio::test]
-    async fn test_recovery_scans_archived_sessions() {
-        let storage = Arc::new(MemoryStorage::new());
-        let now = Utc::now();
+    let section: String = lines[start..end].join("\n");
+    let trimmed = section.trim().to_string();
 
-        // Create an archived checkpoint with pending operations
-        let mut cp = create_test_checkpoint("archived-dirty");
-        cp.status = SessionStatus::Active;
-        cp.pending_operations = vec![PendingOperation {
-            op_id: "op_archived".into(),
-            op_type: PendingOperationType::ToolCall,
-            name: "exec".into(),
-            args: r#"{"cmd":"echo hello"}"#.into(),
-            created_at: now,
-        }];
-        // Save to active first (so load_checkpoint can find it), then archive,
-        // then remove from active so it's only in the archived map
-        storage.save_checkpoint(&cp).await.unwrap();
-        storage.archive_checkpoint(&cp).await.unwrap();
-        storage.remove_active("archived-dirty").await;
-
-        let service = SessionRecoveryService::new(Arc::clone(&storage));
-        let report = service.recover().await.unwrap();
-
-        // Archived session with pending_operations should be recovered
-        assert!(
-            report.recovered.contains(&"archived-dirty".to_string()),
-            "archived session with pending ops should be recovered"
-        );
-
-        // Should be marked as dirty
-        assert!(
-            report
-                .dirty_sessions
-                .contains(&"archived-dirty".to_string()),
-            "restored archived session should be in dirty_sessions"
-        );
-
-        // Notification should have been stored in the checkpoint
-        let loaded = storage
-            .load_checkpoint("archived-dirty")
-            .await
-            .unwrap()
-            .expect("checkpoint should exist after restore");
-        assert!(
-            loaded.recovery_notification.is_some(),
-            "recovery_notification should be stored"
-        );
-        let notif = loaded.recovery_notification.unwrap();
-        assert!(notif.contains("网关已重启"));
-        assert!(notif.contains("工具调用: exec"));
-    }
-
-    #[tokio::test]
-    async fn test_recovery_skips_clean_archived() {
-        let storage = Arc::new(MemoryStorage::new());
-
-        // Create an archived checkpoint with NO pending operations
-        let cp = create_test_checkpoint("archived-clean");
-        // Save to active first, archive, then remove from active
-        // so it only exists in the archived map
-        storage.save_checkpoint(&cp).await.unwrap();
-        storage.archive_checkpoint(&cp).await.unwrap();
-        storage.remove_active("archived-clean").await;
-
-        let service = SessionRecoveryService::new(Arc::clone(&storage));
-        let report = service.recover().await.unwrap();
-
-        // Clean archived session should NOT be recovered
-        assert!(
-            !report.recovered.contains(&"archived-clean".to_string()),
-            "clean archived session should be skipped"
-        );
-        assert!(
-            !report
-                .dirty_sessions
-                .contains(&"archived-clean".to_string()),
-            "clean archived session should not be dirty"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_recovery_archived_not_found() {
-        let storage = Arc::new(MockNotFoundStorage);
-        let service = SessionRecoveryService::new(Arc::clone(&storage));
-        let report = service.recover().await.unwrap();
-
-        // list_archived_sessions returns ["archived-not-found"] but
-        // load_checkpoint returns None → checkpoint not found → failed
-        assert!(
-            report.failed.contains(&"archived-not-found".to_string()),
-            "archived session with missing checkpoint should be in failed"
-        );
-        assert!(report.recovered.is_empty());
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Layer 4: ProgressTool call history fallback
+// ---------------------------------------------------------------------------
+
+/// Scan a list of [`SessionMessage`]s for ProgressTool calls and return
+/// them as [`ProgressToolCallRecord`]s.
+///
+/// Scans all assistant messages for `ContentBlock::ToolUse` blocks where
+/// `name == "Progress"`. The input arguments are parsed to extract
+/// `step_index`, `status`, `summary`, and `error_message`.
+///
+/// Returns an empty `Vec` when no ProgressTool calls are found.
+pub fn scan_progress_tool_calls(
+    messages: &[crate::llm_session::SessionMessage],
+) -> Vec<ProgressToolCallRecord> {
+    use closeclaw_common::ContentBlock;
+
+    let mut records = Vec::new();
+
+    for msg in messages {
+        if msg.role != "assistant" {
+            continue;
+        }
+        for block in &msg.content_blocks {
+            if let ContentBlock::ToolUse { name, input, .. } = block {
+                if name != "Progress" {
+                    continue;
+                }
+                if let Some(record) = parse_progress_call_record(input) {
+                    records.push(record);
+                }
+            }
+        }
+    }
+
+    records
+}
+
+/// Parse a ProgressTool call's input JSON into a [`ProgressToolCallRecord`].
+///
+/// Returns `None` if the input is not valid JSON or missing required fields.
+pub(crate) fn parse_progress_call_record(input: &str) -> Option<ProgressToolCallRecord> {
+    use closeclaw_common::ExecutionStepStatus;
+    use serde_json::Value;
+
+    let v: Value = serde_json::from_str(input).ok()?;
+
+    let step_index = v.get("step_index")?.as_u64()? as usize;
+    let status_str = v.get("status")?.as_str()?;
+
+    let status = match status_str {
+        "in_progress" => ExecutionStepStatus::InProgress,
+        "completed" => ExecutionStepStatus::Completed,
+        "failed" => ExecutionStepStatus::Failed,
+        "skipped" => ExecutionStepStatus::Skipped,
+        _ => return None,
+    };
+
+    let summary = v.get("summary").and_then(Value::as_str).map(String::from);
+    let error_message = v
+        .get("error_message")
+        .and_then(Value::as_str)
+        .map(String::from);
+
+    Some(ProgressToolCallRecord {
+        step_index,
+        status,
+        summary,
+        error_message,
+    })
+}
+
+/// Rebuild a [`PlanState`] from a list of [`ProgressToolCallRecord`]s.
+///
+/// Applies each record in order, skipping records that would violate the
+/// step state machine. Returns the reconstructed `PlanState` with
+/// `execution_steps` populated.
+pub fn rebuild_plan_state_from_calls(
+    calls: &[ProgressToolCallRecord],
+) -> closeclaw_common::PlanState {
+    use closeclaw_common::ExecutionStep;
+
+    let mut plan_state = closeclaw_common::PlanState::new();
+
+    if calls.is_empty() {
+        return plan_state;
+    }
+
+    // Determine the maximum step index to size the steps vec
+    let max_step = calls.iter().map(|c| c.step_index).max().unwrap_or(0);
+    let total_steps = max_step + 1;
+
+    // Initialize all steps as Pending
+    plan_state.execution_steps = (0..total_steps)
+        .map(|i| ExecutionStep {
+            step_index: i,
+            status: closeclaw_common::ExecutionStepStatus::Pending,
+            summary: String::new(),
+            error_message: None,
+        })
+        .collect();
+
+    // Apply each call in order, ignoring invalid transitions
+    for record in calls {
+        let idx = record.step_index;
+        if idx >= plan_state.execution_steps.len() {
+            continue;
+        }
+
+        // Try the transition; skip if invalid (e.g., skipping steps)
+        if plan_state.validate_transition(idx, &record.status).is_err() {
+            continue;
+        }
+
+        plan_state.execution_steps[idx].status = record.status;
+        if let Some(ref summary) = record.summary {
+            plan_state.execution_steps[idx].summary = summary.clone();
+        }
+        if let Some(ref error) = record.error_message {
+            plan_state.execution_steps[idx].error_message = Some(error.clone());
+        }
+
+        // Update current_step
+        if matches!(
+            record.status,
+            closeclaw_common::ExecutionStepStatus::Completed
+                | closeclaw_common::ExecutionStepStatus::Skipped
+        ) {
+            let next = idx + 1;
+            if next < plan_state.execution_steps.len() {
+                plan_state.current_step = Some(next);
+            }
+        } else if matches!(
+            record.status,
+            closeclaw_common::ExecutionStepStatus::InProgress
+        ) {
+            plan_state.current_step = Some(idx);
+        }
+    }
+
+    plan_state
+}
+
+/// Rebuild a human-readable progress summary from ProgressTool call records.
+///
+/// Scans calls in reverse to find the latest status for each step,
+/// then formats a summary suitable for injection into `system_appends`.
+/// Returns an empty string when `calls` is empty.
+pub fn rebuild_progress_summary_from_calls(calls: &[ProgressToolCallRecord]) -> String {
+    if calls.is_empty() {
+        return String::new();
+    }
+
+    let plan_state = rebuild_plan_state_from_calls(calls);
+    plan_state.progress_summary()
+}
+
+#[cfg(test)]
+#[path = "recovery_tests.rs"]
+mod tests;
+
+#[cfg(test)]
+#[path = "recovery_progress_tests.rs"]
+mod recovery_progress_tests;
