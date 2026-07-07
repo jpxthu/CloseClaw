@@ -77,6 +77,7 @@ pub async fn build_tools_section(
 mod tests {
     use super::*;
     use closeclaw_agent::registry::AgentRegistry;
+    use closeclaw_common::PlanState;
     use closeclaw_config::ConfigManager;
     use closeclaw_gateway::SpawnController;
     use closeclaw_gateway::{GatewayConfig, SessionManager};
@@ -88,9 +89,10 @@ mod tests {
     use closeclaw_skills::DiskSkillRegistry;
     use closeclaw_tasks::BackgroundTaskManager;
     use closeclaw_tools::{
-        CoreToolsRegistrar, SessionToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar,
+        CoreToolsRegistrar, PlanToolsRegistrar, SessionToolsRegistrar, SkillsToolsRegistrar,
+        ToolRegistrar,
     };
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
 
     fn test_permission_engine() -> Arc<PermissionEngine> {
@@ -178,6 +180,9 @@ mod tests {
                 spawn_controller as Arc<dyn closeclaw_tools::SpawnValidator>,
                 session_manager,
             )),
+            Box::new(PlanToolsRegistrar::new(Arc::new(Mutex::new(
+                PlanState::new(),
+            )))),
         ]
     }
 

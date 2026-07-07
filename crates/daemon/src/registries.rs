@@ -2,6 +2,7 @@
 //! and ConfigHotReload during daemon startup.
 
 use crate::config_watcher;
+use closeclaw_common::PlanState;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
 use closeclaw_gateway::SpawnController;
@@ -9,10 +10,11 @@ use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_skills::DiskSkillRegistry;
 use closeclaw_tools::{
-    CoreToolsRegistrar, SessionToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar, ToolRegistry,
+    CoreToolsRegistrar, PlanToolsRegistrar, SessionToolsRegistrar, SkillsToolsRegistrar,
+    ToolRegistrar, ToolRegistry,
 };
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 /// Bundles all references needed by [`populate_registries`].
 ///
@@ -160,12 +162,14 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
         Arc::clone(ctx.session_manager),
     );
     let im_adapter_registrar = closeclaw_im_adapter::ImAdapterToolsRegistrar::new();
+    let plan_registrar = PlanToolsRegistrar::new(Arc::new(Mutex::new(PlanState::new())));
 
     let registrars: Vec<Box<dyn ToolRegistrar>> = vec![
         Box::new(core_registrar),
         Box::new(session_registrar),
         Box::new(skills_registrar),
         Box::new(im_adapter_registrar),
+        Box::new(plan_registrar),
     ];
 
     if let Err(e) = ctx.tool_registry.register_all(registrars).await {
