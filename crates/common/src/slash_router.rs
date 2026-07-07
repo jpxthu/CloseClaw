@@ -4,6 +4,7 @@
 //! allowing the dispatcher to be swapped or mocked.
 
 use async_trait::async_trait;
+use std::path::PathBuf;
 
 /// Execution context for a slash command invocation.
 #[derive(Debug, Clone)]
@@ -27,7 +28,13 @@ pub enum SlashResult {
     /// Reply with a text message.
     Reply(String),
     /// Switch mode (future).
-    SetMode(String),
+    SetMode {
+        /// Target mode name (e.g. "plan", "auto", "normal").
+        mode: String,
+        /// Optional plan file path, set when entering Plan Mode with
+        /// a task description via `/plan <task>`.
+        plan_file_path: Option<PathBuf>,
+    },
     /// Create a new session.
     NewSession,
     /// Stop the current run.

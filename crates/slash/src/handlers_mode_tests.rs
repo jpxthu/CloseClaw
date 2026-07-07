@@ -40,6 +40,10 @@ fn make_session_manager() -> Arc<SessionManager> {
     ))
 }
 
+fn make_plan_handler() -> PlanModeHandler {
+    PlanModeHandler::new(make_session_manager())
+}
+
 async fn create_test_session(sm: &SessionManager) -> String {
     use closeclaw_gateway::Message;
 
@@ -62,40 +66,71 @@ async fn create_test_session(sm: &SessionManager) -> String {
 
 #[test]
 fn test_plan_mode_handler_commands_and_description() {
-    let h = PlanModeHandler;
+    let h = make_plan_handler();
     assert_eq!(h.commands(), &["plan"]);
     assert_eq!(h.description(), "进入 Plan Mode");
 }
 
 #[test]
 fn test_plan_mode_handler_not_immediate() {
-    let h = PlanModeHandler;
+    let h = make_plan_handler();
     assert!(!h.immediate("plan"));
 }
 
 #[tokio::test]
 async fn test_plan_mode_handler_with_args_returns_set_mode() {
-    let h = PlanModeHandler;
+    let h = make_plan_handler();
     let ctx = dummy_ctx();
     match h.handle("实现一个新功能", &ctx).await {
-        SlashResult::SetMode(mode) => assert_eq!(mode, "plan"),
-        other => panic!("expected SetMode(\"plan\"), got {other:?}"),
+        SlashResult::SetMode { mode, .. } => assert_eq!(mode, "plan"),
+        other => panic!("expected SetMode{{mode: \"plan\", ..}}, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_plan_mode_handler_with_args_sets_plan_file_path() {
+    let sm = make_session_manager();
+    let sid = create_test_session(&sm).await;
+    let h = PlanModeHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("实现一个新功能", &ctx).await {
+        SlashResult::SetMode {
+            mode,
+            plan_file_path,
+        } => {
+            assert_eq!(mode, "plan");
+            assert!(
+                plan_file_path.is_some(),
+                "plan_file_path should be Some when args are provided"
+            );
+            let path = plan_file_path.unwrap();
+            assert!(
+                path.to_string_lossy().contains("plans"),
+                "plan file path should be under plans/ directory, got: {:?}",
+                path
+            );
+            assert!(path.exists(), "plan file should exist on disk");
+        }
+        other => {
+            panic!("expected SetMode{{mode: \"plan\", plan_file_path: Some(..)}}, got {other:?}")
+        }
     }
 }
 
 #[tokio::test]
 async fn test_plan_mode_handler_with_whitespace_args_returns_set_mode() {
-    let h = PlanModeHandler;
+    let h = make_plan_handler();
     let ctx = dummy_ctx();
     match h.handle("  优化性能  ", &ctx).await {
-        SlashResult::SetMode(mode) => assert_eq!(mode, "plan"),
-        other => panic!("expected SetMode(\"plan\"), got {other:?}"),
+        SlashResult::SetMode { mode, .. } => assert_eq!(mode, "plan"),
+        other => panic!("expected SetMode{{mode: \"plan\", ..}}, got {other:?}"),
     }
 }
 
 #[tokio::test]
 async fn test_plan_mode_handler_no_args_returns_usage() {
-    let h = PlanModeHandler;
+    let h = make_plan_handler();
     let ctx = dummy_ctx();
     match h.handle("", &ctx).await {
         SlashResult::Reply(text) => {
@@ -111,7 +146,7 @@ async fn test_plan_mode_handler_no_args_returns_usage() {
 
 #[tokio::test]
 async fn test_plan_mode_handler_whitespace_only_args_returns_usage() {
-    let h = PlanModeHandler;
+    let h = make_plan_handler();
     let ctx = dummy_ctx();
     match h.handle("   ", &ctx).await {
         SlashResult::Reply(text) => {
@@ -147,8 +182,8 @@ async fn test_mode_handler_set_plan() {
     let h = ModeHandler::new(sm);
     let ctx = dummy_ctx();
     match h.handle("plan", &ctx).await {
-        SlashResult::SetMode(mode) => assert_eq!(mode, "plan"),
-        other => panic!("expected SetMode(\"plan\"), got {other:?}"),
+        SlashResult::SetMode { mode, .. } => assert_eq!(mode, "plan"),
+        other => panic!("expected SetMode{{mode: \"plan\", ..}}, got {other:?}"),
     }
 }
 
@@ -158,8 +193,8 @@ async fn test_mode_handler_set_auto() {
     let h = ModeHandler::new(sm);
     let ctx = dummy_ctx();
     match h.handle("auto", &ctx).await {
-        SlashResult::SetMode(mode) => assert_eq!(mode, "auto"),
-        other => panic!("expected SetMode(\"auto\"), got {other:?}"),
+        SlashResult::SetMode { mode, .. } => assert_eq!(mode, "auto"),
+        other => panic!("expected SetMode{{mode: \"auto\", ..}}, got {other:?}"),
     }
 }
 
@@ -169,8 +204,8 @@ async fn test_mode_handler_set_normal() {
     let h = ModeHandler::new(sm);
     let ctx = dummy_ctx();
     match h.handle("normal", &ctx).await {
-        SlashResult::SetMode(mode) => assert_eq!(mode, "normal"),
-        other => panic!("expected SetMode(\"normal\"), got {other:?}"),
+        SlashResult::SetMode { mode, .. } => assert_eq!(mode, "normal"),
+        other => panic!("expected SetMode{{mode: \"normal\", ..}}, got {other:?}"),
     }
 }
 
@@ -208,8 +243,8 @@ async fn test_mode_handler_with_args_whitespace() {
     let h = ModeHandler::new(sm);
     let ctx = dummy_ctx();
     match h.handle("  plan  ", &ctx).await {
-        SlashResult::SetMode(mode) => assert_eq!(mode, "plan"),
-        other => panic!("expected SetMode(\"plan\") with whitespace, got {other:?}"),
+        SlashResult::SetMode { mode, .. } => assert_eq!(mode, "plan"),
+        other => panic!("expected SetMode{{mode: \"plan\", ..}} with whitespace, got {other:?}"),
     }
 }
 

@@ -11,6 +11,7 @@ pub mod compaction;
 pub mod events;
 pub mod llm_session;
 pub mod persistence;
+pub mod plan_file;
 pub mod recovery;
 pub mod storage;
 pub mod workspace;
@@ -21,3 +22,5 @@ mod active_searcher_tests;
 mod compaction_tests;
 #[cfg(test)]
 mod persistence_tests;
+#[cfg(test)]
+mod plan_file_tests;
