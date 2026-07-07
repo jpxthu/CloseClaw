@@ -3,7 +3,7 @@ use crate::error::ExecutionError;
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, RetryStrategy, SubAgentResult, VerifyTrigger};
 use async_trait::async_trait;
-use closeclaw_common::{ExecutionStepStatus, PlanState};
+use closeclaw_common::{ExecutionStepStatus, NoopNotifier, PlanState};
 use std::sync::{Arc, Mutex};
 
 /// Mock spawn adapter that returns a configurable sequence of results.
@@ -46,7 +46,12 @@ fn default_config() -> ExecutionConfig {
 
 fn new_engine(adapter: MockSpawnAdapter) -> ExecutionEngine<MockSpawnAdapter> {
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
-    ExecutionEngine::new(plan_state, default_config(), adapter)
+    ExecutionEngine::new(
+        plan_state,
+        default_config(),
+        adapter,
+        Arc::new(NoopNotifier),
+    )
 }
 
 #[tokio::test]
@@ -149,7 +154,7 @@ async fn test_spawn_error_exhausts_retries() {
         }),
     ]);
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
-    let engine = ExecutionEngine::new(plan_state, config, adapter);
+    let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier));
     let report = engine.execute(&["doomed step".into()]).await.unwrap();
 
     assert!(!report.all_completed);
@@ -183,7 +188,7 @@ async fn test_failure_stops_subsequent_steps() {
         }),
     ]);
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
-    let engine = ExecutionEngine::new(plan_state, config, adapter);
+    let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier));
     let report = engine
         .execute(&["step 0".into(), "step 1".into(), "step 2".into()])
         .await
@@ -213,7 +218,12 @@ async fn test_plan_state_updated_after_execution() {
         error_message: None,
     })]);
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
-    let engine = ExecutionEngine::new(plan_state.clone(), default_config(), adapter);
+    let engine = ExecutionEngine::new(
+        plan_state.clone(),
+        default_config(),
+        adapter,
+        Arc::new(NoopNotifier),
+    );
     let _ = engine.execute(&["only step".into()]).await.unwrap();
 
     let state = plan_state.lock().unwrap();

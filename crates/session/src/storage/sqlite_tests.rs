@@ -595,6 +595,8 @@ mod tests {
             phase: PlanPhase::FinalPlan,
             pending_steps: vec!["step-a".into(), "step-b".into()],
             plan_file_path: "/workspace/plan.md".into(),
+            execution_steps: vec![],
+            current_step: None,
         };
         let mut cp = make_checkpoint("plan-sqlite-rt", SessionStatus::Active);
         cp.plan_state = Some(plan);
@@ -634,6 +636,8 @@ mod tests {
             phase: PlanPhase::Research,
             pending_steps: vec![],
             plan_file_path: String::new(),
+            execution_steps: vec![],
+            current_step: None,
         };
         let mut cp = make_checkpoint("plan-update-sqlite", SessionStatus::Active);
         cp.plan_state = Some(plan1);
@@ -644,6 +648,8 @@ mod tests {
             phase: PlanPhase::Design,
             pending_steps: vec!["analyze".into()],
             plan_file_path: "/tmp/p.md".into(),
+            execution_steps: vec![],
+            current_step: None,
         };
         cp.plan_state = Some(plan2);
         storage.save_checkpoint(&cp).await.unwrap();

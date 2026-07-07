@@ -7,7 +7,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use closeclaw_common::{ExecutionStepStatus, PlanState};
+use closeclaw_common::{ExecutionStepStatus, PlanState, PlanStateNotifier};
 
 use crate::error::ExecutionError;
 use crate::event::ExecutionEvent;
@@ -57,6 +57,8 @@ pub struct ExecutionEngine<S> {
     config: ExecutionConfig,
     /// Adapter used to dispatch step execution.
     adapter: S,
+    /// Notifier for progress changes — called after each status transition.
+    notifier: Arc<dyn PlanStateNotifier>,
 }
 
 // ---------------------------------------------------------------------------
@@ -65,11 +67,17 @@ pub struct ExecutionEngine<S> {
 
 impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// Create a new execution engine.
-    pub fn new(plan_state: Arc<Mutex<PlanState>>, config: ExecutionConfig, adapter: S) -> Self {
+    pub fn new(
+        plan_state: Arc<Mutex<PlanState>>,
+        config: ExecutionConfig,
+        adapter: S,
+        notifier: Arc<dyn PlanStateNotifier>,
+    ) -> Self {
         Self {
             plan_state,
             config,
             adapter,
+            notifier,
         }
     }
 
@@ -165,20 +173,19 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
 
         loop {
             attempt += 1;
-            self.mark_step_status(0, ExecutionStepStatus::InProgress)?;
+            self.mark_step_status(0, ExecutionStepStatus::InProgress)
+                .await?;
 
             match self.adapter.spawn_run(&task, "").await {
                 Ok(sub_result) => {
-                    return self.handle_spawn_all_success(
-                        steps_owned,
-                        sub_result,
-                        attempt,
-                        &mut events,
-                    );
+                    return self
+                        .handle_spawn_all_success(steps_owned, sub_result, attempt, &mut events)
+                        .await;
                 }
                 Err(e) => {
                     if attempt < max_attempts {
-                        self.mark_step_status(0, ExecutionStepStatus::Failed)?;
+                        self.mark_step_status(0, ExecutionStepStatus::Failed)
+                            .await?;
                         Self::emit_event(
                             &mut events,
                             ExecutionEvent::RetryTriggered {
@@ -188,12 +195,9 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
                         );
                         continue;
                     }
-                    return self.handle_spawn_all_retries_exhausted(
-                        steps_owned,
-                        e,
-                        attempt,
-                        &mut events,
-                    );
+                    return self
+                        .handle_spawn_all_retries_exhausted(steps_owned, e, attempt, &mut events)
+                        .await;
                 }
             }
         }
@@ -202,7 +206,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
 
 impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// Process a successful spawn result for SpawnAllSteps mode.
-    fn handle_spawn_all_success(
+    async fn handle_spawn_all_success(
         &self,
         steps_owned: &[String],
         sub_result: SubAgentResult,
@@ -211,14 +215,16 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
     ) -> Result<ExecutionReport, ExecutionError> {
         let mut results: Vec<StepResult> = Vec::new();
         let step0_failed = matches!(sub_result.status, ExecutionStepStatus::Failed);
-        let failed_step = self.process_spawn_all_step0(
-            &sub_result,
-            attempt,
-            step0_failed,
-            steps_owned,
-            &mut results,
-            events,
-        )?;
+        let failed_step = self
+            .process_spawn_all_step0(
+                &sub_result,
+                attempt,
+                step0_failed,
+                steps_owned,
+                &mut results,
+                events,
+            )
+            .await?;
 
         self.build_spawn_all_remaining_results(
             steps_owned,
@@ -245,7 +251,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
 
 impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// Process step 0 result in SpawnAllSteps mode.
-    fn process_spawn_all_step0(
+    async fn process_spawn_all_step0(
         &self,
         sub_result: &SubAgentResult,
         attempt: u32,
@@ -256,7 +262,8 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
     ) -> Result<Option<usize>, ExecutionError> {
         let mut failed_step = None;
         if step0_failed {
-            self.mark_step_status(0, ExecutionStepStatus::Failed)?;
+            self.mark_step_status(0, ExecutionStepStatus::Failed)
+                .await?;
             Self::emit_event(
                 events,
                 ExecutionEvent::StepFailed {
@@ -266,7 +273,8 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             );
             failed_step = Some(0);
         } else {
-            self.mark_step_status(0, ExecutionStepStatus::Completed)?;
+            self.mark_step_status(0, ExecutionStepStatus::Completed)
+                .await?;
             Self::emit_event(
                 events,
                 ExecutionEvent::StepCompleted {
@@ -337,14 +345,15 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
     }
 
     /// Return a failure report when all SpawnAllSteps retries are exhausted.
-    fn handle_spawn_all_retries_exhausted(
+    async fn handle_spawn_all_retries_exhausted(
         &self,
         steps_owned: &[String],
         error: ExecutionError,
         attempt: u32,
         events: &mut Vec<ExecutionEvent>,
     ) -> Result<ExecutionReport, ExecutionError> {
-        self.mark_step_status(0, ExecutionStepStatus::Failed)?;
+        self.mark_step_status(0, ExecutionStepStatus::Failed)
+            .await?;
         let results: Vec<StepResult> = steps_owned
             .iter()
             .enumerate()
@@ -398,7 +407,8 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             if attempt == 1 {
                 Self::emit_event(events, ExecutionEvent::StepStarted { step_index });
             }
-            self.mark_step_status(step_index, ExecutionStepStatus::InProgress)?;
+            self.mark_step_status(step_index, ExecutionStepStatus::InProgress)
+                .await?;
             tracing::info!(step_index, attempt, max_attempts, "dispatching step");
 
             let result = self
@@ -479,11 +489,13 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
                     attempt: attempt + 1,
                 },
             );
-            self.mark_step_status(step_index, ExecutionStepStatus::Failed)?;
+            self.mark_step_status(step_index, ExecutionStepStatus::Failed)
+                .await?;
             return Ok(None);
         }
 
         self.fail_step_final(step_index, &sub_result, attempt, events)
+            .await
     }
 }
 
@@ -497,7 +509,8 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         attempt: u32,
         events: &mut Vec<ExecutionEvent>,
     ) -> Result<Option<StepResult>, ExecutionError> {
-        self.mark_step_status(step_index, ExecutionStepStatus::Completed)?;
+        self.mark_step_status(step_index, ExecutionStepStatus::Completed)
+            .await?;
         tracing::info!(step_index, "step completed");
         Self::emit_event(
             events,
@@ -516,7 +529,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
     }
 
     /// Emit final failure event and build failed result.
-    fn fail_step_final(
+    async fn fail_step_final(
         &self,
         step_index: usize,
         sub_result: &SubAgentResult,
@@ -561,7 +574,8 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
                     attempt: attempt + 1,
                 },
             );
-            self.mark_step_status(step_index, ExecutionStepStatus::Failed)?;
+            self.mark_step_status(step_index, ExecutionStepStatus::Failed)
+                .await?;
             return Ok(None); // allow retry
         }
 
@@ -628,22 +642,29 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
 
 impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// Apply a status transition to the given step in plan state.
-    fn mark_step_status(
+    /// After a successful transition, notifies the progress listener.
+    async fn mark_step_status(
         &self,
         step_index: usize,
         status: ExecutionStepStatus,
     ) -> Result<(), ExecutionError> {
-        let mut state = self.plan_state.lock().expect("plan state lock poisoned");
+        let summary = {
+            let mut state = self.plan_state.lock().expect("plan state lock poisoned");
 
-        if matches!(status, ExecutionStepStatus::InProgress) {
-            state.current_step = Some(step_index);
-        }
+            if matches!(status, ExecutionStepStatus::InProgress) {
+                state.current_step = Some(step_index);
+            }
 
-        state
-            .apply_transition(step_index, status)
-            .map_err(|e| ExecutionError::InvalidResult {
-                message: format!("state transition failed: {e}"),
+            state.apply_transition(step_index, status).map_err(|e| {
+                ExecutionError::InvalidResult {
+                    message: format!("state transition failed: {e}"),
+                }
             })?;
+
+            state.progress_summary()
+        };
+
+        self.notifier.on_progress_changed(&summary).await;
 
         Ok(())
     }
