@@ -161,12 +161,21 @@ mod tests {
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
 
         let task_manager = Arc::new(closeclaw_tasks::BackgroundTaskManager::new());
+        let approval_flow = Arc::new(tokio::sync::Mutex::new(
+            closeclaw_permission::approval_flow::ApprovalFlow::new(
+                Arc::clone(&session_manager) as Arc<dyn closeclaw_common::SessionLookup>,
+                Arc::new(|_| {}),
+                tokio::runtime::Handle::current(),
+                closeclaw_permission::approval_flow::HeartbeatApprovalMode::default(),
+            ),
+        ));
         let registrars: Vec<Box<dyn closeclaw_tools::ToolRegistrar>> = vec![
             Box::new(closeclaw_tools::CoreToolsRegistrar::new(
                 permission_engine.clone(),
                 task_manager as Arc<dyn closeclaw_tasks::TaskManager>,
                 session_manager.clone(),
                 cfg_mgr.clone(),
+                approval_flow,
             )),
             Box::new(closeclaw_tools::SessionToolsRegistrar::new(
                 spawn_controller.clone() as Arc<dyn closeclaw_tools::SpawnValidator>,

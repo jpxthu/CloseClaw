@@ -80,6 +80,7 @@ mod tests {
     use closeclaw_config::ConfigManager;
     use closeclaw_gateway::SpawnController;
     use closeclaw_gateway::{GatewayConfig, SessionManager};
+    use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
     use closeclaw_permission::engine::engine_eval::PermissionEngine;
     use closeclaw_permission::rules::RuleSetBuilder;
     use closeclaw_session::bootstrap::BootstrapMode;
@@ -96,6 +97,17 @@ mod tests {
         Arc::new(PermissionEngine::new_with_default_data_root(
             RuleSetBuilder::new().build().unwrap(),
         ))
+    }
+
+    fn test_approval_flow(
+        session_manager: &Arc<SessionManager>,
+    ) -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
+        Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
+            Arc::clone(session_manager) as Arc<dyn closeclaw_common::SessionLookup>,
+            Arc::new(|_| {}),
+            tokio::runtime::Handle::current(),
+            HeartbeatApprovalMode::default(),
+        )))
     }
 
     /// Build a minimal SpawnController + SessionManager pair for tests
@@ -143,6 +155,7 @@ mod tests {
         session_manager: Arc<SessionManager>,
         config_manager: Arc<ConfigManager>,
         agent_registry: Arc<AgentRegistry>,
+        approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     ) -> Vec<Box<dyn ToolRegistrar>> {
         let task_manager = Arc::new(BackgroundTaskManager::new());
         vec![
@@ -151,6 +164,7 @@ mod tests {
                 task_manager as Arc<dyn closeclaw_tasks::TaskManager>,
                 session_manager.clone(),
                 config_manager,
+                approval_flow,
             )),
             Box::new(SessionToolsRegistrar::new(
                 spawn_controller.clone() as Arc<dyn closeclaw_tools::SpawnValidator>,
@@ -179,6 +193,7 @@ mod tests {
                 session_manager,
                 config_manager,
                 agent_registry,
+                test_approval_flow(&session_manager),
             ))
             .await
             .unwrap();
@@ -209,6 +224,7 @@ mod tests {
                 session_manager,
                 config_manager,
                 agent_registry,
+                test_approval_flow(&session_manager),
             ))
             .await
             .unwrap();
@@ -245,6 +261,7 @@ mod tests {
                 session_manager,
                 config_manager,
                 agent_registry,
+                test_approval_flow(&session_manager),
             ))
             .await
             .unwrap();
@@ -291,6 +308,7 @@ mod tests {
                 session_manager,
                 config_manager,
                 agent_registry,
+                test_approval_flow(&session_manager),
             ))
             .await
             .unwrap();
@@ -348,6 +366,7 @@ mod tests {
                 session_manager,
                 config_manager,
                 agent_registry,
+                test_approval_flow(&session_manager),
             ))
             .await
             .unwrap();

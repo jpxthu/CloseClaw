@@ -14,9 +14,10 @@ use crate::security::{BashSecurityAnalyzer, TrustLevel};
 use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
+use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
-    PermissionRequest, PermissionRequestBody, PermissionResponse,
+    Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
 
 use async_trait::async_trait;
@@ -24,6 +25,8 @@ use serde_json::Value;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+use tokio::sync::Mutex as TokioMutex;
 
 use super::bash_kill::{
     build_result, process_output, read_pipe, BackgroundKillHandle, BashKillHandle,
@@ -43,22 +46,25 @@ pub struct BashTool {
     bg_manager: Arc<dyn closeclaw_tasks::TaskManager>,
     session_manager: Arc<SessionManager>,
     config_manager: Arc<ConfigManager>,
+    approval_flow: Arc<TokioMutex<ApprovalFlow>>,
 }
 
 impl BashTool {
     /// Creates a new `BashTool` backed by the given permission engine,
-    /// background task manager, and config manager.
+    /// background task manager, config manager, and approval flow.
     pub fn new(
         permission_engine: Arc<PermissionEngine>,
         bg_manager: Arc<dyn closeclaw_tasks::TaskManager>,
         session_manager: Arc<SessionManager>,
         config_manager: Arc<ConfigManager>,
+        approval_flow: Arc<TokioMutex<ApprovalFlow>>,
     ) -> Self {
         Self {
             permission_engine,
             bg_manager,
             session_manager,
             config_manager,
+            approval_flow,
         }
     }
 }
@@ -146,6 +152,7 @@ impl Tool for BashTool {
             &self.session_manager,
             &self.bg_manager,
             &self.config_manager,
+            &self.approval_flow,
             args,
             ctx,
         )
@@ -276,6 +283,7 @@ async fn execute_bash_call(
     session_manager: &SessionManager,
     bg: &Arc<dyn closeclaw_tasks::TaskManager>,
     config_manager: &ConfigManager,
+    approval_flow: &Arc<TokioMutex<ApprovalFlow>>,
     args: Value,
     ctx: &ToolContext,
 ) -> Result<ToolResult, ToolCallError> {
@@ -330,7 +338,34 @@ async fn execute_bash_call(
     } else {
         perm.evaluate(request, None)
     };
-    if let PermissionResponse::Denied { reason, .. } = response {
+    if let PermissionResponse::Denied {
+        reason, risk_level, ..
+    } = response
+    {
+        let caller = Caller {
+            user_id: String::new(),
+            agent: ctx.agent_id.clone(),
+            creator_id: String::new(),
+        };
+        let body = PermissionRequestBody::ToolCall {
+            agent: ctx.agent_id.clone(),
+            skill: "bash".to_string(),
+            method: "call".to_string(),
+        };
+        let session_id = ctx.session_id.as_deref().unwrap_or("");
+        let mut flow = approval_flow.lock().await;
+        if let Some(request_id) = flow.submit_denial(&caller, &body, risk_level, session_id, false)
+        {
+            return Ok(ToolResult {
+                data: serde_json::json!({
+                    "status": "approval_pending",
+                    "request_id": request_id,
+                    "message": "Operation pending owner approval",
+                }),
+                new_messages: vec![],
+                context_modifier: None,
+            });
+        }
         return Err(ToolCallError::PermissionDenied(reason));
     }
 

@@ -51,9 +51,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 use tracing::info;
-
 mod noop_miner_llm;
-
 /// Parse an .env file into key-value pairs (comments, whitespace trimmed).
 fn parse_env_file(path: &std::path::Path) -> std::io::Result<Vec<(String, String)>> {
     let content = std::fs::read_to_string(path)?;
@@ -338,6 +336,7 @@ impl Daemon {
         tool_registry: &Arc<ToolRegistry>,
         session_manager: &Arc<SessionManager>,
         permission_engine: &Arc<PermissionEngine>,
+        approval_flow: &Arc<tokio::sync::Mutex<ApprovalFlow>>,
         data_dir: &std::path::Path,
     ) -> anyhow::Result<(
         watch::Sender<()>,
@@ -368,6 +367,7 @@ impl Daemon {
             session_manager,
             permission_engine,
             spawn_controller: Arc::clone(&spawn_controller),
+            approval_flow,
             config_subdir: &config_subdir,
         };
         let config_watcher = registries::populate_registries(&ctx).await;
@@ -544,6 +544,7 @@ impl Daemon {
             &tool_registry,
             &session_manager,
             &permission_engine,
+            &approval_flow,
             &data_dir,
         )
         .await?;
@@ -580,7 +581,6 @@ impl Daemon {
     /// executes Phase 0–7 shutdown sequence.
     pub async fn run(&mut self) -> anyhow::Result<()> {
         use tokio::signal::unix::{signal, SignalKind};
-
         // Phase 0: Signal reception & mode determination
         // Register signal handlers and wait for the first shutdown signal.
         let mut sigint = signal(SignalKind::interrupt())
@@ -813,7 +813,6 @@ impl Daemon {
         // Clear pending approval requests (denied with callbacks triggered)
         self.approval_flow.lock().await.clear();
     }
-
     /// Phase 4: Final persistence — flush checkpoints and sync WAL.
     async fn phase_4_final_persist(&self, mode: crate::shutdown::ShutdownMode) {
         match self.gateway.flush_all_sessions(mode).await {

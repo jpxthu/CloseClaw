@@ -5,6 +5,7 @@ use crate::config_watcher;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
 use closeclaw_gateway::SpawnController;
+use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_skills::DiskSkillRegistry;
 use closeclaw_tools::{
@@ -32,6 +33,8 @@ pub(crate) struct RegistryContext<'a> {
     pub permission_engine: &'a Arc<PermissionEngine>,
     /// SpawnController for validating agent spawn requests.
     pub spawn_controller: Arc<SpawnController>,
+    /// Approval flow for routing permission denials.
+    pub approval_flow: &'a Arc<tokio::sync::Mutex<ApprovalFlow>>,
     /// Path to the config subdirectory (for hot-reload).
     pub config_subdir: &'a Path,
 }
@@ -142,6 +145,7 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
         task_manager as Arc<dyn closeclaw_tasks::TaskManager>,
         Arc::clone(ctx.session_manager),
         Arc::clone(ctx.config_manager),
+        Arc::clone(ctx.approval_flow),
     );
     let session_registrar = SessionToolsRegistrar::new(
         Arc::clone(&ctx.spawn_controller) as Arc<dyn closeclaw_tools::SpawnValidator>,
