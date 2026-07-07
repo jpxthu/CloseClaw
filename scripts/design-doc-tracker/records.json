@@ -256,6 +256,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/memory/README.md",
+    "commit": "84f68e97a5ceb7e53301bb7327eb66e5d67f06f0",
+    "commit_time": "2026-07-07T18:08:07+08:00",
+    "confirmed_time": "2026-07-07T18:16:16.375238+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/memory/active-searcher.md",
     "commit": "9b9a8e6727806bf4e43da0db0bd52cc8f3c8a993",
     "commit_time": "2026-07-04T02:38:13+08:00",
