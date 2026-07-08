@@ -255,6 +255,95 @@ impl SlashHandler for ExecuteHandler {
     }
 }
 
+// ── PauseHandler ─────────────────────────────────────────────────────────
+
+/// `/pause` — pause an actively executing plan.
+///
+/// Switches the session from Auto Mode back to Plan Mode and updates
+/// the plan status from `Executing` (or `Confirmed`) to `Paused`.
+pub struct PauseHandler {
+    session_manager: Arc<SessionManager>,
+}
+
+impl PauseHandler {
+    /// Create a new PauseHandler with access to session state.
+    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+        Self { session_manager }
+    }
+}
+
+#[async_trait::async_trait]
+impl SlashHandler for PauseHandler {
+    fn commands(&self) -> &[&str] {
+        &["pause"]
+    }
+
+    fn description(&self) -> &str {
+        "暂停正在执行的 plan"
+    }
+
+    fn immediate(&self, _cmd: &str) -> bool {
+        false
+    }
+
+    async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
+        // Step 1: Check session is in Auto Mode
+        let Some(conv) = self
+            .session_manager
+            .get_conversation_session(&ctx.session_id)
+            .await
+        else {
+            return SlashResult::Reply("当前会话未激活".to_owned());
+        };
+        {
+            let cs = conv.read().await;
+            if cs.session_mode() != SessionMode::Auto {
+                return SlashResult::Reply(
+                    "/pause 需要在 Auto Mode 下使用。当前没有正在执行的 plan。".to_owned(),
+                );
+            }
+        }
+
+        // Step 2: Load plan state
+        let mut plan_state = match self.session_manager.get_plan_state(&ctx.session_id).await {
+            Some(ps) => ps,
+            None => {
+                return SlashResult::Reply("当前没有活跃的 plan。".to_owned());
+            }
+        };
+
+        if plan_state.plan_file_path.is_empty() {
+            return SlashResult::Reply("当前 plan 没有关联的 plan 文件，无法暂停。".to_owned());
+        }
+
+        // Step 3: Transition status to Paused
+        if let Err(e) = plan_state.transition_status(PlanStatus::Paused) {
+            return SlashResult::Reply(format!("无法暂停 plan：{}", e));
+        }
+
+        // Step 4: Update plan file status to paused
+        let path_clone = plan_state.plan_file_path.clone();
+        if let Err(e) = plan_file::update_plan_status(&path_clone, &PlanStatus::Paused) {
+            tracing::warn!(
+                plan_file = %path_clone,
+                error = %e,
+                "Failed to update plan file status to paused"
+            );
+        }
+
+        // Step 5: Persist updated plan state
+        self.session_manager
+            .set_plan_state(&ctx.session_id, plan_state)
+            .await;
+
+        // Step 6: Switch session mode back to Plan Mode
+        SlashResult::SetMode {
+            mode: "plan".to_owned(),
+            plan_file_path: Some(std::path::PathBuf::from(&path_clone)),
+        }
+    }
+}
+
 // ── ModeHandler ──────────────────────────────────────────────────────────
 
 /// `/mode` — query or switch the session mode.

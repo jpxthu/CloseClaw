@@ -11,7 +11,7 @@ pub use context::SlashContext;
 pub use dispatcher::{parse_slash, SlashDispatcher};
 pub use handler::SlashHandler;
 pub use handlers::{ClearHandler, CompactHandler, ExecHandler, HelpHandler};
-pub use handlers_mode::{ExecuteHandler, ModeHandler, PlanModeHandler};
+pub use handlers_mode::{ExecuteHandler, ModeHandler, PauseHandler, PlanModeHandler};
 pub use handlers_session::{NewSessionHandler, StatusHandler, StopHandler, VerboseHandler};
 
 #[cfg(test)]
