@@ -225,3 +225,67 @@ fn test_workspace_user_prefix_boundary() {
     // test-user2 is NOT the same as test-user → outside workspace
     assert!(matches!(result, PermissionResponse::Denied { .. }));
 }
+
+// ---- is_config_dir_path tests ----
+
+#[test]
+fn test_config_dir_config_file_denied() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp
+        .path()
+        .join("agents/a1/permissions.json")
+        .to_string_lossy()
+        .into_owned();
+    assert!(super::engine_workspace::is_config_dir_path(
+        tmp.path(),
+        &path
+    ));
+}
+
+#[test]
+fn test_config_dir_workspace_allowed() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp
+        .path()
+        .join("workspaces/a1/u1/file.txt")
+        .to_string_lossy()
+        .into_owned();
+    assert!(!super::engine_workspace::is_config_dir_path(
+        tmp.path(),
+        &path
+    ));
+}
+
+#[test]
+fn test_config_dir_data_root_itself() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().to_string_lossy().into_owned();
+    assert!(super::engine_workspace::is_config_dir_path(
+        tmp.path(),
+        &path
+    ));
+}
+
+#[test]
+fn test_config_dir_outside_data_root() {
+    let tmp = TempDir::new().unwrap();
+    assert!(!super::engine_workspace::is_config_dir_path(
+        tmp.path(),
+        "/tmp/other/file.txt"
+    ));
+}
+
+#[test]
+fn test_config_dir_path_traversal_attack() {
+    let tmp = TempDir::new().unwrap();
+    // Traversal that escapes workspaces/ and lands in agents/
+    let path = tmp
+        .path()
+        .join("workspaces/../agents/a1/permissions.json")
+        .to_string_lossy()
+        .into_owned();
+    assert!(super::engine_workspace::is_config_dir_path(
+        tmp.path(),
+        &path
+    ));
+}
