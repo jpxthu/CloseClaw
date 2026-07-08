@@ -84,6 +84,8 @@ pub struct Gateway {
     shutdown_handle: std::sync::Mutex<Option<Arc<ShutdownHandle>>>,
     /// Outbound middleware chain, run between render and send.
     outbound_middlewares: std::sync::RwLock<Vec<Arc<dyn closeclaw_common::OutboundMiddleware>>>,
+    /// Config directory for permission rule persistence.
+    config_dir: RwLock<Option<std::path::PathBuf>>,
 }
 
 impl Gateway {
@@ -103,6 +105,7 @@ impl Gateway {
             self_ref: std::sync::Mutex::new(None),
             shutdown_handle: std::sync::Mutex::new(None),
             outbound_middlewares: std::sync::RwLock::new(Vec::new()),
+            config_dir: RwLock::new(None),
         }
     }
 
@@ -126,7 +129,17 @@ impl Gateway {
             self_ref: std::sync::Mutex::new(None),
             shutdown_handle: std::sync::Mutex::new(None),
             outbound_middlewares: std::sync::RwLock::new(Vec::new()),
+            config_dir: RwLock::new(None),
         }
+    }
+
+    /// Set config directory for permission rule persistence.
+    pub async fn set_config_dir(&self, path: std::path::PathBuf) {
+        *self.config_dir.write().await = Some(path);
+    }
+
+    pub async fn get_config_dir(&self) -> Option<std::path::PathBuf> {
+        self.config_dir.read().await.clone()
     }
 
     /// Configure a CheckpointManager for session snapshot persistence.
@@ -241,31 +254,13 @@ impl Gateway {
 
     /// Handle an inbound message through the busy/pending state machine.
     ///
-    /// Accepts a [`ProcessedMessage`] produced by the inbound processor
-    /// chain (containing cleaned `content` and `session_key` in metadata).
+    /// Resolution flow: extract `session_key` → resolve `session_id` →
+    /// dispatch slash commands or route to LLM. Slash commands are intercepted
+    /// here and never appended to conversation history.
     ///
-    /// Resolution flow:
-    /// 1. Extract `session_key` from `metadata`
-    /// 2. If empty → reply "会话路由失败" via plugin, return `None`
-    /// 3. Call [`SessionManager::resolve`] to obtain `session_id`
-    /// 4. Dispatch: slash commands → [`dispatch_slash`], normal → LLM
-    ///
-    /// Slash commands are intercepted at this layer and never appended
-    /// to the conversation history (design doc requirement).
-    ///
-    /// `channel` identifies the IM platform / channel the message originated
-    /// from (e.g. `"feishu"`). It is forwarded to `dispatch_slash` so that
-    /// `SlashContext.channel` reflects the real source.
-    ///
-    /// When a plugin is registered for `channel` AND the self-ref is wired
-    /// (see [`set_self_ref`](Self::set_self_ref)), this dispatches through
-    /// [`SessionMessageHandler::handle_message_with_gateway`] so streaming
-    /// LLM output can flow through [`Gateway::send_outbound_streaming`].
-    /// Otherwise it falls back to the non-streaming path
-    /// [`SessionMessageHandler::handle_message`].
-    ///
-    /// Returns `HandleResult` (`LlmStarted`/`MessageQueued`/`ApprovalProcessed`),
-    /// or `None` if no handler configured.
+    /// When a plugin is registered for `channel` AND the self-ref is wired,
+    /// dispatches through `handle_message_with_gateway` for streaming;
+    /// otherwise falls back to non-streaming `handle_message`.
     pub async fn handle_inbound_message(
         &self,
         processed: ProcessedMessage,

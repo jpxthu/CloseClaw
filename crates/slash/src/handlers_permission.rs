@@ -37,10 +37,10 @@ impl PermissionSlashHandler {
         }
 
         match parts[0] {
-            "allow-file" => Self::parse_file_op(parts, true),
-            "deny-file" => Self::parse_file_op(parts, false),
-            "allow-cmd" => Self::parse_cmd_op(parts, true),
-            "deny-cmd" => Self::parse_cmd_op(parts, false),
+            "allow-file" => Self::parse_file_op(&parts, true),
+            "deny-file" => Self::parse_file_op(&parts, false),
+            "allow-cmd" => Self::parse_cmd_op(&parts, true),
+            "deny-cmd" => Self::parse_cmd_op(&parts, false),
             other => SlashResult::Reply(format!("未知子命令：{other}\n\n{}", Self::usage())),
         }
     }
