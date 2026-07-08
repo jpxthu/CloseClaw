@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
+use closeclaw_common::plan_state::PlanStatus;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_common::PlanPhase;
@@ -93,11 +94,32 @@ impl SlashHandler for PlanModeHandler {
     }
 }
 
+/// Parse `PlanStatus` from a plan file's content.
+///
+/// Scans the file for the `| 状态 | <status> |` line and converts it
+/// to the corresponding `PlanStatus` variant.
+pub(crate) fn parse_plan_status_from_file(content: &str) -> Option<PlanStatus> {
+    for line in content.lines() {
+        if let Some(rest) = line.strip_prefix("| 状态 | ") {
+            let status_str = rest.strip_suffix(" |")?.trim();
+            return match status_str {
+                "draft" => Some(PlanStatus::Draft),
+                "confirmed" => Some(PlanStatus::Confirmed),
+                "executing" => Some(PlanStatus::Executing),
+                "paused" => Some(PlanStatus::Paused),
+                "completed" => Some(PlanStatus::Completed),
+                _ => None,
+            };
+        }
+    }
+    None
+}
+
 // ── ExecuteHandler ────────────────────────────────────────────────────────
 
 /// `/execute` — transition from Plan Mode to Auto Mode execution.
 ///
-/// Checks that a plan has been approved (status `confirmed` in the plan file)
+/// Checks that a plan has been approved (status `Confirmed` in the plan state)
 /// before switching to Auto Mode. If the plan is not yet approved, replies
 /// with a hint to use the approval tool first.
 pub struct ExecuteHandler {
@@ -145,7 +167,7 @@ impl SlashHandler for ExecuteHandler {
         }
 
         // Step 2: Load plan_state from checkpoint
-        let plan_state = match self.session_manager.get_plan_state(&ctx.session_id).await {
+        let mut plan_state = match self.session_manager.get_plan_state(&ctx.session_id).await {
             Some(ps) => ps,
             None => {
                 return SlashResult::Reply(
@@ -158,30 +180,77 @@ impl SlashHandler for ExecuteHandler {
             return SlashResult::Reply("当前 plan 没有关联的 plan 文件，无法执行。".to_owned());
         }
 
-        // Step 3: Read the plan file and check if status is "confirmed"
-        match std::fs::read_to_string(&plan_state.plan_file_path) {
-            Ok(content) => {
-                if content.contains("| 状态 | confirmed |") {
-                    // Plan is approved — switch to Auto Mode
-                    SlashResult::SetMode {
-                        mode: "auto".to_owned(),
-                        plan_file_path: Some(std::path::PathBuf::from(&plan_state.plan_file_path)),
-                    }
-                } else {
-                    SlashResult::Reply(
-                        "Plan 尚未通过审批。请先使用 plan_approval 工具提交审批，".to_owned()
-                            + "待 owner 审批通过后再执行 /execute。",
-                    )
-                }
-            }
+        // Step 3: Read the plan file and resolve status from file or in-memory state.
+        //         Prefer the in-memory PlanStatus if already set (authoritative);
+        //         fall back to parsing the plan file for backward compatibility.
+        let file_status = match std::fs::read_to_string(&plan_state.plan_file_path) {
+            Ok(content) => parse_plan_status_from_file(&content),
             Err(e) => {
                 tracing::warn!(
                     plan_file = %plan_state.plan_file_path,
                     error = %e,
                     "Failed to read plan file for /execute"
                 );
-                SlashResult::Reply(format!("无法读取 plan 文件：{}", plan_state.plan_file_path))
+                return SlashResult::Reply(format!(
+                    "无法读取 plan 文件：{}",
+                    plan_state.plan_file_path
+                ));
             }
+        };
+
+        // Use in-memory status if non-default; otherwise trust file-parsed status.
+        let effective_status = if plan_state.status != PlanStatus::Draft {
+            plan_state.status
+        } else {
+            match file_status {
+                Some(s) => s,
+                None => {
+                    return SlashResult::Reply("Plan 文件中未找到有效的状态字段。".to_owned());
+                }
+            }
+        };
+
+        if effective_status != PlanStatus::Confirmed {
+            return SlashResult::Reply(
+                "Plan 尚未通过审批。请先使用 plan_approval 工具提交审批，".to_owned()
+                    + "待 owner 审批通过后再执行 /execute。",
+            );
+        }
+
+        // Step 4: Transition status draft→confirmed→executing and update plan file
+        if let Err(e) = plan_state.transition_status(PlanStatus::Confirmed) {
+            tracing::debug!(
+                error = %e,
+                "transition to Confirmed skipped (already confirmed)"
+            );
+        }
+        if let Err(e) = plan_state.transition_status(PlanStatus::Executing) {
+            tracing::warn!(
+                error = %e,
+                "Failed to transition plan status to Executing"
+            );
+            return SlashResult::Reply(format!("无法将 plan 状态转换为 executing：{}", e));
+        }
+
+        let path_clone = plan_state.plan_file_path.clone();
+        let plan_file_path = std::path::PathBuf::from(&plan_state.plan_file_path);
+        if let Err(e) = plan_file::update_plan_status(&path_clone, &PlanStatus::Executing) {
+            tracing::warn!(
+                plan_file = %path_clone,
+                error = %e,
+                "Failed to update plan file status to executing"
+            );
+        }
+
+        // Persist updated plan state
+        self.session_manager
+            .set_plan_state(&ctx.session_id, plan_state)
+            .await;
+
+        // Plan is approved and executing — switch to Auto Mode
+        SlashResult::SetMode {
+            mode: "auto".to_owned(),
+            plan_file_path: Some(plan_file_path),
         }
     }
 }

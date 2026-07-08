@@ -147,16 +147,18 @@ pub fn update_plan_status(plan_file_path: &str, status: &PlanStatus) -> Result<(
     let new_timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let status_str = status.to_string();
 
-    let new_content = replace_status_line(&content, &status_str)
-        .and_then(|c| replace_update_time_line(&c, &new_timestamp));
-
-    match new_content {
-        Some(c) => std::fs::write(path, c),
-        None => Err(std::io::Error::new(
+    let status_replaced = replace_status_line(&content, &status_str).ok_or_else(|| {
+        std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!("status line not found in plan file: {plan_file_path}"),
-        )),
-    }
+        )
+    })?;
+
+    // Update timestamp if the line exists; skip gracefully if not.
+    let new_content =
+        replace_update_time_line(&status_replaced, &new_timestamp).unwrap_or(status_replaced);
+
+    std::fs::write(path, new_content)
 }
 
 /// Update only the update timestamp field in a plan file.

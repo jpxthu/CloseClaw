@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
-use crate::handlers_mode::{ExecuteHandler, ModeHandler, PlanModeHandler};
+use crate::handlers_mode::{
+    parse_plan_status_from_file, ExecuteHandler, ModeHandler, PlanModeHandler,
+};
+use closeclaw_common::plan_state::PlanStatus;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_gateway::session_manager::SessionManager;
 
@@ -360,6 +363,26 @@ async fn save_plan_state(sm: &SessionManager, session_id: &str, plan_file_path: 
     .await;
 }
 
+async fn save_plan_state_with_status(
+    sm: &SessionManager,
+    session_id: &str,
+    plan_file_path: &str,
+    status: PlanStatus,
+) {
+    use closeclaw_common::{PlanPhase, PlanState};
+
+    sm.set_plan_state(
+        session_id,
+        PlanState {
+            phase: PlanPhase::FinalPlan,
+            status,
+            plan_file_path: plan_file_path.to_string(),
+            ..PlanState::new()
+        },
+    )
+    .await;
+}
+
 #[test]
 fn test_execute_handler_commands_and_description() {
     let sm = make_session_manager();
@@ -493,6 +516,169 @@ async fn test_execute_handler_plan_confirmed() {
         }
         other => panic!("expected SetMode{{mode: \"auto\", ..}}, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn test_execute_handler_plan_confirmed_updates_to_executing() {
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let plan_file = tmp.path().join("test-plan.md");
+    fs::write(
+        &plan_file,
+        "# Test Plan\n\n| 字段 | 值 |\n| 状态 | confirmed |\n",
+    )
+    .unwrap();
+
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_plan_mode(&sm).await;
+    save_plan_state(&sm, &sid, plan_file.to_str().unwrap()).await;
+
+    let h = ExecuteHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    let _ = h.handle("", &ctx).await;
+
+    // Verify plan file status was updated to executing
+    let content = fs::read_to_string(&plan_file).unwrap();
+    assert!(
+        content.contains("| 状态 | executing |"),
+        "plan file should be updated to executing status, got: {content}"
+    );
+}
+
+#[test]
+fn test_update_plan_status_direct() {
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let plan_file = tmp.path().join("test-plan.md");
+    fs::write(
+        &plan_file,
+        "# Test Plan\n\n| 字段 | 值 |\n| 状态 | draft |\n",
+    )
+    .unwrap();
+
+    let result = closeclaw_session::plan_file::update_plan_status(
+        plan_file.to_str().unwrap(),
+        &closeclaw_common::PlanStatus::Confirmed,
+    );
+    assert!(
+        result.is_ok(),
+        "update_plan_status should succeed: {:?}",
+        result
+    );
+
+    let content = fs::read_to_string(&plan_file).unwrap();
+    assert!(
+        content.contains("| 状态 | confirmed |"),
+        "plan file should show confirmed, got: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_execute_handler_plan_state_with_confirmed_status() {
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let plan_file = tmp.path().join("test-plan.md");
+    fs::write(
+        &plan_file,
+        "# Test Plan\n\n| 字段 | 值 |\n| 状态 | draft |\n",
+    )
+    .unwrap();
+
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_plan_mode(&sm).await;
+    // Set in-memory status to Confirmed (file still says draft)
+    save_plan_state_with_status(
+        &sm,
+        &sid,
+        plan_file.to_str().unwrap(),
+        PlanStatus::Confirmed,
+    )
+    .await;
+
+    let h = ExecuteHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::SetMode { mode, .. } => {
+            assert_eq!(
+                mode, "auto",
+                "should switch to auto mode based on in-memory status"
+            );
+        }
+        other => panic!("expected SetMode, got {other:?}"),
+    }
+}
+
+// ── parse_plan_status_from_file tests ─────────────────────────────────────
+
+#[test]
+fn test_parse_plan_status_draft() {
+    let content = "| 状态 | draft |";
+    assert_eq!(
+        parse_plan_status_from_file(content),
+        Some(PlanStatus::Draft)
+    );
+}
+
+#[test]
+fn test_parse_plan_status_confirmed() {
+    let content = "| 状态 | confirmed |";
+    assert_eq!(
+        parse_plan_status_from_file(content),
+        Some(PlanStatus::Confirmed)
+    );
+}
+
+#[test]
+fn test_parse_plan_status_executing() {
+    let content = "| 状态 | executing |";
+    assert_eq!(
+        parse_plan_status_from_file(content),
+        Some(PlanStatus::Executing)
+    );
+}
+
+#[test]
+fn test_parse_plan_status_paused() {
+    let content = "| 状态 | paused |";
+    assert_eq!(
+        parse_plan_status_from_file(content),
+        Some(PlanStatus::Paused)
+    );
+}
+
+#[test]
+fn test_parse_plan_status_completed() {
+    let content = "| 状态 | completed |";
+    assert_eq!(
+        parse_plan_status_from_file(content),
+        Some(PlanStatus::Completed)
+    );
+}
+
+#[test]
+fn test_parse_plan_status_not_found() {
+    let content = "| 字段 | 值 |\n| 状态 |";
+    assert_eq!(parse_plan_status_from_file(content), None);
+}
+
+#[test]
+fn test_parse_plan_status_unknown_value() {
+    let content = "| 状态 | unknown |";
+    assert_eq!(parse_plan_status_from_file(content), None);
+}
+
+#[test]
+fn test_parse_plan_status_in_full_plan() {
+    let content = "# Test Plan\n\n| 字段 | 值 |\n| 状态 | confirmed |\n| 创建时间 | 2025-01-01 |\n";
+    assert_eq!(
+        parse_plan_status_from_file(content),
+        Some(PlanStatus::Confirmed)
+    );
 }
 
 #[tokio::test]
