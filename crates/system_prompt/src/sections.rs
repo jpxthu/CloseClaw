@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 use std::sync::RwLock;
 use std::time::SystemTime;
 
-use closeclaw_common::SessionMode;
+use closeclaw_common::{PlanPath, SessionMode};
 
 /// Represents a system prompt section
 #[derive(Debug, Clone)]
@@ -34,8 +34,12 @@ pub enum Section {
     GitStatus(String),
     WorkingDirectory(String),
     /// Mode-specific instruction section, injected when session mode is
-    /// not Normal.
-    ModeInstruction(SessionMode),
+    /// not Normal. For Plan mode, `plan_path` determines which
+    /// path-specific instruction to inject.
+    ModeInstruction {
+        mode: SessionMode,
+        plan_path: Option<PlanPath>,
+    },
 }
 
 impl Section {
@@ -60,7 +64,7 @@ impl Section {
             Section::AppendSection(_) => "append",
             Section::GitStatus(_) => "git_status",
             Section::WorkingDirectory(_) => "working_directory",
-            Section::ModeInstruction(_) => "mode_instruction",
+            Section::ModeInstruction { .. } => "mode_instruction",
         }
     }
     fn format_session_state(&self, pending_tasks: &[String]) -> String {
@@ -120,7 +124,9 @@ impl Section {
                 let sanitized = sanitize_workdir_path(path);
                 format!("## Working Directory\n当前工作目录：{}\n", sanitized)
             }
-            Section::ModeInstruction(mode) => render_mode_instruction(*mode),
+            Section::ModeInstruction { mode, plan_path } => {
+                render_mode_instruction(*mode, *plan_path)
+            }
         }
     }
 }
@@ -134,73 +140,15 @@ impl Section {
 /// - Normal: no extra instructions (returns empty string)
 /// - Plan: Plan Mode workflow instructions
 /// - Auto: Auto Mode execution instructions
-fn render_mode_instruction(mode: SessionMode) -> String {
+fn render_mode_instruction(mode: SessionMode, plan_path: Option<PlanPath>) -> String {
     match mode {
         SessionMode::Normal => String::new(),
         SessionMode::Plan => {
-            "## Mode: Plan\n\n".to_string()
-                + "You are in **Plan Mode**. Your goal is to produce a clear, \
-                  implementable plan that can be reviewed and approved before \
-                  any code changes are made.\n\n"
-                + "### Path Selection\n\n"
-                + "Before starting work, assess whether the user's request is \
-                  sufficiently clear. Use the following criteria:\n\n"
-                + "**Standard Path** — use when the request includes:\n"
-                + "- Explicit file, module, or interface references\n"
-                + "- Quantifiable acceptance criteria\n"
-                + "- Sufficient context to proceed without further clarification\n\n"
-                + "**Interview Path** — use when the request is ambiguous, \
-                  lacks specificity, or requires deeper exploration to \
-                  understand the true scope.\n\n"
-                + "You may also choose the Interview Path if early exploration \
-                  reveals unexpected complexity or scope creep.\n\n"
-                + "**Explicit path specification** — the user may explicitly \\
-                  request a specific path via command arguments (e.g., \\
-                  `--path standard` or `--path interview`). When an \\
-                  explicit path is specified, the system adopts it directly \\
-                  without performing automatic clarity analysis.\n\n"
-                + "### Standard Path (4 Phases)\n\n"
-                + "1. **Research** — gather context, read code, understand the \
-                     problem space. Spawn Explore agents for parallel \
-                     codebase exploration.\n"
-                + "2. **Design** — produce a concrete implementation plan \
-                     with file-level granularity. Identify key files, \
-                     interfaces, and data flows.\n"
-                + "3. **Review** — self-check the plan for correctness and \
-                     completeness. Use AskUserQuestion for any remaining \
-                     requirement clarification only.\n"
-                + "4. **Final Plan** — write the validated plan into the plan \
-                     file (the only write operation in Plan Mode).\n\n"
-                + "### Interview Path\n\n"
-                + "The Interview Path has no fixed phases. You operate in a \
-                  loop:\n"
-                + "1. **Explore** — spawn Explore agents to understand \
-                     existing code and constraints\n"
-                + "2. **Update plan** — incrementally write findings and \
-                     emerging understanding into the plan file\n"
-                + "3. **Ask** — use AskUserQuestion to clarify remaining \
-                     ambiguities with the user\n"
-                + "4. **Evaluate** — if ambiguities remain, repeat from step 1. \
-                     If requirements converge, proceed to Review and \
-                     Final Plan (same as Standard Path steps 3–4).\n\n"
-                + "### Constraints\n\n"
-                + "- **Read-only tools only** — you may not modify source code \
-                     or configuration files\n"
-                + "- **plans/ directory is the sole writable area** — the plan \
-                     file under `workspace/plans/` is the only file you \
-                     may create or modify\n"
-                + "- **No execution** — do not run builds, tests, or deploy \
-                     commands\n"
-                + "- **Approval required to exit** — once your plan is \
-                     complete, use the approval tool to submit it for \
-                     user review. The plan must be confirmed before \
-                     any code execution is permitted\n\n"
-                + "### Approval\n\n"
-                + "When you have finished preparing the plan, call the \
-                  approval tool with a plan summary. The framework will \
-                  present a confirmation dialog to the user. Upon \
-                  approval, Plan Mode ends and Auto Mode begins for \
-                  execution."
+            let path = plan_path.unwrap_or_default();
+            match path {
+                PlanPath::Standard => render_standard_path_instruction(),
+                PlanPath::Interview => render_interview_path_instruction(),
+            }
         }
         SessionMode::Auto => {
             "## Mode: Auto\n".to_string()
@@ -211,6 +159,81 @@ fn render_mode_instruction(mode: SessionMode) -> String {
                 + "- Commit and report when done\n"
         }
     }
+}
+
+/// Render Standard Path instructions (4 Phases).
+///
+/// Used when the user request is clear: explicit file/module/interface
+/// references and quantifiable acceptance criteria are present.
+fn render_standard_path_instruction() -> String {
+    "## Mode: Plan — Standard Path\n\n".to_string()
+        + "You are in **Plan Mode** using the **Standard Path**. \
+          Your goal is to produce a clear, implementable plan that can \
+          be reviewed and approved before any code changes are made.\n\n"
+        + "### Phases\n\n"
+        + "1. **Research** — gather context, read code, understand the \
+             problem space. Spawn Explore agents for parallel \
+             codebase exploration.\n"
+        + "2. **Design** — produce a concrete implementation plan \
+             with file-level granularity. Identify key files, \
+             interfaces, and data flows.\n"
+        + "3. **Review** — self-check the plan for correctness and \
+             completeness. Use AskUserQuestion for any remaining \
+             requirement clarification only.\n"
+        + "4. **Final Plan** — write the validated plan into the plan \
+             file (the only write operation in Plan Mode).\n\n"
+        + &render_plan_constraints()
+        + &render_plan_approval()
+}
+
+/// Render Interview Path instructions.
+///
+/// Used when the user request is ambiguous and requires iterative
+/// exploration and clarification before a plan can be formed.
+fn render_interview_path_instruction() -> String {
+    "## Mode: Plan — Interview Path\n\n".to_string()
+        + "You are in **Plan Mode** using the **Interview Path**. \
+          Your goal is to iteratively explore the problem space and \
+          clarify requirements before producing an implementable plan.\n\n"
+        + "### Loop\n\n"
+        + "You operate in a continuous loop:\n"
+        + "1. **Explore** — spawn Explore agents to understand \
+             existing code and constraints\n"
+        + "2. **Update plan** — incrementally write findings and \
+             emerging understanding into the plan file\n"
+        + "3. **Ask** — use AskUserQuestion to clarify remaining \
+             ambiguities with the user\n"
+        + "4. **Evaluate** — if ambiguities remain, repeat from step 1. \
+             If requirements converge, proceed to **Review** and \
+             **Final Plan**.\n\n"
+        + &render_plan_constraints()
+        + &render_plan_approval()
+}
+
+/// Common constraints section shared by both Plan paths.
+fn render_plan_constraints() -> String {
+    "### Constraints\n\n".to_string()
+        + "- **Read-only tools only** — you may not modify source code \
+             or configuration files\n"
+        + "- **plans/ directory is the sole writable area** — the plan \
+             file under `workspace/plans/` is the only file you \
+             may create or modify\n"
+        + "- **No execution** — do not run builds, tests, or deploy \
+             commands\n"
+        + "- **Approval required to exit** — once your plan is \
+             complete, use the approval tool to submit it for \
+             user review. The plan must be confirmed before \
+             any code execution is permitted\n\n"
+}
+
+/// Common approval section shared by both Plan paths.
+fn render_plan_approval() -> String {
+    "### Approval\n\n".to_string()
+        + "When you have finished preparing the plan, call the \
+          approval tool with a plan summary. The framework will \
+          present a confirmation dialog to the user. Upon \
+          approval, Plan Mode ends and Auto Mode begins for \
+          execution."
 }
 
 // ---------------------------------------------------------------------------
@@ -576,39 +599,47 @@ mod tests {
 
     #[test]
     fn test_mode_instruction_name() {
-        let s = Section::ModeInstruction(SessionMode::Normal);
+        let s = Section::ModeInstruction {
+            mode: SessionMode::Normal,
+            plan_path: None,
+        };
         assert_eq!(s.name(), "mode_instruction");
     }
 
     #[test]
     fn test_mode_instruction_not_cacheable() {
-        let s = Section::ModeInstruction(SessionMode::Plan);
+        let s = Section::ModeInstruction {
+            mode: SessionMode::Plan,
+            plan_path: Some(PlanPath::Standard),
+        };
         assert!(!s.is_cacheable());
     }
 
     #[test]
     fn test_mode_instruction_normal_renders_empty() {
-        let s = Section::ModeInstruction(SessionMode::Normal);
+        let s = Section::ModeInstruction {
+            mode: SessionMode::Normal,
+            plan_path: None,
+        };
         assert_eq!(s.render(), "");
     }
 
     #[test]
-    fn test_mode_instruction_plan_renders_instructions() {
-        let s = Section::ModeInstruction(SessionMode::Plan);
+    fn test_mode_instruction_plan_standard_renders_instructions() {
+        let s = Section::ModeInstruction {
+            mode: SessionMode::Plan,
+            plan_path: Some(PlanPath::Standard),
+        };
         let rendered = s.render();
-        assert!(rendered.contains("## Mode: Plan"));
+        assert!(rendered.contains("## Mode: Plan — Standard Path"));
         assert!(rendered.contains("Plan Mode"));
         // Standard path phases
         assert!(rendered.contains("Research"));
         assert!(rendered.contains("Design"));
         assert!(rendered.contains("Review"));
         assert!(rendered.contains("Final Plan"));
-        // Interview path
-        assert!(rendered.contains("Interview"));
-        // Path selection logic
-        assert!(rendered.contains("Path Selection"));
-        assert!(rendered.contains("Standard Path"));
-        assert!(rendered.contains("Interview Path"));
+        // No Path Selection
+        assert!(!rendered.contains("Path Selection"));
         // Constraints
         assert!(rendered.contains("Read-only"));
         assert!(rendered.contains("plans/"));
@@ -617,30 +648,75 @@ mod tests {
     }
 
     #[test]
-    fn test_mode_instruction_plan_dual_path_description() {
-        let rendered = render_mode_instruction(SessionMode::Plan);
-        // Verify both paths are described with distinct characteristics
-        assert!(rendered.contains("4 Phases"));
-        assert!(rendered.contains("loop"));
+    fn test_mode_instruction_plan_interview_renders_instructions() {
+        let s = Section::ModeInstruction {
+            mode: SessionMode::Plan,
+            plan_path: Some(PlanPath::Interview),
+        };
+        let rendered = s.render();
+        assert!(rendered.contains("## Mode: Plan — Interview Path"));
+        assert!(rendered.contains("Plan Mode"));
+        // Interview loop steps
+        assert!(rendered.contains("Explore"));
+        assert!(rendered.contains("Update plan"));
+        assert!(rendered.contains("Ask"));
+        assert!(rendered.contains("Evaluate"));
+        // No Path Selection
+        assert!(!rendered.contains("Path Selection"));
+        // Constraints
+        assert!(rendered.contains("Read-only"));
+        assert!(rendered.contains("plans/"));
+        // Approval exit
+        assert!(rendered.contains("approval tool"));
+    }
+
+    #[test]
+    fn test_mode_instruction_plan_default_uses_interview() {
+        let s = Section::ModeInstruction {
+            mode: SessionMode::Plan,
+            plan_path: None,
+        };
+        let rendered = s.render();
+        // Default PlanPath is Interview
+        assert!(rendered.contains("Interview Path"));
+        assert!(!rendered.contains("Standard Path"));
+    }
+
+    #[test]
+    fn test_mode_instruction_plan_standard_no_interview_content() {
+        let rendered = render_standard_path_instruction();
+        assert!(!rendered.contains("Interview Path"));
+        assert!(!rendered.contains("loop"));
+        assert!(rendered.contains("4 Phases") || rendered.contains("Phases"));
+    }
+
+    #[test]
+    fn test_mode_instruction_plan_interview_no_standard_content() {
+        let rendered = render_interview_path_instruction();
+        assert!(!rendered.contains("Standard Path"));
+        assert!(rendered.contains("loop") || rendered.contains("continuous loop"));
     }
 
     #[test]
     fn test_mode_instruction_plan_readonly_constraint() {
-        let rendered = render_mode_instruction(SessionMode::Plan);
+        let rendered = render_standard_path_instruction();
         assert!(rendered.contains("writable area"));
         assert!(rendered.contains("No execution"));
     }
 
     #[test]
     fn test_mode_instruction_plan_approval_exit() {
-        let rendered = render_mode_instruction(SessionMode::Plan);
+        let rendered = render_standard_path_instruction();
         assert!(rendered.contains("Approval required to exit"));
         assert!(rendered.contains("confirmation dialog"));
     }
 
     #[test]
     fn test_mode_instruction_auto_renders_instructions() {
-        let s = Section::ModeInstruction(SessionMode::Auto);
+        let s = Section::ModeInstruction {
+            mode: SessionMode::Auto,
+            plan_path: None,
+        };
         let rendered = s.render();
         assert!(rendered.contains("## Mode: Auto"));
         assert!(rendered.contains("Auto Mode"));
@@ -650,8 +726,7 @@ mod tests {
 
     #[test]
     fn test_mode_instruction_auto_unchanged() {
-        // Verify Auto mode output is identical to the original implementation
-        let rendered = render_mode_instruction(SessionMode::Auto);
+        let rendered = render_mode_instruction(SessionMode::Auto, None);
         assert!(rendered.contains("Execute tasks autonomously"));
         assert!(rendered.contains("Commit and report when done"));
         assert!(rendered.contains("Dangerous operations"));

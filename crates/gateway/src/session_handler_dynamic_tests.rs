@@ -53,7 +53,7 @@ fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
 #[test]
 fn test_build_dynamic_sections_channel_context() {
     let meta = make_meta("user_42", "feishu", 1700000000);
-    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
+    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
 
     // Find ChannelContext section
     let cc = sections
@@ -72,7 +72,15 @@ fn test_build_dynamic_sections_channel_context() {
 fn test_build_dynamic_sections_session_timestamp_override() {
     let meta = make_meta("user_42", "feishu", 1700000000);
     let session_ts: i64 = 1700000042;
-    let sections = build_dynamic_sections(&meta, None, &[], Some(session_ts), SessionMode::Normal);
+    let sections = build_dynamic_sections(
+        &meta,
+        None,
+        &[],
+        Some(session_ts),
+        SessionMode::Normal,
+        None,
+        None,
+    );
     let cc = sections
         .iter()
         .find(|s: &&Section| s.name() == "channel_context")
@@ -90,7 +98,7 @@ fn test_build_dynamic_sections_session_timestamp_override() {
 #[test]
 fn test_build_dynamic_sections_session_timestamp_fallback() {
     let meta = make_meta("user_42", "feishu", 1700000000);
-    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
+    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
     let cc = sections
         .iter()
         .find(|s: &&Section| s.name() == "channel_context")
@@ -108,7 +116,7 @@ fn test_build_dynamic_sections_session_timestamp_fallback() {
 #[test]
 fn test_build_dynamic_sections_session_state() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
+    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
 
     let ss = sections
         .iter()
@@ -122,7 +130,7 @@ fn test_build_dynamic_sections_session_state() {
 #[test]
 fn test_build_dynamic_sections_empty_pending_tasks() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
+    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
     let ss = sections
         .iter()
         .find(|s: &&Section| s.name() == "session_state")
@@ -138,7 +146,7 @@ fn test_build_dynamic_sections_append_section() {
     let meta = make_meta("u", "ch", 0);
 
     // Part 1: empty slice → no AppendSection
-    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
+    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
     assert!(
         !sections.iter().any(|s| s.name() == "append"),
         "AppendSection absent when system_appends is empty"
@@ -149,7 +157,8 @@ fn test_build_dynamic_sections_append_section() {
         "first extra instruction".to_string(),
         "second extra instruction".to_string(),
     ];
-    let sections2 = build_dynamic_sections(&meta, None, &items, None, SessionMode::Normal);
+    let sections2 =
+        build_dynamic_sections(&meta, None, &items, None, SessionMode::Normal, None, None);
     let last = sections2.last().expect("sections should be non-empty");
     assert_eq!(
         last.name(),
@@ -173,7 +182,7 @@ fn test_build_dynamic_sections_append_section() {
 #[test]
 fn test_build_full_system_prompt_composition() {
     let meta = make_meta("alice", "telegram", 1700000000);
-    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
+    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
     let full = build_full_system_prompt(Some("You are helpful."), &sections, None);
 
     // Contains static layer
@@ -190,7 +199,7 @@ fn test_build_full_system_prompt_composition() {
 #[test]
 fn test_build_full_system_prompt_no_static() {
     let meta = make_meta("bob", "ch", 0);
-    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
+    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
     let full = build_full_system_prompt(None, &sections, None);
 
     // No boundary marker when no static prompt
@@ -206,7 +215,7 @@ fn test_build_full_system_prompt_empty_dynamic() {
     // Pass empty system_appends so dynamic sections are only ChannelContext + SessionState
     let meta = make_meta("", "", 0);
     // build_dynamic_sections always returns ChannelContext + SessionState (at minimum)
-    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
+    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
     // These two sections always render to non-empty strings, so dynamic is never truly empty.
     // But we verify the composition still works.
     let full = build_full_system_prompt(Some("static"), &sections, None);
@@ -250,7 +259,7 @@ async fn test_handle_message_backward_compat() {
 #[test]
 fn test_build_dynamic_sections_no_global_workdir() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
+    let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
     // Without a workdir_path parameter, no GitStatus section should appear
     let has_git = sections.iter().any(|s| s.name() == "git_status");
     assert!(!has_git, "GitStatus should not appear without workdir_path");
@@ -268,6 +277,8 @@ fn test_build_dynamic_sections_working_directory() {
         &[],
         None,
         SessionMode::Normal,
+        None,
+        None,
     );
     let wd = sections.iter().find(|s| s.name() == "working_directory");
     assert!(
@@ -284,8 +295,15 @@ fn test_build_dynamic_sections_git_status_with_path() {
     let meta = make_meta("u", "ch", 0);
     // Use CARGO_MANIFEST_DIR which is a git repo
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let sections =
-        build_dynamic_sections(&meta, Some(manifest_dir), &[], None, SessionMode::Normal);
+    let sections = build_dynamic_sections(
+        &meta,
+        Some(manifest_dir),
+        &[],
+        None,
+        SessionMode::Normal,
+        None,
+        None,
+    );
     let has_wd = sections.iter().any(|s| s.name() == "working_directory");
     let has_git = sections.iter().any(|s| s.name() == "git_status");
     assert!(has_wd, "WorkingDirectory should be present");
@@ -303,6 +321,8 @@ fn test_build_dynamic_sections_no_git_for_non_repo() {
         &[],
         None,
         SessionMode::Normal,
+        None,
+        None,
     );
     let has_wd = sections.iter().any(|s| s.name() == "working_directory");
     let has_git = sections.iter().any(|s| s.name() == "git_status");
@@ -316,8 +336,15 @@ fn test_working_directory_render_sanitization() {
     let meta = make_meta("u", "ch", 0);
     // Use a path that contains workspaces/ to test sanitization
     let fake_workdir = "/home/user/.closeclaw/workspaces/agent1/user1/";
-    let sections =
-        build_dynamic_sections(&meta, Some(fake_workdir), &[], None, SessionMode::Normal);
+    let sections = build_dynamic_sections(
+        &meta,
+        Some(fake_workdir),
+        &[],
+        None,
+        SessionMode::Normal,
+        None,
+        None,
+    );
     let wd = sections
         .iter()
         .find(|s| s.name() == "working_directory")

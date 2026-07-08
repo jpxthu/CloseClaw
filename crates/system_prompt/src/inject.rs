@@ -7,9 +7,10 @@
 //! belong to the `system_prompt` module.
 
 use crate::builder::PromptOverrides;
+use crate::plan_path::analyze_plan_path;
 use crate::sections::Section;
 use crate::workdir;
-use closeclaw_common::SessionMode;
+use closeclaw_common::{PlanPath, SessionMode};
 use closeclaw_gateway::session_handler::MessageMetadata;
 
 /// Build dynamic sections from metadata and session state.
@@ -24,18 +25,38 @@ use closeclaw_gateway::session_handler::MessageMetadata;
 /// subcommand). When non-empty, a single `AppendSection` is pushed at
 /// the end of the section list, formatted as a `[N] 内容` numbered
 /// list in insertion order.
+///
+/// `explicit_plan_path` — when `Some`, used directly in Plan Mode;
+/// when `None` in Plan Mode, the system analyzes `user_input` to
+/// determine the path automatically.
+///
+/// `user_input` — the user's original input text, used for
+/// automatic clarity analysis when `explicit_plan_path` is `None`
+/// in Plan Mode.
 pub fn build_dynamic_sections(
     meta: &MessageMetadata,
     workdir_path: Option<&str>,
     system_appends: &[String],
     session_timestamp: Option<i64>,
     session_mode: SessionMode,
+    explicit_plan_path: Option<PlanPath>,
+    user_input: Option<&str>,
 ) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
 
     // Inject mode-specific instructions when not in Normal mode.
     if session_mode != SessionMode::Normal {
-        sections.push(Section::ModeInstruction(session_mode));
+        // In Plan Mode, resolve the path: explicit override or auto-analysis.
+        let resolved_plan_path = if session_mode == SessionMode::Plan {
+            Some(explicit_plan_path.unwrap_or_else(|| analyze_plan_path(user_input.unwrap_or(""))))
+        } else {
+            None
+        };
+
+        sections.push(Section::ModeInstruction {
+            mode: session_mode,
+            plan_path: resolved_plan_path,
+        });
     }
 
     sections.push(Section::ChannelContext {
@@ -184,14 +205,23 @@ mod tests {
     #[test]
     fn test_build_dynamic_sections_normal_mode_no_instruction() {
         let meta = make_meta("u", "ch", 0);
-        let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal);
+        let sections =
+            build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
         assert!(!sections.iter().any(|s| s.name() == "mode_instruction"));
     }
 
     #[test]
     fn test_build_dynamic_sections_plan_mode_injects_instruction() {
         let meta = make_meta("u", "ch", 0);
-        let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Plan);
+        let sections = build_dynamic_sections(
+            &meta,
+            None,
+            &[],
+            None,
+            SessionMode::Plan,
+            Some(PlanPath::Standard),
+            None,
+        );
         let mode_sec = sections.iter().find(|s| s.name() == "mode_instruction");
         assert!(
             mode_sec.is_some(),
@@ -204,7 +234,8 @@ mod tests {
     #[test]
     fn test_build_dynamic_sections_auto_mode_injects_instruction() {
         let meta = make_meta("u", "ch", 0);
-        let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Auto);
+        let sections =
+            build_dynamic_sections(&meta, None, &[], None, SessionMode::Auto, None, None);
         let mode_sec = sections.iter().find(|s| s.name() == "mode_instruction");
         assert!(
             mode_sec.is_some(),
@@ -215,9 +246,101 @@ mod tests {
     }
 
     #[test]
+    fn test_build_dynamic_sections_plan_mode_explicit_standard_path() {
+        let meta = make_meta("u", "ch", 0);
+        let sections = build_dynamic_sections(
+            &meta,
+            None,
+            &[],
+            None,
+            SessionMode::Plan,
+            Some(PlanPath::Standard),
+            None,
+        );
+        let rendered = sections
+            .iter()
+            .find(|s| s.name() == "mode_instruction")
+            .unwrap()
+            .render();
+        assert!(rendered.contains("Standard Path"));
+        assert!(!rendered.contains("Interview Path"));
+    }
+
+    #[test]
+    fn test_build_dynamic_sections_plan_mode_explicit_interview_path() {
+        let meta = make_meta("u", "ch", 0);
+        let sections = build_dynamic_sections(
+            &meta,
+            None,
+            &[],
+            None,
+            SessionMode::Plan,
+            Some(PlanPath::Interview),
+            None,
+        );
+        let rendered = sections
+            .iter()
+            .find(|s| s.name() == "mode_instruction")
+            .unwrap()
+            .render();
+        assert!(rendered.contains("Interview Path"));
+        assert!(!rendered.contains("Standard Path"));
+    }
+
+    #[test]
+    fn test_build_dynamic_sections_plan_mode_auto_analysis_clear_input() {
+        let meta = make_meta("u", "ch", 0);
+        let sections = build_dynamic_sections(
+            &meta,
+            None,
+            &[],
+            None,
+            SessionMode::Plan,
+            None,
+            Some("Fix the bug in crates/system_prompt/src/sections.rs — should return None"),
+        );
+        let rendered = sections
+            .iter()
+            .find(|s| s.name() == "mode_instruction")
+            .unwrap()
+            .render();
+        assert!(rendered.contains("Standard Path"));
+        assert!(!rendered.contains("Interview Path"));
+    }
+
+    #[test]
+    fn test_build_dynamic_sections_plan_mode_auto_analysis_ambiguous_input() {
+        let meta = make_meta("u", "ch", 0);
+        let sections = build_dynamic_sections(
+            &meta,
+            None,
+            &[],
+            None,
+            SessionMode::Plan,
+            None,
+            Some("Make it better"),
+        );
+        let rendered = sections
+            .iter()
+            .find(|s| s.name() == "mode_instruction")
+            .unwrap()
+            .render();
+        assert!(rendered.contains("Interview Path"));
+        assert!(!rendered.contains("Standard Path"));
+    }
+
+    #[test]
     fn test_build_dynamic_sections_mode_instruction_before_session_state() {
         let meta = make_meta("u", "ch", 0);
-        let sections = build_dynamic_sections(&meta, None, &[], None, SessionMode::Plan);
+        let sections = build_dynamic_sections(
+            &meta,
+            None,
+            &[],
+            None,
+            SessionMode::Plan,
+            Some(PlanPath::Interview),
+            None,
+        );
         let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
         let ss_idx = sections.iter().position(|s| s.name() == "session_state");
         assert!(mode_idx.is_some());

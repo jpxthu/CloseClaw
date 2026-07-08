@@ -12,6 +12,7 @@ fn make_ctx() -> ToolContext {
         session_id: None,
         call_id: None,
         session: None,
+        session_mode: None,
     }
 }
 

@@ -137,6 +137,7 @@ fn test_tool_context() -> ToolContext {
         session_id: None,
         call_id: None,
         session: None,
+        session_mode: None,
     }
 }
 

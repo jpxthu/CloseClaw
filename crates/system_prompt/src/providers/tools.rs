@@ -42,7 +42,7 @@ impl ToolsFragmentProvider {
     }
 
     /// Build a [`ToolContext`] from a [`FragmentContext`].
-    fn tool_context(ctx: &FragmentContext) -> ToolContext {
+    fn tool_context(ctx: &FragmentContext, session_mode: Option<SessionMode>) -> ToolContext {
         let path_str = ctx.workdir.to_string_lossy().to_string();
         let workdir = Some(closeclaw_tools::build_workdir_context(&path_str));
         ToolContext {
@@ -51,6 +51,7 @@ impl ToolsFragmentProvider {
             session_id: None,
             call_id: None,
             session: None,
+            session_mode,
         }
     }
 }
@@ -66,7 +67,7 @@ impl PromptFragmentProvider for ToolsFragmentProvider {
     }
 
     async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
-        let tool_ctx = Self::tool_context(ctx);
+        let tool_ctx = Self::tool_context(ctx, self.session_mode);
         let section = crate::tools_section::build_tools_section(
             &self.registry,
             &tool_ctx,
