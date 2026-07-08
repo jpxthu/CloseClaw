@@ -132,6 +132,7 @@ fn make_ctx(session_id: &str) -> ToolContext {
         session_id: Some(session_id.to_string()),
         call_id: None,
         session: None,
+        session_mode: None,
     }
 }
 

@@ -313,6 +313,7 @@ mod tests {
             session_id: None,
             call_id: None,
             session: None,
+            session_mode: None,
         }
     }
 

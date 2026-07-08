@@ -212,6 +212,7 @@ mod tests {
             session_id: None,
             call_id: None,
             session: None,
+            session_mode: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         match section {
@@ -243,6 +244,7 @@ mod tests {
             session_id: None,
             call_id: None,
             session: None,
+            session_mode: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -280,6 +282,7 @@ mod tests {
             session_id: None,
             call_id: None,
             session: None,
+            session_mode: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -327,6 +330,7 @@ mod tests {
             session_id: None,
             call_id: None,
             session: None,
+            session_mode: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -349,6 +353,7 @@ mod tests {
             session_id: None,
             call_id: None,
             session: None,
+            session_mode: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -385,6 +390,7 @@ mod tests {
             session_id: None,
             call_id: None,
             session: None,
+            session_mode: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -416,6 +422,7 @@ mod tests {
             session_id: None,
             call_id: None,
             session: None,
+            session_mode: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {

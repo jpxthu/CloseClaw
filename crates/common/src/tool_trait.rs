@@ -57,6 +57,11 @@ pub struct ToolContext {
     pub call_id: Option<String>,
     /// Strong reference to the owning session, abstracted via [`ToolSession`].
     pub session: Option<std::sync::Arc<dyn ToolSession>>,
+    /// Current session mode (Normal, Plan, Auto), if known.
+    ///
+    /// When `Some(SessionMode::Plan)`, tools like `sessions_spawn` can
+    /// reject operations that are not allowed in Plan Mode (e.g. fork).
+    pub session_mode: Option<SessionMode>,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -70,6 +75,7 @@ impl std::fmt::Debug for ToolContext {
                 "session",
                 &self.session.as_ref().map(|_| "<dyn ToolSession>"),
             )
+            .field("session_mode", &self.session_mode)
             .finish()
     }
 }
@@ -82,6 +88,7 @@ impl Clone for ToolContext {
             session_id: self.session_id.clone(),
             call_id: self.call_id.clone(),
             session: self.session.clone(),
+            session_mode: self.session_mode,
         }
     }
 }

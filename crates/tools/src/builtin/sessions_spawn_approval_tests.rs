@@ -91,6 +91,7 @@ fn make_ctx(session_id: &str) -> ToolContext {
         session_id: Some(session_id.to_string()),
         call_id: None,
         session: None,
+        session_mode: None,
     }
 }
 
@@ -286,5 +287,103 @@ async fn test_spawn_approval_deny_enqueue_fallback() {
             );
         }
         other => panic!("expected PermissionDenied, got: {:?}", other),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Plan Mode: fork=true must be rejected
+// ---------------------------------------------------------------------------
+
+/// Helper to create a ToolContext with a specific session_mode.
+fn make_ctx_with_mode(
+    session_id: &str,
+    session_mode: Option<closeclaw_common::SessionMode>,
+) -> ToolContext {
+    ToolContext {
+        agent_id: "test-agent".to_string(),
+        workdir: None,
+        session_id: Some(session_id.to_string()),
+        call_id: None,
+        session: None,
+        session_mode,
+    }
+}
+
+/// Plan Mode + fork=true must return InvalidArgs error.
+/// Design doc: "Plan Mode 不引入 Fork（上下文继承）机制"
+#[tokio::test]
+async fn test_spawn_plan_mode_rejects_fork() {
+    let validator = Arc::new(MockValidator {
+        result: MockSpawnResult::Ok(spawn_result()),
+    });
+    let tool = make_tool(validator);
+    let ctx = make_ctx_with_mode(
+        "parent-plan-fork",
+        Some(closeclaw_common::SessionMode::Plan),
+    );
+
+    let result = tool
+        .call(json!({"task": "do work", "fork": true}), &ctx)
+        .await;
+    let err = result.expect_err("Plan Mode + fork should fail");
+    match err {
+        ToolCallError::InvalidArgs(msg) => {
+            assert!(
+                msg.contains("fork is not allowed in Plan Mode"),
+                "error should mention Plan Mode fork restriction, got: {}",
+                msg
+            );
+        }
+        other => panic!("expected InvalidArgs, got: {:?}", other),
+    }
+}
+
+/// Plan Mode + fork=false must succeed (spawn without fork is allowed).
+#[tokio::test]
+async fn test_spawn_plan_mode_allows_no_fork() {
+    let validator = Arc::new(MockValidator {
+        result: MockSpawnResult::Ok(spawn_result()),
+    });
+    let mgr = make_session_manager();
+    let msg = Message {
+        id: "msg-parent-plan-nofork".to_string(),
+        from: "user".to_string(),
+        to: "test-agent".to_string(),
+        content: "hi".to_string(),
+        channel: "test-channel".to_string(),
+        timestamp: 0,
+        metadata: std::collections::HashMap::new(),
+        thread_id: None,
+    };
+    let parent_id = mgr
+        .find_or_create("test-channel", &msg, None)
+        .await
+        .expect("find_or_create should succeed");
+
+    let tool = SessionsSpawnTool::new(
+        validator,
+        mgr,
+        make_agent_config_lookup(),
+        make_approval_flow(),
+    );
+    let ctx = make_ctx_with_mode(&parent_id, Some(closeclaw_common::SessionMode::Plan));
+    let result = tool
+        .call(json!({"task": "do work", "fork": false}), &ctx)
+        .await;
+    // Should succeed or fail for reasons OTHER than fork rejection.
+    match result {
+        Ok(output) => {
+            assert!(
+                output.data.get("approval_pending").is_none(),
+                "Plan Mode no-fork should not return approval_pending"
+            );
+        }
+        Err(ToolCallError::InvalidArgs(msg)) if msg.contains("fork is not allowed") => {
+            panic!("Plan Mode + fork=false should NOT be rejected");
+        }
+        Err(other) => {
+            // Other errors are acceptable (e.g., session not found).
+            eprintln!("Plan Mode no-fork: acceptable error: {:?}", other);
+        }
     }
 }

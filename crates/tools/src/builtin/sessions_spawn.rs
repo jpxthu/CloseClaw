@@ -244,6 +244,15 @@ impl Tool for SessionsSpawnTool {
 
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         let spawn_args = Self::parse_args(&args)?;
+
+        // Plan Mode does not allow fork (context inheritance) — design doc:
+        // "Plan Mode 不引入 Fork（上下文继承）机制"
+        if ctx.session_mode == Some(closeclaw_common::SessionMode::Plan) && spawn_args.fork {
+            return Err(ToolCallError::InvalidArgs(
+                "fork is not allowed in Plan Mode. Use normal spawn for independent tasks.".into(),
+            ));
+        }
+
         let parent_session_id = ctx.session_id.as_deref().ok_or_else(|| {
             ToolCallError::ExecutionFailed("no session_id in tool context".into())
         })?;
