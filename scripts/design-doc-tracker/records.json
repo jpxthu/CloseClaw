@@ -1,5 +1,13 @@
 [
   {
+    "path": "/home/admin/code/closeclaw/docs/design/mode/README.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-07-09T02:01:50.262071+08:00",
+    "comment": "",
+    "blocked_reason": "contradiction"
+  },
+  {
     "path": "docs/design/agent/README.md",
     "commit": "866e28c8ae85e758b68812c99ee8278d7b85a173",
     "commit_time": "2026-07-04T04:26:27+08:00",
