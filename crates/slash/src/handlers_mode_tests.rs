@@ -212,9 +212,11 @@ async fn test_mode_handler_auto_blocked() {
 
 #[tokio::test]
 async fn test_mode_handler_set_normal() {
-    let sm = make_session_manager();
-    let h = ModeHandler::new(sm);
-    let ctx = dummy_ctx();
+    let sm = make_session_manager_with_storage();
+    let sid = create_test_session(&sm).await;
+    let h = ModeHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
     match h.handle("normal", &ctx).await {
         SlashResult::SetMode { mode, .. } => assert_eq!(mode, "normal"),
         other => panic!("expected SetMode{{mode: \"normal\", ..}}, got {other:?}"),
@@ -888,5 +890,109 @@ async fn test_execute_handler_empty_plan_file_path() {
             );
         }
         other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+// ── ModeHandler approval gate tests (Step 1.5 — Gap 2) ─────────────────
+
+async fn create_session_with_auto_mode(sm: &SessionManager) -> String {
+    use closeclaw_gateway::Message;
+
+    let msg = Message {
+        id: "auto-mode-test-msg".to_string(),
+        from: "user-a".to_string(),
+        to: "agent-b".to_string(),
+        content: "hello".to_string(),
+        channel: "feishu".to_string(),
+        timestamp: 0,
+        metadata: std::collections::HashMap::new(),
+        thread_id: None,
+    };
+    let sid = sm
+        .find_or_create("feishu", &msg, None)
+        .await
+        .expect("session");
+
+    if let Some(conv) = sm.get_conversation_session(&sid).await {
+        conv.write()
+            .await
+            .set_session_mode(closeclaw_common::SessionMode::Auto);
+    }
+
+    sid
+}
+
+#[tokio::test]
+async fn test_mode_handler_normal_from_plan_mode_rejected() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_plan_mode(&sm).await;
+    let h = ModeHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("normal", &ctx).await {
+        SlashResult::Reply(text) => {
+            assert!(
+                text.contains("Plan Mode"),
+                "should mention Plan Mode, got: {text}"
+            );
+            assert!(
+                text.contains("plan_approval"),
+                "should guide user to plan_approval tool, got: {text}"
+            );
+        }
+        other => {
+            panic!("expected Reply rejecting /mode normal from Plan Mode, got {other:?}")
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_mode_handler_normal_from_normal_mode_allowed() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_test_session(&sm).await;
+    let h = ModeHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("normal", &ctx).await {
+        SlashResult::SetMode { mode, .. } => {
+            assert_eq!(mode, "normal", "/mode normal from Normal should pass");
+        }
+        other => {
+            panic!("expected SetMode for /mode normal from Normal Mode, got {other:?}")
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_mode_handler_normal_from_auto_mode_allowed() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_auto_mode(&sm).await;
+    let h = ModeHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("normal", &ctx).await {
+        SlashResult::SetMode { mode, .. } => {
+            assert_eq!(mode, "normal", "/mode normal from Auto should pass");
+        }
+        other => {
+            panic!("expected SetMode for /mode normal from Auto Mode, got {other:?}")
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_mode_handler_plan_from_plan_mode_allowed() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_plan_mode(&sm).await;
+    let h = ModeHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("plan", &ctx).await {
+        SlashResult::SetMode { mode, .. } => {
+            assert_eq!(mode, "plan", "/mode plan from Plan Mode should pass");
+        }
+        other => {
+            panic!("expected SetMode for /mode plan from Plan Mode, got {other:?}")
+        }
     }
 }

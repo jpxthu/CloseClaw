@@ -19,6 +19,11 @@ pub trait PlanStateNotifier: Send + Sync {
     /// `progress_summary` is the output of
     /// [`PlanState::progress_summary`](crate::plan_state::PlanState::progress_summary).
     async fn on_progress_changed(&self, progress_summary: &str);
+
+    /// Called after a plan transitions to Completed state.
+    ///
+    /// Default implementation is a no-op for backward compatibility.
+    async fn on_plan_completed(&self) {}
 }
 
 /// Default no-op implementation — useful for tests and contexts where
@@ -28,4 +33,5 @@ pub struct NoopNotifier;
 #[async_trait]
 impl PlanStateNotifier for NoopNotifier {
     async fn on_progress_changed(&self, _progress_summary: &str) {}
+    async fn on_plan_completed(&self) {}
 }
