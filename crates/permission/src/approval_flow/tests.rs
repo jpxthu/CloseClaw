@@ -177,6 +177,272 @@ fn test_approve_request_whitelist_high_risk() {
     assert_eq!(result.unwrap_err(), RejectWhitelistReason::HighRisk);
 }
 
+// ── Whitelist persistence integration tests (Step 1.5) ─────────────────────
+
+/// Helper: create an ApprovalFlow that writes to a temp dir.
+/// Returns (flow, temp_dir_path, whitelist_update_count).
+fn flow_with_temp_config_dir() -> (ApprovalFlow, tempfile::TempDir, Arc<AtomicUsize>) {
+    let rt = test_runtime();
+    let sm = test_session_lookup();
+    let notify_count = Arc::new(AtomicUsize::new(0));
+    let whitelist_count = Arc::new(AtomicUsize::new(0));
+    let wc = Arc::clone(&whitelist_count);
+    let dir = tempfile::tempdir().unwrap();
+    let config_dir = dir.path().to_path_buf();
+
+    let nc = Arc::clone(&notify_count);
+    let flow = ApprovalFlow::new(
+        sm,
+        Arc::new(move |_n: ApprovalNotification| {
+            nc.fetch_add(1, Ordering::SeqCst);
+        }),
+        Arc::new(move |_agent_id: &str| {
+            wc.fetch_add(1, Ordering::SeqCst);
+        }),
+        rt.handle().clone(),
+        HeartbeatApprovalMode::default(),
+        config_dir,
+    );
+    (flow, dir, whitelist_count)
+}
+
+/// Helper: read the permissions.json for a given agent from a temp config dir.
+fn read_agent_ruleset(
+    config_dir: &std::path::Path,
+    agent_id: &str,
+) -> crate::engine::engine_types::RuleSet {
+    let path = config_dir
+        .join("agents")
+        .join(agent_id)
+        .join("permissions.json");
+    let data = std::fs::read_to_string(&path).expect("permissions.json should exist");
+    serde_json::from_str(&data).expect("valid RuleSet JSON")
+}
+
+#[test]
+fn test_whitelist_mode_persists_rule_to_disk() {
+    let (mut flow, dir, _) = flow_with_temp_config_dir();
+
+    let caller = test_caller();
+    let request = test_request();
+    let request_id = flow
+        .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
+        .unwrap();
+
+    let result = flow.approve_request(&request_id, ApprovalMode::WithWhitelist);
+    assert!(result.is_ok());
+    assert!(result.unwrap());
+
+    // Wait briefly for the spawned async task to complete.
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // Verify the rule was written to permissions.json.
+    let rs = read_agent_ruleset(dir.path(), "agent_1");
+    assert_eq!(rs.rules.len(), 1, "expected exactly 1 whitelist rule");
+    assert_eq!(
+        rs.rules[0].effect,
+        crate::engine::engine_types::Effect::Allow
+    );
+    assert!(rs.rules[0].name.starts_with("whitelist-"));
+}
+
+#[test]
+fn test_once_mode_does_not_persist_whitelist() {
+    let (mut flow, dir, _) = flow_with_temp_config_dir();
+
+    let caller = test_caller();
+    let request = test_request();
+    let request_id = flow
+        .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
+        .unwrap();
+
+    let result = flow.approve_request(&request_id, ApprovalMode::Once);
+    assert!(result.is_ok());
+    assert!(result.unwrap());
+
+    // Wait briefly for the spawned async task.
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // Verify NO permissions.json was written.
+    let path = dir
+        .path()
+        .join("agents")
+        .join("agent_1")
+        .join("permissions.json");
+    assert!(!path.exists(), "Once mode should not write whitelist rules");
+}
+
+#[test]
+fn test_on_whitelist_updated_callback_invoked() {
+    let (mut flow, _dir, whitelist_count) = flow_with_temp_config_dir();
+
+    let caller = test_caller();
+    let request = test_request();
+    let request_id = flow
+        .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
+        .unwrap();
+
+    let result = flow.approve_request(&request_id, ApprovalMode::WithWhitelist);
+    assert!(result.is_ok());
+    assert!(result.unwrap());
+
+    // Wait briefly for the spawned async task.
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // Verify on_whitelist_updated was called exactly once.
+    assert_eq!(
+        whitelist_count.load(Ordering::SeqCst),
+        1,
+        "on_whitelist_updated should be invoked once after successful write"
+    );
+}
+
+#[test]
+fn test_on_whitelist_updated_not_called_for_once_mode() {
+    let (mut flow, _dir, whitelist_count) = flow_with_temp_config_dir();
+
+    let caller = test_caller();
+    let request = test_request();
+    let request_id = flow
+        .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
+        .unwrap();
+
+    let result = flow.approve_request(&request_id, ApprovalMode::Once);
+    assert!(result.is_ok());
+    assert!(result.unwrap());
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    assert_eq!(
+        whitelist_count.load(Ordering::SeqCst),
+        0,
+        "on_whitelist_updated should not be called for Once mode"
+    );
+}
+
+#[test]
+fn test_whitelist_write_failure_does_not_block_approval() {
+    let rt = test_runtime();
+    let sm = test_session_lookup();
+    let notify_count = Arc::new(AtomicUsize::new(0));
+    let whitelist_count = Arc::new(AtomicUsize::new(0));
+    let wc = Arc::clone(&whitelist_count);
+    let nc = Arc::clone(&notify_count);
+
+    // Use a path that is definitely NOT a writable directory
+    // (e.g., a non-existent deep path inside a read-only location).
+    let fake_config_dir = std::path::PathBuf::from("/nonexistent/path/to/config");
+
+    let mut flow = ApprovalFlow::new(
+        sm,
+        Arc::new(move |_n: ApprovalNotification| {
+            nc.fetch_add(1, Ordering::SeqCst);
+        }),
+        Arc::new(move |_agent_id: &str| {
+            wc.fetch_add(1, Ordering::SeqCst);
+        }),
+        rt.handle().clone(),
+        HeartbeatApprovalMode::default(),
+        fake_config_dir,
+    );
+
+    let caller = test_caller();
+    let request = test_request();
+    let request_id = flow
+        .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
+        .unwrap();
+
+    // Approval should still succeed despite the write failure.
+    let result = flow.approve_request(&request_id, ApprovalMode::WithWhitelist);
+    assert!(result.is_ok());
+    assert!(
+        result.unwrap(),
+        "approval should succeed even when write fails"
+    );
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // on_whitelist_updated should NOT be called when write fails.
+    assert_eq!(
+        whitelist_count.load(Ordering::SeqCst),
+        0,
+        "on_whitelist_updated should not be called when write fails"
+    );
+}
+
+#[test]
+fn test_whitelist_persists_only_for_whitelist_mode() {
+    // Regression: ensure Once mode never triggers write, WithWhitelist always does.
+    let (mut flow, dir, _) = flow_with_temp_config_dir();
+
+    let caller = test_caller();
+    // Two distinct requests to avoid duplicate rejection.
+    let request1 = PermissionRequestBody::FileOp {
+        agent: "agent_1".to_string(),
+        path: "/tmp/a.txt".to_string(),
+        op: "read".to_string(),
+    };
+    let request2 = PermissionRequestBody::CommandExec {
+        agent: "agent_1".to_string(),
+        cmd: "ls".to_string(),
+        args: vec![],
+    };
+
+    let id1 = flow
+        .submit_denial(&caller, &request1, RiskLevel::Low, "session_1", false)
+        .unwrap();
+    let id2 = flow
+        .submit_denial(&caller, &request2, RiskLevel::Low, "session_1", false)
+        .unwrap();
+
+    // First: Once mode.
+    let r1 = flow.approve_request(&id1, ApprovalMode::Once);
+    assert!(r1.is_ok() && r1.unwrap());
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // Second: WithWhitelist mode.
+    let r2 = flow.approve_request(&id2, ApprovalMode::WithWhitelist);
+    assert!(r2.is_ok() && r2.unwrap());
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // Only WithWhitelist should have written a rule.
+    let rs = read_agent_ruleset(dir.path(), "agent_1");
+    assert_eq!(rs.rules.len(), 1, "only WithWhitelist should persist");
+    // The rule should be the CommandExec one (second request).
+    match &rs.rules[0].actions[0] {
+        crate::engine::engine_types::Action::Command { command, .. } => {
+            assert_eq!(command, "ls");
+        }
+        other => panic!("expected Action::Command, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_whitelist_rule_subject_matches_caller() {
+    let (mut flow, dir, _) = flow_with_temp_config_dir();
+
+    let caller = Caller {
+        user_id: "ou_alice".to_string(),
+        agent: "agent_1".to_string(),
+        creator_id: "creator_1".to_string(),
+    };
+    let request = test_request();
+    let request_id = flow
+        .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
+        .unwrap();
+
+    let result = flow.approve_request(&request_id, ApprovalMode::WithWhitelist);
+    assert!(result.is_ok() && result.unwrap());
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let rs = read_agent_ruleset(dir.path(), "agent_1");
+    let rule = &rs.rules[0];
+    // Non-owner caller with user_id → UserAndAgent subject
+    assert!(rule.subject.is_user_and_agent());
+    assert_eq!(rule.subject.user_id(), "ou_alice");
+    assert_eq!(rule.subject.agent_id(), "agent_1");
+}
+
 #[test]
 fn test_deny_request() {
     let rt = test_runtime();
