@@ -215,6 +215,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             tracing::info!("all {} steps completed successfully", steps_owned.len());
             self.transition_plan_to_completed();
             events.push(ExecutionEvent::AllCompleted);
+            self.notifier.on_plan_completed().await;
         } else if let Some(idx) = failed_step {
             tracing::warn!("execution stopped at step {idx}");
         }
@@ -363,6 +364,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         if all_completed {
             self.transition_plan_to_completed();
             events.push(ExecutionEvent::AllCompleted);
+            self.notifier.on_plan_completed().await;
         }
 
         Ok(ExecutionReport {

@@ -13,6 +13,8 @@ pub mod llm_streaming;
 pub mod llm_types;
 pub mod middleware;
 pub mod notifier;
+#[cfg(test)]
+pub mod notifier_tests;
 pub mod permission_check;
 pub mod plan_state;
 #[cfg(test)]

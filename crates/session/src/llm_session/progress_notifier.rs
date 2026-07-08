@@ -10,7 +10,7 @@
 
 use async_trait::async_trait;
 
-use closeclaw_common::PlanStateNotifier;
+use closeclaw_common::{PlanStateNotifier, SessionMode};
 
 use super::ConversationSession;
 
@@ -25,6 +25,17 @@ pub const PROGRESS_APPEND_PREFIX: &str = "__progress__:";
 
 #[async_trait]
 impl PlanStateNotifier for ConversationSession {
+    /// Called by [`ExecutionEngine`](closeclaw_common::execution::ExecutionEngine)
+    /// after all plan steps complete successfully.
+    ///
+    /// Resets the session mode to Normal.
+    async fn on_plan_completed(&self) {
+        *self
+            .session_mode
+            .lock()
+            .expect("session_mode lock poisoned") = SessionMode::Normal;
+    }
+
     /// Called by [`ExecutionEngine`](closeclaw_common::execution::ExecutionEngine)
     /// after a step status transition succeeds.
     ///
