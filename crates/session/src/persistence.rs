@@ -31,6 +31,25 @@ pub struct ProgressToolCallRecord {
     pub error_message: Option<String>,
 }
 
+/// A single approval tool call record for recovery layer 3 fallback.
+///
+/// Stored in [`SessionCheckpoint::approval_tool_calls`] so that the
+/// recovery service can inject approval history when the first two
+/// layers (PlanState persistence, plan file disk) are unavailable.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ApprovalToolCallRecord {
+    /// Tool name (e.g. "plan_approval").
+    pub tool_name: String,
+    /// Plan summary submitted for approval.
+    pub plan_summary: String,
+    /// Unique request ID for the approval request.
+    #[serde(default)]
+    pub request_id: Option<String>,
+    /// Timestamp of the approval call.
+    #[serde(default)]
+    pub timestamp: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 /// Session Checkpoint — 用于持久化恢复的核心数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionCheckpoint {
@@ -167,6 +186,24 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
     #[serde(default)]
     pub progress_tool_calls: Vec<ProgressToolCallRecord>,
+    /// Approval tool call history for recovery layer 3 fallback.
+    ///
+    /// Stores approval calls (tool name, plan summary, request ID) so
+    /// that when PlanState persistence and plan file disk are unavailable,
+    /// the recovery service can inject approval history into `system_appends`.
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
+    #[serde(default)]
+    pub approval_tool_calls: Vec<ApprovalToolCallRecord>,
+    /// Plan-related references extracted from session message history.
+    ///
+    /// Stores plan-related text snippets (e.g. plan summaries, file paths)
+    /// extracted from user messages. Used by recovery layer 4 fallback to
+    /// inject context when the first three layers are all unavailable.
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
+    #[serde(default)]
+    pub plan_references: Vec<String>,
     /// Session Mode — controls session-level behavior constraints.
     ///
     /// `SessionMode` is **orthogonal** to `ReasoningMode` / `ReasoningModeState`:
@@ -215,6 +252,8 @@ impl SessionCheckpoint {
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
             plan_state: None,
             progress_tool_calls: Vec::new(),
+            approval_tool_calls: Vec::new(),
+            plan_references: Vec::new(),
             session_mode: SessionMode::default(),
         }
     }
@@ -376,6 +415,24 @@ impl SessionCheckpoint {
     /// as a layer 4 fallback when the first three layers fail.
     pub fn record_progress_call(&mut self, record: ProgressToolCallRecord) {
         self.progress_tool_calls.push(record);
+    }
+    /// Set the approval tool call history for recovery layer 3 fallback.
+    pub fn with_approval_tool_calls(mut self, records: Vec<ApprovalToolCallRecord>) -> Self {
+        self.approval_tool_calls = records;
+        self
+    }
+    /// Record an approval tool call in the checkpoint's history.
+    pub fn record_approval_call(&mut self, record: ApprovalToolCallRecord) {
+        self.approval_tool_calls.push(record);
+    }
+    /// Set the plan references for recovery layer 4 fallback.
+    pub fn with_plan_references(mut self, refs: Vec<String>) -> Self {
+        self.plan_references = refs;
+        self
+    }
+    /// Add a plan reference extracted from session message history.
+    pub fn add_plan_reference(&mut self, reference: String) {
+        self.plan_references.push(reference);
     }
     /// Touch the updated_at timestamp
     pub fn touch(&mut self) {
