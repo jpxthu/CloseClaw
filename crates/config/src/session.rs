@@ -541,17 +541,12 @@ mod session_compact_tests;
 ///
 /// - `Timestamp`: `yyyy-MM-dd-HH-mm-ss-{slug}` (default)
 /// - `RandomWords`: `{adjective}-{noun}-{noun}` (e.g. `calm-wave-oven`)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum IdentifierFormat {
+    #[default]
     Timestamp,
     RandomWords,
-}
-
-impl Default for IdentifierFormat {
-    fn default() -> Self {
-        Self::Timestamp
-    }
 }
 
 /// Configuration for plan file generation.
