@@ -9,11 +9,10 @@ use super::spawn::SpawnMode;
 use super::tests::{clear_global_prompt_state, make_test_mgr, test_config};
 use super::SessionManager;
 use closeclaw_config::agents::SubagentsConfig;
-use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
+use closeclaw_config::agents::{ConfigSource, MemoryConfig, ModelSpec, ResolvedAgentConfig};
 use closeclaw_session::bootstrap::BootstrapMode;
-use closeclaw_session::llm_session::{ChatSession, ConversationSession};
-use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint};
-use closeclaw_session::ReasoningLevel;
+use closeclaw_session::llm_session::ConversationSession;
+use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
 use serial_test::serial;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -24,7 +23,7 @@ fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> ResolvedAgentCo
         id: id.to_string(),
         name: id.to_string(),
         parent_id: None,
-        model: Some("test-model".to_string()),
+        model: Some(ModelSpec::single("test-model")),
         workspace,
         agent_dir: None,
         bootstrap_mode: BootstrapMode::Full,
@@ -435,7 +434,7 @@ async fn test_create_child_session_allowed_tools_override() {
         id: "tools-agent".to_string(),
         name: "tools-agent".to_string(),
         parent_id: None,
-        model: Some("test-model".to_string()),
+        model: Some(ModelSpec::single("test-model")),
         workspace: None,
         agent_dir: None,
         bootstrap_mode: BootstrapMode::Full,
