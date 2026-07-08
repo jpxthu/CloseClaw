@@ -1,4 +1,4 @@
-//! Tests for PlanState and PlanPhase types.
+//! Tests for PlanState, PlanPhase, PlanPath, and DefaultPlanStateWriter.
 
 use super::*;
 use crate::plan_state::PlanPath;
@@ -74,7 +74,6 @@ fn test_plan_state_serde_roundtrip() {
 
 #[test]
 fn test_plan_state_serde_default_fields() {
-    // Missing fields should use Default values
     let json = "{}";
     let state: PlanState = serde_json::from_str(json).unwrap();
     assert_eq!(state.phase, PlanPhase::Research);
@@ -264,7 +263,6 @@ fn test_transition_skipped_from_pending() {
 fn test_init_then_full_flow() {
     let mut state = PlanState::new();
     state.init_execution_steps(vec!["step1".into(), "step2".into(), "step3".into()]);
-    // Step 0: pending → in_progress → completed
     state.current_step = Some(0);
     state
         .apply_transition(0, ExecutionStepStatus::InProgress)
@@ -272,7 +270,6 @@ fn test_init_then_full_flow() {
     state
         .apply_transition(0, ExecutionStepStatus::Completed)
         .unwrap();
-    // Step 1: pending → in_progress → completed
     state.current_step = Some(1);
     state
         .apply_transition(1, ExecutionStepStatus::InProgress)
@@ -280,7 +277,6 @@ fn test_init_then_full_flow() {
     state
         .apply_transition(1, ExecutionStepStatus::Completed)
         .unwrap();
-    // Step 2: pending → in_progress → completed
     state.current_step = Some(2);
     state
         .apply_transition(2, ExecutionStepStatus::InProgress)
@@ -288,7 +284,6 @@ fn test_init_then_full_flow() {
     state
         .apply_transition(2, ExecutionStepStatus::Completed)
         .unwrap();
-    // All done
     for (i, step) in state.execution_steps.iter().enumerate() {
         assert_eq!(
             step.status,
@@ -297,7 +292,6 @@ fn test_init_then_full_flow() {
             i
         );
     }
-    // current_step stays at last index (no next step)
     assert_eq!(state.current_step, Some(2));
 }
 
@@ -357,7 +351,6 @@ fn test_plan_state_explicit_path_none_by_default() {
 
 #[test]
 fn test_plan_state_serde_backward_compat_without_explicit_path() {
-    // Old serialized state without explicit_path field should deserialize fine
     let json = r#"{"phase": "research", "plan_file_path": "/tmp/plan.md"}"#;
     let state: PlanState = serde_json::from_str(json).unwrap();
     assert_eq!(state.explicit_path, None);
@@ -416,14 +409,12 @@ fn test_progress_summary_completed_no_summary() {
 fn test_progress_summary_multi_mixed() {
     let mut state = PlanState::new();
     state.init_execution_steps(vec!["step1".into(), "step2".into(), "step3".into()]);
-    // Step 0 completed (auto-advances current_step to 1)
     state
         .apply_transition(0, ExecutionStepStatus::InProgress)
         .unwrap();
     state
         .apply_transition(0, ExecutionStepStatus::Completed)
         .unwrap();
-    // Step 1 in_progress (current_step already == 1)
     state
         .apply_transition(1, ExecutionStepStatus::InProgress)
         .unwrap();
@@ -431,7 +422,6 @@ fn test_progress_summary_multi_mixed() {
     assert!(summary.contains("Step 1/3: completed (step1)"));
     assert!(summary.contains("→ Step 2/3: in_progress"));
     assert!(summary.contains("Step 3/3: pending"));
-    // Arrow only on current step
     let lines: Vec<&str> = summary.lines().collect();
     assert!(lines[1].starts_with("Step 1"));
     assert!(lines[2].starts_with("→ Step 2"));
@@ -484,7 +474,6 @@ fn test_progress_summary_skipped() {
 fn test_progress_summary_no_current_step() {
     let mut state = PlanState::new();
     state.init_execution_steps(vec!["step1".into(), "step2".into()]);
-    // current_step is None — no arrow
     let summary = state.progress_summary();
     let lines: Vec<&str> = summary.lines().collect();
     assert!(lines[1].starts_with("Step 1"));

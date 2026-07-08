@@ -17,6 +17,8 @@ pub mod permission_check;
 pub mod plan_state;
 #[cfg(test)]
 pub mod plan_state_tests;
+#[cfg(test)]
+pub mod plan_status_tests;
 pub mod processor;
 #[cfg(test)]
 pub mod processor_tests;

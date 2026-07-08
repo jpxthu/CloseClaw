@@ -254,3 +254,215 @@ fn test_create_plan_file_with_format_default_is_timestamp() {
         "default should be timestamp: {filename}"
     );
 }
+
+// ── update_plan_status tests ─────────────────────────────────────────────
+
+#[test]
+fn test_update_plan_status_normal() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = plan_file::create_plan_file(dir.path(), "Test").unwrap();
+
+    let result = plan_file::update_plan_status(
+        path.to_str().unwrap(),
+        &closeclaw_common::PlanStatus::Confirmed,
+    );
+    assert!(
+        result.is_ok(),
+        "update_plan_status should succeed: {:?}",
+        result
+    );
+
+    let content = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        content.contains("| 状态 | confirmed |"),
+        "should show confirmed status, got: {content}"
+    );
+}
+
+#[test]
+fn test_update_plan_status_also_updates_timestamp() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = plan_file::create_plan_file(dir.path(), "Test").unwrap();
+    let original = std::fs::read_to_string(&path).unwrap();
+
+    // Small delay to ensure different timestamp
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+
+    plan_file::update_plan_status(
+        path.to_str().unwrap(),
+        &closeclaw_common::PlanStatus::Executing,
+    )
+    .unwrap();
+
+    let updated = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        updated.contains("| 状态 | executing |"),
+        "should show executing"
+    );
+    // Verify timestamp changed
+    let orig_ts = original.lines().find(|l| l.contains("更新时间")).unwrap();
+    let updated_ts = updated.lines().find(|l| l.contains("更新时间")).unwrap();
+    assert_ne!(orig_ts, updated_ts, "timestamp should be updated");
+}
+
+#[test]
+fn test_update_plan_status_file_not_found() {
+    let result = plan_file::update_plan_status(
+        "/nonexistent/path/plan.md",
+        &closeclaw_common::PlanStatus::Confirmed,
+    );
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+}
+
+#[test]
+fn test_update_plan_status_status_line_not_found() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("no-status.md");
+    std::fs::write(&path, "# Plan\n\nNo status line here.\n").unwrap();
+
+    let result = plan_file::update_plan_status(
+        path.to_str().unwrap(),
+        &closeclaw_common::PlanStatus::Confirmed,
+    );
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+}
+
+#[test]
+fn test_update_plan_status_all_statuses() {
+    let statuses = [
+        closeclaw_common::PlanStatus::Draft,
+        closeclaw_common::PlanStatus::Confirmed,
+        closeclaw_common::PlanStatus::Executing,
+        closeclaw_common::PlanStatus::Paused,
+        closeclaw_common::PlanStatus::Completed,
+    ];
+    for status in &statuses {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = plan_file::create_plan_file(dir.path(), "Test").unwrap();
+        plan_file::update_plan_status(path.to_str().unwrap(), status).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            content.contains(&format!("| 状态 | {} |", status)),
+            "should show status {}",
+            status
+        );
+    }
+}
+
+// ── update_plan_timestamp tests ──────────────────────────────────────────
+
+#[test]
+fn test_update_plan_timestamp_normal() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = plan_file::create_plan_file(dir.path(), "Test").unwrap();
+    let original = std::fs::read_to_string(&path).unwrap();
+
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+
+    let result = plan_file::update_plan_timestamp(path.to_str().unwrap());
+    assert!(result.is_ok(), "update_plan_timestamp should succeed");
+
+    let updated = std::fs::read_to_string(&path).unwrap();
+    // Status should remain draft
+    assert!(
+        updated.contains("| 状态 | draft |"),
+        "status should remain draft"
+    );
+    // Timestamp should change
+    let orig_ts = original.lines().find(|l| l.contains("更新时间")).unwrap();
+    let updated_ts = updated.lines().find(|l| l.contains("更新时间")).unwrap();
+    assert_ne!(orig_ts, updated_ts, "timestamp should be updated");
+}
+
+#[test]
+fn test_update_plan_timestamp_file_not_found() {
+    let result = plan_file::update_plan_timestamp("/nonexistent/path/plan.md");
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+}
+
+#[test]
+fn test_update_plan_timestamp_line_not_found() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("no-ts.md");
+    std::fs::write(&path, "# Plan\n\nNo timestamp line.\n").unwrap();
+
+    let result = plan_file::update_plan_timestamp(path.to_str().unwrap());
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+}
+
+// ── PLAN_TEMPLATE field tests ────────────────────────────────────────────
+
+#[test]
+fn test_plan_template_has_update_time_field() {
+    assert!(
+        plan_file::PLAN_TEMPLATE.contains("更新时间"),
+        "PLAN_TEMPLATE should contain 更新时间 field"
+    );
+}
+
+#[test]
+fn test_plan_template_has_create_time_field() {
+    assert!(
+        plan_file::PLAN_TEMPLATE.contains("创建时间"),
+        "PLAN_TEMPLATE should contain 创建时间 field"
+    );
+}
+
+#[test]
+fn test_plan_template_has_draft_status() {
+    assert!(
+        plan_file::PLAN_TEMPLATE.contains("| 状态 | draft |"),
+        "PLAN_TEMPLATE should have draft status"
+    );
+}
+
+#[test]
+fn test_create_plan_file_fills_both_timestamps() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = plan_file::create_plan_file(dir.path(), "Test").unwrap();
+    let content = std::fs::read_to_string(&path).unwrap();
+
+    let create_lines: Vec<&str> = content.lines().filter(|l| l.contains("创建时间")).collect();
+    let update_lines: Vec<&str> = content.lines().filter(|l| l.contains("更新时间")).collect();
+    assert_eq!(
+        create_lines.len(),
+        1,
+        "should have exactly one 创建时间 line"
+    );
+    assert_eq!(
+        update_lines.len(),
+        1,
+        "should have exactly one 更新时间 line"
+    );
+    // Both should have a timestamp value (not just the placeholder)
+    assert!(
+        create_lines[0].contains("20"),
+        "创建时间 should have year, got: {}",
+        create_lines[0]
+    );
+    assert!(
+        update_lines[0].contains("20"),
+        "更新时间 should have year, got: {}",
+        update_lines[0]
+    );
+}
+
+// ── PlanStatus Display (redundant with plan_state but covers session crate) ──
+
+#[test]
+fn test_plan_status_display_all_variants() {
+    use closeclaw_common::PlanStatus;
+    assert_eq!(PlanStatus::Draft.to_string(), "draft");
+    assert_eq!(PlanStatus::Confirmed.to_string(), "confirmed");
+    assert_eq!(PlanStatus::Executing.to_string(), "executing");
+    assert_eq!(PlanStatus::Paused.to_string(), "paused");
+    assert_eq!(PlanStatus::Completed.to_string(), "completed");
+}
