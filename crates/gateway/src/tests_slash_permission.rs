@@ -203,7 +203,9 @@ fn deny_engine() -> Arc<PermissionEngine> {
         template_includes: vec![],
         agent_creators: HashMap::new(),
     };
-    Arc::new(PermissionEngine::new_with_default_data_root(rules))
+    Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(rules),
+    ))
 }
 
 /// A PermissionEngine that always allows (all rules are Allow).
@@ -231,7 +233,9 @@ fn allow_engine() -> Arc<PermissionEngine> {
         template_includes: vec![],
         agent_creators: HashMap::new(),
     };
-    Arc::new(PermissionEngine::new_with_default_data_root(rules))
+    Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(rules),
+    ))
 }
 
 // ---------------------------------------------------------------------------

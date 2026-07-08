@@ -49,6 +49,7 @@ fn test_approval_flow(
         Arc::new(move |_n: ApprovalNotification| {
             nc.fetch_add(1, Ordering::SeqCst);
         }),
+        Arc::new(|_| {}),
         rt.handle().clone(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
@@ -204,6 +205,7 @@ fn test_heartbeat_notify_returns_none_and_notifies() {
         Arc::new(move |_n: ApprovalNotification| {
             nc.fetch_add(1, Ordering::SeqCst);
         }),
+        Arc::new(|_| {}),
         rt.handle().clone(),
         HeartbeatApprovalMode::Notify,
         std::env::temp_dir(),
@@ -229,6 +231,7 @@ fn test_heartbeat_ask_enqueues_and_notifies() {
         Arc::new(move |_n: ApprovalNotification| {
             nc.fetch_add(1, Ordering::SeqCst);
         }),
+        Arc::new(|_| {}),
         rt.handle().clone(),
         HeartbeatApprovalMode::Ask,
         std::env::temp_dir(),
@@ -254,6 +257,7 @@ fn test_heartbeat_ask_dedup() {
         Arc::new(move |_n: ApprovalNotification| {
             nc.fetch_add(1, Ordering::SeqCst);
         }),
+        Arc::new(|_| {}),
         rt.handle().clone(),
         HeartbeatApprovalMode::Ask,
         std::env::temp_dir(),
@@ -293,6 +297,7 @@ fn test_non_heartbeat_unaffected_by_heartbeat_mode() {
             Arc::new(move |_n: ApprovalNotification| {
                 nc_clone.fetch_add(1, Ordering::SeqCst);
             }),
+            Arc::new(|_| {}),
             rt.handle().clone(),
             mode,
             std::env::temp_dir(),
@@ -320,6 +325,7 @@ fn test_set_heartbeat_mode_runtime_switch() {
         Arc::new(move |_n: ApprovalNotification| {
             nc.fetch_add(1, Ordering::SeqCst);
         }),
+        Arc::new(|_| {}),
         rt.handle().clone(),
         HeartbeatApprovalMode::Skip,
         std::env::temp_dir(),

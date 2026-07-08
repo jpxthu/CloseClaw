@@ -46,7 +46,7 @@ pub enum SpawnError {
 pub struct SpawnController {
     config_manager: Arc<ConfigManager>,
     session_manager: Arc<SessionManager>,
-    permission_engine: Arc<PermissionEngine>,
+    permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
 }
 
 /// Internal result from resolving parent depth and max spawn budget.
@@ -71,7 +71,7 @@ impl SpawnController {
     pub fn new(
         config_manager: Arc<ConfigManager>,
         session_manager: Arc<SessionManager>,
-        permission_engine: Arc<PermissionEngine>,
+        permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     ) -> Self {
         Self {
             config_manager,
@@ -186,14 +186,18 @@ impl SpawnController {
                 // "Owner(User ID = 'owner') → skip User dim, only Agent"
                 let user_perms = if user_id.as_deref() == Some("owner") {
                     None
-                } else {
-                    user_id.as_ref().map(|uid| {
+                } else if let Some(uid) = user_id.as_ref() {
+                    Some(
                         self.permission_engine
-                            .evaluate_user_permissions(uid, &config.id)
-                    })
+                            .read()
+                            .await
+                            .evaluate_user_permissions(uid, &config.id),
+                    )
+                } else {
+                    None
                 };
                 // Collect full-chain deny subjects from all ancestors.
-                let rules = self.permission_engine.rules().clone();
+                let rules = self.permission_engine.read().await.rules().clone();
                 let chain_deny_subjects = collect_chain_deny_subjects(
                     &*self.session_manager,
                     &rules,
@@ -208,6 +212,8 @@ impl SpawnController {
                 };
 
                 self.permission_engine
+                    .read()
+                    .await
                     .validate_and_inject_spawn(
                         &config.id,
                         &child_perms,

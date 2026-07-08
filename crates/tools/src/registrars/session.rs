@@ -21,7 +21,7 @@ pub struct SessionToolsRegistrar {
     spawn_validator: Arc<dyn SpawnValidator>,
     session_manager: Arc<SessionManager>,
     agent_config_lookup: Arc<dyn AgentConfigLookup>,
-    permission_engine: Arc<PermissionEngine>,
+    permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
 }
 
@@ -31,7 +31,7 @@ impl SessionToolsRegistrar {
         spawn_validator: Arc<dyn SpawnValidator>,
         session_manager: Arc<SessionManager>,
         agent_config_lookup: Arc<dyn AgentConfigLookup>,
-        permission_engine: Arc<PermissionEngine>,
+        permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     ) -> Self {
         Self {

@@ -20,7 +20,7 @@ use tokio::sync::Mutex as TokioMutex;
 /// Works on any mode (run / session) children owned by the calling parent.
 pub struct SessionsKillTool {
     session_manager: Arc<SessionManager>,
-    permission_engine: Arc<PermissionEngine>,
+    permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     approval_flow: Arc<TokioMutex<ApprovalFlow>>,
 }
 
@@ -28,7 +28,7 @@ impl SessionsKillTool {
     /// Create a new `SessionsKillTool` with the given dependencies.
     pub fn new(
         session_manager: Arc<SessionManager>,
-        permission_engine: Arc<PermissionEngine>,
+        permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
         approval_flow: Arc<TokioMutex<ApprovalFlow>>,
     ) -> Self {
         Self {
@@ -112,7 +112,7 @@ impl Tool for SessionsKillTool {
             from: ctx.agent_id.clone(),
             to: info.agent_id.clone(),
         });
-        let response = self.permission_engine.evaluate(request, None);
+        let response = self.permission_engine.read().await.evaluate(request, None);
         match response {
             PermissionResponse::Denied {
                 reason, risk_level, ..

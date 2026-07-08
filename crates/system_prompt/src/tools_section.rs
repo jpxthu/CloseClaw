@@ -156,7 +156,7 @@ mod tests {
 
     fn make_registrars(
         disk_registry: Arc<DiskSkillRegistry>,
-        permission_engine: Arc<PermissionEngine>,
+        permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
         spawn_controller: Arc<SpawnController>,
         session_manager: Arc<SessionManager>,
         config_manager: Arc<ConfigManager>,

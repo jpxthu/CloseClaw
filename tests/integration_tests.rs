@@ -16,6 +16,7 @@ use closeclaw_config::agents::{AgentsConfigProvider, ConfigSource, ResolvedAgent
 use closeclaw_permission::engine::{Action, CommandArgs, Effect, PermissionEngine, RuleSet};
 use closeclaw_permission::rules::{RuleBuilder, RuleSetBuilder};
 use closeclaw_skills::Skill;
+use tokio::sync::RwLock;
 
 // ---------------------------------------------------------------------------
 // Helper builders
@@ -270,7 +271,9 @@ async fn test_skill_loading_and_execution_chain() {
 #[tokio::test]
 async fn test_skill_with_permission_engine_integration() {
     let rules = make_test_ruleset();
-    let engine = Arc::new(PermissionEngine::new_with_default_data_root(rules));
+    let engine = Arc::new(RwLock::new(PermissionEngine::new_with_default_data_root(
+        rules,
+    )));
 
     // Create permission skill with engine reference
     let perm_skill = closeclaw_skills::builtin::PermissionSkill::with_engine(engine.clone());

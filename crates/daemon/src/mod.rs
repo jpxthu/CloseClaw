@@ -76,7 +76,7 @@ pub mod test_helpers;
 pub struct Daemon {
     pub gateway: Arc<Gateway>,
     pub agent_registry: Arc<closeclaw_agent::registry::AgentRegistry>,
-    pub permission_engine: Arc<PermissionEngine>,
+    pub permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     pub shutdown: Arc<shutdown::ShutdownHandle>,
     /// Session manager for session lifecycle management
     pub session_manager: Arc<SessionManager>,
@@ -210,7 +210,7 @@ impl Daemon {
     async fn init_phase_3_core_services(
         config_dir: &str,
         storage: &Arc<SqliteStorage>,
-        permission_engine: &Arc<PermissionEngine>,
+        permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
     ) -> anyhow::Result<(Arc<Gateway>, Arc<SessionManager>, shutdown::ShutdownHandle)> {
         let gateway_config = GatewayConfig {
             name: "closeclaw".to_string(),
@@ -306,7 +306,7 @@ pub(crate) struct Phase5Deps<'a> {
     pub skill_registry: &'a Arc<RwLock<Option<DiskSkillRegistry>>>,
     pub tool_registry: &'a Arc<ToolRegistry>,
     pub session_manager: &'a Arc<SessionManager>,
-    pub permission_engine: &'a Arc<PermissionEngine>,
+    pub permission_engine: &'a Arc<tokio::sync::RwLock<PermissionEngine>>,
     pub approval_flow: &'a Arc<tokio::sync::Mutex<ApprovalFlow>>,
 }
 
@@ -316,13 +316,60 @@ impl Daemon {
     async fn init_phase_4_wiring(
         gateway: &Arc<Gateway>,
         session_manager: &Arc<SessionManager>,
-        permission_engine: &Arc<PermissionEngine>,
+        permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
         config_manager: &Arc<closeclaw_config::ConfigManager>,
         config_dir: &str,
     ) -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
+        // Build the whitelist-updated callback: reads agent permissions.json,
+        // constructs a RuleSet, and reloads the permission engine.
+        let pe_clone = Arc::clone(permission_engine);
+        let cfg_dir = std::path::PathBuf::from(config_dir);
+        let whitelist_cb: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |agent_id: &str| {
+            let path = cfg_dir
+                .join("agents")
+                .join(agent_id)
+                .join("permissions.json");
+            match std::fs::read_to_string(&path) {
+                Ok(json) => {
+                    match serde_json::from_str::<closeclaw_permission::RuleSet>(&json) {
+                        Ok(ruleset) => {
+                            // Best-effort: try_write avoids blocking the approval flow.
+                            if let Ok(mut guard) = pe_clone.try_write() {
+                                guard.reload_rules(ruleset);
+                                tracing::info!(
+                                    agent = %agent_id,
+                                    "whitelist rules reloaded after approval"
+                                );
+                            } else {
+                                tracing::warn!(
+                                    agent = %agent_id,
+                                    "permission engine write lock contended, skipping hot-reload"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                agent = %agent_id,
+                                error = %e,
+                                "failed to parse whitelist rules from permissions.json"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        agent = %agent_id,
+                        error = %e,
+                        "failed to read permissions.json for whitelist reload"
+                    );
+                }
+            }
+        });
+
         let approval_flow = Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
             Arc::clone(session_manager) as Arc<dyn SessionLookup>,
             Arc::new(|_| {}),
+            whitelist_cb,
             tokio::runtime::Handle::current(),
             HeartbeatApprovalMode::default(),
             std::path::PathBuf::from(config_dir),

@@ -50,7 +50,7 @@ impl Gateway {
     }
 
     /// Install the permission engine (used for slash command authorization).
-    pub async fn set_permission_engine(&self, engine: Arc<PermissionEngine>) {
+    pub async fn set_permission_engine(&self, engine: Arc<tokio::sync::RwLock<PermissionEngine>>) {
         let mut slot = self.permission_engine.write().await;
         *slot = Some(engine);
     }
@@ -187,6 +187,8 @@ impl Gateway {
         // Chain-aware permission check: dimension-level intersection
         // with the parent agent chain.
         let response = engine
+            .read()
+            .await
             .evaluate_with_chain(
                 request,
                 &*self.session_manager,
@@ -358,7 +360,7 @@ impl Gateway {
 struct GatewaySlashExecutor {
     session_manager: Arc<SessionManager>,
     session_handler: Option<Arc<SessionMessageHandler>>,
-    permission_engine: Option<Arc<PermissionEngine>>,
+    permission_engine: Option<Arc<tokio::sync::RwLock<PermissionEngine>>>,
     approval_flow: Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>,
 }
 
@@ -541,7 +543,7 @@ impl GatewaySlashExecutor {
                 args: args.to_vec(),
             },
         };
-        let response = engine.evaluate(request, None);
+        let response = engine.read().await.evaluate(request, None);
         match response {
             PermissionResponse::Denied { reason, .. } => {
                 return Err(vec![ContentBlock::Text(format!("无权限：{reason}"))]);
@@ -628,8 +630,6 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
 
-    // ── Mock handlers ──────────────────────────────────────────────────────
-
     struct CountingHandler {
         command: &'static str,
         requires_permission: bool,
@@ -652,8 +652,6 @@ mod tests {
             SlashResult::Reply("counted".to_owned())
         }
     }
-
-    // ── Mock SlashRouter ───────────────────────────────────────────────────
 
     struct MockRouter {
         command: &'static str,
@@ -694,8 +692,6 @@ mod tests {
         })
     }
 
-    // ── Helpers ────────────────────────────────────────────────────────────
-
     fn make_gateway() -> Arc<Gateway> {
         let config = GatewayConfig {
             name: "test".to_owned(),
@@ -714,7 +710,7 @@ mod tests {
         Arc::new(Gateway::new(config, sm))
     }
 
-    fn allow_engine() -> Arc<PermissionEngine> {
+    fn allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
         let rules = RuleSet {
             rules: vec![Rule {
                 name: "allow-all".to_owned(),
@@ -738,10 +734,12 @@ mod tests {
             template_includes: vec![],
             agent_creators: HashMap::new(),
         };
-        Arc::new(PermissionEngine::new_with_default_data_root(rules))
+        Arc::new(tokio::sync::RwLock::new(
+            PermissionEngine::new_with_default_data_root(rules),
+        ))
     }
 
-    fn deny_engine() -> Arc<PermissionEngine> {
+    fn deny_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
         let rules = RuleSet {
             rules: vec![Rule {
                 name: "deny-all".to_owned(),
@@ -758,7 +756,9 @@ mod tests {
             template_includes: vec![],
             agent_creators: HashMap::new(),
         };
-        Arc::new(PermissionEngine::new_with_default_data_root(rules))
+        Arc::new(tokio::sync::RwLock::new(
+            PermissionEngine::new_with_default_data_root(rules),
+        ))
     }
 
     struct MockModeQuery {
@@ -787,7 +787,7 @@ mod tests {
     /// Engine with Auto mode enabled: allows all slash commands but returns
     /// `ApprovalRequired` for high-risk operations (SlashCommand is low risk
     /// in current assessment, so this verifies the tool works in Auto mode).
-    fn auto_mode_allow_engine() -> Arc<PermissionEngine> {
+    fn auto_mode_allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
         let rules = RuleSet {
             rules: vec![Rule {
                 name: "allow-all".to_owned(),
@@ -811,14 +811,12 @@ mod tests {
             template_includes: vec![],
             agent_creators: HashMap::new(),
         };
-        Arc::new(
+        Arc::new(tokio::sync::RwLock::new(
             PermissionEngine::new_with_default_data_root(rules).with_session_mode_query(Arc::new(
                 MockModeQuery::new().with_mode("test-agent", SessionMode::Auto),
             )),
-        )
+        ))
     }
-
-    // ── Tests ──────────────────────────────────────────────────────────────
 
     #[tokio::test]
     async fn test_non_owner_high_risk_permitted_handler_executes() {
@@ -829,11 +827,9 @@ mod tests {
         gw.set_slash_dispatcher(counting_router("exec", true, Arc::clone(&counter)))
             .await;
         gw.set_permission_engine(allow_engine()).await;
-
         let result = gw
             .dispatch_slash("sess1", "/exec ls", Some("user123"), "feishu")
             .await;
-
         assert!(matches!(result, Some(HandleResult::SlashHandled)));
         assert_eq!(
             counter.load(Ordering::SeqCst),
@@ -841,7 +837,6 @@ mod tests {
             "handler.handle() must be invoked when permission is allowed"
         );
     }
-
     #[tokio::test]
     async fn test_owner_short_circuit_bypasses_deny() {
         // Branch 1: owner bypasses deny engine.
@@ -850,11 +845,9 @@ mod tests {
         gw.set_slash_dispatcher(counting_router("exec", true, Arc::clone(&counter)))
             .await;
         gw.set_permission_engine(deny_engine()).await;
-
         let result = gw
             .dispatch_slash("sess1", "/exec ls", Some("owner"), "feishu")
             .await;
-
         assert!(matches!(result, Some(HandleResult::SlashHandled)));
         assert_eq!(
             counter.load(Ordering::SeqCst),
@@ -911,8 +904,6 @@ mod tests {
         );
     }
 
-    // ── Auto Mode tests ────────────────────────────────────────────────────
-
     #[tokio::test]
     async fn test_auto_mode_slash_permitted_handler_executes() {
         // Auto mode + allow engine: slash command proceeds normally.
@@ -947,7 +938,7 @@ mod tests {
         };
 
         let engine = auto_mode_allow_engine();
-        let response = engine.evaluate(
+        let response = engine.read().await.evaluate(
             PermissionRequest::Bare(PermissionRequestBody::FileOp {
                 agent: "test-agent".to_string(),
                 path: "/repo/.git/config".to_string(),
@@ -968,6 +959,7 @@ mod tests {
         let gw = make_gateway();
         let flow = Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
             Arc::clone(&gw.session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
+            Arc::new(|_| {}),
             Arc::new(|_| {}),
             tokio::runtime::Handle::current(),
             HeartbeatApprovalMode::default(),
