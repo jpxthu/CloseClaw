@@ -11,6 +11,7 @@ pub mod engine_risk;
 pub mod engine_spawn;
 pub mod engine_types;
 pub mod engine_workspace;
+pub mod rejection_log;
 
 pub use engine_eval::PermissionEngine;
 pub use engine_matching::{action_matches_request, glob_match};
@@ -19,6 +20,7 @@ pub use engine_types::{
     Action, Caller, CommandArgs, Defaults, Effect, MatchType, PermissionRequest,
     PermissionRequestBody, PermissionResponse, Rule, RuleSet, Subject, TemplateRef,
 };
+pub use rejection_log::{build_rejection_log, FileRejectionLogger, RejectionLog, RejectionLogger};
 
 #[cfg(test)]
 mod engine_tests;
@@ -43,3 +45,6 @@ mod engine_spawn_tests;
 
 #[cfg(test)]
 mod engine_plan_mode_tests;
+
+#[cfg(test)]
+mod engine_rejection_log_tests;

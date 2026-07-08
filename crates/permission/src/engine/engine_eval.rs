@@ -8,6 +8,7 @@ use super::engine_types::{
     Subject,
 };
 use super::engine_workspace;
+use super::rejection_log::{build_rejection_log, RejectionLogger};
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::session_mode_query::SessionModeQuery;
 use std::collections::HashMap;
@@ -33,6 +34,9 @@ pub struct PermissionEngine {
     /// When set, `evaluate` will consult the agent's session mode
     /// for additional access-control decisions.
     session_mode_query: Option<Arc<dyn SessionModeQuery>>,
+    /// Optional rejection logger. When set and `evaluate` returns `Denied`,
+    /// a structured rejection log entry is recorded.
+    rejection_logger: Option<Arc<dyn RejectionLogger>>,
 }
 
 // --- Construction & index management ---
@@ -47,6 +51,7 @@ impl PermissionEngine {
             templates: HashMap::new(),
             data_root,
             session_mode_query: None,
+            rejection_logger: None,
         };
         engine.rebuild_indices_with_rules(&rules);
         engine
@@ -108,6 +113,35 @@ impl PermissionEngine {
     pub fn session_mode_query(&self) -> Option<&Arc<dyn SessionModeQuery>> {
         self.session_mode_query.as_ref()
     }
+
+    /// Inject a rejection logger for recording denied permission requests.
+    pub fn with_rejection_logger(mut self, logger: Arc<dyn RejectionLogger>) -> Self {
+        self.rejection_logger = Some(logger);
+        self
+    }
+
+    /// Get a reference to the rejection logger, if set.
+    pub fn rejection_logger(&self) -> Option<&Arc<dyn RejectionLogger>> {
+        self.rejection_logger.as_ref()
+    }
+
+    /// Log a rejection if the logger is set and the response is `Denied`.
+    fn log_rejection(&self, response: &PermissionResponse, body: &PermissionRequestBody) {
+        if let Some(logger) = &self.rejection_logger {
+            if let PermissionResponse::Denied {
+                reason, risk_level, ..
+            } = response
+            {
+                // Determine session mode from query (best-effort).
+                let session_mode = self
+                    .session_mode_query
+                    .as_ref()
+                    .and_then(|q| q.get_session_mode(body.agent_id()));
+                let entry = build_rejection_log(body, reason.clone(), *risk_level, session_mode);
+                logger.log(&entry);
+            }
+        }
+    }
 }
 
 // --- Evaluation & helpers ---
@@ -124,6 +158,7 @@ impl PermissionEngine {
 
         // Step 0: Plan Mode write-operation filtering
         if let Some(denied) = self.check_plan_mode_filter(&request, &agent_id) {
+            self.log_rejection(&denied, request.body());
             return denied;
         }
 
@@ -174,6 +209,7 @@ impl PermissionEngine {
             let response = agent_result.unwrap_or_else(|| {
                 self.default_deny(request.body(), &rules.defaults, "no matching rule")
             });
+            self.log_rejection(&response, request.body());
             info!(
                 agent = %agent_id,
                 result = %match &response {
@@ -210,6 +246,7 @@ impl PermissionEngine {
             },
             _ => self.default_deny(request.body(), &rules.defaults, "no matching rule"),
         };
+        self.log_rejection(&response, request.body());
         info!(
             agent = %agent_id,
             result = %match &response {
@@ -230,11 +267,13 @@ impl PermissionEngine {
                         reason = "extra_deny",
                         "permission check completed"
                     );
-                    return PermissionResponse::Denied {
+                    let extra_denied = PermissionResponse::Denied {
                         reason: "action denied by parent agent restriction".to_string(),
                         rule: "<extra_deny>".to_string(),
                         risk_level: assess_risk_level(request.body()),
                     };
+                    self.log_rejection(&extra_denied, request.body());
+                    return extra_denied;
                 }
             }
         }
