@@ -6,6 +6,8 @@
 use async_trait::async_trait;
 use std::path::PathBuf;
 
+use crate::permission_op::PermissionOperation;
+
 /// Execution context for a slash command invocation.
 #[derive(Debug, Clone)]
 pub struct SlashContext {
@@ -52,6 +54,14 @@ pub enum SlashResult {
     /// Set the verbosity level for the current session.
     SetVerbosity {
         level: crate::verbosity::VerbosityLevel,
+    },
+    /// Permission management operation (Owner only).
+    ///
+    /// The gateway intercepts this result and executes it directly in the
+    /// daemon process, bypassing the Agent Session.
+    PermissionOp {
+        /// The permission operation to perform.
+        op: PermissionOperation,
     },
     /// Unknown command — no handler matched.
     Unknown(String),

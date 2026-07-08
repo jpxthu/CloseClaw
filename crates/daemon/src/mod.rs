@@ -279,6 +279,9 @@ impl Daemon {
         }
         let gateway = Arc::new(gateway);
         gateway.set_self_ref(Arc::clone(&gateway));
+        gateway
+            .set_config_dir(std::path::PathBuf::from(config_dir))
+            .await;
         closeclaw_im_adapter::platforms::register_platform_plugins(&gateway, config_dir).await;
         Self::init_terminal_plugin(&gateway).await;
         Self::init_slash_dispatcher(&gateway, &session_manager, permission_engine).await;
