@@ -277,6 +277,8 @@ pub fn load_checkpoint_inner(
     let mut mode_state_val: crate::persistence::ReasoningModeState;
     let mode_val: String;
     let mut system_appends: Vec<String> = Vec::new();
+    let mut session_mode_val: crate::persistence::SessionMode =
+        crate::persistence::SessionMode::default();
     if let Some(ref meta) = metadata {
         let v: serde_json::Value =
             serde_json::from_str(meta).map_err(PersistenceError::Serialization)?;
@@ -292,6 +294,10 @@ pub fn load_checkpoint_inner(
             .get("system_appends")
             .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
             .unwrap_or_default();
+        if let Some(mode_str) = v.get("session_mode").and_then(|x| x.as_str()) {
+            session_mode_val =
+                crate::persistence::SessionMode::from_str_opt(mode_str).unwrap_or_default();
+        }
     } else {
         mode_state_val = crate::persistence::ReasoningModeState::default();
         mode_val = "direct".to_string();
@@ -369,7 +375,7 @@ pub fn load_checkpoint_inner(
         progress_tool_calls: Vec::new(),
         approval_tool_calls: Vec::new(),
         plan_references: Vec::new(),
-        session_mode: crate::persistence::SessionMode::default(),
+        session_mode: session_mode_val,
     }))
 }
 

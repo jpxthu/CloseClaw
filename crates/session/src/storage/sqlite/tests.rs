@@ -4,6 +4,7 @@ use crate::persistence::{
     SessionMode, SessionStatus,
 };
 use chrono::Utc;
+use rusqlite::Connection;
 
 fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
     SessionCheckpoint {
@@ -424,5 +425,171 @@ async fn test_old_session_migration_mined_at_defaults_to_none() {
     assert!(
         loaded.mined_at.is_none(),
         "mined_at should be None for old sessions (NULL in DB)"
+    );
+}
+
+// ===================================================================
+// Step 1.3: session_mode persistence tests
+// ===================================================================
+
+/// Save → load roundtrip preserves each SessionMode variant.
+#[tokio::test]
+async fn test_save_load_session_mode_roundtrip_normal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    let mut cp = create_test_checkpoint("sm-normal");
+    cp.session_mode = SessionMode::Normal;
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    let loaded = storage.load_checkpoint("sm-normal").await.unwrap();
+    assert!(loaded.is_some());
+    assert_eq!(loaded.unwrap().session_mode, SessionMode::Normal);
+}
+
+#[tokio::test]
+async fn test_save_load_session_mode_roundtrip_plan() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    let mut cp = create_test_checkpoint("sm-plan");
+    cp.session_mode = SessionMode::Plan;
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    let loaded = storage.load_checkpoint("sm-plan").await.unwrap();
+    assert!(loaded.is_some());
+    assert_eq!(loaded.unwrap().session_mode, SessionMode::Plan);
+}
+
+#[tokio::test]
+async fn test_save_load_session_mode_roundtrip_auto() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    let mut cp = create_test_checkpoint("sm-auto");
+    cp.session_mode = SessionMode::Auto;
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    let loaded = storage.load_checkpoint("sm-auto").await.unwrap();
+    assert!(loaded.is_some());
+    assert_eq!(loaded.unwrap().session_mode, SessionMode::Auto);
+}
+
+/// Metadata without session_mode key (simulating old data) falls back to
+/// SessionMode::Normal.
+#[tokio::test]
+async fn test_load_session_mode_backward_compat_missing_key() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    // 1. Save a checkpoint so the transcript file is created
+    let mut cp = create_test_checkpoint("sm-compat");
+    cp.session_mode = SessionMode::Plan;
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    // 2. Manually rewrite metadata to remove session_mode key
+    {
+        let db_path = tmp.path().join("sessions.sqlite");
+        let conn = Connection::open(&db_path).unwrap();
+        let metadata_without_mode = json!({
+            "mode": mode_to_db(&cp.mode),
+            "mode_state":
+                serde_json::to_string(&cp.mode_state).unwrap(),
+            "pending_messages":
+                serde_json::to_string(&cp.pending_messages).unwrap(),
+            "system_appends":
+                serde_json::to_string(&cp.system_appends).unwrap(),
+            // intentionally omit "session_mode"
+        })
+        .to_string();
+        conn.execute(
+            "UPDATE sessions SET metadata = ?1 WHERE id = ?2",
+            params![metadata_without_mode, "sm-compat"],
+        )
+        .unwrap();
+    }
+
+    // 3. Load — session_mode should default to Normal
+    let loaded = storage.load_checkpoint("sm-compat").await.unwrap();
+    assert!(loaded.is_some(), "loaded checkpoint should exist");
+    assert_eq!(
+        loaded.unwrap().session_mode,
+        SessionMode::Normal,
+        "missing session_mode key should fall back to Normal"
+    );
+}
+
+/// Metadata without any metadata field at all falls back to Normal.
+#[tokio::test]
+async fn test_load_session_mode_backward_compat_no_metadata() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    // 1. Save a checkpoint so the transcript file is created
+    let mut cp = create_test_checkpoint("sm-no-meta");
+    cp.session_mode = SessionMode::Auto;
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    // 2. Manually set metadata to NULL
+    {
+        let db_path = tmp.path().join("sessions.sqlite");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute(
+            "UPDATE sessions SET metadata = NULL WHERE id = ?1",
+            params!["sm-no-meta"],
+        )
+        .unwrap();
+    }
+
+    // 3. Load — session_mode should default to Normal
+    let loaded = storage.load_checkpoint("sm-no-meta").await.unwrap();
+    assert!(loaded.is_some());
+    assert_eq!(
+        loaded.unwrap().session_mode,
+        SessionMode::Normal,
+        "NULL metadata should fall back to Normal"
+    );
+}
+
+/// Invalid session_mode value in metadata falls back to Normal without panic.
+#[tokio::test]
+async fn test_load_session_mode_invalid_value_fallback() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    // 1. Save a checkpoint so the transcript file is created
+    let mut cp = create_test_checkpoint("sm-invalid");
+    cp.session_mode = SessionMode::Plan;
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    // 2. Manually rewrite metadata with an invalid session_mode value
+    {
+        let db_path = tmp.path().join("sessions.sqlite");
+        let conn = Connection::open(&db_path).unwrap();
+        let metadata_bad = json!({
+            "mode": mode_to_db(&cp.mode),
+            "mode_state":
+                serde_json::to_string(&cp.mode_state).unwrap(),
+            "pending_messages":
+                serde_json::to_string(&cp.pending_messages).unwrap(),
+            "system_appends":
+                serde_json::to_string(&cp.system_appends).unwrap(),
+            "session_mode": "nonexistent_mode",
+        })
+        .to_string();
+        conn.execute(
+            "UPDATE sessions SET metadata = ?1 WHERE id = ?2",
+            params![metadata_bad, "sm-invalid"],
+        )
+        .unwrap();
+    }
+
+    // 3. Load — should not panic and should fallback to Normal
+    let loaded = storage.load_checkpoint("sm-invalid").await.unwrap();
+    assert!(loaded.is_some(), "should not panic on invalid session_mode");
+    assert_eq!(
+        loaded.unwrap().session_mode,
+        SessionMode::Normal,
+        "invalid session_mode should fall back to Normal"
     );
 }
