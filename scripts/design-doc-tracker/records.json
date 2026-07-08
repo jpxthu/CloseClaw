@@ -328,6 +328,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/permission/approval-workflow.md",
+    "commit": "6a3ce3c989c1946e23d7297fcde5e830440ae528",
+    "commit_time": "2026-07-09T04:48:55+08:00",
+    "confirmed_time": "2026-07-09T04:55:21.617539+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/system_prompt/appends.md",
     "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
     "commit_time": "2026-07-07T01:07:02+08:00",
