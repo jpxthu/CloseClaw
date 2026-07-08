@@ -10,7 +10,9 @@ use crate::slash_executor::{
     ReplyAction, SideEffectContext, SlashEffectExecutor, SlashResultExecutor,
 };
 use closeclaw_common::processor::ContentBlock;
-use closeclaw_common::slash_router::{SlashContext, SlashHandler, SlashRouter, SystemAppendAction};
+use closeclaw_common::slash_router::{
+    SlashContext, SlashHandler, SlashResult, SlashRouter, SystemAppendAction,
+};
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
@@ -71,7 +73,7 @@ impl Gateway {
     ///
     /// `channel` 会被填入 `SlashContext.channel`，让 handler 知晓入站消息来自哪个
     /// channel（如 "feishu"）。
-    pub(super) async fn dispatch_slash(
+    pub(crate) async fn dispatch_slash(
         &self,
         session_id: &str,
         content: &str,
@@ -302,6 +304,16 @@ impl Gateway {
         };
         let result = handler.handle(args, &slash_ctx).await;
 
+        // PermissionOp is intercepted here — handled directly in the daemon,
+        // never enters the normal execute() path.
+        if let SlashResult::PermissionOp { op } = &result {
+            let reply = self.handle_permission_op(op, sender_id).await;
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply(reply).await;
+            }
+            return Some(HandleResult::SlashHandled);
+        }
+
         // Permission check AFTER handler returns SlashResult but BEFORE execute.
         // Handler is allowed to run (returns context), but high-risk side effects
         // are blocked if permission is denied.
@@ -347,6 +359,143 @@ impl Gateway {
         }
 
         Some(HandleResult::SlashHandled)
+    }
+
+    /// Handle a [`PermissionOp`] — owner-only permission rule management.
+    async fn handle_permission_op(
+        &self,
+        op: &closeclaw_common::PermissionOperation,
+        sender_id: Option<&str>,
+    ) -> String {
+        if sender_id != Some("owner") {
+            return "无权限：仅 Owner 可以执行权限管理操作".to_owned();
+        }
+
+        // Path traversal validation for file operations.
+        if let Some(paths) = Self::op_file_paths(op) {
+            for path in paths {
+                if Self::is_path_dangerous(path) {
+                    return format!("拒绝：路径包含危险模式 '{path}'");
+                }
+            }
+        }
+
+        let (rule, agent_id) = match Self::build_rule_from_op(op) {
+            Some(v) => v,
+            None => return "错误：无法构建规则".to_owned(),
+        };
+
+        let config_dir = match self.get_config_dir().await {
+            Some(dir) => dir,
+            None => return "错误：config_dir 未配置".to_owned(),
+        };
+        if let Err(e) = closeclaw_permission::whitelist::append_rule(&config_dir, &agent_id, rule) {
+            return format!("错误：写入规则失败 — {e}");
+        }
+
+        // Hot-reload the permission engine with the updated ruleset.
+        self.hot_reload_engine(&self.permission_engine, &config_dir, &agent_id)
+            .await;
+
+        format!("✅ 已执行：{}", op.describe())
+    }
+
+    fn op_file_paths(op: &closeclaw_common::PermissionOperation) -> Option<Vec<&String>> {
+        match op {
+            closeclaw_common::PermissionOperation::AddFileWhitelist { paths, .. }
+            | closeclaw_common::PermissionOperation::AddFileDeny { paths, .. } => {
+                Some(paths.iter().collect())
+            }
+            _ => None,
+        }
+    }
+
+    fn build_rule_from_op(
+        op: &closeclaw_common::PermissionOperation,
+    ) -> Option<(closeclaw_permission::Rule, String)> {
+        let whitelist = matches!(
+            op,
+            closeclaw_common::PermissionOperation::AddFileWhitelist { .. }
+                | closeclaw_common::PermissionOperation::AddCommandWhitelist { .. }
+        );
+        let (agent, body, name) = match op {
+            closeclaw_common::PermissionOperation::AddFileWhitelist { agent, op, paths }
+            | closeclaw_common::PermissionOperation::AddFileDeny { agent, op, paths } => {
+                let prefix = if whitelist { "allow" } else { "deny" };
+                (
+                    agent.clone(),
+                    PermissionRequestBody::FileOp {
+                        agent: agent.clone(),
+                        path: paths.join(","),
+                        op: op.clone(),
+                    },
+                    format!("perm-{prefix}-file-{agent}"),
+                )
+            }
+            closeclaw_common::PermissionOperation::AddCommandWhitelist {
+                agent,
+                command,
+                args,
+                ..
+            }
+            | closeclaw_common::PermissionOperation::AddCommandDeny {
+                agent,
+                command,
+                args,
+                ..
+            } => {
+                let prefix = if whitelist { "allow" } else { "deny" };
+                (
+                    agent.clone(),
+                    PermissionRequestBody::CommandExec {
+                        agent: agent.clone(),
+                        cmd: command.clone(),
+                        args: args.clone(),
+                    },
+                    format!("perm-{prefix}-cmd-{agent}"),
+                )
+            }
+        };
+        let caller = Caller {
+            user_id: "owner".to_owned(),
+            agent: agent.clone(),
+            creator_id: String::new(),
+        };
+        let rule_fn = if whitelist {
+            closeclaw_permission::whitelist::build_whitelist_rule
+        } else {
+            closeclaw_permission::whitelist::build_deny_rule
+        };
+        rule_fn(&caller, &body, &name).map(|r| (r, agent))
+    }
+
+    async fn hot_reload_engine(
+        &self,
+        permission_engine: &RwLock<Option<Arc<tokio::sync::RwLock<PermissionEngine>>>>,
+        config_dir: &std::path::Path,
+        agent_id: &str,
+    ) {
+        let path = config_dir
+            .join("agents")
+            .join(agent_id)
+            .join("permissions.json");
+        if let Ok(json) = std::fs::read_to_string(&path) {
+            if let Ok(ruleset) = serde_json::from_str::<closeclaw_permission::RuleSet>(&json) {
+                if let Some(engine_arc) = permission_engine.read().await.as_ref() {
+                    if let Ok(mut engine) = engine_arc.try_write() {
+                        engine.reload_rules(ruleset);
+                    }
+                }
+            }
+        }
+    }
+
+    fn is_path_dangerous(path: &str) -> bool {
+        path.contains("../")
+            || path.contains("..\\")
+            || path.starts_with('/')
+            || (path.len() >= 2 && path.as_bytes()[1] == b':')
+            || path.contains('\0')
     }
 }
 
@@ -609,382 +758,5 @@ impl GatewaySlashExecutor {
             }
             Err(e) => vec![ContentBlock::Text(format!("命令执行失败：{e}"))],
         }
-    }
-}
-
-// ── Inline tests (Step 1.3: slash permission) ──────────────────────────────
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{Gateway, GatewayConfig, HandleResult, SessionManager};
-    use closeclaw_common::session_mode::SessionMode;
-    use closeclaw_common::session_mode_query::SessionModeQuery;
-    use closeclaw_common::slash_router::SlashResult;
-    use closeclaw_permission::engine::engine_eval::PermissionEngine;
-    use closeclaw_permission::engine::engine_types::{
-        Action, Defaults, Effect, MatchType, Rule, RuleSet, Subject,
-    };
-    use closeclaw_session::bootstrap::loader::BootstrapMode;
-    use closeclaw_session::persistence::ReasoningLevel;
-    use std::collections::HashMap;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::Arc;
-
-    struct CountingHandler {
-        command: &'static str,
-        requires_permission: bool,
-        counter: Arc<AtomicU32>,
-    }
-
-    #[async_trait::async_trait]
-    impl SlashHandler for CountingHandler {
-        fn commands(&self) -> &[&str] {
-            std::slice::from_ref(&self.command)
-        }
-        fn description(&self) -> &str {
-            "counting handler"
-        }
-        fn requires_permission(&self) -> bool {
-            self.requires_permission
-        }
-        async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
-            self.counter.fetch_add(1, Ordering::SeqCst);
-            SlashResult::Reply("counted".to_owned())
-        }
-    }
-
-    struct MockRouter {
-        command: &'static str,
-        requires_permission: bool,
-        counter: Arc<AtomicU32>,
-    }
-
-    #[async_trait::async_trait]
-    impl SlashRouter for MockRouter {
-        async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
-            None
-        }
-        fn is_immediate(&self, _command: &str) -> bool {
-            false
-        }
-        fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>> {
-            if command == self.command {
-                Some(Box::new(CountingHandler {
-                    command: self.command,
-                    requires_permission: self.requires_permission,
-                    counter: Arc::clone(&self.counter),
-                }))
-            } else {
-                None
-            }
-        }
-    }
-
-    fn counting_router(
-        command: &'static str,
-        requires_permission: bool,
-        counter: Arc<AtomicU32>,
-    ) -> Arc<dyn SlashRouter> {
-        Arc::new(MockRouter {
-            command,
-            requires_permission,
-            counter,
-        })
-    }
-
-    fn make_gateway() -> Arc<Gateway> {
-        let config = GatewayConfig {
-            name: "test".to_owned(),
-            rate_limit_per_minute: 0,
-            max_message_size: 0,
-            dm_scope: Default::default(),
-            ..Default::default()
-        };
-        let sm = Arc::new(SessionManager::new(
-            &config,
-            None,
-            None,
-            BootstrapMode::Minimal,
-            ReasoningLevel::default(),
-        ));
-        Arc::new(Gateway::new(config, sm))
-    }
-
-    fn allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
-        let rules = RuleSet {
-            rules: vec![Rule {
-                name: "allow-all".to_owned(),
-                subject: Subject::AgentOnly {
-                    agent: "*".to_owned(),
-                    match_type: Default::default(),
-                },
-                effect: Effect::Allow,
-                actions: vec![Action::All],
-                template: None,
-                priority: 100,
-            }],
-            defaults: Defaults {
-                file: Effect::Allow,
-                command: Effect::Allow,
-                network: Effect::Allow,
-                inter_agent: Effect::Allow,
-                config: Effect::Allow,
-                tool_call: Effect::Allow,
-            },
-            template_includes: vec![],
-            agent_creators: HashMap::new(),
-        };
-        Arc::new(tokio::sync::RwLock::new(
-            PermissionEngine::new_with_default_data_root(rules),
-        ))
-    }
-
-    fn deny_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
-        let rules = RuleSet {
-            rules: vec![Rule {
-                name: "deny-all".to_owned(),
-                subject: Subject::AgentOnly {
-                    agent: "*".to_owned(),
-                    match_type: Default::default(),
-                },
-                effect: Effect::Deny,
-                actions: vec![Action::All],
-                template: None,
-                priority: 100,
-            }],
-            defaults: Defaults::default(),
-            template_includes: vec![],
-            agent_creators: HashMap::new(),
-        };
-        Arc::new(tokio::sync::RwLock::new(
-            PermissionEngine::new_with_default_data_root(rules),
-        ))
-    }
-
-    struct MockModeQuery {
-        modes: HashMap<String, SessionMode>,
-    }
-
-    impl MockModeQuery {
-        fn new() -> Self {
-            Self {
-                modes: HashMap::new(),
-            }
-        }
-
-        fn with_mode(mut self, agent_id: &str, mode: SessionMode) -> Self {
-            self.modes.insert(agent_id.to_string(), mode);
-            self
-        }
-    }
-
-    impl SessionModeQuery for MockModeQuery {
-        fn get_session_mode(&self, agent_id: &str) -> Option<SessionMode> {
-            self.modes.get(agent_id).copied()
-        }
-    }
-
-    /// Engine with Auto mode enabled: allows all slash commands but returns
-    /// `ApprovalRequired` for high-risk operations (SlashCommand is low risk
-    /// in current assessment, so this verifies the tool works in Auto mode).
-    fn auto_mode_allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
-        let rules = RuleSet {
-            rules: vec![Rule {
-                name: "allow-all".to_owned(),
-                subject: Subject::AgentOnly {
-                    agent: "*".to_owned(),
-                    match_type: MatchType::Glob,
-                },
-                effect: Effect::Allow,
-                actions: vec![Action::All],
-                template: None,
-                priority: 100,
-            }],
-            defaults: Defaults {
-                file: Effect::Allow,
-                command: Effect::Allow,
-                network: Effect::Allow,
-                inter_agent: Effect::Allow,
-                config: Effect::Allow,
-                tool_call: Effect::Allow,
-            },
-            template_includes: vec![],
-            agent_creators: HashMap::new(),
-        };
-        Arc::new(tokio::sync::RwLock::new(
-            PermissionEngine::new_with_default_data_root(rules).with_session_mode_query(Arc::new(
-                MockModeQuery::new().with_mode("test-agent", SessionMode::Auto),
-            )),
-        ))
-    }
-
-    #[tokio::test]
-    async fn test_non_owner_high_risk_permitted_handler_executes() {
-        // Branch 2: non-owner + requires_permission=true + engine Allow
-        // → handler.handle() IS invoked.
-        let counter = Arc::new(AtomicU32::new(0));
-        let gw = make_gateway();
-        gw.set_slash_dispatcher(counting_router("exec", true, Arc::clone(&counter)))
-            .await;
-        gw.set_permission_engine(allow_engine()).await;
-        let result = gw
-            .dispatch_slash("sess1", "/exec ls", Some("user123"), "feishu")
-            .await;
-        assert!(matches!(result, Some(HandleResult::SlashHandled)));
-        assert_eq!(
-            counter.load(Ordering::SeqCst),
-            1,
-            "handler.handle() must be invoked when permission is allowed"
-        );
-    }
-    #[tokio::test]
-    async fn test_owner_short_circuit_bypasses_deny() {
-        // Branch 1: owner bypasses deny engine.
-        let counter = Arc::new(AtomicU32::new(0));
-        let gw = make_gateway();
-        gw.set_slash_dispatcher(counting_router("exec", true, Arc::clone(&counter)))
-            .await;
-        gw.set_permission_engine(deny_engine()).await;
-        let result = gw
-            .dispatch_slash("sess1", "/exec ls", Some("owner"), "feishu")
-            .await;
-        assert!(matches!(result, Some(HandleResult::SlashHandled)));
-        assert_eq!(
-            counter.load(Ordering::SeqCst),
-            1,
-            "owner must bypass deny engine and invoke handler"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_non_owner_high_risk_denied_handler_called_execute_skipped() {
-        // Branch 2: non-owner + requires_permission=true + engine Deny
-        // → handler.handle() IS invoked (returns SlashResult), but
-        //   result.execute() is SKIPPED (early return before execute).
-        let counter = Arc::new(AtomicU32::new(0));
-        let gw = make_gateway();
-        gw.set_slash_dispatcher(counting_router("exec", true, Arc::clone(&counter)))
-            .await;
-        gw.set_permission_engine(deny_engine()).await;
-
-        let result = gw
-            .dispatch_slash("sess1", "/exec ls", Some("user123"), "feishu")
-            .await;
-
-        assert!(matches!(result, Some(HandleResult::SlashHandled)));
-        assert_eq!(
-            counter.load(Ordering::SeqCst),
-            1,
-            "handler must be invoked even when permission is denied; result.execute() is skipped"
-        );
-        // result.execute() is skipped — the early return after the
-        // permission check prevents side effects from running. This is
-        // observable by the absence of reply output (no reply_rx messages
-        // collected before the early return).
-    }
-
-    #[tokio::test]
-    async fn test_non_owner_safe_handler_direct_dispatch() {
-        // Branch 3: non-owner + requires_permission=false → dispatched directly.
-        let counter = Arc::new(AtomicU32::new(0));
-        let gw = make_gateway();
-        gw.set_slash_dispatcher(counting_router("help", false, Arc::clone(&counter)))
-            .await;
-        gw.set_permission_engine(deny_engine()).await;
-
-        let result = gw
-            .dispatch_slash("sess1", "/help", Some("user123"), "feishu")
-            .await;
-
-        assert!(matches!(result, Some(HandleResult::SlashHandled)));
-        assert_eq!(
-            counter.load(Ordering::SeqCst),
-            1,
-            "safe handler must dispatch without consulting engine"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_auto_mode_slash_permitted_handler_executes() {
-        // Auto mode + allow engine: slash command proceeds normally.
-        // SlashCommand is low risk, so the approval gate doesn't trigger.
-        let counter = Arc::new(AtomicU32::new(0));
-        let gw = make_gateway();
-        gw.set_slash_dispatcher(counting_router("exec", true, Arc::clone(&counter)))
-            .await;
-        gw.set_permission_engine(auto_mode_allow_engine()).await;
-
-        let result = gw
-            .dispatch_slash("sess1", "/exec ls", Some("user123"), "feishu")
-            .await;
-
-        assert!(matches!(result, Some(HandleResult::SlashHandled)));
-        assert_eq!(
-            counter.load(Ordering::SeqCst),
-            1,
-            "handler must execute in Auto mode for low-risk commands"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_auto_mode_slash_approval_required_routes_through_flow() {
-        // Directly exercise the approval routing mechanism by calling
-        // evaluate() with a high-risk request and routing the response
-        // through the approval flow — the same mechanism the
-        // GatewaySlashExecutor uses in check_command_permission.
-        use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
-        use closeclaw_permission::engine::engine_types::{
-            Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
-        };
-
-        let engine = auto_mode_allow_engine();
-        let response = engine.read().await.evaluate(
-            PermissionRequest::Bare(PermissionRequestBody::FileOp {
-                agent: "test-agent".to_string(),
-                path: "/repo/.git/config".to_string(),
-                op: "read".to_string(),
-            }),
-            None,
-        );
-        assert!(
-            matches!(response, PermissionResponse::ApprovalRequired { .. }),
-            "Auto mode + high-risk FileOp should return ApprovalRequired, got: {:?}",
-            response
-        );
-
-        let risk_level = match &response {
-            PermissionResponse::ApprovalRequired { risk_level, .. } => *risk_level,
-            _ => unreachable!(),
-        };
-        let gw = make_gateway();
-        let flow = Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
-            Arc::clone(&gw.session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
-            Arc::new(|_| {}),
-            Arc::new(|_| {}),
-            tokio::runtime::Handle::current(),
-            HeartbeatApprovalMode::default(),
-            std::env::temp_dir(),
-        )));
-        let mut flow_guard = flow.lock().await;
-        let request_id = flow_guard
-            .submit_denial(
-                &Caller {
-                    user_id: "user123".to_string(),
-                    agent: "test-agent".to_string(),
-                    creator_id: String::new(),
-                },
-                &PermissionRequestBody::SlashCommand {
-                    agent: "test-agent".to_string(),
-                    command: "exec".to_string(),
-                },
-                risk_level,
-                "sess1",
-                false,
-            )
-            .expect("approval flow should accept the submission");
-        assert!(
-            !request_id.is_empty(),
-            "approval flow should return a non-empty request_id"
-        );
     }
 }

@@ -108,6 +108,7 @@ pub trait SlashResultExecutor {
 
 #[async_trait]
 impl SlashResultExecutor for SlashResult {
+    #[allow(unused_variables)]
     async fn execute(self, ctx: &SideEffectContext) {
         let mut actions = Vec::new();
         match self {
@@ -221,6 +222,9 @@ impl SlashResultExecutor for SlashResult {
                     "Unknown command: /{cmd}"
                 ))]));
             }
+            // PermissionOp is intercepted in execute_and_route before execute()
+            // is called. This arm exists for exhaustive match compilation.
+            SlashResult::PermissionOp { .. } => {}
         }
         for action in actions {
             let _ = ctx.reply_tx.send(action).await;
