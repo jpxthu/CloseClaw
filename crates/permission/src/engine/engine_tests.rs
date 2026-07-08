@@ -380,3 +380,93 @@ fn test_tool_call_default_allow() {
     let resp = engine.check("unknown-agent", "tool_call", None);
     matches!(resp, PermissionResponse::Allowed { .. });
 }
+
+// -----------------------------------------------------------------
+// Config dir forced-deny integration tests
+// -----------------------------------------------------------------
+
+#[test]
+fn test_config_dir_forced_deny_overrides_default_allow() {
+    // When default_file = Allow, a FileOp targeting the config directory
+    // (data_root itself) must still be denied by the hardcoded guard.
+    let tmp = TempDir::new().unwrap();
+    let ruleset = RuleSetBuilder::new()
+        .default_file(Effect::Allow)
+        .build()
+        .unwrap();
+    let engine = PermissionEngine::new(ruleset, tmp.path().to_path_buf());
+
+    // Read from config dir (agents/) → should be denied
+    let config_path = tmp
+        .path()
+        .join("agents/a1/permissions.json")
+        .to_string_lossy()
+        .into_owned();
+    let req = PermissionRequest::Bare(PermissionRequestBody::FileOp {
+        agent: "test-agent".to_string(),
+        path: config_path,
+        op: "read".to_string(),
+    });
+    let resp = engine.evaluate(req, None);
+    assert!(
+        matches!(resp, PermissionResponse::Denied { ref rule, .. } if rule == "<config_dir_guard>"),
+        "expected Denied from config_dir_guard, got {:?}",
+        resp
+    );
+}
+
+#[test]
+fn test_config_dir_forced_deny_write() {
+    // Write to config dir → should also be denied.
+    let tmp = TempDir::new().unwrap();
+    let ruleset = RuleSetBuilder::new()
+        .default_file(Effect::Allow)
+        .build()
+        .unwrap();
+    let engine = PermissionEngine::new(ruleset, tmp.path().to_path_buf());
+
+    let config_path = tmp
+        .path()
+        .join("agents/a1/permissions.json")
+        .to_string_lossy()
+        .into_owned();
+    let req = PermissionRequest::Bare(PermissionRequestBody::FileOp {
+        agent: "test-agent".to_string(),
+        path: config_path,
+        op: "write".to_string(),
+    });
+    let resp = engine.evaluate(req, None);
+    assert!(
+        matches!(resp, PermissionResponse::Denied { ref rule, .. } if rule == "<config_dir_guard>"),
+        "expected Denied from config_dir_guard for write, got {:?}",
+        resp
+    );
+}
+
+#[test]
+fn test_workspace_still_allowed_with_default_allow() {
+    // When default_file = Allow, workspace FileOp should still be allowed.
+    let tmp = TempDir::new().unwrap();
+    let ruleset = RuleSetBuilder::new()
+        .default_file(Effect::Allow)
+        .build()
+        .unwrap();
+    let engine = PermissionEngine::new(ruleset, tmp.path().to_path_buf());
+
+    let ws = tmp
+        .path()
+        .join("workspaces/test-agent/test-user/file.txt")
+        .to_string_lossy()
+        .into_owned();
+    let req = PermissionRequest::Bare(PermissionRequestBody::FileOp {
+        agent: "test-agent".to_string(),
+        path: ws,
+        op: "read".to_string(),
+    });
+    let resp = engine.evaluate(req, None);
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "expected Allowed for workspace read, got {:?}",
+        resp
+    );
+}

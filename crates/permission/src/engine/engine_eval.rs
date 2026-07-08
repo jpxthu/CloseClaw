@@ -194,6 +194,28 @@ impl PermissionEngine {
             return denied;
         }
 
+        // Step 0.4: Config dir forced deny (hardcoded rule)
+        // Permission config directory access is unconditionally denied for
+        // agents, regardless of rules or defaults.
+        if let PermissionRequestBody::FileOp { op, path, .. } = request.body() {
+            if (op == "read" || op == "write")
+                && engine_workspace::is_config_dir_path(&self.data_root, path)
+            {
+                info!(
+                    agent = %agent_id,
+                    result = "denied",
+                    reason = "config_dir_forced_deny",
+                    path = %path,
+                    "permission check completed"
+                );
+                return PermissionResponse::Denied {
+                    reason: "config directory access denied by hardcoded rule".to_string(),
+                    rule: "<config_dir_guard>".to_string(),
+                    risk_level: assess_risk_level(request.body()),
+                };
+            }
+        }
+
         // Step 0.5: Workspace forced authorization
         if let PermissionRequestBody::FileOp { agent, path, op } = request.body() {
             if (op == "read" || op == "write")
