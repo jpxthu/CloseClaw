@@ -503,4 +503,17 @@ pub enum PermissionResponse {
         rule: String,
         risk_level: RiskLevel,
     },
+    /// Operation requires user approval before proceeding.
+    ///
+    /// Returned in Auto Mode for high/critical risk operations.
+    /// The caller should enqueue this into the approval queue
+    /// and wait for user confirmation.
+    ApprovalRequired {
+        /// Human-readable description of the operation.
+        operation_desc: String,
+        /// Risk level of the operation.
+        risk_level: RiskLevel,
+        /// The rule or filter that triggered the approval gate.
+        rule: String,
+    },
 }

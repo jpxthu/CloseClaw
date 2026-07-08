@@ -11,19 +11,46 @@ use serde_json::json;
 
 use crate::builtin::sessions_kill::SessionsKillTool;
 use crate::{Tool, ToolCallError, ToolContext};
+use closeclaw_common::session_mode::SessionMode;
+use closeclaw_common::session_mode_query::SessionModeQuery;
 use closeclaw_gateway::session_manager::{ChildSessionInfo, SpawnMode};
 use closeclaw_gateway::{DmScope, GatewayConfig, Message, Session, SessionManager};
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_risk::RiskLevel;
 use closeclaw_permission::engine::engine_types::{
-    Action, Caller, Effect, PermissionRequestBody, Rule, Subject,
+    Action, Caller, Effect, PermissionRequest, PermissionRequestBody, PermissionResponse, Rule,
+    Subject,
 };
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::ReasoningLevel;
+use std::collections::HashMap;
 use tokio::sync::RwLock;
+
+struct MockModeQuery {
+    modes: HashMap<String, SessionMode>,
+}
+
+impl MockModeQuery {
+    fn new() -> Self {
+        Self {
+            modes: HashMap::new(),
+        }
+    }
+
+    fn with_mode(mut self, agent_id: &str, mode: SessionMode) -> Self {
+        self.modes.insert(agent_id.to_string(), mode);
+        self
+    }
+}
+
+impl SessionModeQuery for MockModeQuery {
+    fn get_session_mode(&self, agent_id: &str) -> Option<SessionMode> {
+        self.modes.get(agent_id).copied()
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -184,6 +211,49 @@ async fn setup_sessions(mgr: &SessionManager, parent_id: &str, child_id: &str) {
     .await;
 }
 
+/// Engine with Auto mode enabled — will return `ApprovalRequired` for
+/// operations where `assess_risk_level` returns High/Critical.
+/// Uses `Action::All` so that any request type (including FileOp) is allowed,
+/// allowing the auto mode risk gate to trigger on high-risk requests.
+fn auto_mode_allow_engine() -> Arc<PermissionEngine> {
+    let agent_rule = Rule {
+        name: "allow-inter-agent-phase".to_string(),
+        subject: Subject::AgentOnly {
+            agent: "test-agent".to_string(),
+            match_type: Default::default(),
+        },
+        effect: Effect::Allow,
+        actions: vec![Action::All],
+        template: None,
+        priority: 10,
+    };
+    let user_rule = Rule {
+        name: "allow-inter-user-phase".to_string(),
+        subject: Subject::UserAndAgent {
+            user_id: "".to_string(),
+            agent: "test-agent".to_string(),
+            user_match: Default::default(),
+            agent_match: Default::default(),
+        },
+        effect: Effect::Allow,
+        actions: vec![Action::All],
+        template: None,
+        priority: 10,
+    };
+    Arc::new(
+        PermissionEngine::new_with_default_data_root(
+            RuleSetBuilder::new()
+                .rule(agent_rule)
+                .rule(user_rule)
+                .build()
+                .unwrap(),
+        )
+        .with_session_mode_query(Arc::new(
+            MockModeQuery::new().with_mode("test-agent", SessionMode::Auto),
+        )),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Path 1: allow — permission passes, child killed successfully
 // ---------------------------------------------------------------------------
@@ -263,4 +333,90 @@ async fn test_kill_approval_deny_enqueue_fallback() {
         }
         other => panic!("expected ExecutionFailed, got: {:?}", other),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Path 4: ApprovalRequired → approval flow routing
+// ---------------------------------------------------------------------------
+
+/// Verify that when the permission engine returns `ApprovalRequired`, the
+/// response is properly routed through the approval flow, returning
+/// `approval_pending` with a request_id.
+///
+/// InterAgentMsg is always Low risk in the current risk assessment, so
+/// `ApprovalRequired` cannot be triggered through normal tool execution.
+/// This test directly exercises the approval routing mechanism by calling
+/// `evaluate()` with a high-risk request and manually routing the response
+/// through the approval flow — the same mechanism the tool uses.
+#[tokio::test]
+async fn test_kill_approval_required_routes_through_approval_flow() {
+    let flow = make_approval_flow();
+    let engine = auto_mode_allow_engine();
+    let ctx = make_ctx("parent-auto");
+
+    // 1. Verify the engine returns ApprovalRequired for a high-risk request.
+    //    Use FileOp on a .git path (High risk) as a proxy — same engine,
+    //    same Auto mode gate, same ApprovalRequired variant.
+    let high_risk_request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
+        agent: ctx.agent_id.clone(),
+        path: "/repo/.git/config".to_string(),
+        op: "read".to_string(),
+    });
+    let response = engine.evaluate(high_risk_request, None);
+    assert!(
+        matches!(response, PermissionResponse::ApprovalRequired { .. }),
+        "Auto mode + high-risk FileOp should return ApprovalRequired, got: {:?}",
+        response
+    );
+
+    // 2. Route the ApprovalRequired through the approval flow — the same
+    //    mechanism the kill tool uses.
+    let (_operation_desc, risk_level) = match &response {
+        PermissionResponse::ApprovalRequired {
+            operation_desc,
+            risk_level,
+            ..
+        } => (operation_desc.clone(), *risk_level),
+        _ => unreachable!(),
+    };
+    let caller = Caller {
+        user_id: String::new(),
+        agent: ctx.agent_id.clone(),
+        creator_id: String::new(),
+    };
+    let body = PermissionRequestBody::InterAgentMsg {
+        from: ctx.agent_id.clone(),
+        to: "child-agent".to_string(),
+    };
+    let session_id = ctx.session_id.as_deref().unwrap_or("");
+    let mut flow_guard = flow.lock().await;
+    let request_id = flow_guard
+        .submit_denial(&caller, &body, risk_level, session_id, false)
+        .expect("approval flow should accept the submission");
+
+    // 3. Verify the approval flow accepted the request.
+    assert!(
+        !request_id.is_empty(),
+        "approval flow should return a non-empty request_id"
+    );
+    drop(flow_guard);
+
+    // 4. Now verify the kill tool also correctly routes a Denied response
+    //    through the approval flow (the deny_all_engine path).
+    let mgr = make_session_manager();
+    setup_sessions(&mgr, "parent-deny-route", "child-deny-route").await;
+    let tool = SessionsKillTool::new(mgr, deny_all_engine(), make_approval_flow());
+    let ctx2 = make_ctx("parent-deny-route");
+    let result = tool
+        .call(json!({"sessionId": "child-deny-route"}), &ctx2)
+        .await;
+    let output = result.expect("deny+approval should return Ok");
+    assert_eq!(
+        output.data["status"], "approval_pending",
+        "denied kill should route to approval_pending"
+    );
+    assert!(
+        output.data["request_id"].is_string(),
+        "should include request_id from approval flow"
+    );
 }

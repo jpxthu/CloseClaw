@@ -127,35 +127,42 @@ impl Tool for SessionsSteerTool {
             to: info.agent_id.clone(),
         });
         let response = self.permission_engine.evaluate(request, None);
-        if let PermissionResponse::Denied {
-            reason, risk_level, ..
-        } = response
-        {
-            let caller = Caller {
-                user_id: String::new(),
-                agent: ctx.agent_id.clone(),
-                creator_id: String::new(),
-            };
-            let body = PermissionRequestBody::InterAgentMsg {
-                from: ctx.agent_id.clone(),
-                to: info.agent_id.clone(),
-            };
-            let session_id = ctx.session_id.as_deref().unwrap_or("");
-            let mut flow = self.approval_flow.lock().await;
-            if let Some(request_id) =
-                flow.submit_denial(&caller, &body, risk_level, session_id, false)
-            {
-                let data = build_approval_pending(request_id);
-                return Ok(ToolResult {
-                    data,
-                    new_messages: vec![],
-                    context_modifier: None,
-                });
+        match response {
+            PermissionResponse::Denied {
+                reason, risk_level, ..
             }
-            return Err(ToolCallError::ExecutionFailed(format!(
-                "inter-agent communication denied: {}",
-                reason
-            )));
+            | PermissionResponse::ApprovalRequired {
+                operation_desc: reason,
+                risk_level,
+                ..
+            } => {
+                let caller = Caller {
+                    user_id: String::new(),
+                    agent: ctx.agent_id.clone(),
+                    creator_id: String::new(),
+                };
+                let body = PermissionRequestBody::InterAgentMsg {
+                    from: ctx.agent_id.clone(),
+                    to: info.agent_id.clone(),
+                };
+                let session_id = ctx.session_id.as_deref().unwrap_or("");
+                let mut flow = self.approval_flow.lock().await;
+                if let Some(request_id) =
+                    flow.submit_denial(&caller, &body, risk_level, session_id, false)
+                {
+                    let data = build_approval_pending(request_id);
+                    return Ok(ToolResult {
+                        data,
+                        new_messages: vec![],
+                        context_modifier: None,
+                    });
+                }
+                return Err(ToolCallError::ExecutionFailed(format!(
+                    "inter-agent communication denied: {}",
+                    reason
+                )));
+            }
+            _ => {}
         }
 
         // 6. Steer the child session

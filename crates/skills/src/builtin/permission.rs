@@ -153,6 +153,18 @@ impl Skill for PermissionSkill {
                             "reason": reason,
                             "risk_level": risk_level,
                         })),
+                        PermissionResponse::ApprovalRequired {
+                            risk_level,
+                            operation_desc,
+                            rule: _,
+                        } => Ok(serde_json::json!({
+                            "allowed": false,
+                            "agent_id": agent_id,
+                            "action": action,
+                            "reason": "approval_required",
+                            "risk_level": risk_level,
+                            "operation_desc": operation_desc,
+                        })),
                     }
                 } else {
                     Ok(serde_json::json!({

@@ -130,6 +130,31 @@ impl Skill for SkillDiscoverySkill {
                             }
                             return Err(SkillError::PermissionDenied(reason));
                         }
+                        PermissionResponse::ApprovalRequired { risk_level, .. } => {
+                            if let Some(ref flow) = self.approval_flow {
+                                let body = PermissionRequestBody::InterAgentMsg {
+                                    from: agent_id.to_string(),
+                                    to: "*".to_string(),
+                                };
+                                let session_id = args
+                                    .get("session_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let mut flow = flow.lock().await;
+                                if let Some(request_id) = flow
+                                    .submit_denial(&caller, &body, risk_level, session_id, false)
+                                {
+                                    return Ok(serde_json::json!({
+                                        "status": "approval_pending",
+                                        "request_id": request_id,
+                                        "message": "Operation pending owner approval",
+                                    }));
+                                }
+                            }
+                            return Err(SkillError::PermissionDenied(
+                                "approval required".to_string(),
+                            ));
+                        }
                     }
                 }
 

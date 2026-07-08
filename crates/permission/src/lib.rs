@@ -17,8 +17,8 @@ pub mod mock_session_lookup;
 mod tests;
 
 pub use engine::{
-    glob_match, Action, Caller, CommandArgs, Defaults, Effect, MatchType, PermissionEngine,
-    PermissionRequest, PermissionRequestBody, PermissionResponse, Rule, RuleSet, Subject,
-    TemplateRef,
+    build_rejection_log, glob_match, Action, Caller, CommandArgs, Defaults, Effect,
+    FileRejectionLogger, MatchType, PermissionEngine, PermissionRequest, PermissionRequestBody,
+    PermissionResponse, RejectionLog, RejectionLogger, Rule, RuleSet, Subject, TemplateRef,
 };
 pub use rules::{validation, RuleBuilder, RuleBuilderError, RuleSetBuilder, RuleSetBuilderError};
