@@ -24,7 +24,6 @@ pub(super) fn is_workspace_path(
 /// Config directory paths (e.g. `data_root/agents/...`, `data_root/permissions.json`)
 /// are hard-coded to be denied. This prevents agents from reading or writing
 /// permission configuration files regardless of rules or defaults.
-#[allow(dead_code, reason = "used in Step 1.2 integrate into evaluate()")]
 pub(super) fn is_config_dir_path(data_root: &Path, path: &str) -> bool {
     let norm_root = normalize_path(data_root.to_str().unwrap_or(""));
     let norm_path = normalize_path(path);
