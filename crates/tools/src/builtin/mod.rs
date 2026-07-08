@@ -40,6 +40,9 @@ pub use skill_tool::SkillTool;
 mod plan_approval_tests;
 
 #[cfg(test)]
+mod prompt_template_tests;
+
+#[cfg(test)]
 mod progress_tests;
 
 #[cfg(test)]

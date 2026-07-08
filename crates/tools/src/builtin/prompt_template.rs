@@ -57,6 +57,56 @@ impl FromStr for PromptTemplate {
 }
 
 impl PromptTemplate {
+    /// Returns the default tool whitelist for this template.
+    ///
+    /// When `sessions_spawn` does not receive an explicit `allowedTools`
+    /// parameter but specifies a prompt template, this list is applied
+    /// automatically so the child agent only has access to the appropriate
+    /// tool subset.
+    ///
+    /// Returns `None` for templates that should inherit the full toolset
+    /// (i.e. no override).
+    pub fn default_allowed_tools(&self) -> Option<Vec<&'static str>> {
+        match self {
+            // Read-only research: investigation and analysis tools only.
+            PromptTemplate::Explore => Some(vec![
+                "Read",
+                "Grep",
+                "Ls",
+                "ToolSearch",
+                "GitStatus",
+                "GitLog",
+                "PermissionQuery",
+                "Progress",
+            ]),
+            // Plan/design: same read-only set, no write or approval tools.
+            PromptTemplate::Plan => Some(vec![
+                "Read",
+                "Grep",
+                "Ls",
+                "ToolSearch",
+                "GitStatus",
+                "GitLog",
+                "PermissionQuery",
+                "Progress",
+            ]),
+            // Validation/audit: read-only plus Bash for running test scripts.
+            PromptTemplate::Validation => Some(vec![
+                "Read",
+                "Grep",
+                "Ls",
+                "ToolSearch",
+                "Bash",
+                "GitStatus",
+                "GitLog",
+                "PermissionQuery",
+                "Progress",
+            ]),
+            // Auto-mode execution: full toolset, no override.
+            PromptTemplate::Executor => None,
+        }
+    }
+
     /// Returns the prompt prefix text for this template.
     ///
     /// The prefix is prepended to the task description when spawning a sub-agent

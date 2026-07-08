@@ -40,19 +40,20 @@ impl Daemon {
             &config_manager,
         )
         .await;
-        let (sweeper_tx, dreaming_tx, config_watcher) = Self::init_phase_5_background(
-            Phase5Deps {
-                config_manager: &config_manager,
-                agent_registry: &agent_registry,
-                skill_registry: &skill_registry,
-                tool_registry: &tool_registry,
-                session_manager: &session_manager,
-                permission_engine: &permission_engine,
-                approval_flow: &approval_flow,
-            },
-            &data_dir,
-        )
-        .await?;
+        let (sweeper_tx, dreaming_tx, plan_archive_tx, config_watcher) =
+            Self::init_phase_5_background(
+                Phase5Deps {
+                    config_manager: &config_manager,
+                    agent_registry: &agent_registry,
+                    skill_registry: &skill_registry,
+                    tool_registry: &tool_registry,
+                    session_manager: &session_manager,
+                    permission_engine: &permission_engine,
+                    approval_flow: &approval_flow,
+                },
+                &data_dir,
+            )
+            .await?;
         let (admin_handle, admin_sock_path) = Self::init_phase_6_admin_rpc(
             &agent_registry,
             &skill_registry,
@@ -73,6 +74,7 @@ impl Daemon {
             storage,
             sweeper_shutdown_tx: sweeper_tx,
             dreaming_scheduler_shutdown_tx: dreaming_tx,
+            plan_archive_shutdown_tx: plan_archive_tx,
             skill_registry,
             _skill_watcher: Some(skill_watcher),
             _config_watcher: config_watcher,
@@ -315,6 +317,8 @@ impl Daemon {
         let _ = self.sweeper_shutdown_tx.send(());
         // Signal DreamingScheduler to stop
         let _ = self.dreaming_scheduler_shutdown_tx.send(());
+        // Signal PlanArchiveTask to stop
+        let _ = self.plan_archive_shutdown_tx.send(());
         // Clear pending approval requests (denied with callbacks triggered)
         self.approval_flow.lock().await.clear();
     }

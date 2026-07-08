@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use closeclaw_common::{PendingMessage, SessionLookup};
+use closeclaw_common::{PendingMessage, PlanState, SessionLookup, SessionMode};
 
 /// A simple in-memory mock of [`SessionLookup`] for permission crate tests.
 ///
@@ -89,4 +89,12 @@ impl SessionLookup for MockSessionLookup {
             .push((session_id.to_string(), msg));
         Ok(())
     }
+
+    async fn get_plan_state(&self, _session_id: &str) -> Option<PlanState> {
+        None
+    }
+
+    async fn set_plan_state(&self, _session_id: &str, _plan_state: PlanState) {}
+
+    async fn set_session_mode(&self, _session_id: &str, _mode: SessionMode) {}
 }

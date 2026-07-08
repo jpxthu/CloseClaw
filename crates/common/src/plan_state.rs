@@ -3,6 +3,48 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+/// Plan Status — plan 生命周期状态枚举
+///
+/// 状态机：draft → confirmed → executing → completed
+///                                  ↘ paused ↗
+/// 暂停后可恢复为 executing，任何状态均可回退至 draft（拒绝/重置）。
+/// 参见 `PlanState::transition_status` 合法转换表。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanStatus {
+    /// 草稿状态
+    #[default]
+    Draft,
+    /// 审批通过，待执行
+    Confirmed,
+    /// 正在执行
+    Executing,
+    /// 已暂停（从 executing 或 confirmed 暂停）
+    Paused,
+    /// 已完成
+    Completed,
+}
+
+impl std::fmt::Display for PlanStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Draft => write!(f, "draft"),
+            Self::Confirmed => write!(f, "confirmed"),
+            Self::Executing => write!(f, "executing"),
+            Self::Paused => write!(f, "paused"),
+            Self::Completed => write!(f, "completed"),
+        }
+    }
+}
+
+/// 状态转换错误类型
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
+pub enum StatusTransitionError {
+    /// 非法状态转换
+    #[error("invalid status transition: {from:?} -> {to:?}")]
+    InvalidTransition { from: PlanStatus, to: PlanStatus },
+}
+
 /// Plan Phase — 当前规划阶段枚举
 ///
 /// 阶段切换由 agent 自行判断，代码层不强制状态机转换。
@@ -68,6 +110,9 @@ pub struct PlanState {
     /// 当前规划阶段
     #[serde(default)]
     pub phase: PlanPhase,
+    /// Plan 生命周期状态（权威状态源）
+    #[serde(default)]
+    pub status: PlanStatus,
     /// 未完成的规划步骤标识列表
     #[serde(default)]
     pub pending_steps: Vec<String>,
@@ -86,6 +131,51 @@ impl PlanState {
     /// 创建新的 PlanState，使用默认值（Research 阶段、空步骤、空路径）
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// 校验并执行 plan 状态转换。
+    ///
+    /// 合法转换：
+    /// - draft → confirmed
+    /// - confirmed → executing
+    /// - confirmed → paused
+    /// - executing → completed
+    /// - executing → paused
+    /// - paused → executing
+    /// - 任何状态 → draft（重置/拒绝回退）
+    ///
+    /// 返回 `Err(StatusTransitionError::InvalidTransition)` 当转换不合法。
+    pub fn transition_status(
+        &mut self,
+        new_status: PlanStatus,
+    ) -> Result<(), StatusTransitionError> {
+        if Self::is_valid_status_transition(self.status, new_status) {
+            self.status = new_status;
+            Ok(())
+        } else {
+            Err(StatusTransitionError::InvalidTransition {
+                from: self.status,
+                to: new_status,
+            })
+        }
+    }
+
+    /// 判断状态转换是否合法（不含副作用）
+    fn is_valid_status_transition(from: PlanStatus, to: PlanStatus) -> bool {
+        // 任何状态 → draft：允许拒绝/重置回退
+        if to == PlanStatus::Draft {
+            return from != PlanStatus::Draft;
+        }
+
+        matches!(
+            (from, to),
+            (PlanStatus::Draft, PlanStatus::Confirmed)
+                | (PlanStatus::Confirmed, PlanStatus::Executing)
+                | (PlanStatus::Confirmed, PlanStatus::Paused)
+                | (PlanStatus::Executing, PlanStatus::Completed)
+                | (PlanStatus::Executing, PlanStatus::Paused)
+                | (PlanStatus::Paused, PlanStatus::Executing)
+        )
     }
 
     /// 根据步骤描述列表初始化执行步骤（全部 pending），
@@ -248,7 +338,7 @@ pub enum TransitionError {
     #[error("step not found: index {index} out of range (len {len})")]
     OutOfBounds { index: usize, len: usize },
 
-    /// 非法状态转换
+    /// 非法步骤状态转换
     #[error("invalid transition: {from:?} -> {to:?}")]
     InvalidTransition {
         from: ExecutionStepStatus,
