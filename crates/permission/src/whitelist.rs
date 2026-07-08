@@ -99,13 +99,31 @@ pub fn build_whitelist_rule(
     })
 }
 
-/// Append a whitelist [`Rule`] to the agent's `permissions.json`.
+/// Build a deny [`Rule`] from caller and request body.
+///
+/// Symmetric to [`build_whitelist_rule`], but generates `Effect::Deny`.
+/// Returns `None` for request types with no meaningful action mapping.
+pub fn build_deny_rule(caller: &Caller, body: &PermissionRequestBody, name: &str) -> Option<Rule> {
+    let action = request_body_to_action(body)?;
+    let subject = caller_to_subject(caller);
+
+    Some(Rule {
+        name: name.to_string(),
+        subject,
+        effect: Effect::Deny,
+        actions: vec![action],
+        template: None,
+        priority: 0,
+    })
+}
+
+/// Append a [`Rule`] to the agent's `permissions.json`.
 ///
 /// Path: `{config_dir}/agents/{agent_id}/permissions.json`
 ///
 /// Reads the existing file (or starts with an empty [`RuleSet`]),
 /// appends the rule, and writes it back as pretty-printed JSON.
-pub fn append_whitelist_rule(config_dir: &Path, agent_id: &str, rule: Rule) -> std::io::Result<()> {
+pub fn append_rule(config_dir: &Path, agent_id: &str, rule: Rule) -> std::io::Result<()> {
     let path = config_dir
         .join("agents")
         .join(agent_id)
@@ -119,6 +137,20 @@ pub fn append_whitelist_rule(config_dir: &Path, agent_id: &str, rule: Rule) -> s
     }
     let json = serde_json::to_string_pretty(&ruleset).map_err(std::io::Error::other)?;
     std::fs::write(&path, json)
+}
+
+/// Append a whitelist (allow) [`Rule`] to the agent's `permissions.json`.
+///
+/// Convenience wrapper over [`append_rule`].
+pub fn append_whitelist_rule(config_dir: &Path, agent_id: &str, rule: Rule) -> std::io::Result<()> {
+    append_rule(config_dir, agent_id, rule)
+}
+
+/// Append a deny [`Rule`] to the agent's `permissions.json`.
+///
+/// Convenience wrapper over [`append_rule`].
+pub fn append_deny_rule(config_dir: &Path, agent_id: &str, rule: Rule) -> std::io::Result<()> {
+    append_rule(config_dir, agent_id, rule)
 }
 
 /// Load a [`RuleSet`] from disk, returning an empty one on missing/corrupt file.
