@@ -174,6 +174,7 @@ mod tests {
                 Arc::new(|_| {}),
                 tokio::runtime::Handle::current(),
                 closeclaw_permission::approval_flow::HeartbeatApprovalMode::default(),
+                tmp.path().to_path_buf(),
             ),
         ));
         let registrars: Vec<Box<dyn closeclaw_tools::ToolRegistrar>> = vec![

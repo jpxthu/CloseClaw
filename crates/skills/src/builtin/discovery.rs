@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 #[derive(Default)]
 pub struct SkillDiscoverySkill {
-    engine: Option<Arc<closeclaw_permission::PermissionEngine>>,
+    engine: Option<Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>>,
     approval_flow: Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>,
 }
 
@@ -21,7 +21,9 @@ impl SkillDiscoverySkill {
         }
     }
 
-    pub fn with_engine(engine: Arc<closeclaw_permission::PermissionEngine>) -> Self {
+    pub fn with_engine(
+        engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
+    ) -> Self {
         Self {
             engine: Some(engine),
             approval_flow: None,
@@ -29,7 +31,7 @@ impl SkillDiscoverySkill {
     }
 
     pub fn with_engine_and_approval_flow(
-        engine: Arc<closeclaw_permission::PermissionEngine>,
+        engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     ) -> Self {
         Self {
@@ -102,8 +104,15 @@ impl Skill for SkillDiscoverySkill {
                             to: "*".to_string(),
                         },
                     };
-                    let extra_deny_subjects = engine.get_agent_deny_subjects(agent_id, agent_id);
-                    match engine.evaluate(request, Some(extra_deny_subjects)) {
+                    let extra_deny_subjects = engine
+                        .read()
+                        .await
+                        .get_agent_deny_subjects(agent_id, agent_id);
+                    match engine
+                        .read()
+                        .await
+                        .evaluate(request, Some(extra_deny_subjects))
+                    {
                         PermissionResponse::Allowed { .. } => {}
                         PermissionResponse::Denied {
                             reason, risk_level, ..

@@ -130,8 +130,11 @@ async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
 async fn test_validate_empty_allow_agents_blocks_target() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = SpawnController::new(
+        cm.clone(),
+        sm.clone(),
+        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
+    );
 
     let mut sub = SubagentsConfig::default();
     sub.allow_agents = vec![]; // explicitly empty
@@ -162,8 +165,11 @@ async fn test_validate_empty_allow_agents_blocks_target() {
 async fn test_validate_empty_allow_agents_no_target_requires_id() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = SpawnController::new(
+        cm.clone(),
+        sm.clone(),
+        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
+    );
 
     let mut sub = SubagentsConfig::default();
     sub.allow_agents = vec![];
@@ -198,8 +204,11 @@ async fn test_validate_empty_allow_agents_no_target_requires_id() {
 async fn test_validate_unparent_config_uses_defaults() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = SpawnController::new(
+        cm.clone(),
+        sm.clone(),
+        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
+    );
 
     // Only inject child, NOT parent -> parent falls back to defaults.
     let child = make_agent("child", SubagentsConfig::default());
@@ -226,8 +235,11 @@ async fn test_validate_unparent_config_uses_defaults() {
 async fn test_validate_require_agent_id_false_no_target_no_default() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = SpawnController::new(
+        cm.clone(),
+        sm.clone(),
+        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
+    );
 
     let mut sub = SubagentsConfig::default();
     sub.require_agent_id = Some(false);
@@ -259,8 +271,11 @@ async fn test_validate_require_agent_id_false_no_target_no_default() {
 async fn test_validate_default_max_children_boundary() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = SpawnController::new(
+        cm.clone(),
+        sm.clone(),
+        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
+    );
 
     // Parent with default max_children=5 and max_spawn_depth=2.
     let mut sub = SubagentsConfig::default();

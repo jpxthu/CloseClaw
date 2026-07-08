@@ -22,6 +22,7 @@
 //!         └─ lookup session_id → queue.deny() → spawn push "已拒绝" to session
 //! ```
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::engine::engine_risk::RiskLevel;
@@ -86,8 +87,9 @@ fn is_heartbeat_operation(request: &PermissionRequestBody) -> bool {
 /// Daemon-level approval orchestrator.
 ///
 /// Holds the [`ApprovalQueue`], a reference to [`SessionManager`] for pushing
-/// result messages, an owner notification callback, and a tokio runtime handle
-/// for spawning async tasks from synchronous closures.
+/// result messages, an owner notification callback, a whitelist-updated
+/// callback, and a tokio runtime handle for spawning async tasks from
+/// synchronous closures.
 pub struct ApprovalFlow {
     /// The underlying approval queue.
     queue: ApprovalQueue,
@@ -95,10 +97,17 @@ pub struct ApprovalFlow {
     session_manager: Arc<dyn SessionLookup>,
     /// Callback invoked to notify the owner about a pending approval.
     on_notify_owner: Arc<dyn Fn(ApprovalNotification) + Send + Sync>,
+    /// Callback invoked after a whitelist rule is persisted.
+    ///
+    /// The parameter is the `agent_id` whose `permissions.json` was updated.
+    /// The daemon layer injects the actual permission engine reload logic.
+    on_whitelist_updated: Arc<dyn Fn(&str) + Send + Sync>,
     /// Tokio runtime handle for spawning async tasks from sync closures.
     runtime_handle: tokio::runtime::Handle,
     /// How heartbeat operations are handled when denied.
     heartbeat_mode: HeartbeatApprovalMode,
+    /// Root config directory for agent permissions persistence.
+    config_dir: PathBuf,
 }
 
 impl std::fmt::Debug for ApprovalFlow {
@@ -116,20 +125,28 @@ impl ApprovalFlow {
     /// # Arguments
     /// * `session_manager` - Shared reference to the session manager.
     /// * `on_notify_owner` - Callback to notify the owner about pending approvals.
+    /// * `on_whitelist_updated` - Callback invoked after a whitelist rule is
+    ///   persisted (parameter: agent_id). The daemon layer injects the actual
+    ///   permission engine reload logic here.
     /// * `runtime_handle` - Tokio runtime handle for spawning async tasks.
     /// * `heartbeat_mode` - How heartbeat operations are handled when denied.
+    /// * `config_dir` - Root config directory for agent permissions persistence.
     pub fn new(
         session_manager: Arc<dyn SessionLookup>,
         on_notify_owner: Arc<dyn Fn(ApprovalNotification) + Send + Sync>,
+        on_whitelist_updated: Arc<dyn Fn(&str) + Send + Sync>,
         runtime_handle: tokio::runtime::Handle,
         heartbeat_mode: HeartbeatApprovalMode,
+        config_dir: PathBuf,
     ) -> Self {
         Self {
             queue: ApprovalQueue::new(),
             session_manager,
             on_notify_owner,
+            on_whitelist_updated,
             runtime_handle,
             heartbeat_mode,
+            config_dir,
         }
     }
 
@@ -139,6 +156,13 @@ impl ApprovalFlow {
     /// through the registered IM adapters.
     pub fn set_notify_callback(&mut self, cb: Arc<dyn Fn(ApprovalNotification) + Send + Sync>) {
         self.on_notify_owner = cb;
+    }
+
+    /// Replace the whitelist-updated callback.
+    ///
+    /// Used by the Daemon to inject the permission engine reload logic.
+    pub fn set_whitelist_callback(&mut self, cb: Arc<dyn Fn(&str) + Send + Sync>) {
+        self.on_whitelist_updated = cb;
     }
 }
 
@@ -290,16 +314,43 @@ impl ApprovalFlow {
         request_id: &str,
         mode: ApprovalMode,
     ) -> Result<bool, RejectWhitelistReason> {
-        // Extract session_id BEFORE resolving (entry is removed on resolve).
-        let session_resume = self
-            .queue
-            .get_pending(request_id)
-            .map(|p| p.session_resume.clone());
+        // Extract details BEFORE resolving (entry is removed on resolve).
+        let pending_info = self.queue.get_pending(request_id).map(|p| {
+            (
+                p.session_resume.clone(),
+                p.caller.clone(),
+                p.request.clone(),
+            )
+        });
 
         let result = self.queue.approve(request_id, mode)?;
 
+        // Whitelist persistence: best-effort write after approve succeeds.
+        if result && mode == ApprovalMode::WithWhitelist {
+            if let Some((_, caller, request)) = &pending_info {
+                let name = format!("whitelist-{}", chrono::Utc::now().timestamp_millis());
+                if let Some(rule) = crate::whitelist::build_whitelist_rule(caller, request, &name) {
+                    if let Err(e) = crate::whitelist::append_whitelist_rule(
+                        &self.config_dir,
+                        &caller.agent,
+                        rule,
+                    ) {
+                        tracing::warn!(
+                            request_id = %request_id,
+                            agent = %caller.agent,
+                            error = %e,
+                            "failed to persist whitelist rule (best-effort)"
+                        );
+                    } else {
+                        // Trigger permission engine hot-reload (best-effort).
+                        (self.on_whitelist_updated)(&caller.agent);
+                    }
+                }
+            }
+        }
+
         if result {
-            if let Some(session_id) = session_resume {
+            if let Some((session_id, _, _)) = pending_info {
                 let sm = Arc::clone(&self.session_manager);
                 let handle = self.runtime_handle.clone();
                 let rid = request_id.to_string();

@@ -9,6 +9,7 @@ pub mod engine;
 pub mod rules;
 pub mod sandbox;
 pub mod templates;
+pub mod whitelist;
 
 #[cfg(test)]
 pub mod mock_session_lookup;

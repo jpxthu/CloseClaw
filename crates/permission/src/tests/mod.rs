@@ -7,3 +7,4 @@ mod rule_evaluation_test;
 mod subject_test;
 mod template_test;
 mod validation_test;
+mod whitelist_test;
