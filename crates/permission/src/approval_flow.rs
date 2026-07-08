@@ -26,7 +26,9 @@ use std::sync::Arc;
 
 use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{Caller, PermissionRequestBody};
-use closeclaw_common::{PendingMessage, PlanPhase, SessionLookup, SessionMode};
+use closeclaw_common::{PendingMessage, PlanPhase, PlanStatus, SessionLookup, SessionMode};
+
+use closeclaw_session::plan_file;
 
 use super::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectWhitelistReason};
 
@@ -321,32 +323,15 @@ impl ApprovalFlow {
                     // 2. Check if there's an active plan and switch to Auto Mode
                     if let Some(mut plan_state) = sm.get_plan_state(&session_id).await {
                         if !plan_state.plan_file_path.is_empty() {
-                            // Update plan file: draft → confirmed
+                            // Update plan file: draft → confirmed (type-safe)
                             let plan_file_path = plan_state.plan_file_path.clone();
                             if std::path::Path::new(&plan_file_path).exists() {
+                                let pf_path = plan_file_path.clone();
                                 let result = tokio::task::spawn_blocking(move || {
-                                    let path = std::path::Path::new(&plan_file_path);
-                                    let content = match std::fs::read_to_string(path) {
-                                        Ok(c) => c,
-                                        Err(e) => {
-                                            tracing::warn!(
-                                                plan_file = %plan_file_path,
-                                                error = %e,
-                                                "failed to read plan file"
-                                            );
-                                            return;
-                                        }
-                                    };
-                                    let updated =
-                                        content.replace("| 状态 | draft |", "| 状态 | confirmed |");
-                                    if updated == content {
-                                        tracing::warn!(
-                                            plan_file = %plan_file_path,
-                                            "plan file status replacement had no effect; \
-                                             pattern '| 状态 | draft |' not found"
-                                        );
-                                    }
-                                    if let Err(e) = std::fs::write(path, &updated) {
+                                    if let Err(e) = plan_file::update_plan_status(
+                                        &pf_path,
+                                        &PlanStatus::Confirmed,
+                                    ) {
                                         tracing::warn!(
                                             plan_file = %plan_file_path,
                                             error = %e,
@@ -360,6 +345,15 @@ impl ApprovalFlow {
                                         "spawn_blocking for plan file update panicked"
                                     );
                                 }
+                            }
+
+                            // Transition plan status: draft → confirmed
+                            if let Err(e) = plan_state.transition_status(PlanStatus::Confirmed) {
+                                tracing::warn!(
+                                    session_id = %session_id,
+                                    error = %e,
+                                    "failed to transition plan status to confirmed"
+                                );
                             }
 
                             // Update plan state: phase → FinalPlan

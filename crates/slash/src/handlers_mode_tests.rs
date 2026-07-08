@@ -1,10 +1,13 @@
-//! Unit tests for PlanModeHandler and ModeHandler.
+//! Unit tests for PlanModeHandler, ExecuteHandler, and mode parsing.
 
 use std::sync::Arc;
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
-use crate::handlers_mode::{ExecuteHandler, ModeHandler, PlanModeHandler};
+use crate::handlers_mode::{
+    parse_plan_path_arg, parse_plan_status_from_file, ExecuteHandler, ModeHandler, PlanModeHandler,
+};
+use closeclaw_common::plan_state::{PlanPath, PlanStatus};
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_gateway::session_manager::SessionManager;
 
@@ -33,8 +36,8 @@ fn make_session_manager() -> Arc<SessionManager> {
     };
     Arc::new(SessionManager::new(
         &gc,
-        None, // storage
-        None, // workspace_dir
+        None,
+        None,
         BootstrapMode::Full,
         ReasoningLevel::default(),
     ))
@@ -261,7 +264,6 @@ async fn test_mode_handler_no_args_queries_current_mode() {
                 text.contains("当前会话模式"),
                 "should report current mode, got: {text}"
             );
-            // Default mode is Normal
             assert!(
                 text.contains("normal"),
                 "default should be normal, got: {text}"
@@ -292,6 +294,71 @@ async fn test_mode_handler_no_args_no_session() {
     }
 }
 
+// ── parse_plan_path_arg tests ──────────────────────────────────────────────
+
+#[test]
+fn test_parse_plan_path_standard() {
+    let (path, title) = parse_plan_path_arg("--path standard 实现登录功能");
+    assert_eq!(path, Some(PlanPath::Standard));
+    assert_eq!(title, "实现登录功能");
+}
+
+#[test]
+fn test_parse_plan_path_interview() {
+    let (path, title) = parse_plan_path_arg("--path interview 优化性能");
+    assert_eq!(path, Some(PlanPath::Interview));
+    assert_eq!(title, "优化性能");
+}
+
+#[test]
+fn test_parse_plan_path_no_path_arg() {
+    let (path, title) = parse_plan_path_arg("实现新功能");
+    assert_eq!(path, None);
+    assert_eq!(title, "实现新功能");
+}
+
+#[test]
+fn test_parse_plan_path_only_standard() {
+    let (path, title) = parse_plan_path_arg("--path standard");
+    assert_eq!(path, Some(PlanPath::Standard));
+    assert_eq!(title, "");
+}
+
+#[test]
+fn test_parse_plan_path_only_interview() {
+    let (path, title) = parse_plan_path_arg("--path interview");
+    assert_eq!(path, Some(PlanPath::Interview));
+    assert_eq!(title, "");
+}
+
+#[test]
+fn test_parse_plan_path_invalid_value() {
+    let (path, title) = parse_plan_path_arg("--path invalid 任务标题");
+    assert_eq!(path, None);
+    assert_eq!(title, "任务标题");
+}
+
+#[test]
+fn test_parse_plan_path_no_value_after_path() {
+    let (path, title) = parse_plan_path_arg("--path  任务标题");
+    assert_eq!(path, None);
+    assert_eq!(title, "任务标题");
+}
+
+#[test]
+fn test_parse_plan_path_with_whitespace() {
+    let (path, title) = parse_plan_path_arg("  --path standard  优化性能  ");
+    assert_eq!(path, Some(PlanPath::Standard));
+    assert_eq!(title, "优化性能");
+}
+
+#[test]
+fn test_parse_plan_path_title_with_chinese() {
+    let (path, title) = parse_plan_path_arg("--path standard 修复登录页面的样式问题");
+    assert_eq!(path, Some(PlanPath::Standard));
+    assert_eq!(title, "修复登录页面的样式问题");
+}
+
 // ── ExecuteHandler tests ─────────────────────────────────────────────────
 
 fn make_session_manager_with_storage() -> Arc<SessionManager> {
@@ -311,7 +378,7 @@ fn make_session_manager_with_storage() -> Arc<SessionManager> {
     let sm = SessionManager::new(
         &gc,
         Some(storage),
-        None, // workspace_dir
+        None,
         BootstrapMode::Full,
         ReasoningLevel::default(),
     );
@@ -336,7 +403,6 @@ async fn create_session_with_plan_mode(sm: &SessionManager) -> String {
         .await
         .expect("session");
 
-    // Set session mode to Plan
     if let Some(conv) = sm.get_conversation_session(&sid).await {
         conv.write()
             .await
@@ -353,6 +419,26 @@ async fn save_plan_state(sm: &SessionManager, session_id: &str, plan_file_path: 
         session_id,
         PlanState {
             phase: PlanPhase::FinalPlan,
+            plan_file_path: plan_file_path.to_string(),
+            ..PlanState::new()
+        },
+    )
+    .await;
+}
+
+async fn save_plan_state_with_status(
+    sm: &SessionManager,
+    session_id: &str,
+    plan_file_path: &str,
+    status: PlanStatus,
+) {
+    use closeclaw_common::{PlanPhase, PlanState};
+
+    sm.set_plan_state(
+        session_id,
+        PlanState {
+            phase: PlanPhase::FinalPlan,
+            status,
             plan_file_path: plan_file_path.to_string(),
             ..PlanState::new()
         },
@@ -496,6 +582,167 @@ async fn test_execute_handler_plan_confirmed() {
 }
 
 #[tokio::test]
+async fn test_execute_handler_plan_confirmed_updates_to_executing() {
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let plan_file = tmp.path().join("test-plan.md");
+    fs::write(
+        &plan_file,
+        "# Test Plan\n\n| 字段 | 值 |\n| 状态 | confirmed |\n",
+    )
+    .unwrap();
+
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_plan_mode(&sm).await;
+    save_plan_state(&sm, &sid, plan_file.to_str().unwrap()).await;
+
+    let h = ExecuteHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    let _ = h.handle("", &ctx).await;
+
+    let content = fs::read_to_string(&plan_file).unwrap();
+    assert!(
+        content.contains("| 状态 | executing |"),
+        "plan file should be updated to executing status, got: {content}"
+    );
+}
+
+#[test]
+fn test_update_plan_status_direct() {
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let plan_file = tmp.path().join("test-plan.md");
+    fs::write(
+        &plan_file,
+        "# Test Plan\n\n| 字段 | 值 |\n| 状态 | draft |\n",
+    )
+    .unwrap();
+
+    let result = closeclaw_session::plan_file::update_plan_status(
+        plan_file.to_str().unwrap(),
+        &closeclaw_common::PlanStatus::Confirmed,
+    );
+    assert!(
+        result.is_ok(),
+        "update_plan_status should succeed: {:?}",
+        result
+    );
+
+    let content = fs::read_to_string(&plan_file).unwrap();
+    assert!(
+        content.contains("| 状态 | confirmed |"),
+        "plan file should show confirmed, got: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_execute_handler_plan_state_with_confirmed_status() {
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let plan_file = tmp.path().join("test-plan.md");
+    fs::write(
+        &plan_file,
+        "# Test Plan\n\n| 字段 | 值 |\n| 状态 | draft |\n",
+    )
+    .unwrap();
+
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_plan_mode(&sm).await;
+    save_plan_state_with_status(
+        &sm,
+        &sid,
+        plan_file.to_str().unwrap(),
+        PlanStatus::Confirmed,
+    )
+    .await;
+
+    let h = ExecuteHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::SetMode { mode, .. } => {
+            assert_eq!(
+                mode, "auto",
+                "should switch to auto mode based on in-memory status"
+            );
+        }
+        other => panic!("expected SetMode, got {other:?}"),
+    }
+}
+
+// ── parse_plan_status_from_file tests ─────────────────────────────────────
+
+#[test]
+fn test_parse_plan_status_draft() {
+    let content = "| 状态 | draft |";
+    assert_eq!(
+        parse_plan_status_from_file(content),
+        Some(PlanStatus::Draft)
+    );
+}
+
+#[test]
+fn test_parse_plan_status_confirmed() {
+    let content = "| 状态 | confirmed |";
+    assert_eq!(
+        parse_plan_status_from_file(content),
+        Some(PlanStatus::Confirmed)
+    );
+}
+
+#[test]
+fn test_parse_plan_status_executing() {
+    let content = "| 状态 | executing |";
+    assert_eq!(
+        parse_plan_status_from_file(content),
+        Some(PlanStatus::Executing)
+    );
+}
+
+#[test]
+fn test_parse_plan_status_paused() {
+    let content = "| 状态 | paused |";
+    assert_eq!(
+        parse_plan_status_from_file(content),
+        Some(PlanStatus::Paused)
+    );
+}
+
+#[test]
+fn test_parse_plan_status_completed() {
+    let content = "| 状态 | completed |";
+    assert_eq!(
+        parse_plan_status_from_file(content),
+        Some(PlanStatus::Completed)
+    );
+}
+
+#[test]
+fn test_parse_plan_status_not_found() {
+    let content = "| 字段 | 值 |\n| 状态 |";
+    assert_eq!(parse_plan_status_from_file(content), None);
+}
+
+#[test]
+fn test_parse_plan_status_unknown_value() {
+    let content = "| 状态 | unknown |";
+    assert_eq!(parse_plan_status_from_file(content), None);
+}
+
+#[test]
+fn test_parse_plan_status_in_full_plan() {
+    let content = "# Test Plan\n\n| 字段 | 值 |\n| 状态 | confirmed |\n| 创建时间 | 2025-01-01 |\n";
+    assert_eq!(
+        parse_plan_status_from_file(content),
+        Some(PlanStatus::Confirmed)
+    );
+}
+
+#[tokio::test]
 async fn test_execute_handler_plan_file_not_readable() {
     let sm = make_session_manager_with_storage();
     let sid = create_session_with_plan_mode(&sm).await;
@@ -509,6 +756,126 @@ async fn test_execute_handler_plan_file_not_readable() {
             assert!(
                 text.contains("无法读取 plan 文件"),
                 "should mention file read error, got: {text}"
+            );
+        }
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+// ── ExecuteHandler file fallback tests ───────────────────────────────────
+
+#[tokio::test]
+async fn test_execute_handler_falls_back_to_file_status() {
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let plan_file = tmp.path().join("test-plan.md");
+    fs::write(
+        &plan_file,
+        "# Test Plan\n\n| 字段 | 值 |\n| 状态 | confirmed |\n",
+    )
+    .unwrap();
+
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_plan_mode(&sm).await;
+    save_plan_state(&sm, &sid, plan_file.to_str().unwrap()).await;
+
+    let h = ExecuteHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::SetMode { mode, .. } => {
+            assert_eq!(
+                mode, "auto",
+                "should fall back to file status and switch to auto"
+            );
+        }
+        other => panic!("expected SetMode, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_execute_handler_uses_in_memory_status_when_non_default() {
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let plan_file = tmp.path().join("test-plan.md");
+    fs::write(
+        &plan_file,
+        "# Test Plan\n\n| 字段 | 值 |\n| 状态 | draft |\n",
+    )
+    .unwrap();
+
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_plan_mode(&sm).await;
+    save_plan_state_with_status(
+        &sm,
+        &sid,
+        plan_file.to_str().unwrap(),
+        PlanStatus::Confirmed,
+    )
+    .await;
+
+    let h = ExecuteHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::SetMode { mode, .. } => {
+            assert_eq!(mode, "auto", "should use in-memory Confirmed status");
+        }
+        other => panic!("expected SetMode, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_execute_handler_file_no_status_line() {
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let plan_file = tmp.path().join("test-plan.md");
+    fs::write(&plan_file, "# Test Plan\n\nNo status field here.\n").unwrap();
+
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_plan_mode(&sm).await;
+    save_plan_state(&sm, &sid, plan_file.to_str().unwrap()).await;
+
+    let h = ExecuteHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(text) => {
+            assert!(
+                text.contains("未找到有效的状态字段"),
+                "should mention missing status field, got: {text}"
+            );
+        }
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_execute_handler_empty_plan_file_path() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_plan_mode(&sm).await;
+    sm.set_plan_state(
+        &sid,
+        closeclaw_common::PlanState {
+            phase: closeclaw_common::PlanPhase::FinalPlan,
+            status: PlanStatus::Confirmed,
+            plan_file_path: String::new(),
+            ..closeclaw_common::PlanState::new()
+        },
+    )
+    .await;
+
+    let h = ExecuteHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(text) => {
+            assert!(
+                text.contains("没有关联的 plan 文件"),
+                "should mention no plan file, got: {text}"
             );
         }
         other => panic!("expected Reply, got {other:?}"),

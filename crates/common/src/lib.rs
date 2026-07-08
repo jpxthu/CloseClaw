@@ -17,6 +17,8 @@ pub mod permission_check;
 pub mod plan_state;
 #[cfg(test)]
 pub mod plan_state_tests;
+#[cfg(test)]
+pub mod plan_status_tests;
 pub mod processor;
 #[cfg(test)]
 pub mod processor_tests;
@@ -63,8 +65,8 @@ pub use middleware::{MiddlewareError, OutboundMiddleware};
 pub use notifier::{NoopNotifier, PlanStateNotifier};
 pub use permission_check::{ExecutionPermissionCheck, PermissionDenied};
 pub use plan_state::{
-    DefaultPlanStateWriter, ExecutionStep, ExecutionStepStatus, PlanPhase, PlanState,
-    PlanStateWriter, TransitionError,
+    DefaultPlanStateWriter, ExecutionStep, ExecutionStepStatus, PlanPath, PlanPhase, PlanState,
+    PlanStateWriter, PlanStatus, StatusTransitionError, TransitionError,
 };
 pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
