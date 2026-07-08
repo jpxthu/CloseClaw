@@ -385,10 +385,46 @@ impl WorkdirHandler {
         SlashResult::Reply(cs.workdir().display().to_string())
     }
 
-    /// Handle `/git <args>`: placeholder. Real routing through the permission
-    /// engine arrives in a follow-up step.
-    fn handle_git(&self, _args: &str) -> SlashResult {
-        SlashResult::Reply("git 指令即将支持".to_owned())
+    /// Handle `/git <args>`: route subcommands and return git status.
+    ///
+    /// Supported subcommands:
+    /// - `status` (default): show branch and uncommitted changes.
+    ///
+    /// Returns an error for unknown subcommands.
+    async fn handle_git(&self, args: &str, ctx: &SlashContext) -> SlashResult {
+        let sub = Self::parse_git_subcommand(args);
+        match sub.as_deref() {
+            Some("status") | None => self.git_status(ctx).await,
+            Some(unknown) => {
+                SlashResult::Reply(format!("未知子指令：{unknown}。/git 支持：status"))
+            }
+        }
+    }
+
+    /// Parse the first token from `args` as a subcommand.
+    fn parse_git_subcommand(args: &str) -> Option<String> {
+        let token = args.split_whitespace().next()?;
+        Some(token.to_owned())
+    }
+
+    /// `/git status` implementation: read session workdir, call
+    /// [`build_git_status_for`], format the reply.
+    async fn git_status(&self, ctx: &SlashContext) -> SlashResult {
+        let Some(conv) = self
+            .session_manager
+            .get_conversation_session(&ctx.session_id)
+            .await
+        else {
+            return SlashResult::Reply("当前会话未激活".to_owned());
+        };
+        let path_str = {
+            let cs = conv.read().await;
+            cs.workdir().to_string_lossy().to_string()
+        };
+        match build_git_status_for(&path_str) {
+            Some(status) => SlashResult::Reply(status),
+            None => SlashResult::Reply("当前目录不是 git 仓库".to_owned()),
+        }
     }
 }
 
@@ -410,7 +446,7 @@ impl SlashHandler for WorkdirHandler {
         match ctx.command.as_str() {
             "cd" => self.handle_cd(args, ctx).await,
             "pwd" => self.handle_pwd(ctx).await,
-            "git" => self.handle_git(args),
+            "git" => self.handle_git(args, ctx).await,
             // WorkdirHandler should never be invoked with an unknown command;
             // the dispatcher only routes registered commands to us.
             other => SlashResult::Reply(format!(
