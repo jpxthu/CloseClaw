@@ -9,6 +9,7 @@ use crate::providers::skills::SkillsFragmentProvider;
 use crate::providers::tools::ToolsFragmentProvider;
 use crate::sections::{get_cached_section, put_cached_section, Section};
 use closeclaw_agent::registry::AgentRegistry;
+use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::BootstrapMode;
 use closeclaw_skills::DiskSkillRegistry;
 use std::path::Path;
@@ -37,6 +38,7 @@ pub struct PromptBuilder {
     agent_tools: Option<Vec<String>>,
     agent_disallowed_tools: Option<Vec<String>>,
     agent_skills: Option<Vec<String>>,
+    session_mode: Option<SessionMode>,
 }
 
 impl PromptBuilder {
@@ -47,6 +49,7 @@ impl PromptBuilder {
         agent_tools: Option<Vec<String>>,
         agent_disallowed_tools: Option<Vec<String>>,
         agent_skills: Option<Vec<String>>,
+        session_mode: Option<SessionMode>,
     ) -> Self {
         Self {
             tool_registry,
@@ -54,6 +57,7 @@ impl PromptBuilder {
             agent_tools,
             agent_disallowed_tools,
             agent_skills,
+            session_mode,
         }
     }
 
@@ -70,6 +74,7 @@ impl PromptBuilder {
                 Arc::clone(&self.tool_registry),
                 self.agent_tools.clone(),
                 self.agent_disallowed_tools.clone(),
+                self.session_mode,
             )),
             Box::new(SkillsFragmentProvider::new(
                 Arc::clone(&self.skill_registry),
@@ -218,6 +223,8 @@ pub struct WorkspaceBuildConfig {
     /// Bootstrap mode override — when `Some`, overrides the mode queried
     /// from `AgentRegistry`.
     pub bootstrap_mode_override: Option<BootstrapMode>,
+    /// Session mode for mode-aware tool filtering.
+    pub session_mode: Option<SessionMode>,
 }
 
 // --- Private helpers -------------------------------------------------------
@@ -263,6 +270,7 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
         config.agent_tools,
         config.agent_disallowed_tools,
         config.agent_skills,
+        config.session_mode,
     );
 
     let static_layer = builder.build(&ctx).await;
@@ -383,6 +391,7 @@ mod tests {
             append_section: None,
             agent_registry: None,
             bootstrap_mode_override: None,
+            session_mode: None,
         };
         assert!(config.agent_registry.is_none());
     }
@@ -421,6 +430,7 @@ mod tests {
             append_section: None,
             agent_registry: Some(agent_reg),
             bootstrap_mode_override: None,
+            session_mode: None,
         };
         assert!(config.agent_registry.is_some());
         assert_eq!(config.agent_id.as_deref(), Some("test-agent"));
@@ -495,7 +505,7 @@ mod tests {
     fn test_prompt_builder_new() {
         let tool_reg = Arc::new(ToolRegistry::new());
         let skill_reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(vec![]))));
-        let builder = PromptBuilder::new(tool_reg, skill_reg, None, None, None);
+        let builder = PromptBuilder::new(tool_reg, skill_reg, None, None, None, None);
         // Just verify construction succeeds.
         assert!(builder.agent_tools.is_none());
     }
@@ -504,7 +514,7 @@ mod tests {
     async fn test_prompt_builder_build_fallback_default() {
         let tool_reg = Arc::new(ToolRegistry::new());
         let skill_reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(vec![]))));
-        let builder = PromptBuilder::new(tool_reg, skill_reg, None, None, None);
+        let builder = PromptBuilder::new(tool_reg, skill_reg, None, None, None, None);
 
         // No workdir → BootstrapFragmentProvider returns None
         // Empty tool registry → ToolsFragmentProvider returns None
@@ -524,7 +534,7 @@ mod tests {
 
         let tool_reg = Arc::new(ToolRegistry::new());
         let skill_reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(vec![]))));
-        let builder = PromptBuilder::new(tool_reg, skill_reg, None, None, None);
+        let builder = PromptBuilder::new(tool_reg, skill_reg, None, None, None, None);
 
         let ctx = FragmentContext {
             workdir: tmp.path().to_path_buf(),
@@ -575,6 +585,7 @@ mod tests {
             append_section: None,
             agent_registry: Some(agent_reg),
             bootstrap_mode_override: Some(BootstrapMode::Minimal),
+            session_mode: None,
         };
 
         let result = build_from_workspace(tmp.path(), config).await;
@@ -621,6 +632,7 @@ mod tests {
             append_section: None,
             agent_registry: Some(agent_reg),
             bootstrap_mode_override: None,
+            session_mode: None,
         };
 
         let result = build_from_workspace(tmp.path(), config).await;

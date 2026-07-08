@@ -12,7 +12,7 @@ mod tests {
     use crate::recovery::{
         parse_progress_call_record, rebuild_plan_state_from_calls,
         rebuild_progress_summary_from_calls, scan_progress_tool_calls, SessionRecoveryService,
-        PLAN_TASKS_APPEND_PREFIX, PROGRESS_HISTORY_APPEND_PREFIX,
+        APPROVAL_HISTORY_PREFIX, PLAN_REFERENCES_PREFIX,
     };
     use crate::storage::memory::MemoryStorage;
     use closeclaw_common::{ContentBlock, ExecutionStepStatus};
@@ -58,6 +58,8 @@ mod tests {
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
             plan_state: None,
             progress_tool_calls: Vec::new(),
+            approval_tool_calls: Vec::new(),
+            plan_references: Vec::new(),
             session_mode: SessionMode::default(),
         }
     }
@@ -229,58 +231,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_inject_progress_from_tool_calls() {
+    async fn test_inject_plan_references_normal() {
         let storage = Arc::new(MemoryStorage::new());
-        // Normal case: layer 4 injects progress history
-        let mut cp1 = create_test_checkpoint("progress-fallback");
+        // Normal case: layer 4 injects plan references
+        let mut cp1 = create_test_checkpoint("plan-refs-fallback");
         cp1.plan_state = None;
-        cp1.progress_tool_calls = vec![
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::InProgress,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::Completed,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 1,
-                status: ExecutionStepStatus::InProgress,
-                summary: None,
-                error_message: None,
-            },
+        cp1.plan_references = vec![
+            "Plan: implement user auth".to_string(),
+            "File: src/auth.rs".to_string(),
         ];
         storage.save_checkpoint(&cp1).await.unwrap();
         // Skipped when plan_state exists
         let mut cp2 = create_test_checkpoint("has-plan-state");
         cp2.plan_state = Some(closeclaw_common::PlanState::default());
-        cp2.progress_tool_calls = vec![ProgressToolCallRecord {
-            step_index: 0,
-            status: ExecutionStepStatus::Completed,
-            summary: None,
-            error_message: None,
-        }];
+        cp2.plan_references = vec!["ignored".to_string()];
         storage.save_checkpoint(&cp2).await.unwrap();
 
         let service = SessionRecoveryService::new(Arc::clone(&storage));
         let _report = service.recover().await.unwrap();
-        // progress-fallback: should have progress history injected
+
+        // plan-refs-fallback: should have plan references injected
         let loaded1 = storage
-            .load_checkpoint("progress-fallback")
+            .load_checkpoint("plan-refs-fallback")
             .await
             .unwrap()
             .unwrap();
         let pa = loaded1
             .system_appends
             .iter()
-            .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX));
-        assert!(pa.is_some(), "progress history should be injected");
-        assert!(pa.unwrap().contains("Step 1/2: completed"));
-        // has-plan-state: should NOT have progress history (layer 1 available)
+            .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
+        assert!(pa.is_some(), "plan references should be injected");
+        assert!(pa.unwrap().contains("implement user auth"));
+        // has-plan-state: should NOT have plan references (layer 1 available)
         let loaded2 = storage
             .load_checkpoint("has-plan-state")
             .await
@@ -289,7 +271,7 @@ mod tests {
         let pa2 = loaded2
             .system_appends
             .iter()
-            .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX));
+            .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
         assert!(
             pa2.is_none(),
             "layer 4 should not inject when plan_state exists"
@@ -305,12 +287,7 @@ mod tests {
         cp.plan_state = None;
         cp.system_appends
             .push(format!("{}Step 1 done", PROGRESS_APPEND_PREFIX));
-        cp.progress_tool_calls = vec![ProgressToolCallRecord {
-            step_index: 0,
-            status: ExecutionStepStatus::Completed,
-            summary: None,
-            error_message: None,
-        }];
+        cp.plan_references = vec!["some ref".to_string()];
         storage.save_checkpoint(&cp).await.unwrap();
 
         let service = SessionRecoveryService::new(Arc::clone(&storage));
@@ -324,7 +301,7 @@ mod tests {
         let history = loaded
             .system_appends
             .iter()
-            .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX));
+            .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
         assert!(
             history.is_none(),
             "layer 4 should NOT inject when layer 2 progress summary exists"
@@ -348,25 +325,9 @@ mod tests {
         let mut cp = create_test_checkpoint("no-progress-summary");
         cp.plan_state = None;
         // system_appends is empty — no layer 2 or layer 3 entries
-        cp.progress_tool_calls = vec![
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::InProgress,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::Completed,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 1,
-                status: ExecutionStepStatus::InProgress,
-                summary: None,
-                error_message: None,
-            },
+        cp.plan_references = vec![
+            "Plan: implement feature".to_string(),
+            "File: src/lib.rs".to_string(),
         ];
         storage.save_checkpoint(&cp).await.unwrap();
 
@@ -381,20 +342,20 @@ mod tests {
         let history = loaded
             .system_appends
             .iter()
-            .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX));
+            .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
         assert!(
             history.is_some(),
             "layer 4 should trigger when no layer 2 progress summary exists"
         );
         assert!(
-            history.unwrap().contains("Step 1/2: completed"),
-            "layer 4 should inject rebuilt progress summary"
+            history.unwrap().contains("implement feature"),
+            "layer 4 should inject plan references"
         );
     }
 
     #[tokio::test]
     async fn test_layer3_hits_before_layer2_boundary() {
-        // Boundary: both PROGRESS_APPEND_PREFIX and PLAN_TASKS_APPEND_PREFIX
+        // Boundary: both PROGRESS_APPEND_PREFIX and APPROVAL_HISTORY_PREFIX
         // present → layer 3 check hits first (returns early before layer 2)
         let storage = Arc::new(MemoryStorage::new());
         let mut cp = create_test_checkpoint("both-layers-2-and-3");
@@ -402,21 +363,8 @@ mod tests {
         cp.system_appends
             .push(format!("{}Step 1 done", PROGRESS_APPEND_PREFIX));
         cp.system_appends
-            .push(format!("{}task content", PLAN_TASKS_APPEND_PREFIX));
-        cp.progress_tool_calls = vec![
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::InProgress,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::Completed,
-                summary: None,
-                error_message: None,
-            },
-        ];
+            .push(format!("{}approval data", APPROVAL_HISTORY_PREFIX));
+        cp.plan_references = vec!["ref 1".to_string()];
         storage.save_checkpoint(&cp).await.unwrap();
 
         let service = SessionRecoveryService::new(Arc::clone(&storage));
@@ -431,7 +379,7 @@ mod tests {
         let history = loaded
             .system_appends
             .iter()
-            .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX));
+            .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
         assert!(
             history.is_none(),
             "layer 4 should NOT inject when both layer 2 and layer 3 exist"
@@ -448,7 +396,7 @@ mod tests {
             loaded
                 .system_appends
                 .iter()
-                .any(|s| s.starts_with(PLAN_TASKS_APPEND_PREFIX)),
+                .any(|s| s.starts_with(APPROVAL_HISTORY_PREFIX)),
             "layer 3 entry should remain"
         );
     }
@@ -464,44 +412,15 @@ mod tests {
         cp_a.plan_state = None;
         cp_a.system_appends
             .push(format!("{}Step 0 done", PROGRESS_APPEND_PREFIX));
-        cp_a.progress_tool_calls = vec![
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::InProgress,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::Completed,
-                summary: None,
-                error_message: None,
-            },
-        ];
+        cp_a.plan_references = vec!["ref a".to_string()];
         storage.save_checkpoint(&cp_a).await.unwrap();
 
         // Checkpoint B: no layer 2 progress summary → layer 4 triggers
         let mut cp_b = create_test_checkpoint("transition-without-layer2");
         cp_b.plan_state = None;
-        cp_b.progress_tool_calls = vec![
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::InProgress,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::Completed,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 1,
-                status: ExecutionStepStatus::InProgress,
-                summary: None,
-                error_message: None,
-            },
+        cp_b.plan_references = vec![
+            "Plan: feature X".to_string(),
+            "File: src/main.rs".to_string(),
         ];
         storage.save_checkpoint(&cp_b).await.unwrap();
 
@@ -518,7 +437,7 @@ mod tests {
             loaded_a
                 .system_appends
                 .iter()
-                .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX))
+                .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX))
                 .is_none(),
             "layer 4 should NOT inject when layer 2 exists"
         );
@@ -533,7 +452,7 @@ mod tests {
             loaded_b
                 .system_appends
                 .iter()
-                .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX))
+                .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX))
                 .is_some(),
             "layer 4 SHOULD inject when layer 2 is absent"
         );

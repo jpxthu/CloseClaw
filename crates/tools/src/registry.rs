@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use crate::{PromptGenerationContext, Tool, ToolContext, ToolError, ToolSummary};
+use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 
 // Re-export for tests that `use super::*`
@@ -76,6 +77,30 @@ impl Default for ToolRegistryImpl {
         Self::new()
     }
 }
+
+/// Plan Mode tool visibility predicate.
+///
+/// In Plan Mode, only read-only tools and plan-specific tools are visible.
+/// Write-capable tools (Write, Edit, Bash, Git commit/push/diff, etc.) are
+/// hidden from the agent's tool list. Plan-specific tools (ProgressTool,
+/// PlanApproval) remain visible for plan tracking and approval.
+///
+/// Tools that are `is_read_only` are always visible.
+/// Tools in the `PLAN_MODE_ALWAYS_VISIBLE` set are always visible.
+fn plan_mode_tool_visible(tool: &Arc<dyn Tool>) -> bool {
+    let flags = tool.flags();
+    if flags.is_read_only {
+        return true;
+    }
+    PLAN_MODE_ALWAYS_VISIBLE.contains(&tool.name())
+}
+
+/// Tools that remain visible in Plan Mode even though they are not read-only.
+const PLAN_MODE_ALWAYS_VISIBLE: &[&str] = &[
+    "sessions_spawn", // spawn Explore/Plan agents
+    "progress",       // plan progress tracking
+    "plan_approval",  // approval gate (exit from Plan Mode)
+];
 
 impl ToolRegistryImpl {
     /// Set the AgentToolsConfigQuery reference for direct config queries.
@@ -240,6 +265,7 @@ impl ToolRegistryImpl {
                         available_tool_names: Vec::new(),
                         tools: None,
                         disallowed_tools: None,
+                        session_mode: None,
                     },
                 )
             })
@@ -356,9 +382,10 @@ impl ToolRegistryImpl {
             .as_deref()
             .filter(|t| t != &["*"] && !t.is_empty());
         let disallowed: &[String] = ctx.disallowed_tools.as_deref().unwrap_or(&[]);
+        let is_plan_mode = ctx.session_mode == Some(SessionMode::Plan);
 
         // Collect ToolInfo from registered tools, filtered by
-        // the agent's tools / disallowed_tools config.
+        // the agent's tools / disallowed_tools config and session mode.
         let tool_infos: Vec<ToolInfo> = guard
             .values()
             .filter(|t| {
@@ -368,7 +395,15 @@ impl ToolRegistryImpl {
                         return false;
                     }
                 }
-                !disallowed.iter().any(|n| n == name)
+                if disallowed.iter().any(|n| n == name) {
+                    return false;
+                }
+                // Plan Mode: filter out non-read-only tools
+                // except plan-specific tools.
+                if is_plan_mode && !plan_mode_tool_visible(t) {
+                    return false;
+                }
+                true
             })
             .map(|t| ToolInfo::from_tool(t, ctx))
             .collect();
