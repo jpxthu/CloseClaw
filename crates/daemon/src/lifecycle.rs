@@ -38,6 +38,7 @@ impl Daemon {
             &session_manager,
             &permission_engine,
             &config_manager,
+            config_dir,
         )
         .await;
         let (sweeper_tx, dreaming_tx, plan_archive_tx, config_watcher) =

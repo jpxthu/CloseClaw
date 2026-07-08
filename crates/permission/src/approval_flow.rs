@@ -22,6 +22,7 @@
 //!         └─ lookup session_id → queue.deny() → spawn push "已拒绝" to session
 //! ```
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::engine::engine_risk::RiskLevel;
@@ -99,6 +100,8 @@ pub struct ApprovalFlow {
     runtime_handle: tokio::runtime::Handle,
     /// How heartbeat operations are handled when denied.
     heartbeat_mode: HeartbeatApprovalMode,
+    /// Root config directory for agent permissions persistence.
+    config_dir: PathBuf,
 }
 
 impl std::fmt::Debug for ApprovalFlow {
@@ -118,11 +121,13 @@ impl ApprovalFlow {
     /// * `on_notify_owner` - Callback to notify the owner about pending approvals.
     /// * `runtime_handle` - Tokio runtime handle for spawning async tasks.
     /// * `heartbeat_mode` - How heartbeat operations are handled when denied.
+    /// * `config_dir` - Root config directory for agent permissions persistence.
     pub fn new(
         session_manager: Arc<dyn SessionLookup>,
         on_notify_owner: Arc<dyn Fn(ApprovalNotification) + Send + Sync>,
         runtime_handle: tokio::runtime::Handle,
         heartbeat_mode: HeartbeatApprovalMode,
+        config_dir: PathBuf,
     ) -> Self {
         Self {
             queue: ApprovalQueue::new(),
@@ -130,6 +135,7 @@ impl ApprovalFlow {
             on_notify_owner,
             runtime_handle,
             heartbeat_mode,
+            config_dir,
         }
     }
 
@@ -290,16 +296,40 @@ impl ApprovalFlow {
         request_id: &str,
         mode: ApprovalMode,
     ) -> Result<bool, RejectWhitelistReason> {
-        // Extract session_id BEFORE resolving (entry is removed on resolve).
-        let session_resume = self
-            .queue
-            .get_pending(request_id)
-            .map(|p| p.session_resume.clone());
+        // Extract details BEFORE resolving (entry is removed on resolve).
+        let pending_info = self.queue.get_pending(request_id).map(|p| {
+            (
+                p.session_resume.clone(),
+                p.caller.clone(),
+                p.request.clone(),
+            )
+        });
 
         let result = self.queue.approve(request_id, mode)?;
 
+        // Whitelist persistence: best-effort write after approve succeeds.
+        if result && mode == ApprovalMode::WithWhitelist {
+            if let Some((_, caller, request)) = &pending_info {
+                let name = format!("whitelist-{}", chrono::Utc::now().timestamp_millis());
+                if let Some(rule) = crate::whitelist::build_whitelist_rule(caller, request, &name) {
+                    if let Err(e) = crate::whitelist::append_whitelist_rule(
+                        &self.config_dir,
+                        &caller.agent,
+                        rule,
+                    ) {
+                        tracing::warn!(
+                            request_id = %request_id,
+                            agent = %caller.agent,
+                            error = %e,
+                            "failed to persist whitelist rule (best-effort)"
+                        );
+                    }
+                }
+            }
+        }
+
         if result {
-            if let Some(session_id) = session_resume {
+            if let Some((session_id, _, _)) = pending_info {
                 let sm = Arc::clone(&self.session_manager);
                 let handle = self.runtime_handle.clone();
                 let rid = request_id.to_string();

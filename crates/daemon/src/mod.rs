@@ -318,12 +318,14 @@ impl Daemon {
         session_manager: &Arc<SessionManager>,
         permission_engine: &Arc<PermissionEngine>,
         config_manager: &Arc<closeclaw_config::ConfigManager>,
+        config_dir: &str,
     ) -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
         let approval_flow = Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
             Arc::clone(session_manager) as Arc<dyn SessionLookup>,
             Arc::new(|_| {}),
             tokio::runtime::Handle::current(),
             HeartbeatApprovalMode::default(),
+            std::path::PathBuf::from(config_dir),
         )));
         gateway.set_approval_flow(Arc::clone(&approval_flow)).await;
         let _builtin_skills = builtin_skills_with_engine_and_approval_flow(

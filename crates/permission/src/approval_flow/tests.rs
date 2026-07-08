@@ -51,6 +51,7 @@ fn test_approval_flow(
         }),
         rt.handle().clone(),
         HeartbeatApprovalMode::default(),
+        std::env::temp_dir(),
     )
 }
 
@@ -205,6 +206,7 @@ fn test_heartbeat_notify_returns_none_and_notifies() {
         }),
         rt.handle().clone(),
         HeartbeatApprovalMode::Notify,
+        std::env::temp_dir(),
     );
 
     let caller = test_caller();
@@ -229,6 +231,7 @@ fn test_heartbeat_ask_enqueues_and_notifies() {
         }),
         rt.handle().clone(),
         HeartbeatApprovalMode::Ask,
+        std::env::temp_dir(),
     );
 
     let caller = test_caller();
@@ -253,6 +256,7 @@ fn test_heartbeat_ask_dedup() {
         }),
         rt.handle().clone(),
         HeartbeatApprovalMode::Ask,
+        std::env::temp_dir(),
     );
 
     let caller = test_caller();
@@ -291,6 +295,7 @@ fn test_non_heartbeat_unaffected_by_heartbeat_mode() {
             }),
             rt.handle().clone(),
             mode,
+            std::env::temp_dir(),
         );
 
         let result = flow.submit_denial(&caller, &request, RiskLevel::Low, "session_1", false);
@@ -317,6 +322,7 @@ fn test_set_heartbeat_mode_runtime_switch() {
         }),
         rt.handle().clone(),
         HeartbeatApprovalMode::Skip,
+        std::env::temp_dir(),
     );
 
     let caller = test_caller();

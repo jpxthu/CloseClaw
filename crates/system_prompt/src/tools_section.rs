@@ -112,6 +112,7 @@ mod tests {
             Arc::new(|_| {}),
             tokio::runtime::Handle::current(),
             HeartbeatApprovalMode::default(),
+            std::env::temp_dir(),
         )))
     }
 

@@ -971,6 +971,7 @@ mod tests {
             Arc::new(|_| {}),
             tokio::runtime::Handle::current(),
             HeartbeatApprovalMode::default(),
+            std::env::temp_dir(),
         )));
         let mut flow_guard = flow.lock().await;
         let request_id = flow_guard

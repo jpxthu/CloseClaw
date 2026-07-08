@@ -106,6 +106,7 @@ fn make_approval_flow() -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
         Arc::new(|_| {}),
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
+        std::env::temp_dir(),
     )))
 }
 
