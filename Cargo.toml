@@ -89,6 +89,7 @@ closeclaw-daemon = { path = "crates/daemon" }
 proptest = "=1.4"
 tempfile = "3.10"
 serial_test = "3.4"
+filetime = "0.2"
 mockito = "1.2"
 rusqlite = { version = "0.31", features = ["bundled"] }
 sha2 = "0.10"
