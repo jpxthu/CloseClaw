@@ -357,7 +357,7 @@ async fn test_workdir_handler_pwd_and_git() {
     ctx2.session_id = sid;
     ctx2.command = "git".to_owned();
     match h.handle("status", &ctx2).await {
-        SlashResult::Reply(t) => assert!(t.contains("git 指令即将支持"), "got: {t}"),
+        SlashResult::Reply(t) => assert!(t.contains("当前目录不是 git 仓库"), "got: {t}"),
         _ => panic!("expected Reply"),
     }
 }
