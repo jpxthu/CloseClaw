@@ -374,14 +374,32 @@ impl ApprovalFlow {
                     // 2. Check if there's an active plan and switch to Auto Mode
                     if let Some(mut plan_state) = sm.get_plan_state(&session_id).await {
                         if !plan_state.plan_file_path.is_empty() {
-                            // Update plan file: draft → confirmed (type-safe)
+                            // Transition plan status: draft → confirmed
+                            if let Err(e) = plan_state.transition_status(PlanStatus::Confirmed) {
+                                tracing::warn!(
+                                    session_id = %session_id,
+                                    error = %e,
+                                    "failed to transition plan status to confirmed"
+                                );
+                            }
+
+                            // Transition plan status: confirmed → executing
+                            if let Err(e) = plan_state.transition_status(PlanStatus::Executing) {
+                                tracing::warn!(
+                                    session_id = %session_id,
+                                    error = %e,
+                                    "failed to transition plan status to executing"
+                                );
+                            }
+
+                            // Update plan file: confirmed → executing (type-safe)
                             let plan_file_path = plan_state.plan_file_path.clone();
                             if std::path::Path::new(&plan_file_path).exists() {
                                 let pf_path = plan_file_path.clone();
                                 let result = tokio::task::spawn_blocking(move || {
                                     if let Err(e) = plan_file::update_plan_status(
                                         &pf_path,
-                                        &PlanStatus::Confirmed,
+                                        &PlanStatus::Executing,
                                     ) {
                                         tracing::warn!(
                                             plan_file = %plan_file_path,
@@ -396,15 +414,6 @@ impl ApprovalFlow {
                                         "spawn_blocking for plan file update panicked"
                                     );
                                 }
-                            }
-
-                            // Transition plan status: draft → confirmed
-                            if let Err(e) = plan_state.transition_status(PlanStatus::Confirmed) {
-                                tracing::warn!(
-                                    session_id = %session_id,
-                                    error = %e,
-                                    "failed to transition plan status to confirmed"
-                                );
                             }
 
                             // Update plan state: phase → FinalPlan
