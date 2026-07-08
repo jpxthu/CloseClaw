@@ -343,31 +343,38 @@ async fn check_permission_and_route(
     } else {
         perm.evaluate(request, None)
     };
-    if let PermissionResponse::Denied {
-        reason, risk_level, ..
-    } = response
-    {
-        let caller = Caller {
-            user_id: String::new(),
-            agent: ctx.agent_id.clone(),
-            creator_id: String::new(),
-        };
-        let body = PermissionRequestBody::ToolCall {
-            agent: ctx.agent_id.clone(),
-            skill: "bash".to_string(),
-            method: "call".to_string(),
-        };
-        let session_id = ctx.session_id.as_deref().unwrap_or("");
-        let result = route_denial_to_approval(
-            &caller,
-            &body,
+    match response {
+        PermissionResponse::Denied {
+            reason, risk_level, ..
+        }
+        | PermissionResponse::ApprovalRequired {
+            operation_desc: reason,
             risk_level,
-            session_id,
-            approval_flow,
-            reason,
-        )
-        .await?;
-        return Ok(Some(result));
+            ..
+        } => {
+            let caller = Caller {
+                user_id: String::new(),
+                agent: ctx.agent_id.clone(),
+                creator_id: String::new(),
+            };
+            let body = PermissionRequestBody::ToolCall {
+                agent: ctx.agent_id.clone(),
+                skill: "bash".to_string(),
+                method: "call".to_string(),
+            };
+            let session_id = ctx.session_id.as_deref().unwrap_or("");
+            let result = route_denial_to_approval(
+                &caller,
+                &body,
+                risk_level,
+                session_id,
+                approval_flow,
+                reason,
+            )
+            .await?;
+            return Ok(Some(result));
+        }
+        _ => {}
     }
     Ok(None)
 }
