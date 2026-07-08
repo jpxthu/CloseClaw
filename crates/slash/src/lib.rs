@@ -30,7 +30,6 @@ mod handlers_tests_legacy;
 mod handlers_tests_system;
 
 #[cfg(test)]
-#[cfg(test)]
 mod handlers_mode_tests;
 #[cfg(test)]
 mod pause_handler_tests;

@@ -283,10 +283,14 @@ fn test_update_plan_status_normal() {
 fn test_update_plan_status_also_updates_timestamp() {
     let dir = tempfile::TempDir::new().unwrap();
     let path = plan_file::create_plan_file(dir.path(), "Test").unwrap();
-    let original = std::fs::read_to_string(&path).unwrap();
-
-    // Small delay to ensure different timestamp
-    std::thread::sleep(std::time::Duration::from_millis(1100));
+    // Seed a known distinct timestamp to verify replacement without sleep
+    let seed_ts = "0000-00-00 00:00:00";
+    let content = std::fs::read_to_string(&path).unwrap();
+    let seeded = content.replace(
+        content.lines().find(|l| l.contains("更新时间")).unwrap(),
+        &format!("| 更新时间 | {seed_ts} |"),
+    );
+    std::fs::write(&path, &seeded).unwrap();
 
     plan_file::update_plan_status(
         path.to_str().unwrap(),
@@ -299,10 +303,17 @@ fn test_update_plan_status_also_updates_timestamp() {
         updated.contains("| 状态 | executing |"),
         "should show executing"
     );
-    // Verify timestamp changed
-    let orig_ts = original.lines().find(|l| l.contains("更新时间")).unwrap();
+    // Verify timestamp was replaced (no longer the seeded value)
     let updated_ts = updated.lines().find(|l| l.contains("更新时间")).unwrap();
-    assert_ne!(orig_ts, updated_ts, "timestamp should be updated");
+    assert_ne!(
+        updated_ts,
+        format!("| 更新时间 | {seed_ts} |"),
+        "timestamp should be replaced"
+    );
+    assert!(
+        updated_ts.contains("| 更新时间 | "),
+        "should still be a timestamp line"
+    );
 }
 
 #[test]
@@ -359,9 +370,14 @@ fn test_update_plan_status_all_statuses() {
 fn test_update_plan_timestamp_normal() {
     let dir = tempfile::TempDir::new().unwrap();
     let path = plan_file::create_plan_file(dir.path(), "Test").unwrap();
-    let original = std::fs::read_to_string(&path).unwrap();
-
-    std::thread::sleep(std::time::Duration::from_millis(1100));
+    // Seed a known distinct timestamp to verify replacement without sleep
+    let seed_ts = "0000-00-00 00:00:00";
+    let content = std::fs::read_to_string(&path).unwrap();
+    let seeded = content.replace(
+        content.lines().find(|l| l.contains("更新时间")).unwrap(),
+        &format!("| 更新时间 | {seed_ts} |"),
+    );
+    std::fs::write(&path, &seeded).unwrap();
 
     let result = plan_file::update_plan_timestamp(path.to_str().unwrap());
     assert!(result.is_ok(), "update_plan_timestamp should succeed");
@@ -372,10 +388,17 @@ fn test_update_plan_timestamp_normal() {
         updated.contains("| 状态 | draft |"),
         "status should remain draft"
     );
-    // Timestamp should change
-    let orig_ts = original.lines().find(|l| l.contains("更新时间")).unwrap();
+    // Verify timestamp was replaced (no longer the seeded value)
     let updated_ts = updated.lines().find(|l| l.contains("更新时间")).unwrap();
-    assert_ne!(orig_ts, updated_ts, "timestamp should be updated");
+    assert_ne!(
+        updated_ts,
+        format!("| 更新时间 | {seed_ts} |"),
+        "timestamp should be replaced"
+    );
+    assert!(
+        updated_ts.contains("| 更新时间 | "),
+        "should still be a timestamp line"
+    );
 }
 
 #[test]
