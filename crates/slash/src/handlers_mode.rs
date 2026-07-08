@@ -172,9 +172,12 @@ pub(crate) fn parse_plan_path_arg(args: &str) -> (Option<PlanPath>, &str) {
 
 /// `/execute` — transition from Plan Mode to Auto Mode execution.
 ///
-/// Checks that a plan has been approved (status `Confirmed` in the plan state)
-/// before switching to Auto Mode. If the plan is not yet approved, replies
-/// with a hint to use the approval tool first.
+/// Accepts plans in `Confirmed` (ready to execute) or `Paused` (resume)
+/// status. For `Confirmed` plans, transitions through to `Executing`.
+/// For `Paused` plans, resumes directly to `Executing`.
+///
+/// If the plan is not approved or paused, replies with a hint to use
+/// the approval tool or `/pause` first.
 pub struct ExecuteHandler {
     session_manager: Arc<SessionManager>,
 }
@@ -263,26 +266,42 @@ impl SlashHandler for ExecuteHandler {
             }
         };
 
-        if effective_status != PlanStatus::Confirmed {
-            return SlashResult::Reply(
-                "Plan 尚未通过审批。请先使用 plan_approval 工具提交审批，".to_owned()
-                    + "待 owner 审批通过后再执行 /execute。",
-            );
-        }
+        // Sync in-memory status with effective status (may have been resolved from file)
+        plan_state.status = effective_status;
 
-        // Step 4: Transition status draft→confirmed→executing and update plan file
-        if let Err(e) = plan_state.transition_status(PlanStatus::Confirmed) {
-            tracing::debug!(
-                error = %e,
-                "transition to Confirmed skipped (already confirmed)"
-            );
-        }
-        if let Err(e) = plan_state.transition_status(PlanStatus::Executing) {
-            tracing::warn!(
-                error = %e,
-                "Failed to transition plan status to Executing"
-            );
-            return SlashResult::Reply(format!("无法将 plan 状态转换为 executing：{}", e));
+        match effective_status {
+            PlanStatus::Confirmed => {
+                // Step 4a: Confirmed → Executing
+                if let Err(e) = plan_state.transition_status(PlanStatus::Confirmed) {
+                    tracing::debug!(
+                        error = %e,
+                        "transition to Confirmed skipped (already confirmed)"
+                    );
+                }
+                if let Err(e) = plan_state.transition_status(PlanStatus::Executing) {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to transition plan status to Executing"
+                    );
+                    return SlashResult::Reply(format!("无法将 plan 状态转换为 executing：{}", e));
+                }
+            }
+            PlanStatus::Paused => {
+                // Step 4b: Paused → Executing (resume)
+                if let Err(e) = plan_state.transition_status(PlanStatus::Executing) {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to resume plan from Paused to Executing"
+                    );
+                    return SlashResult::Reply(format!("无法从暂停状态恢复执行：{}", e));
+                }
+            }
+            _ => {
+                return SlashResult::Reply(
+                    "当前 plan 未就绪。请先使用 plan_approval 工具提交审批，".to_owned()
+                        + "或先暂停再恢复执行。",
+                );
+            }
         }
 
         let path_clone = plan_state.plan_file_path.clone();
