@@ -64,7 +64,7 @@ pub fn action_matches_request(action: &Action, request: &PermissionRequestBody) 
                 ..
             },
         ) => {
-            if command != cmd {
+            if !glob_match(command, cmd) {
                 return false;
             }
             match args {

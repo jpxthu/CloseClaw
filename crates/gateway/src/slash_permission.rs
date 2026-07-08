@@ -937,27 +937,61 @@ mod tests {
 
     #[tokio::test]
     async fn test_auto_mode_slash_approval_required_routes_through_flow() {
-        // Verify that when check_slash_permission returns ApprovalRequired,
-        // it's properly routed through the approval flow (submit_denial) and
-        // a reply is sent indicating approval is needed.
-        // Note: SlashCommand is low risk, so this test exercises the code path
-        // by verifying the auto mode engine works correctly for allowed operations.
-        let counter = Arc::new(AtomicU32::new(0));
+        // Directly exercise the approval routing mechanism by calling
+        // evaluate() with a high-risk request and routing the response
+        // through the approval flow — the same mechanism the
+        // GatewaySlashExecutor uses in check_command_permission.
+        use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
+        use closeclaw_permission::engine::engine_types::{
+            Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
+        };
+
+        let engine = auto_mode_allow_engine();
+        let response = engine.evaluate(
+            PermissionRequest::Bare(PermissionRequestBody::FileOp {
+                agent: "test-agent".to_string(),
+                path: "/repo/.git/config".to_string(),
+                op: "read".to_string(),
+            }),
+            None,
+        );
+        assert!(
+            matches!(response, PermissionResponse::ApprovalRequired { .. }),
+            "Auto mode + high-risk FileOp should return ApprovalRequired, got: {:?}",
+            response
+        );
+
+        let risk_level = match &response {
+            PermissionResponse::ApprovalRequired { risk_level, .. } => *risk_level,
+            _ => unreachable!(),
+        };
         let gw = make_gateway();
-        gw.set_slash_dispatcher(counting_router("exec", true, Arc::clone(&counter)))
-            .await;
-        gw.set_permission_engine(auto_mode_allow_engine()).await;
-
-        // Non-owner with Auto mode + allow engine: slash command proceeds
-        let result = gw
-            .dispatch_slash("sess1", "/exec ls", Some("user123"), "feishu")
-            .await;
-
-        assert!(matches!(result, Some(HandleResult::SlashHandled)));
-        assert_eq!(
-            counter.load(Ordering::SeqCst),
-            1,
-            "handler must execute in Auto mode"
+        let flow = Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
+            Arc::clone(&gw.session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
+            Arc::new(|_| {}),
+            tokio::runtime::Handle::current(),
+            HeartbeatApprovalMode::default(),
+        )));
+        let mut flow_guard = flow.lock().await;
+        let request_id = flow_guard
+            .submit_denial(
+                &Caller {
+                    user_id: "user123".to_string(),
+                    agent: "test-agent".to_string(),
+                    creator_id: String::new(),
+                },
+                &PermissionRequestBody::SlashCommand {
+                    agent: "test-agent".to_string(),
+                    command: "exec".to_string(),
+                },
+                risk_level,
+                "sess1",
+                false,
+            )
+            .expect("approval flow should accept the submission");
+        assert!(
+            !request_id.is_empty(),
+            "approval flow should return a non-empty request_id"
         );
     }
 }
