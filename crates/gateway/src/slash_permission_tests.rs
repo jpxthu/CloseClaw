@@ -5,13 +5,19 @@
 //! after `Add`.  This covers both Step 1.2 (behavior verification) and
 //! Step 1.4 (callback-based invalidation) tests.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use closeclaw_common::bootstrap::BootstrapMode;
+use closeclaw_common::session_mode::SessionMode;
+use closeclaw_common::session_mode_query::SessionModeQuery;
 use closeclaw_common::slash_router::{
     SlashContext, SlashHandler, SlashResult, SlashRouter, SystemAppendAction,
+};
+use closeclaw_permission::engine::engine_types::{
+    Action, Defaults, Effect, MatchType, Rule, RuleSet, Subject,
 };
 use closeclaw_session::persistence::ReasoningLevel;
 
@@ -321,14 +327,6 @@ async fn test_callback_called_on_clear() {
 
 // ── Branch routing tests (moved from slash_permission.rs inline) ───────
 
-use closeclaw_common::session_mode::SessionMode;
-use closeclaw_common::session_mode_query::SessionModeQuery;
-use closeclaw_permission::engine::engine_types::{
-    Action, Defaults, Effect, MatchType, Rule, RuleSet, Subject,
-};
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
-
 struct CountingHandler {
     command: &'static str,
     requires_permission: bool,
@@ -389,24 +387,6 @@ fn counting_router(
         requires_permission,
         counter,
     })
-}
-
-fn make_gateway() -> Arc<Gateway> {
-    let config = GatewayConfig {
-        name: "test".to_owned(),
-        rate_limit_per_minute: 0,
-        max_message_size: 0,
-        dm_scope: Default::default(),
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        BootstrapMode::Minimal,
-        ReasoningLevel::default(),
-    ));
-    Arc::new(Gateway::new(config, sm))
 }
 
 fn allow_engine(
