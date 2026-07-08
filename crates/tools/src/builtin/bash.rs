@@ -330,11 +330,13 @@ async fn check_permission_and_route(
     config_manager: &ConfigManager,
     approval_flow: &Arc<TokioMutex<ApprovalFlow>>,
     ctx: &ToolContext,
+    command: &str,
+    args: &[String],
 ) -> Result<Option<ToolResult>, ToolCallError> {
     let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
         agent: ctx.agent_id.clone(),
-        cmd: "*".to_string(),
-        args: Vec::new(),
+        cmd: command.to_string(),
+        args: args.to_vec(),
     });
     let agent_perms = config_manager.agent_permissions();
     let response = if let Some(ref session_id) = ctx.session_id {
@@ -343,31 +345,38 @@ async fn check_permission_and_route(
     } else {
         perm.evaluate(request, None)
     };
-    if let PermissionResponse::Denied {
-        reason, risk_level, ..
-    } = response
-    {
-        let caller = Caller {
-            user_id: String::new(),
-            agent: ctx.agent_id.clone(),
-            creator_id: String::new(),
-        };
-        let body = PermissionRequestBody::ToolCall {
-            agent: ctx.agent_id.clone(),
-            skill: "bash".to_string(),
-            method: "call".to_string(),
-        };
-        let session_id = ctx.session_id.as_deref().unwrap_or("");
-        let result = route_denial_to_approval(
-            &caller,
-            &body,
+    match response {
+        PermissionResponse::Denied {
+            reason, risk_level, ..
+        }
+        | PermissionResponse::ApprovalRequired {
+            operation_desc: reason,
             risk_level,
-            session_id,
-            approval_flow,
-            reason,
-        )
-        .await?;
-        return Ok(Some(result));
+            ..
+        } => {
+            let caller = Caller {
+                user_id: String::new(),
+                agent: ctx.agent_id.clone(),
+                creator_id: String::new(),
+            };
+            let body = PermissionRequestBody::ToolCall {
+                agent: ctx.agent_id.clone(),
+                skill: "bash".to_string(),
+                method: "call".to_string(),
+            };
+            let session_id = ctx.session_id.as_deref().unwrap_or("");
+            let result = route_denial_to_approval(
+                &caller,
+                &body,
+                risk_level,
+                session_id,
+                approval_flow,
+                reason,
+            )
+            .await?;
+            return Ok(Some(result));
+        }
+        _ => {}
     }
     Ok(None)
 }
@@ -392,9 +401,19 @@ async fn execute_bash_call(
         ));
     }
     analyze_security(command)?;
-    if let Some(result) =
-        check_permission_and_route(perm, session_manager, config_manager, approval_flow, ctx)
-            .await?
+    let cmd_parts: Vec<&str> = command.split_whitespace().collect();
+    let cmd_name = cmd_parts.first().copied().unwrap_or("*").to_string();
+    let cmd_args: Vec<String> = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
+    if let Some(result) = check_permission_and_route(
+        perm,
+        session_manager,
+        config_manager,
+        approval_flow,
+        ctx,
+        &cmd_name,
+        &cmd_args,
+    )
+    .await?
     {
         return Ok(result);
     }

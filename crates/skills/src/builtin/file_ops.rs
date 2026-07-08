@@ -174,6 +174,37 @@ impl Skill for FileOpsSkill {
                     }
                     return Err(SkillError::PermissionDenied(reason));
                 }
+                PermissionResponse::ApprovalRequired { risk_level, .. } => {
+                    if let Some(ref flow) = self.approval_flow {
+                        let caller = Caller {
+                            user_id: user_id.to_string(),
+                            agent: agent_id.to_string(),
+                            creator_id: String::new(),
+                        };
+                        let body = PermissionRequestBody::ToolCall {
+                            agent: agent_id.to_string(),
+                            skill: "file_ops".to_string(),
+                            method: method.to_string(),
+                        };
+                        let session_id = args
+                            .get("session_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let mut flow = flow.lock().await;
+                        if let Some(request_id) =
+                            flow.submit_denial(&caller, &body, risk_level, session_id, false)
+                        {
+                            return Ok(serde_json::json!({
+                                "status": "approval_pending",
+                                "request_id": request_id,
+                                "message": "Operation pending owner approval",
+                            }));
+                        }
+                    }
+                    return Err(SkillError::PermissionDenied(
+                        "approval required".to_string(),
+                    ));
+                }
             }
         }
 

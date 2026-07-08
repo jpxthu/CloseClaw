@@ -24,6 +24,13 @@ pub enum RiskLevel {
     Critical,
 }
 
+impl RiskLevel {
+    /// Returns `true` if the risk level is `High` or `Critical`.
+    pub fn is_high_or_critical(self) -> bool {
+        matches!(self, RiskLevel::High | RiskLevel::Critical)
+    }
+}
+
 /// A risk pattern with matching logic and associated risk level.
 struct RiskPattern {
     /// Returns Some(RiskLevel) if the request matches, None otherwise.

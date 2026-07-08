@@ -2,14 +2,18 @@
 
 use super::engine_helpers::{generate_token, get_agent_deny_subjects, resolve_template_actions};
 use super::engine_matching::action_matches_request;
-use super::engine_risk::assess_risk_level;
+use super::engine_risk::{assess_risk_level, RiskLevel};
 use super::engine_types::{
     Defaults, Effect, PermissionRequest, PermissionRequestBody, PermissionResponse, Rule, RuleSet,
     Subject,
 };
 use super::engine_workspace;
+use super::rejection_log::{build_rejection_log, RejectionLogger};
+use closeclaw_common::session_mode::SessionMode;
+use closeclaw_common::session_mode_query::SessionModeQuery;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::info;
 // NOTE: Cache fields (agent_permissions, user_effective_permissions) removed per
 // design doc: "权限评估每次新鲜计算，不缓存评估结果"
@@ -26,6 +30,13 @@ pub struct PermissionEngine {
     templates: HashMap<String, crate::templates::Template>,
     /// Data root directory for workspace path resolution
     data_root: PathBuf,
+    /// Optional session mode query for mode-aware filtering.
+    /// When set, `evaluate` will consult the agent's session mode
+    /// for additional access-control decisions.
+    session_mode_query: Option<Arc<dyn SessionModeQuery>>,
+    /// Optional rejection logger. When set and `evaluate` returns `Denied`,
+    /// a structured rejection log entry is recorded.
+    rejection_logger: Option<Arc<dyn RejectionLogger>>,
 }
 
 // --- Construction & index management ---
@@ -39,6 +50,8 @@ impl PermissionEngine {
             user_agent_rule_index: HashMap::new(),
             templates: HashMap::new(),
             data_root,
+            session_mode_query: None,
+            rejection_logger: None,
         };
         engine.rebuild_indices_with_rules(&rules);
         engine
@@ -86,6 +99,81 @@ impl PermissionEngine {
     pub fn load_templates(&mut self, templates: HashMap<String, crate::templates::Template>) {
         self.templates = templates;
     }
+
+    /// Inject a session mode query for mode-aware permission evaluation.
+    ///
+    /// When provided, `evaluate` will look up the agent's current
+    /// `SessionMode` and apply mode-specific access rules.
+    pub fn with_session_mode_query(mut self, query: Arc<dyn SessionModeQuery>) -> Self {
+        self.session_mode_query = Some(query);
+        self
+    }
+
+    /// Get a reference to the session mode query, if set.
+    pub fn session_mode_query(&self) -> Option<&Arc<dyn SessionModeQuery>> {
+        self.session_mode_query.as_ref()
+    }
+
+    /// Inject a rejection logger for recording denied permission requests.
+    pub fn with_rejection_logger(mut self, logger: Arc<dyn RejectionLogger>) -> Self {
+        self.rejection_logger = Some(logger);
+        self
+    }
+
+    /// Get a reference to the rejection logger, if set.
+    pub fn rejection_logger(&self) -> Option<&Arc<dyn RejectionLogger>> {
+        self.rejection_logger.as_ref()
+    }
+
+    /// Log a rejection if the logger is set and the response is `Denied`.
+    fn log_rejection(&self, response: &PermissionResponse, body: &PermissionRequestBody) {
+        if let Some(logger) = &self.rejection_logger {
+            if let PermissionResponse::Denied {
+                reason, risk_level, ..
+            } = response
+            {
+                // Determine session mode from query (best-effort).
+                let session_mode = self
+                    .session_mode_query
+                    .as_ref()
+                    .and_then(|q| q.get_session_mode(body.agent_id()));
+                let entry = build_rejection_log(body, reason.clone(), *risk_level, session_mode);
+                logger.log(&entry);
+            }
+        }
+    }
+
+    /// Check if Auto Mode requires approval for this operation.
+    ///
+    /// In Auto Mode, high and critical risk operations need user approval.
+    /// Returns `Some(ApprovalRequired)` if approval is needed, `None` otherwise.
+    fn check_auto_mode_approval(
+        &self,
+        request: &PermissionRequest,
+        agent_id: &str,
+        risk_level: RiskLevel,
+    ) -> Option<PermissionResponse> {
+        let query = self.session_mode_query.as_ref()?;
+        let mode = query.get_session_mode(agent_id)?;
+        if mode != SessionMode::Auto {
+            return None;
+        }
+        if !risk_level.is_high_or_critical() {
+            return None;
+        }
+        info!(
+            agent = agent_id,
+            result = "approval_required",
+            reason = "auto_mode_high_risk",
+            risk_level = ?risk_level,
+            "permission check completed"
+        );
+        Some(PermissionResponse::ApprovalRequired {
+            operation_desc: format_operation_desc(request.body()),
+            risk_level,
+            rule: "<auto_mode_risk_gate>".to_string(),
+        })
+    }
 }
 
 // --- Evaluation & helpers ---
@@ -99,6 +187,12 @@ impl PermissionEngine {
     ) -> PermissionResponse {
         let caller = request.caller();
         let agent_id = caller.agent.clone();
+
+        // Step 0: Plan Mode write-operation filtering
+        if let Some(denied) = self.check_plan_mode_filter(&request, &agent_id) {
+            self.log_rejection(&denied, request.body());
+            return denied;
+        }
 
         // Step 0.5: Workspace forced authorization
         if let PermissionRequestBody::FileOp { agent, path, op } = request.body() {
@@ -147,11 +241,13 @@ impl PermissionEngine {
             let response = agent_result.unwrap_or_else(|| {
                 self.default_deny(request.body(), &rules.defaults, "no matching rule")
             });
+            self.log_rejection(&response, request.body());
             info!(
                 agent = %agent_id,
                 result = %match &response {
                     PermissionResponse::Allowed { .. } => "allowed",
                     PermissionResponse::Denied { .. } => "denied",
+                    PermissionResponse::ApprovalRequired { .. } => "approval_required",
                 },
                 reason = "owner_shortcut",
                 "permission check completed"
@@ -183,15 +279,28 @@ impl PermissionEngine {
             },
             _ => self.default_deny(request.body(), &rules.defaults, "no matching rule"),
         };
+        self.log_rejection(&response, request.body());
         info!(
             agent = %agent_id,
             result = %match &response {
                 PermissionResponse::Allowed { .. } => "allowed",
                 PermissionResponse::Denied { .. } => "denied",
+                PermissionResponse::ApprovalRequired { .. } => "approval_required",
             },
             reason = "two_phase_merge",
             "permission check completed"
         );
+
+        // Step 4: Auto Mode risk gate — high/critical risk operations need user approval
+        if let PermissionResponse::Allowed { .. } = &response {
+            if let Some(approval_needed) = self.check_auto_mode_approval(
+                &request,
+                &agent_id,
+                assess_risk_level(request.body()),
+            ) {
+                return approval_needed;
+            }
+        }
 
         // Step 9: Extra Deny — override with deny if caller matches any extra deny subject
         if let Some(extra_subjects) = extra_deny_subjects {
@@ -203,16 +312,90 @@ impl PermissionEngine {
                         reason = "extra_deny",
                         "permission check completed"
                     );
-                    return PermissionResponse::Denied {
+                    let extra_denied = PermissionResponse::Denied {
                         reason: "action denied by parent agent restriction".to_string(),
                         rule: "<extra_deny>".to_string(),
                         risk_level: assess_risk_level(request.body()),
                     };
+                    self.log_rejection(&extra_denied, request.body());
+                    return extra_denied;
                 }
             }
         }
 
         response
+    }
+
+    /// Plan Mode write-operation filtering.
+    ///
+    /// When the agent's session mode is `Plan`, the following operations are
+    /// denied:
+    /// - `FileOp` with op = "write" (unless the path is under plans/)
+    /// - `CommandExec`
+    /// - `ConfigWrite`
+    ///
+    /// The plans/ directory check: path starts with "plans/" or contains "/plans/".
+    ///
+    /// Returns `Some(Denied)` if the operation should be blocked, `None` to
+    /// proceed with normal evaluation.
+    fn check_plan_mode_filter(
+        &self,
+        request: &PermissionRequest,
+        agent_id: &str,
+    ) -> Option<PermissionResponse> {
+        let query = self.session_mode_query.as_ref()?;
+        let mode = query.get_session_mode(agent_id)?;
+        if mode != SessionMode::Plan {
+            return None;
+        }
+
+        let body = request.body();
+        match body {
+            PermissionRequestBody::FileOp { op, path, .. } if op == "write" => {
+                if is_plans_path(path) {
+                    return None;
+                }
+                info!(
+                    agent = agent_id,
+                    result = "denied",
+                    reason = "plan_mode_write_denied",
+                    path = %path,
+                    "permission check completed"
+                );
+                Some(PermissionResponse::Denied {
+                    reason: "write operation denied in Plan mode".to_string(),
+                    rule: "<plan_mode_filter>".to_string(),
+                    risk_level: assess_risk_level(body),
+                })
+            }
+            PermissionRequestBody::CommandExec { .. } => {
+                info!(
+                    agent = agent_id,
+                    result = "denied",
+                    reason = "plan_mode_command_denied",
+                    "permission check completed"
+                );
+                Some(PermissionResponse::Denied {
+                    reason: "command execution denied in Plan mode".to_string(),
+                    rule: "<plan_mode_filter>".to_string(),
+                    risk_level: assess_risk_level(body),
+                })
+            }
+            PermissionRequestBody::ConfigWrite { .. } => {
+                info!(
+                    agent = agent_id,
+                    result = "denied",
+                    reason = "plan_mode_config_write_denied",
+                    "permission check completed"
+                );
+                Some(PermissionResponse::Denied {
+                    reason: "config write denied in Plan mode".to_string(),
+                    rule: "<plan_mode_filter>".to_string(),
+                    risk_level: assess_risk_level(body),
+                })
+            }
+            _ => None,
+        }
     }
 
     /// Step 0: Check creator rule — if the caller is the agent's creator, allow immediately.
@@ -468,5 +651,48 @@ impl PermissionEngine {
             }
         }
         false
+    }
+}
+
+// --- Plan Mode helpers ---
+
+/// Check if a file path belongs to the plans/ directory.
+///
+/// Returns `true` if path starts with `plans/` or contains `/plans/`.
+fn is_plans_path(path: &str) -> bool {
+    path.starts_with("plans/") || path.contains("/plans/")
+}
+
+/// Build a human-readable operation description for approval requests.
+fn format_operation_desc(body: &PermissionRequestBody) -> String {
+    match body {
+        PermissionRequestBody::FileOp { agent, path, op } => {
+            format!("{} file {} {}", agent, op, path)
+        }
+        PermissionRequestBody::CommandExec { agent, cmd, args } => {
+            let args_str = args.join(" ");
+            if args_str.is_empty() {
+                format!("{} execute {}", agent, cmd)
+            } else {
+                format!("{} execute {} {}", agent, cmd, args_str)
+            }
+        }
+        PermissionRequestBody::NetOp { agent, host, port } => {
+            format!("{} network {}:{}", agent, host, port)
+        }
+        PermissionRequestBody::ToolCall {
+            agent,
+            skill,
+            method,
+        } => format!("{} tool {}/{}", agent, skill, method),
+        PermissionRequestBody::InterAgentMsg { from, to } => {
+            format!("inter-agent {} -> {}", from, to)
+        }
+        PermissionRequestBody::ConfigWrite { agent, config_file } => {
+            format!("{} config write {}", agent, config_file)
+        }
+        PermissionRequestBody::SlashCommand { agent, command } => {
+            format!("{} slash /{}", agent, command)
+        }
     }
 }
