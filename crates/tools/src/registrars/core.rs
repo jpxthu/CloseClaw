@@ -23,7 +23,7 @@ use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 ///
 /// Covers `file_ops`, `meta`, `git_ops`, and `bash` groups (14 tools).
 pub struct CoreToolsRegistrar {
-    permission_engine: Arc<PermissionEngine>,
+    permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     task_manager: Arc<dyn TaskManager>,
     session_manager: Arc<SessionManager>,
     config_manager: Arc<ConfigManager>,
@@ -33,7 +33,7 @@ pub struct CoreToolsRegistrar {
 impl CoreToolsRegistrar {
     /// Create a new `CoreToolsRegistrar` with the required dependencies.
     pub fn new(
-        permission_engine: Arc<PermissionEngine>,
+        permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
         task_manager: Arc<dyn TaskManager>,
         session_manager: Arc<SessionManager>,
         config_manager: Arc<ConfigManager>,

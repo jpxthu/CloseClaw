@@ -119,7 +119,10 @@ impl IpcChannel {
     /// Start listening for connections and dispatch them to the engine.
     ///
     /// Blocks forever, processing each connection in a spawned task.
-    pub async fn serve(self, engine: Arc<PermissionEngine>) -> std::io::Result<()> {
+    pub async fn serve(
+        self,
+        engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
+    ) -> std::io::Result<()> {
         self.clean_up();
 
         let listener = UnixListener::bind(&self.path)?;
@@ -147,7 +150,7 @@ impl IpcChannel {
 /// Handle a single IPC connection from the host.
 async fn handle_connection(
     stream: UnixStream,
-    engine: Arc<PermissionEngine>,
+    engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
 ) -> std::io::Result<()> {
     let (reader, writer): (_, OwnedWriteHalf) = stream.into_split();
     let mut reader = BufReader::new(reader);
@@ -185,7 +188,10 @@ async fn handle_connection(
                 request,
                 extra_deny_subjects,
             } => SandboxResponse::PermissionResponse(
-                engine.evaluate(request.clone(), extra_deny_subjects.clone()),
+                engine
+                    .read()
+                    .await
+                    .evaluate(request.clone(), extra_deny_subjects.clone()),
             ),
             SandboxRequest::ReloadRules { rules: _ } => {
                 // The engine is recreated externally; we just acknowledge.

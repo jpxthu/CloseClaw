@@ -285,7 +285,9 @@ impl Drop for Sandbox {
 /// Called when the binary is started with `SANDBOX_ENGINE=1` env var.
 /// Creates a [`PermissionEngine`], binds the IPC socket, and serves requests.
 pub async fn run_engine_subprocess(ipc_path: PathBuf, rules: RuleSet) -> anyhow::Result<()> {
-    let engine = Arc::new(PermissionEngine::new_with_default_data_root(rules));
+    let engine = Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(rules),
+    ));
     let channel = IpcChannel::new(ipc_path);
 
     // Apply security policy as early as possible.

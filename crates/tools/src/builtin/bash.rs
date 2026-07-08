@@ -43,7 +43,7 @@ const AUTO_BG_TIMEOUT_MS: u64 = 15_000;
 /// permissions via [`PermissionEngine`], then executes the command as
 /// an async subprocess with timeout control.
 pub struct BashTool {
-    permission_engine: Arc<PermissionEngine>,
+    permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     bg_manager: Arc<dyn closeclaw_tasks::TaskManager>,
     session_manager: Arc<SessionManager>,
     config_manager: Arc<ConfigManager>,
@@ -54,7 +54,7 @@ impl BashTool {
     /// Creates a new `BashTool` backed by the given permission engine,
     /// background task manager, config manager, and approval flow.
     pub fn new(
-        permission_engine: Arc<PermissionEngine>,
+        permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
         bg_manager: Arc<dyn closeclaw_tasks::TaskManager>,
         session_manager: Arc<SessionManager>,
         config_manager: Arc<ConfigManager>,
@@ -325,7 +325,7 @@ fn analyze_security(command: &str) -> Result<(), ToolCallError> {
 /// Returns `Ok(Some(ToolResult))` on approval-pending, `Ok(None)` if allowed,
 /// or `Err` for errors / unapproved denials.
 async fn check_permission_and_route(
-    perm: &PermissionEngine,
+    perm: &tokio::sync::RwLock<PermissionEngine>,
     session_manager: &SessionManager,
     config_manager: &ConfigManager,
     approval_flow: &Arc<TokioMutex<ApprovalFlow>>,
@@ -340,10 +340,12 @@ async fn check_permission_and_route(
     });
     let agent_perms = config_manager.agent_permissions();
     let response = if let Some(ref session_id) = ctx.session_id {
-        perm.evaluate_with_chain(request, session_manager, session_id, &agent_perms)
+        let engine = perm.read().await;
+        engine
+            .evaluate_with_chain(request, session_manager, session_id, &agent_perms)
             .await
     } else {
-        perm.evaluate(request, None)
+        perm.read().await.evaluate(request, None)
     };
     match response {
         PermissionResponse::Denied {
@@ -383,7 +385,7 @@ async fn check_permission_and_route(
 
 /// Execute the BashTool call: parse args, check permissions, run command.
 async fn execute_bash_call(
-    perm: &PermissionEngine,
+    perm: &tokio::sync::RwLock<PermissionEngine>,
     session_manager: &SessionManager,
     bg: &Arc<dyn closeclaw_tasks::TaskManager>,
     config_manager: &ConfigManager,

@@ -69,7 +69,7 @@ pub struct Gateway {
     /// Slash command dispatcher.
     slash_dispatcher: RwLock<Option<Arc<dyn SlashRouter>>>,
     /// Permission engine for slash command authorization.
-    permission_engine: RwLock<Option<Arc<PermissionEngine>>>,
+    permission_engine: RwLock<Option<Arc<tokio::sync::RwLock<PermissionEngine>>>>,
     /// Bounded inbound queue sender. `None` until the queue is started.
     inbound_tx: std::sync::Mutex<Option<mpsc::Sender<InboundRequest>>>,
     /// Self-reference for back-pointer to the owning `Arc<Gateway>`.

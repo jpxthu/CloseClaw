@@ -60,6 +60,16 @@ fn make_config_manager() -> ConfigManager {
     ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed")
 }
 
+/// Build a `SpawnController` with the given config/session managers and an
+/// empty permission engine.
+fn make_controller(cm: &Arc<ConfigManager>, sm: &Arc<SessionManager>) -> SpawnController {
+    SpawnController::new(
+        cm.clone(),
+        sm.clone(),
+        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
+    )
+}
+
 /// Build a minimal `ResolvedAgentConfig` with the given `id` and
 /// `subagents` overrides. All other fields use sensible defaults.
 fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
@@ -151,8 +161,7 @@ async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
 async fn test_validate_passes() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     // Parent uses max_spawn_depth=2 so child_depth=1 passes the depth check.
     let mut parent_sub = SubagentsConfig::default();
@@ -185,8 +194,7 @@ async fn test_validate_passes() {
 async fn test_validate_depth_exceeded() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     // max_spawn_depth=0 forces the depth check to fail.
     let mut sub = SubagentsConfig::default();
@@ -220,8 +228,7 @@ async fn test_validate_depth_exceeded() {
 async fn test_validate_max_children() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     // max_children=1 with 1 already-registered child → at the limit.
     // max_spawn_depth=2 so depth check passes before concurrency check.
@@ -257,8 +264,7 @@ async fn test_validate_max_children() {
 async fn test_validate_agent_not_allowed() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     // Allowlist only contains "allowed-agent" — target "child" is denied.
     // max_spawn_depth=2 so depth check passes before whitelist check.
@@ -292,8 +298,7 @@ async fn test_validate_agent_not_allowed() {
 async fn test_validate_require_agent_id() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     // require_agent_id=true and no default_child_agent → passing None must fail.
     let mut sub = SubagentsConfig::default();
@@ -324,8 +329,7 @@ async fn test_validate_require_agent_id() {
 async fn test_validate_wildcard_allow() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     // Explicit "*" wildcard in allow_agents — any target should be permitted.
     let mut sub = SubagentsConfig::default();
@@ -363,8 +367,7 @@ async fn test_validate_wildcard_allow() {
 async fn test_validate_cascade_parent_depth1_child_depth2() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(1);
@@ -396,8 +399,7 @@ async fn test_validate_cascade_parent_depth1_child_depth2() {
 async fn test_validate_cascade_parent_depth2_child_depth2() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(2);
@@ -430,8 +432,7 @@ async fn test_validate_cascade_parent_depth2_child_depth2() {
 async fn test_validate_cascade_parent_depth3_child_depth1() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(3);
@@ -462,8 +463,7 @@ async fn test_validate_cascade_parent_depth3_child_depth1() {
 async fn test_validate_cascade_unknown_target_config_not_found() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(2);
@@ -494,8 +494,7 @@ async fn test_validate_cascade_unknown_target_config_not_found() {
 async fn test_validate_cascade_parent_depth5_child_depth1() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(5);
@@ -524,8 +523,7 @@ async fn test_validate_cascade_parent_depth5_child_depth1() {
 async fn test_validate_cascade_parent_depth5_child_depth3() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(5);
@@ -554,8 +552,7 @@ async fn test_validate_cascade_parent_depth5_child_depth3() {
 async fn test_validate_cascade_parent_depth0_child_depth5() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(0);
@@ -591,8 +588,7 @@ async fn test_validate_cascade_parent_depth0_child_depth5() {
 async fn test_validate_cascade_unconfigured_child_depth1_parent1() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(1);
@@ -622,8 +618,7 @@ async fn test_validate_cascade_unconfigured_child_depth1_parent1() {
 async fn test_validate_depth_before_agent_id_required() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     // max_spawn_depth=0 (depth check will reject) AND require_agent_id=true
     // (would also reject if depth check didn't run first).
@@ -800,8 +795,7 @@ async fn test_kill_child_no_descendants_clean_removal() {
 async fn test_validate_default_child_agent_blocked_by_whitelist() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     // Parent has default_child_agent="fallback-child" but allowlist
     // only allows "allowed-agent" — fallback should be blocked.
@@ -837,8 +831,7 @@ async fn test_validate_default_child_agent_blocked_by_whitelist() {
 async fn test_validate_default_child_agent_allowed_by_whitelist() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = make_controller(&cm, &sm);
 
     // Parent has default_child_agent="allowed-child" and allowlist
     // contains "allowed-child" — should pass.

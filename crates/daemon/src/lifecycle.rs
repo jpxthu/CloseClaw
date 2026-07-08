@@ -16,7 +16,7 @@ impl Daemon {
     /// Start the daemon with a custom permission engine (useful for testing).
     pub async fn start_with_engine(
         config_dir: &str,
-        permission_engine: Arc<PermissionEngine>,
+        permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     ) -> anyhow::Result<Self> {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
         Self::load_env(config_dir);
@@ -38,6 +38,7 @@ impl Daemon {
             &session_manager,
             &permission_engine,
             &config_manager,
+            config_dir,
         )
         .await;
         let (sweeper_tx, dreaming_tx, plan_archive_tx, config_watcher) =
@@ -413,7 +414,9 @@ impl Daemon {
     }
 
     /// Build permission engine, loading templates from config_dir/templates/ if present.
-    pub(crate) fn build_permission_engine(config_dir: &str) -> Arc<PermissionEngine> {
+    pub(crate) fn build_permission_engine(
+        config_dir: &str,
+    ) -> Arc<tokio::sync::RwLock<PermissionEngine>> {
         let rule_set = RuleSet {
             rules: Vec::new(),
             defaults: Defaults::default(),
@@ -438,7 +441,7 @@ impl Daemon {
             }
         }
         info!("Permission engine initialized");
-        Arc::new(engine)
+        Arc::new(tokio::sync::RwLock::new(engine))
     }
 
     /// Migrate legacy openclaw.json if present (non-fatal on error).
@@ -470,7 +473,7 @@ impl Daemon {
     pub(crate) async fn init_slash_dispatcher(
         gateway: &Arc<closeclaw_gateway::Gateway>,
         session_manager: &Arc<closeclaw_gateway::SessionManager>,
-        permission_engine: &Arc<PermissionEngine>,
+        permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
     ) {
         use closeclaw_slash::dispatcher::SlashDispatcher;
         use closeclaw_slash::handlers::{ReasoningHandler, SystemHandler, WorkdirHandler};

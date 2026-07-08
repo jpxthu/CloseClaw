@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 pub struct PermissionSkill {
-    engine: Option<Arc<closeclaw_permission::PermissionEngine>>,
+    engine: Option<Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>>,
     session_manager: Option<Arc<SessionManager>>,
     agent_permissions: HashMap<String, AgentPermissions>,
 }
@@ -23,7 +23,9 @@ impl PermissionSkill {
         }
     }
 
-    pub fn with_engine(engine: Arc<closeclaw_permission::PermissionEngine>) -> Self {
+    pub fn with_engine(
+        engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
+    ) -> Self {
         Self {
             engine: Some(engine),
             session_manager: None,
@@ -138,11 +140,12 @@ impl Skill for PermissionSkill {
                         &self.session_manager,
                         args.get("session_id").and_then(|v| v.as_str()),
                     ) {
-                        engine
+                        let guard = engine.read().await;
+                        guard
                             .evaluate_with_chain(request, sm.as_ref(), sid, &self.agent_permissions)
                             .await
                     } else {
-                        engine.evaluate(request, None)
+                        engine.read().await.evaluate(request, None)
                     };
                     match response {
                         PermissionResponse::Allowed {

@@ -117,8 +117,8 @@ async fn test_depth_budget_checkpoint_vs_config_fallback() {
     let controller = SpawnController::new(
         cm.clone(),
         sm.clone(),
-        Arc::new(PermissionEngine::new_with_default_data_root(
-            RuleSetBuilder::new().build().unwrap(),
+        Arc::new(tokio::sync::RwLock::new(
+            PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
         )),
     );
 
@@ -163,8 +163,8 @@ async fn test_depth_budget_allowed_when_effective_zero() {
     let controller = SpawnController::new(
         cm.clone(),
         sm.clone(),
-        Arc::new(PermissionEngine::new_with_default_data_root(
-            RuleSetBuilder::new().build().unwrap(),
+        Arc::new(tokio::sync::RwLock::new(
+            PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
         )),
     );
 
@@ -236,8 +236,8 @@ async fn test_depth_budget_child_narrows_via_min() {
     let controller = SpawnController::new(
         cm.clone(),
         sm.clone(),
-        Arc::new(PermissionEngine::new_with_default_data_root(
-            RuleSetBuilder::new().build().unwrap(),
+        Arc::new(tokio::sync::RwLock::new(
+            PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
         )),
     );
 
@@ -308,8 +308,8 @@ async fn test_depth_budget_full_multilevel_tree() {
     let controller = SpawnController::new(
         cm.clone(),
         sm.clone(),
-        Arc::new(PermissionEngine::new_with_default_data_root(
-            RuleSetBuilder::new().build().unwrap(),
+        Arc::new(tokio::sync::RwLock::new(
+            PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
         )),
     );
 

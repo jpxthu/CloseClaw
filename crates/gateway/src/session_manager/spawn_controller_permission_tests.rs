@@ -127,8 +127,11 @@ fn make_perms(agent_id: &str, allowed_dims: &[&str]) -> AgentPermissions {
 async fn test_validate_permission_denied_child_fully_denied() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = SpawnController::new(
+        cm.clone(),
+        sm.clone(),
+        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
+    );
 
     // Parent: all permissions allowed; depth budget allows child creation.
     let mut parent_sub = SubagentsConfig::default();
@@ -186,8 +189,11 @@ async fn test_validate_permission_denied_child_fully_denied() {
 async fn test_validate_permission_denied_parent_denies_all() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = SpawnController::new(
+        cm.clone(),
+        sm.clone(),
+        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
+    );
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(2);
@@ -244,8 +250,11 @@ async fn test_validate_permission_denied_parent_denies_all() {
 async fn test_validate_permission_allowed_partial_overlap() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = SpawnController::new(
+        cm.clone(),
+        sm.clone(),
+        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
+    );
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(2);
@@ -283,8 +292,11 @@ async fn test_validate_permission_allowed_partial_overlap() {
 async fn test_validate_no_permissions_configured() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller =
-        SpawnController::new(cm.clone(), sm.clone(), Arc::new(make_permission_engine()));
+    let controller = SpawnController::new(
+        cm.clone(),
+        sm.clone(),
+        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
+    );
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(2);

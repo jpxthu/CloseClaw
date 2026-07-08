@@ -41,7 +41,7 @@ impl BuiltinSkills {
 
     /// Create all built-in skills with a shared permission engine injected.
     pub fn all_with_engine(
-        engine: Arc<closeclaw_permission::PermissionEngine>,
+        engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
     ) -> Vec<Arc<dyn Skill>> {
         vec![
             Arc::new(FileOpsSkill::with_engine(engine.clone())) as Arc<dyn Skill>,
@@ -56,7 +56,7 @@ impl BuiltinSkills {
 
     /// Create all built-in skills with a shared permission engine and approval flow injected.
     pub fn all_with_engine_and_approval_flow(
-        engine: Arc<closeclaw_permission::PermissionEngine>,
+        engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
         session_manager: Option<Arc<SessionManager>>,
         agent_permissions: std::collections::HashMap<
@@ -102,14 +102,14 @@ pub fn builtin_skills() -> Vec<Arc<dyn Skill>> {
 
 /// Get all built-in skills with a shared permission engine injected.
 pub fn builtin_skills_with_engine(
-    engine: Arc<closeclaw_permission::PermissionEngine>,
+    engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
 ) -> Vec<Arc<dyn Skill>> {
     BuiltinSkills::all_with_engine(engine)
 }
 
 /// Get all built-in skills with a shared permission engine and approval flow injected.
 pub fn builtin_skills_with_engine_and_approval_flow(
-    engine: Arc<closeclaw_permission::PermissionEngine>,
+    engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
     approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     session_manager: Option<Arc<SessionManager>>,
     agent_permissions: std::collections::HashMap<

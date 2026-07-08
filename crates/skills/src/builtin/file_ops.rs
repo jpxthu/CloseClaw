@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 pub struct FileOpsSkill {
-    engine: Option<Arc<closeclaw_permission::PermissionEngine>>,
+    engine: Option<Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>>,
     approval_flow: Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>,
     session_manager: Option<Arc<SessionManager>>,
     agent_permissions: HashMap<String, AgentPermissions>,
@@ -34,7 +34,9 @@ impl FileOpsSkill {
         }
     }
 
-    pub fn with_engine(engine: Arc<closeclaw_permission::PermissionEngine>) -> Self {
+    pub fn with_engine(
+        engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
+    ) -> Self {
         Self {
             engine: Some(engine),
             approval_flow: None,
@@ -44,7 +46,7 @@ impl FileOpsSkill {
     }
 
     pub fn with_engine_and_approval_flow(
-        engine: Arc<closeclaw_permission::PermissionEngine>,
+        engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     ) -> Self {
         Self {
@@ -135,11 +137,12 @@ impl Skill for FileOpsSkill {
                         creator_id: String::new(),
                     };
                     let request = request.with_caller(caller);
-                    engine
+                    let guard = engine.read().await;
+                    guard
                         .evaluate_with_chain(request, sm.as_ref(), sid, &self.agent_permissions)
                         .await
                 }
-                _ => engine.evaluate(request, None),
+                _ => engine.read().await.evaluate(request, None),
             };
             match response {
                 PermissionResponse::Allowed { .. } => {}

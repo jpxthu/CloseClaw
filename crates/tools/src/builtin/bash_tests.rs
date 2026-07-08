@@ -127,6 +127,7 @@ fn test_mock_approval_flow() -> Arc<TokioMutex<ApprovalFlow>> {
         Arc::new(|_| {}),
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
+        std::env::temp_dir(),
     )))
 }
 

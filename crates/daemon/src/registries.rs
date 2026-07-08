@@ -32,7 +32,7 @@ pub(crate) struct RegistryContext<'a> {
     /// Session manager to receive config references.
     pub session_manager: &'a Arc<SessionManager>,
     /// Permission engine for builtin tool context.
-    pub permission_engine: &'a Arc<PermissionEngine>,
+    pub permission_engine: &'a Arc<tokio::sync::RwLock<PermissionEngine>>,
     /// SpawnController for validating agent spawn requests.
     pub spawn_controller: Arc<SpawnController>,
     /// Approval flow for routing permission denials.

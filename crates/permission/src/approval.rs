@@ -190,6 +190,8 @@ pub struct PendingApproval {
     pub request_id: RequestId,
     /// Caller that initiated the operation.
     pub caller: Caller,
+    /// The original permission request body.
+    pub request: PermissionRequestBody,
     /// SHA256 key for deduplication.
     pub operation_key: OperationKey,
     /// Human-readable operation description.
@@ -271,6 +273,7 @@ impl ApprovalQueue {
         let pending = PendingApproval {
             request_id: request_id.clone(),
             caller,
+            request,
             operation_key,
             operation_desc,
             risk_level,
