@@ -227,8 +227,8 @@ impl Tool for SessionsSpawnTool {
                 },
                 "promptTemplate": {
                     "type": "string",
-                    "enum": ["explore", "validation", "plan", "executor"],
-                    "description": "Built-in prompt template to prepend to the task. 'explore' constrains read-only research; 'validation' enforces structured audit output; 'plan' constrains to read-only architect perspective; 'executor' runs with full toolset under review."
+                    "enum": ["explore", "verification", "plan", "executor"],
+                    "description": "Built-in prompt template to prepend to the task. 'explore' constrains read-only research; 'verification' enforces structured audit output; 'plan' constrains to read-only architect perspective; 'executor' runs with full toolset under review."
                 }
             },
             "required": ["task"]
