@@ -4,6 +4,7 @@
 //! in the `plans/` directory of a workspace.
 
 use chrono::Local;
+use closeclaw_common::plan_state::PlanStatus;
 use closeclaw_config::IdentifierFormat;
 use rand::seq::SliceRandom;
 use std::path::{Path, PathBuf};
@@ -37,6 +38,7 @@ pub const PLAN_TEMPLATE: &str = "\
 |------|-----|
 | 状态 | draft |
 | 创建时间 | {timestamp} |
+| 更新时间 | {timestamp} |
 
 ## Context
 
@@ -122,6 +124,117 @@ pub fn create_plan_file_with_format(
     std::fs::write(&file_path, content)?;
 
     Ok(file_path)
+}
+
+/// Update the status field in a plan file.
+///
+/// Replaces `| 状态 | xxx |` with `| 状态 | {status} |` and also
+/// updates the `| 更新时间 | xxx |` field to the current time.
+///
+/// # Errors
+/// Returns an error if the file cannot be read or written, or if
+/// the status line is not found.
+pub fn update_plan_status(plan_file_path: &str, status: &PlanStatus) -> Result<(), std::io::Error> {
+    let path = Path::new(plan_file_path);
+    if !path.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("plan file not found: {plan_file_path}"),
+        ));
+    }
+
+    let content = std::fs::read_to_string(path)?;
+    let new_timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let status_str = status.to_string();
+
+    let status_replaced = replace_status_line(&content, &status_str).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("status line not found in plan file: {plan_file_path}"),
+        )
+    })?;
+
+    // Update timestamp if the line exists; skip gracefully if not.
+    let new_content =
+        replace_update_time_line(&status_replaced, &new_timestamp).unwrap_or(status_replaced);
+
+    std::fs::write(path, new_content)
+}
+
+/// Update only the update timestamp field in a plan file.
+///
+/// Replaces `| 更新时间 | xxx |` with the current time.
+///
+/// # Errors
+/// Returns an error if the file cannot be read or written, or if
+/// the update time line is not found.
+pub fn update_plan_timestamp(plan_file_path: &str) -> Result<(), std::io::Error> {
+    let path = Path::new(plan_file_path);
+    if !path.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("plan file not found: {plan_file_path}"),
+        ));
+    }
+
+    let content = std::fs::read_to_string(path)?;
+    let new_timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    match replace_update_time_line(&content, &new_timestamp) {
+        Some(c) => std::fs::write(path, c),
+        None => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("update time line not found in plan file: {plan_file_path}"),
+        )),
+    }
+}
+
+/// Replace the `| 状态 | xxx |` line with the given status.
+fn replace_status_line(content: &str, new_status: &str) -> Option<String> {
+    let prefix = "| 状态 | ";
+    let suffix = " |";
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result = Vec::with_capacity(lines.len());
+    let mut found = false;
+
+    for line in &lines {
+        if line.contains("| 状态 | ") && line.ends_with(" |") {
+            result.push(format!("{prefix}{new_status}{suffix}"));
+            found = true;
+        } else {
+            result.push((*line).to_string());
+        }
+    }
+
+    if found {
+        Some(result.join("\n"))
+    } else {
+        None
+    }
+}
+
+/// Replace the `| 更新时间 | xxx |` line with the given timestamp.
+fn replace_update_time_line(content: &str, new_timestamp: &str) -> Option<String> {
+    let prefix = "| 更新时间 | ";
+    let suffix = " |";
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result = Vec::with_capacity(lines.len());
+    let mut found = false;
+
+    for line in &lines {
+        if line.contains("| 更新时间 | ") && line.ends_with(" |") {
+            result.push(format!("{prefix}{new_timestamp}{suffix}"));
+            found = true;
+        } else {
+            result.push((*line).to_string());
+        }
+    }
+
+    if found {
+        Some(result.join("\n"))
+    } else {
+        None
+    }
 }
 
 /// Convert a title string into a URL-friendly slug.

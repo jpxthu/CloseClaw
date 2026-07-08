@@ -1,6 +1,7 @@
-//! Tests for PlanState and PlanPhase types.
+//! Tests for PlanState, PlanPhase, PlanPath, and DefaultPlanStateWriter.
 
 use super::*;
+use crate::plan_state::PlanPath;
 
 #[test]
 fn test_plan_phase_default_is_research() {
@@ -73,7 +74,6 @@ fn test_plan_state_serde_roundtrip() {
 
 #[test]
 fn test_plan_state_serde_default_fields() {
-    // Missing fields should use Default values
     let json = "{}";
     let state: PlanState = serde_json::from_str(json).unwrap();
     assert_eq!(state.phase, PlanPhase::Research);
@@ -263,7 +263,6 @@ fn test_transition_skipped_from_pending() {
 fn test_init_then_full_flow() {
     let mut state = PlanState::new();
     state.init_execution_steps(vec!["step1".into(), "step2".into(), "step3".into()]);
-    // Step 0: pending → in_progress → completed
     state.current_step = Some(0);
     state
         .apply_transition(0, ExecutionStepStatus::InProgress)
@@ -271,7 +270,6 @@ fn test_init_then_full_flow() {
     state
         .apply_transition(0, ExecutionStepStatus::Completed)
         .unwrap();
-    // Step 1: pending → in_progress → completed
     state.current_step = Some(1);
     state
         .apply_transition(1, ExecutionStepStatus::InProgress)
@@ -279,7 +277,6 @@ fn test_init_then_full_flow() {
     state
         .apply_transition(1, ExecutionStepStatus::Completed)
         .unwrap();
-    // Step 2: pending → in_progress → completed
     state.current_step = Some(2);
     state
         .apply_transition(2, ExecutionStepStatus::InProgress)
@@ -287,7 +284,6 @@ fn test_init_then_full_flow() {
     state
         .apply_transition(2, ExecutionStepStatus::Completed)
         .unwrap();
-    // All done
     for (i, step) in state.execution_steps.iter().enumerate() {
         assert_eq!(
             step.status,
@@ -296,8 +292,70 @@ fn test_init_then_full_flow() {
             i
         );
     }
-    // current_step stays at last index (no next step)
     assert_eq!(state.current_step, Some(2));
+}
+
+// --- PlanPath tests ---
+
+#[test]
+fn test_plan_path_default_is_interview() {
+    assert_eq!(PlanPath::default(), PlanPath::Interview);
+}
+
+#[test]
+fn test_plan_path_all_variants() {
+    let variants = [PlanPath::Standard, PlanPath::Interview];
+    assert_eq!(variants.len(), 2);
+}
+
+#[test]
+fn test_plan_path_serde_snake_case() {
+    let cases = [
+        (PlanPath::Standard, r#""standard""#),
+        (PlanPath::Interview, r#""interview""#),
+    ];
+    for (path, expected_json) in cases {
+        let json = serde_json::to_string(&path).unwrap();
+        assert_eq!(
+            json, expected_json,
+            "path {:?} should serialize to {}",
+            path, expected_json
+        );
+        let deserialized: PlanPath = serde_json::from_str(expected_json).unwrap();
+        assert_eq!(deserialized, path);
+    }
+}
+
+#[test]
+fn test_plan_path_display() {
+    assert_eq!(PlanPath::Standard.to_string(), "standard");
+    assert_eq!(PlanPath::Interview.to_string(), "interview");
+}
+
+#[test]
+fn test_plan_state_serde_with_explicit_path() {
+    let state = PlanState {
+        explicit_path: Some(PlanPath::Standard),
+        ..PlanState::default()
+    };
+    let json = serde_json::to_string(&state).unwrap();
+    let deserialized: PlanState = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.explicit_path, Some(PlanPath::Standard));
+}
+
+#[test]
+fn test_plan_state_explicit_path_none_by_default() {
+    let state = PlanState::new();
+    assert_eq!(state.explicit_path, None);
+}
+
+#[test]
+fn test_plan_state_serde_backward_compat_without_explicit_path() {
+    let json = r#"{"phase": "research", "plan_file_path": "/tmp/plan.md"}"#;
+    let state: PlanState = serde_json::from_str(json).unwrap();
+    assert_eq!(state.explicit_path, None);
+    assert_eq!(state.phase, PlanPhase::Research);
+    assert_eq!(state.plan_file_path, "/tmp/plan.md");
 }
 
 // --- progress_summary tests ---
@@ -351,14 +409,12 @@ fn test_progress_summary_completed_no_summary() {
 fn test_progress_summary_multi_mixed() {
     let mut state = PlanState::new();
     state.init_execution_steps(vec!["step1".into(), "step2".into(), "step3".into()]);
-    // Step 0 completed (auto-advances current_step to 1)
     state
         .apply_transition(0, ExecutionStepStatus::InProgress)
         .unwrap();
     state
         .apply_transition(0, ExecutionStepStatus::Completed)
         .unwrap();
-    // Step 1 in_progress (current_step already == 1)
     state
         .apply_transition(1, ExecutionStepStatus::InProgress)
         .unwrap();
@@ -366,7 +422,6 @@ fn test_progress_summary_multi_mixed() {
     assert!(summary.contains("Step 1/3: completed (step1)"));
     assert!(summary.contains("→ Step 2/3: in_progress"));
     assert!(summary.contains("Step 3/3: pending"));
-    // Arrow only on current step
     let lines: Vec<&str> = summary.lines().collect();
     assert!(lines[1].starts_with("Step 1"));
     assert!(lines[2].starts_with("→ Step 2"));
@@ -419,7 +474,6 @@ fn test_progress_summary_skipped() {
 fn test_progress_summary_no_current_step() {
     let mut state = PlanState::new();
     state.init_execution_steps(vec!["step1".into(), "step2".into()]);
-    // current_step is None — no arrow
     let summary = state.progress_summary();
     let lines: Vec<&str> = summary.lines().collect();
     assert!(lines[1].starts_with("Step 1"));

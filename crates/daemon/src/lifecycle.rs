@@ -477,7 +477,8 @@ impl Daemon {
         use closeclaw_slash::registry::HandlerRegistry;
         use closeclaw_slash::{
             ClearHandler, CompactHandler, ExecHandler, ExecuteHandler, HelpHandler, ModeHandler,
-            NewSessionHandler, PlanModeHandler, StatusHandler, StopHandler, VerboseHandler,
+            NewSessionHandler, PauseHandler, PlanModeHandler, StatusHandler, StopHandler,
+            VerboseHandler,
         };
 
         let slash_registry = Arc::new(HandlerRegistry::new());
@@ -496,6 +497,7 @@ impl Daemon {
         slash_registry.register(Arc::new(PlanModeHandler::new(Arc::clone(session_manager))));
         slash_registry.register(Arc::new(ModeHandler::new(Arc::clone(session_manager))));
         slash_registry.register(Arc::new(ExecuteHandler::new(Arc::clone(session_manager))));
+        slash_registry.register(Arc::new(PauseHandler::new(Arc::clone(session_manager))));
         let slash_dispatcher = Arc::new(crate::bridge::SlashDispatcherWrapper(
             SlashDispatcher::from_shared(slash_registry),
         ));
