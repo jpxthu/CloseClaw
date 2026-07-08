@@ -5,9 +5,9 @@ use std::sync::Arc;
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
 use crate::handlers_mode::{
-    parse_plan_status_from_file, ExecuteHandler, ModeHandler, PlanModeHandler,
+    parse_plan_path_arg, parse_plan_status_from_file, ExecuteHandler, ModeHandler, PlanModeHandler,
 };
-use closeclaw_common::plan_state::PlanStatus;
+use closeclaw_common::plan_state::{PlanPath, PlanStatus};
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_gateway::session_manager::SessionManager;
 
@@ -293,6 +293,71 @@ async fn test_mode_handler_no_args_no_session() {
         }
         other => panic!("expected Reply with no-session, got {other:?}"),
     }
+}
+
+// ── parse_plan_path_arg tests ──────────────────────────────────────────────
+
+#[test]
+fn test_parse_plan_path_standard() {
+    let (path, title) = parse_plan_path_arg("--path standard 实现登录功能");
+    assert_eq!(path, Some(PlanPath::Standard));
+    assert_eq!(title, "实现登录功能");
+}
+
+#[test]
+fn test_parse_plan_path_interview() {
+    let (path, title) = parse_plan_path_arg("--path interview 优化性能");
+    assert_eq!(path, Some(PlanPath::Interview));
+    assert_eq!(title, "优化性能");
+}
+
+#[test]
+fn test_parse_plan_path_no_path_arg() {
+    let (path, title) = parse_plan_path_arg("实现新功能");
+    assert_eq!(path, None);
+    assert_eq!(title, "实现新功能");
+}
+
+#[test]
+fn test_parse_plan_path_only_standard() {
+    let (path, title) = parse_plan_path_arg("--path standard");
+    assert_eq!(path, Some(PlanPath::Standard));
+    assert_eq!(title, "");
+}
+
+#[test]
+fn test_parse_plan_path_only_interview() {
+    let (path, title) = parse_plan_path_arg("--path interview");
+    assert_eq!(path, Some(PlanPath::Interview));
+    assert_eq!(title, "");
+}
+
+#[test]
+fn test_parse_plan_path_invalid_value() {
+    let (path, title) = parse_plan_path_arg("--path invalid 任务标题");
+    assert_eq!(path, None);
+    assert_eq!(title, "任务标题");
+}
+
+#[test]
+fn test_parse_plan_path_no_value_after_path() {
+    let (path, title) = parse_plan_path_arg("--path  任务标题");
+    assert_eq!(path, None);
+    assert_eq!(title, "任务标题");
+}
+
+#[test]
+fn test_parse_plan_path_with_whitespace() {
+    let (path, title) = parse_plan_path_arg("  --path standard  优化性能  ");
+    assert_eq!(path, Some(PlanPath::Standard));
+    assert_eq!(title, "优化性能");
+}
+
+#[test]
+fn test_parse_plan_path_title_with_chinese() {
+    let (path, title) = parse_plan_path_arg("--path standard 修复登录页面的样式问题");
+    assert_eq!(path, Some(PlanPath::Standard));
+    assert_eq!(title, "修复登录页面的样式问题");
 }
 
 // ── ExecuteHandler tests ─────────────────────────────────────────────────

@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
-use closeclaw_common::plan_state::PlanStatus;
+use closeclaw_common::plan_state::{PlanPath, PlanStatus};
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_common::PlanPhase;
@@ -50,11 +50,20 @@ impl SlashHandler for PlanModeHandler {
     async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
         if args.trim().is_empty() {
             return SlashResult::Reply(
-                "用法：/plan <任务描述>\n进入 Plan Mode 进行任务规划。".to_owned(),
+                "用法：/plan [--path standard|interview] <任务描述>\n进入 Plan Mode 进行任务规划。"
+                    .to_owned(),
             );
         }
 
-        let title = args.trim();
+        // Parse --path argument and extract task title
+        let (explicit_path, title) = parse_plan_path_arg(args.trim());
+        if title.trim().is_empty() {
+            return SlashResult::Reply(
+                "用法：/plan [--path standard|interview] <任务描述>\n进入 Plan Mode 进行任务规划。"
+                    .to_owned(),
+            );
+        }
+
         let plan_file_path = if let Some(conv) = self
             .session_manager
             .get_conversation_session(&ctx.session_id)
@@ -77,11 +86,12 @@ impl SlashHandler for PlanModeHandler {
             None
         };
 
-        // Initialize PlanState with the plan file path
+        // Initialize PlanState with the plan file path and explicit path
         if let Some(ref path) = plan_file_path {
             let mut plan_state = PlanState::new();
             plan_state.plan_file_path = path.to_string_lossy().to_string();
             plan_state.phase = PlanPhase::Research;
+            plan_state.explicit_path = explicit_path;
             self.session_manager
                 .set_plan_state(&ctx.session_id, plan_state)
                 .await;
@@ -113,6 +123,49 @@ pub(crate) fn parse_plan_status_from_file(content: &str) -> Option<PlanStatus> {
         }
     }
     None
+}
+
+/// Parse `--path` argument from the `/plan` command.
+///
+/// Returns `(Some(PlanPath), remaining_title)` when `--path standard` or
+/// `--path interview` is found; `(None, original_args)` otherwise.
+/// The task title is the remaining args after stripping `--path <value>`.
+pub(crate) fn parse_plan_path_arg(args: &str) -> (Option<PlanPath>, &str) {
+    let trimmed = args.trim();
+    if let Some(rest) = trimmed.strip_prefix("--path") {
+        let rest = rest.trim_start();
+        if let Some(value_end) = rest.find(|c: char| c.is_whitespace()) {
+            let value = &rest[..value_end];
+            let title = rest[value_end..].trim();
+            let path = match value {
+                "standard" => Some(PlanPath::Standard),
+                "interview" => Some(PlanPath::Interview),
+                _ => {
+                    tracing::warn!(
+                        path_value = %value,
+                        "Invalid --path value, ignoring"
+                    );
+                    None
+                }
+            };
+            (path, title)
+        } else if rest.is_empty() {
+            // --path with nothing after it
+            (None, trimmed)
+        } else if matches!(rest, "standard" | "interview") {
+            // --path with a recognized value but no title following
+            let path = match rest {
+                "standard" => Some(PlanPath::Standard),
+                _ => Some(PlanPath::Interview),
+            };
+            (path, "")
+        } else {
+            // --path with unrecognized value (no title) — treat as invalid path, rest is title
+            (None, rest)
+        }
+    } else {
+        (None, trimmed)
+    }
 }
 
 // ── ExecuteHandler ────────────────────────────────────────────────────────

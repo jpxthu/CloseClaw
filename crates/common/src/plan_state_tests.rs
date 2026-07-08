@@ -1,6 +1,7 @@
 //! Tests for PlanState and PlanPhase types.
 
 use super::*;
+use crate::plan_state::PlanPath;
 
 #[test]
 fn test_plan_phase_default_is_research() {
@@ -298,6 +299,70 @@ fn test_init_then_full_flow() {
     }
     // current_step stays at last index (no next step)
     assert_eq!(state.current_step, Some(2));
+}
+
+// --- PlanPath tests ---
+
+#[test]
+fn test_plan_path_default_is_interview() {
+    assert_eq!(PlanPath::default(), PlanPath::Interview);
+}
+
+#[test]
+fn test_plan_path_all_variants() {
+    let variants = [PlanPath::Standard, PlanPath::Interview];
+    assert_eq!(variants.len(), 2);
+}
+
+#[test]
+fn test_plan_path_serde_snake_case() {
+    let cases = [
+        (PlanPath::Standard, r#""standard""#),
+        (PlanPath::Interview, r#""interview""#),
+    ];
+    for (path, expected_json) in cases {
+        let json = serde_json::to_string(&path).unwrap();
+        assert_eq!(
+            json, expected_json,
+            "path {:?} should serialize to {}",
+            path, expected_json
+        );
+        let deserialized: PlanPath = serde_json::from_str(expected_json).unwrap();
+        assert_eq!(deserialized, path);
+    }
+}
+
+#[test]
+fn test_plan_path_display() {
+    assert_eq!(PlanPath::Standard.to_string(), "standard");
+    assert_eq!(PlanPath::Interview.to_string(), "interview");
+}
+
+#[test]
+fn test_plan_state_serde_with_explicit_path() {
+    let state = PlanState {
+        explicit_path: Some(PlanPath::Standard),
+        ..PlanState::default()
+    };
+    let json = serde_json::to_string(&state).unwrap();
+    let deserialized: PlanState = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.explicit_path, Some(PlanPath::Standard));
+}
+
+#[test]
+fn test_plan_state_explicit_path_none_by_default() {
+    let state = PlanState::new();
+    assert_eq!(state.explicit_path, None);
+}
+
+#[test]
+fn test_plan_state_serde_backward_compat_without_explicit_path() {
+    // Old serialized state without explicit_path field should deserialize fine
+    let json = r#"{"phase": "research", "plan_file_path": "/tmp/plan.md"}"#;
+    let state: PlanState = serde_json::from_str(json).unwrap();
+    assert_eq!(state.explicit_path, None);
+    assert_eq!(state.phase, PlanPhase::Research);
+    assert_eq!(state.plan_file_path, "/tmp/plan.md");
 }
 
 // --- progress_summary tests ---

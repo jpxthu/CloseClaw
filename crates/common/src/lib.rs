@@ -63,7 +63,7 @@ pub use middleware::{MiddlewareError, OutboundMiddleware};
 pub use notifier::{NoopNotifier, PlanStateNotifier};
 pub use permission_check::{ExecutionPermissionCheck, PermissionDenied};
 pub use plan_state::{
-    DefaultPlanStateWriter, ExecutionStep, ExecutionStepStatus, PlanPhase, PlanState,
+    DefaultPlanStateWriter, ExecutionStep, ExecutionStepStatus, PlanPath, PlanPhase, PlanState,
     PlanStateWriter, PlanStatus, StatusTransitionError, TransitionError,
 };
 pub use processor::{
