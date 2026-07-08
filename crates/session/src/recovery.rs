@@ -25,6 +25,14 @@ pub const APPROVAL_HISTORY_PREFIX: &str = "__approval_history__:";
 /// so it can be identified in subsequent recovery scans.
 pub const PLAN_REFERENCES_PREFIX: &str = "__plan_references__:";
 
+/// Prefix marker for plan file Tasks section injected into
+/// `system_appends` during recovery.
+///
+/// When a session in Executing or Paused state is recovered, the
+/// Tasks section is extracted from the plan file and injected with
+/// this prefix so it can be identified in subsequent recovery scans.
+pub const PLAN_TASKS_PREFIX: &str = "__plan_tasks__:";
+
 /// Recovery report containing results of the recovery process
 #[derive(Debug)]
 pub struct RecoveryReport {
@@ -214,6 +222,8 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         // notifications for all recovered sessions.
         for session_id in &recovered {
             if let Some(cp) = checkpoints.get_mut(session_id) {
+                // Inject plan file Tasks section for executing/paused sessions
+                self.inject_plan_tasks(session_id, cp);
                 // Layer 3: inject approval tool call history into system_appends
                 self.inject_approval_history(session_id, cp);
                 // Layer 4: fallback — inject plan references from message history
@@ -297,6 +307,60 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             session_id = %session_id,
             call_count = checkpoint.approval_tool_calls.len(),
             "injected approval tool call history into system_appends"
+        );
+    }
+
+    /// Inject the plan file Tasks section into checkpoint's system_appends.
+    ///
+    /// For sessions in Executing or Paused state with a `plan_state`,
+    /// extracts the Tasks section from the plan file and adds it to
+    /// `system_appends` with [`PLAN_TASKS_PREFIX`].
+    ///
+    /// If the session has no `plan_state` or the plan file cannot be read,
+    /// the checkpoint is left unchanged (graceful degradation).
+    fn inject_plan_tasks(&self, session_id: &str, checkpoint: &mut SessionCheckpoint) {
+        use closeclaw_common::PlanStatus;
+
+        let plan_state = match &checkpoint.plan_state {
+            Some(ps) => ps,
+            None => return,
+        };
+
+        // Only inject for Executing or Paused sessions
+        if !matches!(
+            plan_state.status,
+            PlanStatus::Executing | PlanStatus::Paused
+        ) {
+            return;
+        }
+
+        let plan_file_path = &plan_state.plan_file_path;
+        if plan_file_path.is_empty() {
+            return;
+        }
+
+        let tasks_content = match extract_plan_tasks_section(plan_file_path) {
+            Some(content) => content,
+            None => return,
+        };
+
+        let tagged = format!("{}{}", PLAN_TASKS_PREFIX, tasks_content);
+
+        // Replace existing entry in-place if present, otherwise append.
+        if let Some(slot) = checkpoint
+            .system_appends
+            .iter_mut()
+            .find(|s| s.starts_with(PLAN_TASKS_PREFIX))
+        {
+            *slot = tagged;
+        } else {
+            checkpoint.system_appends.push(tagged);
+        }
+
+        tracing::info!(
+            session_id = %session_id,
+            plan_file = %plan_file_path,
+            "injected plan file Tasks section into system_appends"
         );
     }
 

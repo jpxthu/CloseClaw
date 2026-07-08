@@ -457,4 +457,246 @@ mod tests {
             "layer 4 SHOULD inject when layer 2 is absent"
         );
     }
+
+    // ── Plan Tasks section injection tests (Step 1.3 / Gap 3) ──────
+
+    use crate::recovery::PLAN_TASKS_PREFIX;
+    use closeclaw_common::{PlanPhase, PlanState, PlanStatus};
+
+    /// Helper: create a temp plan file with a Tasks section.
+    fn create_plan_file_with_tasks(dir: &std::path::Path, tasks_content: &str) -> String {
+        let plan_file = dir.join("test-plan.md");
+        let content = format!(
+            "# Plan\n\n| 字段 | 值 |\n| 状态 | executing |\n\n## 开发步骤\n\n{}\n\n## 进度\n",
+            tasks_content
+        );
+        std::fs::write(&plan_file, content).unwrap();
+        plan_file.to_string_lossy().to_string()
+    }
+
+    /// Helper: create a checkpoint with plan_state in a given status.
+    fn checkpoint_with_plan(
+        session_id: &str,
+        status: PlanStatus,
+        plan_file_path: &str,
+    ) -> crate::persistence::SessionCheckpoint {
+        let mut cp = crate::persistence::SessionCheckpoint::new(session_id.into());
+        cp.plan_state = Some(PlanState {
+            phase: PlanPhase::FinalPlan,
+            status,
+            plan_file_path: plan_file_path.to_string(),
+            ..PlanState::new()
+        });
+        cp
+    }
+
+    #[tokio::test]
+    async fn test_inject_plan_tasks_executing_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_path = create_plan_file_with_tasks(dir.path(), "### Step 1.1\nDo stuff");
+
+        let storage = Arc::new(MemoryStorage::new());
+        let cp = checkpoint_with_plan("exec-session", PlanStatus::Executing, &plan_path);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+        assert!(report.recovered.contains(&"exec-session".to_string()));
+
+        let loaded = storage
+            .load_checkpoint("exec-session")
+            .await
+            .unwrap()
+            .unwrap();
+        let tasks_append = loaded
+            .system_appends
+            .iter()
+            .find(|s| s.starts_with(PLAN_TASKS_PREFIX));
+        assert!(
+            tasks_append.is_some(),
+            "plan tasks should be injected for Executing session"
+        );
+        assert!(tasks_append.unwrap().contains("Step 1.1"));
+    }
+
+    #[tokio::test]
+    async fn test_inject_plan_tasks_paused_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_path = create_plan_file_with_tasks(dir.path(), "### Step 2.1\nPaused work");
+
+        let storage = Arc::new(MemoryStorage::new());
+        let cp = checkpoint_with_plan("paused-session", PlanStatus::Paused, &plan_path);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+        assert!(report.recovered.contains(&"paused-session".to_string()));
+
+        let loaded = storage
+            .load_checkpoint("paused-session")
+            .await
+            .unwrap()
+            .unwrap();
+        let tasks_append = loaded
+            .system_appends
+            .iter()
+            .find(|s| s.starts_with(PLAN_TASKS_PREFIX));
+        assert!(
+            tasks_append.is_some(),
+            "plan tasks should be injected for Paused session"
+        );
+        assert!(tasks_append.unwrap().contains("Step 2.1"));
+    }
+
+    #[tokio::test]
+    async fn test_inject_plan_tasks_no_plan_state() {
+        let storage = Arc::new(MemoryStorage::new());
+        let cp = crate::persistence::SessionCheckpoint::new("no-plan".into());
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+        assert!(report.recovered.contains(&"no-plan".to_string()));
+
+        let loaded = storage.load_checkpoint("no-plan").await.unwrap().unwrap();
+        assert!(
+            loaded.system_appends.is_empty(),
+            "no injection when plan_state is absent"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_inject_plan_tasks_file_not_found() {
+        let storage = Arc::new(MemoryStorage::new());
+        let cp = checkpoint_with_plan(
+            "missing-file",
+            PlanStatus::Executing,
+            "/nonexistent/path/plan.md",
+        );
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+        assert!(report.recovered.contains(&"missing-file".to_string()));
+
+        let loaded = storage
+            .load_checkpoint("missing-file")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            loaded.system_appends.is_empty(),
+            "graceful skip when plan file not found"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_inject_plan_tasks_empty_section() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_file = dir.path().join("empty-tasks.md");
+        let content = "# Plan\n\n## 开发步骤\n\n## 进度\n";
+        std::fs::write(&plan_file, content).unwrap();
+        let plan_path = plan_file.to_string_lossy().to_string();
+
+        let storage = Arc::new(MemoryStorage::new());
+        let cp = checkpoint_with_plan("empty-tasks", PlanStatus::Executing, &plan_path);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+        assert!(report.recovered.contains(&"empty-tasks".to_string()));
+
+        let loaded = storage
+            .load_checkpoint("empty-tasks")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            loaded.system_appends.is_empty(),
+            "no injection when Tasks section is empty"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_inject_plan_tasks_replaces_existing() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_path = create_plan_file_with_tasks(dir.path(), "### New Step\nUpdated");
+
+        let storage = Arc::new(MemoryStorage::new());
+        let mut cp = checkpoint_with_plan("replace-tasks", PlanStatus::Executing, &plan_path);
+        cp.system_appends
+            .push(format!("{}old tasks data", PLAN_TASKS_PREFIX));
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+        assert!(report.recovered.contains(&"replace-tasks".to_string()));
+
+        let loaded = storage
+            .load_checkpoint("replace-tasks")
+            .await
+            .unwrap()
+            .unwrap();
+        let tasks: Vec<_> = loaded
+            .system_appends
+            .iter()
+            .filter(|s| s.starts_with(PLAN_TASKS_PREFIX))
+            .collect();
+        assert_eq!(tasks.len(), 1, "should have exactly one tasks entry");
+        assert!(tasks[0].contains("New Step"));
+        assert!(!tasks[0].contains("old tasks data"));
+    }
+
+    #[tokio::test]
+    async fn test_inject_plan_tasks_preserves_other_appends() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_path = create_plan_file_with_tasks(dir.path(), "### Step\nContent");
+
+        let storage = Arc::new(MemoryStorage::new());
+        let mut cp = checkpoint_with_plan("preserve-tasks", PlanStatus::Executing, &plan_path);
+        cp.system_appends.push("other content".to_string());
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+        assert!(report.recovered.contains(&"preserve-tasks".to_string()));
+
+        let loaded = storage
+            .load_checkpoint("preserve-tasks")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.system_appends.len(), 2);
+        assert!(loaded.system_appends.contains(&"other content".to_string()));
+        let tasks = loaded
+            .system_appends
+            .iter()
+            .find(|s| s.starts_with(PLAN_TASKS_PREFIX));
+        assert!(tasks.is_some());
+        assert!(tasks.unwrap().contains("Step"));
+    }
+
+    #[tokio::test]
+    async fn test_inject_plan_tasks_draft_status_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_path = create_plan_file_with_tasks(dir.path(), "### Step\nDraft work");
+
+        let storage = Arc::new(MemoryStorage::new());
+        let cp = checkpoint_with_plan("draft-session", PlanStatus::Draft, &plan_path);
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        let service = SessionRecoveryService::new(Arc::clone(&storage));
+        let report = service.recover().await.unwrap();
+        assert!(report.recovered.contains(&"draft-session".to_string()));
+
+        let loaded = storage
+            .load_checkpoint("draft-session")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            loaded.system_appends.is_empty(),
+            "should not inject tasks for Draft status"
+        );
+    }
 }

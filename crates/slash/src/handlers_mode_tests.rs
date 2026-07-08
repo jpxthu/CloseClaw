@@ -271,10 +271,7 @@ async fn test_mode_handler_no_args_queries_current_mode() {
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
         SlashResult::Reply(text) => {
-            assert!(
-                text.contains("当前会话模式"),
-                "should report current mode, got: {text}"
-            );
+            assert!(text.contains("当前会话模式"), "got: {text}");
             assert!(
                 text.contains("normal"),
                 "default should be normal, got: {text}"
@@ -282,92 +279,60 @@ async fn test_mode_handler_no_args_queries_current_mode() {
         }
         other => panic!("expected Reply with current mode, got {other:?}"),
     }
-}
-
-#[tokio::test]
-async fn test_mode_handler_no_args_no_session() {
-    let sm = make_session_manager();
-    let h = ModeHandler::new(sm);
-    let ctx = SlashContext {
+    // Non-existent session
+    let h2 = ModeHandler::new(sm);
+    let ctx2 = SlashContext {
         command: String::new(),
         sender_id: "u".to_owned(),
         session_id: "nonexistent".to_owned(),
         channel: "c".to_owned(),
     };
-    match h.handle("", &ctx).await {
-        SlashResult::Reply(text) => {
-            assert!(
-                text.contains("当前会话未激活"),
-                "should indicate inactive session, got: {text}"
-            );
-        }
-        other => panic!("expected Reply with no-session, got {other:?}"),
+    match h2.handle("", &ctx2).await {
+        SlashResult::Reply(text) => assert!(text.contains("当前会话未激活"), "got: {text}"),
+        other => panic!("expected Reply, got {other:?}"),
     }
 }
 
 // ── parse_plan_path_arg tests ──────────────────────────────────────────────
 
 #[test]
-fn test_parse_plan_path_standard() {
-    let (path, title) = parse_plan_path_arg("--path standard 实现登录功能");
-    assert_eq!(path, Some(PlanPath::Standard));
-    assert_eq!(title, "实现登录功能");
-}
-
-#[test]
-fn test_parse_plan_path_interview() {
-    let (path, title) = parse_plan_path_arg("--path interview 优化性能");
-    assert_eq!(path, Some(PlanPath::Interview));
-    assert_eq!(title, "优化性能");
-}
-
-#[test]
-fn test_parse_plan_path_no_path_arg() {
-    let (path, title) = parse_plan_path_arg("实现新功能");
-    assert_eq!(path, None);
-    assert_eq!(title, "实现新功能");
-}
-
-#[test]
-fn test_parse_plan_path_only_standard() {
-    let (path, title) = parse_plan_path_arg("--path standard");
-    assert_eq!(path, Some(PlanPath::Standard));
-    assert_eq!(title, "");
-}
-
-#[test]
-fn test_parse_plan_path_only_interview() {
-    let (path, title) = parse_plan_path_arg("--path interview");
-    assert_eq!(path, Some(PlanPath::Interview));
-    assert_eq!(title, "");
-}
-
-#[test]
-fn test_parse_plan_path_invalid_value() {
-    let (path, title) = parse_plan_path_arg("--path invalid 任务标题");
-    assert_eq!(path, None);
-    assert_eq!(title, "任务标题");
-}
-
-#[test]
-fn test_parse_plan_path_no_value_after_path() {
-    let (path, title) = parse_plan_path_arg("--path  任务标题");
-    assert_eq!(path, None);
-    assert_eq!(title, "任务标题");
-}
-
-#[test]
-fn test_parse_plan_path_with_whitespace() {
-    let (path, title) = parse_plan_path_arg("  --path standard  优化性能  ");
-    assert_eq!(path, Some(PlanPath::Standard));
-    assert_eq!(title, "优化性能");
-}
-
-#[test]
-fn test_parse_plan_path_title_with_chinese() {
-    let (path, title) = parse_plan_path_arg("--path standard 修复登录页面的样式问题");
-    assert_eq!(path, Some(PlanPath::Standard));
-    assert_eq!(title, "修复登录页面的样式问题");
+fn test_parse_plan_path_all_cases() {
+    // Valid path with title
+    assert_eq!(
+        parse_plan_path_arg("--path standard 实现登录功能"),
+        (Some(PlanPath::Standard), "实现登录功能")
+    );
+    assert_eq!(
+        parse_plan_path_arg("--path interview 优化性能"),
+        (Some(PlanPath::Interview), "优化性能")
+    );
+    // No --path
+    assert_eq!(parse_plan_path_arg("实现新功能"), (None, "实现新功能"));
+    // Path only (no title)
+    assert_eq!(
+        parse_plan_path_arg("--path standard"),
+        (Some(PlanPath::Standard), "")
+    );
+    assert_eq!(
+        parse_plan_path_arg("--path interview"),
+        (Some(PlanPath::Interview), "")
+    );
+    // Invalid path value
+    assert_eq!(
+        parse_plan_path_arg("--path invalid 任务标题"),
+        (None, "任务标题")
+    );
+    // Whitespace handling
+    assert_eq!(parse_plan_path_arg("--path  任务标题"), (None, "任务标题"));
+    assert_eq!(
+        parse_plan_path_arg("  --path standard  优化性能  "),
+        (Some(PlanPath::Standard), "优化性能")
+    );
+    // Chinese title
+    assert_eq!(
+        parse_plan_path_arg("--path standard 修复登录页面的样式问题"),
+        (Some(PlanPath::Standard), "修复登录页面的样式问题")
+    );
 }
 
 // ── ExecuteHandler tests ─────────────────────────────────────────────────
@@ -548,8 +513,16 @@ async fn test_execute_handler_plan_not_confirmed() {
     match h.handle("", &ctx).await {
         SlashResult::Reply(text) => {
             assert!(
-                text.contains("尚未通过审批"),
-                "should mention not approved, got: {text}"
+                text.contains("当前 plan 未就绪"),
+                "should mention plan not ready, got: {text}"
+            );
+            assert!(
+                text.contains("plan_approval"),
+                "should mention plan_approval tool, got: {text}"
+            );
+            assert!(
+                text.contains("暂停"),
+                "should mention pause as an alternative, got: {text}"
             );
         }
         other => panic!("expected Reply, got {other:?}"),
@@ -688,67 +661,34 @@ async fn test_execute_handler_plan_state_with_confirmed_status() {
 // ── parse_plan_status_from_file tests ─────────────────────────────────────
 
 #[test]
-fn test_parse_plan_status_draft() {
-    let content = "| 状态 | draft |";
+fn test_parse_plan_status_all_variants() {
     assert_eq!(
-        parse_plan_status_from_file(content),
+        parse_plan_status_from_file("| 状态 | draft |"),
         Some(PlanStatus::Draft)
     );
-}
-
-#[test]
-fn test_parse_plan_status_confirmed() {
-    let content = "| 状态 | confirmed |";
     assert_eq!(
-        parse_plan_status_from_file(content),
+        parse_plan_status_from_file("| 状态 | confirmed |"),
         Some(PlanStatus::Confirmed)
     );
-}
-
-#[test]
-fn test_parse_plan_status_executing() {
-    let content = "| 状态 | executing |";
     assert_eq!(
-        parse_plan_status_from_file(content),
+        parse_plan_status_from_file("| 状态 | executing |"),
         Some(PlanStatus::Executing)
     );
-}
-
-#[test]
-fn test_parse_plan_status_paused() {
-    let content = "| 状态 | paused |";
     assert_eq!(
-        parse_plan_status_from_file(content),
+        parse_plan_status_from_file("| 状态 | paused |"),
         Some(PlanStatus::Paused)
     );
-}
-
-#[test]
-fn test_parse_plan_status_completed() {
-    let content = "| 状态 | completed |";
     assert_eq!(
-        parse_plan_status_from_file(content),
+        parse_plan_status_from_file("| 状态 | completed |"),
         Some(PlanStatus::Completed)
     );
-}
-
-#[test]
-fn test_parse_plan_status_not_found() {
-    let content = "| 字段 | 值 |\n| 状态 |";
-    assert_eq!(parse_plan_status_from_file(content), None);
-}
-
-#[test]
-fn test_parse_plan_status_unknown_value() {
-    let content = "| 状态 | unknown |";
-    assert_eq!(parse_plan_status_from_file(content), None);
-}
-
-#[test]
-fn test_parse_plan_status_in_full_plan() {
-    let content = "# Test Plan\n\n| 字段 | 值 |\n| 状态 | confirmed |\n| 创建时间 | 2025-01-01 |\n";
+    // Edge cases
+    assert_eq!(parse_plan_status_from_file("| 字段 | 值 |\n| 状态 |"), None);
+    assert_eq!(parse_plan_status_from_file("| 状态 | unknown |"), None);
+    let full_plan =
+        "# Test Plan\n\n| 字段 | 值 |\n| 状态 | confirmed |\n| 创建时间 | 2025-01-01 |\n";
     assert_eq!(
-        parse_plan_status_from_file(content),
+        parse_plan_status_from_file(full_plan),
         Some(PlanStatus::Confirmed)
     );
 }
@@ -893,6 +833,81 @@ async fn test_execute_handler_empty_plan_file_path() {
     }
 }
 
+// ── ExecuteHandler Paused resume tests (Step 1.2 — Gap 2) ────────────────
+
+#[tokio::test]
+async fn test_execute_handler_plan_paused_resumes_and_updates_file() {
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let plan_file = tmp.path().join("test-plan.md");
+    fs::write(
+        &plan_file,
+        "# Test Plan\n\n| 字段 | 值 |\n| 状态 | paused |\n",
+    )
+    .unwrap();
+
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_plan_mode(&sm).await;
+    save_plan_state_with_status(&sm, &sid, plan_file.to_str().unwrap(), PlanStatus::Paused).await;
+
+    let h = ExecuteHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::SetMode {
+            mode,
+            plan_file_path,
+        } => {
+            assert_eq!(mode, "auto", "should switch to auto mode on resume");
+            assert!(plan_file_path.is_some(), "should have plan_file_path");
+            assert_eq!(
+                plan_file_path.unwrap(),
+                plan_file,
+                "plan_file_path should match"
+            );
+        }
+        other => panic!("expected SetMode for Paused resume, got {other:?}"),
+    }
+    // Verify plan file updated to executing
+    let content = fs::read_to_string(&plan_file).unwrap();
+    assert!(
+        content.contains("| 状态 | executing |"),
+        "plan file should be updated to executing status, got: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_execute_handler_plan_paused_falls_back_to_file_status() {
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let plan_file = tmp.path().join("test-plan.md");
+    fs::write(
+        &plan_file,
+        "# Test Plan\n\n| 字段 | 值 |\n| 状态 | paused |\n",
+    )
+    .unwrap();
+
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_plan_mode(&sm).await;
+    // Save with Draft status (default) so it falls back to file
+    save_plan_state(&sm, &sid, plan_file.to_str().unwrap()).await;
+
+    let h = ExecuteHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::SetMode { mode, .. } => {
+            assert_eq!(
+                mode, "auto",
+                "should fall back to file Paused status and resume"
+            );
+        }
+        other => panic!("expected SetMode for Paused file fallback, got {other:?}"),
+    }
+}
+
 // ── ModeHandler approval gate tests (Step 1.5 — Gap 2) ─────────────────
 
 async fn create_session_with_auto_mode(sm: &SessionManager) -> String {
@@ -947,36 +962,24 @@ async fn test_mode_handler_normal_from_plan_mode_rejected() {
 }
 
 #[tokio::test]
-async fn test_mode_handler_normal_from_normal_mode_allowed() {
+async fn test_mode_handler_normal_from_non_plan_modes_allowed() {
     let sm = make_session_manager_with_storage();
+    // From Normal Mode
     let sid = create_test_session(&sm).await;
     let h = ModeHandler::new(Arc::clone(&sm));
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("normal", &ctx).await {
-        SlashResult::SetMode { mode, .. } => {
-            assert_eq!(mode, "normal", "/mode normal from Normal should pass");
-        }
-        other => {
-            panic!("expected SetMode for /mode normal from Normal Mode, got {other:?}")
-        }
+        SlashResult::SetMode { mode, .. } => assert_eq!(mode, "normal"),
+        other => panic!("expected SetMode for /mode normal from Normal, got {other:?}"),
     }
-}
-
-#[tokio::test]
-async fn test_mode_handler_normal_from_auto_mode_allowed() {
-    let sm = make_session_manager_with_storage();
+    // From Auto Mode
     let sid = create_session_with_auto_mode(&sm).await;
-    let h = ModeHandler::new(Arc::clone(&sm));
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("normal", &ctx).await {
-        SlashResult::SetMode { mode, .. } => {
-            assert_eq!(mode, "normal", "/mode normal from Auto should pass");
-        }
-        other => {
-            panic!("expected SetMode for /mode normal from Auto Mode, got {other:?}")
-        }
+        SlashResult::SetMode { mode, .. } => assert_eq!(mode, "normal"),
+        other => panic!("expected SetMode for /mode normal from Auto, got {other:?}"),
     }
 }
 
@@ -988,11 +991,7 @@ async fn test_mode_handler_plan_from_plan_mode_allowed() {
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("plan", &ctx).await {
-        SlashResult::SetMode { mode, .. } => {
-            assert_eq!(mode, "plan", "/mode plan from Plan Mode should pass");
-        }
-        other => {
-            panic!("expected SetMode for /mode plan from Plan Mode, got {other:?}")
-        }
+        SlashResult::SetMode { mode, .. } => assert_eq!(mode, "plan"),
+        other => panic!("expected SetMode for /mode plan from Plan Mode, got {other:?}"),
     }
 }

@@ -340,6 +340,26 @@ impl PermissionEngine {
     ///
     /// Returns `Some(Denied)` if the operation should be blocked, `None` to
     /// proceed with normal evaluation.
+    ///
+    /// # Design Note: Runtime Evaluation vs. Static Binding
+    ///
+    /// The design doc (`docs/design/mode/README.md`) states that tool filtering
+    /// and permission boundaries are "determined at session creation and statically
+    /// effective" ("静态生效"). This method, however, evaluates the session mode
+    /// at runtime on every permission request via `session_mode_query`.
+    ///
+    /// This is intentional: runtime evaluation ensures that when the session mode
+    /// changes (e.g., Plan → Auto via `/execute`), the new permission set takes
+    /// effect immediately without requiring session reconstruction. The alternative
+    /// — static binding at session creation — would introduce a stale-tool-set risk
+    /// where mode switches leave the old tool filter active until the session is
+    /// torn down and rebuilt.
+    ///
+    /// The doc's "静态生效" describes the *behavioral* contract: for any given
+    /// mode, the set of allowed/denied tools is deterministic and does not vary
+    /// within a single permission check. It does not prescribe the *implementation*
+    /// mechanism. Runtime lookup satisfies this contract while also supporting
+    /// seamless mode transitions.
     fn check_plan_mode_filter(
         &self,
         request: &PermissionRequest,
