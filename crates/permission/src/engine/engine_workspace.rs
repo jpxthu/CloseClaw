@@ -19,6 +19,25 @@ pub(super) fn is_workspace_path(
     norm_path == norm_prefix || norm_path.starts_with(&format!("{}/", norm_prefix))
 }
 
+/// Check if a path is inside the config directory but not in any workspace.
+///
+/// Config directory paths (e.g. `data_root/agents/...`, `data_root/permissions.json`)
+/// are hard-coded to be denied. This prevents agents from reading or writing
+/// permission configuration files regardless of rules or defaults.
+pub(super) fn is_config_dir_path(data_root: &Path, path: &str) -> bool {
+    let norm_root = normalize_path(data_root.to_str().unwrap_or(""));
+    let norm_path = normalize_path(path);
+
+    // Path must be inside data_root
+    if norm_path != norm_root && !norm_path.starts_with(&format!("{}/", norm_root)) {
+        return false;
+    }
+
+    // Paths inside data_root/workspaces/ are allowed (handled by is_workspace_path)
+    let ws_prefix = format!("{}/workspaces/", norm_root);
+    norm_path == norm_root || !norm_path.starts_with(&ws_prefix)
+}
+
 /// Normalize a path by resolving `.` and `..` components syntactically.
 pub(super) fn normalize_path(path: &str) -> String {
     let mut components: Vec<&str> = Vec::new();
