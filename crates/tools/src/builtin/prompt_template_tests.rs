@@ -112,43 +112,43 @@ fn test_plan_matches_explore_tools() {
 }
 
 // ---------------------------------------------------------------------------
-// Validation template tests
+// Verification template tests
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_validation_default_tools_non_empty() {
-    let tools = PromptTemplate::Validation
+fn test_verification_default_tools_non_empty() {
+    let tools = PromptTemplate::Verification
         .default_allowed_tools()
-        .expect("Validation should have default tools");
+        .expect("Verification should have default tools");
     assert!(
         !tools.is_empty(),
-        "Validation default tools must not be empty"
+        "Verification default tools must not be empty"
     );
 }
 
 #[test]
-fn test_validation_includes_bash() {
-    let tools = PromptTemplate::Validation
+fn test_verification_includes_bash() {
+    let tools = PromptTemplate::Verification
         .default_allowed_tools()
-        .expect("Validation should have default tools");
+        .expect("Verification should have default tools");
     assert!(
         tools.contains(&"Bash"),
-        "Validation must include Bash for running test scripts"
+        "Verification must include Bash for running test scripts"
     );
 }
 
 #[test]
-fn test_validation_no_write_tools() {
-    let tools = PromptTemplate::Validation
+fn test_verification_no_write_tools() {
+    let tools = PromptTemplate::Verification
         .default_allowed_tools()
-        .expect("Validation should have default tools");
+        .expect("Verification should have default tools");
     assert!(
         !tools.contains(&"Write"),
-        "Validation must not include Write tool"
+        "Verification must not include Write tool"
     );
     assert!(
         !tools.contains(&"Edit"),
-        "Validation must not include Edit tool"
+        "Verification must not include Edit tool"
     );
 }
 
@@ -173,7 +173,7 @@ fn test_read_only_templates_excludes_approval() {
     let templates = [
         PromptTemplate::Explore,
         PromptTemplate::Plan,
-        PromptTemplate::Validation,
+        PromptTemplate::Verification,
     ];
     for tpl in &templates {
         let tools = tpl
@@ -192,7 +192,7 @@ fn test_all_templates_have_consistent_read_tools() {
     let templates = [
         PromptTemplate::Explore,
         PromptTemplate::Plan,
-        PromptTemplate::Validation,
+        PromptTemplate::Verification,
     ];
     for tpl in &templates {
         let tools = tpl
