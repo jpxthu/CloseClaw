@@ -3,6 +3,7 @@ pub mod dispatcher;
 pub mod handler;
 pub mod handlers;
 pub mod handlers_mode;
+pub mod handlers_permission;
 pub mod handlers_session;
 pub mod registry;
 
@@ -12,6 +13,7 @@ pub use dispatcher::{parse_slash, SlashDispatcher};
 pub use handler::SlashHandler;
 pub use handlers::{ClearHandler, CompactHandler, ExecHandler, HelpHandler};
 pub use handlers_mode::{ExecuteHandler, ModeHandler, PauseHandler, PlanModeHandler};
+pub use handlers_permission::PermissionSlashHandler;
 pub use handlers_session::{NewSessionHandler, StatusHandler, StopHandler, VerboseHandler};
 
 #[cfg(test)]
