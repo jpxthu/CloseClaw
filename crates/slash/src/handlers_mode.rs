@@ -446,6 +446,16 @@ impl SlashHandler for ModeHandler {
             return SlashResult::Reply(format!("当前会话模式：{mode}"));
         }
 
+        // Auto Mode is not a direct entry point — it can only be
+        // reached through Plan Mode approval → /execute.
+        if arg.eq_ignore_ascii_case("auto") {
+            return SlashResult::Reply(
+                "Auto Mode 不能直接通过 /mode auto 进入。".to_owned()
+                    + "请先使用 /plan 进入 Plan Mode，"
+                    + "完成规划并通过审批后使用 /execute 进入 Auto Mode。",
+            );
+        }
+
         // With argument — validate and return SetMode.
         match SessionMode::from_str_opt(arg) {
             Some(mode) => SlashResult::SetMode {
