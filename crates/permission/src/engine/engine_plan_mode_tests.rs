@@ -1,4 +1,5 @@
 use super::engine_eval::PermissionEngine;
+use super::engine_risk::RiskLevel;
 use super::engine_types::{
     Caller, Effect, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
@@ -292,11 +293,11 @@ fn test_plan_mode_inter_agent_msg_affected() {
 }
 
 // ---------------------------------------------------------------------------
-// Auto mode: no filtering
+// Auto mode: low risk → direct pass
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_auto_mode_file_write_allowed() {
+fn test_auto_mode_low_risk_file_write_allowed() {
     let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
     let engine = make_permissive_engine(query);
     let resp = engine.evaluate(
@@ -309,13 +310,13 @@ fn test_auto_mode_file_write_allowed() {
     );
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
-        "Auto mode should allow file write, got: {:?}",
+        "Auto mode + low risk should allow file write, got: {:?}",
         resp
     );
 }
 
 #[test]
-fn test_auto_mode_command_exec_allowed() {
+fn test_auto_mode_low_risk_command_exec_allowed() {
     let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
     let engine = make_permissive_engine(query);
     let resp = engine.evaluate(
@@ -328,13 +329,13 @@ fn test_auto_mode_command_exec_allowed() {
     );
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
-        "Auto mode should allow command exec, got: {:?}",
+        "Auto mode + low risk should allow command exec, got: {:?}",
         resp
     );
 }
 
 #[test]
-fn test_auto_mode_config_write_allowed() {
+fn test_auto_mode_low_risk_config_write_allowed() {
     let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
     let engine = make_permissive_engine(query);
     let resp = engine.evaluate(
@@ -346,7 +347,207 @@ fn test_auto_mode_config_write_allowed() {
     );
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
-        "Auto mode should allow config write, got: {:?}",
+        "Auto mode + low risk should allow config write, got: {:?}",
+        resp
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Auto mode: high risk → approval required
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_auto_mode_high_risk_git_path_requires_approval() {
+    let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
+    let engine = make_permissive_engine(query);
+    let resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "a".to_string(),
+            path: "/repo/.git/config".to_string(),
+            op: "write".to_string(),
+        }),
+        None,
+    );
+    match resp {
+        PermissionResponse::ApprovalRequired {
+            risk_level,
+            rule,
+            operation_desc,
+        } => {
+            assert_eq!(risk_level, RiskLevel::High);
+            assert_eq!(rule, "<auto_mode_risk_gate>");
+            assert!(operation_desc.contains(".git"));
+        }
+        other => panic!(
+            "Auto mode + high risk should require approval, got: {:?}",
+            other
+        ),
+    }
+}
+
+#[test]
+fn test_auto_mode_high_risk_bare_rm_rf_requires_approval() {
+    let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
+    let engine = make_permissive_engine(query);
+    let resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::CommandExec {
+            agent: "a".to_string(),
+            cmd: "rm".to_string(),
+            args: vec!["-rf".to_string()],
+        }),
+        None,
+    );
+    match resp {
+        PermissionResponse::ApprovalRequired {
+            risk_level, rule, ..
+        } => {
+            assert_eq!(risk_level, RiskLevel::High);
+            assert_eq!(rule, "<auto_mode_risk_gate>");
+        }
+        other => panic!(
+            "Auto mode + high risk (rm -rf) should require approval, got: {:?}",
+            other
+        ),
+    }
+}
+
+#[test]
+fn test_auto_mode_critical_risk_permissions_json_requires_approval() {
+    let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
+    let engine = make_permissive_engine(query);
+    let resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "a".to_string(),
+            path: "/repo/permissions.json".to_string(),
+            op: "write".to_string(),
+        }),
+        None,
+    );
+    match resp {
+        PermissionResponse::ApprovalRequired {
+            risk_level, rule, ..
+        } => {
+            assert_eq!(risk_level, RiskLevel::Critical);
+            assert_eq!(rule, "<auto_mode_risk_gate>");
+        }
+        other => panic!(
+            "Auto mode + critical risk should require approval, got: {:?}",
+            other
+        ),
+    }
+}
+
+#[test]
+fn test_auto_mode_critical_risk_daemon_config_requires_approval() {
+    let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
+    let engine = make_permissive_engine(query);
+    let resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
+            agent: "a".to_string(),
+            config_file: "daemon.json".to_string(),
+        }),
+        None,
+    );
+    match resp {
+        PermissionResponse::ApprovalRequired {
+            risk_level, rule, ..
+        } => {
+            assert_eq!(risk_level, RiskLevel::Critical);
+            assert_eq!(rule, "<auto_mode_risk_gate>");
+        }
+        other => panic!(
+            "Auto mode + critical risk (daemon config) should require approval, got: {:?}",
+            other
+        ),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Normal mode: not affected by risk gate
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_normal_mode_high_risk_not_gated() {
+    let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Normal));
+    let engine = make_permissive_engine(query);
+    let resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "a".to_string(),
+            path: "/repo/.git/config".to_string(),
+            op: "write".to_string(),
+        }),
+        None,
+    );
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "Normal mode + high risk should not require approval, got: {:?}",
+        resp
+    );
+}
+
+#[test]
+fn test_normal_mode_critical_risk_not_gated() {
+    let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Normal));
+    let engine = make_permissive_engine(query);
+    let resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "a".to_string(),
+            path: "/repo/permissions.json".to_string(),
+            op: "write".to_string(),
+        }),
+        None,
+    );
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "Normal mode + critical risk should not require approval, got: {:?}",
+        resp
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Plan mode: not affected by risk gate (Plan mode filtering is prior)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_plan_mode_high_risk_not_gated() {
+    let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Plan));
+    let engine = make_permissive_engine(query);
+    // .git write is denied by Plan mode filter (write not in plans/), not by risk gate
+    let resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "a".to_string(),
+            path: "/repo/.git/config".to_string(),
+            op: "write".to_string(),
+        }),
+        None,
+    );
+    match resp {
+        PermissionResponse::Denied { rule, .. } => {
+            assert_eq!(rule, "<plan_mode_filter>");
+        }
+        other => panic!(
+            "Plan mode write should be denied by plan mode filter, got: {:?}",
+            other
+        ),
+    }
+}
+
+#[test]
+fn test_plan_mode_critical_risk_read_not_gated() {
+    let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Plan));
+    let engine = make_permissive_engine(query);
+    // Read in Plan mode is allowed — risk gate doesn't apply
+    let resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "a".to_string(),
+            path: "/repo/permissions.json".to_string(),
+            op: "read".to_string(),
+        }),
+        None,
+    );
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "Plan mode + critical risk read should not require approval, got: {:?}",
         resp
     );
 }
