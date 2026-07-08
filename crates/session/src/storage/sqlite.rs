@@ -342,6 +342,7 @@ impl PersistenceService for SqliteStorage {
                 "mode_state": mode_state_json,
                 "pending_messages": pending_json,
                 "system_appends": system_appends_json,
+                "session_mode": checkpoint.session_mode.to_string(),
             })
             .to_string();
 
