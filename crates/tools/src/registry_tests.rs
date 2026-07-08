@@ -54,6 +54,7 @@ fn make_prompt_ctx(names: &[&str]) -> PromptGenerationContext {
         available_tool_names: names.iter().map(|s| s.to_string()).collect(),
         tools: None,
         disallowed_tools: None,
+        session_mode: None,
     }
 }
 
@@ -633,4 +634,173 @@ async fn test_plan_approval_tool_descriptor_fields() {
     assert_eq!(desc.group, "plan");
     assert!(!desc.is_deferred);
     assert!(desc.summary.contains("plan"));
+}
+
+// =========================================================================
+// Plan Mode tool visibility filtering tests
+// =========================================================================
+
+use closeclaw_common::SessionMode;
+
+/// Helper to create a PromptGenerationContext with session_mode.
+fn make_plan_mode_ctx() -> PromptGenerationContext {
+    PromptGenerationContext {
+        agent_id: "test-agent".to_string(),
+        workdir: None,
+        available_tool_names: vec![],
+        tools: None,
+        disallowed_tools: None,
+        session_mode: Some(SessionMode::Plan),
+    }
+}
+
+#[tokio::test]
+async fn test_plan_mode_filters_write_tools() {
+    let reg = ToolRegistry::new();
+    // Register read-only and write tools.
+    reg.register(DummyTool {
+        name: "Read".to_string(),
+        group: "file_ops".to_string(),
+        summary_text: "Read file".to_string(),
+        is_deferred: false,
+        is_read_only: true,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
+    reg.register(DummyTool {
+        name: "Write".to_string(),
+        group: "file_ops".to_string(),
+        summary_text: "Write file".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
+    reg.register(DummyTool {
+        name: "Edit".to_string(),
+        group: "file_ops".to_string(),
+        summary_text: "Edit file".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
+
+    let ctx = make_plan_mode_ctx();
+    let section = reg.build_tools_section(&ctx).await;
+
+    assert!(
+        section.contains("Read"),
+        "Read should be visible in Plan mode"
+    );
+    assert!(
+        !section.contains("Write"),
+        "Write should be hidden in Plan mode"
+    );
+    assert!(
+        !section.contains("Edit"),
+        "Edit should be hidden in Plan mode"
+    );
+}
+
+#[tokio::test]
+async fn test_plan_mode_keeps_plan_specific_tools() {
+    let reg = ToolRegistry::new();
+    // Register a plan_approval tool (non-read-only but always visible in Plan mode).
+    reg.register(PlanApprovalTool::new()).await.unwrap();
+
+    let ctx = make_plan_mode_ctx();
+    let section = reg.build_tools_section(&ctx).await;
+
+    assert!(
+        section.contains("plan_approval"),
+        "plan_approval should be visible in Plan mode"
+    );
+}
+
+#[tokio::test]
+async fn test_plan_mode_keeps_sessions_spawn() {
+    let reg = ToolRegistry::new();
+    // Register sessions_spawn (non-read-only but always visible in Plan mode).
+    reg.register(DummyTool {
+        name: "sessions_spawn".to_string(),
+        group: "sessions".to_string(),
+        summary_text: "Spawn session".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
+
+    let ctx = make_plan_mode_ctx();
+    let section = reg.build_tools_section(&ctx).await;
+
+    assert!(
+        section.contains("sessions_spawn"),
+        "sessions_spawn should be visible in Plan mode"
+    );
+}
+
+#[tokio::test]
+async fn test_normal_mode_does_not_filter_write_tools() {
+    let reg = ToolRegistry::new();
+    reg.register(DummyTool {
+        name: "Write".to_string(),
+        group: "file_ops".to_string(),
+        summary_text: "Write file".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
+
+    let ctx = PromptGenerationContext {
+        agent_id: "test-agent".to_string(),
+        workdir: None,
+        available_tool_names: vec![],
+        tools: None,
+        disallowed_tools: None,
+        session_mode: Some(SessionMode::Normal),
+    };
+    let section = reg.build_tools_section(&ctx).await;
+
+    assert!(
+        section.contains("Write"),
+        "Write should be visible in Normal mode"
+    );
+}
+
+#[tokio::test]
+async fn test_no_session_mode_does_not_filter() {
+    let reg = ToolRegistry::new();
+    reg.register(DummyTool {
+        name: "Write".to_string(),
+        group: "file_ops".to_string(),
+        summary_text: "Write file".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
+
+    let ctx = PromptGenerationContext {
+        agent_id: "test-agent".to_string(),
+        workdir: None,
+        available_tool_names: vec![],
+        tools: None,
+        disallowed_tools: None,
+        session_mode: None,
+    };
+    let section = reg.build_tools_section(&ctx).await;
+
+    assert!(
+        section.contains("Write"),
+        "Write should be visible without session_mode"
+    );
 }

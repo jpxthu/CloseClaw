@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
 
+use crate::session_mode::SessionMode;
 use crate::tool_session::ToolSession;
 
 // Re-export so downstream code can use `closeclaw_common::ToolFlags`.
@@ -216,7 +217,7 @@ fn git_status_count(path: &Path, extra_arg: &str) -> usize {
 /// information used when the LLM *calls* a tool, while
 /// `PromptGenerationContext` carries information used when the system
 /// prompt *describes* a tool. The two contexts evolve independently.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PromptGenerationContext {
     /// ID of the agent for which the prompt is being built.
     pub agent_id: String,
@@ -240,6 +241,13 @@ pub struct PromptGenerationContext {
     /// applied *after* the whitelist filter.  `None` means no
     /// blacklist.
     pub disallowed_tools: Option<Vec<String>>,
+    /// Session mode for mode-aware tool filtering.
+    ///
+    /// When `Some(SessionMode::Plan)`, write-capable tools are
+    /// filtered out of the visible tool list (except plan-related
+    /// tools). This implements the "write tools invisible in Plan
+    /// Mode" requirement from the design doc.
+    pub session_mode: Option<SessionMode>,
 }
 
 // ---------------------------------------------------------------------------

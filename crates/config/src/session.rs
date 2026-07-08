@@ -534,3 +534,72 @@ mod tests {
 #[cfg(test)]
 #[path = "session_compact_tests.rs"]
 mod session_compact_tests;
+
+// ── Plan Configuration ─────────────────────────────────────────────────
+
+/// Format for plan file identifiers.
+///
+/// - `Timestamp`: `yyyy-MM-dd-HH-mm-ss-{slug}` (default)
+/// - `RandomWords`: `{adjective}-{noun}-{noun}` (e.g. `calm-wave-oven`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentifierFormat {
+    #[default]
+    Timestamp,
+    RandomWords,
+}
+
+/// Configuration for plan file generation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanConfig {
+    /// Identifier format for plan files.
+    #[serde(default)]
+    pub identifier_format: IdentifierFormat,
+}
+
+impl Default for PlanConfig {
+    fn default() -> Self {
+        Self {
+            identifier_format: IdentifierFormat::Timestamp,
+        }
+    }
+}
+
+#[cfg(test)]
+mod plan_config_tests {
+    use super::*;
+
+    #[test]
+    fn test_identifier_format_default_is_timestamp() {
+        let fmt = IdentifierFormat::default();
+        assert_eq!(fmt, IdentifierFormat::Timestamp);
+    }
+
+    #[test]
+    fn test_plan_config_default() {
+        let cfg = PlanConfig::default();
+        assert_eq!(cfg.identifier_format, IdentifierFormat::Timestamp);
+    }
+
+    #[test]
+    fn test_plan_config_deserialize_random_words() {
+        let json = r#"{"identifierFormat": "random_words"}"#;
+        let cfg: PlanConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.identifier_format, IdentifierFormat::RandomWords);
+    }
+
+    #[test]
+    fn test_plan_config_deserialize_timestamp() {
+        let json = r#"{"identifierFormat": "timestamp"}"#;
+        let cfg: PlanConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.identifier_format, IdentifierFormat::Timestamp);
+    }
+
+    #[test]
+    fn test_plan_config_deserialize_default() {
+        let json = r#"{}"#;
+        let cfg: PlanConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.identifier_format, IdentifierFormat::Timestamp);
+    }
+}

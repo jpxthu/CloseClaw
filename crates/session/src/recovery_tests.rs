@@ -10,7 +10,7 @@ mod tests {
     };
     use crate::recovery::{
         extract_tasks_from_content, RecoveryReport, SessionRecoveryService, SpawnTree,
-        PLAN_TASKS_APPEND_PREFIX,
+        APPROVAL_HISTORY_PREFIX, PLAN_REFERENCES_PREFIX,
     };
     use crate::storage::memory::MemoryStorage;
     use chrono::Utc;
@@ -53,6 +53,8 @@ mod tests {
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
             plan_state: None,
             progress_tool_calls: Vec::new(),
+            approval_tool_calls: Vec::new(),
+            plan_references: Vec::new(),
             session_mode: SessionMode::default(),
         }
     }
@@ -562,189 +564,129 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_inject_plan_file_content_normal() {
+    async fn test_inject_approval_history_normal() {
+        use crate::persistence::ApprovalToolCallRecord;
         let storage = Arc::new(MemoryStorage::new());
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let plan_file = tmp_dir.path().join("plan.md");
-        std::fs::write(
-            &plan_file,
-            "# Plan\n\n## 开发步骤\n\n### Step 1\n\nDo stuff\n\n## 进度\n",
-        )
-        .unwrap();
 
-        let mut cp = create_test_checkpoint("plan-session");
-        cp.plan_state = Some(closeclaw_common::PlanState {
-            plan_file_path: plan_file.to_str().unwrap().to_string(),
-            ..Default::default()
-        });
+        let mut cp = create_test_checkpoint("approval-session");
+        cp.approval_tool_calls = vec![ApprovalToolCallRecord {
+            tool_name: "plan_approval".to_string(),
+            plan_summary: "Implement feature X".to_string(),
+            request_id: Some("req-001".to_string()),
+            timestamp: None,
+        }];
         storage.save_checkpoint(&cp).await.unwrap();
 
         let service = SessionRecoveryService::new(Arc::clone(&storage));
         let report = service.recover().await.unwrap();
 
-        assert!(report.recovered.contains(&"plan-session".to_string()));
+        assert!(report.recovered.contains(&"approval-session".to_string()));
 
-        // Verify the plan file content was injected into system_appends
         let loaded = storage
-            .load_checkpoint("plan-session")
+            .load_checkpoint("approval-session")
             .await
             .unwrap()
             .unwrap();
-        let plan_append = loaded
+        let approval_append = loaded
             .system_appends
             .iter()
-            .find(|s| s.starts_with(PLAN_TASKS_APPEND_PREFIX));
+            .find(|s| s.starts_with(APPROVAL_HISTORY_PREFIX));
         assert!(
-            plan_append.is_some(),
-            "plan tasks should be in system_appends"
+            approval_append.is_some(),
+            "approval history should be in system_appends"
         );
-        let content = plan_append.unwrap();
-        assert!(content.contains("### Step 1"));
-        assert!(content.contains("Do stuff"));
+        let content = approval_append.unwrap();
+        assert!(content.contains("plan_approval"));
+        assert!(content.contains("Implement feature X"));
     }
 
     #[tokio::test]
-    async fn test_inject_plan_file_content_file_not_found() {
+    async fn test_inject_approval_history_empty() {
         let storage = Arc::new(MemoryStorage::new());
 
-        let mut cp = create_test_checkpoint("missing-file-session");
-        cp.plan_state = Some(closeclaw_common::PlanState {
-            plan_file_path: "/nonexistent/path/plan.md".to_string(),
-            ..Default::default()
-        });
+        let cp = create_test_checkpoint("no-approval");
         storage.save_checkpoint(&cp).await.unwrap();
 
         let service = SessionRecoveryService::new(Arc::clone(&storage));
         let report = service.recover().await.unwrap();
 
-        assert!(report
-            .recovered
-            .contains(&"missing-file-session".to_string()));
+        assert!(report.recovered.contains(&"no-approval".to_string()));
 
-        // Verify no plan tasks were injected (graceful degradation)
         let loaded = storage
-            .load_checkpoint("missing-file-session")
+            .load_checkpoint("no-approval")
             .await
             .unwrap()
             .unwrap();
-        let plan_append = loaded
-            .system_appends
-            .iter()
-            .find(|s| s.starts_with(PLAN_TASKS_APPEND_PREFIX));
-        assert!(
-            plan_append.is_none(),
-            "no plan tasks should be injected when file is missing"
-        );
+        assert!(loaded.system_appends.is_empty(), "no injection for empty");
     }
 
     #[tokio::test]
-    async fn test_inject_plan_file_content_replaces_existing() {
+    async fn test_inject_approval_history_replaces_existing() {
+        use crate::persistence::ApprovalToolCallRecord;
         let storage = Arc::new(MemoryStorage::new());
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let plan_file = tmp_dir.path().join("plan.md");
-        std::fs::write(
-            &plan_file,
-            "# Plan\n\n## 开发步骤\n\n### Step 1\n\nFirst version\n\n## 进度\n",
-        )
-        .unwrap();
 
-        let mut cp = create_test_checkpoint("replace-session");
-        cp.plan_state = Some(closeclaw_common::PlanState {
-            plan_file_path: plan_file.to_str().unwrap().to_string(),
-            ..Default::default()
-        });
-        // Pre-existing plan tasks entry
+        let mut cp = create_test_checkpoint("replace-approval");
+        cp.approval_tool_calls = vec![ApprovalToolCallRecord {
+            tool_name: "plan_approval".to_string(),
+            plan_summary: "New plan".to_string(),
+            request_id: None,
+            timestamp: None,
+        }];
         cp.system_appends
-            .push(format!("{}old content", PLAN_TASKS_APPEND_PREFIX));
+            .push(format!("{}old data", APPROVAL_HISTORY_PREFIX));
         storage.save_checkpoint(&cp).await.unwrap();
 
         let service = SessionRecoveryService::new(Arc::clone(&storage));
         let report = service.recover().await.unwrap();
+        assert!(report.recovered.contains(&"replace-approval".to_string()));
 
-        assert!(report.recovered.contains(&"replace-session".to_string()));
-
-        // Should have exactly one plan tasks entry (replaced, not appended)
         let loaded = storage
-            .load_checkpoint("replace-session")
+            .load_checkpoint("replace-approval")
             .await
             .unwrap()
             .unwrap();
-        let plan_appends: Vec<_> = loaded
+        let approvals: Vec<_> = loaded
             .system_appends
             .iter()
-            .filter(|s| s.starts_with(PLAN_TASKS_APPEND_PREFIX))
+            .filter(|s| s.starts_with(APPROVAL_HISTORY_PREFIX))
             .collect();
-        assert_eq!(
-            plan_appends.len(),
-            1,
-            "should have exactly one plan tasks entry"
-        );
-        assert!(plan_appends[0].contains("First version"));
-        assert!(!plan_appends[0].contains("old content"));
+        assert_eq!(approvals.len(), 1, "should have exactly one approval entry");
+        assert!(approvals[0].contains("New plan"));
+        assert!(!approvals[0].contains("old data"));
     }
 
     #[tokio::test]
-    async fn test_inject_plan_file_content_preserves_other_appends() {
+    async fn test_inject_approval_history_preserves_other_appends() {
+        use crate::persistence::ApprovalToolCallRecord;
         let storage = Arc::new(MemoryStorage::new());
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let plan_file = tmp_dir.path().join("plan.md");
-        std::fs::write(
-            &plan_file,
-            "# Plan\n\n## 开发步骤\n\n### Step 1\n\nDo stuff\n\n## 进度\n",
-        )
-        .unwrap();
 
-        let mut cp = create_test_checkpoint("preserve-session");
-        cp.plan_state = Some(closeclaw_common::PlanState {
-            plan_file_path: plan_file.to_str().unwrap().to_string(),
-            ..Default::default()
-        });
-        // Pre-existing non-plan system_appends
-        cp.system_appends
-            .push("some other append content".to_string());
+        let mut cp = create_test_checkpoint("preserve-approval");
+        cp.approval_tool_calls = vec![ApprovalToolCallRecord {
+            tool_name: "plan_approval".to_string(),
+            plan_summary: "My plan".to_string(),
+            request_id: None,
+            timestamp: None,
+        }];
+        cp.system_appends.push("other content".to_string());
         storage.save_checkpoint(&cp).await.unwrap();
 
         let service = SessionRecoveryService::new(Arc::clone(&storage));
         let report = service.recover().await.unwrap();
-
-        assert!(report.recovered.contains(&"preserve-session".to_string()));
+        assert!(report.recovered.contains(&"preserve-approval".to_string()));
 
         let loaded = storage
-            .load_checkpoint("preserve-session")
+            .load_checkpoint("preserve-approval")
             .await
             .unwrap()
             .unwrap();
         assert_eq!(loaded.system_appends.len(), 2);
-        assert!(loaded
-            .system_appends
-            .contains(&"some other append content".to_string()));
-        let plan_append = loaded
+        assert!(loaded.system_appends.contains(&"other content".to_string()));
+        let approval = loaded
             .system_appends
             .iter()
-            .find(|s| s.starts_with(PLAN_TASKS_APPEND_PREFIX));
-        assert!(plan_append.is_some());
-        assert!(plan_append.unwrap().contains("### Step 1"));
-    }
-
-    #[tokio::test]
-    async fn test_inject_plan_file_content_no_plan_state_or_empty_path() {
-        let storage = Arc::new(MemoryStorage::new());
-        // Case 1: no plan_state
-        let cp1 = create_test_checkpoint("no-plan");
-        storage.save_checkpoint(&cp1).await.unwrap();
-        // Case 2: empty plan_file_path
-        let mut cp2 = create_test_checkpoint("empty-path");
-        cp2.plan_state = Some(closeclaw_common::PlanState {
-            plan_file_path: String::new(),
-            ..Default::default()
-        });
-        storage.save_checkpoint(&cp2).await.unwrap();
-        let service = SessionRecoveryService::new(Arc::clone(&storage));
-        let _report = service.recover().await.unwrap();
-        for id in ["no-plan", "empty-path"] {
-            let loaded = storage.load_checkpoint(id).await.unwrap().unwrap();
-            assert!(loaded.system_appends.is_empty(), "no injection for {id}");
-        }
+            .find(|s| s.starts_with(APPROVAL_HISTORY_PREFIX));
+        assert!(approval.is_some());
+        assert!(approval.unwrap().contains("My plan"));
     }
 
     // ── Step 1.8: ProgressTool call history fallback (layer 4) tests ──
@@ -754,7 +696,6 @@ mod tests {
     use crate::recovery::{
         parse_progress_call_record, rebuild_plan_state_from_calls,
         rebuild_progress_summary_from_calls, scan_progress_tool_calls,
-        PROGRESS_HISTORY_APPEND_PREFIX,
     };
     use closeclaw_common::{ContentBlock, ExecutionStepStatus};
 
@@ -925,59 +866,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_inject_progress_from_tool_calls() {
+    async fn test_inject_plan_references_normal() {
         let storage = Arc::new(MemoryStorage::new());
-        // Normal case: layer 4 injects progress history
-        let mut cp1 = create_test_checkpoint("progress-fallback");
+        // Normal case: layer 4 injects plan references
+        let mut cp1 = create_test_checkpoint("plan-refs-fallback");
         cp1.plan_state = None;
-        cp1.progress_tool_calls = vec![
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::InProgress,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::Completed,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 1,
-                status: ExecutionStepStatus::InProgress,
-                summary: None,
-                error_message: None,
-            },
+        cp1.plan_references = vec![
+            "Plan: implement user auth flow".to_string(),
+            "File: crates/auth/src/lib.rs".to_string(),
         ];
         storage.save_checkpoint(&cp1).await.unwrap();
         // Skipped when plan_state exists
         let mut cp2 = create_test_checkpoint("has-plan-state");
         cp2.plan_state = Some(closeclaw_common::PlanState::default());
-        cp2.progress_tool_calls = vec![ProgressToolCallRecord {
-            step_index: 0,
-            status: ExecutionStepStatus::Completed,
-            summary: None,
-            error_message: None,
-        }];
+        cp2.plan_references = vec!["ignored ref".to_string()];
         storage.save_checkpoint(&cp2).await.unwrap();
 
         let service = SessionRecoveryService::new(Arc::clone(&storage));
         let _report = service.recover().await.unwrap();
 
-        // progress-fallback: should have progress history injected
+        // plan-refs-fallback: should have plan references injected
         let loaded1 = storage
-            .load_checkpoint("progress-fallback")
+            .load_checkpoint("plan-refs-fallback")
             .await
             .unwrap()
             .unwrap();
         let pa = loaded1
             .system_appends
             .iter()
-            .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX));
-        assert!(pa.is_some(), "progress history should be injected");
-        assert!(pa.unwrap().contains("Step 1/2: completed"));
-        // has-plan-state: should NOT have progress history (layer 1 available)
+            .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
+        assert!(pa.is_some(), "plan references should be injected");
+        assert!(pa.unwrap().contains("implement user auth flow"));
+        // has-plan-state: should NOT have plan references (layer 1 available)
         let loaded2 = storage
             .load_checkpoint("has-plan-state")
             .await
@@ -986,7 +906,7 @@ mod tests {
         let pa2 = loaded2
             .system_appends
             .iter()
-            .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX));
+            .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
         assert!(
             pa2.is_none(),
             "layer 4 should not inject when plan_state exists"

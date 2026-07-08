@@ -589,6 +589,7 @@ async fn test_build_tools_section_index_generation() {
         available_tool_names: vec!["Read".into(), "Write".into(), "Bash".into()],
         tools: None,
         disallowed_tools: None,
+        session_mode: None,
     };
     let section = registry.build_tools_section(&ctx).await;
 

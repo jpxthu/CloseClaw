@@ -643,6 +643,40 @@ impl SessionManager {
         }
     }
 
+    /// Get the plan_state from the session checkpoint.
+    /// Returns None if the session has no plan_state or storage is unavailable.
+    pub async fn get_plan_state(&self, session_id: &str) -> Option<closeclaw_common::PlanState> {
+        let storage = self.storage.read().await;
+        let storage = storage.as_ref()?;
+        match storage.load_checkpoint(session_id).await {
+            Ok(Some(cp)) => cp.plan_state,
+            _ => None,
+        }
+    }
+
+    /// Set plan_state on the session checkpoint.
+    pub async fn set_plan_state(&self, session_id: &str, plan_state: closeclaw_common::PlanState) {
+        let storage_guard = {
+            let guard = self.storage.read().await;
+            match guard.as_ref() {
+                Some(s) => Arc::clone(s),
+                None => return,
+            }
+        };
+        let mut cp = match storage_guard.load_checkpoint(session_id).await {
+            Ok(Some(cp)) => cp,
+            _ => return,
+        };
+        cp.plan_state = Some(plan_state);
+        if let Err(e) = storage_guard.save_checkpoint(&cp).await {
+            tracing::warn!(
+                session_id = %session_id,
+                "failed to save plan_state: {}",
+                e
+            );
+        }
+    }
+
     /// Rebuild the system prompt for a session.
     /// Delegates to `ConversationSession::rebuild_system_prompt` which
     /// uses the session's own builder and overrides.

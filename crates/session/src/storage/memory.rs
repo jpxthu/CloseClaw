@@ -309,6 +309,8 @@ mod tests {
             verbosity_level: closeclaw_common::VerbosityLevel::default(),
             plan_state: None,
             progress_tool_calls: Vec::new(),
+            approval_tool_calls: Vec::new(),
+            plan_references: Vec::new(),
             session_mode: SessionMode::default(),
         }
     }

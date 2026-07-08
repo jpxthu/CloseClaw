@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use closeclaw_common::SessionMode;
 use closeclaw_tools::{ToolContext, ToolRegistry};
 
 use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
@@ -21,6 +22,8 @@ pub struct ToolsFragmentProvider {
     agent_tools: Option<Vec<String>>,
     /// Agent-level tool blacklist (`disallowedTools` field in agent config).
     agent_disallowed_tools: Option<Vec<String>>,
+    /// Session mode for mode-aware tool filtering.
+    session_mode: Option<SessionMode>,
 }
 
 impl ToolsFragmentProvider {
@@ -28,11 +31,13 @@ impl ToolsFragmentProvider {
         registry: Arc<ToolRegistry>,
         agent_tools: Option<Vec<String>>,
         agent_disallowed_tools: Option<Vec<String>>,
+        session_mode: Option<SessionMode>,
     ) -> Self {
         Self {
             registry,
             agent_tools,
             agent_disallowed_tools,
+            session_mode,
         }
     }
 
@@ -67,6 +72,7 @@ impl PromptFragmentProvider for ToolsFragmentProvider {
             &tool_ctx,
             self.agent_tools.clone(),
             self.agent_disallowed_tools.clone(),
+            self.session_mode,
         )
         .await;
 
@@ -101,7 +107,7 @@ mod tests {
     #[test]
     fn test_provider_name_and_priority() {
         let registry = Arc::new(ToolRegistry::new());
-        let provider = ToolsFragmentProvider::new(registry, None, None);
+        let provider = ToolsFragmentProvider::new(registry, None, None, None);
         assert_eq!(provider.name(), "tools");
         assert_eq!(provider.priority(), 2);
     }
@@ -109,7 +115,7 @@ mod tests {
     #[test]
     fn test_cache_key_always_none() {
         let registry = Arc::new(ToolRegistry::new());
-        let provider = ToolsFragmentProvider::new(registry, None, None);
+        let provider = ToolsFragmentProvider::new(registry, None, None, None);
         let ctx = FragmentContext::test_default();
         assert!(provider.cache_key(&ctx).is_none());
     }
@@ -117,7 +123,7 @@ mod tests {
     #[tokio::test]
     async fn test_generate_empty_registry_returns_none() {
         let registry = Arc::new(ToolRegistry::new());
-        let provider = ToolsFragmentProvider::new(registry, None, None);
+        let provider = ToolsFragmentProvider::new(registry, None, None, None);
         let ctx = FragmentContext::test_default();
         // Empty registry → no tools → content is empty → None
         assert!(provider.generate(&ctx).await.is_none());
@@ -195,7 +201,7 @@ mod tests {
         ];
         registry.register_all(registrars).await.unwrap();
 
-        let provider = ToolsFragmentProvider::new(registry, None, None);
+        let provider = ToolsFragmentProvider::new(registry, None, None, None);
         let ctx = FragmentContext::test_default();
         let fragment = provider.generate(&ctx).await;
         assert!(fragment.is_some());

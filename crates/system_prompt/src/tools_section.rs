@@ -4,6 +4,7 @@
 //! `builder.rs` to keep that file under the 500-line limit.
 
 use crate::sections::Section;
+use closeclaw_common::SessionMode;
 use closeclaw_tools::{PromptGenerationContext, ToolContext, ToolRegistry};
 
 /// Task writing guidance appended to the tools section when spawn is available.
@@ -31,6 +32,7 @@ pub async fn build_tools_section(
     ctx: &ToolContext,
     agent_tools: Option<Vec<String>>,
     agent_disallowed_tools: Option<Vec<String>>,
+    session_mode: Option<SessionMode>,
 ) -> Section {
     // 1. Independent lock: get available tool names, then drop the lock.
     let descriptors = registry.list_descriptors(ctx).await;
@@ -53,6 +55,7 @@ pub async fn build_tools_section(
         available_tool_names,
         tools,
         disallowed_tools,
+        session_mode,
     };
 
     // 4. Acquire the registry lock again and render the section.
@@ -210,7 +213,7 @@ mod tests {
             call_id: None,
             session: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None).await;
         match section {
             Section::ToolsSection(_) => {}
             _ => panic!("expected ToolsSection, got {:?}", section),
@@ -241,7 +244,7 @@ mod tests {
             call_id: None,
             session: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -278,7 +281,7 @@ mod tests {
             call_id: None,
             session: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -325,7 +328,7 @@ mod tests {
             call_id: None,
             session: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -347,7 +350,7 @@ mod tests {
             call_id: None,
             session: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -383,7 +386,7 @@ mod tests {
             call_id: None,
             session: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -414,7 +417,7 @@ mod tests {
             call_id: None,
             session: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),

@@ -497,6 +497,11 @@ impl PermissionRequest {
 pub enum PermissionResponse {
     Allowed {
         token: String,
+        /// Optional context modifier injected by the permission engine.
+        /// Used in Plan Mode to signal that a tool call is for clarification
+        /// only, not as an approval substitute.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context_modifier: Option<String>,
     },
     Denied {
         reason: String,

@@ -8,22 +8,22 @@ use tokio::sync::RwLock;
 
 use crate::llm_session::PROGRESS_APPEND_PREFIX;
 use crate::persistence::{
-    PersistenceError, PersistenceService, ProgressToolCallRecord, SessionCheckpoint,
+    ApprovalToolCallRecord, PersistenceError, PersistenceService, ProgressToolCallRecord,
+    SessionCheckpoint,
 };
 
-/// Prefix marker for ProgressTool call history entries in `system_appends`.
+/// Prefix marker for approval history entries in `system_appends`.
+///
+/// When injected as a fallback (layer 3), this prefix tags the entry
+/// so it can be identified in subsequent recovery scans.
+pub const APPROVAL_HISTORY_PREFIX: &str = "__approval_history__:";
+
+/// Prefix marker for plan references extracted from message history
+/// in `system_appends`.
 ///
 /// When injected as a fallback (layer 4), this prefix tags the entry
 /// so it can be identified in subsequent recovery scans.
-pub const PROGRESS_HISTORY_APPEND_PREFIX: &str = "__progress_history__:";
-
-/// Prefix marker for plan file Tasks section entries in `system_appends`.
-///
-/// When a checkpoint has a `plan_state` with a non-empty `plan_file_path`,
-/// the recovery service reads the plan file and extracts the Tasks section
-/// ("## 开发步骤" or "## Tasks"). The extracted content is tagged with this
-/// prefix so it can be identified and replaced in subsequent recovery scans.
-pub const PLAN_TASKS_APPEND_PREFIX: &str = "__plan_tasks__:";
+pub const PLAN_REFERENCES_PREFIX: &str = "__plan_references__:";
 
 /// Recovery report containing results of the recovery process
 #[derive(Debug)]
@@ -214,11 +214,11 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         // notifications for all recovered sessions.
         for session_id in &recovered {
             if let Some(cp) = checkpoints.get_mut(session_id) {
-                // Layer 3: inject plan file Tasks section into system_appends
-                self.inject_plan_file_content(session_id, cp);
-                // Layer 4: fallback — inject ProgressTool call history when
-                // layers 1–3 are all unavailable
-                self.inject_progress_from_tool_calls(session_id, cp);
+                // Layer 3: inject approval tool call history into system_appends
+                self.inject_approval_history(session_id, cp);
+                // Layer 4: fallback — inject plan references from message history
+                // when layers 1–3 are all unavailable
+                self.inject_plan_references(session_id, cp);
                 // Inject recovery notifications for dirty sessions
                 if !cp.pending_operations.is_empty() {
                     self.inject_recovery_notifications(session_id, cp);
@@ -262,89 +262,69 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         })
     }
 
-    /// Inject plan file Tasks section content into checkpoint's system_appends.
+    /// Inject approval tool call history into checkpoint's system_appends (layer 3).
     ///
-    /// When a checkpoint has a `plan_state` with a non-empty `plan_file_path`,
-    /// this method reads the plan file and extracts the Tasks section
-    /// ("## 开发步骤" or "## Tasks"). The extracted content is added to
-    /// `system_appends` with [`PLAN_TASKS_APPEND_PREFIX`] so it is available
-    /// when the session is restored.
+    /// When a checkpoint has `approval_tool_calls`, this method formats them
+    /// and adds them to `system_appends` with [`APPROVAL_HISTORY_PREFIX`]
+    /// so the session can recover plan context from approval records.
     ///
-    /// If the plan file does not exist, a warning is logged and the
-    /// checkpoint is left unchanged (graceful degradation to layer 2
-    /// progress summary only).
-    fn inject_plan_file_content(&self, session_id: &str, checkpoint: &mut SessionCheckpoint) {
-        let plan_file_path = match checkpoint.plan_state.as_ref() {
-            Some(ps) if !ps.plan_file_path.is_empty() => ps.plan_file_path.clone(),
-            _ => return,
-        };
-
-        match extract_plan_tasks_section(&plan_file_path) {
-            Some(tasks_content) if !tasks_content.is_empty() => {
-                let tagged = format!("{}{}", PLAN_TASKS_APPEND_PREFIX, tasks_content);
-
-                // Replace existing entry in-place if present, otherwise append.
-                if let Some(slot) = checkpoint
-                    .system_appends
-                    .iter_mut()
-                    .find(|s| s.starts_with(PLAN_TASKS_APPEND_PREFIX))
-                {
-                    *slot = tagged;
-                } else {
-                    checkpoint.system_appends.push(tagged);
-                }
-
-                tracing::info!(
-                    session_id = %session_id,
-                    plan_file = %plan_file_path,
-                    "injected plan file Tasks section into system_appends"
-                );
-            }
-            Some(_) => {
-                tracing::warn!(
-                    session_id = %session_id,
-                    plan_file = %plan_file_path,
-                    "plan file Tasks section is empty — skipping injection"
-                );
-            }
-            None => {
-                tracing::warn!(
-                    session_id = %session_id,
-                    plan_file = %plan_file_path,
-                    "plan file not found — degrading to progress summary only (layer 2)"
-                );
-            }
+    /// If no approval tool calls exist, the checkpoint is left unchanged
+    /// (graceful degradation to layer 2 only).
+    fn inject_approval_history(&self, session_id: &str, checkpoint: &mut SessionCheckpoint) {
+        if checkpoint.approval_tool_calls.is_empty() {
+            return;
         }
+
+        let summary = format_approval_history(&checkpoint.approval_tool_calls);
+        if summary.is_empty() {
+            return;
+        }
+
+        let tagged = format!("{}{}", APPROVAL_HISTORY_PREFIX, summary);
+
+        // Replace existing entry in-place if present, otherwise append.
+        if let Some(slot) = checkpoint
+            .system_appends
+            .iter_mut()
+            .find(|s| s.starts_with(APPROVAL_HISTORY_PREFIX))
+        {
+            *slot = tagged;
+        } else {
+            checkpoint.system_appends.push(tagged);
+        }
+
+        tracing::info!(
+            session_id = %session_id,
+            call_count = checkpoint.approval_tool_calls.len(),
+            "injected approval tool call history into system_appends"
+        );
     }
 
-    /// Inject ProgressTool call history into checkpoint's system_appends (layer 4 fallback).
+    /// Inject plan references from session message history into checkpoint's
+    /// system_appends (layer 4 fallback).
     ///
     /// When the first three layers are all unavailable — no `plan_state`
-    /// (layer 1), no progress summary in `system_appends` (layer 2), and no
-    /// plan file content injected (layer 3) — this method checks
-    /// `progress_tool_calls` in the checkpoint. If non-empty, it builds a
-    /// progress summary and adds it to `system_appends` with
-    /// [`PROGRESS_HISTORY_APPEND_PREFIX`].
+    /// (layer 1), no approval history in `system_appends` (layer 2), and no
+    /// approval tool call history injected (layer 3) — this method checks
+    /// `plan_references` in the checkpoint. If non-empty, it builds a
+    /// summary and adds it to `system_appends` with
+    /// [`PLAN_REFERENCES_PREFIX`].
     ///
     /// The trigger condition is explicit: only when layers 1–3 are all
     /// unavailable.
-    fn inject_progress_from_tool_calls(
-        &self,
-        session_id: &str,
-        checkpoint: &mut SessionCheckpoint,
-    ) {
+    fn inject_plan_references(&self, session_id: &str, checkpoint: &mut SessionCheckpoint) {
         // Layer 1: Only trigger when plan_state is unavailable
         if checkpoint.plan_state.is_some() {
             return;
         }
 
-        // Layer 3: Only trigger when plan file content was NOT injected
-        // (i.e., no PLAN_TASKS_APPEND_PREFIX entry exists)
-        let has_plan_tasks = checkpoint
+        // Layer 3: Only trigger when approval history was NOT injected
+        // (i.e., no APPROVAL_HISTORY_PREFIX entry exists)
+        let has_approval_history = checkpoint
             .system_appends
             .iter()
-            .any(|s| s.starts_with(PLAN_TASKS_APPEND_PREFIX));
-        if has_plan_tasks {
+            .any(|s| s.starts_with(APPROVAL_HISTORY_PREFIX));
+        if has_approval_history {
             return;
         }
 
@@ -358,23 +338,23 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             return;
         }
 
-        // Only trigger when progress_tool_calls is non-empty
-        if checkpoint.progress_tool_calls.is_empty() {
+        // Only trigger when plan_references is non-empty
+        if checkpoint.plan_references.is_empty() {
             return;
         }
 
-        let summary = rebuild_progress_summary_from_calls(&checkpoint.progress_tool_calls);
+        let summary = format_plan_references(&checkpoint.plan_references);
         if summary.is_empty() {
             return;
         }
 
-        let tagged = format!("{}{}", PROGRESS_HISTORY_APPEND_PREFIX, summary);
+        let tagged = format!("{}{}", PLAN_REFERENCES_PREFIX, summary);
 
         // Replace existing entry in-place if present, otherwise append.
         if let Some(slot) = checkpoint
             .system_appends
             .iter_mut()
-            .find(|s| s.starts_with(PROGRESS_HISTORY_APPEND_PREFIX))
+            .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX))
         {
             *slot = tagged;
         } else {
@@ -383,8 +363,8 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
 
         tracing::info!(
             session_id = %session_id,
-            call_count = checkpoint.progress_tool_calls.len(),
-            "layer 4 fallback: injected ProgressTool call history into system_appends"
+            ref_count = checkpoint.plan_references.len(),
+            "layer 4 fallback: injected plan references into system_appends"
         );
     }
 
@@ -839,6 +819,62 @@ pub fn rebuild_progress_summary_from_calls(calls: &[ProgressToolCallRecord]) -> 
 
     let plan_state = rebuild_plan_state_from_calls(calls);
     plan_state.progress_summary()
+}
+
+// ---------------------------------------------------------------------------
+// Layer 3: Approval tool call history fallback
+// ---------------------------------------------------------------------------
+
+/// Format approval tool call records into a human-readable summary.
+///
+/// Each record is rendered as a bullet point with tool name, plan summary,
+/// and timestamp. Returns an empty string when `records` is empty.
+pub fn format_approval_history(records: &[ApprovalToolCallRecord]) -> String {
+    if records.is_empty() {
+        return String::new();
+    }
+
+    let items: Vec<String> = records
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let ts = r
+                .timestamp
+                .map(|t: chrono::DateTime<chrono::Utc>| t.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            format!(
+                "  {}. {} — {} (at {})",
+                i + 1,
+                r.tool_name,
+                r.plan_summary,
+                ts
+            )
+        })
+        .collect();
+
+    format!("[Approval History]\n{}", items.join("\n"))
+}
+
+// ---------------------------------------------------------------------------
+// Layer 4: Message history / plan references fallback
+// ---------------------------------------------------------------------------
+
+/// Format plan references into a human-readable summary.
+///
+/// Each reference is rendered as a bullet point. Returns an empty string
+/// when `references` is empty.
+pub fn format_plan_references(references: &[String]) -> String {
+    if references.is_empty() {
+        return String::new();
+    }
+
+    let items: Vec<String> = references
+        .iter()
+        .enumerate()
+        .map(|(i, r)| format!("  {}. {}", i + 1, r))
+        .collect();
+
+    format!("[Plan References]\n{}", items.join("\n"))
 }
 
 #[cfg(test)]

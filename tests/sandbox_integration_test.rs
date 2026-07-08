@@ -222,11 +222,12 @@ async fn test_ipc_channel_protocol_sandbox_response_serde() {
 async fn test_ipc_channel_protocol_permission_response_serde() {
     let response = SandboxResponse::PermissionResponse(PermissionResponse::Allowed {
         token: "allow-all".to_string(),
+        context_modifier: None,
     });
     let json = serde_json::to_vec(&response).unwrap();
     let parsed: SandboxResponse = serde_json::from_slice(&json).unwrap();
     match parsed {
-        SandboxResponse::PermissionResponse(PermissionResponse::Allowed { token }) => {
+        SandboxResponse::PermissionResponse(PermissionResponse::Allowed { token, .. }) => {
             assert!(token.contains("allow-all"));
         }
         other => panic!("expected Allowed, got {:?}", other),
@@ -376,7 +377,7 @@ async fn test_sandbox_evaluate_permission_request() {
 
         let response = eval_result.unwrap();
         match response {
-            PermissionResponse::Allowed { token: _ } => {
+            PermissionResponse::Allowed { token: _, .. } => {
                 // Permissive rules allow this request
             }
             PermissionResponse::Denied {

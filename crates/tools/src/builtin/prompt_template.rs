@@ -19,6 +19,12 @@ pub enum PromptTemplate {
     /// Validation/audit mode: constrains the sub-agent to perform item-by-item
     /// verification and report differences in structured output.
     Validation,
+    /// Design-phase mode: read-only tools (no write or approval tools),
+    /// architect perspective for generating implementation plans.
+    Plan,
+    /// Auto Mode execution: full toolset, dangerous operations subject
+    /// to review, executes plan tasks step by step.
+    Executor,
 }
 
 /// Error returned when parsing an invalid prompt template string.
@@ -29,7 +35,7 @@ impl fmt::Display for InvalidPromptTemplate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "invalid prompt template: expected \"explore\" or \"validation\""
+            "invalid prompt template: expected \"explore\", \"validation\", \"plan\", or \"executor\""
         )
     }
 }
@@ -43,6 +49,8 @@ impl FromStr for PromptTemplate {
         match s {
             "explore" => Ok(PromptTemplate::Explore),
             "validation" => Ok(PromptTemplate::Validation),
+            "plan" => Ok(PromptTemplate::Plan),
+            "executor" => Ok(PromptTemplate::Executor),
             _ => Err(InvalidPromptTemplate),
         }
     }
@@ -69,6 +77,21 @@ impl PromptTemplate {
                  value, the actual value, and a brief explanation of any \
                  discrepancy. Output your findings as a structured checklist \
                  with clear PASS/FAIL status for every item."
+            }
+            PromptTemplate::Plan => {
+                "You are in PLAN/DESIGN mode. You have READ-ONLY access — \
+                 write tools and approval tools are NOT available. Your role is \
+                 that of an architect: analyze requirements, explore the codebase, \
+                 and produce a structured implementation plan. Output key files \
+                 affected, design decisions, and ordered task steps. Do not \
+                 modify any files."
+            }
+            PromptTemplate::Executor => {
+                "You are in AUTO MODE EXECUTION. You have the full toolset. \
+                 Dangerous operations (file deletion, production config changes, \
+                 database mutations) require explicit user approval before \
+                 execution. Execute plan tasks step by step, updating each \
+                 task checkbox upon completion."
             }
         }
     }
@@ -115,5 +138,48 @@ mod tests {
         let explore_prefix = PromptTemplate::Explore.prefix();
         let validation_prefix = PromptTemplate::Validation.prefix();
         assert_ne!(explore_prefix, validation_prefix);
+    }
+
+    #[test]
+    fn test_parse_plan() {
+        let template = PromptTemplate::from_str("plan").unwrap();
+        assert_eq!(template, PromptTemplate::Plan);
+    }
+
+    #[test]
+    fn test_parse_executor() {
+        let template = PromptTemplate::from_str("executor").unwrap();
+        assert_eq!(template, PromptTemplate::Executor);
+    }
+
+    #[test]
+    fn test_plan_prefix_read_only() {
+        let prefix = PromptTemplate::Plan.prefix();
+        assert!(prefix.contains("READ-ONLY"));
+        assert!(prefix.contains("architect"));
+    }
+
+    #[test]
+    fn test_executor_prefix_full_toolset() {
+        let prefix = PromptTemplate::Executor.prefix();
+        assert!(prefix.contains("full toolset"));
+        assert!(prefix.to_lowercase().contains("dangerous"));
+    }
+
+    #[test]
+    fn test_all_prefixes_non_empty() {
+        let templates = [
+            PromptTemplate::Explore,
+            PromptTemplate::Validation,
+            PromptTemplate::Plan,
+            PromptTemplate::Executor,
+        ];
+        for tpl in &templates {
+            assert!(
+                !tpl.prefix().is_empty(),
+                "template {:?} has empty prefix",
+                tpl
+            );
+        }
     }
 }

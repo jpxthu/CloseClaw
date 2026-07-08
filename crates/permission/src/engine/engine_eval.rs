@@ -212,6 +212,7 @@ impl PermissionEngine {
                 );
                 return PermissionResponse::Allowed {
                     token: generate_token(),
+                    context_modifier: None,
                 };
             }
         }
@@ -276,6 +277,7 @@ impl PermissionEngine {
                 Some(PermissionResponse::Allowed { .. }),
             ) => PermissionResponse::Allowed {
                 token: generate_token(),
+                context_modifier: None,
             },
             _ => self.default_deny(request.body(), &rules.defaults, "no matching rule"),
         };
@@ -394,6 +396,26 @@ impl PermissionEngine {
                     risk_level: assess_risk_level(body),
                 })
             }
+            // AskUserQuestion: allow for clarification, but inject context
+            // marker so the agent knows it cannot be used as an approval
+            // substitute (design doc: "禁止用 AskUserQuestion 替代审批").
+            PermissionRequestBody::ToolCall { skill, .. } if skill == "ask_user_question" => {
+                info!(
+                    agent = agent_id,
+                    result = "allowed_with_context",
+                    reason = "plan_mode_ask_user_question_clarification_only",
+                    "permission check completed"
+                );
+                Some(PermissionResponse::Allowed {
+                    token: generate_token(),
+                    context_modifier: Some(
+                        "[plan_mode_context] AskUserQuestion is for requirement \
+                         clarification only. Do NOT use it as an approval \
+                         substitute. Use plan_approval tool for approval."
+                            .to_string(),
+                    ),
+                })
+            }
             _ => None,
         }
     }
@@ -420,6 +442,7 @@ impl PermissionEngine {
                 );
                 return Some(PermissionResponse::Allowed {
                     token: generate_token(),
+                    context_modifier: None,
                 });
             }
         }
@@ -545,6 +568,7 @@ impl PermissionEngine {
             );
             return Some(PermissionResponse::Allowed {
                 token: generate_token(),
+                context_modifier: None,
             });
         }
         None
@@ -624,6 +648,7 @@ impl PermissionEngine {
         match effect {
             Effect::Allow => PermissionResponse::Allowed {
                 token: generate_token(),
+                context_modifier: None,
             },
             Effect::Deny => PermissionResponse::Denied {
                 reason: reason.to_string(),

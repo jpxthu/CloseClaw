@@ -43,6 +43,7 @@ fn make_permissive_engine(query: Arc<dyn SessionModeQuery>) -> PermissionEngine 
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
         .default_config(Effect::Allow)
+        .default_tool_call(Effect::Allow)
         .build()
         .unwrap();
     PermissionEngine::new_with_default_data_root(ruleset).with_session_mode_query(query)
@@ -701,4 +702,131 @@ fn test_plan_mode_plans_path_absolute() {
         "Absolute path with /plans/ should be allowed, got: {:?}",
         resp
     );
+}
+
+// ---------------------------------------------------------------------------
+// Plan mode: AskUserQuestion clarification-only context marker
+// ---------------------------------------------------------------------------
+
+/// In Plan Mode, `ask_user_question` ToolCall is allowed but carries a
+/// context marker indicating it is for clarification only, not approval.
+#[test]
+fn test_plan_mode_ask_user_question_allowed_with_context_modifier() {
+    let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Plan));
+    let engine = make_permissive_engine(query);
+    let resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::ToolCall {
+            agent: "a".to_string(),
+            skill: "ask_user_question".to_string(),
+            method: "call".to_string(),
+        }),
+        None,
+    );
+    match resp {
+        PermissionResponse::Allowed {
+            context_modifier: Some(msg),
+            ..
+        } => {
+            assert!(
+                msg.contains("clarification only"),
+                "context modifier should mention clarification only, got: {}",
+                msg
+            );
+            assert!(
+                msg.contains("plan_approval"),
+                "context modifier should mention plan_approval, got: {}",
+                msg
+            );
+        }
+        other => panic!(
+            "expected Allowed with context_modifier for ask_user_question in Plan mode, got: {:?}",
+            other
+        ),
+    }
+}
+
+/// In Plan Mode, non-ask_user_question ToolCall requests should not carry
+/// a context modifier.
+#[test]
+fn test_plan_mode_other_tool_call_no_context_modifier() {
+    let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Plan));
+    let engine = make_permissive_engine(query);
+    let resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::ToolCall {
+            agent: "a".to_string(),
+            skill: "sessions_spawn".to_string(),
+            method: "call".to_string(),
+        }),
+        None,
+    );
+    match resp {
+        PermissionResponse::Allowed {
+            context_modifier: None,
+            ..
+        } => {}
+        other => panic!(
+            "expected Allowed without context_modifier for other tool in Plan mode, got: {:?}",
+            other
+        ),
+    }
+}
+
+/// In Normal mode, `ask_user_question` ToolCall should not carry a context
+/// modifier — the restriction is Plan Mode only.
+#[test]
+fn test_normal_mode_ask_user_question_no_context_modifier() {
+    let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Normal));
+    let engine = make_permissive_engine(query);
+    let resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::ToolCall {
+            agent: "a".to_string(),
+            skill: "ask_user_question".to_string(),
+            method: "call".to_string(),
+        }),
+        None,
+    );
+    match resp {
+        PermissionResponse::Allowed {
+            context_modifier: None,
+            ..
+        } => {}
+        other => panic!(
+            "expected Allowed without context_modifier in Normal mode, got: {:?}",
+            other
+        ),
+    }
+}
+
+/// Plan mode context modifier works through the WithCaller path.
+#[test]
+fn test_plan_mode_ask_user_question_with_caller_has_context_modifier() {
+    let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Plan));
+    let engine = make_permissive_engine(query);
+    let resp = engine.evaluate(
+        PermissionRequest::WithCaller {
+            caller: Caller {
+                user_id: "alice".to_string(),
+                agent: "a".to_string(),
+                creator_id: String::new(),
+            },
+            request: PermissionRequestBody::ToolCall {
+                agent: "a".to_string(),
+                skill: "ask_user_question".to_string(),
+                method: "call".to_string(),
+            },
+        },
+        None,
+    );
+    match resp {
+        PermissionResponse::Allowed {
+            context_modifier: Some(msg),
+            ..
+        } => {
+            assert!(msg.contains("clarification only"));
+        }
+        other => panic!(
+            "expected Allowed with context_modifier via WithCaller, got: {:?}",
+            other
+        ),
+    }
 }
