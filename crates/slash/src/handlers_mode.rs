@@ -457,14 +457,34 @@ impl SlashHandler for ModeHandler {
         }
 
         // With argument — validate and return SetMode.
-        match SessionMode::from_str_opt(arg) {
-            Some(mode) => SlashResult::SetMode {
-                mode: mode.to_string(),
-                plan_file_path: None,
-            },
-            None => {
-                SlashResult::Reply(format!("无效的会话模式：{arg}。可选值：normal, plan, auto"))
+        let Some(target_mode) = SessionMode::from_str_opt(arg) else {
+            return SlashResult::Reply(format!(
+                "无效的会话模式：{arg}。可选值：normal, plan, auto"
+            ));
+        };
+
+        // Approval gate: `/mode normal` from Plan Mode is forbidden.
+        if target_mode == SessionMode::Normal {
+            let Some(conv) = self
+                .session_manager
+                .get_conversation_session(&ctx.session_id)
+                .await
+            else {
+                return SlashResult::Reply("当前会话未激活".to_owned());
+            };
+            let cs = conv.read().await;
+            if cs.session_mode() == SessionMode::Plan {
+                return SlashResult::Reply(
+                    "Plan Mode 下不能直接切换到 Normal Mode。".to_owned()
+                        + "请使用 plan_approval 工具提交审批，"
+                        + "审批通过后方可退出 Plan Mode。",
+                );
             }
+        }
+
+        SlashResult::SetMode {
+            mode: target_mode.to_string(),
+            plan_file_path: None,
         }
     }
 }

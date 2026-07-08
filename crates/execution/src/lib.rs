@@ -28,6 +28,9 @@ pub use types::{ExecutionConfig, ExecutionMode, RetryStrategy, SubAgentResult, V
 mod engine_tests;
 
 #[cfg(test)]
+mod engine_notifier_tests;
+
+#[cfg(test)]
 mod engine_status_tests;
 
 #[cfg(test)]

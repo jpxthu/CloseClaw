@@ -3,7 +3,7 @@
 
 use super::super::*;
 use super::PROGRESS_APPEND_PREFIX;
-use closeclaw_common::PlanStateNotifier;
+use closeclaw_common::{PlanStateNotifier, SessionMode};
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -173,4 +173,20 @@ async fn test_progress_appends_accessor() {
     let progress = session.progress_appends();
     assert_eq!(progress.len(), 1);
     assert!(progress[0].contains("Step 1/3: done"));
+}
+
+// ── test_on_plan_completed_resets_auto_to_normal ─────────────────────────
+
+#[tokio::test]
+async fn test_on_plan_completed_resets_auto_to_normal() {
+    let mut session = new_session();
+    session.set_session_mode(SessionMode::Auto);
+    assert_eq!(session.session_mode(), SessionMode::Auto);
+
+    session.on_plan_completed().await;
+    assert_eq!(
+        session.session_mode(),
+        SessionMode::Normal,
+        "on_plan_completed should reset Auto Mode back to Normal"
+    );
 }

@@ -149,7 +149,7 @@ pub struct ConversationSession {
     verbosity_level: VerbosityLevel,
     /// Session mode controlling session-level behavior constraints.
     /// Orthogonal to `ReasoningMode` — see [`SessionMode`] docs.
-    session_mode: SessionMode,
+    session_mode: Arc<Mutex<SessionMode>>,
     /// LLM caller injected by Gateway for delegating LLM requests.
     /// Set via [`set_llm_caller`](Self::set_llm_caller) after construction.
     llm_caller: Option<Arc<dyn LlmCaller>>,
@@ -199,7 +199,7 @@ impl ConversationSession {
             last_activity_at: Utc::now().timestamp(),
             shutdown_handle: None,
             verbosity_level: VerbosityLevel::default(),
-            session_mode: SessionMode::default(),
+            session_mode: Arc::new(Mutex::new(SessionMode::default())),
             progress_appends: Arc::new(Mutex::new(Vec::new())),
             llm_caller: None,
             system_prompt_builder: None,
@@ -254,8 +254,11 @@ impl ConversationSession {
     }
 
     /// Sets the session mode.
-    pub fn with_session_mode(mut self, mode: SessionMode) -> Self {
-        self.session_mode = mode;
+    pub fn with_session_mode(self, mode: SessionMode) -> Self {
+        *self
+            .session_mode
+            .lock()
+            .expect("session_mode lock poisoned") = mode;
         self
     }
 
@@ -336,12 +339,18 @@ impl ConversationSession {
 
     /// Returns the current session mode.
     pub fn session_mode(&self) -> SessionMode {
-        self.session_mode
+        *self
+            .session_mode
+            .lock()
+            .expect("session_mode lock poisoned")
     }
 
     /// Overrides the session mode at runtime.
     pub fn set_session_mode(&mut self, mode: SessionMode) {
-        self.session_mode = mode;
+        *self
+            .session_mode
+            .lock()
+            .expect("session_mode lock poisoned") = mode;
     }
 
     /// Returns a reference to the memory-injection Arc.
@@ -825,7 +834,13 @@ impl std::fmt::Debug for ConversationSession {
             .field("stopped", &self.stopped.load(Ordering::SeqCst))
             .field("communication_config", &self.communication_config)
             .field("verbosity_level", &self.verbosity_level)
-            .field("session_mode", &self.session_mode)
+            .field(
+                "session_mode",
+                &*self
+                    .session_mode
+                    .lock()
+                    .expect("session_mode lock poisoned"),
+            )
             .field(
                 "memory_injection",
                 &*self
