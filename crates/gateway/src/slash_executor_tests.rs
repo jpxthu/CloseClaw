@@ -42,6 +42,14 @@ impl SessionLookup for MockSessionLookup {
     ) -> Result<(), String> {
         Ok(())
     }
+
+    async fn get_plan_state(&self, _session_id: &str) -> Option<closeclaw_common::PlanState> {
+        None
+    }
+
+    async fn set_plan_state(&self, _session_id: &str, _plan_state: closeclaw_common::PlanState) {}
+
+    async fn set_session_mode(&self, _session_id: &str, _mode: closeclaw_common::SessionMode) {}
 }
 
 /// Records every executor call so tests can assert on them.

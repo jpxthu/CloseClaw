@@ -68,6 +68,10 @@ impl Tool for PlanApprovalTool {
                 "plan_summary": {
                     "type": "string",
                     "description": "A concise summary of the plan to be approved"
+                },
+                "plan_file_path": {
+                    "type": "string",
+                    "description": "Path to the plan file (optional, used for status update on approval)"
                 }
             },
             "required": ["plan_summary"]
@@ -99,9 +103,16 @@ impl Tool for PlanApprovalTool {
         }
 
         let request_id = uuid::Uuid::new_v4().to_string();
+        let plan_file_path = args
+            .get("plan_file_path")
+            .and_then(Value::as_str)
+            .map(|s| s.to_string());
 
         Ok(ToolResult {
-            data: super::approval_utils::build_approval_pending(request_id),
+            data: super::approval_utils::build_approval_pending_with_plan(
+                request_id,
+                plan_file_path,
+            ),
             new_messages: Vec::new(),
             context_modifier: None,
         })

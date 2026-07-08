@@ -13,7 +13,7 @@ use closeclaw_session::bootstrap::loader::BootstrapMode;
 use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{
-    PendingMessage, PersistenceError, SessionCheckpoint, SessionStatus,
+    PendingMessage, PersistenceError, SessionCheckpoint, SessionMode, SessionStatus,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -411,6 +411,20 @@ impl SessionManager {
             "assistant".to_string(),
         );
         cs.push_pending(pending_msg);
+
+        // Step 1.2: Inherit parent session mode.
+        // When the parent is in Plan Mode, the child inherits
+        // the same constraint so its write tools are filtered
+        // by the permission layer.
+        {
+            let conv_sessions = self.conversation_sessions.read().await;
+            if let Some(parent_cs) = conv_sessions.get(parent_session_id) {
+                let parent_mode = parent_cs.read().await.session_mode();
+                if parent_mode == SessionMode::Plan {
+                    cs.set_session_mode(SessionMode::Plan);
+                }
+            }
+        }
 
         // 7. Register to conversation_sessions and sessions mappings
         let child_cs_arc = std::sync::Arc::new(tokio::sync::RwLock::new(cs));

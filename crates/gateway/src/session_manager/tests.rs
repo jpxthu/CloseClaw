@@ -1,16 +1,57 @@
 use super::*;
 use crate::{GatewayConfig, Message};
+use closeclaw_common::{PromptOverrides, SystemPromptBuilder};
 use closeclaw_config::manager::ConfigSnapshot;
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::SessionCheckpoint;
 use serial_test::serial;
 use std::io::Write;
+use std::path::PathBuf;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 
 /// Clear section cache. No-op: the global SECTION_CACHE was removed during
 /// Step 1.5 refactor. Kept for call-site compatibility.
 pub(super) fn clear_global_prompt_state() {}
+
+/// Mock SystemPromptBuilder that reads bootstrap files from a workspace directory.
+/// Used by tests that need to verify workspace file injection into system prompts.
+struct TestPromptBuilder {
+    workspace_dir: Option<PathBuf>,
+    bootstrap_mode: BootstrapMode,
+}
+
+impl TestPromptBuilder {
+    fn new(workspace_dir: Option<PathBuf>, bootstrap_mode: BootstrapMode) -> Self {
+        Self {
+            workspace_dir,
+            bootstrap_mode,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl SystemPromptBuilder for TestPromptBuilder {
+    async fn build_prompt(
+        &self,
+        _session_id: &str,
+        _agent_id: &str,
+        _overrides: Option<&PromptOverrides>,
+        bootstrap_mode_override: Option<BootstrapMode>,
+    ) -> String {
+        let mode = bootstrap_mode_override.unwrap_or(self.bootstrap_mode);
+        let Some(ref workspace) = self.workspace_dir else {
+            return String::new();
+        };
+        let files =
+            closeclaw_session::bootstrap::load_bootstrap_files(workspace, mode).unwrap_or_default();
+        let mut parts: Vec<String> = files.into_iter().map(|(_, v)| v).collect();
+        parts.sort();
+        parts.join("\n")
+    }
+
+    async fn invalidate_cache(&self) {}
+}
 
 pub(crate) fn test_config() -> GatewayConfig {
     GatewayConfig {
@@ -135,6 +176,11 @@ async fn test_bootstrap_full_injects_all_files() {
         BootstrapMode::Full,
         ReasoningLevel::default(),
     );
+    mgr.set_system_prompt_builder(Arc::new(TestPromptBuilder::new(
+        workspace_dir,
+        BootstrapMode::Full,
+    )))
+    .await;
     let msg = test_message();
 
     let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
@@ -176,10 +222,15 @@ async fn test_bootstrap_minimal_injects_five_files() {
     let mgr = SessionManager::new(
         &test_config(),
         None,
-        workspace_dir,
+        workspace_dir.clone(),
         BootstrapMode::Minimal,
         ReasoningLevel::default(),
     );
+    mgr.set_system_prompt_builder(Arc::new(TestPromptBuilder::new(
+        workspace_dir,
+        BootstrapMode::Minimal,
+    )))
+    .await;
     let msg = test_message();
 
     let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
@@ -233,13 +284,19 @@ async fn test_partial_bootstrap_files() {
         ("SOUL.md", "soul only"),
         // IDENTITY.md, USER.md, TOOLS.md, BOOTSTRAP.md, MEMORY.md are missing
     ]);
+    let workspace_path = tmp.path().to_path_buf();
     let mgr = SessionManager::new(
         &test_config(),
         None,
-        Some(tmp.path().to_path_buf()),
+        Some(workspace_path.clone()),
         BootstrapMode::Full,
         ReasoningLevel::default(),
     );
+    mgr.set_system_prompt_builder(Arc::new(TestPromptBuilder::new(
+        Some(workspace_path),
+        BootstrapMode::Full,
+    )))
+    .await;
     let msg = test_message();
 
     let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();

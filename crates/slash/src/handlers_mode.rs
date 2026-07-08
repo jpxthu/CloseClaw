@@ -8,6 +8,8 @@ use crate::context::SlashContext;
 use crate::handler::SlashHandler;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::slash_router::SlashResult;
+use closeclaw_common::PlanPhase;
+use closeclaw_common::PlanState;
 use closeclaw_gateway::SessionManager;
 use closeclaw_session::plan_file;
 use tracing;
@@ -73,6 +75,16 @@ impl SlashHandler for PlanModeHandler {
         } else {
             None
         };
+
+        // Initialize PlanState with the plan file path
+        if let Some(ref path) = plan_file_path {
+            let mut plan_state = PlanState::new();
+            plan_state.plan_file_path = path.to_string_lossy().to_string();
+            plan_state.phase = PlanPhase::Research;
+            self.session_manager
+                .set_plan_state(&ctx.session_id, plan_state)
+                .await;
+        }
 
         SlashResult::SetMode {
             mode: "plan".to_owned(),

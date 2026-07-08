@@ -86,6 +86,8 @@ pub struct Daemon {
     pub sweeper_shutdown_tx: watch::Sender<()>,
     /// Shutdown sender for DreamingScheduler
     pub dreaming_scheduler_shutdown_tx: watch::Sender<()>,
+    /// Shutdown sender for PlanArchiveTask
+    pub plan_archive_shutdown_tx: watch::Sender<()>,
     /// Shared skill registry, updated on hot reload
     pub skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
     /// Skill file watcher handle (RAII: stops on drop)
@@ -340,6 +342,7 @@ impl Daemon {
     ) -> anyhow::Result<(
         watch::Sender<()>,
         watch::Sender<()>,
+        watch::Sender<()>,
         Option<config_watcher::ConfigWatcherHandle>,
     )> {
         let Phase5Deps {
@@ -353,12 +356,14 @@ impl Daemon {
         } = deps;
         let (sweeper_tx, sweeper_rx) = watch::channel(());
         let (dreaming_tx, dreaming_rx) = watch::channel(());
+        let (plan_archive_tx, plan_archive_rx) = watch::channel(());
         Self::spawn_background_services(
             config_manager,
             session_manager,
             data_dir,
             sweeper_rx,
             dreaming_rx,
+            plan_archive_rx,
         );
         // Create SpawnController as an independent component (depends on AgentRegistry).
         let spawn_controller = Arc::new(closeclaw_gateway::SpawnController::new(
@@ -398,16 +403,17 @@ impl Daemon {
                 invalidate_all_sections();
             }))
             .await;
-        Ok((sweeper_tx, dreaming_tx, config_watcher))
+        Ok((sweeper_tx, dreaming_tx, plan_archive_tx, config_watcher))
     }
 
-    /// Spawn ArchiveSweeper and DreamingScheduler background tasks.
+    /// Spawn ArchiveSweeper, DreamingScheduler, and PlanArchiveTask.
     fn spawn_background_services(
         config_manager: &Arc<ConfigManager>,
         session_manager: &Arc<SessionManager>,
         data_dir: &std::path::Path,
         sweeper_rx: watch::Receiver<()>,
         dreaming_rx: watch::Receiver<()>,
+        plan_archive_rx: watch::Receiver<()>,
     ) {
         let session_config_provider =
             config_manager.session_config_provider().unwrap_or_else(|| {
@@ -483,6 +489,13 @@ impl Daemon {
             dreaming_scheduler.run(dreaming_rx).await;
         });
         info!("DreamingScheduler spawned");
+        // Spawn PlanArchiveTask for periodic plan file archival.
+        let plan_archive_task =
+            closeclaw_session::background::PlanArchiveTask::with_defaults(data_dir.to_path_buf());
+        tokio::spawn(async move {
+            plan_archive_task.run(plan_archive_rx).await;
+        });
+        info!("PlanArchiveTask spawned");
     }
 
     /// Phase 6: Admin RPC Server — depends on Gateway (Layer 5).
