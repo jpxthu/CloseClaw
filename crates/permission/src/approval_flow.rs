@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{Caller, PermissionRequestBody};
-use closeclaw_common::{PendingMessage, SessionLookup};
+use closeclaw_common::{PendingMessage, PlanPhase, SessionLookup, SessionMode};
 
 use super::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectWhitelistReason};
 
@@ -303,6 +303,7 @@ impl ApprovalFlow {
                 let rid = request_id.to_string();
 
                 handle.spawn(async move {
+                    // 1. Push approval result message
                     let content = format!("[审批 {}] 操作已批准", rid);
                     let msg = PendingMessage::with_role(
                         format!("approval-{}", chrono::Utc::now().timestamp_millis()),
@@ -315,6 +316,73 @@ impl ApprovalFlow {
                             error = %e,
                             "failed to push approval result to session"
                         );
+                    }
+
+                    // 2. Check if there's an active plan and switch to Auto Mode
+                    if let Some(mut plan_state) = sm.get_plan_state(&session_id).await {
+                        if !plan_state.plan_file_path.is_empty() {
+                            // Update plan file: draft → confirmed
+                            let plan_file_path = plan_state.plan_file_path.clone();
+                            if std::path::Path::new(&plan_file_path).exists() {
+                                let result = tokio::task::spawn_blocking(move || {
+                                    let path = std::path::Path::new(&plan_file_path);
+                                    let content = match std::fs::read_to_string(path) {
+                                        Ok(c) => c,
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                plan_file = %plan_file_path,
+                                                error = %e,
+                                                "failed to read plan file"
+                                            );
+                                            return;
+                                        }
+                                    };
+                                    let updated =
+                                        content.replace("| 状态 | draft |", "| 状态 | confirmed |");
+                                    if updated == content {
+                                        tracing::warn!(
+                                            plan_file = %plan_file_path,
+                                            "plan file status replacement had no effect; \
+                                             pattern '| 状态 | draft |' not found"
+                                        );
+                                    }
+                                    if let Err(e) = std::fs::write(path, &updated) {
+                                        tracing::warn!(
+                                            plan_file = %plan_file_path,
+                                            error = %e,
+                                            "failed to update plan file status"
+                                        );
+                                    }
+                                });
+                                if let Err(e) = result.await {
+                                    tracing::warn!(
+                                        error = %e,
+                                        "spawn_blocking for plan file update panicked"
+                                    );
+                                }
+                            }
+
+                            // Update plan state: phase → FinalPlan
+                            plan_state.phase = PlanPhase::FinalPlan;
+                            sm.set_plan_state(&session_id, plan_state).await;
+
+                            // Switch session mode: Plan → Auto
+                            sm.set_session_mode(&session_id, SessionMode::Auto).await;
+
+                            // Push mode switch notification
+                            let mode_msg = PendingMessage::with_role(
+                                format!("approval-mode-{}", chrono::Utc::now().timestamp_millis()),
+                                "✅ Plan approved, entering Auto Mode".to_string(),
+                                "assistant".to_string(),
+                            );
+                            if let Err(e) = sm.push_pending_message(&session_id, mode_msg).await {
+                                tracing::warn!(
+                                    session_id = %session_id,
+                                    error = %e,
+                                    "failed to push mode switch notification"
+                                );
+                            }
+                        }
                     }
                 });
             }

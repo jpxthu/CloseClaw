@@ -67,4 +67,13 @@ pub trait SessionLookup: Send + Sync {
         session_id: &str,
         msg: PendingMessage,
     ) -> Result<(), String>;
+
+    /// Get the plan state for a session.
+    async fn get_plan_state(&self, session_id: &str) -> Option<crate::PlanState>;
+
+    /// Update the plan state for a session.
+    async fn set_plan_state(&self, session_id: &str, plan_state: crate::PlanState);
+
+    /// Switch the session mode (e.g. plan → auto).
+    async fn set_session_mode(&self, session_id: &str, mode: crate::SessionMode);
 }
