@@ -2,6 +2,7 @@ use super::*;
 use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{Caller, PermissionRequestBody};
 use crate::mock_session_lookup::MockSessionLookup;
+use closeclaw_common::{PlanPhase, PlanState, PlanStatus, SessionMode};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -649,4 +650,83 @@ fn test_clear() {
     // The queue should be empty; further approvals/denials should fail.
     assert!(!flow.deny_request(&id1));
     assert!(!flow.deny_request(&id2));
+}
+
+// ── Gap 1: approval automatically enters Auto Mode ──────────────────────
+
+/// Verify that approve_request transitions the plan to Executing and
+/// switches session mode to Auto, so /execute is no longer required.
+#[tokio::test]
+async fn test_approve_request_enters_auto_mode() {
+    // Keep a concrete Arc so we can call MockSessionLookup-specific methods
+    // for setup and assertions, while passing a trait-object Arc to the flow.
+    let mock_arc: Arc<MockSessionLookup> = Arc::new(MockSessionLookup::new());
+    let sm: Arc<dyn SessionLookup> = mock_arc.clone() as Arc<dyn SessionLookup>;
+
+    // Pre-register a plan state in Confirmed status for session_1.
+    let initial_plan = PlanState {
+        phase: PlanPhase::FinalPlan,
+        status: PlanStatus::Confirmed,
+        plan_file_path: "/tmp/test-plan.md".to_string(),
+        ..PlanState::new()
+    };
+    mock_arc.set_plan_state("session_1", initial_plan).await;
+
+    let nc = Arc::new(AtomicUsize::new(0));
+    let nc_clone = Arc::clone(&nc);
+    let mut flow = ApprovalFlow::new(
+        sm,
+        Arc::new(move |_n: ApprovalNotification| {
+            nc_clone.fetch_add(1, Ordering::SeqCst);
+        }),
+        Arc::new(|_| {}),
+        tokio::runtime::Handle::current(),
+        HeartbeatApprovalMode::default(),
+        std::env::temp_dir(),
+    );
+
+    let caller = test_caller();
+    let request = test_request();
+    let request_id = flow
+        .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
+        .unwrap();
+
+    let result = flow.approve_request(&request_id, ApprovalMode::Once);
+    assert!(result.is_ok());
+    assert!(result.unwrap());
+
+    // Wait for the spawned async task to complete.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Verify plan_state was set to Executing.
+    let plan = mock_arc.get_tracked_plan_state("session_1");
+    assert!(plan.is_some(), "plan_state should be set after approval");
+    let plan = plan.unwrap();
+    assert_eq!(
+        plan.status,
+        PlanStatus::Executing,
+        "plan status should be Executing after approval"
+    );
+
+    // Verify session_mode was switched to Auto.
+    let mode = mock_arc.get_tracked_session_mode("session_1");
+    assert!(mode.is_some(), "session_mode should be set after approval");
+    assert_eq!(
+        mode.unwrap(),
+        SessionMode::Auto,
+        "session mode should be Auto after approval"
+    );
+
+    // Verify approval result and mode switch notifications were pushed.
+    let msgs = mock_arc.pending_messages();
+    assert!(
+        msgs.iter()
+            .any(|(sid, m)| sid == "session_1" && m.content.contains("已批准")),
+        "should have pushed approval result message"
+    );
+    assert!(
+        msgs.iter()
+            .any(|(sid, m)| sid == "session_1" && m.content.contains("Auto Mode")),
+        "should have pushed mode switch notification"
+    );
 }

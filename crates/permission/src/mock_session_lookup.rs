@@ -12,6 +12,8 @@ use closeclaw_common::{PendingMessage, PlanState, SessionLookup, SessionMode};
 /// - Parent-child session relationships (`get_parent_of`)
 /// - Session → agent_id mapping (`get_chat_id`)
 /// - Collecting pushed pending messages (`push_pending_message`)
+/// - Tracking plan state and session mode changes (`get_plan_state`,
+///   `set_plan_state`, `set_session_mode`)
 pub struct MockSessionLookup {
     /// child_session_id → parent_session_id
     parents: HashMap<String, String>,
@@ -19,6 +21,10 @@ pub struct MockSessionLookup {
     sessions: HashMap<String, String>,
     /// Collected pending messages: (session_id, message)
     pending_messages: Mutex<Vec<(String, PendingMessage)>>,
+    /// Tracked plan states: session_id → PlanState
+    plan_states: Mutex<HashMap<String, PlanState>>,
+    /// Tracked session modes: session_id → SessionMode
+    session_modes: Mutex<HashMap<String, SessionMode>>,
 }
 
 impl MockSessionLookup {
@@ -28,6 +34,8 @@ impl MockSessionLookup {
             parents: HashMap::new(),
             sessions: HashMap::new(),
             pending_messages: Mutex::new(Vec::new()),
+            plan_states: Mutex::new(HashMap::new()),
+            session_modes: Mutex::new(HashMap::new()),
         }
     }
 
@@ -60,6 +68,16 @@ impl MockSessionLookup {
     pub fn pending_messages(&self) -> Vec<(String, PendingMessage)> {
         self.pending_messages.lock().unwrap().clone()
     }
+
+    /// Get the tracked plan state for a session (for assertions).
+    pub fn get_tracked_plan_state(&self, session_id: &str) -> Option<PlanState> {
+        self.plan_states.lock().unwrap().get(session_id).cloned()
+    }
+
+    /// Get the tracked session mode for a session (for assertions).
+    pub fn get_tracked_session_mode(&self, session_id: &str) -> Option<SessionMode> {
+        self.session_modes.lock().unwrap().get(session_id).cloned()
+    }
 }
 
 impl Default for MockSessionLookup {
@@ -90,11 +108,21 @@ impl SessionLookup for MockSessionLookup {
         Ok(())
     }
 
-    async fn get_plan_state(&self, _session_id: &str) -> Option<PlanState> {
-        None
+    async fn get_plan_state(&self, session_id: &str) -> Option<PlanState> {
+        self.plan_states.lock().unwrap().get(session_id).cloned()
     }
 
-    async fn set_plan_state(&self, _session_id: &str, _plan_state: PlanState) {}
+    async fn set_plan_state(&self, session_id: &str, plan_state: PlanState) {
+        self.plan_states
+            .lock()
+            .unwrap()
+            .insert(session_id.to_string(), plan_state);
+    }
 
-    async fn set_session_mode(&self, _session_id: &str, _mode: SessionMode) {}
+    async fn set_session_mode(&self, session_id: &str, mode: SessionMode) {
+        self.session_modes
+            .lock()
+            .unwrap()
+            .insert(session_id.to_string(), mode);
+    }
 }
