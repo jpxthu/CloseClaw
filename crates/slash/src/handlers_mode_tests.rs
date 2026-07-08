@@ -191,13 +191,22 @@ async fn test_mode_handler_set_plan() {
 }
 
 #[tokio::test]
-async fn test_mode_handler_set_auto() {
+async fn test_mode_handler_auto_blocked() {
     let sm = make_session_manager();
     let h = ModeHandler::new(sm);
     let ctx = dummy_ctx();
     match h.handle("auto", &ctx).await {
-        SlashResult::SetMode { mode, .. } => assert_eq!(mode, "auto"),
-        other => panic!("expected SetMode{{mode: \"auto\", ..}}, got {other:?}"),
+        SlashResult::Reply(text) => {
+            assert!(
+                text.contains("不能直接"),
+                "should explain auto cannot be entered directly, got: {text}"
+            );
+            assert!(
+                text.contains("/execute"),
+                "should mention /execute as the correct path, got: {text}"
+            );
+        }
+        other => panic!("expected Reply blocking auto mode, got {other:?}"),
     }
 }
 
