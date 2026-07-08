@@ -38,6 +38,7 @@ pub use providers::{
     GatewayConfigData, ModelsConfigData, SystemConfigData,
 };
 pub use session::{
-    JsonSessionConfigProvider, PerAgentSessionConfig, SessionConfig, SessionConfigProvider,
+    IdentifierFormat, JsonSessionConfigProvider, PerAgentSessionConfig, PlanConfig, SessionConfig,
+    SessionConfigProvider,
 };
 pub use spawn_validation::{SpawnError, SpawnValidationResult, SpawnValidator};

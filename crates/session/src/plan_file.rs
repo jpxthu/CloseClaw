@@ -4,7 +4,27 @@
 //! in the `plans/` directory of a workspace.
 
 use chrono::Local;
+use closeclaw_config::IdentifierFormat;
+use rand::seq::SliceRandom;
 use std::path::{Path, PathBuf};
+
+/// Adjective word list for random identifiers (50 words).
+const ADJECTIVES: &[&str] = &[
+    "calm", "bright", "deep", "swift", "soft", "bold", "clear", "dawn", "fair", "glad", "high",
+    "keen", "mild", "neat", "pale", "rich", "safe", "tall", "warm", "wise", "cool", "dark", "fast",
+    "gold", "haze", "iron", "jade", "lace", "mint", "noble", "oak", "pure", "rare", "sage", "true",
+    "vast", "wild", "zinc", "blue", "clay", "drift", "fern", "glen", "ink", "kite", "lake", "mist",
+    "opal", "pine", "reef",
+];
+
+/// Noun word list for random identifiers (50 words).
+const NOUNS: &[&str] = &[
+    "wave", "stone", "river", "flame", "cloud", "field", "forge", "grove", "harbor", "isle",
+    "knot", "lance", "moss", "nest", "ocean", "peak", "ridge", "storm", "trail", "vale", "wind",
+    "ark", "bell", "cove", "dune", "elm", "frost", "gate", "hill", "jewel", "keel", "lamp",
+    "meadow", "oven", "quill", "reed", "star", "tower", "umbra", "vine", "ward", "yew", "zephyr",
+    "ash", "bay", "cape", "silk", "tide", "nape", "pine",
+];
 
 /// Standard plan file template.
 ///
@@ -28,13 +48,27 @@ pub const PLAN_TEMPLATE: &str = "\
 
 ";
 
+/// Generate a plan identifier in `{adjective}-{noun}-{noun}` format.
+///
+/// Uses `rand` crate for randomness. Words are drawn from built-in
+/// adjective and noun lists (50 words each).
+pub fn generate_random_identifier() -> String {
+    let mut rng = rand::thread_rng();
+    let adj = ADJECTIVES
+        .choose(&mut rng)
+        .expect("ADJECTIVES is non-empty");
+    let noun1 = NOUNS.choose(&mut rng).expect("NOUNS is non-empty");
+    let noun2 = NOUNS.choose(&mut rng).expect("NOUNS is non-empty");
+    format!("{adj}-{noun1}-{noun2}")
+}
+
 /// Generate a plan identifier in `yyyy-MM-dd-HH-mm-ss-{slug}` format.
 ///
 /// The slug is derived from the title by lowercasing and replacing
 /// non-alphanumeric characters (except hyphens) with hyphens, then
-/// truncating to 50 characters. If the title is empty, a random
-/// suffix is used instead.
-pub fn generate_identifier(title: &str) -> String {
+/// truncating to 50 characters. If the title is empty, "untitled"
+/// is used instead.
+pub fn generate_timestamp_identifier(title: &str) -> String {
     let timestamp = Local::now().format("%Y-%m-%d-%H-%M-%S").to_string();
 
     let slug = if title.is_empty() {
@@ -46,16 +80,38 @@ pub fn generate_identifier(title: &str) -> String {
     format!("{timestamp}-{slug}")
 }
 
+/// Generate a plan identifier using the specified format.
+///
+/// - [`IdentifierFormat::Timestamp`]: `yyyy-MM-dd-HH-mm-ss-{slug}`
+/// - [`IdentifierFormat::RandomWords`]: `{adjective}-{noun}-{noun}`
+pub fn generate_identifier(title: &str, format: IdentifierFormat) -> String {
+    match format {
+        IdentifierFormat::Timestamp => generate_timestamp_identifier(title),
+        IdentifierFormat::RandomWords => generate_random_identifier(),
+    }
+}
+
 /// Create a plan file in `{workdir}/plans/` directory.
 ///
-/// The directory is created if it does not exist. The file name is
-/// derived from [`generate_identifier`] with a `.md` extension.
-/// Returns the path to the created file.
+/// Uses the default timestamp identifier format. For explicit format
+/// control, use [`create_plan_file_with_format`].
 pub fn create_plan_file(workdir: &Path, title: &str) -> Result<PathBuf, std::io::Error> {
+    create_plan_file_with_format(workdir, title, IdentifierFormat::default())
+}
+
+/// Create a plan file with explicit identifier format.
+///
+/// Like [`create_plan_file`] but allows choosing between timestamp
+/// and random-words identifier formats.
+pub fn create_plan_file_with_format(
+    workdir: &Path,
+    title: &str,
+    format: IdentifierFormat,
+) -> Result<PathBuf, std::io::Error> {
     let plans_dir = workdir.join("plans");
     std::fs::create_dir_all(&plans_dir)?;
 
-    let identifier = generate_identifier(title);
+    let identifier = generate_identifier(title, format);
     let file_path = plans_dir.join(format!("{identifier}.md"));
 
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
