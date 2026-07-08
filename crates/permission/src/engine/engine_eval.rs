@@ -8,6 +8,7 @@ use super::engine_types::{
     Subject,
 };
 use super::engine_workspace;
+use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::session_mode_query::SessionModeQuery;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -120,6 +121,11 @@ impl PermissionEngine {
     ) -> PermissionResponse {
         let caller = request.caller();
         let agent_id = caller.agent.clone();
+
+        // Step 0: Plan Mode write-operation filtering
+        if let Some(denied) = self.check_plan_mode_filter(&request, &agent_id) {
+            return denied;
+        }
 
         // Step 0.5: Workspace forced authorization
         if let PermissionRequestBody::FileOp { agent, path, op } = request.body() {
@@ -234,6 +240,78 @@ impl PermissionEngine {
         }
 
         response
+    }
+
+    /// Plan Mode write-operation filtering.
+    ///
+    /// When the agent's session mode is `Plan`, the following operations are
+    /// denied:
+    /// - `FileOp` with op = "write" (unless the path is under plans/)
+    /// - `CommandExec`
+    /// - `ConfigWrite`
+    ///
+    /// The plans/ directory check: path starts with "plans/" or contains "/plans/".
+    ///
+    /// Returns `Some(Denied)` if the operation should be blocked, `None` to
+    /// proceed with normal evaluation.
+    fn check_plan_mode_filter(
+        &self,
+        request: &PermissionRequest,
+        agent_id: &str,
+    ) -> Option<PermissionResponse> {
+        let query = self.session_mode_query.as_ref()?;
+        let mode = query.get_session_mode(agent_id)?;
+        if mode != SessionMode::Plan {
+            return None;
+        }
+
+        let body = request.body();
+        match body {
+            PermissionRequestBody::FileOp { op, path, .. } if op == "write" => {
+                if is_plans_path(path) {
+                    return None;
+                }
+                info!(
+                    agent = agent_id,
+                    result = "denied",
+                    reason = "plan_mode_write_denied",
+                    path = %path,
+                    "permission check completed"
+                );
+                Some(PermissionResponse::Denied {
+                    reason: "write operation denied in Plan mode".to_string(),
+                    rule: "<plan_mode_filter>".to_string(),
+                    risk_level: assess_risk_level(body),
+                })
+            }
+            PermissionRequestBody::CommandExec { .. } => {
+                info!(
+                    agent = agent_id,
+                    result = "denied",
+                    reason = "plan_mode_command_denied",
+                    "permission check completed"
+                );
+                Some(PermissionResponse::Denied {
+                    reason: "command execution denied in Plan mode".to_string(),
+                    rule: "<plan_mode_filter>".to_string(),
+                    risk_level: assess_risk_level(body),
+                })
+            }
+            PermissionRequestBody::ConfigWrite { .. } => {
+                info!(
+                    agent = agent_id,
+                    result = "denied",
+                    reason = "plan_mode_config_write_denied",
+                    "permission check completed"
+                );
+                Some(PermissionResponse::Denied {
+                    reason: "config write denied in Plan mode".to_string(),
+                    rule: "<plan_mode_filter>".to_string(),
+                    risk_level: assess_risk_level(body),
+                })
+            }
+            _ => None,
+        }
     }
 
     /// Step 0: Check creator rule — if the caller is the agent's creator, allow immediately.
@@ -490,4 +568,13 @@ impl PermissionEngine {
         }
         false
     }
+}
+
+// --- Plan Mode helpers ---
+
+/// Check if a file path belongs to the plans/ directory.
+///
+/// Returns `true` if path starts with `plans/` or contains `/plans/`.
+fn is_plans_path(path: &str) -> bool {
+    path.starts_with("plans/") || path.contains("/plans/")
 }

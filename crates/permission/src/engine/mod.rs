@@ -40,3 +40,6 @@ mod engine_chain_tests;
 
 #[cfg(test)]
 mod engine_spawn_tests;
+
+#[cfg(test)]
+mod engine_plan_mode_tests;
