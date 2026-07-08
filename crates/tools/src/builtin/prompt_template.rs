@@ -1,7 +1,7 @@
 //! Prompt template definitions for sub-agent spawning.
 //!
 //! Provides predefined prompt prefixes that constrain sub-agent behavior modes
-//! (read-only research vs. validation/audit). Injected into the sub-agent's
+//! (read-only research vs. verification/audit). Injected into the sub-agent's
 //! first message when spawning via `sessions_spawn`.
 
 use std::fmt;
@@ -16,9 +16,9 @@ pub enum PromptTemplate {
     /// Read-only research mode: constrains the sub-agent to investigation
     /// and analysis without modifying any files.
     Explore,
-    /// Validation/audit mode: constrains the sub-agent to perform item-by-item
+    /// Verification/audit mode: constrains the sub-agent to perform item-by-item
     /// verification and report differences in structured output.
-    Validation,
+    Verification,
     /// Design-phase mode: read-only tools (no write or approval tools),
     /// architect perspective for generating implementation plans.
     Plan,
@@ -35,7 +35,7 @@ impl fmt::Display for InvalidPromptTemplate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "invalid prompt template: expected \"explore\", \"validation\", \"plan\", or \"executor\""
+            "invalid prompt template: expected \"explore\", \"verification\", \"plan\", or \"executor\""
         )
     }
 }
@@ -48,7 +48,7 @@ impl FromStr for PromptTemplate {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "explore" => Ok(PromptTemplate::Explore),
-            "validation" => Ok(PromptTemplate::Validation),
+            "verification" => Ok(PromptTemplate::Verification),
             "plan" => Ok(PromptTemplate::Plan),
             "executor" => Ok(PromptTemplate::Executor),
             _ => Err(InvalidPromptTemplate),
@@ -90,8 +90,8 @@ impl PromptTemplate {
                 "PermissionQuery",
                 "Progress",
             ]),
-            // Validation/audit: read-only plus Bash for running test scripts.
-            PromptTemplate::Validation => Some(vec![
+            // Verification/audit: read-only plus Bash for running test scripts.
+            PromptTemplate::Verification => Some(vec![
                 "Read",
                 "Grep",
                 "Ls",
@@ -120,8 +120,8 @@ impl PromptTemplate {
                  and report findings. Provide your analysis in a structured report \
                  format."
             }
-            PromptTemplate::Validation => {
-                "You are in VALIDATION/AUDIT mode. Your task is to perform \
+            PromptTemplate::Verification => {
+                "You are in VERIFICATION/AUDIT mode. Your task is to perform \
                  item-by-item verification against the given criteria. For each \
                  item: state whether it passes or fails, provide the expected \
                  value, the actual value, and a brief explanation of any \
@@ -158,9 +158,9 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_validation() {
-        let template = PromptTemplate::from_str("validation").unwrap();
-        assert_eq!(template, PromptTemplate::Validation);
+    fn test_parse_verification() {
+        let template = PromptTemplate::from_str("verification").unwrap();
+        assert_eq!(template, PromptTemplate::Verification);
     }
 
     #[test]
@@ -177,8 +177,8 @@ mod tests {
     }
 
     #[test]
-    fn test_validation_prefix_non_empty() {
-        let template = PromptTemplate::Validation;
+    fn test_verification_prefix_non_empty() {
+        let template = PromptTemplate::Verification;
         let prefix = template.prefix();
         assert!(!prefix.is_empty());
     }
@@ -186,8 +186,8 @@ mod tests {
     #[test]
     fn test_prefixes_differ() {
         let explore_prefix = PromptTemplate::Explore.prefix();
-        let validation_prefix = PromptTemplate::Validation.prefix();
-        assert_ne!(explore_prefix, validation_prefix);
+        let verification_prefix = PromptTemplate::Verification.prefix();
+        assert_ne!(explore_prefix, verification_prefix);
     }
 
     #[test]
@@ -220,7 +220,7 @@ mod tests {
     fn test_all_prefixes_non_empty() {
         let templates = [
             PromptTemplate::Explore,
-            PromptTemplate::Validation,
+            PromptTemplate::Verification,
             PromptTemplate::Plan,
             PromptTemplate::Executor,
         ];
