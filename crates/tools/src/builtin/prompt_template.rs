@@ -42,6 +42,17 @@ impl fmt::Display for InvalidPromptTemplate {
 
 impl std::error::Error for InvalidPromptTemplate {}
 
+impl fmt::Display for PromptTemplate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PromptTemplate::Explore => write!(f, "explore"),
+            PromptTemplate::Verification => write!(f, "verification"),
+            PromptTemplate::Plan => write!(f, "plan"),
+            PromptTemplate::Executor => write!(f, "executor"),
+        }
+    }
+}
+
 impl FromStr for PromptTemplate {
     type Err = InvalidPromptTemplate;
 
