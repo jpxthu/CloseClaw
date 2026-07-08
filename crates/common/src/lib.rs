@@ -16,6 +16,7 @@ pub mod notifier;
 #[cfg(test)]
 pub mod notifier_tests;
 pub mod permission_check;
+pub mod permission_op;
 pub mod plan_state;
 #[cfg(test)]
 pub mod plan_state_tests;
@@ -66,6 +67,7 @@ pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinitio
 pub use middleware::{MiddlewareError, OutboundMiddleware};
 pub use notifier::{NoopNotifier, PlanStateNotifier};
 pub use permission_check::{ExecutionPermissionCheck, PermissionDenied};
+pub use permission_op::PermissionOperation;
 pub use plan_state::{
     DefaultPlanStateWriter, ExecutionStep, ExecutionStepStatus, PlanPath, PlanPhase, PlanState,
     PlanStateWriter, PlanStatus, StatusTransitionError, TransitionError,
