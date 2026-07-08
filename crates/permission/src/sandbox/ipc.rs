@@ -291,6 +291,7 @@ mod tests {
     fn test_sandbox_response_permission_allowed_serialization() {
         let resp = SandboxResponse::PermissionResponse(crate::PermissionResponse::Allowed {
             token: "token123".to_string(),
+            context_modifier: None,
         });
         let json = serde_json::to_vec(&resp).unwrap();
         let deserialized: SandboxResponse = serde_json::from_slice(&json).unwrap();

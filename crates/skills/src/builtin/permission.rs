@@ -137,7 +137,10 @@ impl Skill for PermissionSkill {
                         engine.evaluate(request, None)
                     };
                     match response {
-                        PermissionResponse::Allowed { token: _ } => Ok(serde_json::json!({
+                        PermissionResponse::Allowed {
+                            token: _,
+                            context_modifier: _,
+                        } => Ok(serde_json::json!({
                             "allowed": true,
                             "agent_id": agent_id,
                             "action": action,
