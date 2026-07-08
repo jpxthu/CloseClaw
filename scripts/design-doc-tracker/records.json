@@ -312,6 +312,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/mode/plan-mode.md",
+    "commit": "4785a4aabbdea471086447600cc9f4c0e1e6065b",
+    "commit_time": "2026-07-09T00:36:08+08:00",
+    "confirmed_time": "2026-07-09T00:43:43.504648+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/system_prompt/appends.md",
     "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
     "commit_time": "2026-07-07T01:07:02+08:00",
