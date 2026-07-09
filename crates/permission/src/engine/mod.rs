@@ -17,7 +17,7 @@ pub use engine_eval::PermissionEngine;
 pub use engine_matching::{action_matches_request, glob_match};
 pub use engine_risk::RiskLevel;
 pub use engine_types::{
-    Action, Caller, CommandArgs, Defaults, Effect, MatchType, PermissionRequest,
+    Action, Caller, CommandArgs, Defaults, Effect, MatchType, MessageDirection, PermissionRequest,
     PermissionRequestBody, PermissionResponse, Rule, RuleSet, Subject, TemplateRef,
 };
 pub use rejection_log::{build_rejection_log, FileRejectionLogger, RejectionLog, RejectionLogger};
