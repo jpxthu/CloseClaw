@@ -21,6 +21,7 @@ use closeclaw_permission::engine::engine_types::{
 use closeclaw_session::persistence::PendingMessage;
 
 use super::{Gateway, HandleResult, SessionManager, SessionMessageHandler};
+use closeclaw_permission::UserRegistry;
 use closeclaw_session::llm_session::ConversationSession;
 use tokio::sync::RwLock;
 
@@ -314,6 +315,29 @@ impl Gateway {
             return Some(HandleResult::SlashHandled);
         }
 
+        // UserApprove/UserReject are intercepted here — they go through
+        // the ApprovalFlow for user registration management.
+        if let SlashResult::UserApprove {
+            request_id,
+            initial_permissions,
+        } = &result
+        {
+            let reply = self
+                .handle_user_approve(request_id, initial_permissions, sender_id)
+                .await;
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply(reply).await;
+            }
+            return Some(HandleResult::SlashHandled);
+        }
+        if let SlashResult::UserReject { request_id } = &result {
+            let reply = self.handle_user_reject(request_id, sender_id).await;
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply(reply).await;
+            }
+            return Some(HandleResult::SlashHandled);
+        }
+
         // Permission check AFTER handler returns SlashResult but BEFORE execute.
         // Handler is allowed to run (returns context), but high-risk side effects
         // are blocked if permission is denied.
@@ -455,6 +479,11 @@ impl Gateway {
                     format!("perm-{prefix}-cmd-{agent}"),
                 )
             }
+            // CreateUser goes through the ApprovalFlow, not through
+            // the whitelist/deny rule path.
+            closeclaw_common::PermissionOperation::CreateUser { .. } => {
+                return None;
+            }
         };
         let caller = Caller {
             user_id: "owner".to_owned(),
@@ -479,7 +508,7 @@ impl Gateway {
             .join("agents")
             .join(agent_id)
             .join("permissions.json");
-        if let Ok(json) = std::fs::read_to_string(&path) {
+        if let Ok(json) = tokio::fs::read_to_string(&path).await {
             if let Ok(ruleset) = serde_json::from_str::<closeclaw_permission::RuleSet>(&json) {
                 if let Some(engine_arc) = permission_engine.read().await.as_ref() {
                     if let Ok(mut engine) = engine_arc.try_write() {
@@ -496,6 +525,135 @@ impl Gateway {
             || path.starts_with('/')
             || (path.len() >= 2 && path.as_bytes()[1] == b':')
             || path.contains('\0')
+    }
+
+    /// Handle a `UserApprove` result — register the user via ApprovalFlow.
+    async fn handle_user_approve(
+        &self,
+        request_id: &str,
+        initial_permissions: &[closeclaw_common::permission_op::InitialPermissionSet],
+        sender_id: Option<&str>,
+    ) -> String {
+        if sender_id != Some("owner") {
+            return "无权限：仅 Owner 可以审批用户注册".to_owned();
+        }
+
+        let flow_guard = self.approval_flow.read().await;
+        let Some(flow_arc) = flow_guard.as_ref() else {
+            return "错误：审批流未配置".to_owned();
+        };
+        let mut flow = flow_arc.lock().await;
+        // Set the selected initial permissions on the pending request.
+        flow.set_user_creation_permissions(request_id, initial_permissions.to_vec());
+        match flow
+            .approve_request(
+                request_id,
+                closeclaw_permission::approval::ApprovalMode::Once,
+            )
+            .await
+        {
+            Ok(true) => {
+                let perms: Vec<&str> = initial_permissions.iter().map(|p| p.label()).collect();
+                format!("✅ 用户注册已批准（权限: [{}]）", perms.join(", "))
+            }
+            Ok(false) => "用户注册审批失败：用户可能已注册".to_owned(),
+            Err(e) => format!("用户注册审批失败：{:?}", e),
+        }
+    }
+
+    /// Handle a `UserReject` result — reject the user registration via ApprovalFlow.
+    async fn handle_user_reject(&self, request_id: &str, sender_id: Option<&str>) -> String {
+        if sender_id != Some("owner") {
+            return "无权限：仅 Owner 可以拒绝用户注册".to_owned();
+        }
+
+        let flow_guard = self.approval_flow.read().await;
+        let Some(flow_arc) = flow_guard.as_ref() else {
+            return "错误：审批流未配置".to_owned();
+        };
+        let mut flow = flow_arc.lock().await;
+        if flow.deny_request(request_id) {
+            "用户注册已拒绝".to_owned()
+        } else {
+            "拒绝失败：请求不存在或已处理".to_owned()
+        }
+    }
+
+    /// Check if a sender is a new unregistered user and auto-submit
+    /// a user creation request via the ApprovalFlow.
+    ///
+    /// When a non-owner, unregistered user sends their first message:
+    /// 1. Submit a user creation request via `ApprovalFlow::submit_user_creation()`
+    /// 2. Notify the user that their request is pending approval
+    /// 3. Return `Some(HandleResult::SlashHandled)` to block further processing
+    ///
+    /// Returns `None` if the sender is owner, already registered, or no
+    /// approval flow is configured.
+    pub(crate) async fn check_new_user_registration(
+        &self,
+        sender_id: &str,
+        channel: &str,
+    ) -> Option<HandleResult> {
+        // Owner doesn't need registration.
+        if sender_id == "owner" {
+            return None;
+        }
+
+        // Load user registry from config_dir/users.json.
+        let config_dir = self.get_config_dir().await?;
+        let registry_path = config_dir.join("users.json");
+        let registry: UserRegistry = tokio::fs::read_to_string(&registry_path)
+            .await
+            .ok()
+            .and_then(|data| serde_json::from_str(&data).ok())
+            .unwrap_or_default();
+
+        // Already registered → proceed normally.
+        if registry.is_registered(sender_id) {
+            return None;
+        }
+
+        // New user → submit creation request.
+        let flow_guard = self.approval_flow.read().await;
+        let Some(flow_arc) = flow_guard.as_ref() else {
+            tracing::debug!(
+                sender_id,
+                "no approval flow configured, cannot register new user"
+            );
+            return None;
+        };
+        let mut flow = flow_arc.lock().await;
+        match flow.submit_user_creation(sender_id, channel, vec![]) {
+            Some(request_id) => {
+                tracing::info!(
+                    sender_id,
+                    channel,
+                    request_id = %request_id,
+                    "new user registration request auto-submitted"
+                );
+                if let Some(sh) = self.session_handler.as_ref() {
+                    sh.send_reply(format!(
+                        "👋 您是新用户，已向 Owner 提交注册申请（请求 ID: {}）。请等待审批。",
+                        request_id
+                    ))
+                    .await;
+                }
+                Some(HandleResult::SlashHandled)
+            }
+            None => {
+                // Duplicate request or other issue.
+                tracing::debug!(
+                    sender_id,
+                    channel,
+                    "user creation request already pending or failed"
+                );
+                if let Some(sh) = self.session_handler.as_ref() {
+                    sh.send_reply("⏳ 您的注册请求正在审批中，请等待。".to_owned())
+                        .await;
+                }
+                Some(HandleResult::SlashHandled)
+            }
+        }
     }
 }
 
