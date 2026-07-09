@@ -2,7 +2,9 @@
 //! ApprovalMode + RiskLevel boundary tests
 //!
 
-use crate::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectWhitelistReason};
+use crate::approval::{
+    ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectWhitelistReason, WhitelistTarget,
+};
 use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{Caller, PermissionRequestBody};
 
@@ -51,7 +53,12 @@ fn test_approve_whitelist_low_risk() {
         )
         .unwrap();
 
-    let result = queue.approve(&id, ApprovalMode::WithWhitelist);
+    let result = queue.approve(
+        &id,
+        ApprovalMode::WithWhitelist {
+            target: WhitelistTarget::Auto,
+        },
+    );
     assert!(result.is_ok());
     assert!(result.unwrap());
     assert_eq!(queue.pending_count(), 0);
@@ -74,7 +81,12 @@ fn test_approve_whitelist_medium_risk() {
         )
         .unwrap();
 
-    let result = queue.approve(&id, ApprovalMode::WithWhitelist);
+    let result = queue.approve(
+        &id,
+        ApprovalMode::WithWhitelist {
+            target: WhitelistTarget::Auto,
+        },
+    );
     assert!(result.is_ok());
     assert!(result.unwrap());
     assert_eq!(queue.pending_count(), 0);
@@ -97,7 +109,12 @@ fn test_approve_whitelist_high_risk() {
         )
         .unwrap();
 
-    let result = queue.approve(&id, ApprovalMode::WithWhitelist);
+    let result = queue.approve(
+        &id,
+        ApprovalMode::WithWhitelist {
+            target: WhitelistTarget::Auto,
+        },
+    );
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), RejectWhitelistReason::HighRisk);
     // Request should still be pending — not resolved
@@ -121,7 +138,12 @@ fn test_approve_whitelist_critical_risk() {
         )
         .unwrap();
 
-    let result = queue.approve(&id, ApprovalMode::WithWhitelist);
+    let result = queue.approve(
+        &id,
+        ApprovalMode::WithWhitelist {
+            target: WhitelistTarget::Auto,
+        },
+    );
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), RejectWhitelistReason::HighRisk);
     assert_eq!(queue.pending_count(), 1);
@@ -177,7 +199,12 @@ fn test_approve_once_critical_risk() {
 #[test]
 fn test_approve_nonexistent_request_id() {
     let mut queue = ApprovalQueue::new();
-    let result = queue.approve("nonexistent-id", ApprovalMode::WithWhitelist);
+    let result = queue.approve(
+        "nonexistent-id",
+        ApprovalMode::WithWhitelist {
+            target: WhitelistTarget::Auto,
+        },
+    );
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), false);
 }

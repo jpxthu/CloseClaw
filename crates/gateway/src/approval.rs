@@ -11,7 +11,7 @@ use serde_json::json;
 
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::im_plugin::RenderedOutput;
-use closeclaw_permission::approval::ApprovalMode;
+use closeclaw_permission::approval::{ApprovalMode, WhitelistTarget};
 use closeclaw_permission::approval_flow::{ApprovalFlow, ApprovalNotification};
 
 use super::{Gateway, HandleResult};
@@ -121,7 +121,9 @@ impl Gateway {
 
         // Determine approval mode (--whitelist flag)
         let mode = if rest.contains("--whitelist") {
-            ApprovalMode::WithWhitelist
+            ApprovalMode::WithWhitelist {
+                target: WhitelistTarget::Auto,
+            }
         } else {
             ApprovalMode::Once
         };

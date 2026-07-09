@@ -1,6 +1,7 @@
 use super::engine_eval::PermissionEngine;
 use super::engine_helpers::collect_chain_effective_permissions;
 use super::engine_spawn::SpawnPermissionError;
+use super::engine_test_providers::HashMapProvider;
 use super::engine_types::{
     Effect, MatchType, PermissionRequest, PermissionRequestBody, PermissionResponse, Subject,
 };
@@ -387,7 +388,13 @@ async fn test_three_level_chain_effective_permissions() {
         make_perms("agent-b", &[("exec", true)]),
     );
 
-    let result = collect_chain_effective_permissions(&lookup, &perms, "session-a", "agent-a").await;
+    let result = collect_chain_effective_permissions(
+        &lookup,
+        &HashMapProvider::new(perms),
+        "session-a",
+        "agent-a",
+    )
+    .await;
     assert!(result.is_some(), "should return Some for parent with perms");
     let effective = result.unwrap();
 
@@ -433,8 +440,13 @@ async fn test_single_level_spawn_no_extra_restrictions() {
         ),
     );
 
-    let result =
-        collect_chain_effective_permissions(&lookup, &perms, "session-parent", "parent").await;
+    let result = collect_chain_effective_permissions(
+        &lookup,
+        &HashMapProvider::new(perms),
+        "session-parent",
+        "parent",
+    )
+    .await;
     assert!(result.is_some());
     let effective = result.unwrap();
 
@@ -478,7 +490,13 @@ async fn test_chain_with_fully_denied_level() {
     // A is fully denied
     perms.insert("agent-a".to_string(), make_fully_denied_perms("agent-a"));
 
-    let result = collect_chain_effective_permissions(&lookup, &perms, "session-a", "agent-a").await;
+    let result = collect_chain_effective_permissions(
+        &lookup,
+        &HashMapProvider::new(perms),
+        "session-a",
+        "agent-a",
+    )
+    .await;
     assert!(result.is_some());
     let effective = result.unwrap();
 

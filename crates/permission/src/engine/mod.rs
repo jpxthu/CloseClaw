@@ -51,3 +51,6 @@ mod engine_rejection_log_tests;
 
 #[cfg(test)]
 mod engine_matching_tests;
+
+#[cfg(test)]
+pub(crate) mod engine_test_providers;

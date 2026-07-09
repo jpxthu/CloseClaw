@@ -54,7 +54,7 @@
 //! High and critical risk operations are rejected.
 //!
 //! ```
-//! use closeclaw::permission::approval::{ApprovalQueue, ApprovalMode};
+//! use closeclaw::permission::approval::{ApprovalQueue, ApprovalMode, WhitelistTarget};
 //! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody};
 //! use closeclaw::permission::engine::engine_risk::RiskLevel;
 //!
@@ -84,7 +84,12 @@
 //!
 //! // Approve with whitelist mode (succeeds for Low risk)
 //! let approved = queue
-//!     .approve(&request_id, ApprovalMode::WithWhitelist)
+//!     .approve(
+//!         &request_id,
+//!         ApprovalMode::WithWhitelist {
+//!             target: WhitelistTarget::Auto,
+//!         },
+//!     )
 //!     .expect("approval succeeded");
 //! assert!(approved);
 //! ```
@@ -92,7 +97,7 @@
 //! High-risk operations are rejected with [`RejectWhitelistReason::HighRisk`]:
 //!
 //! ```
-//! use closeclaw::permission::approval::{ApprovalQueue, ApprovalMode, RejectWhitelistReason};
+//! use closeclaw::permission::approval::{ApprovalQueue, ApprovalMode, RejectWhitelistReason, WhitelistTarget};
 //! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody};
 //! use closeclaw::permission::engine::engine_risk::RiskLevel;
 //!
@@ -122,7 +127,12 @@
 //!
 //! // Reject: high-risk cannot be whitelisted
 //! let err = queue
-//!     .approve(&request_id, ApprovalMode::WithWhitelist)
+//!     .approve(
+//!         &request_id,
+//!         ApprovalMode::WithWhitelist {
+//!             target: WhitelistTarget::Auto,
+//!         },
+//!     )
 //!     .unwrap_err();
 //! assert_eq!(err, RejectWhitelistReason::HighRisk);
 //! // The request is still pending (not resolved)
@@ -159,23 +169,43 @@ pub enum RejectReason {
 /// Callback invoked when an approval decision is made.
 pub type Callback = Box<dyn FnOnce(ApproveOrDeny) + Send>;
 
+/// Controls which subjects are included when creating a whitelist rule.
+///
+/// Used with [`ApprovalMode::WithWhitelist`] to let the owner choose
+/// whether the whitelist applies to Agent only, User+Agent, or the
+/// default auto-inferred subject.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WhitelistTarget {
+    /// Auto-infer from the caller (current behavior).
+    /// Owner caller → `AgentOnly`, non-owner → `UserAndAgent`.
+    Auto,
+    /// Whitelist applies to the agent identity only.
+    AgentOnly,
+    /// Whitelist applies to both user and agent identities.
+    /// Falls back to `AgentOnly` when `user_id` is empty.
+    UserAndAgent,
+}
+
 /// Approval mode that controls whether the operation may be whitelisted.
 ///
 /// - `Once`: approve the operation one time only (existing behavior).
-/// - `WithWhitelist`: approve and add to the whitelist for future auto-approval.
-///   High-risk and critical-risk operations are rejected in this mode.
+/// - `WithWhitelist { target }`: approve and add to the whitelist for
+///   future auto-approval. Only available for Low and Medium risk
+///   operations. The `target` field controls which subjects are included
+///   in the resulting whitelist rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApprovalMode {
     /// Single-use approval — the operation is allowed once.
     Once,
-    /// Approval with whitelist — the operation is allowed and added to the whitelist.
-    /// Only available for Low and Medium risk operations.
-    WithWhitelist,
+    /// Approval with whitelist — the operation is allowed and added to
+    /// the whitelist. Only available for Low and Medium risk operations.
+    /// The `target` controls which subjects the whitelist rule covers.
+    WithWhitelist { target: WhitelistTarget },
 }
 
 /// Reason a whitelist approval was rejected.
 ///
-/// This is returned when `ApprovalMode::WithWhitelist` is used for a
+/// This is returned when `ApprovalMode::WithWhitelist { .. }` is used for a
 /// high-risk or critical-risk operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RejectWhitelistReason {
@@ -295,17 +325,17 @@ impl ApprovalQueue {
     /// - [`ApprovalMode::Once`]: approve the operation one time only.
     ///   Returns `Ok(true)` if the request existed and was approved,
     ///   `Ok(false)` if the request was not found.
-    /// - [`ApprovalMode::WithWhitelist`]: approve **and** add to the whitelist.
-    ///   Returns `Err(RejectWhitelistReason::HighRisk)` when the request's
-    ///   `risk_level` is `High` or `Critical` — such operations may not be
-    ///   whitelisted.  For `Low` / `Medium` risks the behaviour is identical
-    ///   to `Once` mode.
+    /// - [`ApprovalMode::WithWhitelist { target }`]: approve **and** add to
+    ///   the whitelist. Returns `Err(RejectWhitelistReason::HighRisk)` when
+    ///   the request's `risk_level` is `High` or `Critical`. For `Low` /
+    ///   `Medium` risks the behaviour is identical to `Once` mode. The
+    ///   `target` field controls which subjects the whitelist rule covers.
     pub fn approve(
         &mut self,
         request_id: &str,
         mode: ApprovalMode,
     ) -> Result<bool, RejectWhitelistReason> {
-        if mode == ApprovalMode::WithWhitelist {
+        if matches!(mode, ApprovalMode::WithWhitelist { .. }) {
             if let Some(pending) = self.pending.get(request_id) {
                 match pending.risk_level {
                     RiskLevel::High | RiskLevel::Critical => {

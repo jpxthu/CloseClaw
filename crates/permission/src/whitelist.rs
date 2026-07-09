@@ -2,7 +2,7 @@
 //!
 //! Converts approval request details into persistent whitelist rules.
 //!
-//! When an owner approves an operation with [`ApprovalMode::WithWhitelist`],
+//! When an owner approves an operation with [`ApprovalMode::WithWhitelist { .. }`],
 //! this module constructs a `Rule` that the permission engine will evaluate
 //! as `Allow` on subsequent matching operations.
 //!
