@@ -12,7 +12,8 @@ use std::sync::Arc;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::session_mode_query::SessionModeQuery;
 use closeclaw_permission::engine::{
-    Caller, Effect, PermissionEngine, PermissionRequest, PermissionRequestBody, PermissionResponse,
+    Caller, Defaults, Effect, PermissionEngine, PermissionRequest, PermissionRequestBody,
+    PermissionResponse,
 };
 use closeclaw_permission::rules::RuleSetBuilder;
 
@@ -45,13 +46,21 @@ impl SessionModeQuery for MockModeQuery {
 }
 
 /// Build an allow-all engine (no mode query, no rejection logger).
+/// Both Agent phase defaults and User phase defaults are set to Allow,
+/// so that non-Owner users with no matching rules still get Allow.
 fn allow_all_engine() -> PermissionEngine {
+    let permissive = Defaults {
+        file: Effect::Allow,
+        command: Effect::Allow,
+        network: Effect::Allow,
+        inter_agent: Effect::Allow,
+        config: Effect::Allow,
+        tool_call: Effect::Allow,
+        message: Effect::Allow,
+    };
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
-        .default_command(Effect::Allow)
-        .default_network(Effect::Allow)
-        .default_inter_agent(Effect::Allow)
-        .default_config(Effect::Allow)
+        .defaults(permissive.clone())
+        .user_defaults(permissive)
         .build()
         .unwrap();
     PermissionEngine::new_with_default_data_root(ruleset)
