@@ -280,6 +280,13 @@ impl ApprovalFlow {
             PermissionRequestBody::SlashCommand { agent, command } => {
                 format!("{} slash /{}", agent, command)
             }
+            PermissionRequestBody::MessageSend {
+                agent,
+                direction,
+                target,
+            } => {
+                format!("{} message {:?} {}", agent, direction, target)
+            }
         }
     }
 
