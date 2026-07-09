@@ -503,3 +503,127 @@ fn test_background_task_error_debug() {
     let debug = format!("{:?}", err);
     assert!(debug.contains("SpawnFailed"));
 }
+
+// =========================================================================
+// cleanup_finished — terminal task removal
+// =========================================================================
+
+/// Helper: insert a task handle directly into the manager's internal map.
+/// Returns the output_path so tests can check existence.
+async fn insert_handle(
+    mgr: &BackgroundTaskManager,
+    task_id: &str,
+    command: &str,
+    state: TaskState,
+) -> PathBuf {
+    let tmp = mgr.temp_dir.join("closeclaw/background").join(task_id);
+    let output_path = tmp.join("output");
+    // Ensure the parent dir exists so tokio::fs::remove_dir_all has
+    // something to remove.
+    tokio::fs::create_dir_all(&tmp).await.unwrap();
+    tokio::fs::write(&output_path, "test output").await.unwrap();
+    let handle = TaskHandle {
+        id: task_id.to_owned(),
+        command: command.to_owned(),
+        state,
+        output_path: output_path.clone(),
+        kill_tx: None,
+        notified: false,
+    };
+    mgr.tasks.lock().await.insert(task_id.to_owned(), handle);
+    output_path
+}
+
+/// Verify cleanup_finished removes output directories and handles for
+/// tasks in a terminal state (Completed, Failed, Killed).
+#[tokio::test]
+async fn test_cleanup_finished_removes_terminal_tasks() {
+    let (mgr, _tmp) = test_manager();
+    let running_path = insert_handle(&mgr, "t-run", "echo hi", TaskState::Running).await;
+    let completed_path = insert_handle(
+        &mgr,
+        "t-completed",
+        "true",
+        TaskState::Completed { exit_code: 0 },
+    )
+    .await;
+    let failed_path = insert_handle(
+        &mgr,
+        "t-failed",
+        "false",
+        TaskState::Failed { exit_code: 1 },
+    )
+    .await;
+    let killed_path = insert_handle(&mgr, "t-killed", "sleep 99", TaskState::Killed).await;
+
+    mgr.cleanup_finished().await;
+
+    // Terminal tasks: output dir and handle should be gone.
+    assert!(!completed_path.exists());
+    assert!(mgr.get_task("t-completed").await.is_none());
+    assert!(!failed_path.exists());
+    assert!(mgr.get_task("t-failed").await.is_none());
+    assert!(!killed_path.exists());
+    assert!(mgr.get_task("t-killed").await.is_none());
+
+    // Running task: output file and handle still present.
+    assert!(running_path.exists());
+    assert!(mgr.get_task("t-run").await.is_some());
+}
+
+/// Verify that Running tasks are not touched by cleanup_finished.
+#[tokio::test]
+async fn test_cleanup_finished_preserves_running_tasks() {
+    let (mgr, _tmp) = test_manager();
+    let running_path = insert_handle(&mgr, "run-1", "echo hello", TaskState::Running).await;
+
+    mgr.cleanup_finished().await;
+
+    assert!(running_path.exists(), "Running task output should survive");
+    assert!(
+        mgr.get_task("run-1").await.is_some(),
+        "Running task handle should survive"
+    );
+}
+
+/// Calling cleanup_finished twice must not panic or error.
+#[tokio::test]
+async fn test_cleanup_finished_idempotent() {
+    let (mgr, _tmp) = test_manager();
+    let completed_path = insert_handle(
+        &mgr,
+        "idem-1",
+        "true",
+        TaskState::Completed { exit_code: 0 },
+    )
+    .await;
+
+    mgr.cleanup_finished().await;
+    assert!(!completed_path.exists());
+
+    // Second call on an already-cleaned manager.
+    mgr.cleanup_finished().await;
+    assert!(!completed_path.exists());
+}
+
+/// When the output directory does not exist (already deleted externally),
+/// cleanup_finished should only warn — never panic.
+#[tokio::test]
+async fn test_cleanup_finished_cleanup_io_error() {
+    let (mgr, _tmp) = test_manager();
+    let output = _tmp.path().join("no-such-dir").join("output");
+    let handle = TaskHandle {
+        id: "io-err".to_owned(),
+        command: "test".to_owned(),
+        state: TaskState::Completed { exit_code: 0 },
+        output_path: output,
+        kill_tx: None,
+        notified: false,
+    };
+    mgr.tasks.lock().await.insert("io-err".to_owned(), handle);
+
+    // Should not panic — remove_dir_all on a missing path logs a warning
+    // and moves on.
+    mgr.cleanup_finished().await;
+    assert!(mgr.get_task("io-err").await.is_none());
+}
