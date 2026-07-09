@@ -159,6 +159,10 @@ pub struct ConversationSession {
     /// Prompt overrides injected by Gateway for prompt rebuilds.
     /// Set via [`set_prompt_overrides`](Self::set_prompt_overrides) after construction.
     prompt_overrides: Option<PromptOverrides>,
+    /// Manual backgrounding signal. When notified, foreground commands
+    /// being executed should be moved to background. Triggered by the
+    /// user via an interface action (e.g. keyboard shortcut).
+    pub manual_background_signal: Arc<tokio::sync::Notify>,
 }
 
 // `impl ConversationSession` is split across multiple blocks so each
@@ -204,6 +208,7 @@ impl ConversationSession {
             llm_caller: None,
             system_prompt_builder: None,
             prompt_overrides: None,
+            manual_background_signal: Arc::new(tokio::sync::Notify::new()),
         }
     }
 
@@ -276,6 +281,15 @@ impl ConversationSession {
     /// Set the shutdown handle for busy-count tracking during tool execution.
     pub fn set_shutdown_handle(&mut self, handle: Arc<dyn closeclaw_common::ShutdownSignal>) {
         self.shutdown_handle = Some(handle);
+    }
+
+    /// Returns a clone of the manual backgrounding signal.
+    ///
+    /// Callers (e.g. `BashTool::execute_command`) can await on
+    /// `signal.notified()` inside a `tokio::select!` to react to
+    /// a manual backgrounding request.
+    pub fn manual_background_notify(&self) -> Arc<tokio::sync::Notify> {
+        Arc::clone(&self.manual_background_signal)
     }
 
     /// Inject an [`LlmCaller`] into this session.
@@ -848,6 +862,7 @@ impl std::fmt::Debug for ConversationSession {
                     .lock()
                     .expect("memory_injection lock poisoned"),
             )
+            .field("manual_background_signal", &"<Notify>")
             .finish()
     }
 }

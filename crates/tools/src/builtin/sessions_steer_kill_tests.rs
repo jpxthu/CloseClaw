@@ -120,6 +120,7 @@ fn ctx_with_session(session_id: &str) -> ToolContext {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     }
 }
 
@@ -131,6 +132,7 @@ fn ctx_without_session() -> ToolContext {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     }
 }
 

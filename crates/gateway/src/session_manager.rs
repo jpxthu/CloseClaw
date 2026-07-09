@@ -597,6 +597,26 @@ impl SessionManager {
         }
     }
 
+    /// Trigger manual backgrounding for all foreground commands in a session.
+    ///
+    /// Sends a signal to every active foreground command (e.g. `BashTool`)
+    /// telling it to move to background immediately. The command will be
+    /// handed off to `bg_manager` and return a `ToolResult` with
+    /// `backgroundedByUser: true`.
+    ///
+    /// Returns `Ok(true)` if the signal was fired.
+    /// Returns `Err` if the session was not found or the lock could not
+    /// be acquired.
+    pub async fn trigger_manual_background(&self, session_id: &str) -> Result<bool, String> {
+        let conv_sessions = self.conversation_sessions.read().await;
+        let cs = conv_sessions
+            .get(session_id)
+            .ok_or_else(|| format!("session not found: {}", session_id))?;
+        let cs = cs.read().await;
+        cs.trigger_manual_background();
+        Ok(true)
+    }
+
     /// Push a pending message onto the queue for a given session.
     /// Returns an error if the session does not exist.
     pub async fn push_pending_message(

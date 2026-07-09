@@ -129,6 +129,7 @@ fn test_tool_context() -> ToolContext {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     }
 }
 
@@ -405,6 +406,7 @@ async fn test_execute_command_run_in_background_returns_background_task() {
         &bg_trait,
         None,
         None,
+        None,
     )
     .await
     .expect("execute_command(run_in_background) should succeed");
@@ -471,6 +473,7 @@ async fn test_execute_command_run_in_background_with_long_command() {
         &bg_trait,
         None,
         None,
+        None,
     )
     .await
     .expect("execute_command(run_in_background) should succeed even for unknown commands");
@@ -519,6 +522,7 @@ async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
         "sleep 5",
         std::time::Duration::from_millis(100),
         &bg_trait,
+        None,
     )
     .await
     .expect("auto-background path should succeed");
@@ -565,6 +569,7 @@ async fn test_handle_foreground_result_returns_foreground_on_success() {
         "true",
         std::time::Duration::from_secs(5),
         &bg_trait,
+        None,
     )
     .await
     .expect("foreground path should succeed");
@@ -684,6 +689,7 @@ async fn test_bash_level1_allow_level2_allow_executes() {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     };
     let result = tool.call(args, &ctx).await;
     assert!(result.is_ok(), "should execute: {:?}", result);
@@ -708,6 +714,7 @@ async fn test_bash_level1_deny_blocks_execution() {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     };
     let result = tool.call(args, &ctx).await;
     assert!(result.is_err(), "level1 should block");
@@ -731,6 +738,7 @@ async fn test_bash_level1_allow_level2_deny_routes_to_sandbox() {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     };
     // Level 2 denied → sandboxed execution (not rejected)
     let result = tool.call(args, &ctx).await;
@@ -762,6 +770,7 @@ async fn test_bash_empty_command_rejected() {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     };
     let result = tool.call(args, &ctx).await;
     assert!(matches!(result, Err(ToolCallError::InvalidArgs(_))));
@@ -785,7 +794,156 @@ async fn test_bash_missing_command_rejected() {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     };
     let result = tool.call(args, &ctx).await;
     assert!(matches!(result, Err(ToolCallError::InvalidArgs(_))));
+}
+
+// ---------------------------------------------------------------------------
+// Step 1.5: Manual background signal tests
+// ---------------------------------------------------------------------------
+
+/// Signal fires → child is backgrounded → result contains backgroundedByUser.
+#[tokio::test]
+async fn test_handle_foreground_result_manual_background_signal() {
+    let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
+    let bg_trait: Arc<dyn closeclaw_tasks::TaskManager> = {
+        let b = Arc::clone(&bg_manager);
+        b as Arc<dyn closeclaw_tasks::TaskManager>
+    };
+    let tmp = TempDir::new().unwrap();
+    let child = spawn_sh_command("sleep 5", tmp.path().to_str().unwrap()).expect("spawn sleep");
+    let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
+    let signal = Arc::new(tokio::sync::Notify::new());
+    // Fire the signal shortly after calling handle_foreground_result.
+    let signal_clone = Arc::clone(&signal);
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        signal_clone.notify_waiters();
+    });
+    let result = handle_foreground_result(
+        child_arc,
+        "sleep 5",
+        std::time::Duration::from_secs(5),
+        &bg_trait,
+        Some(&signal),
+    )
+    .await
+    .expect("manual-background path should succeed");
+    assert_eq!(
+        result.data["backgroundedByUser"],
+        json!(true),
+        "manual-background result must set backgroundedByUser=true"
+    );
+    let task_id = result.data["backgroundTaskId"]
+        .as_str()
+        .expect("backgroundTaskId must be present");
+    assert!(!task_id.is_empty(), "backgroundTaskId must not be empty");
+    assert!(
+        result.data["outputPath"].is_string(),
+        "outputPath must be present"
+    );
+    assert!(bg_manager.is_running(task_id).await);
+    let _ = bg_manager.kill(task_id).await;
+}
+
+/// No signal → normal foreground exit. No background fields in result.
+#[tokio::test]
+async fn test_handle_foreground_result_normal_foreground_no_signal() {
+    let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
+    let bg_trait: Arc<dyn closeclaw_tasks::TaskManager> = {
+        let b = Arc::clone(&bg_manager);
+        b as Arc<dyn closeclaw_tasks::TaskManager>
+    };
+    let tmp = TempDir::new().unwrap();
+    let child = spawn_sh_command("true", tmp.path().to_str().unwrap()).expect("spawn true");
+    let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
+    let result = handle_foreground_result(
+        child_arc,
+        "true",
+        std::time::Duration::from_secs(5),
+        &bg_trait,
+        None,
+    )
+    .await
+    .expect("foreground path should succeed");
+    assert_eq!(result.data["exitCode"], json!(0));
+    assert!(
+        result.data["backgroundTaskId"].is_null(),
+        "foreground result must not expose backgroundTaskId"
+    );
+    let flag = &result.data["assistantAutoBackgrounded"];
+    assert!(
+        flag.is_null() || flag == &json!(false),
+        "foreground result must not set assistantAutoBackgrounded=true"
+    );
+}
+
+/// Manual signal fires before auto-background timeout → manual signal wins
+/// (biased select picks the signal branch first).
+#[tokio::test]
+async fn test_handle_foreground_result_manual_signal_preferred_over_auto() {
+    let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
+    let bg_trait: Arc<dyn closeclaw_tasks::TaskManager> = {
+        let b = Arc::clone(&bg_manager);
+        b as Arc<dyn closeclaw_tasks::TaskManager>
+    };
+    let tmp = TempDir::new().unwrap();
+    let child = spawn_sh_command("sleep 10", tmp.path().to_str().unwrap()).expect("spawn sleep");
+    let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
+    let signal = Arc::new(tokio::sync::Notify::new());
+    // Signal fires immediately — before the 100ms auto-bg timeout.
+    let signal_clone = Arc::clone(&signal);
+    tokio::spawn(async move {
+        signal_clone.notify_waiters();
+    });
+    let result = handle_foreground_result(
+        child_arc,
+        "sleep 10",
+        std::time::Duration::from_millis(100),
+        &bg_trait,
+        Some(&signal),
+    )
+    .await
+    .expect("signal-preferred path should succeed");
+    assert_eq!(
+        result.data["backgroundedByUser"],
+        json!(true),
+        "when manual signal fires, result must use backgroundedByUser (not auto)"
+    );
+    assert!(
+        result.data["assistantAutoBackgrounded"].is_null(),
+        "manual signal path must not set assistantAutoBackgrounded"
+    );
+    let task_id = result.data["backgroundTaskId"]
+        .as_str()
+        .expect("backgroundTaskId must be present");
+    let _ = bg_manager.kill(task_id).await;
+}
+
+/// BashTool::detail() includes background task behavioral guidance.
+#[tokio::test]
+async fn test_bash_detail_contains_background_guidance() {
+    let tool = BashTool::new(
+        test_permission_engine(),
+        test_bg_manager(),
+        test_session_manager(),
+        test_config_manager(),
+        correct_approval_flow(),
+    );
+    let detail = tool.detail();
+    assert!(
+        detail.contains("do not poll"),
+        "detail() must include 'do not poll', got: {}",
+        detail
+    );
+    assert!(
+        detail.contains("run_in_background"),
+        "detail() must mention run_in_background"
+    );
+    assert!(
+        detail.contains("10 seconds"),
+        "detail() must mention the 10-second threshold"
+    );
 }

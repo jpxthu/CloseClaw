@@ -19,6 +19,18 @@ const TASK_WRITING_GUIDANCE: &str = concat!(
     "Use normal spawn for independent, self-contained tasks."
 );
 
+/// Background task guidance appended to the tools section when Bash is available.
+/// Source: docs/design/tools/background-tasks.md §提示词引导
+const BACKGROUND_TASK_GUIDANCE: &str = concat!(
+    "\n\n## Background Task Guidance\n\n\n",
+    "- Background commands send an automatic notification when they complete; ",
+    "you do not need to poll or check their status manually.\n",
+    "- Do not call process-query tools to check whether a background task has finished. ",
+    "The push-based notification ensures results appear in the next turn.\n",
+    "- Use `run_in_background: true` for commands expected to take over 10 seconds. ",
+    "This keeps you unblocked while long-running work completes."
+);
+
 /// Build the Tools section content from a registry.
 ///
 /// The registry's `build_tools_section` requires a [`PromptGenerationContext`]
@@ -68,6 +80,14 @@ pub async fn build_tools_section(
         .any(|n| n == "sessions_spawn")
     {
         let guidance = TASK_WRITING_GUIDANCE;
+        format!("{}\n{}", content, guidance)
+    } else {
+        content
+    };
+
+    // 6. If Bash tool is available, append background task guidance.
+    let content = if prompt_ctx.available_tool_names.iter().any(|n| n == "Bash") {
+        let guidance = BACKGROUND_TASK_GUIDANCE;
         format!("{}\n{}", content, guidance)
     } else {
         content
@@ -214,6 +234,7 @@ mod tests {
             call_id: None,
             session: None,
             session_mode: None,
+            manual_background_signal: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         match section {
@@ -246,6 +267,7 @@ mod tests {
             call_id: None,
             session: None,
             session_mode: None,
+            manual_background_signal: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -284,6 +306,7 @@ mod tests {
             call_id: None,
             session: None,
             session_mode: None,
+            manual_background_signal: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -332,6 +355,7 @@ mod tests {
             call_id: None,
             session: None,
             session_mode: None,
+            manual_background_signal: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -355,6 +379,7 @@ mod tests {
             call_id: None,
             session: None,
             session_mode: None,
+            manual_background_signal: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -392,6 +417,7 @@ mod tests {
             call_id: None,
             session: None,
             session_mode: None,
+            manual_background_signal: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -424,6 +450,7 @@ mod tests {
             call_id: None,
             session: None,
             session_mode: None,
+            manual_background_signal: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -442,6 +469,85 @@ mod tests {
         assert!(
             !content.contains("fork mode"),
             "task writing guidance should NOT appear without sessions_spawn"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_background_task_guidance_when_bash_available() {
+        let registry = ToolRegistry::new();
+        let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
+        let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
+        registry
+            .register_all(make_registrars(
+                disk_registry,
+                test_permission_engine(),
+                spawn_controller,
+                session_manager.clone(),
+                config_manager,
+                agent_registry,
+                test_approval_flow(&session_manager),
+            ))
+            .await
+            .unwrap();
+        let ctx = closeclaw_tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+        };
+        let section = build_tools_section(&registry, &ctx, None, None, None).await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        assert!(
+            content.contains("Background Task Guidance"),
+            "missing 'Background Task Guidance' header in: {}",
+            &content[content.len().saturating_sub(300)..]
+        );
+        assert!(
+            content.contains("do not need to poll"),
+            "missing 'do not need to poll' in background guidance"
+        );
+        assert!(
+            content.contains("Do not call process-query tools"),
+            "missing 'Do not call process-query tools' in background guidance"
+        );
+        assert!(
+            content.contains("10 seconds"),
+            "missing '10 seconds' threshold in background guidance"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_background_task_guidance_absent_when_bash_unavailable() {
+        // Empty registry → Bash is not in available_tool_names
+        let registry = ToolRegistry::new();
+        let ctx = closeclaw_tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+        };
+        let section = build_tools_section(&registry, &ctx, None, None, None).await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        assert!(
+            !content.contains("Background Task Guidance"),
+            "background task guidance should NOT appear without Bash, got: {}",
+            content
+        );
+        assert!(
+            !content.contains("do not need to poll"),
+            "background guidance text should NOT appear without Bash"
         );
     }
 }
