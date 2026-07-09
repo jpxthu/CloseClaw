@@ -77,18 +77,26 @@ impl ProcessorRegistry {
             if ctx.skip {
                 break;
             }
-            match processor.process(&ctx).await? {
-                Some(out) => {
+            match processor.process(&ctx).await {
+                Ok(Some(out)) => {
                     ctx.content = out.text_content().unwrap_or("").to_string();
                     ctx.content_blocks = out.content_blocks;
                     for (k, v) in out.metadata {
                         ctx.metadata.insert(k, v);
                     }
                 }
-                None => {
+                Ok(None) => {
                     // Processor chose to skip — halt the chain.
                     ctx.skip = true;
                     break;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        processor = %processor.name(),
+                        error = %e,
+                        "processor failed, continuing chain"
+                    );
+                    // Do not update ctx — skip this processor's result.
                 }
             }
         }
@@ -142,18 +150,26 @@ impl ProcessorRegistry {
             if ctx.skip {
                 break;
             }
-            match processor.process(&ctx).await? {
-                Some(out) => {
+            match processor.process(&ctx).await {
+                Ok(Some(out)) => {
                     ctx.content = out.text_content().unwrap_or("").to_string();
                     ctx.content_blocks = out.content_blocks;
                     for (k, v) in out.metadata {
                         ctx.metadata.insert(k, v);
                     }
                 }
-                None => {
+                Ok(None) => {
                     // Processor chose to skip — halt the chain.
                     ctx.skip = true;
                     break;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        processor = %processor.name(),
+                        error = %e,
+                        "processor failed, continuing chain"
+                    );
+                    // Do not update ctx — skip this processor's result.
                 }
             }
         }
