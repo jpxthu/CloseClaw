@@ -244,6 +244,10 @@ impl SessionMessageHandler {
         if !should_run {
             return;
         }
+        // Save a snapshot before compaction so we can rollback on failure.
+        self.session_manager
+            .save_pre_compaction_snapshot(session_id)
+            .await;
         let result =
             execute_compact(&llm_messages, &self.fallback_client, &model, None, true).await;
         finalize_auto_compact(
@@ -369,6 +373,9 @@ async fn apply_compact_result(
     // Persist checkpoint immediately after compaction to protect plan_state.
     // This ensures plan_state survives a crash before the next periodic flush.
     sm.save_checkpoint_after_compact(session_id).await;
+    // Clear the pre-compaction snapshot — compaction succeeded, so
+    // the backup is no longer needed.
+    sm.clear_pre_compaction_snapshot(session_id).await;
     // Rebuild system prompt after compaction so skills stay fresh.
     // The write guard above is now dropped, so we can safely acquire
     // a write lock for the rebuild.
@@ -404,6 +411,8 @@ async fn run_manual_compact(
     llm_messages: Vec<ChatMessage>,
     instruction: Option<String>,
 ) {
+    // Save a snapshot before compaction so we can rollback on failure.
+    sm.save_pre_compaction_snapshot(&sid).await;
     let result = execute_compact(&llm_messages, &fc, &model, instruction.as_deref(), false).await;
     match result {
         Ok(r) => {
@@ -415,6 +424,8 @@ async fn run_manual_compact(
         }
         Err(e) => {
             tracing::warn!(session_id = %sid, error = %e, "manual compact failed");
+            // Rollback to the pre-compaction snapshot.
+            sm.rollback_compaction(&sid).await;
             svc.lock()
                 .expect("compaction_service poisoned")
                 .record_failure();
@@ -438,6 +449,8 @@ async fn finalize_auto_compact(
         }
         Err(e) => {
             tracing::warn!(session_id, error = %e, "auto compact failed");
+            // Rollback to the pre-compaction snapshot.
+            sm.rollback_compaction(session_id).await;
             svc.lock()
                 .expect("compaction_service poisoned")
                 .record_failure();
