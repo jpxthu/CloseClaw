@@ -14,7 +14,7 @@ pub use fs::{expand_home, normalize_path};
 pub use process::{
     pid_file_path, read_pid_file, send_signal, wait_for_shutdown_signal, write_pid_file,
 };
-pub use terminal::{current_uid, supports_ansi};
+pub use terminal::{current_uid, is_terminal, read_line_raw, supports_ansi, write_raw};
 
 #[cfg(test)]
 mod config_tests;
