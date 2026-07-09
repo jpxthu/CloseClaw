@@ -38,3 +38,4 @@ chrono = { version = "0.4", features = ["serde"] }
 closeclaw-im-adapter = { path = "../im_adapter" }
 tempfile = "3"
 serde_yaml = "0.9"
+tracing-subscriber = { version = "=0.3.17", features = ["env-filter", "json"] }

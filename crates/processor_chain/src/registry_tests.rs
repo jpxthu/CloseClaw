@@ -593,3 +593,84 @@ async fn test_normalized_message_passthrough_no_processors() {
     assert_eq!(result.text_content(), Some("direct passthrough"));
     assert!(result.metadata.is_empty());
 }
+
+// ── outbound error tolerance: detailed tests ──────────────────────────────────
+
+#[tokio::test]
+async fn test_outbound_first_processor_fails() {
+    let fail_proc = FailingProc::outbound("fail_first");
+    let (ok_after, ok_counter) = TestProc::outbound("ok_after", 2);
+
+    let mut registry = ProcessorRegistry::new();
+    registry.register(fail_proc);
+    registry.register(ok_after);
+
+    let result = registry
+        .process_outbound(ProcessedMessage {
+            content_blocks: vec![ContentBlock::Text("original".to_string())],
+            metadata: HashMap::new(),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(ok_counter.load(Ordering::SeqCst), 1);
+    assert_eq!(result.text_content(), Some("ok_after"));
+}
+
+#[tokio::test]
+async fn test_outbound_only_processor_fails() {
+    let fail_proc = FailingProc::outbound("solo_fail");
+
+    let mut registry = ProcessorRegistry::new();
+    registry.register(fail_proc);
+
+    let result = registry
+        .process_outbound(ProcessedMessage {
+            content_blocks: vec![ContentBlock::Text("raw content".to_string())],
+            metadata: HashMap::new(),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(result.text_content(), Some("raw content"));
+}
+
+#[tokio::test]
+async fn test_outbound_error_preserves_successful_metadata() {
+    let p1 = Arc::new(TestProc {
+        name: "o1".to_string(),
+        phase: ProcessPhase::Outbound,
+        priority: 1,
+        call_counter: Arc::new(AtomicUsize::new(0)),
+        metadata_kv: Some(("k1".to_string(), "v1".to_string())),
+        suppress: false,
+        skip: false,
+    });
+    let fail_proc = FailingProc::outbound("o_fail");
+    let p3 = Arc::new(TestProc {
+        name: "o3".to_string(),
+        phase: ProcessPhase::Outbound,
+        priority: 3,
+        call_counter: Arc::new(AtomicUsize::new(0)),
+        metadata_kv: Some(("k3".to_string(), "v3".to_string())),
+        suppress: false,
+        skip: false,
+    });
+
+    let mut registry = ProcessorRegistry::new();
+    registry.register(p1);
+    registry.register(fail_proc);
+    registry.register(p3);
+
+    let result = registry
+        .process_outbound(ProcessedMessage {
+            content_blocks: vec![ContentBlock::Text("orig".to_string())],
+            metadata: HashMap::new(),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(result.text_content(), Some("o3"));
+    assert_eq!(result.metadata.get("k1").map(|s| s.as_str()), Some("v1"));
+    assert_eq!(result.metadata.get("k3").map(|s| s.as_str()), Some("v3"));
+}
