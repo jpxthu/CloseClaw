@@ -337,11 +337,11 @@
   },
   {
     "path": "docs/design/permission/README.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-07-10T03:36:03.908318+08:00",
+    "commit": "43e9d5bd0fa62c0db7b62927515b55c085327712",
+    "commit_time": "2026-07-10T03:36:50+08:00",
+    "confirmed_time": "2026-07-10T03:42:54.611597+08:00",
     "comment": "",
-    "blocked_reason": "doc_internal_conflict: permission-dimensions title says 7 dimensions but lists 8; spawn intersect missing message dimension"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/permission/approval-workflow.md",
