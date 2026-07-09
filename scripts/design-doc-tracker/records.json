@@ -376,6 +376,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/processor_chain/dsl-parser.md",
+    "commit": "5e50abe788c22e314b107556373622a427927238",
+    "commit_time": "2026-07-10T04:44:50+08:00",
+    "confirmed_time": "2026-07-10T04:50:03.029685+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/system_prompt/appends.md",
     "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
     "commit_time": "2026-07-07T01:07:02+08:00",
