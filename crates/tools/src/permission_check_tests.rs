@@ -534,3 +534,40 @@ async fn test_child_session_command_denial_is_silent() {
         "Child session command should be silently denied"
     );
 }
+
+// ---------------------------------------------------------------------------
+// is_session_sub_agent direct regression tests
+// ---------------------------------------------------------------------------
+
+/// is_session_sub_agent returns false for empty session_id.
+/// (Non-regression: this behavior was already covered by
+/// test_empty_session_id_not_sub_agent above.)
+#[tokio::test]
+async fn test_is_session_sub_agent_empty_session_id() {
+    let sm = make_sm();
+    assert!(!is_session_sub_agent(&sm, "").await);
+}
+
+/// is_session_sub_agent returns false for a non-existent session_id.
+/// get_session_depth returns None → is_some_and evaluates to false.
+#[tokio::test]
+async fn test_is_session_sub_agent_nonexistent_session() {
+    let sm = make_sm();
+    assert!(!is_session_sub_agent(&sm, "does-not-exist").await);
+}
+
+/// is_session_sub_agent returns false for a root session (depth=0).
+#[tokio::test]
+async fn test_is_session_sub_agent_depth_zero() {
+    let sm = make_sm();
+    setup_sessions_with_depth(&sm, "root-0", "child-0").await;
+    assert!(!is_session_sub_agent(&sm, "root-0").await);
+}
+
+/// is_session_sub_agent returns true for a child session (depth=1).
+#[tokio::test]
+async fn test_is_session_sub_agent_depth_positive() {
+    let sm = make_sm();
+    setup_sessions_with_depth(&sm, "root-1", "child-1").await;
+    assert!(is_session_sub_agent(&sm, "child-1").await);
+}
