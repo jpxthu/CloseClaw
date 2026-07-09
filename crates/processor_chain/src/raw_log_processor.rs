@@ -194,7 +194,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_bypass_when_disabled_and_no_debug() {
+    async fn test_passes_through_when_disabled() {
         let tmp = TempDir::new().unwrap();
         let config = RawLogConfig::new(false, tmp.path().to_path_buf(), 7);
         let processor = RawLogProcessor::new(config).unwrap();
@@ -203,7 +203,16 @@ mod tests {
         let ctx = make_ctx(msg);
 
         let result = processor.process(&ctx).await.unwrap();
-        assert!(result.is_none());
+        let processed = result.expect("should pass through when disabled");
+        assert_eq!(processed.content_blocks.len(), 1);
+        match &processed.content_blocks[0] {
+            ContentBlock::Text(t) => assert_eq!(t, "hello"),
+            other => panic!("expected Text block, got {other:?}"),
+        }
+
+        // disabled should not produce any log files
+        let files: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().flatten().collect();
+        assert!(files.is_empty(), "no log files expected when disabled");
     }
 
     #[tokio::test]
