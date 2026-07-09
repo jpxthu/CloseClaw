@@ -49,9 +49,9 @@ fn make_session_manager() -> Arc<SessionManager> {
 }
 
 /// PermissionEngine with default empty ruleset — all inter-agent denied.
-fn make_permission_engine_deny_all() -> Arc<PermissionEngine> {
-    Arc::new(PermissionEngine::new_with_default_data_root(
-        RuleSetBuilder::new().build().unwrap(),
+fn make_permission_engine_deny_all() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
+    Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
     ))
 }
 
@@ -59,7 +59,7 @@ fn make_permission_engine_deny_all() -> Arc<PermissionEngine> {
 ///
 /// The engine uses a two-phase merge: both agent-phase AND user-phase
 /// must return Allowed. We provide matching rules for both phases.
-fn make_permission_engine_allow_inter_agent() -> Arc<PermissionEngine> {
+fn make_permission_engine_allow_inter_agent() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
     let agent_rule = Rule {
         name: "allow-test-agent-inter-agent-phase".to_string(),
         subject: Subject::AgentOnly {
@@ -89,12 +89,14 @@ fn make_permission_engine_allow_inter_agent() -> Arc<PermissionEngine> {
         template: None,
         priority: 10,
     };
-    Arc::new(PermissionEngine::new_with_default_data_root(
-        RuleSetBuilder::new()
-            .rule(agent_rule)
-            .rule(user_rule)
-            .build()
-            .unwrap(),
+    Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(
+            RuleSetBuilder::new()
+                .rule(agent_rule)
+                .rule(user_rule)
+                .build()
+                .unwrap(),
+        ),
     ))
 }
 
@@ -103,6 +105,7 @@ fn make_mock_approval_flow() -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
     Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
         make_session_manager() as Arc<dyn closeclaw_common::SessionLookup>,
         Arc::new(|_| {}),
+        Arc::new(|_: &str| {}),
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),

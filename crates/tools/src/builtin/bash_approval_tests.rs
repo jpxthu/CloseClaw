@@ -51,13 +51,24 @@ impl SessionModeQuery for MockModeQuery {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn deny_all_engine() -> Arc<PermissionEngine> {
-    Arc::new(PermissionEngine::new_with_default_data_root(
-        RuleSetBuilder::new().build().unwrap(),
+fn deny_all_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
+    Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
     ))
 }
 
-fn allow_all_engine() -> Arc<PermissionEngine> {
+fn allow_all_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
+    let tool_call_rule = Rule {
+        name: "allow-all-tool-call".to_string(),
+        subject: Subject::AgentOnly {
+            agent: "*".to_string(),
+            match_type: MatchType::Glob,
+        },
+        effect: Effect::Allow,
+        actions: vec![Action::All],
+        template: None,
+        priority: 200,
+    };
     let agent_rule = Rule {
         name: "allow-all-exec-agent".to_string(),
         subject: Subject::AgentOnly {
@@ -88,18 +99,21 @@ fn allow_all_engine() -> Arc<PermissionEngine> {
         template: None,
         priority: 100,
     };
-    Arc::new(PermissionEngine::new_with_default_data_root(
-        RuleSetBuilder::new()
-            .rule(agent_rule)
-            .rule(user_rule)
-            .build()
-            .unwrap(),
+    Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(
+            RuleSetBuilder::new()
+                .rule(tool_call_rule)
+                .rule(agent_rule)
+                .rule(user_rule)
+                .build()
+                .unwrap(),
+        ),
     ))
 }
 
 /// Engine that allows all operations but returns `ApprovalRequired` in Auto
 /// mode for high-risk operations (e.g., FileOp on .git path triggers high risk).
-fn auto_mode_allow_engine() -> Arc<PermissionEngine> {
+fn auto_mode_allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
     let agent_rule = Rule {
         name: "allow-all-exec-agent".to_string(),
         subject: Subject::AgentOnly {
@@ -124,7 +138,7 @@ fn auto_mode_allow_engine() -> Arc<PermissionEngine> {
         template: None,
         priority: 100,
     };
-    Arc::new(
+    Arc::new(tokio::sync::RwLock::new(
         PermissionEngine::new_with_default_data_root(
             RuleSetBuilder::new()
                 .rule(agent_rule)
@@ -135,7 +149,7 @@ fn auto_mode_allow_engine() -> Arc<PermissionEngine> {
         .with_session_mode_query(Arc::new(
             MockModeQuery::new().with_mode("test-agent", SessionMode::Auto),
         )),
-    )
+    ))
 }
 
 fn make_bg_manager() -> Arc<dyn closeclaw_tasks::TaskManager> {
@@ -199,13 +213,14 @@ fn make_approval_flow() -> Arc<TokioMutex<ApprovalFlow>> {
     Arc::new(TokioMutex::new(ApprovalFlow::new(
         Arc::clone(&make_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
         Arc::new(|_| {}),
+        Arc::new(|_: &str| {}),
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
     )))
 }
 
-fn make_tool(perm: Arc<PermissionEngine>) -> BashTool {
+fn make_tool(perm: Arc<tokio::sync::RwLock<PermissionEngine>>) -> BashTool {
     BashTool::new(
         perm,
         make_bg_manager(),
@@ -352,7 +367,7 @@ async fn test_bash_approval_required_routes_through_approval_flow() {
         path: "/repo/.git/config".to_string(),
         op: "read".to_string(),
     });
-    let response = engine.evaluate(high_risk_request, None);
+    let response = engine.read().await.evaluate(high_risk_request, None);
     assert!(
         matches!(response, PermissionResponse::ApprovalRequired { .. }),
         "Auto mode + high-risk FileOp should return ApprovalRequired, got: {:?}",
@@ -366,7 +381,7 @@ async fn test_bash_approval_required_routes_through_approval_flow() {
             operation_desc,
             risk_level,
             ..
-        } => (operation_desc.clone(), *risk_level),
+        } => (operation_desc.clone(), risk_level.clone()),
         _ => unreachable!(),
     };
     let caller = Caller {

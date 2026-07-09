@@ -10,16 +10,16 @@
 //! etc.) live in the sibling module [`super::bash_kill`] to keep this
 //! file under the CONTRIBUTING.md 500-line hard cap.
 
+use crate::bash::CommandSandbox;
+use crate::permission_check::{
+    check_command_permission, check_tool_permission, CommandPermissionResult, PermDeps,
+};
 use crate::security::{BashSecurityAnalyzer, TrustLevel};
 use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
-use closeclaw_permission::engine::engine_risk::RiskLevel;
-use closeclaw_permission::engine::engine_types::{
-    Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
-};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -67,6 +67,16 @@ impl BashTool {
             config_manager,
             approval_flow,
         }
+    }
+
+    /// Bundle permission dependencies into a [`PermDeps`] tuple.
+    fn perm_deps(&self) -> PermDeps {
+        (
+            Arc::clone(&self.permission_engine),
+            Arc::clone(&self.session_manager),
+            Arc::clone(&self.config_manager),
+            Arc::clone(&self.approval_flow),
+        )
     }
 }
 
@@ -132,7 +142,7 @@ impl Tool for BashTool {
                 },
                 "dangerouslyDisableSandbox": {
                     "type": "boolean",
-                    "description": "Bypass sandbox restrictions (no-op, sandbox not implemented)"
+                    "description": "Bypass sandbox restrictions (landlock + seccomp) for this command. Sandbox infrastructure is ready but enforcement strategy is implemented in a follow-up PR."
                 }
             },
             "required": ["command"]
@@ -148,16 +158,7 @@ impl Tool for BashTool {
     }
 
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
-        execute_bash_call(
-            &self.permission_engine,
-            &self.session_manager,
-            &self.bg_manager,
-            &self.config_manager,
-            &self.approval_flow,
-            args,
-            ctx,
-        )
-        .await
+        execute_bash_call(&self.perm_deps(), &self.bg_manager, args, ctx).await
     }
 }
 
@@ -278,30 +279,6 @@ async fn handle_foreground_result(
     }
 }
 
-/// Route a `PermissionResponse::Denied` through the approval flow.
-///
-/// Attempts to enqueue the denial for owner approval. Returns `Ok(ToolResult)`
-/// if the request was enqueued (`approval_pending`), or `Err(PermissionDenied)`
-/// if the flow rejected it (e.g. sub-agent or duplicate).
-async fn route_denial_to_approval(
-    caller: &Caller,
-    body: &PermissionRequestBody,
-    risk_level: RiskLevel,
-    session_id: &str,
-    approval_flow: &Arc<TokioMutex<ApprovalFlow>>,
-    reason: String,
-) -> Result<ToolResult, ToolCallError> {
-    let mut flow = approval_flow.lock().await;
-    if let Some(request_id) = flow.submit_denial(caller, body, risk_level, session_id, false) {
-        return Ok(ToolResult {
-            data: super::approval_utils::build_approval_pending(request_id),
-            new_messages: vec![],
-            context_modifier: None,
-        });
-    }
-    Err(ToolCallError::PermissionDenied(reason))
-}
-
 /// Analyze command security. Returns `Err` if the command is untrusted.
 fn analyze_security(command: &str) -> Result<(), ToolCallError> {
     let sec_result = BashSecurityAnalyzer::new()
@@ -321,75 +298,53 @@ fn analyze_security(command: &str) -> Result<(), ToolCallError> {
     Ok(())
 }
 
-/// Check permissions and route denial through approval flow.
-/// Returns `Ok(Some(ToolResult))` on approval-pending, `Ok(None)` if allowed,
-/// or `Err` for errors / unapproved denials.
-async fn check_permission_and_route(
-    perm: &tokio::sync::RwLock<PermissionEngine>,
-    session_manager: &SessionManager,
-    config_manager: &ConfigManager,
-    approval_flow: &Arc<TokioMutex<ApprovalFlow>>,
+/// Check Level 2 command permission, routing through approval or sandbox.
+///
+/// When `dangerouslyDisable_sandbox` is true, the sandbox is bypassed
+/// entirely even for denied commands.  Otherwise, denied commands have
+/// landlock + seccomp restrictions applied before execution.
+///
+/// Returns `(Ok(Some(ToolResult)), true)` when routed to the approval flow,
+/// `(Ok(None), true)` when the sandbox was already applied,
+/// `(Ok(None), false)` when permitted (caller proceeds with normal
+/// execution), or `Err` on security analysis errors.
+///
+/// The second element (`sandbox_applied`) tells the caller whether
+/// sandbox restrictions were applied so they must not be applied again.
+async fn check_command_permission_and_route(
+    deps: &PermDeps,
     ctx: &ToolContext,
     command: &str,
-    args: &[String],
-) -> Result<Option<ToolResult>, ToolCallError> {
-    let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
-        agent: ctx.agent_id.clone(),
-        cmd: command.to_string(),
-        args: args.to_vec(),
-    });
-    let agent_perms = config_manager.agent_permissions();
-    let response = if let Some(ref session_id) = ctx.session_id {
-        let engine = perm.read().await;
-        engine
-            .evaluate_with_chain(request, session_manager, session_id, &agent_perms)
-            .await
-    } else {
-        perm.read().await.evaluate(request, None)
-    };
-    match response {
-        PermissionResponse::Denied {
-            reason, risk_level, ..
+    cmd_name: &str,
+    cmd_args: &[String],
+    dangerously_disable_sandbox: bool,
+) -> Result<(Option<ToolResult>, bool), ToolCallError> {
+    match check_command_permission(deps, ctx, cmd_name, cmd_args).await {
+        CommandPermissionResult::Permitted => Ok((None, false)),
+        CommandPermissionResult::PendingApproval(result) => Ok((Some(result), false)),
+        CommandPermissionResult::Denied(reason) => {
+            // Design doc: commands without permission are routed to the
+            // sandbox for restricted execution, not directly rejected.
+            tracing::info!(
+                command = %command,
+                reason = %reason,
+                "Command denied by permission engine; routing to sandbox"
+            );
+            if !dangerously_disable_sandbox {
+                let cwd = resolve_cwd(&serde_json::json!({}), ctx);
+                CommandSandbox::apply_sandbox_restrictions(&cwd)?;
+                return Ok((None, true));
+            }
+            // dangerouslyDisableSandbox=true: sandbox fully bypassed
+            Ok((None, false))
         }
-        | PermissionResponse::ApprovalRequired {
-            operation_desc: reason,
-            risk_level,
-            ..
-        } => {
-            let caller = Caller {
-                user_id: String::new(),
-                agent: ctx.agent_id.clone(),
-                creator_id: String::new(),
-            };
-            let body = PermissionRequestBody::ToolCall {
-                agent: ctx.agent_id.clone(),
-                skill: "bash".to_string(),
-                method: "call".to_string(),
-            };
-            let session_id = ctx.session_id.as_deref().unwrap_or("");
-            let result = route_denial_to_approval(
-                &caller,
-                &body,
-                risk_level,
-                session_id,
-                approval_flow,
-                reason,
-            )
-            .await?;
-            return Ok(Some(result));
-        }
-        _ => {}
     }
-    Ok(None)
 }
 
-/// Execute the BashTool call: parse args, check permissions, run command.
+/// Execute the BashTool call: parse args, check two-level permissions, run command.
 async fn execute_bash_call(
-    perm: &tokio::sync::RwLock<PermissionEngine>,
-    session_manager: &SessionManager,
+    deps: &PermDeps,
     bg: &Arc<dyn closeclaw_tasks::TaskManager>,
-    config_manager: &ConfigManager,
-    approval_flow: &Arc<TokioMutex<ApprovalFlow>>,
     args: Value,
     ctx: &ToolContext,
 ) -> Result<ToolResult, ToolCallError> {
@@ -403,25 +358,48 @@ async fn execute_bash_call(
         ));
     }
     analyze_security(command)?;
+
+    // Level 1: ToolCall — verify agent may invoke Bash tool
+    if let Some(r) = check_tool_permission(deps, ctx, "bash", "call").await? {
+        return Ok(r);
+    }
+
     let cmd_parts: Vec<&str> = command.split_whitespace().collect();
     let cmd_name = cmd_parts.first().copied().unwrap_or("*").to_string();
     let cmd_args: Vec<String> = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
-    if let Some(result) = check_permission_and_route(
-        perm,
-        session_manager,
-        config_manager,
-        approval_flow,
+
+    let dangerously_disable = args.get("dangerouslyDisableSandbox") == Some(&Value::Bool(true));
+
+    // Level 2: CommandExec — verify specific command is permitted.
+    // Denied commands are routed to the sandbox (not rejected outright).
+    let (approval_result, sandbox_already_applied) = check_command_permission_and_route(
+        deps,
         ctx,
+        command,
         &cmd_name,
         &cmd_args,
+        dangerously_disable,
     )
-    .await?
-    {
-        return Ok(result);
+    .await?;
+    if let Some(r) = approval_result {
+        return Ok(r);
     }
+
+    // Sandbox routing: apply landlock + seccomp if needed.
+    // Scripts are always sandboxed; permitted non-script commands run outside.
+    // Skip if sandbox was already applied in the Level 2 denied path above,
+    // or if dangerouslyDisableSandbox is true (full bypass).
+    let cwd = resolve_cwd(&args, ctx);
+    if !sandbox_already_applied
+        && !dangerously_disable
+        && CommandSandbox::should_sandbox(command, true)
+    {
+        CommandSandbox::apply_sandbox_restrictions(&cwd)?;
+    }
+
     execute_command(
         command,
-        &resolve_cwd(&args, ctx),
+        &cwd,
         parse_timeout(&args),
         args.get("run_in_background") == Some(&Value::Bool(true)),
         bg,
