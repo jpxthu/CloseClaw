@@ -693,7 +693,7 @@ impl PermissionEngine {
             PermissionRequestBody::ConfigWrite { .. } => defaults.config,
             PermissionRequestBody::SlashCommand { .. } => defaults.command,
             PermissionRequestBody::ToolCall { .. } => defaults.tool_call,
-            PermissionRequestBody::MessageSend { .. } => defaults.tool_call,
+            PermissionRequestBody::MessageSend { .. } => defaults.message,
         };
 
         match effect {

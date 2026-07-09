@@ -69,6 +69,12 @@ impl RuleSetBuilder {
         self
     }
 
+    /// Set a specific default effect for message operations.
+    pub fn default_message(mut self, effect: Effect) -> Self {
+        self.defaults.message = effect;
+        self
+    }
+
     /// Finalize and return the constructed [`RuleSet`].
     pub fn build(self) -> Result<RuleSet, RuleSetBuilderError> {
         Ok(RuleSet {

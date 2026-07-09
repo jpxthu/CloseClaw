@@ -382,6 +382,162 @@ fn test_tool_call_default_allow() {
 }
 
 // -----------------------------------------------------------------
+// MessageSend default Allow tests (design doc: Agent defaults to
+// send/receive messages)
+// -----------------------------------------------------------------
+
+#[test]
+fn test_message_send_defaults_to_allow() {
+    // With all defaults at Deny except message=Allow (the design-doc contract),
+    // MessageSend should be Allowed while other operations are Denied.
+    let ruleset = RuleSetBuilder::new()
+        .default_file(Effect::Deny)
+        .default_command(Effect::Deny)
+        .default_network(Effect::Deny)
+        .default_inter_agent(Effect::Deny)
+        .default_config(Effect::Deny)
+        .default_tool_call(Effect::Deny)
+        .default_message(Effect::Allow)
+        .build()
+        .unwrap();
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
+
+    // MessageSend should be Allowed by default
+    let msg_resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::MessageSend {
+            agent: "unknown-agent".to_string(),
+            direction: super::engine_types::MessageDirection::Send,
+            target: "chat_1".to_string(),
+        }),
+        None,
+    );
+    assert!(
+        matches!(msg_resp, PermissionResponse::Allowed { .. }),
+        "MessageSend should default to Allow, got {:?}",
+        msg_resp
+    );
+}
+
+/// Helper: build a ruleset with all dimensions Deny except message=Allow.
+fn deny_all_except_message_ruleset() -> super::engine_types::RuleSet {
+    RuleSetBuilder::new()
+        .default_file(Effect::Deny)
+        .default_command(Effect::Deny)
+        .default_network(Effect::Deny)
+        .default_inter_agent(Effect::Deny)
+        .default_config(Effect::Deny)
+        .default_tool_call(Effect::Deny)
+        .default_message(Effect::Allow)
+        .build()
+        .unwrap()
+}
+
+#[test]
+fn test_file_op_defaults_to_deny() {
+    let ruleset = deny_all_except_message_ruleset();
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
+
+    let tmp = TempDir::new().unwrap();
+    let file_resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "unknown-agent".to_string(),
+            path: tmp.path().to_string_lossy().into_owned(),
+            op: "read".to_string(),
+        }),
+        None,
+    );
+    assert!(
+        matches!(file_resp, PermissionResponse::Denied { .. }),
+        "FileOp should default to Deny, got {:?}",
+        file_resp
+    );
+}
+
+#[test]
+fn test_command_exec_defaults_to_deny() {
+    let ruleset = deny_all_except_message_ruleset();
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
+
+    let cmd_resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::CommandExec {
+            agent: "unknown-agent".to_string(),
+            cmd: "ls".to_string(),
+            args: vec![],
+        }),
+        None,
+    );
+    assert!(
+        matches!(cmd_resp, PermissionResponse::Denied { .. }),
+        "CommandExec should default to Deny, got {:?}",
+        cmd_resp
+    );
+}
+
+#[test]
+fn test_net_op_defaults_to_deny() {
+    let ruleset = deny_all_except_message_ruleset();
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
+
+    let net_resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::NetOp {
+            agent: "unknown-agent".to_string(),
+            host: "example.com".to_string(),
+            port: 443,
+        }),
+        None,
+    );
+    assert!(
+        matches!(net_resp, PermissionResponse::Denied { .. }),
+        "NetOp should default to Deny, got {:?}",
+        net_resp
+    );
+}
+
+#[test]
+fn test_tool_call_defaults_to_deny() {
+    let ruleset = deny_all_except_message_ruleset();
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
+
+    let tool_resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::ToolCall {
+            agent: "unknown-agent".to_string(),
+            skill: "some_skill".to_string(),
+            method: "run".to_string(),
+        }),
+        None,
+    );
+    assert!(
+        matches!(tool_resp, PermissionResponse::Denied { .. }),
+        "ToolCall should default to Deny, got {:?}",
+        tool_resp
+    );
+}
+
+#[test]
+fn test_message_send_default_can_be_overridden_to_deny() {
+    // Verify that the message default can be explicitly set to Deny.
+    let ruleset = RuleSetBuilder::new()
+        .default_message(Effect::Deny)
+        .build()
+        .unwrap();
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
+
+    let msg_resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::MessageSend {
+            agent: "unknown-agent".to_string(),
+            direction: super::engine_types::MessageDirection::Send,
+            target: "chat_1".to_string(),
+        }),
+        None,
+    );
+    assert!(
+        matches!(msg_resp, PermissionResponse::Denied { .. }),
+        "MessageSend with default Deny should be Denied, got {:?}",
+        msg_resp
+    );
+}
+
+// -----------------------------------------------------------------
 // Config dir forced-deny integration tests
 // -----------------------------------------------------------------
 

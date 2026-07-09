@@ -193,6 +193,23 @@ fn test_defaults_json_missing_tool_call() {
 }
 
 #[test]
+fn test_defaults_json_missing_message_defaults_to_allow() {
+    // Old config without `message` field should default to Allow
+    let json = r#"{"file":"deny","command":"deny","network":"deny","inter_agent":"deny","config":"deny","tool_call":"deny"}"#;
+    let defaults: Defaults = serde_json::from_str(json).unwrap();
+    assert_eq!(defaults.message, Effect::Allow);
+}
+
+#[test]
+fn test_defaults_json_empty_object_message_is_allow() {
+    let json = r#"{}"#;
+    let defaults: Defaults = serde_json::from_str(json).unwrap();
+    assert_eq!(defaults.message, Effect::Allow);
+    assert_eq!(defaults.file, Effect::Deny);
+    assert_eq!(defaults.tool_call, Effect::Deny);
+}
+
+#[test]
 fn test_ruleset_builder_default_tool_call() {
     let ruleset = RuleSetBuilder::new()
         .default_tool_call(Effect::Allow)

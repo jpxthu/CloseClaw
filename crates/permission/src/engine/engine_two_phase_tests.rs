@@ -20,6 +20,7 @@ fn make_ruleset(default_file: Effect, rules: Vec<Rule>) -> PermissionEngine {
             inter_agent: default_file,
             config: default_file,
             tool_call: default_file,
+            message: Effect::Allow,
         },
         template_includes: vec![],
         agent_creators: HashMap::new(),
@@ -496,4 +497,62 @@ fn test_get_agent_deny_subjects_empty() {
     let engine = make_ruleset(Effect::Deny, rules);
     let subjects = engine.get_agent_deny_subjects("parent-agent", "child-agent");
     assert!(subjects.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// MessageSend two-phase default tests
+// ---------------------------------------------------------------------------
+
+/// MessageSend with no rules → defaults to Allow (design doc contract)
+#[test]
+fn test_message_send_no_rules_defaults_to_allow() {
+    // Owner caller: agent-only evaluation, message default Allow
+    let engine = make_ruleset(Effect::Deny, vec![]);
+    let resp = engine.evaluate(
+        PermissionRequest::WithCaller {
+            caller: Caller {
+                user_id: "owner".to_string(),
+                agent: "test-agent".to_string(),
+                creator_id: String::new(),
+            },
+            request: PermissionRequestBody::MessageSend {
+                agent: "test-agent".to_string(),
+                direction: super::engine_types::MessageDirection::Send,
+                target: "chat_1".to_string(),
+            },
+        },
+        None,
+    );
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "MessageSend with no rules should default to Allow, got {:?}",
+        resp
+    );
+}
+
+/// Non-owner MessageSend with no rules → message default Allow, user phase
+/// also returns default Allow → intersection is Allow.
+#[test]
+fn test_message_send_non_owner_no_rules() {
+    let engine = make_ruleset(Effect::Deny, vec![]);
+    let resp = engine.evaluate(
+        PermissionRequest::WithCaller {
+            caller: Caller {
+                user_id: "alice".to_string(),
+                agent: "test-agent".to_string(),
+                creator_id: String::new(),
+            },
+            request: PermissionRequestBody::MessageSend {
+                agent: "test-agent".to_string(),
+                direction: super::engine_types::MessageDirection::Send,
+                target: "chat_1".to_string(),
+            },
+        },
+        None,
+    );
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "Non-owner MessageSend should default to Allow, got {:?}",
+        resp
+    );
 }
