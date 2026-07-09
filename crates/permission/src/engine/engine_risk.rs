@@ -93,14 +93,10 @@ const HIGH_RISK_PATTERNS: &[RiskPattern] = &[
             _ => None,
         },
     },
-    // daemon/gateway config write → Critical
+    // Config write → Critical
     RiskPattern {
         matches: |request| match request {
-            PermissionRequestBody::ConfigWrite { config_file, .. }
-                if config_file.contains("daemon") || config_file.contains("gateway") =>
-            {
-                Some(RiskLevel::Critical)
-            }
+            PermissionRequestBody::ConfigWrite { .. } => Some(RiskLevel::Critical),
             _ => None,
         },
     },
