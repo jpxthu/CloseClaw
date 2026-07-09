@@ -63,6 +63,64 @@ pub fn send_signal(pid: u32, force: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Spawns a daemon process, writes its PID file, and returns a child handle.
+///
+/// The daemon is started by executing the given command with the provided
+/// arguments. After successful spawn, the child PID is written to
+/// `{config_dir}/daemon.pid` using [`write_pid_file`].
+///
+/// # Arguments
+///
+/// * `command` - The program to execute (e.g. `"/usr/bin/my-daemon"`).
+/// * `args` - Arguments to pass to the program.
+/// * `config_dir` - Directory where `daemon.pid` will be written.
+/// * `working_dir` - Optional working directory for the child process.
+/// * `env_vars` - Optional environment variables as key-value pairs.
+/// * `detach_stdio` - If `true` (default), stdin/stdout/stderr are
+///   redirected to `/dev/null` (Unix) or `NUL` (Windows).
+///
+/// # Errors
+///
+/// Returns an error if the process cannot be spawned or if the PID file
+/// cannot be written.
+pub fn spawn_daemon(
+    command: &str,
+    args: &[&str],
+    config_dir: &Path,
+    working_dir: Option<&Path>,
+    env_vars: &[(&str, &str)],
+    detach_stdio: bool,
+) -> anyhow::Result<std::process::Child> {
+    let mut cmd = std::process::Command::new(command);
+    cmd.args(args);
+
+    if let Some(dir) = working_dir {
+        cmd.current_dir(dir);
+    }
+
+    for (key, value) in env_vars {
+        cmd.env(key, value);
+    }
+
+    if detach_stdio {
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+    }
+
+    let child = cmd.spawn()?;
+    let pid = child.id();
+
+    let path = pid_file_path(config_dir);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    write_pid_file(&path, pid)?;
+    info!(pid, "Spawned daemon process");
+
+    Ok(child)
+}
+
 /// Blocks until a platform-appropriate shutdown signal is received.
 ///
 /// On Unix, listens for both SIGINT (Ctrl+C) and SIGTERM.
