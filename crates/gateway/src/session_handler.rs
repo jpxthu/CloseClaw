@@ -233,11 +233,24 @@ impl SessionMessageHandler {
     }
 
     pub(super) async fn check_and_run_auto_compact(&self, session_id: &str) {
-        let Some((model, llm_messages)) =
+        let Some((model, mut llm_messages)) =
             load_compact_inputs(&self.session_manager, session_id).await
         else {
             return;
         };
+        // Truncate history before token estimation if configured.
+        {
+            let svc = self
+                .compaction_service
+                .lock()
+                .expect("compaction_service poisoned");
+            if let Some(max) = svc.config().max_history_messages {
+                if llm_messages.len() > max {
+                    let drain = llm_messages.len() - max;
+                    llm_messages.drain(..drain);
+                }
+            }
+        }
         let compaction_msgs: Vec<CompactionMessage> = llm_messages
             .iter()
             .map(|m| CompactionMessage {

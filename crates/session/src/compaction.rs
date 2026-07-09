@@ -214,6 +214,11 @@ impl CompactionService {
     pub fn consecutive_failures(&self) -> usize {
         self.consecutive_failures
     }
+
+    /// Returns a reference to the compaction configuration.
+    pub fn config(&self) -> &CompactConfig {
+        &self.config
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
