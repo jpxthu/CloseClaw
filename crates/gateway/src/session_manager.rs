@@ -604,8 +604,8 @@ impl SessionManager {
     /// handed off to `bg_manager` and return a `ToolResult` with
     /// `backgroundedByUser: true`.
     ///
-    /// Returns `Ok(true)` if the signal was fired, `Ok(false)` if the
-    /// session was not found, and `Err` if the session lock could not
+    /// Returns `Ok(true)` if the signal was fired.
+    /// Returns `Err` if the session was not found or the lock could not
     /// be acquired.
     pub async fn trigger_manual_background(&self, session_id: &str) -> Result<bool, String> {
         let conv_sessions = self.conversation_sessions.read().await;

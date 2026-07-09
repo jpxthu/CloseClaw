@@ -243,12 +243,9 @@ fn test_tool_session_manual_background_notify_returns_signal() {
 async fn test_manual_background_notify_signal_wakes_waiter() {
     let session = MockToolSessionWithSignal::new();
     let signal = session.manual_background_notify().unwrap();
-    // Fire the signal — a waiter should be woken.
-    signal.notify_waiters();
-    // Immediately notify again so the notified() future resolves.
-    signal.notify_waiters();
-    // Wait on a fresh notification — should not block.
+    // Create a notified future BEFORE firing the signal.
     let notified = signal.notified();
+    // Fire the signal — the waiting future should resolve.
     signal.notify_waiters();
     notified.await;
 }
