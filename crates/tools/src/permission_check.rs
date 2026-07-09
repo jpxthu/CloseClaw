@@ -61,6 +61,7 @@ async fn route_denial(
     body: &PermissionRequestBody,
     risk_level: RiskLevel,
     session_id: &str,
+    is_sub_agent: bool,
     approval_flow: &Arc<ApprovalMutex>,
 ) -> Result<Option<ToolResult>, ToolCallError> {
     let reason = match response {
@@ -72,7 +73,8 @@ async fn route_denial(
         _ => return Ok(None),
     };
     let mut flow = approval_flow.lock().await;
-    if let Some(request_id) = flow.submit_denial(caller, body, risk_level, session_id, false) {
+    if let Some(request_id) = flow.submit_denial(caller, body, risk_level, session_id, is_sub_agent)
+    {
         return Ok(Some(ToolResult {
             data: approval_utils::build_approval_pending(request_id),
             new_messages: vec![],
@@ -92,6 +94,7 @@ async fn route_command_denial(
     body: &PermissionRequestBody,
     risk_level: RiskLevel,
     session_id: &str,
+    is_sub_agent: bool,
     approval_flow: &Arc<ApprovalMutex>,
 ) -> CommandPermissionResult {
     let reason = match response {
@@ -103,7 +106,8 @@ async fn route_command_denial(
         _ => return CommandPermissionResult::Permitted,
     };
     let mut flow = approval_flow.lock().await;
-    if let Some(request_id) = flow.submit_denial(caller, body, risk_level, session_id, false) {
+    if let Some(request_id) = flow.submit_denial(caller, body, risk_level, session_id, is_sub_agent)
+    {
         return CommandPermissionResult::PendingApproval(ToolResult {
             data: approval_utils::build_approval_pending(request_id),
             new_messages: vec![],
@@ -131,6 +135,20 @@ async fn evaluate_permission(
     } else {
         perm.read().await.evaluate(request, None)
     }
+}
+
+/// Determine whether the given session belongs to a sub-agent (depth > 0).
+///
+/// Returns `false` when the session id is empty or the depth cannot be
+/// resolved (e.g. session not found), which is the safe default.
+async fn is_session_sub_agent(session_manager: &Arc<SessionManager>, session_id: &str) -> bool {
+    if session_id.is_empty() {
+        return false;
+    }
+    session_manager
+        .get_session_depth(session_id)
+        .await
+        .map_or(false, |depth| depth > 0)
 }
 
 /// First-level check: verify the agent is allowed to invoke the given tool.
@@ -172,7 +190,17 @@ pub(crate) async fn check_tool_permission(
                 method: method.to_string(),
             };
             let sid = ctx.session_id.as_deref().unwrap_or("");
-            route_denial(&response, &caller, &body, risk_level, sid, approval_flow).await
+            let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
+            route_denial(
+                &response,
+                &caller,
+                &body,
+                risk_level,
+                sid,
+                is_sub_agent,
+                approval_flow,
+            )
+            .await
         }
     }
 }
@@ -215,7 +243,17 @@ pub(crate) async fn check_file_op_permission(
                 op: op.to_string(),
             };
             let sid = ctx.session_id.as_deref().unwrap_or("");
-            route_denial(&response, &caller, &body, risk_level, sid, approval_flow).await
+            let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
+            route_denial(
+                &response,
+                &caller,
+                &body,
+                risk_level,
+                sid,
+                is_sub_agent,
+                approval_flow,
+            )
+            .await
         }
     }
 }
@@ -261,7 +299,17 @@ pub(crate) async fn check_command_permission(
                 args: args.to_vec(),
             };
             let sid = ctx.session_id.as_deref().unwrap_or("");
-            route_command_denial(&response, &caller, &body, risk_level, sid, approval_flow).await
+            let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
+            route_command_denial(
+                &response,
+                &caller,
+                &body,
+                risk_level,
+                sid,
+                is_sub_agent,
+                approval_flow,
+            )
+            .await
         }
     }
 }

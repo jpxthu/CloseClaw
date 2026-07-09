@@ -6,6 +6,7 @@
 //! - `build_whitelist_rule` end-to-end rule construction
 //! - `append_whitelist_rule` file I/O: new file, append, corrupt fallback
 
+use crate::approval::WhitelistTarget;
 use crate::engine::engine_types::{
     Action, Caller, CommandArgs, Effect, PermissionRequestBody, Rule, RuleSet, Subject,
 };
@@ -145,7 +146,7 @@ fn test_owner_caller_produces_agent_only() {
         agent: "a1".into(),
         creator_id: String::new(),
     };
-    let subject = caller_to_subject(&caller);
+    let subject = caller_to_subject(&caller, WhitelistTarget::Auto);
     assert!(subject.is_agent_only());
     assert_eq!(subject.agent_id(), "a1");
 }
@@ -157,7 +158,7 @@ fn test_empty_user_id_produces_agent_only() {
         agent: "a2".into(),
         creator_id: String::new(),
     };
-    let subject = caller_to_subject(&caller);
+    let subject = caller_to_subject(&caller, WhitelistTarget::Auto);
     assert!(subject.is_agent_only());
     assert_eq!(subject.agent_id(), "a2");
 }
@@ -169,7 +170,7 @@ fn test_non_owner_with_user_id_produces_user_and_agent() {
         agent: "a3".into(),
         creator_id: "creator-1".into(),
     };
-    let subject = caller_to_subject(&caller);
+    let subject = caller_to_subject(&caller, WhitelistTarget::Auto);
     assert!(subject.is_user_and_agent());
     assert_eq!(subject.user_id(), "ou_alice");
     assert_eq!(subject.agent_id(), "a3");
@@ -189,7 +190,8 @@ fn test_build_rule_for_file_op() {
         path: "/tmp/data.txt".into(),
         op: "read".into(),
     };
-    let rule = build_whitelist_rule(&caller, &body, "whitelist-001").unwrap();
+    let rule =
+        build_whitelist_rule(&caller, &body, "whitelist-001", WhitelistTarget::Auto).unwrap();
     assert_eq!(rule.name, "whitelist-001");
     assert_eq!(rule.effect, Effect::Allow);
     assert!(rule.actions.len() == 1);
@@ -209,7 +211,7 @@ fn test_build_rule_for_config_write_returns_none() {
         agent: "a1".into(),
         config_file: "permissions.json".into(),
     };
-    assert!(build_whitelist_rule(&caller, &body, "r1").is_none());
+    assert!(build_whitelist_rule(&caller, &body, "r1", WhitelistTarget::Auto).is_none());
 }
 
 #[test]
@@ -223,7 +225,7 @@ fn test_build_rule_for_slash_command_returns_none() {
         agent: "a1".into(),
         command: "help".into(),
     };
-    assert!(build_whitelist_rule(&caller, &body, "r2").is_none());
+    assert!(build_whitelist_rule(&caller, &body, "r2", WhitelistTarget::Auto).is_none());
 }
 
 #[test]
@@ -238,7 +240,7 @@ fn test_build_rule_owner_caller_agent_only_subject() {
         skill: "web".into(),
         method: "fetch".into(),
     };
-    let rule = build_whitelist_rule(&caller, &body, "wl-owner").unwrap();
+    let rule = build_whitelist_rule(&caller, &body, "wl-owner", WhitelistTarget::Auto).unwrap();
     assert!(rule.subject.is_agent_only());
     assert_eq!(rule.effect, Effect::Allow);
 }

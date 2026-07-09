@@ -5,6 +5,7 @@
 //! - `append_deny_rule` write + read round-trip
 //! - `append_rule` generic function: allow + deny mixed writes
 
+use crate::approval::WhitelistTarget;
 use crate::engine::engine_types::{
     Action, Caller, CommandArgs, Effect, PermissionRequestBody, Rule, RuleSet,
 };
@@ -69,7 +70,7 @@ fn test_build_deny_rule_file_op() {
         path: "/etc/shadow".into(),
         op: "write".into(),
     };
-    let rule = build_deny_rule(&caller, &body, "deny-001").unwrap();
+    let rule = build_deny_rule(&caller, &body, "deny-001", WhitelistTarget::Auto).unwrap();
     assert_eq!(rule.name, "deny-001");
     assert_eq!(rule.effect, Effect::Deny);
     assert!(rule.subject.is_agent_only());
@@ -91,7 +92,7 @@ fn test_build_deny_rule_command_exec() {
         cmd: "rm".into(),
         args: vec!["-rf".into(), "/".into()],
     };
-    let rule = build_deny_rule(&caller, &body, "deny-cmd-001").unwrap();
+    let rule = build_deny_rule(&caller, &body, "deny-cmd-001", WhitelistTarget::Auto).unwrap();
     assert_eq!(rule.effect, Effect::Deny);
     match &rule.actions[0] {
         Action::Command {
@@ -113,7 +114,7 @@ fn test_build_deny_rule_network() {
         host: "evil.com".into(),
         port: 80,
     };
-    let rule = build_deny_rule(&caller, &body, "deny-net-001").unwrap();
+    let rule = build_deny_rule(&caller, &body, "deny-net-001", WhitelistTarget::Auto).unwrap();
     assert_eq!(rule.effect, Effect::Deny);
     match &rule.actions[0] {
         Action::Network { hosts, ports } => {
@@ -131,7 +132,7 @@ fn test_build_deny_rule_config_write_returns_none() {
         agent: "eda".into(),
         config_file: "permissions.json".into(),
     };
-    assert!(build_deny_rule(&caller, &body, "r1").is_none());
+    assert!(build_deny_rule(&caller, &body, "r1", WhitelistTarget::Auto).is_none());
 }
 
 #[test]
@@ -141,7 +142,7 @@ fn test_build_deny_rule_slash_command_returns_none() {
         agent: "eda".into(),
         command: "help".into(),
     };
-    assert!(build_deny_rule(&caller, &body, "r2").is_none());
+    assert!(build_deny_rule(&caller, &body, "r2", WhitelistTarget::Auto).is_none());
 }
 
 #[test]
@@ -152,7 +153,7 @@ fn test_build_deny_rule_name_preserved() {
         path: "/tmp/f.txt".into(),
         op: "read".into(),
     };
-    let rule = build_deny_rule(&caller, &body, "custom-name").unwrap();
+    let rule = build_deny_rule(&caller, &body, "custom-name", WhitelistTarget::Auto).unwrap();
     assert_eq!(rule.name, "custom-name");
 }
 
