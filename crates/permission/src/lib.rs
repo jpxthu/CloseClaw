@@ -9,7 +9,11 @@ pub mod engine;
 pub mod rules;
 pub mod sandbox;
 pub mod templates;
+pub mod user_registry;
 pub mod whitelist;
+
+#[cfg(test)]
+pub mod user_registry_tests;
 
 #[cfg(test)]
 pub mod mock_session_lookup;
@@ -23,3 +27,7 @@ pub use engine::{
     PermissionResponse, RejectionLog, RejectionLogger, Rule, RuleSet, Subject, TemplateRef,
 };
 pub use rules::{validation, RuleBuilder, RuleBuilderError, RuleSetBuilder, RuleSetBuilderError};
+pub use user_registry::{RegistryError, UserRegistry};
+
+#[cfg(test)]
+pub mod permission_op_tests;

@@ -5,6 +5,7 @@ pub mod handlers;
 pub mod handlers_mode;
 pub mod handlers_permission;
 pub mod handlers_session;
+pub mod handlers_user;
 pub mod registry;
 
 pub use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
@@ -15,6 +16,7 @@ pub use handlers::{ClearHandler, CompactHandler, ExecHandler, HelpHandler};
 pub use handlers_mode::{ExecuteHandler, ModeHandler, PauseHandler, PlanModeHandler};
 pub use handlers_permission::PermissionSlashHandler;
 pub use handlers_session::{NewSessionHandler, StatusHandler, StopHandler, VerboseHandler};
+pub use handlers_user::UserSlashHandler;
 
 #[cfg(test)]
 mod tests;
@@ -37,3 +39,6 @@ mod handlers_mode_tests;
 mod handlers_permission_tests;
 #[cfg(test)]
 mod pause_handler_tests;
+
+#[cfg(test)]
+pub mod handlers_user_tests;

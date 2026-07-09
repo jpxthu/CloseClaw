@@ -5,6 +5,7 @@ use crate::mock_session_lookup::MockSessionLookup;
 use closeclaw_common::{PlanPhase, PlanState, PlanStatus, SessionMode};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Minimal test helper: creates a MockSessionLookup.
 fn test_session_lookup() -> Arc<dyn SessionLookup> {
@@ -39,10 +40,10 @@ fn test_runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Runtime::new().unwrap()
 }
 
-fn test_approval_flow(
+fn test_approval_flow_with(
     sm: Arc<dyn SessionLookup>,
     notify_count: Arc<AtomicUsize>,
-    rt: &tokio::runtime::Runtime,
+    handle: tokio::runtime::Handle,
 ) -> ApprovalFlow {
     let nc = Arc::clone(&notify_count);
     ApprovalFlow::new(
@@ -51,10 +52,18 @@ fn test_approval_flow(
             nc.fetch_add(1, Ordering::SeqCst);
         }),
         Arc::new(|_| {}),
-        rt.handle().clone(),
+        handle,
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
     )
+}
+
+fn test_approval_flow(
+    sm: Arc<dyn SessionLookup>,
+    notify_count: Arc<AtomicUsize>,
+    rt: &tokio::runtime::Runtime,
+) -> ApprovalFlow {
+    test_approval_flow_with(sm, notify_count, rt.handle().clone())
 }
 
 #[test]
@@ -124,12 +133,15 @@ fn test_duplicate_denial_returns_none() {
     assert_eq!(notify_count.load(Ordering::SeqCst), 1);
 }
 
-#[test]
-fn test_approve_request_once() {
-    let rt = test_runtime();
+#[tokio::test]
+async fn test_approve_request_once() {
     let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
-    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
+    let mut flow = test_approval_flow_with(
+        sm,
+        Arc::clone(&notify_count),
+        tokio::runtime::Handle::current(),
+    );
 
     let caller = test_caller();
     let request = test_request();
@@ -137,17 +149,20 @@ fn test_approve_request_once() {
         .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
         .unwrap();
 
-    let result = flow.approve_request(&request_id, ApprovalMode::Once);
+    let result = flow.approve_request(&request_id, ApprovalMode::Once).await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 }
 
-#[test]
-fn test_approve_request_whitelist_low_risk() {
-    let rt = test_runtime();
+#[tokio::test]
+async fn test_approve_request_whitelist_low_risk() {
     let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
-    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
+    let mut flow = test_approval_flow_with(
+        sm,
+        Arc::clone(&notify_count),
+        tokio::runtime::Handle::current(),
+    );
 
     let caller = test_caller();
     let request = test_request();
@@ -155,17 +170,22 @@ fn test_approve_request_whitelist_low_risk() {
         .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
         .unwrap();
 
-    let result = flow.approve_request(&request_id, ApprovalMode::WithWhitelist);
+    let result = flow
+        .approve_request(&request_id, ApprovalMode::WithWhitelist)
+        .await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 }
 
-#[test]
-fn test_approve_request_whitelist_high_risk() {
-    let rt = test_runtime();
+#[tokio::test]
+async fn test_approve_request_whitelist_high_risk() {
     let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
-    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
+    let mut flow = test_approval_flow_with(
+        sm,
+        Arc::clone(&notify_count),
+        tokio::runtime::Handle::current(),
+    );
 
     let caller = test_caller();
     let request = test_request();
@@ -173,7 +193,9 @@ fn test_approve_request_whitelist_high_risk() {
         .submit_denial(&caller, &request, RiskLevel::High, "session_1", false)
         .unwrap();
 
-    let result = flow.approve_request(&request_id, ApprovalMode::WithWhitelist);
+    let result = flow
+        .approve_request(&request_id, ApprovalMode::WithWhitelist)
+        .await;
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), RejectWhitelistReason::HighRisk);
 }
@@ -182,8 +204,9 @@ fn test_approve_request_whitelist_high_risk() {
 
 /// Helper: create an ApprovalFlow that writes to a temp dir.
 /// Returns (flow, temp_dir_path, whitelist_update_count).
-fn flow_with_temp_config_dir() -> (ApprovalFlow, tempfile::TempDir, Arc<AtomicUsize>) {
-    let rt = test_runtime();
+fn flow_with_temp_config_dir_with(
+    handle: tokio::runtime::Handle,
+) -> (ApprovalFlow, tempfile::TempDir, Arc<AtomicUsize>) {
     let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
     let whitelist_count = Arc::new(AtomicUsize::new(0));
@@ -200,7 +223,7 @@ fn flow_with_temp_config_dir() -> (ApprovalFlow, tempfile::TempDir, Arc<AtomicUs
         Arc::new(move |_agent_id: &str| {
             wc.fetch_add(1, Ordering::SeqCst);
         }),
-        rt.handle().clone(),
+        handle,
         HeartbeatApprovalMode::default(),
         config_dir,
     );
@@ -220,9 +243,9 @@ fn read_agent_ruleset(
     serde_json::from_str(&data).expect("valid RuleSet JSON")
 }
 
-#[test]
-fn test_whitelist_mode_persists_rule_to_disk() {
-    let (mut flow, dir, _) = flow_with_temp_config_dir();
+#[tokio::test]
+async fn test_whitelist_mode_persists_rule_to_disk() {
+    let (mut flow, dir, _) = flow_with_temp_config_dir_with(tokio::runtime::Handle::current());
 
     let caller = test_caller();
     let request = test_request();
@@ -230,12 +253,14 @@ fn test_whitelist_mode_persists_rule_to_disk() {
         .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
         .unwrap();
 
-    let result = flow.approve_request(&request_id, ApprovalMode::WithWhitelist);
+    let result = flow
+        .approve_request(&request_id, ApprovalMode::WithWhitelist)
+        .await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 
     // Wait briefly for the spawned async task to complete.
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Verify the rule was written to permissions.json.
     let rs = read_agent_ruleset(dir.path(), "agent_1");
@@ -247,9 +272,9 @@ fn test_whitelist_mode_persists_rule_to_disk() {
     assert!(rs.rules[0].name.starts_with("whitelist-"));
 }
 
-#[test]
-fn test_once_mode_does_not_persist_whitelist() {
-    let (mut flow, dir, _) = flow_with_temp_config_dir();
+#[tokio::test]
+async fn test_once_mode_does_not_persist_whitelist() {
+    let (mut flow, dir, _) = flow_with_temp_config_dir_with(tokio::runtime::Handle::current());
 
     let caller = test_caller();
     let request = test_request();
@@ -257,12 +282,12 @@ fn test_once_mode_does_not_persist_whitelist() {
         .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
         .unwrap();
 
-    let result = flow.approve_request(&request_id, ApprovalMode::Once);
+    let result = flow.approve_request(&request_id, ApprovalMode::Once).await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 
     // Wait briefly for the spawned async task.
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Verify NO permissions.json was written.
     let path = dir
@@ -273,9 +298,10 @@ fn test_once_mode_does_not_persist_whitelist() {
     assert!(!path.exists(), "Once mode should not write whitelist rules");
 }
 
-#[test]
-fn test_on_whitelist_updated_callback_invoked() {
-    let (mut flow, _dir, whitelist_count) = flow_with_temp_config_dir();
+#[tokio::test]
+async fn test_on_whitelist_updated_callback_invoked() {
+    let (mut flow, _dir, whitelist_count) =
+        flow_with_temp_config_dir_with(tokio::runtime::Handle::current());
 
     let caller = test_caller();
     let request = test_request();
@@ -283,12 +309,14 @@ fn test_on_whitelist_updated_callback_invoked() {
         .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
         .unwrap();
 
-    let result = flow.approve_request(&request_id, ApprovalMode::WithWhitelist);
+    let result = flow
+        .approve_request(&request_id, ApprovalMode::WithWhitelist)
+        .await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 
     // Wait briefly for the spawned async task.
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Verify on_whitelist_updated was called exactly once.
     assert_eq!(
@@ -298,9 +326,10 @@ fn test_on_whitelist_updated_callback_invoked() {
     );
 }
 
-#[test]
-fn test_on_whitelist_updated_not_called_for_once_mode() {
-    let (mut flow, _dir, whitelist_count) = flow_with_temp_config_dir();
+#[tokio::test]
+async fn test_on_whitelist_updated_not_called_for_once_mode() {
+    let (mut flow, _dir, whitelist_count) =
+        flow_with_temp_config_dir_with(tokio::runtime::Handle::current());
 
     let caller = test_caller();
     let request = test_request();
@@ -308,11 +337,11 @@ fn test_on_whitelist_updated_not_called_for_once_mode() {
         .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
         .unwrap();
 
-    let result = flow.approve_request(&request_id, ApprovalMode::Once);
+    let result = flow.approve_request(&request_id, ApprovalMode::Once).await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     assert_eq!(
         whitelist_count.load(Ordering::SeqCst),
@@ -321,9 +350,8 @@ fn test_on_whitelist_updated_not_called_for_once_mode() {
     );
 }
 
-#[test]
-fn test_whitelist_write_failure_does_not_block_approval() {
-    let rt = test_runtime();
+#[tokio::test]
+async fn test_whitelist_write_failure_does_not_block_approval() {
     let sm = test_session_lookup();
     let notify_count = Arc::new(AtomicUsize::new(0));
     let whitelist_count = Arc::new(AtomicUsize::new(0));
@@ -342,7 +370,7 @@ fn test_whitelist_write_failure_does_not_block_approval() {
         Arc::new(move |_agent_id: &str| {
             wc.fetch_add(1, Ordering::SeqCst);
         }),
-        rt.handle().clone(),
+        tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         fake_config_dir,
     );
@@ -354,14 +382,16 @@ fn test_whitelist_write_failure_does_not_block_approval() {
         .unwrap();
 
     // Approval should still succeed despite the write failure.
-    let result = flow.approve_request(&request_id, ApprovalMode::WithWhitelist);
+    let result = flow
+        .approve_request(&request_id, ApprovalMode::WithWhitelist)
+        .await;
     assert!(result.is_ok());
     assert!(
         result.unwrap(),
         "approval should succeed even when write fails"
     );
 
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     // on_whitelist_updated should NOT be called when write fails.
     assert_eq!(
@@ -371,10 +401,10 @@ fn test_whitelist_write_failure_does_not_block_approval() {
     );
 }
 
-#[test]
-fn test_whitelist_persists_only_for_whitelist_mode() {
+#[tokio::test]
+async fn test_whitelist_persists_only_for_whitelist_mode() {
     // Regression: ensure Once mode never triggers write, WithWhitelist always does.
-    let (mut flow, dir, _) = flow_with_temp_config_dir();
+    let (mut flow, dir, _) = flow_with_temp_config_dir_with(tokio::runtime::Handle::current());
 
     let caller = test_caller();
     // Two distinct requests to avoid duplicate rejection.
@@ -397,14 +427,16 @@ fn test_whitelist_persists_only_for_whitelist_mode() {
         .unwrap();
 
     // First: Once mode.
-    let r1 = flow.approve_request(&id1, ApprovalMode::Once);
+    let r1 = flow.approve_request(&id1, ApprovalMode::Once).await;
     assert!(r1.is_ok() && r1.unwrap());
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Second: WithWhitelist mode.
-    let r2 = flow.approve_request(&id2, ApprovalMode::WithWhitelist);
+    let r2 = flow
+        .approve_request(&id2, ApprovalMode::WithWhitelist)
+        .await;
     assert!(r2.is_ok() && r2.unwrap());
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Only WithWhitelist should have written a rule.
     let rs = read_agent_ruleset(dir.path(), "agent_1");
@@ -418,9 +450,9 @@ fn test_whitelist_persists_only_for_whitelist_mode() {
     }
 }
 
-#[test]
-fn test_whitelist_rule_subject_matches_caller() {
-    let (mut flow, dir, _) = flow_with_temp_config_dir();
+#[tokio::test]
+async fn test_whitelist_rule_subject_matches_caller() {
+    let (mut flow, dir, _) = flow_with_temp_config_dir_with(tokio::runtime::Handle::current());
 
     let caller = Caller {
         user_id: "ou_alice".to_string(),
@@ -432,9 +464,11 @@ fn test_whitelist_rule_subject_matches_caller() {
         .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
         .unwrap();
 
-    let result = flow.approve_request(&request_id, ApprovalMode::WithWhitelist);
+    let result = flow
+        .approve_request(&request_id, ApprovalMode::WithWhitelist)
+        .await;
     assert!(result.is_ok() && result.unwrap());
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     let rs = read_agent_ruleset(dir.path(), "agent_1");
     let rule = &rs.rules[0];
@@ -691,12 +725,12 @@ async fn test_approve_request_enters_auto_mode() {
         .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
         .unwrap();
 
-    let result = flow.approve_request(&request_id, ApprovalMode::Once);
+    let result = flow.approve_request(&request_id, ApprovalMode::Once).await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 
     // Wait for the spawned async task to complete.
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Verify plan_state was set to Executing.
     let plan = mock_arc.get_tracked_plan_state("session_1");
@@ -729,4 +763,211 @@ async fn test_approve_request_enters_auto_mode() {
             .any(|(sid, m)| sid == "session_1" && m.content.contains("Auto Mode")),
         "should have pushed mode switch notification"
     );
+}
+
+// ── User creation approval flow tests (Step 1.6) ───────────────────────
+
+#[test]
+fn test_submit_user_creation_notifies() {
+    let rt = test_runtime();
+    let sm = test_session_lookup();
+    let notify_count = Arc::new(AtomicUsize::new(0));
+    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
+
+    let result = flow.submit_user_creation("ou_new", "feishu", vec![]);
+    assert!(result.is_some());
+    assert_eq!(notify_count.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn test_submit_user_creation_dedup() {
+    let rt = test_runtime();
+    let sm = test_session_lookup();
+    let notify_count = Arc::new(AtomicUsize::new(0));
+    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
+
+    let id1 = flow.submit_user_creation("ou_dup", "feishu", vec![]);
+    assert!(id1.is_some());
+
+    // Same user+channel is a duplicate.
+    let id2 = flow.submit_user_creation("ou_dup", "feishu", vec![]);
+    assert!(id2.is_none());
+
+    assert_eq!(notify_count.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn test_submit_user_creation_different_channels_not_dedup() {
+    let rt = test_runtime();
+    let sm = test_session_lookup();
+    let notify_count = Arc::new(AtomicUsize::new(0));
+    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
+
+    let id1 = flow.submit_user_creation("ou_user", "feishu", vec![]);
+    let id2 = flow.submit_user_creation("ou_user", "telegram", vec![]);
+    assert!(id1.is_some());
+    assert!(id2.is_some());
+    assert_ne!(id1, id2);
+    assert_eq!(notify_count.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn test_approve_user_creation_persists_rules() {
+    let (mut flow, dir, _) = flow_with_temp_config_dir_with(tokio::runtime::Handle::current());
+
+    let request_id = flow
+        .submit_user_creation(
+            "ou_approved",
+            "feishu",
+            vec![closeclaw_common::permission_op::InitialPermissionSet::BasicMessaging],
+        )
+        .unwrap();
+
+    let result = flow.approve_request(&request_id, ApprovalMode::Once).await;
+    assert!(result.is_ok());
+    assert!(result.unwrap());
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Verify user registry was written.
+    let registry_path = dir.path().join("users.json");
+    assert!(registry_path.exists(), "users.json should be created");
+    let data = std::fs::read_to_string(&registry_path).unwrap();
+    let registry: crate::UserRegistry = serde_json::from_str(&data).unwrap();
+    assert_eq!(registry.list_users().len(), 1);
+    assert_eq!(registry.list_users()[0].user_id, "ou_approved");
+    assert_eq!(registry.list_users()[0].im_channel, "feishu");
+
+    // Verify permission rules were written.
+    let ruleset = read_agent_ruleset(dir.path(), "ou_approved");
+    assert_eq!(
+        ruleset.rules.len(),
+        2,
+        "should have 2 initial permission rules"
+    );
+}
+
+#[tokio::test]
+async fn test_approve_user_creation_duplicate_user_fails() {
+    let (mut flow, _dir, _) = flow_with_temp_config_dir_with(tokio::runtime::Handle::current());
+
+    let id1 = flow
+        .submit_user_creation("ou_dup_user", "feishu", vec![])
+        .unwrap();
+    let result1 = flow.approve_request(&id1, ApprovalMode::Once).await;
+    assert!(result1.is_ok() && result1.unwrap());
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Second request for same user should fail registration.
+    let id2 = flow
+        .submit_user_creation("ou_dup_user", "feishu", vec![])
+        .unwrap();
+    let result2 = flow.approve_request(&id2, ApprovalMode::Once).await;
+    assert!(result2.is_ok());
+    assert!(
+        !result2.unwrap(),
+        "duplicate registration should return false"
+    );
+}
+
+#[tokio::test]
+async fn test_deny_user_creation_no_rules_written() {
+    let (mut flow, dir, _) = flow_with_temp_config_dir_with(tokio::runtime::Handle::current());
+
+    let request_id = flow
+        .submit_user_creation("ou_rejected", "feishu", vec![])
+        .unwrap();
+
+    let result = flow.deny_request(&request_id);
+    assert!(result);
+
+    // No async persistence happens on deny, but wait briefly for consistency.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // No users.json should be created.
+    let registry_path = dir.path().join("users.json");
+    assert!(
+        !registry_path.exists(),
+        "users.json should not exist after reject"
+    );
+
+    // No permissions.json should be created.
+    let perms_path = dir
+        .path()
+        .join("agents")
+        .join("ou_rejected")
+        .join("permissions.json");
+    assert!(
+        !perms_path.exists(),
+        "permissions.json should not exist after reject"
+    );
+}
+
+#[tokio::test]
+async fn test_user_creation_initial_permissions_set() {
+    let (mut flow, dir, _) = flow_with_temp_config_dir_with(tokio::runtime::Handle::current());
+
+    let request_id = flow
+        .submit_user_creation(
+            "ou_perms",
+            "feishu",
+            vec![closeclaw_common::permission_op::InitialPermissionSet::BasicMessaging],
+        )
+        .unwrap();
+    flow.approve_request(&request_id, ApprovalMode::Once)
+        .await
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let registry_path = dir.path().join("users.json");
+    let data = std::fs::read_to_string(&registry_path).unwrap();
+    let registry: crate::UserRegistry = serde_json::from_str(&data).unwrap();
+    let user = &registry.list_users()[0];
+    assert_eq!(
+        user.initial_permissions,
+        vec![closeclaw_common::permission_op::InitialPermissionSet::BasicMessaging]
+    );
+}
+
+#[tokio::test]
+async fn test_user_creation_request_removed_after_approve() {
+    let (mut flow, _dir, _) = flow_with_temp_config_dir_with(tokio::runtime::Handle::current());
+
+    let request_id = flow
+        .submit_user_creation("ou_removed", "feishu", vec![])
+        .unwrap();
+
+    let result = flow.approve_request(&request_id, ApprovalMode::Once).await;
+    assert!(result.is_ok() && result.unwrap());
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Second approve on same request_id should fail (no longer pending).
+    let result2 = flow.approve_request(&request_id, ApprovalMode::Once).await;
+    assert!(result2.is_ok());
+    assert!(
+        !result2.unwrap(),
+        "already resolved request should return false"
+    );
+}
+
+#[test]
+fn test_user_creation_request_removed_after_deny() {
+    let rt = test_runtime();
+    let sm = test_session_lookup();
+    let notify_count = Arc::new(AtomicUsize::new(0));
+    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
+
+    let request_id = flow
+        .submit_user_creation("ou_deny_rm", "feishu", vec![])
+        .unwrap();
+
+    let result = flow.deny_request(&request_id);
+    assert!(result);
+
+    // Second deny on same request_id should fail.
+    let result2 = flow.deny_request(&request_id);
+    assert!(!result2);
 }

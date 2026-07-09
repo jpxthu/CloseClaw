@@ -225,6 +225,9 @@ impl SlashResultExecutor for SlashResult {
             // PermissionOp is intercepted in execute_and_route before execute()
             // is called. This arm exists for exhaustive match compilation.
             SlashResult::PermissionOp { .. } => {}
+            // UserApprove/UserReject are intercepted in execute_and_route before
+            // execute() is called.
+            SlashResult::UserApprove { .. } | SlashResult::UserReject { .. } => {}
         }
         for action in actions {
             let _ = ctx.reply_tx.send(action).await;

@@ -139,7 +139,7 @@ impl Gateway {
         // Route to ApprovalFlow
         let mut flow = flow_arc.lock().await;
         if is_approve {
-            match flow.approve_request(request_id, mode) {
+            match flow.approve_request(request_id, mode).await {
                 Ok(true) => {
                     tracing::info!(session_id, request_id, ?mode, "approval request approved");
                     Some(HandleResult::ApprovalProcessed)
