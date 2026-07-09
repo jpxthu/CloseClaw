@@ -1,21 +1,20 @@
 //! File operations skill
 use crate::registry::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
-use closeclaw_config::agents::AgentPermissions;
+use closeclaw_config::agents::{AgentPermissionProvider, NoopPermissionProvider};
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody,
 };
 use closeclaw_permission::PermissionResponse;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 pub struct FileOpsSkill {
     engine: Option<Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>>,
     approval_flow: Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>,
     session_manager: Option<Arc<SessionManager>>,
-    agent_permissions: HashMap<String, AgentPermissions>,
+    agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync>,
 }
 
 impl Default for FileOpsSkill {
@@ -30,7 +29,7 @@ impl FileOpsSkill {
             engine: None,
             approval_flow: None,
             session_manager: None,
-            agent_permissions: HashMap::new(),
+            agent_permissions: Arc::new(NoopPermissionProvider),
         }
     }
 
@@ -41,7 +40,7 @@ impl FileOpsSkill {
             engine: Some(engine),
             approval_flow: None,
             session_manager: None,
-            agent_permissions: HashMap::new(),
+            agent_permissions: Arc::new(NoopPermissionProvider),
         }
     }
 
@@ -53,7 +52,7 @@ impl FileOpsSkill {
             engine: Some(engine),
             approval_flow: Some(approval_flow),
             session_manager: None,
-            agent_permissions: HashMap::new(),
+            agent_permissions: Arc::new(NoopPermissionProvider),
         }
     }
 
@@ -64,7 +63,7 @@ impl FileOpsSkill {
 
     pub fn with_agent_permissions(
         mut self,
-        agent_permissions: HashMap<String, AgentPermissions>,
+        agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync>,
     ) -> Self {
         self.agent_permissions = agent_permissions;
         self
@@ -139,7 +138,12 @@ impl Skill for FileOpsSkill {
                     let request = request.with_caller(caller);
                     let guard = engine.read().await;
                     guard
-                        .evaluate_with_chain(request, sm.as_ref(), sid, &self.agent_permissions)
+                        .evaluate_with_chain(
+                            request,
+                            sm.as_ref(),
+                            sid,
+                            self.agent_permissions.as_ref(),
+                        )
                         .await
                 }
                 _ => engine.read().await.evaluate(request, None),

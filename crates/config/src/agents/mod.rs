@@ -6,6 +6,7 @@
 mod config_types;
 mod directory;
 pub(crate) mod jsonc;
+mod permission_provider;
 mod provider;
 mod resolved;
 mod types;
@@ -15,6 +16,9 @@ mod validation;
 pub use config_types::*;
 pub use directory::AgentDirectoryProvider;
 pub(crate) use jsonc::strip_jsonc_comments;
+pub use permission_provider::{
+    AgentPermissionProvider, LazyAgentPermissions, NoopPermissionProvider,
+};
 pub use provider::AgentsConfigProvider;
 pub use resolved::{ConfigSource, ResolvedAgentConfig};
 pub use types::AgentsConfig;
@@ -25,6 +29,9 @@ mod directory_tests;
 
 #[cfg(test)]
 mod resolved_tests;
+
+#[cfg(test)]
+mod permission_provider_tests;
 
 #[cfg(test)]
 mod tests {

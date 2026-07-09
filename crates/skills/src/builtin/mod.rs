@@ -17,6 +17,7 @@ pub use permission::PermissionSkill;
 pub use search::SearchSkill;
 
 use crate::registry::Skill;
+use closeclaw_config::agents::AgentPermissionProvider;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use std::sync::Arc;
@@ -59,22 +60,18 @@ impl BuiltinSkills {
         engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
         session_manager: Option<Arc<SessionManager>>,
-        agent_permissions: std::collections::HashMap<
-            String,
-            closeclaw_config::agents::AgentPermissions,
-        >,
+        agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync>,
     ) -> Vec<Arc<dyn Skill>> {
-        let agent_perms_for_perm = agent_permissions.clone();
         let file_ops =
             FileOpsSkill::with_engine_and_approval_flow(engine.clone(), approval_flow.clone())
-                .with_agent_permissions(agent_permissions);
+                .with_agent_permissions(Arc::clone(&agent_permissions));
         let file_ops = if let Some(ref sm) = session_manager {
             file_ops.with_session_manager(Arc::clone(sm))
         } else {
             file_ops
         };
-        let perm_skill = PermissionSkill::with_engine(engine.clone())
-            .with_agent_permissions(agent_perms_for_perm);
+        let perm_skill =
+            PermissionSkill::with_engine(engine.clone()).with_agent_permissions(agent_permissions);
         let perm_skill = if let Some(ref sm) = session_manager {
             perm_skill.with_session_manager(Arc::clone(sm))
         } else {
@@ -112,10 +109,7 @@ pub fn builtin_skills_with_engine_and_approval_flow(
     engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
     approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     session_manager: Option<Arc<SessionManager>>,
-    agent_permissions: std::collections::HashMap<
-        String,
-        closeclaw_config::agents::AgentPermissions,
-    >,
+    agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync>,
 ) -> Vec<Arc<dyn Skill>> {
     BuiltinSkills::all_with_engine_and_approval_flow(
         engine,

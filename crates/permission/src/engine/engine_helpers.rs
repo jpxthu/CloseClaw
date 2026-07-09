@@ -3,6 +3,7 @@
 use super::engine_types::RuleSet;
 use super::engine_types::{Action, Effect, Subject};
 use closeclaw_common::SessionLookup;
+use closeclaw_config::agents::AgentPermissionProvider;
 use closeclaw_config::agents::AgentPermissions;
 use std::collections::HashMap;
 
@@ -98,7 +99,7 @@ pub async fn collect_chain_deny_subjects(
 /// (caller should treat as no restriction, matching prior behavior).
 pub async fn collect_chain_effective_permissions(
     session_manager: &dyn SessionLookup,
-    agent_permissions: &HashMap<String, AgentPermissions>,
+    agent_permissions: &dyn AgentPermissionProvider,
     parent_session_id: &str,
     parent_agent_id: &str,
 ) -> Option<AgentPermissions> {
@@ -117,7 +118,7 @@ pub async fn collect_chain_effective_permissions(
         };
 
         if let Some(ancestor_perms) = agent_permissions.get(&ancestor_agent_id) {
-            result = result.intersect(ancestor_perms);
+            result = result.intersect(&ancestor_perms);
         }
 
         current_session = ancestor_session;

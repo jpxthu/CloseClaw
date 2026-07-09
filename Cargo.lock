@@ -550,6 +550,7 @@ dependencies = [
  "closeclaw-common",
  "dashmap",
  "dirs",
+ "filetime",
  "notify",
  "regex",
  "regex-lite",

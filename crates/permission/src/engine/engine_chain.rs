@@ -9,8 +9,7 @@ use super::engine_helpers::{collect_chain_deny_subjects, collect_chain_effective
 use super::engine_risk::assess_risk_level;
 use super::engine_types::{PermissionRequest, PermissionResponse};
 use closeclaw_common::SessionLookup;
-use closeclaw_config::agents::AgentPermissions;
-use std::collections::HashMap;
+use closeclaw_config::agents::{AgentPermissionProvider, AgentPermissions};
 use tracing::info;
 
 impl PermissionEngine {
@@ -49,7 +48,7 @@ impl PermissionEngine {
         request: PermissionRequest,
         session_manager: &dyn SessionLookup,
         session_id: &str,
-        agent_permissions: &HashMap<String, AgentPermissions>,
+        agent_permissions: &dyn AgentPermissionProvider,
     ) -> PermissionResponse {
         let agent_id = request.agent_id().to_string();
 
@@ -109,7 +108,7 @@ impl PermissionEngine {
         &self,
         session_manager: &dyn SessionLookup,
         session_id: &str,
-        agent_permissions: &HashMap<String, AgentPermissions>,
+        agent_permissions: &dyn AgentPermissionProvider,
     ) -> Option<AgentPermissions> {
         let parent_session_id = session_manager.get_parent_of(session_id).await?;
         let parent_agent_id = session_manager.get_chat_id(&parent_session_id).await?;

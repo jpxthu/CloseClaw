@@ -224,7 +224,7 @@ impl ConfigReloadManager {
             "agent config change detected, reloading agents"
         );
 
-        let (old_agents, old_permissions) = self.config_manager.snapshot_agents();
+        let old_agents = self.config_manager.snapshot_agents();
 
         // Backup agent config files before reload so we can rollback on failure
         let agents_json = self.config_manager.config_dir().join("agents.json");
@@ -244,8 +244,7 @@ impl ConfigReloadManager {
 
         if let Err(e) = self.config_manager.reload_agents() {
             warn!(error = %e, "failed to reload agent configs, rolling back");
-            self.config_manager
-                .restore_agents(old_agents, old_permissions);
+            self.config_manager.restore_agents(old_agents);
 
             // Rollback disk files to last known good state
             let _ = self.config_manager.backup_manager().rollback(&agents_json);
@@ -262,12 +261,11 @@ impl ConfigReloadManager {
         self.agent_registry.reload(configs);
     }
 
-    /// Reload permissions for a single agent without triggering a
-    /// full agent config reload.
+    /// Reload permissions for a single agent.
     ///
-    /// Snapshots current permissions, backs up the file, and
-    /// reloads from disk. On failure, restores the previous state
-    /// and rolls back the file (fault isolation).
+    /// With the lazy loading approach, `LazyAgentPermissions` automatically
+    /// detects file mtime changes and reloads on next access. This method
+    /// only logs the change event for observability.
     fn reload_permissions_with_log(&self, path: &Path) {
         let Some(agent_id) = extract_agent_id_from_permissions_path(path) else {
             warn!(
@@ -280,30 +278,8 @@ impl ConfigReloadManager {
         info!(
             agent_id = %agent_id,
             path = %path.display(),
-            "permissions change detected, reloading"
+            "permissions change detected — lazy loader will pick up changes on next access"
         );
-
-        let old_permissions = self.config_manager.agent_permissions();
-        let _ = self.config_manager.backup_manager().backup(path);
-
-        match self.config_manager.reload_permissions_for_agent(&agent_id) {
-            Ok(()) => {
-                tracing::debug!(
-                    agent_id = %agent_id,
-                    "permissions reload succeeded"
-                );
-            }
-            Err(e) => {
-                warn!(
-                    error = %e,
-                    agent_id = %agent_id,
-                    "failed to reload permissions, restoring previous state"
-                );
-                self.config_manager
-                    .restore_agents(self.config_manager.agents(), old_permissions);
-                let _ = self.config_manager.backup_manager().rollback(path);
-            }
-        }
     }
 }
 

@@ -358,7 +358,7 @@ fn test_reload_agents_failure_rollback_via_snapshot_restore() {
     assert!(manager.agents().contains_key("alpha"));
 
     // Take a snapshot
-    let (old_agents, old_permissions) = manager.snapshot_agents();
+    let old_agents = manager.snapshot_agents();
     assert_eq!(old_agents.len(), 1);
     assert!(old_agents.contains_key("alpha"));
 
@@ -368,7 +368,7 @@ fn test_reload_agents_failure_rollback_via_snapshot_restore() {
     assert!(result.is_err());
 
     // Restore from snapshot
-    manager.restore_agents(old_agents, old_permissions);
+    manager.restore_agents(old_agents);
 
     // Verify alpha is still present (rollback succeeded)
     let agents = manager.agents();
@@ -714,7 +714,7 @@ fn test_restore_agents_replaces_current_state() {
     assert!(manager.agents().contains_key("beta"));
 
     // Restore the snapshot (should remove beta)
-    manager.restore_agents(snapshot.0, snapshot.1);
+    manager.restore_agents(snapshot);
 
     let agents = manager.agents();
     assert!(agents.contains_key("alpha"));

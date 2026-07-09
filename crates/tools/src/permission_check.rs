@@ -126,7 +126,7 @@ async fn evaluate_permission(
     if let Some(sid) = session_id {
         let engine = perm.read().await;
         engine
-            .evaluate_with_chain(request, session_manager.as_ref(), sid, &agent_perms)
+            .evaluate_with_chain(request, session_manager.as_ref(), sid, agent_perms.as_ref())
             .await
     } else {
         perm.read().await.evaluate(request, None)

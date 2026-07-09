@@ -1,6 +1,7 @@
 //! Tests for ConfigManager
 
 use super::*;
+use crate::agents::AgentPermissionProvider;
 use std::fs;
 
 /// Write the 5 mandatory config files into `dir`.
@@ -665,31 +666,14 @@ fn test_agent_permissions_missing_file_returns_default() {
     manager.load_agents(None).unwrap();
 
     let perms = manager.agent_permissions();
-    let agent_perms = perms
-        .get("test-agent")
-        .expect("test-agent should be in perms");
+    let agent_perms = perms.get("test-agent");
 
-    // Should be fully denied: empty permissions map (all seven dimensions absent)
-    assert!(agent_perms.is_fully_denied());
-    assert_eq!(agent_perms.agent_id, "test-agent");
-    assert!(agent_perms.inherited_from.is_none());
-
-    // Verify each of the seven dimensions is denied
-    for dim in &[
-        "exec",
-        "file_read",
-        "file_write",
-        "network",
-        "spawn",
-        "tool_call",
-        "config_write",
-    ] {
-        assert!(
-            !agent_perms.is_allowed(dim),
-            "dimension '{}' should be denied",
-            dim
-        );
-    }
+    // With lazy loading, missing file → None (no custom permission config).
+    // The permission engine treats None as "no restriction" (per design doc).
+    assert!(
+        agent_perms.is_none(),
+        "missing permissions.json should return None"
+    );
 }
 
 // =========================================================================
