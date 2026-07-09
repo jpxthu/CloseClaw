@@ -578,6 +578,8 @@ impl Daemon {
 #[cfg(test)]
 mod dreaming_scheduler_tests;
 #[cfg(test)]
+mod lifecycle_tests;
+#[cfg(test)]
 mod shutdown_alignment_tests;
 #[cfg(test)]
 mod tests;

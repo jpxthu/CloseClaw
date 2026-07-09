@@ -420,6 +420,7 @@ impl Daemon {
         let rule_set = RuleSet {
             rules: Vec::new(),
             defaults: Defaults::default(),
+            user_defaults: Defaults::user_defaults(),
             template_includes: Vec::new(),
             agent_creators: std::collections::HashMap::new(),
         };
