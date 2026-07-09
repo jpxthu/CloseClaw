@@ -214,6 +214,7 @@ mod tests {
             call_id: None,
             session: None,
             session_mode: None,
+            manual_background_signal: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         match section {
@@ -246,6 +247,7 @@ mod tests {
             call_id: None,
             session: None,
             session_mode: None,
+            manual_background_signal: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -284,6 +286,7 @@ mod tests {
             call_id: None,
             session: None,
             session_mode: None,
+            manual_background_signal: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -332,6 +335,7 @@ mod tests {
             call_id: None,
             session: None,
             session_mode: None,
+            manual_background_signal: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -355,6 +359,7 @@ mod tests {
             call_id: None,
             session: None,
             session_mode: None,
+            manual_background_signal: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -392,6 +397,7 @@ mod tests {
             call_id: None,
             session: None,
             session_mode: None,
+            manual_background_signal: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {
@@ -424,6 +430,7 @@ mod tests {
             call_id: None,
             session: None,
             session_mode: None,
+            manual_background_signal: None,
         };
         let section = build_tools_section(&registry, &ctx, None, None, None).await;
         let content = match section {

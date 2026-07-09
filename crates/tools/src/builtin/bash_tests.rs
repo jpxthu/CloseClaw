@@ -129,6 +129,7 @@ fn test_tool_context() -> ToolContext {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     }
 }
 
@@ -684,6 +685,7 @@ async fn test_bash_level1_allow_level2_allow_executes() {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     };
     let result = tool.call(args, &ctx).await;
     assert!(result.is_ok(), "should execute: {:?}", result);
@@ -708,6 +710,7 @@ async fn test_bash_level1_deny_blocks_execution() {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     };
     let result = tool.call(args, &ctx).await;
     assert!(result.is_err(), "level1 should block");
@@ -731,6 +734,7 @@ async fn test_bash_level1_allow_level2_deny_routes_to_sandbox() {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     };
     // Level 2 denied → sandboxed execution (not rejected)
     let result = tool.call(args, &ctx).await;
@@ -762,6 +766,7 @@ async fn test_bash_empty_command_rejected() {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     };
     let result = tool.call(args, &ctx).await;
     assert!(matches!(result, Err(ToolCallError::InvalidArgs(_))));
@@ -785,6 +790,7 @@ async fn test_bash_missing_command_rejected() {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     };
     let result = tool.call(args, &ctx).await;
     assert!(matches!(result, Err(ToolCallError::InvalidArgs(_))));

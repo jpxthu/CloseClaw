@@ -16,6 +16,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use thiserror::Error;
 
 use crate::session_mode::SessionMode;
@@ -62,6 +63,12 @@ pub struct ToolContext {
     /// When `Some(SessionMode::Plan)`, tools like `sessions_spawn` can
     /// reject operations that are not allowed in Plan Mode (e.g. fork).
     pub session_mode: Option<SessionMode>,
+    /// Manual backgrounding signal from the session.
+    ///
+    /// Tools that execute long-running foreground commands (e.g. `BashTool`)
+    /// can await `signal.notified()` inside `tokio::select!` to react to
+    /// user-initiated manual backgrounding requests.
+    pub manual_background_signal: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -76,6 +83,10 @@ impl std::fmt::Debug for ToolContext {
                 &self.session.as_ref().map(|_| "<dyn ToolSession>"),
             )
             .field("session_mode", &self.session_mode)
+            .field(
+                "manual_background_signal",
+                &self.manual_background_signal.as_ref().map(|_| "<Notify>"),
+            )
             .finish()
     }
 }
@@ -89,6 +100,7 @@ impl Clone for ToolContext {
             call_id: self.call_id.clone(),
             session: self.session.clone(),
             session_mode: self.session_mode,
+            manual_background_signal: self.manual_background_signal.clone(),
         }
     }
 }

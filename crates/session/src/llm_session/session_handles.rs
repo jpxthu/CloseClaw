@@ -364,4 +364,8 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
         // shutdown-gate and busy-count tracking.
         self.register_tool_handle(call_id, handle);
     }
+
+    fn manual_background_notify(&self) -> Option<Arc<tokio::sync::Notify>> {
+        Some(self.manual_background_notify())
+    }
 }

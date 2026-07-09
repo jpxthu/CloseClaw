@@ -159,6 +159,7 @@ fn test_tool_default_call_returns_not_implemented() {
             call_id: None,
             session: None,
             session_mode: None,
+            manual_background_signal: None,
         };
         let result = tool.call(json!({}), &ctx).await;
         assert!(result.is_err());
@@ -229,6 +230,7 @@ fn test_tool_context_fields() {
         call_id: Some("call_99".into()),
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     };
     assert_eq!(ctx.agent_id, "agent_1");
     assert!(ctx.workdir.is_none());
@@ -252,6 +254,7 @@ fn test_tool_context_with_workdir() {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     };
     let wd = ctx.workdir.as_ref().unwrap();
     assert_eq!(wd.path, "/tmp/test");
@@ -269,6 +272,7 @@ fn test_tool_context_debug_output() {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     };
     let debug = format!("{:?}", ctx);
     assert!(debug.contains("ToolContext"));
@@ -290,6 +294,7 @@ fn test_tool_context_debug_with_session() {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     };
     let debug = format!("{:?}", ctx);
     assert!(debug.contains("agent_id"));
@@ -309,6 +314,7 @@ fn test_tool_context_clone() {
         call_id: Some("c1".into()),
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     };
     let cloned = ctx.clone();
     assert_eq!(cloned.agent_id, "clone_test");
