@@ -626,6 +626,7 @@ dependencies = [
  "closeclaw-permission",
  "closeclaw-processor-chain",
  "closeclaw-session",
+ "closeclaw-tasks",
  "futures",
  "hex",
  "libc",
