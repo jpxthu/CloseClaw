@@ -6,11 +6,13 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use tracing::info;
 
 use crate::agents::{
-    strip_jsonc_comments, AgentDirectoryProvider, AgentsConfig, ResolvedAgentConfig,
+    strip_jsonc_comments, AgentDirectoryProvider, AgentsConfig, LazyAgentPermissions,
+    ResolvedAgentConfig,
 };
 use crate::manager::{ConfigLoadError, ConfigManager};
 
@@ -65,29 +67,6 @@ impl ConfigManager {
             }
         }
         Ok(())
-    }
-
-    /// Sync agent permissions from provider into ConfigManager cache.
-    fn sync_permissions(
-        &self,
-        ids: &[String],
-        provider_perms: &HashMap<String, crate::agents::AgentPermissions>,
-    ) {
-        let mut perms_map = self.agent_permissions.write().expect("RwLock poisoned");
-        for id in ids {
-            if let Some(p) = provider_perms.get(id) {
-                perms_map.insert(id.clone(), p.clone());
-            } else {
-                perms_map.insert(
-                    id.clone(),
-                    crate::agents::AgentPermissions {
-                        agent_id: id.clone(),
-                        permissions: std::collections::HashMap::new(),
-                        inherited_from: None,
-                    },
-                );
-            }
-        }
     }
 
     /// Load agent registration list and resolve agent configurations
@@ -147,8 +126,10 @@ impl ConfigManager {
         let registry_ids: HashSet<&str> = merged_ids.iter().map(String::as_str).collect();
         Self::validate_parent_ids(&provider, &registry_ids, &agents_json_path)?;
 
+        // Note: agent_permissions are now lazily loaded via LazyAgentPermissions.
+        // No eager sync into a HashMap — each .get() reads from disk on demand
+        // and caches with mtime-based invalidation.
         *self.agents.write().expect("RwLock for agents was poisoned") = provider.entries().clone();
-        self.sync_permissions(&merged_ids, provider.permissions());
 
         Ok(())
     }
@@ -161,33 +142,21 @@ impl ConfigManager {
         Ok(())
     }
 
-    /// Restore agents and permissions from a snapshot.
+    /// Restore agents from a snapshot (permissions are handled by lazy loader).
     ///
     /// Used by the daemon to roll back agent state when `reload_agents()`
     /// fails. Call `snapshot_agents()` before reloading, then pass the
     /// snapshot here on failure.
-    pub fn restore_agents(
-        &self,
-        agents: HashMap<String, ResolvedAgentConfig>,
-        permissions: HashMap<String, crate::agents::AgentPermissions>,
-    ) {
+    pub fn restore_agents(&self, agents: HashMap<String, ResolvedAgentConfig>) {
         *self.agents.write().expect("RwLock for agents was poisoned") = agents;
-        *self
-            .agent_permissions
-            .write()
-            .expect("RwLock for agent_permissions was poisoned") = permissions;
     }
 
-    /// Snapshot the current agents and permissions for later rollback.
-    pub fn snapshot_agents(
-        &self,
-    ) -> (
-        HashMap<String, ResolvedAgentConfig>,
-        HashMap<String, crate::agents::AgentPermissions>,
-    ) {
-        let agents = self.agents();
-        let permissions = self.agent_permissions();
-        (agents, permissions)
+    /// Snapshot the current agents for later rollback.
+    ///
+    /// Permissions are no longer snapshotted — they are lazily loaded
+    /// by `LazyAgentPermissions` which manages its own cache.
+    pub fn snapshot_agents(&self) -> HashMap<String, ResolvedAgentConfig> {
+        self.agents()
     }
 
     /// Get all resolved agent configurations.
@@ -207,11 +176,11 @@ impl ConfigManager {
             .cloned()
     }
 
-    /// Get all agent permissions (clone).
-    pub fn agent_permissions(&self) -> HashMap<String, crate::agents::AgentPermissions> {
-        self.agent_permissions
-            .read()
-            .expect("RwLock for agent_permissions was poisoned")
-            .clone()
+    /// Get a reference to the lazy agent permissions provider.
+    ///
+    /// Permissions are loaded on demand from `~/.closeclaw/agents/<id>/permissions.json`
+    /// and cached with mtime-based invalidation.
+    pub fn agent_permissions(&self) -> Arc<LazyAgentPermissions> {
+        Arc::clone(&self.agent_permissions)
     }
 }

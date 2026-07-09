@@ -23,7 +23,7 @@ use crate::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 /// downstream components (e.g. `SessionManager`) can swap to the
 /// latest config without holding a lock on `ConfigManager`.
 pub type ConfigSnapshot = Arc<HashMap<ConfigSection, serde_json::Value>>;
-use crate::agents::AgentPermissions;
+use crate::agents::LazyAgentPermissions;
 use crate::providers::{ConfigProvider, CredentialsProvider, ModelsConfigData};
 use crate::session::{JsonSessionConfigProvider, SessionConfigProvider};
 
@@ -235,8 +235,8 @@ pub struct ConfigManager {
     pub session_provider: RwLock<Option<Arc<dyn SessionConfigProvider>>>,
     /// Resolved agent configurations (loaded from two-level directories).
     pub agents: RwLock<HashMap<String, crate::agents::ResolvedAgentConfig>>,
-    /// Per-agent raw permissions (loaded from permissions.json).
-    pub agent_permissions: RwLock<HashMap<String, AgentPermissions>>,
+    /// Lazy-loaded agent permissions (accessed on demand via get()).
+    pub agent_permissions: Arc<LazyAgentPermissions>,
     /// Optional project root for loading project-level agents.json.
     pub(crate) repo_root: RwLock<Option<PathBuf>>,
     /// Broadcast channel for config change events.
@@ -253,6 +253,8 @@ impl ConfigManager {
         let backup_dir = config_dir.join(".backups");
         let backup_manager =
             SafeBackupManager::new(crate::backup::BackupManager::new(backup_dir, 10)?);
+        // Compute agents root before config_dir is moved into the struct.
+        let agents_root = config_dir.parent().unwrap_or(&config_dir).to_path_buf();
         Ok(Self {
             config_dir,
             backup_manager,
@@ -260,7 +262,7 @@ impl ConfigManager {
             credentials_provider: RwLock::new(CredentialsProvider::default()),
             session_provider: RwLock::new(None),
             agents: RwLock::new(HashMap::new()),
-            agent_permissions: RwLock::new(HashMap::new()),
+            agent_permissions: Arc::new(LazyAgentPermissions::new(agents_root)),
             repo_root: RwLock::new(None),
             event_broadcaster: ConfigChangeBroadcaster::new(),
             snapshot_tx: broadcast::channel(16).0,
@@ -721,62 +723,6 @@ impl ConfigManager {
         }
 
         infos
-    }
-
-    /// Reload permissions for a single agent from disk.
-    ///
-    /// Finds the permissions.json for the given agent (project > user
-    /// priority), parses it, and updates the `agent_permissions` cache.
-    /// On failure, the cache is left unchanged (fault isolation).
-    pub fn reload_permissions_for_agent(&self, agent_id: &str) -> Result<(), ConfigLoadError> {
-        let perm_path = self.find_permissions_path(agent_id)?;
-        let content = fs::read_to_string(&perm_path).map_err(|e| ConfigLoadError::IoError {
-            path: perm_path.clone(),
-            error: e.to_string(),
-        })?;
-        let perms: AgentPermissions =
-            serde_json::from_str(&content).map_err(|e| ConfigLoadError::ParseError {
-                path: perm_path,
-                error: e.to_string(),
-            })?;
-        self.agent_permissions
-            .write()
-            .expect("RwLock for agent_permissions was poisoned")
-            .insert(agent_id.to_string(), perms);
-        info!(agent_id = %agent_id, "reloaded permissions");
-        Ok(())
-    }
-
-    /// Find the permissions.json path for an agent (project > user).
-    fn find_permissions_path(&self, agent_id: &str) -> Result<PathBuf, ConfigLoadError> {
-        let user_agents_dir = self
-            .config_dir
-            .parent()
-            .unwrap_or(&self.config_dir)
-            .join("agents");
-        let user_path = user_agents_dir.join(agent_id).join("permissions.json");
-        let project_path = self
-            .repo_root
-            .read()
-            .expect("RwLock poisoned")
-            .as_ref()
-            .map(|r| {
-                r.join(".closeclaw")
-                    .join("agents")
-                    .join(agent_id)
-                    .join("permissions.json")
-            });
-        if let Some(ref pp) = project_path {
-            if pp.exists() {
-                return Ok(pp.clone());
-            }
-        }
-        if user_path.exists() {
-            return Ok(user_path);
-        }
-        Err(ConfigLoadError::ConfigFileNotFound(
-            project_path.unwrap_or(user_path),
-        ))
     }
 }
 
