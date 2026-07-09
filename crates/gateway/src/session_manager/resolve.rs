@@ -202,6 +202,49 @@ impl SessionManager {
         }
 
         // Path 3: key_registry miss — create a brand-new session
+        // Collision check: if routing_key already exists in the registry,
+        // another thread may be concurrently creating a session for the
+        // same routing fields. Wait 10ms and retry.
+        // Per design doc: "极罕见碰撞时 SessionManager 等待 10ms 后重试".
+        {
+            let registry = self.key_registry.read().await;
+            if let Some(existing_id) = registry.get(&routing_key) {
+                let existing_id = existing_id.clone();
+                drop(registry);
+                // Check if the session created by the other thread is active
+                let session_exists = {
+                    let sessions = self.sessions.read().await;
+                    sessions.contains_key(&existing_id)
+                };
+                if session_exists {
+                    self.update_checkpoint_thread_id(&existing_id, &message.thread_id)
+                        .await;
+                    return Ok(existing_id);
+                }
+                // Session not yet visible (concurrent creation in progress)
+                warn!(
+                    routing_key = %routing_key,
+                    "session_key collision detected, sleeping 10ms and retrying"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                // Re-check after delay — the other thread should have finished
+                let registry = self.key_registry.read().await;
+                if let Some(retry_id) = registry.get(&routing_key) {
+                    let retry_id = retry_id.clone();
+                    drop(registry);
+                    let session_exists = {
+                        let sessions = self.sessions.read().await;
+                        sessions.contains_key(&retry_id)
+                    };
+                    if session_exists {
+                        self.update_checkpoint_thread_id(&retry_id, &message.thread_id)
+                            .await;
+                        return Ok(retry_id);
+                    }
+                }
+            }
+        }
+
         let session_id = session_helpers::generate_session_id(&message.to);
 
         // Write to key_registry using routing_key (no timestamps)

@@ -120,6 +120,21 @@ impl MessageProcessor for SessionRouter {
             timestamp_ms,
         );
 
+        if session_key.is_empty() {
+            let mut missing = Vec::new();
+            if sender_id.is_empty() {
+                missing.push("from");
+            }
+            if peer_id.is_empty() {
+                missing.push("to");
+            }
+            tracing::warn!(
+                platform = %platform,
+                missing_fields = ?missing,
+                "SessionRouter: session_key computation failed, leaving key empty"
+            );
+        }
+
         let mut metadata = ctx.metadata.clone();
         if !session_key.is_empty() {
             metadata.insert("session_key".to_string(), session_key);
