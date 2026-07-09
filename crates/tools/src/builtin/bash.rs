@@ -190,6 +190,17 @@ fn resolve_cwd(args: &Value, ctx: &ToolContext) -> String {
         .unwrap_or_else(|_| "/".to_string())
 }
 
+/// Awaits a [`tokio::sync::Notify`] if `Some`, or never resolves if `None`.
+///
+/// This helper lets `tokio::select!` branch on an optional signal:
+/// when the signal is `None`, the branch is effectively disabled.
+async fn notify_or_pending(signal: Option<&Arc<tokio::sync::Notify>>) {
+    match signal {
+        Some(s) => s.notified().await,
+        None => std::future::pending::<()>().await,
+    }
+}
+
 /// Returns true if the command should NOT be auto-backgrounded.
 /// Sleep, true, false and variants are excluded from auto-backgrounding.
 fn auto_backgroundize_excluded(command: &str) -> bool {
@@ -218,6 +229,67 @@ fn spawn_sh_command(command: &str, cwd: &str) -> Result<tokio::process::Child, S
         .map_err(|e| format!("failed to spawn command: {}", e))
 }
 
+/// Backgroundize a child process and return the corresponding ToolResult.
+///
+/// Reattaches stdout/stderr handles before handing off to `bg_manager`.
+/// When `by_user` is true, marks the result as `backgroundedByUser`.
+async fn backgroundize_child(
+    mut child: tokio::process::Child,
+    stdout_handle: Option<tokio::process::ChildStdout>,
+    stderr_handle: Option<tokio::process::ChildStderr>,
+    command: &str,
+    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
+    by_user: bool,
+) -> Result<ToolResult, String> {
+    child.stdout = stdout_handle;
+    child.stderr = stderr_handle;
+    let task = bg_manager
+        .backgroundize_task(child, command)
+        .await
+        .map_err(|e| format!("failed to backgroundize command: {}", e))?;
+    if by_user {
+        Ok(build_manual_background_result(&task))
+    } else {
+        Ok(build_auto_background_result(&task))
+    }
+}
+
+/// Wait on the child, then return either a normal result or auto-backgroundize.
+async fn wait_child(
+    wait_result: Result<
+        Result<std::process::ExitStatus, std::io::Error>,
+        tokio::time::error::Elapsed,
+    >,
+    child: tokio::process::Child,
+    stdout_handle: Option<tokio::process::ChildStdout>,
+    stderr_handle: Option<tokio::process::ChildStderr>,
+    command: &str,
+    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
+) -> Result<ToolResult, String> {
+    match wait_result {
+        Ok(Ok(status)) => {
+            let exit_code = status.code().unwrap_or(-1);
+            let stdout_raw = read_pipe(stdout_handle).await;
+            let stderr_raw = read_pipe(stderr_handle).await;
+            let stdout_p = process_output(&stdout_raw);
+            let stderr_p = process_output(&stderr_raw);
+            Ok(build_result(command, stdout_p, stderr_p, exit_code, false))
+        }
+        Ok(Err(e)) => Err(format!("failed to wait on command: {}", e)),
+        Err(_elapsed) => {
+            backgroundize_child(
+                child,
+                stdout_handle,
+                stderr_handle,
+                command,
+                bg_manager,
+                false,
+            )
+            .await
+        }
+    }
+}
+
 /// Wait on a foreground child process, with timeout.
 ///
 /// The child is shared with the [`BashKillHandle`] via
@@ -237,44 +309,27 @@ async fn handle_foreground_result(
     command: &str,
     bg_timeout: Duration,
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
+    manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
 ) -> Result<ToolResult, String> {
-    // 1. Extract stdout/stderr (briefly lock). Reattach to the
-    //    (still-`Some`) child in the slot for the auto-background
-    //    path below.
     let (stdout_handle, stderr_handle) = {
         let mut guard = child_arc.lock().expect("child mutex poisoned");
         let child = guard.as_mut().expect("child present after spawn");
         (child.stdout.take(), child.stderr.take())
     };
-
-    // 2. Take the child OUT of the `Mutex` for the `wait()` call.
-    //    Lock is released immediately.
     let mut child = child_arc
         .lock()
         .expect("child mutex poisoned")
         .take()
         .expect("child present after spawn");
-
-    let wait_result = tokio::time::timeout(bg_timeout, child.wait()).await;
-    match wait_result {
-        Ok(Ok(status)) => {
-            let exit_code = status.code().unwrap_or(-1);
-            let stdout_raw = read_pipe(stdout_handle).await;
-            let stderr_raw = read_pipe(stderr_handle).await;
-            let stdout_p = process_output(&stdout_raw);
-            let stderr_p = process_output(&stderr_raw);
-            Ok(build_result(command, stdout_p, stderr_p, exit_code, false))
+    tokio::select! {
+        biased;
+        _ = notify_or_pending(manual_bg_signal) => {
+            backgroundize_child(
+                child, stdout_handle, stderr_handle, command, bg_manager, true,
+            ).await
         }
-        Ok(Err(e)) => Err(format!("failed to wait on command: {}", e)),
-        // Timeout: auto-backgroundize the running child
-        Err(_elapsed) => {
-            child.stdout = stdout_handle;
-            child.stderr = stderr_handle;
-            let task = bg_manager
-                .backgroundize_task(child, command)
-                .await
-                .map_err(|e| format!("failed to backgroundize command: {}", e))?;
-            Ok(build_auto_background_result(&task))
+        result = tokio::time::timeout(bg_timeout, child.wait()) => {
+            wait_child(result, child, stdout_handle, stderr_handle, command, bg_manager).await
         }
     }
 }
@@ -405,6 +460,7 @@ async fn execute_bash_call(
         bg,
         ctx.session.as_ref(),
         ctx.call_id.as_deref(),
+        ctx.manual_background_signal.as_ref(),
     )
     .await
     .map_err(ToolCallError::ExecutionFailed)
@@ -432,6 +488,7 @@ async fn execute_command(
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
     session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
     call_id: Option<&str>,
+    manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
 ) -> Result<ToolResult, String> {
     if run_in_background {
         // Per #762 design: `spawn_task()` is the "self-cold-start" path; do not
@@ -476,7 +533,9 @@ async fn execute_command(
         Duration::from_millis(AUTO_BG_TIMEOUT_MS)
     };
 
-    let result = handle_foreground_result(child_arc, command, bg_timeout, bg_manager).await;
+    let result =
+        handle_foreground_result(child_arc, command, bg_timeout, bg_manager, manual_bg_signal)
+            .await;
 
     // The kill handle's `Arc` is dropped here; if the foreground wait
     // consumed the child, the slot was already `None` and the drop is a no-op.
@@ -504,6 +563,19 @@ fn build_auto_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolR
             "backgroundTaskId": task.id,
             "outputPath": task.output_path.to_string_lossy(),
             "assistantAutoBackgrounded": true,
+        }),
+        new_messages: vec![],
+        context_modifier: None,
+    }
+}
+
+/// Build a [`ToolResult`] for a manually backgrounded command.
+fn build_manual_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
+    ToolResult {
+        data: serde_json::json!({
+            "backgroundTaskId": task.id,
+            "outputPath": task.output_path.to_string_lossy(),
+            "backgroundedByUser": true,
         }),
         new_messages: vec![],
         context_modifier: None,

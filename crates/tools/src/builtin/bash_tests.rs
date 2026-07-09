@@ -406,6 +406,7 @@ async fn test_execute_command_run_in_background_returns_background_task() {
         &bg_trait,
         None,
         None,
+        None,
     )
     .await
     .expect("execute_command(run_in_background) should succeed");
@@ -472,6 +473,7 @@ async fn test_execute_command_run_in_background_with_long_command() {
         &bg_trait,
         None,
         None,
+        None,
     )
     .await
     .expect("execute_command(run_in_background) should succeed even for unknown commands");
@@ -520,6 +522,7 @@ async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
         "sleep 5",
         std::time::Duration::from_millis(100),
         &bg_trait,
+        None,
     )
     .await
     .expect("auto-background path should succeed");
@@ -566,6 +569,7 @@ async fn test_handle_foreground_result_returns_foreground_on_success() {
         "true",
         std::time::Duration::from_secs(5),
         &bg_trait,
+        None,
     )
     .await
     .expect("foreground path should succeed");
