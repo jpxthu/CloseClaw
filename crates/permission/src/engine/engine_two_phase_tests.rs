@@ -531,8 +531,8 @@ fn test_message_send_no_rules_defaults_to_allow() {
     );
 }
 
-/// Non-owner MessageSend with no rules → message default Allow, user phase
-/// also returns default Allow → intersection is Allow.
+/// Non-owner MessageSend with no rules → user_defaults.message = Deny,
+/// so user phase fallback is Deny → intersection is Denied.
 #[test]
 fn test_message_send_non_owner_no_rules() {
     let engine = make_ruleset(Effect::Deny, vec![]);
@@ -552,8 +552,74 @@ fn test_message_send_non_owner_no_rules() {
         None,
     );
     assert!(
-        matches!(resp, PermissionResponse::Allowed { .. }),
-        "Non-owner MessageSend should default to Allow, got {:?}",
+        matches!(resp, PermissionResponse::Denied { .. }),
+        "Non-owner MessageSend should default to Denied (user_defaults), got {:?}",
         resp
     );
+}
+
+// ---------------------------------------------------------------------------
+// user_defaults tests
+// ---------------------------------------------------------------------------
+
+/// Defaults::user_defaults() returns all Deny (including message).
+#[test]
+fn test_user_defaults_returns_all_deny() {
+    let ud = super::engine_types::Defaults::user_defaults();
+    assert_eq!(ud.file, Effect::Deny);
+    assert_eq!(ud.command, Effect::Deny);
+    assert_eq!(ud.network, Effect::Deny);
+    assert_eq!(ud.inter_agent, Effect::Deny);
+    assert_eq!(ud.config, Effect::Deny);
+    assert_eq!(ud.tool_call, Effect::Deny);
+    assert_eq!(ud.message, Effect::Deny);
+}
+
+/// Non-owner with no rules: file read defaults to Denied via user_defaults.
+#[test]
+fn test_non_owner_no_rules_file_command_deny() {
+    let engine = make_ruleset(Effect::Allow, vec![]);
+    let file_resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "alice"), None);
+    assert!(
+        matches!(file_resp, PermissionResponse::Denied { .. }),
+        "Non-owner file read should be Denied via user_defaults, got {:?}",
+        file_resp
+    );
+    let cmd_resp = engine.evaluate(
+        PermissionRequest::WithCaller {
+            caller: Caller {
+                user_id: "alice".to_string(),
+                agent: "test-agent".to_string(),
+                creator_id: String::new(),
+            },
+            request: PermissionRequestBody::CommandExec {
+                agent: "test-agent".to_string(),
+                cmd: "ls".to_string(),
+                args: vec![],
+            },
+        },
+        None,
+    );
+    assert!(
+        matches!(cmd_resp, PermissionResponse::Denied { .. }),
+        "Non-owner command exec should be Denied via user_defaults, got {:?}",
+        cmd_resp
+    );
+}
+
+/// RuleSet deserialization without user_defaults field → auto-fills all Deny.
+#[test]
+fn test_ruleset_deserialize_without_user_defaults() {
+    let json = r#"{
+        "rules": [],
+        "defaults": {"message": "allow"}
+    }"#;
+    let ruleset: super::engine_types::RuleSet = serde_json::from_str(json).unwrap();
+    assert_eq!(ruleset.user_defaults.file, Effect::Deny);
+    assert_eq!(ruleset.user_defaults.command, Effect::Deny);
+    assert_eq!(ruleset.user_defaults.network, Effect::Deny);
+    assert_eq!(ruleset.user_defaults.inter_agent, Effect::Deny);
+    assert_eq!(ruleset.user_defaults.config, Effect::Deny);
+    assert_eq!(ruleset.user_defaults.tool_call, Effect::Deny);
+    assert_eq!(ruleset.user_defaults.message, Effect::Deny);
 }
