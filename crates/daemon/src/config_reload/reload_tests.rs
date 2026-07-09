@@ -5,6 +5,7 @@ mod reload_tests {
         is_agents_path, is_permissions_path, ConfigReloadManager, DEFAULT_DEBOUNCE,
     };
     use closeclaw_agent::registry::AgentRegistry;
+    use closeclaw_config::agents::AgentPermissionProvider;
     use closeclaw_config::manager::{ConfigManager, ConfigSection};
     use std::path::Path;
     use std::sync::{mpsc, Arc};
@@ -406,7 +407,7 @@ mod reload_tests {
         assert!(cm.agents().contains_key("alpha"));
 
         // Snapshot valid state (as reload_agents_with_log does before reload)
-        let (old_agents, old_permissions) = cm.snapshot_agents();
+        let old_agents = cm.snapshot_agents();
         assert_eq!(old_agents.len(), 1);
         assert!(old_agents.contains_key("alpha"));
 
@@ -434,7 +435,7 @@ mod reload_tests {
         );
 
         // Simulate failure: restore from snapshot (as reload_agents_with_log does)
-        cm.restore_agents(old_agents, old_permissions);
+        cm.restore_agents(old_agents);
 
         // Rollback disk files to last known good state
         let _ = cm.backup_manager().rollback(&agents_json_path);
@@ -718,7 +719,7 @@ mod reload_tests {
         // Load agents first so permissions cache is populated
         cm.load_agents(None).unwrap();
         let before = cm.agent_permissions();
-        assert!(before.contains_key("delta"));
+        assert!(before.get("delta").is_some());
 
         // Update permissions.json with new content (ActionPermission struct format)
         std::fs::write(
@@ -769,7 +770,7 @@ mod reload_tests {
         // Load agents so cache is populated
         cm.load_agents(None).unwrap();
         let before = cm.agent_permissions();
-        assert!(before.contains_key("epsilon"));
+        assert!(before.get("epsilon").is_some());
 
         // Write invalid JSON to permissions.json
         std::fs::write(&perms_path, "not valid json{{").unwrap();
@@ -780,7 +781,7 @@ mod reload_tests {
         // Permissions cache should still contain old valid value
         let after = cm.agent_permissions();
         assert!(
-            after.contains_key("epsilon"),
+            after.get("epsilon").is_some(),
             "epsilon permissions should be preserved after failed reload"
         );
         // Agent config should be unchanged
