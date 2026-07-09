@@ -13,6 +13,7 @@ use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::slash_router::{
     SlashContext, SlashHandler, SlashResult, SlashRouter, SystemAppendAction,
 };
+use closeclaw_config::agents::{AgentPermissionProvider, LazyAgentPermissions};
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
@@ -169,10 +170,11 @@ impl Gateway {
             .unwrap_or_default();
 
         // Build agent_permissions map from config_manager for chain intersection.
-        let agent_permissions = match self.session_manager.get_config_manager().await {
-            Some(cm) => cm.agent_permissions(),
-            None => std::collections::HashMap::new(),
-        };
+        let agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync> =
+            match self.session_manager.get_config_manager().await {
+                Some(cm) => cm.agent_permissions(),
+                None => Arc::new(LazyAgentPermissions::new(std::path::PathBuf::new())),
+            };
 
         let caller = Caller {
             user_id: sender_id.unwrap_or("").to_owned(),
@@ -196,7 +198,7 @@ impl Gateway {
                 request,
                 &*self.session_manager,
                 session_id,
-                &agent_permissions,
+                agent_permissions.as_ref(),
             )
             .await;
         match response {

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use super::engine_eval::PermissionEngine;
+use super::engine_test_providers::HashMapProvider;
 use super::engine_types::{Effect, PermissionRequest, PermissionRequestBody, PermissionResponse};
 use crate::actions::ActionBuilder;
 use crate::mock_session_lookup::MockSessionLookup;
@@ -106,7 +107,7 @@ async fn test_chain_intersection_file_write_denied_by_parent() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &lookup, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &HashMapProvider::new(perms))
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { ref reason, .. } if reason.contains("chain")),
@@ -149,7 +150,7 @@ async fn test_chain_intersection_file_read_allowed_when_only_write_denied() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &lookup, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &HashMapProvider::new(perms))
         .await;
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
@@ -185,7 +186,7 @@ async fn test_single_parent_denies_file_write() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &lookup, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &HashMapProvider::new(perms))
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -217,7 +218,12 @@ async fn test_no_chain_matches_evaluate() {
         op: "write".to_string(),
     });
     let resp_chain = engine
-        .evaluate_with_chain(req_chain, &lookup, "root-session", &perms)
+        .evaluate_with_chain(
+            req_chain,
+            &lookup,
+            "root-session",
+            &HashMapProvider::new(perms),
+        )
         .await;
 
     // Same request evaluated directly
@@ -283,7 +289,7 @@ async fn test_deny_subject_propagation_through_chain() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &lookup, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &HashMapProvider::new(perms))
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -334,7 +340,12 @@ async fn test_deny_propagation_blocks_all_actions_for_child() {
         args: vec![],
     });
     let resp_exec = engine
-        .evaluate_with_chain(req_exec, &lookup, "child-session", &perms)
+        .evaluate_with_chain(
+            req_exec,
+            &lookup,
+            "child-session",
+            &HashMapProvider::new(perms.clone()),
+        )
         .await;
     assert!(
         matches!(resp_exec, PermissionResponse::Denied { .. }),
@@ -349,7 +360,12 @@ async fn test_deny_propagation_blocks_all_actions_for_child() {
         op: "read".to_string(),
     });
     let resp_read = engine
-        .evaluate_with_chain(req_read, &lookup, "child-session", &perms)
+        .evaluate_with_chain(
+            req_read,
+            &lookup,
+            "child-session",
+            &HashMapProvider::new(perms),
+        )
         .await;
     assert!(
         matches!(resp_read, PermissionResponse::Denied { .. }),
@@ -382,7 +398,7 @@ async fn test_owner_no_chain_not_blocked() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &lookup, "owner-session", &perms)
+        .evaluate_with_chain(req, &lookup, "owner-session", &HashMapProvider::new(perms))
         .await;
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
@@ -418,7 +434,7 @@ async fn test_chain_intersection_exec_denied() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &lookup, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &HashMapProvider::new(perms))
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -454,7 +470,7 @@ async fn test_chain_intersection_network_denied() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &lookup, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &HashMapProvider::new(perms))
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -489,7 +505,7 @@ async fn test_chain_intersection_spawn_denied() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &lookup, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &HashMapProvider::new(perms))
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -525,7 +541,7 @@ async fn test_chain_intersection_tool_call_denied() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &lookup, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &HashMapProvider::new(perms))
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -560,7 +576,7 @@ async fn test_chain_intersection_config_write_denied() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &lookup, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &HashMapProvider::new(perms))
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -596,7 +612,7 @@ async fn test_chain_intersection_slash_command_not_blocked() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &lookup, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &HashMapProvider::new(perms))
         .await;
     // SlashCommand has no dimension → chain check skips → evaluate result
     // With default Allow and no deny rules, this should be Allowed
@@ -635,7 +651,7 @@ async fn test_chain_intersection_unknown_op_not_blocked() {
     });
 
     let resp = engine
-        .evaluate_with_chain(req, &lookup, "child-session", &perms)
+        .evaluate_with_chain(req, &lookup, "child-session", &HashMapProvider::new(perms))
         .await;
     // Unknown op → dimension_name() = None → chain check skips
     // evaluate() with default Allow → Allowed
@@ -715,7 +731,12 @@ async fn test_three_level_chain_intersection() {
         op: "write".to_string(),
     });
     let resp = engine
-        .evaluate_with_chain(req, &lookup, "session-b", &perms)
+        .evaluate_with_chain(
+            req,
+            &lookup,
+            "session-b",
+            &HashMapProvider::new(perms.clone()),
+        )
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
@@ -730,7 +751,7 @@ async fn test_three_level_chain_intersection() {
         port: 443,
     });
     let resp = engine
-        .evaluate_with_chain(req, &lookup, "session-b", &perms)
+        .evaluate_with_chain(req, &lookup, "session-b", &HashMapProvider::new(perms))
         .await;
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
