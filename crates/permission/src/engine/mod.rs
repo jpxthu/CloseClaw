@@ -48,3 +48,6 @@ mod engine_plan_mode_tests;
 
 #[cfg(test)]
 mod engine_rejection_log_tests;
+
+#[cfg(test)]
+mod engine_matching_tests;
