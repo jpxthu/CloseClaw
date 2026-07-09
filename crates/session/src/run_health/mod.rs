@@ -12,12 +12,19 @@
 //! - **Unhealthy handler** — maps failure categories to recovery
 //!   actions (retry with backoff, notify user, stop).
 
+pub mod hard_rules;
 pub mod health_types;
 
+pub use hard_rules::{
+    EmptyResponseRule, HardRule, HardRuleEngine, RetryExhaustedRule, StructuralAnomalyRule,
+    TimeoutRule,
+};
 pub use health_types::{
     FailureCategory, HardRuleViolation, HealthCheckInput, HealthCheckOutput, HealthStatus,
     RecoverableAction, RetryPolicy,
 };
 
+#[cfg(test)]
+mod hard_rules_tests;
 #[cfg(test)]
 mod health_types_tests;
