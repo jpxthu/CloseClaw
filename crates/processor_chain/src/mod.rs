@@ -21,6 +21,8 @@ pub mod dsl_parser;
 mod dsl_parser_tests;
 pub mod error;
 pub mod loader;
+#[cfg(test)]
+mod loader_tests;
 pub mod middleware;
 #[cfg(test)]
 mod middleware_tests;
