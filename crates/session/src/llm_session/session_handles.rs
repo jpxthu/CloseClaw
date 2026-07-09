@@ -178,6 +178,26 @@ impl ConversationSession {
         self.stopped.load(Ordering::SeqCst)
     }
 
+    // ── manual backgrounding ─────────────────────────────────────────────
+
+    /// Signal all foreground commands to move to background.
+    ///
+    /// This fires the `manual_background_signal` [`Notify`], which
+    /// unblocks any `tokio::select!` branch in `BashTool` waiting on
+    /// the manual-background path. Each affected foreground command
+    /// will be handed off to `bg_manager.backgroundize_task()` and
+    /// return a `ToolResult` with `backgroundedByUser: true`.
+    ///
+    /// The call is idempotent — signalling when no foreground
+    /// commands are waiting is a harmless no-op.
+    pub fn trigger_manual_background(&self) {
+        self.manual_background_signal.notify_waiters();
+        tracing::info!(
+            session_id = %self.session_id,
+            "trigger_manual_background: signal fired"
+        );
+    }
+
     // ── stop(cascade) ───────────────────────────────────────────────────
 
     /// Idempotently stop this session and (optionally) all descendant
