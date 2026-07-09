@@ -336,6 +336,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/permission/README.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-07-10T00:44:40.768697+08:00",
+    "comment": "",
+    "blocked_reason": "dimension_count_mismatch_readme_says_8_subdoc_says_7"
+  },
+  {
     "path": "docs/design/permission/approval-workflow.md",
     "commit": "6a3ce3c989c1946e23d7297fcde5e830440ae528",
     "commit_time": "2026-07-09T04:48:55+08:00",
