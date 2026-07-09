@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 
+use closeclaw_gateway::DmScope;
 use serde::Deserialize;
 
 use super::content_normalizer::ContentNormalizer;
@@ -15,6 +16,7 @@ use super::outbound_raw_log::OutboundRawLogProcessor;
 use super::processor::MessageProcessor;
 use super::raw_log_processor::{RawLogConfig, RawLogProcessor};
 use super::registry::ProcessorRegistry;
+use super::session_router::SessionRouter;
 
 /// Configuration for the inbound processor chain.
 ///
@@ -56,6 +58,13 @@ pub enum ProcessorConfig {
     /// [`DslParser`](super::dsl_parser::DslParser) — outbound processor that
     /// parses `::button[...]` DSL instructions and stores them in metadata.
     DslParser,
+    /// [`SessionRouter`](super::session_router::SessionRouter) — computes a
+    /// deterministic `session_key` from routing fields.
+    SessionRouter {
+        /// DM scope controlling session key partitioning.
+        #[serde(default)]
+        dm_scope: DmScope,
+    },
     /// [`OutboundRawLogProcessor`](super::outbound_raw_log::OutboundRawLogProcessor)
     /// — logs outbound messages to a JSON file.
     OutboundRawLog {
@@ -126,6 +135,9 @@ impl ProcessorChainLoader {
                 Ok(std::sync::Arc::new(processor))
             }
             ProcessorConfig::ContentNormalizer => Ok(std::sync::Arc::new(ContentNormalizer::new())),
+            ProcessorConfig::SessionRouter { dm_scope } => {
+                Ok(std::sync::Arc::new(SessionRouter::new(*dm_scope)))
+            }
             ProcessorConfig::DslParser => Ok(std::sync::Arc::new(DslParser)),
             ProcessorConfig::OutboundRawLog {
                 enabled,
