@@ -37,9 +37,14 @@ pub struct Defaults {
     pub config: Effect,
     #[serde(default = "default_deny")]
     pub tool_call: Effect,
+    #[serde(default = "default_allow")]
+    pub message: Effect,
 }
 fn default_deny() -> Effect {
     Effect::Deny
+}
+fn default_allow() -> Effect {
+    Effect::Allow
 }
 /// A single permission rule
 #[derive(Debug, Clone, Deserialize, Serialize)]
