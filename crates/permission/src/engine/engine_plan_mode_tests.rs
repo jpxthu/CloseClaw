@@ -37,13 +37,18 @@ impl SessionModeQuery for MockModeQuery {
 }
 
 fn make_permissive_engine(query: Arc<dyn SessionModeQuery>) -> PermissionEngine {
+    let permissive = super::engine_types::Defaults {
+        file: Effect::Allow,
+        command: Effect::Allow,
+        network: Effect::Allow,
+        inter_agent: Effect::Allow,
+        config: Effect::Allow,
+        tool_call: Effect::Allow,
+        message: Effect::Allow,
+    };
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
-        .default_command(Effect::Allow)
-        .default_network(Effect::Allow)
-        .default_inter_agent(Effect::Allow)
-        .default_config(Effect::Allow)
-        .default_tool_call(Effect::Allow)
+        .defaults(permissive.clone())
+        .user_defaults(permissive)
         .build()
         .unwrap();
     PermissionEngine::new_with_default_data_root(ruleset).with_session_mode_query(query)

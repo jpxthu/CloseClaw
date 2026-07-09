@@ -200,7 +200,8 @@ fn test_non_owner_unaffected_by_owner_shortcut() {
         alice_resp
     );
 
-    // bob should NOT be affected (different user_id)
+    // bob (different user_id) is not affected by alice's deny rule,
+    // but gets user_defaults (all-Deny) since no rule matches bob.
     let bob_req = PermissionRequest::WithCaller {
         caller: Caller {
             user_id: "bob".to_string(),
@@ -215,8 +216,8 @@ fn test_non_owner_unaffected_by_owner_shortcut() {
     };
     let bob_resp = engine.evaluate(bob_req, None);
     assert!(
-        matches!(bob_resp, PermissionResponse::Allowed { .. }),
-        "bob (different user) should get default allow, not blocked by alice's rule: {:?}",
+        matches!(bob_resp, PermissionResponse::Denied { ref rule, .. } if rule == "default"),
+        "bob (different user) should get user_defaults deny (all-Deny), not alice's rule: {:?}",
         bob_resp
     );
 }

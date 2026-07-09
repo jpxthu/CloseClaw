@@ -13,6 +13,10 @@ pub struct RuleSet {
     pub rules: Vec<Rule>,
     #[serde(default)]
     pub defaults: Defaults,
+    /// Default permissions for non-Owner users (User phase).
+    /// Defaults to all Deny, including message.
+    #[serde(default = "Defaults::user_defaults")]
+    pub user_defaults: Defaults,
     /// Names of templates to load from the templates/ directory.
     #[serde(default)]
     pub template_includes: Vec<String>,
@@ -39,6 +43,22 @@ pub struct Defaults {
     pub tool_call: Effect,
     #[serde(default = "default_allow")]
     pub message: Effect,
+}
+
+impl Defaults {
+    /// Default permissions for User phase: all Deny (including message).
+    /// User has no privileges unless explicitly granted.
+    pub fn user_defaults() -> Self {
+        Self {
+            file: Effect::Deny,
+            command: Effect::Deny,
+            network: Effect::Deny,
+            inter_agent: Effect::Deny,
+            config: Effect::Deny,
+            tool_call: Effect::Deny,
+            message: Effect::Deny,
+        }
+    }
 }
 
 impl Default for Defaults {
