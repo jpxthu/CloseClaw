@@ -15,6 +15,7 @@ pub mod persistence;
 pub mod plan_archive;
 pub mod plan_file;
 pub mod recovery;
+pub mod run_health;
 pub mod storage;
 pub mod workspace;
 
