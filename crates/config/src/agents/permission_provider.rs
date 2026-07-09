@@ -18,7 +18,7 @@ use super::config_types::AgentPermissions;
 /// Trait for lazily providing agent permissions by agent ID.
 ///
 /// Implementations may load from disk, cache, or any other source.
-pub trait AgentPermissionProvider {
+pub trait AgentPermissionProvider: Send + Sync {
     /// Get the permissions for the given agent, or `None` if the agent
     /// has no custom permission configuration.
     fn get(&self, agent_id: &str) -> Option<AgentPermissions>;

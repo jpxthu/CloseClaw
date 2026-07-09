@@ -1,17 +1,16 @@
 //! Permission skill - allows agents to query their own permissions
 use crate::registry::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
-use closeclaw_config::agents::AgentPermissions;
+use closeclaw_config::agents::AgentPermissionProvider;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::engine::engine_types::{PermissionRequest, PermissionRequestBody};
 use closeclaw_permission::PermissionResponse;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 pub struct PermissionSkill {
     engine: Option<Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>>,
     session_manager: Option<Arc<SessionManager>>,
-    agent_permissions: HashMap<String, AgentPermissions>,
+    agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync>,
 }
 
 impl PermissionSkill {
@@ -19,7 +18,7 @@ impl PermissionSkill {
         Self {
             engine: None,
             session_manager: None,
-            agent_permissions: HashMap::new(),
+            agent_permissions: Arc::new(NoopPermissionProvider),
         }
     }
 
@@ -29,7 +28,7 @@ impl PermissionSkill {
         Self {
             engine: Some(engine),
             session_manager: None,
-            agent_permissions: HashMap::new(),
+            agent_permissions: Arc::new(NoopPermissionProvider),
         }
     }
 
@@ -40,10 +39,19 @@ impl PermissionSkill {
 
     pub fn with_agent_permissions(
         mut self,
-        agent_permissions: HashMap<String, AgentPermissions>,
+        agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync>,
     ) -> Self {
         self.agent_permissions = agent_permissions;
         self
+    }
+}
+
+/// No-op permission provider used as a default when no real provider is configured.
+struct NoopPermissionProvider;
+
+impl AgentPermissionProvider for NoopPermissionProvider {
+    fn get(&self, _agent_id: &str) -> Option<closeclaw_config::agents::AgentPermissions> {
+        None
     }
 }
 
@@ -142,7 +150,12 @@ impl Skill for PermissionSkill {
                     ) {
                         let guard = engine.read().await;
                         guard
-                            .evaluate_with_chain(request, sm.as_ref(), sid, &self.agent_permissions)
+                            .evaluate_with_chain(
+                                request,
+                                sm.as_ref(),
+                                sid,
+                                self.agent_permissions.as_ref(),
+                            )
                             .await
                     } else {
                         engine.read().await.evaluate(request, None)
