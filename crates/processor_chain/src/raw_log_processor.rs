@@ -150,17 +150,15 @@ impl MessageProcessor for RawLogProcessor {
         ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
         let is_enabled = self.config.enabled || level_enabled!(tracing::Level::DEBUG);
-        if !is_enabled {
-            return Ok(None);
+        if is_enabled {
+            let raw = ctx.initial_normalized().ok_or_else(|| {
+                ProcessError::invalid_message("no initial raw message in context")
+            })?;
+
+            self.write_log(raw)
+                .await
+                .map_err(|e| ProcessError::processor_failed(self.name(), e))?;
         }
-
-        let raw = ctx
-            .initial_normalized()
-            .ok_or_else(|| ProcessError::invalid_message("no initial raw message in context"))?;
-
-        self.write_log(raw)
-            .await
-            .map_err(|e| ProcessError::processor_failed(self.name(), e))?;
 
         Ok(Some(ProcessedMessage {
             content_blocks: vec![ContentBlock::Text(ctx.content.clone())],
