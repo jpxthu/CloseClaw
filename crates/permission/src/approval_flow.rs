@@ -22,11 +22,14 @@
 //!         └─ lookup session_id → queue.deny() → spawn push "已拒绝" to session
 //! ```
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{Caller, PermissionRequestBody};
+use crate::user_registry::UserRegistry;
+use closeclaw_common::permission_op::{InitialPermissionSet, UserCreationRequest};
 use closeclaw_common::{PendingMessage, PlanPhase, PlanStatus, SessionLookup, SessionMode};
 
 use closeclaw_session::plan_file;
@@ -108,6 +111,8 @@ pub struct ApprovalFlow {
     heartbeat_mode: HeartbeatApprovalMode,
     /// Root config directory for agent permissions persistence.
     config_dir: PathBuf,
+    /// Pending user creation requests keyed by request_id.
+    user_creation_requests: HashMap<String, UserCreationRequest>,
 }
 
 impl std::fmt::Debug for ApprovalFlow {
@@ -115,6 +120,7 @@ impl std::fmt::Debug for ApprovalFlow {
         f.debug_struct("ApprovalFlow")
             .field("queue", &self.queue)
             .field("heartbeat_mode", &self.heartbeat_mode)
+            .field("pending_user_creations", &self.user_creation_requests.len())
             .finish_non_exhaustive()
     }
 }
@@ -147,6 +153,7 @@ impl ApprovalFlow {
             runtime_handle,
             heartbeat_mode,
             config_dir,
+            user_creation_requests: HashMap::new(),
         }
     }
 
@@ -298,6 +305,74 @@ impl ApprovalFlow {
     }
 }
 
+// ── User creation submission ──────────────────────────────────────────────
+
+impl ApprovalFlow {
+    /// Submit a user creation request for owner approval.
+    ///
+    /// Stores the request and notifies the owner via [`ApprovalNotification`].
+    /// The request is resolved when the owner calls [`approve_request`] or
+    /// [`deny_request`] with the returned `request_id`.
+    ///
+    /// Returns `Some(request_id)` on success, or `None` if a duplicate
+    /// request (same user_id + channel) is already pending.
+    pub fn submit_user_creation(
+        &mut self,
+        user_id: &str,
+        channel: &str,
+        initial_permissions: Vec<InitialPermissionSet>,
+    ) -> Option<String> {
+        // Dedup: check if same user+channel already pending.
+        let is_dup = self
+            .user_creation_requests
+            .values()
+            .any(|r| r.user_id == user_id && r.im_channel == channel);
+        if is_dup {
+            return None;
+        }
+
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let request = UserCreationRequest {
+            user_id: user_id.to_string(),
+            im_channel: channel.to_string(),
+            request_id: request_id.clone(),
+            initial_permissions,
+        };
+        self.user_creation_requests
+            .insert(request_id.clone(), request);
+
+        (self.on_notify_owner)(ApprovalNotification {
+            request_id: request_id.clone(),
+            caller: Caller {
+                user_id: user_id.to_string(),
+                agent: String::new(),
+                creator_id: String::new(),
+            },
+            operation_desc: format!("新用户注册请求：{} 通过 {} 渠道", user_id, channel),
+            risk_level: RiskLevel::Low,
+        });
+
+        Some(request_id)
+    }
+
+    /// Update the initial permissions for a pending user creation request.
+    ///
+    /// Called by `/user approve --perms <set>` to set the permission template
+    /// before the request is approved.
+    pub fn set_user_creation_permissions(
+        &mut self,
+        request_id: &str,
+        initial_permissions: Vec<InitialPermissionSet>,
+    ) -> bool {
+        if let Some(req) = self.user_creation_requests.get_mut(request_id) {
+            req.initial_permissions = initial_permissions;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 // ── Approval resolution ─────────────────────────────────────────────────────
 
 impl ApprovalFlow {
@@ -306,14 +381,23 @@ impl ApprovalFlow {
     /// Delegates to [`ApprovalQueue::approve`] with the given [`ApprovalMode`].
     /// On success, a "已批准" message is pushed to the requesting session.
     ///
+    /// For user creation requests, the user is registered via
+    /// [`UserRegistry`] and initial permission rules are persisted.
+    ///
     /// # Errors
     /// Returns `Err(RejectWhitelistReason::HighRisk)` if `mode` is
     /// `WithWhitelist` and the operation's risk level is High or Critical.
-    pub fn approve_request(
+    pub async fn approve_request(
         &mut self,
         request_id: &str,
         mode: ApprovalMode,
     ) -> Result<bool, RejectWhitelistReason> {
+        // Check if this is a pending user creation request first.
+        if let Some(uc_request) = self.user_creation_requests.remove(request_id) {
+            let registered = self.approve_user_creation(&uc_request).await;
+            return Ok(registered);
+        }
+
         // Extract details BEFORE resolving (entry is removed on resolve).
         let pending_info = self.queue.get_pending(request_id).map(|p| {
             (
@@ -450,6 +534,11 @@ impl ApprovalFlow {
     /// Delegates to [`ApprovalQueue::deny`]. On success, a "已拒绝" message
     /// is pushed to the requesting session.
     pub fn deny_request(&mut self, request_id: &str) -> bool {
+        // Check user creation requests first.
+        if self.user_creation_requests.remove(request_id).is_some() {
+            return true;
+        }
+
         // Extract session_id BEFORE resolving (entry is removed on resolve).
         let session_resume = self
             .queue
@@ -490,6 +579,157 @@ impl ApprovalFlow {
     /// All pending requests are denied with callbacks triggered.
     pub fn clear(&mut self) {
         self.queue.clear();
+    }
+}
+
+// ── User creation persistence helpers ───────────────────────────────────────
+
+impl ApprovalFlow {
+    /// Handle a user creation approval: register the user and persist rules.
+    ///
+    /// Returns `true` if the user was successfully registered.
+    async fn approve_user_creation(&mut self, request: &UserCreationRequest) -> bool {
+        let user_id = &request.user_id;
+        let channel = &request.im_channel;
+        let initial_perms = &request.initial_permissions;
+
+        // Load or create the in-memory registry (async, non-blocking).
+        let registry_path = self.config_dir.join("users.json");
+        let mut registry = {
+            let path = registry_path.clone();
+            let handle = self.runtime_handle.clone();
+            let read_result = handle
+                .spawn_blocking(move || {
+                    if path.exists() {
+                        std::fs::read_to_string(&path)
+                    } else {
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "registry file does not exist",
+                        ))
+                    }
+                })
+                .await;
+            match read_result {
+                Ok(Ok(data)) => serde_json::from_str::<UserRegistry>(&data).unwrap_or_default(),
+                _ => UserRegistry::new(),
+            }
+        };
+
+        // Register user and generate permission rules.
+        let ruleset = match registry.register_user(user_id, channel, &initial_perms) {
+            Ok(rs) => rs,
+            Err(crate::user_registry::RegistryError::AlreadyRegistered(_)) => {
+                tracing::warn!(
+                    user_id = %user_id,
+                    "user already registered, skipping"
+                );
+                return false;
+            }
+        };
+
+        // Persist user registry.
+        self.persist_user_registry(&registry_path, &registry);
+
+        // Persist initial permission rules to agent's permissions.json.
+        self.persist_initial_permission_rules(user_id, &ruleset);
+
+        // Trigger permission engine hot-reload.
+        (self.on_whitelist_updated)(user_id);
+
+        true
+    }
+
+    /// Persist the user registry to disk (async, non-blocking).
+    fn persist_user_registry(&self, registry_path: &std::path::Path, registry: &UserRegistry) {
+        let registry_path = registry_path.to_path_buf();
+        let json = match serde_json::to_string_pretty(registry) {
+            Ok(j) => j,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to serialize user registry");
+                return;
+            }
+        };
+        let handle = self.runtime_handle.clone();
+        handle.spawn_blocking(move || {
+            if let Some(parent) = registry_path.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    tracing::warn!(
+                        path = %parent.display(),
+                        error = %e,
+                        "failed to create registry directory"
+                    );
+                    return;
+                }
+            }
+            if let Err(e) = std::fs::write(&registry_path, json) {
+                tracing::warn!(
+                    path = %registry_path.display(),
+                    error = %e,
+                    "failed to write user registry"
+                );
+            }
+        });
+    }
+
+    /// Persist initial permission rules to the agent's permissions.json
+    /// (async, non-blocking).
+    fn persist_initial_permission_rules(
+        &self,
+        user_id: &str,
+        new_rules: &crate::engine::engine_types::RuleSet,
+    ) {
+        let path = self
+            .config_dir
+            .join("agents")
+            .join(user_id)
+            .join("permissions.json");
+        let new_rules = new_rules.clone();
+        let handle = self.runtime_handle.clone();
+        handle.spawn_blocking(move || {
+            if let Some(parent) = path.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    tracing::warn!(
+                        path = %parent.display(),
+                        error = %e,
+                        "failed to create agent permissions directory"
+                    );
+                    return;
+                }
+            }
+
+            // Read existing rules or start fresh.
+            let mut ruleset: crate::engine::engine_types::RuleSet = if path.exists() {
+                std::fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|data| serde_json::from_str(&data).ok())
+                    .unwrap_or_default()
+            } else {
+                crate::engine::engine_types::RuleSet::default()
+            };
+
+            // Append new rules.
+            ruleset.rules.extend(new_rules.rules);
+
+            // Write back.
+            match serde_json::to_string_pretty(&ruleset) {
+                Ok(json) => {
+                    if let Err(e) = std::fs::write(&path, json) {
+                        tracing::warn!(
+                            path = %path.display(),
+                            error = %e,
+                            "failed to write permissions.json for user"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "failed to serialize permissions.json"
+                    );
+                }
+            }
+        });
     }
 }
 
