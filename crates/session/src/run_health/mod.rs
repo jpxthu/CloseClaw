@@ -14,6 +14,7 @@
 
 pub mod hard_rules;
 pub mod health_types;
+pub mod unhealthy_handler;
 
 pub use hard_rules::{
     EmptyResponseRule, HardRule, HardRuleEngine, RetryExhaustedRule, StructuralAnomalyRule,
@@ -23,8 +24,11 @@ pub use health_types::{
     FailureCategory, HardRuleViolation, HealthCheckInput, HealthCheckOutput, HealthStatus,
     RecoverableAction, RetryPolicy,
 };
+pub use unhealthy_handler::{BackoffCounter, UnhealthyHandler};
 
 #[cfg(test)]
 mod hard_rules_tests;
 #[cfg(test)]
 mod health_types_tests;
+#[cfg(test)]
+mod unhealthy_handler_tests;
