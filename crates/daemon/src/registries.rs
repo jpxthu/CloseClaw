@@ -140,7 +140,14 @@ fn init_config_hot_reload(
 /// [`ToolRegistry::register_all`] to register everything and freeze
 /// the registry.
 async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkillRegistry>) {
-    let task_manager = Arc::new(closeclaw_tasks::BackgroundTaskManager::new());
+    let task_manager: Arc<dyn closeclaw_tasks::TaskManager> =
+        Arc::new(closeclaw_tasks::BackgroundTaskManager::new());
+
+    // Share the task manager with SessionManager so drain_announce_events
+    // can drain completion notifications and clean up finished tasks.
+    ctx.session_manager
+        .set_task_manager(Arc::clone(&task_manager))
+        .await;
 
     let core_registrar = CoreToolsRegistrar::new(
         Arc::clone(ctx.permission_engine),

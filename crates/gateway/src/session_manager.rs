@@ -99,6 +99,9 @@ pub struct SessionManager {
     /// Channel sender for notifying the DreamingScheduler about completed
     /// sub-agent sessions, enabling immediate mining (design doc §触发 1).
     mining_notify_tx: std::sync::RwLock<Option<tokio::sync::mpsc::Sender<String>>>,
+    /// Background task manager for draining completion notifications
+    /// and cleaning up finished task output files.
+    task_manager: RwLock<Option<Arc<dyn closeclaw_tasks::TaskManager>>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -143,7 +146,18 @@ impl SessionManager {
             pending_restore_notifications: RwLock::new(HashMap::new()),
             cache_invalidator: RwLock::new(None),
             mining_notify_tx: std::sync::RwLock::new(None),
+            task_manager: RwLock::new(None),
         }
+    }
+
+    /// Set the background task manager for notification drain and cleanup.
+    pub async fn set_task_manager(&self, tm: Arc<dyn closeclaw_tasks::TaskManager>) {
+        *self.task_manager.write().await = Some(tm);
+    }
+
+    /// Get a clone of the task manager, if set.
+    pub async fn get_task_manager(&self) -> Option<Arc<dyn closeclaw_tasks::TaskManager>> {
+        self.task_manager.read().await.clone()
     }
 
     /// Attach a mining notify channel sender. When a run-mode sub-agent

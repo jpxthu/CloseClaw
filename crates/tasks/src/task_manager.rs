@@ -3,7 +3,7 @@
 //! Provides an interface for spawning, monitoring, and killing
 //! background processes. Implemented by [`BackgroundTaskManager`].
 
-use crate::{BackgroundTask, BackgroundTaskError};
+use crate::{BackgroundTask, BackgroundTaskError, CompletionNotification};
 
 /// Trait for managing background tasks.
 ///
@@ -31,4 +31,11 @@ pub trait TaskManager: Send + Sync {
 
     /// Get a background task by ID.
     async fn get_task(&self, task_id: &str) -> Option<BackgroundTask>;
+
+    /// Drain all pending completion notifications.
+    async fn drain_notifications(&self) -> Vec<CompletionNotification>;
+
+    /// Remove output files and handles for tasks that have reached
+    /// a terminal state (Completed, Failed, Killed).
+    async fn cleanup_finished(&self);
 }

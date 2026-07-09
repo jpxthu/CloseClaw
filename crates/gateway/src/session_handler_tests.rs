@@ -7,7 +7,12 @@ use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::LLMRegistry;
 use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_tasks::{
+    BackgroundTask, BackgroundTaskError, CompletionNotification, NotificationPriority, TaskManager,
+    TaskState,
+};
 
 /// Create a `SessionMessageHandler` with a mock LLM caller injected
 /// into the `SessionManager`. Must be called BEFORE `find_or_create`
@@ -227,4 +232,197 @@ async fn test_set_verbosity_persists() {
     // Verify Off persists
     let cs3 = sm.get_conversation_session(&sid).await.expect("session");
     assert_eq!(cs3.read().await.verbosity_level(), VerbosityLevel::Off);
+}
+
+// =========================================================================
+// Task notification drain (Step 1.2 / Step 1.3)
+// =========================================================================
+
+/// A minimal [`TaskManager`] stub for gateway-level tests.
+struct MockTaskManager {
+    notifications: tokio::sync::Mutex<Vec<CompletionNotification>>,
+}
+
+impl MockTaskManager {
+    fn with_notifications(notifs: Vec<CompletionNotification>) -> Self {
+        Self {
+            notifications: tokio::sync::Mutex::new(notifs),
+        }
+    }
+
+    fn empty() -> Self {
+        Self::with_notifications(vec![])
+    }
+}
+
+#[async_trait::async_trait]
+impl TaskManager for MockTaskManager {
+    async fn spawn_task(
+        &self,
+        _command: &str,
+        _cwd: &std::path::Path,
+    ) -> Result<BackgroundTask, BackgroundTaskError> {
+        unimplemented!("not needed for gateway tests")
+    }
+    async fn backgroundize_task(
+        &self,
+        _child: tokio::process::Child,
+        _command: &str,
+    ) -> Result<BackgroundTask, BackgroundTaskError> {
+        unimplemented!("not needed for gateway tests")
+    }
+    async fn kill_task(&self, _task_id: &str) -> Result<(), BackgroundTaskError> {
+        unimplemented!("not needed for gateway tests")
+    }
+    async fn get_task(&self, _task_id: &str) -> Option<BackgroundTask> {
+        unimplemented!("not needed for gateway tests")
+    }
+    async fn drain_notifications(&self) -> Vec<CompletionNotification> {
+        std::mem::take(&mut *self.notifications.lock().await)
+    }
+    async fn cleanup_finished(&self) {
+        // no-op for gateway tests
+    }
+}
+
+/// Build a [`CompletionNotification`] for testing.
+fn make_notification(
+    task_id: &str,
+    command: &str,
+    state: TaskState,
+    output_path: std::path::PathBuf,
+) -> CompletionNotification {
+    CompletionNotification {
+        task_id: task_id.to_owned(),
+        command: command.to_owned(),
+        state,
+        output_path,
+        priority: NotificationPriority::Later,
+    }
+}
+
+/// Set up a session with a [`ConversationSession`] on the given
+/// [`SessionManager`]. Returns the session_id.
+async fn setup_session_with_conv(sm: &SessionManager, sid: &str) -> String {
+    use crate::Session;
+    use chrono::Utc;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    sm.sessions.write().await.insert(
+        sid.to_string(),
+        Session {
+            id: sid.to_string(),
+            agent_id: "test-agent".to_string(),
+            channel: "test".to_string(),
+            created_at: Utc::now().timestamp(),
+            depth: 0,
+        },
+    );
+    let cs = Arc::new(RwLock::new(
+        closeclaw_session::llm_session::ConversationSession::new(
+            sid.to_string(),
+            "test-model".to_string(),
+            std::path::PathBuf::from("/tmp"),
+        ),
+    ));
+    sm.conversation_sessions
+        .write()
+        .await
+        .insert(sid.to_string(), cs);
+    sid.to_string()
+}
+
+/// When a task_manager with pending notifications is set on
+/// SessionManager, `drain_announce_events` must drain them and inject
+/// each as a `role="system"` message in the ConversationSession.
+#[tokio::test]
+async fn test_drain_notifications_injects_system_message() {
+    let sm = make_sm();
+    let sid = setup_session_with_conv(&sm, "notif-test").await;
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let output = tmp.path().join("closeclaw/background/t-1/output");
+    let notif = make_notification(
+        "t-1",
+        "echo hello",
+        TaskState::Completed { exit_code: 0 },
+        output,
+    );
+    let tm: Arc<dyn TaskManager> = Arc::new(MockTaskManager::with_notifications(vec![notif]));
+    sm.set_task_manager(tm).await;
+
+    // handler_with_sm sets up LLM caller on SessionManager — needed
+    // so the ConversationSession can invoke LLM when needed.
+    let _handler = handler_with_sm(sm.clone()).await;
+    SessionMessageHandler::drain_announce_events(&sm, &sid).await;
+
+    let cs = sm.get_conversation_session(&sid).await.expect("session");
+    let msgs = cs.read().await.messages().to_vec();
+    assert!(!msgs.is_empty(), "should have at least one system message");
+
+    let system_msgs: Vec<_> = msgs.iter().filter(|m| m.role == "system").collect();
+    assert_eq!(
+        system_msgs.len(),
+        1,
+        "expected exactly one system message, got {}",
+        system_msgs.len()
+    );
+
+    let text = match &system_msgs[0].content_blocks[0] {
+        closeclaw_llm::types::ContentBlock::Text(t) => t.clone(),
+        other => panic!("expected Text block, got {:?}", other),
+    };
+    assert!(
+        text.contains("t-1"),
+        "should contain task_id, got: {}",
+        text
+    );
+    assert!(
+        text.contains("echo hello"),
+        "should contain command, got: {}",
+        text
+    );
+    assert!(
+        text.contains("Completed"),
+        "should contain state, got: {}",
+        text
+    );
+}
+
+/// When no task_manager is set on SessionManager, `drain_announce_events`
+/// must return without panic or error.
+#[tokio::test]
+async fn test_drain_notifications_no_task_manager() {
+    let sm = make_sm();
+    let sid = setup_session_with_conv(&sm, "no-tm-test").await;
+    // Do NOT set task_manager — it should be None by default.
+
+    let _handler = handler_with_sm(sm.clone()).await;
+    SessionMessageHandler::drain_announce_events(&sm, &sid).await;
+
+    // No panic, no error. Session should still exist.
+    assert!(sm.get_conversation_session(&sid).await.is_some());
+}
+
+/// When the task_manager has no pending notifications, `drain_announce_events`
+/// must not inject any system messages.
+#[tokio::test]
+async fn test_drain_notifications_empty() {
+    let sm = make_sm();
+    let sid = setup_session_with_conv(&sm, "empty-notif-test").await;
+
+    let tm: Arc<dyn TaskManager> = Arc::new(MockTaskManager::empty());
+    sm.set_task_manager(tm).await;
+
+    let _handler = handler_with_sm(sm.clone()).await;
+    SessionMessageHandler::drain_announce_events(&sm, &sid).await;
+
+    let cs = sm.get_conversation_session(&sid).await.expect("session");
+    let msgs = cs.read().await.messages().to_vec();
+    assert!(
+        msgs.is_empty(),
+        "no system messages should be injected, got {}",
+        msgs.len()
+    );
 }
