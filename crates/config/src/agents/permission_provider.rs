@@ -112,6 +112,7 @@ impl AgentPermissionProvider for LazyAgentPermissions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use filetime::FileTime;
     use std::fs;
     use tempfile::TempDir;
 
@@ -189,8 +190,8 @@ mod tests {
         let first = provider.get("mut-agent").unwrap();
         assert!(first.is_allowed("file_read"));
 
-        // Delete and recreate the file (different inode, new mtime).
-        fs::remove_file(&path).unwrap();
+        // Rewrite the file with different content and explicitly advance the
+        // mtime so the cache is reliably invalidated even on fast machines.
         let mut perms2 = make_perms("mut-agent");
         perms2.permissions.insert(
             "file_read".to_string(),
@@ -200,6 +201,10 @@ mod tests {
             },
         );
         fs::write(&path, serde_json::to_string(&perms2).unwrap()).unwrap();
+        // Advance mtime by 10 seconds to guarantee cache invalidation.
+        let now = FileTime::now();
+        let new_mtime = FileTime::from_unix_time(now.unix_seconds() + 10, now.nanoseconds());
+        filetime::set_file_mtime(&path, new_mtime).unwrap();
 
         let second = provider.get("mut-agent").unwrap();
         assert!(!second.is_allowed("file_read"));
