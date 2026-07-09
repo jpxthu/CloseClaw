@@ -1,4 +1,5 @@
 use super::*;
+use crate::approval::WhitelistTarget;
 use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{Caller, PermissionRequestBody};
 use crate::mock_session_lookup::MockSessionLookup;
@@ -6,6 +7,13 @@ use closeclaw_common::{PlanPhase, PlanState, PlanStatus, SessionMode};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+
+/// Default whitelist mode for tests.
+fn whitelist_auto() -> ApprovalMode {
+    ApprovalMode::WithWhitelist {
+        target: WhitelistTarget::Auto,
+    }
+}
 
 /// Minimal test helper: creates a MockSessionLookup.
 fn test_session_lookup() -> Arc<dyn SessionLookup> {
@@ -170,9 +178,7 @@ async fn test_approve_request_whitelist_low_risk() {
         .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
         .unwrap();
 
-    let result = flow
-        .approve_request(&request_id, ApprovalMode::WithWhitelist)
-        .await;
+    let result = flow.approve_request(&request_id, whitelist_auto()).await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 }
@@ -193,9 +199,7 @@ async fn test_approve_request_whitelist_high_risk() {
         .submit_denial(&caller, &request, RiskLevel::High, "session_1", false)
         .unwrap();
 
-    let result = flow
-        .approve_request(&request_id, ApprovalMode::WithWhitelist)
-        .await;
+    let result = flow.approve_request(&request_id, whitelist_auto()).await;
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), RejectWhitelistReason::HighRisk);
 }
@@ -253,9 +257,7 @@ async fn test_whitelist_mode_persists_rule_to_disk() {
         .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
         .unwrap();
 
-    let result = flow
-        .approve_request(&request_id, ApprovalMode::WithWhitelist)
-        .await;
+    let result = flow.approve_request(&request_id, whitelist_auto()).await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 
@@ -309,9 +311,7 @@ async fn test_on_whitelist_updated_callback_invoked() {
         .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
         .unwrap();
 
-    let result = flow
-        .approve_request(&request_id, ApprovalMode::WithWhitelist)
-        .await;
+    let result = flow.approve_request(&request_id, whitelist_auto()).await;
     assert!(result.is_ok());
     assert!(result.unwrap());
 
@@ -382,9 +382,7 @@ async fn test_whitelist_write_failure_does_not_block_approval() {
         .unwrap();
 
     // Approval should still succeed despite the write failure.
-    let result = flow
-        .approve_request(&request_id, ApprovalMode::WithWhitelist)
-        .await;
+    let result = flow.approve_request(&request_id, whitelist_auto()).await;
     assert!(result.is_ok());
     assert!(
         result.unwrap(),
@@ -432,9 +430,7 @@ async fn test_whitelist_persists_only_for_whitelist_mode() {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Second: WithWhitelist mode.
-    let r2 = flow
-        .approve_request(&id2, ApprovalMode::WithWhitelist)
-        .await;
+    let r2 = flow.approve_request(&id2, whitelist_auto()).await;
     assert!(r2.is_ok() && r2.unwrap());
     tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -464,9 +460,7 @@ async fn test_whitelist_rule_subject_matches_caller() {
         .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
         .unwrap();
 
-    let result = flow
-        .approve_request(&request_id, ApprovalMode::WithWhitelist)
-        .await;
+    let result = flow.approve_request(&request_id, whitelist_auto()).await;
     assert!(result.is_ok() && result.unwrap());
     tokio::time::sleep(Duration::from_millis(200)).await;
 

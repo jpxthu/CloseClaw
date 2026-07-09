@@ -14,6 +14,7 @@ use closeclaw_common::slash_router::{
     SlashContext, SlashHandler, SlashResult, SlashRouter, SystemAppendAction,
 };
 use closeclaw_config::agents::{AgentPermissionProvider, LazyAgentPermissions};
+use closeclaw_permission::approval::WhitelistTarget;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
@@ -497,7 +498,7 @@ impl Gateway {
         } else {
             closeclaw_permission::whitelist::build_deny_rule
         };
-        rule_fn(&caller, &body, &name).map(|r| (r, agent))
+        rule_fn(&caller, &body, &name, WhitelistTarget::Auto).map(|r| (r, agent))
     }
 
     async fn hot_reload_engine(

@@ -2,7 +2,9 @@
 //! ApprovalMode + RiskLevel boundary tests
 //!
 
-use crate::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectWhitelistReason};
+use crate::approval::{
+    ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectWhitelistReason, WhitelistTarget,
+};
 use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{Caller, PermissionRequestBody};
 
@@ -51,7 +53,12 @@ fn test_approve_whitelist_low_risk() {
         )
         .unwrap();
 
-    let result = queue.approve(&id, ApprovalMode::WithWhitelist);
+    let result = queue.approve(
+        &id,
+        ApprovalMode::WithWhitelist {
+            target: WhitelistTarget::Auto,
+        },
+    );
     assert!(result.is_ok());
     assert!(result.unwrap());
     assert_eq!(queue.pending_count(), 0);
@@ -74,7 +81,12 @@ fn test_approve_whitelist_medium_risk() {
         )
         .unwrap();
 
-    let result = queue.approve(&id, ApprovalMode::WithWhitelist);
+    let result = queue.approve(
+        &id,
+        ApprovalMode::WithWhitelist {
+            target: WhitelistTarget::Auto,
+        },
+    );
     assert!(result.is_ok());
     assert!(result.unwrap());
     assert_eq!(queue.pending_count(), 0);
@@ -97,7 +109,12 @@ fn test_approve_whitelist_high_risk() {
         )
         .unwrap();
 
-    let result = queue.approve(&id, ApprovalMode::WithWhitelist);
+    let result = queue.approve(
+        &id,
+        ApprovalMode::WithWhitelist {
+            target: WhitelistTarget::Auto,
+        },
+    );
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), RejectWhitelistReason::HighRisk);
     // Request should still be pending — not resolved
@@ -121,7 +138,12 @@ fn test_approve_whitelist_critical_risk() {
         )
         .unwrap();
 
-    let result = queue.approve(&id, ApprovalMode::WithWhitelist);
+    let result = queue.approve(
+        &id,
+        ApprovalMode::WithWhitelist {
+            target: WhitelistTarget::Auto,
+        },
+    );
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), RejectWhitelistReason::HighRisk);
     assert_eq!(queue.pending_count(), 1);
@@ -177,7 +199,12 @@ fn test_approve_once_critical_risk() {
 #[test]
 fn test_approve_nonexistent_request_id() {
     let mut queue = ApprovalQueue::new();
-    let result = queue.approve("nonexistent-id", ApprovalMode::WithWhitelist);
+    let result = queue.approve(
+        "nonexistent-id",
+        ApprovalMode::WithWhitelist {
+            target: WhitelistTarget::Auto,
+        },
+    );
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), false);
 }
@@ -208,4 +235,179 @@ fn test_deny_behavior_unchanged() {
 
     // deny on nonexistent id still returns false
     assert!(!queue.deny("nonexistent-id"));
+}
+
+// ===========================================================================
+// WhitelistTarget 枚举 + caller_to_subject 行为测试
+// ===========================================================================
+
+use crate::whitelist::caller_to_subject;
+
+fn owner_caller() -> Caller {
+    Caller {
+        user_id: "owner".to_string(),
+        agent: "test-agent".to_string(),
+        creator_id: String::new(),
+    }
+}
+
+fn non_owner_caller() -> Caller {
+    Caller {
+        user_id: "user-42".to_string(),
+        agent: "test-agent".to_string(),
+        creator_id: "creator-99".to_string(),
+    }
+}
+
+fn empty_user_caller() -> Caller {
+    Caller {
+        user_id: String::new(),
+        agent: "test-agent".to_string(),
+        creator_id: String::new(),
+    }
+}
+
+// -- WhitelistTarget::Auto --------------------------------------------------
+
+#[test]
+fn test_auto_owner_caller_produces_agent_only() {
+    let subject = caller_to_subject(&owner_caller(), WhitelistTarget::Auto);
+    assert!(subject.is_agent_only(), "Owner → AgentOnly");
+    assert_eq!(subject.agent_id(), "test-agent");
+}
+
+#[test]
+fn test_auto_non_owner_caller_produces_user_and_agent() {
+    let subject = caller_to_subject(&non_owner_caller(), WhitelistTarget::Auto);
+    assert!(subject.is_user_and_agent(), "Non-owner → UserAndAgent");
+    assert_eq!(subject.agent_id(), "test-agent");
+    assert_eq!(subject.user_id(), "user-42");
+}
+
+#[test]
+fn test_auto_empty_user_id_produces_agent_only() {
+    let subject = caller_to_subject(&empty_user_caller(), WhitelistTarget::Auto);
+    assert!(subject.is_agent_only(), "Empty user_id → AgentOnly");
+}
+
+// -- WhitelistTarget::AgentOnly --------------------------------------------
+
+#[test]
+fn test_agent_only_owner_produces_agent_only() {
+    let subject = caller_to_subject(&owner_caller(), WhitelistTarget::AgentOnly);
+    assert!(
+        subject.is_agent_only(),
+        "AgentOnly target → always AgentOnly"
+    );
+    assert_eq!(subject.agent_id(), "test-agent");
+}
+
+#[test]
+fn test_agent_only_non_owner_produces_agent_only() {
+    let subject = caller_to_subject(&non_owner_caller(), WhitelistTarget::AgentOnly);
+    assert!(
+        subject.is_agent_only(),
+        "AgentOnly target ignores caller identity"
+    );
+}
+
+#[test]
+fn test_agent_only_empty_user_produces_agent_only() {
+    let subject = caller_to_subject(&empty_user_caller(), WhitelistTarget::AgentOnly);
+    assert!(subject.is_agent_only());
+}
+
+// -- WhitelistTarget::UserAndAgent -----------------------------------------
+
+#[test]
+fn test_user_and_agent_with_user_id_produces_user_and_agent() {
+    let subject = caller_to_subject(&non_owner_caller(), WhitelistTarget::UserAndAgent);
+    assert!(
+        subject.is_user_and_agent(),
+        "UserAndAgent + user_id → UserAndAgent"
+    );
+    assert_eq!(subject.user_id(), "user-42");
+    assert_eq!(subject.agent_id(), "test-agent");
+}
+
+#[test]
+fn test_user_and_agent_empty_user_id_falls_back_to_agent_only() {
+    let subject = caller_to_subject(&empty_user_caller(), WhitelistTarget::UserAndAgent);
+    assert!(
+        subject.is_agent_only(),
+        "UserAndAgent + empty user_id → fallback AgentOnly"
+    );
+}
+
+#[test]
+fn test_user_and_agent_owner_with_user_id_produces_user_and_agent() {
+    // Even owner caller, when target is UserAndAgent and user_id is present,
+    // should produce UserAndAgent (target overrides Auto inference).
+    let caller = Caller {
+        user_id: "owner".to_string(),
+        agent: "test-agent".to_string(),
+        creator_id: String::new(),
+    };
+    let subject = caller_to_subject(&caller, WhitelistTarget::UserAndAgent);
+    assert!(
+        subject.is_user_and_agent(),
+        "UserAndAgent target + non-empty user_id"
+    );
+    assert_eq!(subject.user_id(), "owner");
+}
+
+// -- approve() with new WithWhitelist signature ----------------------------
+
+#[test]
+fn test_approve_with_agent_only_target_low_risk() {
+    let mut queue = ApprovalQueue::new();
+    let id = queue
+        .enqueue(
+            make_file_op("a"),
+            dummy_caller(),
+            "low risk op".to_string(),
+            RiskLevel::Low,
+            "resume-1".to_string(),
+            Box::new(|result| {
+                assert_eq!(result, ApproveOrDeny::Approve);
+            }),
+        )
+        .unwrap();
+
+    let result = queue.approve(
+        &id,
+        ApprovalMode::WithWhitelist {
+            target: WhitelistTarget::AgentOnly,
+        },
+    );
+    assert!(result.is_ok());
+    assert!(result.unwrap());
+    assert_eq!(queue.pending_count(), 0);
+}
+
+#[test]
+fn test_approve_with_user_and_agent_target_medium_risk() {
+    let mut queue = ApprovalQueue::new();
+    let id = queue
+        .enqueue(
+            make_file_op("a"),
+            dummy_caller(),
+            "medium risk op".to_string(),
+            RiskLevel::Medium,
+            "resume-1".to_string(),
+            Box::new(|result| {
+                assert_eq!(result, ApproveOrDeny::Approve);
+            }),
+        )
+        .unwrap();
+
+    let result = queue.approve(
+        &id,
+        ApprovalMode::WithWhitelist {
+            target: WhitelistTarget::UserAndAgent,
+        },
+    );
+    assert!(result.is_ok());
+    assert!(result.unwrap());
+    assert_eq!(queue.pending_count(), 0);
 }
