@@ -97,7 +97,10 @@
 //! High-risk operations are rejected with [`RejectWhitelistReason::HighRisk`]:
 //!
 //! ```
-//! use closeclaw::permission::approval::{ApprovalQueue, ApprovalMode, RejectWhitelistReason, WhitelistTarget};
+//! use closeclaw::permission::approval::{
+//!     ApprovalQueue, ApprovalMode, RejectWhitelistReason,
+//!     WhitelistTarget,
+//! };
 //! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody};
 //! use closeclaw::permission::engine::engine_risk::RiskLevel;
 //!
