@@ -148,7 +148,7 @@ async fn is_session_sub_agent(session_manager: &Arc<SessionManager>, session_id:
     session_manager
         .get_session_depth(session_id)
         .await
-        .map_or(false, |depth| depth > 0)
+        .is_some_and(|depth| depth > 0)
 }
 
 /// First-level check: verify the agent is allowed to invoke the given tool.
