@@ -281,6 +281,7 @@ mod tests {
         let rules = crate::engine::RuleSet {
             rules: vec![],
             defaults: Default::default(),
+            user_defaults: crate::engine::Defaults::user_defaults(),
             template_includes: vec![],
             agent_creators: Default::default(),
         };

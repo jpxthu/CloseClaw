@@ -91,6 +91,7 @@ fn dummy_rules() -> RuleSet {
     RuleSet {
         rules: vec![],
         defaults: Defaults::default(),
+        user_defaults: Defaults::user_defaults(),
         template_includes: vec![],
         agent_creators: Default::default(),
     }

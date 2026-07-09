@@ -262,7 +262,7 @@ impl PermissionEngine {
         // Owner shortcut: skip User phase entirely, Agent result is final
         if is_owner {
             let response = agent_result.unwrap_or_else(|| {
-                self.default_deny(request.body(), &rules.defaults, "no matching rule")
+                self.default_response(request.body(), &rules.defaults, "no matching rule")
             });
             self.log_rejection(&response, request.body());
             info!(
@@ -309,7 +309,16 @@ impl PermissionEngine {
                     context_modifier: None,
                 }
             }
-            _ => self.default_deny(request.body(), &rules.defaults, "no matching rule"),
+            _ => {
+                // Non-Owner user with user_id: use user_defaults (all Deny)
+                // Empty user_id / system caller: use defaults (Agent defaults)
+                let defaults_ref = if !caller.user_id.is_empty() {
+                    &rules.user_defaults
+                } else {
+                    &rules.defaults
+                };
+                self.default_response(request.body(), defaults_ref, "no matching rule")
+            }
         };
         self.log_rejection(&response, request.body());
         info!(
@@ -678,8 +687,8 @@ impl PermissionEngine {
 // --- Default & action matching ---
 
 impl PermissionEngine {
-    /// Get default action when no rule matches.
-    fn default_deny(
+    /// Get default response when no rule matches.
+    fn default_response(
         &self,
         request: &PermissionRequestBody,
         defaults: &Defaults,

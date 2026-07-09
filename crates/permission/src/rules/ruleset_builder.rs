@@ -1,12 +1,36 @@
 use crate::engine::{Defaults, Effect, Rule, RuleSet};
 
 /// Builder for constructing [`RuleSet`] instances.
-#[derive(Debug, Default)]
 pub struct RuleSetBuilder {
     rules: Vec<Rule>,
     defaults: Defaults,
+    user_defaults: Defaults,
     template_includes: Vec<String>,
     agent_creators: std::collections::HashMap<String, String>,
+}
+
+impl Default for RuleSetBuilder {
+    fn default() -> Self {
+        Self {
+            rules: Vec::new(),
+            defaults: Defaults::default(),
+            user_defaults: Defaults::user_defaults(),
+            template_includes: Vec::new(),
+            agent_creators: std::collections::HashMap::new(),
+        }
+    }
+}
+
+impl std::fmt::Debug for RuleSetBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RuleSetBuilder")
+            .field("rules", &self.rules)
+            .field("defaults", &self.defaults)
+            .field("user_defaults", &self.user_defaults)
+            .field("template_includes", &self.template_includes)
+            .field("agent_creators", &self.agent_creators)
+            .finish()
+    }
 }
 
 impl RuleSetBuilder {
@@ -27,9 +51,15 @@ impl RuleSetBuilder {
         self
     }
 
-    /// Set the defaults.
+    /// Set the defaults (Agent phase).
     pub fn defaults(mut self, defaults: Defaults) -> Self {
         self.defaults = defaults;
+        self
+    }
+
+    /// Set the user defaults (User phase).
+    pub fn user_defaults(mut self, user_defaults: Defaults) -> Self {
+        self.user_defaults = user_defaults;
         self
     }
 
@@ -80,6 +110,7 @@ impl RuleSetBuilder {
         Ok(RuleSet {
             rules: self.rules,
             defaults: self.defaults,
+            user_defaults: self.user_defaults,
             template_includes: self.template_includes,
             agent_creators: self.agent_creators,
         })
