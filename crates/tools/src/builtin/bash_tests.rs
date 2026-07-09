@@ -10,10 +10,10 @@ use closeclaw_permission::approval_flow::HeartbeatApprovalMode;
 use serde_json::json;
 use tempfile::TempDir;
 
-fn test_permission_engine() -> Arc<PermissionEngine> {
+fn test_permission_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
     use closeclaw_permission::rules::RuleSetBuilder;
-    Arc::new(PermissionEngine::new_with_default_data_root(
-        RuleSetBuilder::new().build().unwrap(),
+    Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
     ))
 }
 
@@ -119,16 +119,6 @@ fn test_config_manager() -> Arc<closeclaw_config::ConfigManager> {
         closeclaw_config::ConfigManager::new(tmp.path().to_path_buf())
             .expect("ConfigManager::new should succeed"),
     )
-}
-
-fn test_mock_approval_flow() -> Arc<TokioMutex<ApprovalFlow>> {
-    Arc::new(TokioMutex::new(ApprovalFlow::new(
-        Arc::clone(&test_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
-        Arc::new(|_| {}),
-        tokio::runtime::Handle::current(),
-        HeartbeatApprovalMode::default(),
-        std::env::temp_dir(),
-    )))
 }
 
 fn test_tool_context() -> ToolContext {
@@ -252,7 +242,7 @@ async fn test_bash_tool_name_and_group() {
         test_bg_manager(),
         test_session_manager(),
         test_config_manager(),
-        test_mock_approval_flow(),
+        correct_approval_flow(),
     );
     assert_eq!(tool.name(), "Bash");
     assert_eq!(tool.group(), "bash");
@@ -265,7 +255,7 @@ async fn test_bash_tool_flags() {
         test_bg_manager(),
         test_session_manager(),
         test_config_manager(),
-        test_mock_approval_flow(),
+        correct_approval_flow(),
     );
     let flags = tool.flags();
     assert!(flags.is_destructive);
@@ -281,7 +271,7 @@ async fn test_input_schema_command_required() {
         test_bg_manager(),
         test_session_manager(),
         test_config_manager(),
-        test_mock_approval_flow(),
+        correct_approval_flow(),
     );
     let schema = tool.input_schema();
     let required = schema["required"].as_array().unwrap();
@@ -295,7 +285,7 @@ async fn test_input_schema_six_properties() {
         test_bg_manager(),
         test_session_manager(),
         test_config_manager(),
-        test_mock_approval_flow(),
+        correct_approval_flow(),
     );
     let schema = tool.input_schema();
     let props = schema["properties"].as_object().unwrap();
@@ -595,4 +585,207 @@ async fn test_handle_foreground_result_returns_foreground_on_success() {
         "foreground result must not set assistantAutoBackgrounded=true, got: {}",
         flag
     );
+}
+
+// ---------------------------------------------------------------------------
+// Step 1.5: Two-level permission tests for BashTool
+// ---------------------------------------------------------------------------
+
+use closeclaw_permission::engine::engine_types::{Action, Effect};
+use closeclaw_permission::rules::RuleSetBuilder;
+use closeclaw_permission::Defaults;
+
+fn make_perm_engine(rules: Vec<R>) -> Arc<tokio::sync::RwLock<PermissionEngine>> {
+    let rs = RuleSetBuilder::new()
+        .rules(rules)
+        .defaults(Defaults {
+            tool_call: Effect::Deny,
+            command: Effect::Deny,
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(rs),
+    ))
+}
+
+type R = closeclaw_permission::engine::Rule;
+
+fn allow_tool_rule(agent: &str, skill: &str) -> R {
+    R {
+        name: format!("allow-{skill}"),
+        subject: R::parse_subject(agent),
+        effect: Effect::Allow,
+        actions: vec![Action::ToolCall {
+            skill: skill.to_string(),
+            methods: vec!["call".to_string()],
+        }],
+        template: None,
+        priority: 0,
+    }
+}
+
+fn allow_cmd_rule(agent: &str, cmd: &str) -> R {
+    R {
+        name: format!("allow-cmd-{cmd}"),
+        subject: R::parse_subject(agent),
+        effect: Effect::Allow,
+        actions: vec![Action::Command {
+            command: cmd.to_string(),
+            args: Default::default(),
+        }],
+        template: None,
+        priority: 0,
+    }
+}
+
+fn correct_approval_flow() -> Arc<TokioMutex<ApprovalFlow>> {
+    Arc::new(TokioMutex::new(ApprovalFlow::new(
+        Arc::clone(&test_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
+        Arc::new(|_| {}),
+        Arc::new(|_: &str| {}),
+        tokio::runtime::Handle::current(),
+        HeartbeatApprovalMode::default(),
+        std::env::temp_dir(),
+    )))
+}
+
+/// Denying approval flow — submit_denial returns None (hard deny path).
+fn deny_approval_flow() -> Arc<TokioMutex<ApprovalFlow>> {
+    Arc::new(TokioMutex::new(ApprovalFlow::new_deny_all(
+        Arc::clone(&test_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
+        Arc::new(|_| {}),
+        Arc::new(|_: &str| {}),
+        tokio::runtime::Handle::current(),
+        HeartbeatApprovalMode::default(),
+        std::env::temp_dir(),
+    )))
+}
+
+#[tokio::test]
+async fn test_bash_level1_allow_level2_allow_executes() {
+    let perm = make_perm_engine(vec![
+        allow_tool_rule("a", "bash"),
+        allow_cmd_rule("a", "echo"),
+    ]);
+    let tool = BashTool::new(
+        perm,
+        test_bg_manager(),
+        test_session_manager(),
+        test_config_manager(),
+        correct_approval_flow(),
+    );
+    let args = json!({ "command": "echo hi" });
+    let ctx = ToolContext {
+        agent_id: "a".into(),
+        workdir: None,
+        session_id: None,
+        call_id: None,
+        session: None,
+        session_mode: None,
+    };
+    let result = tool.call(args, &ctx).await;
+    assert!(result.is_ok(), "should execute: {:?}", result);
+    assert!(result.unwrap().data["exitCode"] == json!(0));
+}
+
+#[tokio::test]
+async fn test_bash_level1_deny_blocks_execution() {
+    let perm = make_perm_engine(vec![allow_cmd_rule("a", "echo")]);
+    let tool = BashTool::new(
+        perm,
+        test_bg_manager(),
+        test_session_manager(),
+        test_config_manager(),
+        deny_approval_flow(),
+    );
+    let args = json!({ "command": "echo hi" });
+    let ctx = ToolContext {
+        agent_id: "a".into(),
+        workdir: None,
+        session_id: None,
+        call_id: None,
+        session: None,
+        session_mode: None,
+    };
+    let result = tool.call(args, &ctx).await;
+    assert!(result.is_err(), "level1 should block");
+}
+
+#[tokio::test]
+async fn test_bash_level1_allow_level2_deny_routes_to_sandbox() {
+    let perm = make_perm_engine(vec![allow_tool_rule("a", "bash")]);
+    let tool = BashTool::new(
+        perm,
+        test_bg_manager(),
+        test_session_manager(),
+        test_config_manager(),
+        correct_approval_flow(),
+    );
+    let args = json!({ "command": "rm -rf /tmp/x" });
+    let ctx = ToolContext {
+        agent_id: "a".into(),
+        workdir: None,
+        session_id: None,
+        call_id: None,
+        session: None,
+        session_mode: None,
+    };
+    // Level 2 denied → sandboxed execution (not rejected)
+    let result = tool.call(args, &ctx).await;
+    assert!(
+        result.is_ok(),
+        "denied command should be sandboxed, not rejected: {:?}",
+        result
+    );
+}
+
+#[tokio::test]
+async fn test_bash_empty_command_rejected() {
+    let perm = make_perm_engine(vec![
+        allow_tool_rule("a", "bash"),
+        allow_cmd_rule("a", "echo"),
+    ]);
+    let tool = BashTool::new(
+        perm,
+        test_bg_manager(),
+        test_session_manager(),
+        test_config_manager(),
+        correct_approval_flow(),
+    );
+    let args = json!({ "command": "" });
+    let ctx = ToolContext {
+        agent_id: "a".into(),
+        workdir: None,
+        session_id: None,
+        call_id: None,
+        session: None,
+        session_mode: None,
+    };
+    let result = tool.call(args, &ctx).await;
+    assert!(matches!(result, Err(ToolCallError::InvalidArgs(_))));
+}
+
+#[tokio::test]
+async fn test_bash_missing_command_rejected() {
+    let perm = make_perm_engine(vec![allow_tool_rule("a", "bash")]);
+    let tool = BashTool::new(
+        perm,
+        test_bg_manager(),
+        test_session_manager(),
+        test_config_manager(),
+        correct_approval_flow(),
+    );
+    let args = json!({});
+    let ctx = ToolContext {
+        agent_id: "a".into(),
+        workdir: None,
+        session_id: None,
+        call_id: None,
+        session: None,
+        session_mode: None,
+    };
+    let result = tool.call(args, &ctx).await;
+    assert!(matches!(result, Err(ToolCallError::InvalidArgs(_))));
 }

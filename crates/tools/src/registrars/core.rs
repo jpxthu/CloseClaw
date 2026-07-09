@@ -65,11 +65,61 @@ impl ToolRegistrar for CoreToolsRegistrar {
     ) -> Result<(), ToolRegistrarError> {
         let mut registered = 0usize;
         let r = self.name();
-        try_register!(registry, registered, ReadTool::new(), r);
-        try_register!(registry, registered, WriteTool::new(), r);
-        try_register!(registry, registered, EditTool::new(), r);
-        try_register!(registry, registered, GrepTool::new(), r);
-        try_register!(registry, registered, LsTool::new(), r);
+        try_register!(
+            registry,
+            registered,
+            ReadTool::new(
+                self.permission_engine.clone(),
+                self.session_manager.clone(),
+                self.config_manager.clone(),
+                self.approval_flow.clone(),
+            ),
+            r
+        );
+        try_register!(
+            registry,
+            registered,
+            WriteTool::new(
+                self.permission_engine.clone(),
+                self.session_manager.clone(),
+                self.config_manager.clone(),
+                self.approval_flow.clone(),
+            ),
+            r
+        );
+        try_register!(
+            registry,
+            registered,
+            EditTool::new(
+                self.permission_engine.clone(),
+                self.session_manager.clone(),
+                self.config_manager.clone(),
+                self.approval_flow.clone(),
+            ),
+            r
+        );
+        try_register!(
+            registry,
+            registered,
+            GrepTool::new(
+                self.permission_engine.clone(),
+                self.session_manager.clone(),
+                self.config_manager.clone(),
+                self.approval_flow.clone(),
+            ),
+            r
+        );
+        try_register!(
+            registry,
+            registered,
+            LsTool::new(
+                self.permission_engine.clone(),
+                self.session_manager.clone(),
+                self.config_manager.clone(),
+                self.approval_flow.clone(),
+            ),
+            r
+        );
         try_register!(registry, registered, ToolSearchTool::new(), r);
         try_register!(registry, registered, PermissionQueryTool::new(), r);
         try_register!(registry, registered, GitStatusTool::new(), r);
