@@ -58,3 +58,4 @@ closeclaw-im-adapter = { path = "../im_adapter" }
 closeclaw-processor-chain = { path = "../processor_chain" }
 tempfile = "3.10"
 serial_test = "3.4"
+tracing-subscriber = { version = "=0.3.17", features = ["env-filter", "json"] }

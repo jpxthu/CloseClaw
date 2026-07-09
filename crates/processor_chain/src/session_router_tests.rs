@@ -474,3 +474,186 @@ async fn test_account_id_read_from_raw_message() {
         "account_id should be read from NormalizedMessage, not metadata"
     );
 }
+
+// -----------------------------------------------------------------------
+// warn log verification tests
+// -----------------------------------------------------------------------
+
+use std::sync::{Arc, Mutex};
+use tracing::field::Field;
+use tracing::Subscriber;
+
+/// A subscriber that captures warn-level events for test assertions.
+struct WarnCapture {
+    events: Arc<Mutex<Vec<String>>>,
+}
+
+impl WarnCapture {
+    fn new() -> (Self, Arc<Mutex<Vec<String>>>) {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        (
+            Self {
+                events: events.clone(),
+            },
+            events,
+        )
+    }
+}
+
+impl Subscriber for WarnCapture {
+    fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
+        *metadata.level() == tracing::Level::WARN
+    }
+
+    fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+
+    fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+
+    fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+
+    fn event(&self, event: &tracing::Event<'_>) {
+        if *event.metadata().level() == tracing::Level::WARN {
+            struct MsgVisitor<'a> {
+                msg: &'a mut String,
+            }
+            impl<'a> tracing::field::Visit for MsgVisitor<'a> {
+                fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+                    if field.name() == "message" {
+                        self.msg.push_str(&format!("{:?}", value));
+                    }
+                }
+            }
+            let mut msg = String::new();
+            event.record(&mut MsgVisitor { msg: &mut msg });
+            self.events.lock().unwrap().push(msg);
+        }
+    }
+
+    fn enter(&self, _span: &tracing::span::Id) {}
+    fn exit(&self, _span: &tracing::span::Id) {}
+}
+
+#[tokio::test]
+async fn test_warn_log_when_from_empty() {
+    let router = make_router(DmScope::PerChannelPeer);
+    let msg = NormalizedMessage {
+        platform: "feishu".to_string(),
+        sender_id: String::new(), // from is empty
+        peer_id: "oc_chat".to_string(),
+        content: "hello".to_string(),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        thread_id: None,
+        account_id: String::new(),
+    };
+    let ctx = make_ctx(msg);
+
+    let (subscriber, events) = WarnCapture::new();
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    let result = router.process(&ctx).await.unwrap().unwrap();
+    let key = result
+        .metadata
+        .get("session_key")
+        .map(|s| s.as_str())
+        .unwrap_or("");
+    assert!(
+        key.is_empty(),
+        "session_key should be empty when from is empty"
+    );
+
+    // Verify warn log was emitted
+    let captured = events.lock().unwrap();
+    assert!(
+        !captured.is_empty(),
+        "warn log should be emitted when from is empty"
+    );
+    assert!(
+        captured[0].contains("SessionRouter"),
+        "warn should mention SessionRouter: {}",
+        captured[0]
+    );
+}
+
+#[tokio::test]
+async fn test_warn_log_when_to_empty() {
+    let router = make_router(DmScope::PerChannelPeer);
+    let msg = NormalizedMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user".to_string(),
+        peer_id: String::new(), // to is empty
+        content: "hello".to_string(),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        thread_id: None,
+        account_id: String::new(),
+    };
+    let ctx = make_ctx(msg);
+
+    let (subscriber, events) = WarnCapture::new();
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    let result = router.process(&ctx).await.unwrap().unwrap();
+    let key = result
+        .metadata
+        .get("session_key")
+        .map(|s| s.as_str())
+        .unwrap_or("");
+    assert!(
+        key.is_empty(),
+        "session_key should be empty when to is empty"
+    );
+
+    let captured = events.lock().unwrap();
+    assert!(
+        !captured.is_empty(),
+        "warn log should be emitted when to is empty"
+    );
+    assert!(
+        captured[0].contains("SessionRouter"),
+        "warn should mention SessionRouter: {}",
+        captured[0]
+    );
+}
+
+#[tokio::test]
+async fn test_no_warn_log_when_both_present() {
+    let router = make_router(DmScope::PerChannelPeer);
+    let msg = NormalizedMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user".to_string(),
+        peer_id: "oc_chat".to_string(),
+        content: "hello".to_string(),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        thread_id: None,
+        account_id: String::new(),
+    };
+    let ctx = make_ctx(msg);
+
+    let (subscriber, events) = WarnCapture::new();
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    let result = router.process(&ctx).await.unwrap().unwrap();
+    let key = result
+        .metadata
+        .get("session_key")
+        .map(|s| s.as_str())
+        .unwrap_or("");
+    assert!(
+        !key.is_empty(),
+        "session_key should be non-empty when both present"
+    );
+
+    let captured = events.lock().unwrap();
+    assert!(
+        captured.is_empty(),
+        "no warn log should be emitted when both from and to are present, got: {:?}",
+        *captured
+    );
+}
