@@ -1,4 +1,4 @@
-use crate::fs::{expand_home, normalize_path};
+use crate::fs::{check_executable, check_readable, check_writable, expand_home, normalize_path};
 use std::path::{Path, PathBuf};
 
 #[test]
@@ -96,4 +96,44 @@ fn test_expand_home_localappdata() {
 fn test_expand_home_literal_percent_no_var() {
     let result = expand_home(Path::new("%NOVAR%/x"));
     assert_eq!(result, PathBuf::from("%NOVAR%/x"));
+}
+
+#[test]
+fn test_check_readable_existing_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("readable.txt");
+    std::fs::write(&file, b"hello").unwrap();
+    assert!(check_readable(&file));
+}
+
+#[test]
+fn test_check_readable_nonexistent_file() {
+    assert!(!check_readable(Path::new(
+        "/tmp/_nonexistent_closeclaw_test_file"
+    )));
+}
+
+#[test]
+fn test_check_writable_existing_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("writable.txt");
+    std::fs::write(&file, b"hello").unwrap();
+    assert!(check_writable(&file));
+}
+
+#[test]
+fn test_check_writable_nonexistent_file() {
+    assert!(!check_writable(Path::new(
+        "/tmp/_nonexistent_closeclaw_test_file"
+    )));
+}
+
+#[test]
+fn test_check_executable_directory() {
+    // Directories typically have the execute bit set on Unix
+    let dir = tempfile::tempdir().unwrap();
+    #[cfg(unix)]
+    assert!(check_executable(dir.path()));
+    #[cfg(not(unix))]
+    assert!(check_executable(dir.path()));
 }

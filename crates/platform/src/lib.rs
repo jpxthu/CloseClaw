@@ -10,7 +10,9 @@ pub mod process;
 pub mod terminal;
 
 pub use config::config_dir;
-pub use fs::{expand_home, normalize_path};
+pub use fs::{
+    check_executable, check_readable, check_writable, expand_home, normalize_path, set_executable,
+};
 pub use process::{
     pid_file_path, read_pid_file, send_signal, wait_for_shutdown_signal, write_pid_file,
 };
