@@ -3,9 +3,6 @@
 //! Provides `send_shutdown_progress_card()` and `send_shutdown_final_card()`
 //! for displaying real-time shutdown status to users via IM adapters.
 
-use std::sync::Arc;
-
-use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::shutdown::ShutdownMode;
 use serde_json::json;
