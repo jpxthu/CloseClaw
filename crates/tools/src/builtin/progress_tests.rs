@@ -24,6 +24,7 @@ fn test_ctx() -> crate::ToolContext {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     }
 }
 

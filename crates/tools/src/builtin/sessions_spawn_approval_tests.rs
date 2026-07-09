@@ -94,6 +94,7 @@ fn make_ctx(session_id: &str) -> ToolContext {
         call_id: None,
         session: None,
         session_mode: None,
+        manual_background_signal: None,
     }
 }
 
@@ -308,6 +309,7 @@ fn make_ctx_with_mode(
         call_id: None,
         session: None,
         session_mode,
+        manual_background_signal: None,
     }
 }
 

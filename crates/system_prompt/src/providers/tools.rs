@@ -52,6 +52,7 @@ impl ToolsFragmentProvider {
             call_id: None,
             session: None,
             session_mode,
+            manual_background_signal: None,
         }
     }
 }

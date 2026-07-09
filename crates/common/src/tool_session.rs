@@ -56,4 +56,14 @@ pub trait ToolSession: Send + Sync {
     /// The session retains the handle until the call completes or is
     /// cancelled.
     async fn register_tool_handle(&self, call_id: String, handle: Arc<dyn KillHandle>);
+
+    /// Returns a reference to the manual backgrounding notify signal.
+    ///
+    /// Tools can await `signal.notified()` inside `tokio::select!`
+    /// to react to user-initiated manual backgrounding requests.
+    /// Returns `None` if the session does not support manual
+    /// backgrounding (e.g. test doubles).
+    fn manual_background_notify(&self) -> Option<Arc<tokio::sync::Notify>> {
+        None
+    }
 }
