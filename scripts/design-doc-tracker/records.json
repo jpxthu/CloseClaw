@@ -339,9 +339,9 @@
     "path": "docs/design/permission/README.md",
     "commit": "",
     "commit_time": "",
-    "confirmed_time": "2026-07-10T00:44:40.768697+08:00",
+    "confirmed_time": "2026-07-10T03:36:03.908318+08:00",
     "comment": "",
-    "blocked_reason": "dimension_count_mismatch_readme_says_8_subdoc_says_7"
+    "blocked_reason": "doc_internal_conflict: permission-dimensions title says 7 dimensions but lists 8; spawn intersect missing message dimension"
   },
   {
     "path": "docs/design/permission/approval-workflow.md",
