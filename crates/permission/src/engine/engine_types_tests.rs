@@ -84,6 +84,36 @@ fn test_dimension_name_config_write() {
 }
 
 #[test]
+fn test_defaults_message_is_allow() {
+    let defaults = super::Defaults::default();
+    assert_eq!(defaults.message, super::Effect::Allow);
+}
+
+#[test]
+fn test_defaults_json_missing_message() {
+    // Old config without `message` field should deserialize with default Allow
+    let json = r#"{"file":"deny","command":"deny","network":"deny","inter_agent":"deny","config":"deny","tool_call":"deny"}"#;
+    let defaults: super::Defaults = serde_json::from_str(json).unwrap();
+    assert_eq!(defaults.message, super::Effect::Allow);
+    assert_eq!(defaults.file, super::Effect::Deny);
+    assert_eq!(defaults.tool_call, super::Effect::Deny);
+}
+
+#[test]
+fn test_defaults_json_with_message_allow() {
+    let json = r#"{"message":"allow"}"#;
+    let defaults: super::Defaults = serde_json::from_str(json).unwrap();
+    assert_eq!(defaults.message, super::Effect::Allow);
+}
+
+#[test]
+fn test_defaults_json_with_message_deny() {
+    let json = r#"{"message":"deny"}"#;
+    let defaults: super::Defaults = serde_json::from_str(json).unwrap();
+    assert_eq!(defaults.message, super::Effect::Deny);
+}
+
+#[test]
 fn test_dimension_name_slash_command() {
     let body = PermissionRequestBody::SlashCommand {
         agent: "a".to_string(),

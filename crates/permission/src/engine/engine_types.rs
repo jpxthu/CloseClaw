@@ -23,7 +23,7 @@ pub struct RuleSet {
 }
 
 /// Default permissions for each action type
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Defaults {
     #[serde(default = "default_deny")]
     pub file: Effect,
@@ -39,6 +39,20 @@ pub struct Defaults {
     pub tool_call: Effect,
     #[serde(default = "default_allow")]
     pub message: Effect,
+}
+
+impl Default for Defaults {
+    fn default() -> Self {
+        Self {
+            file: Effect::Deny,
+            command: Effect::Deny,
+            network: Effect::Deny,
+            inter_agent: Effect::Deny,
+            config: Effect::Deny,
+            tool_call: Effect::Deny,
+            message: Effect::Allow,
+        }
+    }
 }
 fn default_deny() -> Effect {
     Effect::Deny
