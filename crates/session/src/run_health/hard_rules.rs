@@ -137,7 +137,7 @@ impl HardRuleEngine {
             // Use the first violation's category as the suggested category.
             // If multiple violations exist, they are all recorded but the
             // first one drives the recovery strategy.
-            let suggested_category = violations.first().map(|v| FailureCategory::from(v));
+            let suggested_category = violations.first().map(FailureCategory::from);
 
             HealthCheckOutput {
                 status: HealthStatus::Unhealthy(

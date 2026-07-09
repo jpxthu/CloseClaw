@@ -1,7 +1,7 @@
-/// Types for session run health detection and failure classification.
-///
-/// These types are consumed only by the session crate and do not
-/// meet the common-crate admission threshold, so they live here.
+//! Types for session run health detection and failure classification.
+//!
+//! These types are consumed only by the session crate and do not
+//! meet the common-crate admission threshold, so they live here.
 
 /// Overall health status of a session turn.
 #[derive(Debug, Clone, PartialEq, Eq)]
