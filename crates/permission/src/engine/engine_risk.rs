@@ -243,6 +243,69 @@ mod tests {
         assert_eq!(assess_risk_level(&request), RiskLevel::Low);
     }
 
+    // ── is_destructive_rm edge cases ──────────────────────────────────────
+
+    #[test]
+    fn test_rm_recursive_long_flag_returns_high() {
+        let request = PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "rm".to_string(),
+            args: vec!["--recursive".to_string(), "/tmp/dir".to_string()],
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::High);
+    }
+
+    #[test]
+    fn test_rm_uppercase_r_with_path_returns_high() {
+        let request = PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "rm".to_string(),
+            args: vec!["-R".to_string(), "/var/log".to_string()],
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::High);
+    }
+
+    #[test]
+    fn test_rm_fr_combined_returns_high() {
+        let request = PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "rm".to_string(),
+            args: vec!["-fr".to_string(), "/home/user".to_string()],
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::High);
+    }
+
+    #[test]
+    fn test_rm_empty_args_returns_low() {
+        let request = PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "rm".to_string(),
+            args: vec![],
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_echo_rm_rf_not_matched() {
+        // "echo" is the command, not "rm" — should not match.
+        let request = PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "echo".to_string(),
+            args: vec!["rm".to_string(), "-rf".to_string()],
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_rm_recursive_force_long_flag_returns_high() {
+        let request = PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "rm".to_string(),
+            args: vec!["--recursive".to_string(), "--force".to_string()],
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::High);
+    }
+
     #[test]
     fn test_normal_file_returns_low() {
         let request = PermissionRequestBody::FileOp {
