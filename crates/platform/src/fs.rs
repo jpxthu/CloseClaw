@@ -16,12 +16,37 @@ pub fn normalize_path(path: &Path) -> PathBuf {
 
 /// Expands `~` at the start of a path to the user's home directory.
 ///
-/// On Windows, also expands `%APPDATA%`.
+/// Also expands `%VAR%`-style environment variable prefixes. Common Windows
+/// variables include `%APPDATA%`, `%LOCALAPPDATA%`, `%USERPROFILE%`, etc.
+/// If the environment variable is not set, the original path is returned
+/// unchanged.
+///
+/// # Examples
+///
+/// ```
+/// # use std::path::Path;
+/// # use closeclaw_platform::fs::expand_home;
+/// // `~` expands to $HOME
+/// // expand_home(Path::new("~/foo"));
+///
+/// // `%APPDATA%` expands to $APPDATA
+/// // expand_home(Path::new("%APPDATA%/foo"));
+/// ```
 pub fn expand_home(path: &Path) -> PathBuf {
     let s = path.to_string_lossy();
     if let Some(rest) = s.strip_prefix("~/") {
         if let Ok(home) = std::env::var("HOME") {
             return PathBuf::from(home).join(rest);
+        }
+    }
+    if let Some(rest) = s.strip_prefix("%") {
+        if let Some(var_end) = rest.find('%') {
+            let var_name = &rest[..var_end];
+            if !var_name.is_empty() {
+                if let Ok(val) = std::env::var(var_name) {
+                    return PathBuf::from(val).join(&rest[var_end + 1..]);
+                }
+            }
         }
     }
     path.to_path_buf()
