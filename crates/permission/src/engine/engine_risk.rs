@@ -42,25 +42,17 @@ fn path_has_git(path: &str) -> bool {
     path.contains("/.git/") || path.ends_with("/.git") || path == ".git"
 }
 
-/// Check if this is a bare `rm -rf` (no specific path in args).
-/// Bare means: cmd="rm" and args contain only force/recursive flags without actual paths.
-fn is_bare_rm_rf(cmd: &str, args: &[String]) -> bool {
+/// Check if this is a destructive `rm` command.
+///
+/// Matches `rm` with any flag combination that includes recursive semantics:
+/// `-r`, `-R`, `-rf`, `-fr`, or `--recursive`. Force-only (`-f`) without
+/// recursion is excluded because it does not perform recursive deletion.
+fn is_destructive_rm(cmd: &str, args: &[String]) -> bool {
     if cmd != "rm" {
         return false;
     }
-    // Collect non-flag args (paths)
-    let has_path = args.iter().any(|arg| !arg.starts_with('-'));
-    if has_path {
-        return false;
-    }
-    // Must have at least one of -f, -r, -rf, -fr
-    let has_force_or_recursive = args.iter().any(|arg| {
-        matches!(
-            arg.as_str(),
-            "-f" | "-r" | "-rf" | "-fr" | "--force" | "--recursive"
-        )
-    });
-    has_force_or_recursive
+    args.iter()
+        .any(|arg| matches!(arg.as_str(), "-r" | "-R" | "-rf" | "-fr" | "--recursive"))
 }
 
 const HIGH_RISK_PATTERNS: &[RiskPattern] = &[
@@ -112,10 +104,12 @@ const HIGH_RISK_PATTERNS: &[RiskPattern] = &[
             _ => None,
         },
     },
-    // Bare rm -rf → High
+    // Destructive rm (with recursive flag) → High
     RiskPattern {
         matches: |request| match request {
-            PermissionRequestBody::CommandExec { cmd, args, .. } if is_bare_rm_rf(cmd, args) => {
+            PermissionRequestBody::CommandExec { cmd, args, .. }
+                if is_destructive_rm(cmd, args) =>
+            {
                 Some(RiskLevel::High)
             }
             _ => None,
@@ -190,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bare_rm_rf_returns_high() {
+    fn test_destructive_rm_bare_rf_returns_high() {
         let request = PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "rm".to_string(),
@@ -200,7 +194,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bare_rm_f_r_returns_high() {
+    fn test_destructive_rm_f_r_returns_high() {
         let request = PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "rm".to_string(),
@@ -210,11 +204,41 @@ mod tests {
     }
 
     #[test]
-    fn test_rm_with_path_returns_low() {
+    fn test_destructive_rm_rf_with_path_returns_high() {
         let request = PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "rm".to_string(),
             args: vec!["-rf".to_string(), "/tmp/foo".to_string()],
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::High);
+    }
+
+    #[test]
+    fn test_destructive_rm_r_with_path_returns_high() {
+        let request = PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "rm".to_string(),
+            args: vec!["-r".to_string(), "/important/path".to_string()],
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::High);
+    }
+
+    #[test]
+    fn test_rm_force_only_returns_low() {
+        let request = PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "rm".to_string(),
+            args: vec!["-f".to_string(), "file.txt".to_string()],
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_rm_no_flags_returns_low() {
+        let request = PermissionRequestBody::CommandExec {
+            agent: "test-agent".to_string(),
+            cmd: "rm".to_string(),
+            args: vec!["file.txt".to_string()],
         };
         assert_eq!(assess_risk_level(&request), RiskLevel::Low);
     }

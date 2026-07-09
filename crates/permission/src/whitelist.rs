@@ -14,6 +14,7 @@
 
 use std::path::Path;
 
+use crate::approval::WhitelistTarget;
 use crate::engine::engine_types::{
     Action, Caller, CommandArgs, Effect, PermissionRequestBody, Rule, RuleSet, Subject,
 };
@@ -60,24 +61,48 @@ pub fn request_body_to_action(body: &PermissionRequestBody) -> Option<Action> {
     }
 }
 
-/// Convert a [`Caller`] into the appropriate [`Subject`].
+/// Convert a [`Caller`] into the appropriate [`Subject`], guided by
+/// [`WhitelistTarget`].
 ///
-/// - Owner (`user_id == "owner"`) → [`Subject::AgentOnly`] (Owner only
-///   governs the agent dimension)
-/// - Non-empty `user_id` → [`Subject::UserAndAgent`] (dual-key matching)
-/// - Empty `user_id` → [`Subject::AgentOnly`]
-pub fn caller_to_subject(caller: &Caller) -> Subject {
-    if caller.user_id == "owner" || caller.user_id.is_empty() {
-        Subject::AgentOnly {
+/// - [`WhitelistTarget::Auto`]: Owner → `AgentOnly`, non-owner → `UserAndAgent`
+/// - [`WhitelistTarget::AgentOnly`]: always `AgentOnly`
+/// - [`WhitelistTarget::UserAndAgent`]: `UserAndAgent` when `user_id` is
+///   non-empty, otherwise fallback to `AgentOnly`
+pub fn caller_to_subject(caller: &Caller, target: WhitelistTarget) -> Subject {
+    match target {
+        WhitelistTarget::Auto => {
+            if caller.user_id == "owner" || caller.user_id.is_empty() {
+                Subject::AgentOnly {
+                    agent: caller.agent.clone(),
+                    match_type: Default::default(),
+                }
+            } else {
+                Subject::UserAndAgent {
+                    user_id: caller.user_id.clone(),
+                    agent: caller.agent.clone(),
+                    user_match: Default::default(),
+                    agent_match: Default::default(),
+                }
+            }
+        }
+        WhitelistTarget::AgentOnly => Subject::AgentOnly {
             agent: caller.agent.clone(),
             match_type: Default::default(),
-        }
-    } else {
-        Subject::UserAndAgent {
-            user_id: caller.user_id.clone(),
-            agent: caller.agent.clone(),
-            user_match: Default::default(),
-            agent_match: Default::default(),
+        },
+        WhitelistTarget::UserAndAgent => {
+            if caller.user_id.is_empty() {
+                Subject::AgentOnly {
+                    agent: caller.agent.clone(),
+                    match_type: Default::default(),
+                }
+            } else {
+                Subject::UserAndAgent {
+                    user_id: caller.user_id.clone(),
+                    agent: caller.agent.clone(),
+                    user_match: Default::default(),
+                    agent_match: Default::default(),
+                }
+            }
         }
     }
 }
@@ -87,14 +112,16 @@ pub fn caller_to_subject(caller: &Caller) -> Subject {
 /// Returns `None` when the request body has no meaningful action mapping
 /// (e.g. `ConfigWrite`, `SlashCommand`).
 ///
-/// The generated rule has `Effect::Allow` and a caller-derived subject.
+/// The generated rule has `Effect::Allow` and a caller-derived subject,
+/// with [`WhitelistTarget`] controlling the subject type.
 pub fn build_whitelist_rule(
     caller: &Caller,
     body: &PermissionRequestBody,
     name: &str,
+    target: WhitelistTarget,
 ) -> Option<Rule> {
     let action = request_body_to_action(body)?;
-    let subject = caller_to_subject(caller);
+    let subject = caller_to_subject(caller, target);
 
     Some(Rule {
         name: name.to_string(),
@@ -110,9 +137,14 @@ pub fn build_whitelist_rule(
 ///
 /// Symmetric to [`build_whitelist_rule`], but generates `Effect::Deny`.
 /// Returns `None` for request types with no meaningful action mapping.
-pub fn build_deny_rule(caller: &Caller, body: &PermissionRequestBody, name: &str) -> Option<Rule> {
+pub fn build_deny_rule(
+    caller: &Caller,
+    body: &PermissionRequestBody,
+    name: &str,
+    target: WhitelistTarget,
+) -> Option<Rule> {
     let action = request_body_to_action(body)?;
-    let subject = caller_to_subject(caller);
+    let subject = caller_to_subject(caller, target);
 
     Some(Rule {
         name: name.to_string(),

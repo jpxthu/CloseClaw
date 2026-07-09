@@ -42,8 +42,10 @@ impl Gateway {
             let risk = format!("{:?}", notification.risk_level);
 
             let text = format!(
-                "⚠️ 审批 [{}] Agent [{}] 以 [{}] 执行 [{}] (风险:{})。回复 /approve {} 放行 或 /deny {} 拒绝。",
-                request_id, agent, user, op, risk, request_id, request_id
+                "⚠️ 审批 [{}] Agent [{}] 以 [{}] 执行 [{}] (风险:{})。\n回复 /approve {} 放行 或 /deny {} 拒绝。\n可选：/approve {} --whitelist 加入白名单（默认自动推断维度），--agent-only 仅 Agent，--user-and-agent 同时覆盖 Agent 和 User。",
+                request_id, agent, user, op, risk,
+                request_id, request_id,
+                request_id,
             );
 
             // Find the first available plugin and send to the owner.
@@ -119,11 +121,16 @@ impl Gateway {
             return None;
         }
 
-        // Determine approval mode (--whitelist flag)
+        // Determine approval mode (--whitelist, --agent-only, --user-and-agent flags)
         let mode = if rest.contains("--whitelist") {
-            ApprovalMode::WithWhitelist {
-                target: WhitelistTarget::Auto,
-            }
+            let target = if rest.contains("--user-and-agent") {
+                WhitelistTarget::UserAndAgent
+            } else if rest.contains("--agent-only") {
+                WhitelistTarget::AgentOnly
+            } else {
+                WhitelistTarget::Auto
+            };
+            ApprovalMode::WithWhitelist { target }
         } else {
             ApprovalMode::Once
         };

@@ -454,10 +454,16 @@ impl ApprovalFlow {
         let result = self.queue.approve(request_id, mode)?;
 
         // Whitelist persistence: best-effort write after approve succeeds.
-        if result && matches!(mode, ApprovalMode::WithWhitelist { .. }) {
+        let target_opt = match mode {
+            ApprovalMode::WithWhitelist { target } => Some(target),
+            _ => None,
+        };
+        if let (Some(target), true) = (target_opt, result) {
             if let Some((_, caller, request)) = &pending_info {
                 let name = format!("whitelist-{}", chrono::Utc::now().timestamp_millis());
-                if let Some(rule) = crate::whitelist::build_whitelist_rule(caller, request, &name) {
+                if let Some(rule) =
+                    crate::whitelist::build_whitelist_rule(caller, request, &name, target)
+                {
                     if let Err(e) = crate::whitelist::append_whitelist_rule(
                         &self.config_dir,
                         &caller.agent,
