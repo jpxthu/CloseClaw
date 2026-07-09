@@ -56,13 +56,13 @@ impl SessionModeQuery for MockModeQuery {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn deny_all_engine() -> Arc<PermissionEngine> {
-    Arc::new(PermissionEngine::new_with_default_data_root(
-        RuleSetBuilder::new().build().unwrap(),
+fn deny_all_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
+    Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
     ))
 }
 
-fn allow_inter_agent_engine() -> Arc<PermissionEngine> {
+fn allow_inter_agent_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
     let agent_rule = Rule {
         name: "allow-inter-agent-phase".to_string(),
         subject: Subject::AgentOnly {
@@ -91,12 +91,14 @@ fn allow_inter_agent_engine() -> Arc<PermissionEngine> {
         template: None,
         priority: 10,
     };
-    Arc::new(PermissionEngine::new_with_default_data_root(
-        RuleSetBuilder::new()
-            .rule(agent_rule)
-            .rule(user_rule)
-            .build()
-            .unwrap(),
+    Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(
+            RuleSetBuilder::new()
+                .rule(agent_rule)
+                .rule(user_rule)
+                .build()
+                .unwrap(),
+        ),
     ))
 }
 
@@ -104,6 +106,7 @@ fn make_approval_flow() -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
     Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
         Arc::clone(&make_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
         Arc::new(|_| {}),
+        Arc::new(|_: &str| {}),
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
@@ -217,7 +220,7 @@ async fn setup_sessions(mgr: &SessionManager, parent_id: &str, child_id: &str) {
 /// Engine with Auto mode enabled for testing ApprovalRequired routing.
 /// Uses `Action::All` so that any request type (including FileOp) is allowed,
 /// allowing the auto mode risk gate to trigger on high-risk requests.
-fn auto_mode_allow_engine() -> Arc<PermissionEngine> {
+fn auto_mode_allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
     let agent_rule = Rule {
         name: "allow-inter-agent-phase".to_string(),
         subject: Subject::AgentOnly {
@@ -242,7 +245,7 @@ fn auto_mode_allow_engine() -> Arc<PermissionEngine> {
         template: None,
         priority: 10,
     };
-    Arc::new(
+    Arc::new(tokio::sync::RwLock::new(
         PermissionEngine::new_with_default_data_root(
             RuleSetBuilder::new()
                 .rule(agent_rule)
@@ -253,7 +256,7 @@ fn auto_mode_allow_engine() -> Arc<PermissionEngine> {
         .with_session_mode_query(Arc::new(
             MockModeQuery::new().with_mode("test-agent", SessionMode::Auto),
         )),
-    )
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -374,7 +377,7 @@ async fn test_steer_approval_required_routes_through_approval_flow() {
         path: "/repo/.git/config".to_string(),
         op: "read".to_string(),
     });
-    let response = engine.evaluate(high_risk_request, None);
+    let response = engine.read().await.evaluate(high_risk_request, None);
     assert!(
         matches!(response, PermissionResponse::ApprovalRequired { .. }),
         "Auto mode + high-risk FileOp should return ApprovalRequired, got: {:?}",
@@ -388,7 +391,7 @@ async fn test_steer_approval_required_routes_through_approval_flow() {
             operation_desc,
             risk_level,
             ..
-        } => (operation_desc.clone(), *risk_level),
+        } => (operation_desc.clone(), risk_level.clone()),
         _ => unreachable!(),
     };
     let caller = Caller {

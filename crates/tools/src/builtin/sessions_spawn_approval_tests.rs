@@ -63,6 +63,7 @@ fn make_approval_flow() -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
     Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
         Arc::clone(&make_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
         Arc::new(|_| {}),
+        Arc::new(|_: &str| {}),
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),

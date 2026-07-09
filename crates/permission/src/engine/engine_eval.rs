@@ -301,6 +301,14 @@ impl PermissionEngine {
                 token: generate_token(),
                 context_modifier: None,
             },
+            // Agent allowed, no user rule → agent result wins
+            // (when user_id is empty, user phase is effectively skipped)
+            (Some(PermissionResponse::Allowed { .. }), None) if caller.user_id.is_empty() => {
+                PermissionResponse::Allowed {
+                    token: generate_token(),
+                    context_modifier: None,
+                }
+            }
             _ => self.default_deny(request.body(), &rules.defaults, "no matching rule"),
         };
         self.log_rejection(&response, request.body());

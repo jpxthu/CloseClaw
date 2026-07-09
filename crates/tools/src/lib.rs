@@ -11,7 +11,9 @@
 //! - Skill = 领域知识按需读取
 //! - Tool = LLM 可调用能力
 
+pub mod bash;
 pub mod builtin;
+pub mod permission_check;
 pub mod registrar;
 pub mod registrars;
 pub mod registry;

@@ -113,6 +113,12 @@ pub struct ApprovalFlow {
     config_dir: PathBuf,
     /// Pending user creation requests keyed by request_id.
     user_creation_requests: HashMap<String, UserCreationRequest>,
+    /// When true, `submit_denial` always returns `None` (silent deny).
+    ///
+    /// Defaults to `false` in production. Tests set this to `true` to
+    /// simulate a hard-denial path where the approval flow does not
+    /// accept the request for owner approval.
+    force_deny: bool,
 }
 
 impl std::fmt::Debug for ApprovalFlow {
@@ -121,6 +127,7 @@ impl std::fmt::Debug for ApprovalFlow {
             .field("queue", &self.queue)
             .field("heartbeat_mode", &self.heartbeat_mode)
             .field("pending_user_creations", &self.user_creation_requests.len())
+            .field("force_deny", &self.force_deny)
             .finish_non_exhaustive()
     }
 }
@@ -154,6 +161,33 @@ impl ApprovalFlow {
             heartbeat_mode,
             config_dir,
             user_creation_requests: HashMap::new(),
+            force_deny: false,
+        }
+    }
+
+    /// Create an `ApprovalFlow` that always denies (for tests).
+    ///
+    /// `submit_denial` returns `None` unconditionally, simulating a
+    /// hard-denial path where the approval flow does not accept the
+    /// request for owner approval.
+    pub fn new_deny_all(
+        session_manager: Arc<dyn SessionLookup>,
+        on_notify_owner: Arc<dyn Fn(ApprovalNotification) + Send + Sync>,
+        on_whitelist_updated: Arc<dyn Fn(&str) + Send + Sync>,
+        runtime_handle: tokio::runtime::Handle,
+        heartbeat_mode: HeartbeatApprovalMode,
+        config_dir: PathBuf,
+    ) -> Self {
+        Self {
+            queue: ApprovalQueue::new(),
+            session_manager,
+            on_notify_owner,
+            on_whitelist_updated,
+            runtime_handle,
+            heartbeat_mode,
+            config_dir,
+            user_creation_requests: HashMap::new(),
+            force_deny: true,
         }
     }
 
@@ -272,6 +306,9 @@ impl ApprovalFlow {
         session_id: &str,
         is_sub_agent: bool,
     ) -> Option<String> {
+        if self.force_deny {
+            return None;
+        }
         if is_sub_agent {
             return None;
         }
