@@ -11,6 +11,14 @@ use crate::engine::engine_eval::PermissionEngine;
 use crate::engine::engine_types::{Effect, PermissionRequest, PermissionResponse};
 #[cfg(test)]
 use crate::rules::RuleSetBuilder;
+#[cfg(test)]
+use closeclaw_common::session_mode::SessionMode;
+#[cfg(test)]
+use closeclaw_common::session_mode_query::SessionModeQuery;
+#[cfg(test)]
+use std::collections::HashMap;
+#[cfg(test)]
+use std::sync::Arc;
 
 /// Risk level for permission requests.
 /// Used to annotate denied responses with severity information.
@@ -93,14 +101,10 @@ const HIGH_RISK_PATTERNS: &[RiskPattern] = &[
             _ => None,
         },
     },
-    // daemon/gateway config write → Critical
+    // Config write → Critical
     RiskPattern {
         matches: |request| match request {
-            PermissionRequestBody::ConfigWrite { config_file, .. }
-                if config_file.contains("daemon") || config_file.contains("gateway") =>
-            {
-                Some(RiskLevel::Critical)
-            }
+            PermissionRequestBody::ConfigWrite { .. } => Some(RiskLevel::Critical),
             _ => None,
         },
     },
@@ -179,6 +183,42 @@ mod tests {
         let request = PermissionRequestBody::ConfigWrite {
             agent: "test-agent".to_string(),
             config_file: "daemon.json".to_string(),
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_gateway_config_write_returns_critical() {
+        let request = PermissionRequestBody::ConfigWrite {
+            agent: "test-agent".to_string(),
+            config_file: "gateway.json".to_string(),
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_agents_config_write_returns_critical() {
+        let request = PermissionRequestBody::ConfigWrite {
+            agent: "test-agent".to_string(),
+            config_file: "agents/xxx.json".to_string(),
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_some_config_write_returns_critical() {
+        let request = PermissionRequestBody::ConfigWrite {
+            agent: "test-agent".to_string(),
+            config_file: "some-config.json".to_string(),
+        };
+        assert_eq!(assess_risk_level(&request), RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_empty_config_file_returns_critical() {
+        let request = PermissionRequestBody::ConfigWrite {
+            agent: "test-agent".to_string(),
+            config_file: String::new(),
         };
         assert_eq!(assess_risk_level(&request), RiskLevel::Critical);
     }
@@ -396,6 +436,117 @@ mod tests {
                 assert_eq!(risk_level, RiskLevel::Low);
             }
             other => panic!("expected Denied, got {:?}", other),
+        }
+    }
+
+    // ── Auto Mode end-to-end risk gate tests ────────────────────────────
+
+    /// Mock SessionModeQuery that returns a fixed mode for a given agent.
+    struct MockAutoModeQuery {
+        modes: HashMap<String, SessionMode>,
+    }
+
+    impl MockAutoModeQuery {
+        fn new(agent_id: &str, mode: SessionMode) -> Self {
+            let mut modes = HashMap::new();
+            modes.insert(agent_id.to_string(), mode);
+            Self { modes }
+        }
+    }
+
+    impl SessionModeQuery for MockAutoModeQuery {
+        fn get_session_mode(&self, agent_id: &str) -> Option<SessionMode> {
+            self.modes.get(agent_id).copied()
+        }
+    }
+
+    #[test]
+    fn test_auto_mode_deny_config_write_triggers_approval() {
+        let ruleset = RuleSetBuilder::new()
+            .default_file(Effect::Deny)
+            .default_command(Effect::Deny)
+            .default_network(Effect::Deny)
+            .default_inter_agent(Effect::Deny)
+            .default_config(Effect::Allow)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new_with_default_data_root(ruleset).with_session_mode_query(
+            Arc::new(MockAutoModeQuery::new("test-agent", SessionMode::Auto)),
+        );
+
+        // Non-daemon/gateway ConfigWrite — should trigger ApprovalRequired
+        let resp = engine.evaluate(
+            PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
+                agent: "test-agent".to_string(),
+                config_file: "agents/xxx.json".to_string(),
+            }),
+            None,
+        );
+        match resp {
+            PermissionResponse::ApprovalRequired { risk_level, .. } => {
+                assert_eq!(risk_level, RiskLevel::Critical);
+            }
+            other => panic!("expected ApprovalRequired, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_auto_mode_deny_empty_config_write_triggers_approval() {
+        let ruleset = RuleSetBuilder::new()
+            .default_file(Effect::Deny)
+            .default_command(Effect::Deny)
+            .default_network(Effect::Deny)
+            .default_inter_agent(Effect::Deny)
+            .default_config(Effect::Allow)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new_with_default_data_root(ruleset).with_session_mode_query(
+            Arc::new(MockAutoModeQuery::new("test-agent", SessionMode::Auto)),
+        );
+
+        // Empty config_file — should still trigger ApprovalRequired
+        let resp = engine.evaluate(
+            PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
+                agent: "test-agent".to_string(),
+                config_file: String::new(),
+            }),
+            None,
+        );
+        match resp {
+            PermissionResponse::ApprovalRequired { risk_level, .. } => {
+                assert_eq!(risk_level, RiskLevel::Critical);
+            }
+            other => panic!("expected ApprovalRequired, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_auto_mode_deny_daemon_config_write_triggers_approval() {
+        let ruleset = RuleSetBuilder::new()
+            .default_file(Effect::Deny)
+            .default_command(Effect::Deny)
+            .default_network(Effect::Deny)
+            .default_inter_agent(Effect::Deny)
+            .default_config(Effect::Allow)
+            .build()
+            .unwrap();
+        let engine = PermissionEngine::new_with_default_data_root(ruleset).with_session_mode_query(
+            Arc::new(MockAutoModeQuery::new("test-agent", SessionMode::Auto)),
+        );
+
+        // daemon ConfigWrite — still triggers ApprovalRequired
+        let resp = engine.evaluate(
+            PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
+                agent: "test-agent".to_string(),
+                config_file: "daemon.json".to_string(),
+            }),
+            None,
+        );
+        match resp {
+            PermissionResponse::ApprovalRequired { risk_level, .. } => {
+                assert_eq!(risk_level, RiskLevel::Critical);
+            }
+            other => panic!("expected ApprovalRequired, got {:?}", other),
         }
     }
 }
