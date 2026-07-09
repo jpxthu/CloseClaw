@@ -4,6 +4,32 @@
 //! Unix uses SIGTERM/SIGINT; Windows uses process termination API.
 
 use std::path::{Path, PathBuf};
+
+/// Options for spawning a daemon process.
+///
+/// Controls the working directory, environment variables, and stdio
+/// handling for the child process.
+#[derive(Debug, Clone)]
+pub struct SpawnOptions {
+    /// Optional working directory for the child process.
+    pub working_dir: Option<PathBuf>,
+    /// Optional environment variables as key-value pairs.
+    pub env_vars: Vec<(String, String)>,
+    /// If `true`, stdin/stdout/stderr are redirected to `/dev/null`
+    /// (Unix) or `NUL` (Windows). Defaults to `true`.
+    pub detach_stdio: bool,
+}
+
+impl Default for SpawnOptions {
+    fn default() -> Self {
+        Self {
+            working_dir: None,
+            env_vars: Vec::new(),
+            detach_stdio: true,
+        }
+    }
+}
+
 use tracing::info;
 
 /// Returns the platform-specific PID file path.
@@ -30,13 +56,13 @@ pub fn read_pid_file(path: &Path) -> Option<u32> {
 
 /// Sends a termination signal to the process identified by `pid`.
 ///
-/// On Unix, sends SIGTERM by default or SIGKILL when `force` is true.
+/// On Unix, sends SIGTERM by default or SIGINT when `force` is true.
 /// On Windows, uses `taskkill` without `/F` by default or with `/F`
 /// when `force` is true.
 pub fn send_signal(pid: u32, force: bool) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
-        let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
+        let signal = if force { libc::SIGINT } else { libc::SIGTERM };
         // SAFETY: kill with a valid signal is a standard POSIX operation.
         // The process ID is validated by the OS kernel.
         let ret = unsafe { libc::kill(pid as i32, signal) };
@@ -61,6 +87,59 @@ pub fn send_signal(pid: u32, force: bool) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Spawns a daemon process, writes its PID file, and returns a child handle.
+///
+/// The daemon is started by executing the given command with the provided
+/// arguments. After successful spawn, the child PID is written to
+/// `{config_dir}/daemon.pid` using [`write_pid_file`].
+///
+/// # Arguments
+///
+/// * `command` - The program to execute (e.g. `"/usr/bin/my-daemon"`).
+/// * `args` - Arguments to pass to the program.
+/// * `config_dir` - Directory where `daemon.pid` will be written.
+/// * `options` - Additional spawn configuration ([`SpawnOptions`]).
+///
+/// # Errors
+///
+/// Returns an error if the process cannot be spawned or if the PID file
+/// cannot be written.
+pub fn spawn_daemon(
+    command: &str,
+    args: &[&str],
+    config_dir: &Path,
+    options: &SpawnOptions,
+) -> anyhow::Result<std::process::Child> {
+    let mut cmd = std::process::Command::new(command);
+    cmd.args(args);
+
+    if let Some(ref dir) = options.working_dir {
+        cmd.current_dir(dir);
+    }
+
+    for (key, value) in &options.env_vars {
+        cmd.env(key, value);
+    }
+
+    if options.detach_stdio {
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+    }
+
+    let child = cmd.spawn()?;
+    let pid = child.id();
+
+    let path = pid_file_path(config_dir);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    write_pid_file(&path, pid)?;
+    info!(pid, "Spawned daemon process");
+
+    Ok(child)
 }
 
 /// Blocks until a platform-appropriate shutdown signal is received.
