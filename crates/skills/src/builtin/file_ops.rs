@@ -1,7 +1,7 @@
 //! File operations skill
 use crate::registry::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
-use closeclaw_config::agents::AgentPermissionProvider;
+use closeclaw_config::agents::{AgentPermissionProvider, NoopPermissionProvider};
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_types::{
@@ -67,15 +67,6 @@ impl FileOpsSkill {
     ) -> Self {
         self.agent_permissions = agent_permissions;
         self
-    }
-}
-
-/// No-op permission provider used as a default when no real provider is configured.
-struct NoopPermissionProvider;
-
-impl AgentPermissionProvider for NoopPermissionProvider {
-    fn get(&self, _agent_id: &str) -> Option<closeclaw_config::agents::AgentPermissions> {
-        None
     }
 }
 
