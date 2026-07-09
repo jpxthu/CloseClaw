@@ -341,7 +341,7 @@ fn test_auto_mode_low_risk_command_exec_allowed() {
 }
 
 #[test]
-fn test_auto_mode_low_risk_config_write_allowed() {
+fn test_auto_mode_non_daemon_config_write_requires_approval() {
     let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
     let engine = make_permissive_engine(query);
     let resp = engine.evaluate(
@@ -351,11 +351,18 @@ fn test_auto_mode_low_risk_config_write_allowed() {
         }),
         None,
     );
-    assert!(
-        matches!(resp, PermissionResponse::Allowed { .. }),
-        "Auto mode + low risk should allow config write, got: {:?}",
-        resp
-    );
+    match resp {
+        PermissionResponse::ApprovalRequired {
+            risk_level, rule, ..
+        } => {
+            assert_eq!(risk_level, RiskLevel::Critical);
+            assert_eq!(rule, "<auto_mode_risk_gate>");
+        }
+        other => panic!(
+            "Auto mode + non-daemon config write should require approval (Critical risk), got: {:?}",
+            other
+        ),
+    }
 }
 
 // ---------------------------------------------------------------------------
