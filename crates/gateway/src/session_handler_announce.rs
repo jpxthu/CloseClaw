@@ -178,5 +178,47 @@ impl SessionMessageHandler {
         session_id: &str,
     ) {
         session_manager.drain_and_inject_announces(session_id).await;
+
+        // Drain background task completion notifications and inject as
+        // system messages so the agent sees them on the next turn.
+        let Some(tm) = session_manager.get_task_manager().await else {
+            return;
+        };
+        let notifications = tm.drain_notifications().await;
+        if notifications.is_empty() {
+            return;
+        }
+        let Some(cs) = session_manager.get_conversation_session(session_id).await else {
+            tracing::warn!(
+                session_id = %session_id,
+                "drain_announce_events: session not found for task notifications"
+            );
+            return;
+        };
+        let mut cs_write = cs.write().await;
+        for notif in notifications {
+            let state_text = match &notif.state {
+                closeclaw_tasks::TaskState::Completed { exit_code } => {
+                    format!("Completed (exit code: {})", exit_code)
+                }
+                closeclaw_tasks::TaskState::Failed { exit_code } => {
+                    format!("Failed (exit code: {})", exit_code)
+                }
+                closeclaw_tasks::TaskState::Killed => "Killed".to_string(),
+                closeclaw_tasks::TaskState::Running => "Running".to_string(),
+            };
+            let text = format!(
+                "[后台任务] 任务 {}（命令 '{}'）已完成（状态：{}）。输出文件：{}",
+                notif.task_id,
+                notif.command,
+                state_text,
+                notif.output_path.display()
+            );
+            cs_write.inject_system_message(text);
+        }
+        drop(cs_write);
+
+        // Clean up output files for tasks that have reached a terminal state.
+        tm.cleanup_finished().await;
     }
 }

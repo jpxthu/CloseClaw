@@ -239,6 +239,43 @@ impl BackgroundTaskManager {
         let mut n = self.notifications.lock().await;
         std::mem::take(&mut *n)
     }
+
+    /// Remove output directories and handles for tasks in a terminal state.
+    ///
+    /// Tasks in [`TaskState::Completed`], [`TaskState::Failed`], or
+    /// [`TaskState::Killed`] have their output directory removed and their
+    /// handle evicted from the internal map. I/O errors are logged but do
+    /// not propagate — this method never panics.
+    pub async fn cleanup_finished(&self) {
+        let mut map = lock_map(&self.tasks).await;
+        let finished: Vec<String> = map
+            .iter()
+            .filter(|(_, h)| {
+                matches!(
+                    h.state,
+                    TaskState::Completed { .. } | TaskState::Failed { .. } | TaskState::Killed
+                )
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        for task_id in &finished {
+            if let Some(handle) = map.get(task_id) {
+                let parent = handle.output_path.parent();
+                if let Some(dir) = parent {
+                    if let Err(e) = tokio::fs::remove_dir_all(dir).await {
+                        tracing::warn!(
+                            task_id = %task_id,
+                            path = %dir.display(),
+                            error = %e,
+                            "failed to remove task output directory"
+                        );
+                    }
+                }
+            }
+            map.remove(task_id);
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -269,6 +306,14 @@ impl crate::TaskManager for BackgroundTaskManager {
 
     async fn get_task(&self, task_id: &str) -> Option<BackgroundTask> {
         self.get_task(task_id).await
+    }
+
+    async fn drain_notifications(&self) -> Vec<CompletionNotification> {
+        self.pending_notifications().await
+    }
+
+    async fn cleanup_finished(&self) {
+        self.cleanup_finished().await
     }
 }
 
