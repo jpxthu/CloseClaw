@@ -418,11 +418,9 @@ fn test_message_send_defaults_to_allow() {
     );
 }
 
-#[test]
-fn test_other_operations_default_to_deny() {
-    // Verify that FileOp, CommandExec, NetOp, ToolCall all default to Deny
-    // when only message=Allow is set.
-    let ruleset = RuleSetBuilder::new()
+/// Helper: build a ruleset with all dimensions Deny except message=Allow.
+fn deny_all_except_message_ruleset() -> super::engine_types::RuleSet {
+    RuleSetBuilder::new()
         .default_file(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
@@ -431,10 +429,14 @@ fn test_other_operations_default_to_deny() {
         .default_tool_call(Effect::Deny)
         .default_message(Effect::Allow)
         .build()
-        .unwrap();
+        .unwrap()
+}
+
+#[test]
+fn test_file_op_defaults_to_deny() {
+    let ruleset = deny_all_except_message_ruleset();
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
-    // FileOp → Denied
     let tmp = TempDir::new().unwrap();
     let file_resp = engine.evaluate(
         PermissionRequest::Bare(PermissionRequestBody::FileOp {
@@ -449,8 +451,13 @@ fn test_other_operations_default_to_deny() {
         "FileOp should default to Deny, got {:?}",
         file_resp
     );
+}
 
-    // CommandExec → Denied
+#[test]
+fn test_command_exec_defaults_to_deny() {
+    let ruleset = deny_all_except_message_ruleset();
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
+
     let cmd_resp = engine.evaluate(
         PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "unknown-agent".to_string(),
@@ -464,8 +471,13 @@ fn test_other_operations_default_to_deny() {
         "CommandExec should default to Deny, got {:?}",
         cmd_resp
     );
+}
 
-    // NetOp → Denied
+#[test]
+fn test_net_op_defaults_to_deny() {
+    let ruleset = deny_all_except_message_ruleset();
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
+
     let net_resp = engine.evaluate(
         PermissionRequest::Bare(PermissionRequestBody::NetOp {
             agent: "unknown-agent".to_string(),
@@ -479,8 +491,13 @@ fn test_other_operations_default_to_deny() {
         "NetOp should default to Deny, got {:?}",
         net_resp
     );
+}
 
-    // ToolCall → Denied
+#[test]
+fn test_tool_call_defaults_to_deny() {
+    let ruleset = deny_all_except_message_ruleset();
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
+
     let tool_resp = engine.evaluate(
         PermissionRequest::Bare(PermissionRequestBody::ToolCall {
             agent: "unknown-agent".to_string(),
