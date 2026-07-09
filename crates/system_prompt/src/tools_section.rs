@@ -19,6 +19,18 @@ const TASK_WRITING_GUIDANCE: &str = concat!(
     "Use normal spawn for independent, self-contained tasks."
 );
 
+/// Background task guidance appended to the tools section when Bash is available.
+/// Source: docs/design/tools/background-tasks.md §提示词引导
+const BACKGROUND_TASK_GUIDANCE: &str = concat!(
+    "\n\n## Background Task Guidance\n\n\n",
+    "- Background commands send an automatic notification when they complete; ",
+    "you do not need to poll or check their status manually.\n",
+    "- Do not call process-query tools to check whether a background task has finished. ",
+    "The push-based notification ensures results appear in the next turn.\n",
+    "- Use `run_in_background: true` for commands expected to take over 10 seconds. ",
+    "This keeps you unblocked while long-running work completes."
+);
+
 /// Build the Tools section content from a registry.
 ///
 /// The registry's `build_tools_section` requires a [`PromptGenerationContext`]
@@ -68,6 +80,14 @@ pub async fn build_tools_section(
         .any(|n| n == "sessions_spawn")
     {
         let guidance = TASK_WRITING_GUIDANCE;
+        format!("{}\n{}", content, guidance)
+    } else {
+        content
+    };
+
+    // 6. If Bash tool is available, append background task guidance.
+    let content = if prompt_ctx.available_tool_names.iter().any(|n| n == "Bash") {
+        let guidance = BACKGROUND_TASK_GUIDANCE;
         format!("{}\n{}", content, guidance)
     } else {
         content

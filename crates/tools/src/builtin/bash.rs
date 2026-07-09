@@ -99,7 +99,9 @@ impl Tool for BashTool {
          (default 120s, max 600s), output truncation with head-preservation \
          (threshold 30,000 chars), and output persistence to disk when \
          output exceeds threshold. Supports run_in_background for async \
-         execution. Commands exceeding 15s are auto-backgrounded."
+         execution. Commands exceeding 15s are auto-backgrounded. \
+         Background tasks notify automatically on completion — do not poll. \
+         Use run_in_background for commands expected to exceed 10 seconds."
             .to_string()
     }
 
