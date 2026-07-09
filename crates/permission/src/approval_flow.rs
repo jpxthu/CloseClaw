@@ -617,7 +617,7 @@ impl ApprovalFlow {
         };
 
         // Register user and generate permission rules.
-        let ruleset = match registry.register_user(user_id, channel, &initial_perms) {
+        let ruleset = match registry.register_user(user_id, channel, initial_perms) {
             Ok(rs) => rs,
             Err(crate::user_registry::RegistryError::AlreadyRegistered(_)) => {
                 tracing::warn!(
