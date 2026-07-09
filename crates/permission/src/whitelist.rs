@@ -50,6 +50,13 @@ pub fn request_body_to_action(body: &PermissionRequestBody) -> Option<Action> {
         PermissionRequestBody::ConfigWrite { .. } => None,
         // SlashCommand: no corresponding action dimension
         PermissionRequestBody::SlashCommand { .. } => None,
+        // MessageSend: message permission dimension
+        PermissionRequestBody::MessageSend {
+            direction, target, ..
+        } => Some(Action::Message {
+            direction: direction.clone(),
+            targets: vec![target.clone()],
+        }),
     }
 }
 

@@ -110,6 +110,9 @@ pub fn build_rejection_log(
         PermissionRequestBody::SlashCommand { command, .. } => {
             ("slash_command".to_string(), command.clone())
         }
+        PermissionRequestBody::MessageSend {
+            direction, target, ..
+        } => ("message".to_string(), format!("{:?} {}", direction, target)),
     };
 
     RejectionLog {

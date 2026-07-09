@@ -1,6 +1,6 @@
 //! Permission Engine - Glob and action matching utilities.
 
-use super::engine_types::{Action, CommandArgs, PermissionRequestBody};
+use super::engine_types::{Action, CommandArgs, MessageDirection, PermissionRequestBody};
 
 /// Simple glob matching (supports * and **)
 pub fn glob_match(pattern: &str, text: &str) -> bool {
@@ -92,6 +92,20 @@ pub fn action_matches_request(action: &Action, request: &PermissionRequestBody) 
         }
         (Action::ConfigWrite { files }, PermissionRequestBody::ConfigWrite { config_file, .. }) => {
             files.is_empty() || files.iter().any(|f| glob_match(f, config_file))
+        }
+        (
+            Action::Message {
+                direction: rule_dir,
+                targets,
+            },
+            PermissionRequestBody::MessageSend {
+                direction: req_dir,
+                target,
+                ..
+            },
+        ) => {
+            (rule_dir == &MessageDirection::Both || rule_dir == req_dir)
+                && (targets.is_empty() || targets.iter().any(|t| glob_match(t, target)))
         }
         _ => false,
     }

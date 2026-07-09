@@ -2,7 +2,7 @@
 //!
 //! Provides builder patterns and validation for [`Action`] types.
 
-use crate::engine::{Action, CommandArgs};
+use crate::engine::{Action, CommandArgs, MessageDirection};
 
 /// Builder for constructing [`Action`] variants fluently.
 #[derive(Debug, Default)]
@@ -65,6 +65,16 @@ impl ActionBuilder {
         }
     }
 
+    /// Start building a Message action.
+    pub fn message(direction: MessageDirection) -> Self {
+        Self {
+            inner: Some(Action::Message {
+                direction,
+                targets: Vec::new(),
+            }),
+        }
+    }
+
     /// Finalize and return the constructed [`Action`].
     pub fn build(self) -> Option<Action> {
         self.inner
@@ -124,6 +134,14 @@ impl ActionBuilder {
     pub fn with_files(mut self, files: Vec<String>) -> Self {
         if let Some(Action::ConfigWrite { files: f, .. }) = &mut self.inner {
             *f = files;
+        }
+        self
+    }
+
+    /// Add targets to a Message action.
+    pub fn with_targets(mut self, targets: Vec<String>) -> Self {
+        if let Some(Action::Message { targets: t, .. }) = &mut self.inner {
+            *t = targets;
         }
         self
     }

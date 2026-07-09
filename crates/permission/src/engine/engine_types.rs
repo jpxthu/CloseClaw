@@ -280,6 +280,16 @@ pub enum MatchType {
     Glob,
 }
 
+/// Direction of message flow for the Message permission dimension.
+#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MessageDirection {
+    Send,
+    Receive,
+    #[default]
+    Both,
+}
+
 /// An action that a rule permits or denies
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -311,6 +321,11 @@ pub enum Action {
     ConfigWrite {
         #[serde(default)]
         files: Vec<String>,
+    },
+    Message {
+        direction: MessageDirection,
+        #[serde(default)]
+        targets: Vec<String>,
     },
     /// Matches any permission request. Used for admin/operator full-access rules.
     All,
@@ -393,6 +408,11 @@ pub enum PermissionRequestBody {
         agent: String,
         command: String,
     },
+    MessageSend {
+        agent: String,
+        direction: MessageDirection,
+        target: String,
+    },
 }
 
 impl PermissionRequestBody {
@@ -411,6 +431,7 @@ impl PermissionRequestBody {
             PermissionRequestBody::InterAgentMsg { .. } => Some("spawn"),
             PermissionRequestBody::ToolCall { .. } => Some("tool_call"),
             PermissionRequestBody::ConfigWrite { .. } => Some("config_write"),
+            PermissionRequestBody::MessageSend { .. } => Some("message"),
             PermissionRequestBody::SlashCommand { .. } => None,
         }
     }
@@ -425,6 +446,7 @@ impl PermissionRequestBody {
             PermissionRequestBody::InterAgentMsg { from, .. } => from,
             PermissionRequestBody::ConfigWrite { agent, .. } => agent,
             PermissionRequestBody::SlashCommand { agent, .. } => agent,
+            PermissionRequestBody::MessageSend { agent, .. } => agent,
         }
     }
 }

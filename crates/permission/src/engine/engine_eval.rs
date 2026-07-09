@@ -693,6 +693,7 @@ impl PermissionEngine {
             PermissionRequestBody::ConfigWrite { .. } => defaults.config,
             PermissionRequestBody::SlashCommand { .. } => defaults.command,
             PermissionRequestBody::ToolCall { .. } => defaults.tool_call,
+            PermissionRequestBody::MessageSend { .. } => defaults.tool_call,
         };
 
         match effect {
@@ -768,6 +769,13 @@ fn format_operation_desc(body: &PermissionRequestBody) -> String {
         }
         PermissionRequestBody::SlashCommand { agent, command } => {
             format!("{} slash /{}", agent, command)
+        }
+        PermissionRequestBody::MessageSend {
+            agent,
+            direction,
+            target,
+        } => {
+            format!("{} message {:?} {}", agent, direction, target)
         }
     }
 }
