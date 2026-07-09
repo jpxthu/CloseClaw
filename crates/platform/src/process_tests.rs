@@ -1,4 +1,6 @@
-use crate::process::{pid_file_path, read_pid_file, send_signal, write_pid_file};
+use crate::process::{
+    pid_file_path, read_pid_file, send_signal, spawn_daemon, write_pid_file, SpawnOptions,
+};
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 use tempfile::TempDir;
@@ -80,18 +82,18 @@ fn test_send_signal_sigterm() {
 
 #[cfg(unix)]
 #[test]
-fn test_send_signal_sigkill() {
+fn test_send_signal_sigint() {
     let mut child = spawn_sleep_child();
     let pid = child.id();
 
-    // Send SIGKILL (force=true). Should succeed and terminate the child.
-    send_signal(pid, true).expect("send_signal(pid, SIGKILL) failed");
+    // Send SIGINT (force=true). Should succeed and terminate the child.
+    send_signal(pid, true).expect("send_signal(pid, SIGINT) failed");
     let status = child.wait().unwrap();
-    // SIGKILL cannot be caught; process must exit with signal 9.
+    // SIGINT = signal 2; default handler terminates the process.
     assert_eq!(
         status.signal(),
-        Some(9),
-        "child should be killed by SIGKILL: {status}"
+        Some(2),
+        "child should be killed by SIGINT: {status}"
     );
 }
 
@@ -108,5 +110,47 @@ fn test_send_signal_invalid_pid_force() {
     assert!(
         err.is_err(),
         "send_signal(force) to invalid PID should fail"
+    );
+}
+
+// ── spawn_daemon tests ────────────────────────────────────────────
+
+#[test]
+fn test_spawn_daemon_writes_pid_file() {
+    let config_dir = tempfile::tempdir().unwrap();
+    let mut child = spawn_daemon(
+        "sleep",
+        &["60"],
+        config_dir.path(),
+        &SpawnOptions::default(),
+    )
+    .expect("spawn_daemon failed");
+
+    let pid = child.id();
+    let path = pid_file_path(config_dir.path());
+    let stored = read_pid_file(&path);
+    assert_eq!(
+        stored,
+        Some(pid),
+        "PID file should contain the spawned child PID"
+    );
+
+    // Clean up child process.
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+fn test_spawn_daemon_invalid_command() {
+    let config_dir = tempfile::tempdir().unwrap();
+    let result = spawn_daemon(
+        "/nonexistent/command",
+        &[],
+        config_dir.path(),
+        &SpawnOptions::default(),
+    );
+    assert!(
+        result.is_err(),
+        "spawn_daemon with invalid command should return error"
     );
 }
