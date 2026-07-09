@@ -150,17 +150,15 @@ impl MessageProcessor for RawLogProcessor {
         ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
         let is_enabled = self.config.enabled || level_enabled!(tracing::Level::DEBUG);
-        if !is_enabled {
-            return Ok(None);
+        if is_enabled {
+            let raw = ctx.initial_normalized().ok_or_else(|| {
+                ProcessError::invalid_message("no initial raw message in context")
+            })?;
+
+            self.write_log(raw)
+                .await
+                .map_err(|e| ProcessError::processor_failed(self.name(), e))?;
         }
-
-        let raw = ctx
-            .initial_normalized()
-            .ok_or_else(|| ProcessError::invalid_message("no initial raw message in context"))?;
-
-        self.write_log(raw)
-            .await
-            .map_err(|e| ProcessError::processor_failed(self.name(), e))?;
 
         Ok(Some(ProcessedMessage {
             content_blocks: vec![ContentBlock::Text(ctx.content.clone())],
@@ -196,7 +194,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_bypass_when_disabled_and_no_debug() {
+    async fn test_passes_through_when_disabled() {
         let tmp = TempDir::new().unwrap();
         let config = RawLogConfig::new(false, tmp.path().to_path_buf(), 7);
         let processor = RawLogProcessor::new(config).unwrap();
@@ -205,7 +203,16 @@ mod tests {
         let ctx = make_ctx(msg);
 
         let result = processor.process(&ctx).await.unwrap();
-        assert!(result.is_none());
+        let processed = result.expect("should pass through when disabled");
+        assert_eq!(processed.content_blocks.len(), 1);
+        match &processed.content_blocks[0] {
+            ContentBlock::Text(t) => assert_eq!(t, "hello"),
+            other => panic!("expected Text block, got {other:?}"),
+        }
+
+        // disabled should not produce any log files
+        let files: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().flatten().collect();
+        assert!(files.is_empty(), "no log files expected when disabled");
     }
 
     #[tokio::test]
@@ -269,6 +276,81 @@ mod tests {
         assert_eq!(parts.len(), 2, "expected 2 segments: {stem}");
         assert_eq!(parts[0], "wecom");
         parts[1].parse::<i64>().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_state_transition_disabled_then_enabled() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().to_path_buf();
+
+        // First call: disabled processor — should pass through, no log file
+        let config_off = RawLogConfig::new(false, dir.clone(), 7);
+        let processor_off = RawLogProcessor::new(config_off).unwrap();
+        let msg1 = make_normalized("feishu");
+        let ctx1 = make_ctx(msg1);
+        let result1 = processor_off.process(&ctx1).await.unwrap();
+        assert!(result1.is_some(), "disabled should still pass through");
+        let files_after_off: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().collect();
+        assert!(files_after_off.is_empty(), "no log files when disabled");
+
+        // Second call: enabled processor — should write log and pass through
+        let config_on = RawLogConfig::new(true, dir.clone(), 7);
+        let processor_on = RawLogProcessor::new(config_on).unwrap();
+        let msg2 = make_normalized("feishu");
+        let ctx2 = make_ctx(msg2);
+        let result2 = processor_on.process(&ctx2).await.unwrap();
+        assert!(result2.is_some(), "enabled should still pass through");
+        let files_after_on: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().collect();
+        assert_eq!(files_after_on.len(), 1, "one log file expected");
+    }
+
+    #[tokio::test]
+    async fn test_state_transition_enabled_then_disabled() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().to_path_buf();
+
+        // First call: enabled — write log
+        let config_on = RawLogConfig::new(true, dir.clone(), 7);
+        let processor_on = RawLogProcessor::new(config_on).unwrap();
+        let msg1 = make_normalized("wecom");
+        let ctx1 = make_ctx(msg1);
+        let result1 = processor_on.process(&ctx1).await.unwrap();
+        assert!(result1.is_some());
+        let files_after_on: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().collect();
+        assert_eq!(files_after_on.len(), 1);
+
+        // Second call: disabled — pass through only
+        let config_off = RawLogConfig::new(false, dir.clone(), 7);
+        let processor_off = RawLogProcessor::new(config_off).unwrap();
+        let msg2 = make_normalized("wecom");
+        let ctx2 = make_ctx(msg2);
+        let result2 = processor_off.process(&ctx2).await.unwrap();
+        assert!(result2.is_some(), "disabled should pass through");
+        let files_after_off: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().collect();
+        assert_eq!(
+            files_after_off.len(),
+            1,
+            "still only one log file from the enabled call"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_write_log_error_propagates() {
+        // Use a non-existent subdirectory so write_log fails with ENOENT
+        let base = TempDir::new().unwrap();
+        let bad_dir = base.path().join("nonexistent_subdir");
+        let config = RawLogConfig::new(true, bad_dir, 7);
+        let processor = RawLogProcessor::new(config).unwrap();
+
+        let msg = make_normalized("feishu");
+        let ctx = make_ctx(msg);
+
+        let err = processor.process(&ctx).await.unwrap_err();
+        let err_str = format!("{err}");
+        assert!(
+            err_str.contains("processor_failed") || err_str.contains("raw_log"),
+            "expected processor error from write_log failure: {err_str}"
+        );
     }
 
     #[tokio::test]
