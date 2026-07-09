@@ -1,4 +1,6 @@
-use crate::process::{pid_file_path, read_pid_file, send_signal, spawn_daemon, write_pid_file};
+use crate::process::{
+    pid_file_path, read_pid_file, send_signal, spawn_daemon, write_pid_file, SpawnOptions,
+};
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 use tempfile::TempDir;
@@ -116,8 +118,13 @@ fn test_send_signal_invalid_pid_force() {
 #[test]
 fn test_spawn_daemon_writes_pid_file() {
     let config_dir = tempfile::tempdir().unwrap();
-    let mut child = spawn_daemon("sleep", &["60"], config_dir.path(), None, &[], true)
-        .expect("spawn_daemon failed");
+    let mut child = spawn_daemon(
+        "sleep",
+        &["60"],
+        config_dir.path(),
+        &SpawnOptions::default(),
+    )
+    .expect("spawn_daemon failed");
 
     let pid = child.id();
     let path = pid_file_path(config_dir.path());
@@ -140,9 +147,7 @@ fn test_spawn_daemon_invalid_command() {
         "/nonexistent/command",
         &[],
         config_dir.path(),
-        None,
-        &[],
-        true,
+        &SpawnOptions::default(),
     );
     assert!(
         result.is_err(),

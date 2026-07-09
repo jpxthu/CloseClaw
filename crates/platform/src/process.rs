@@ -4,6 +4,32 @@
 //! Unix uses SIGTERM/SIGINT; Windows uses process termination API.
 
 use std::path::{Path, PathBuf};
+
+/// Options for spawning a daemon process.
+///
+/// Controls the working directory, environment variables, and stdio
+/// handling for the child process.
+#[derive(Debug, Clone)]
+pub struct SpawnOptions {
+    /// Optional working directory for the child process.
+    pub working_dir: Option<PathBuf>,
+    /// Optional environment variables as key-value pairs.
+    pub env_vars: Vec<(String, String)>,
+    /// If `true`, stdin/stdout/stderr are redirected to `/dev/null`
+    /// (Unix) or `NUL` (Windows). Defaults to `true`.
+    pub detach_stdio: bool,
+}
+
+impl Default for SpawnOptions {
+    fn default() -> Self {
+        Self {
+            working_dir: None,
+            env_vars: Vec::new(),
+            detach_stdio: true,
+        }
+    }
+}
+
 use tracing::info;
 
 /// Returns the platform-specific PID file path.
@@ -74,10 +100,7 @@ pub fn send_signal(pid: u32, force: bool) -> anyhow::Result<()> {
 /// * `command` - The program to execute (e.g. `"/usr/bin/my-daemon"`).
 /// * `args` - Arguments to pass to the program.
 /// * `config_dir` - Directory where `daemon.pid` will be written.
-/// * `working_dir` - Optional working directory for the child process.
-/// * `env_vars` - Optional environment variables as key-value pairs.
-/// * `detach_stdio` - If `true` (default), stdin/stdout/stderr are
-///   redirected to `/dev/null` (Unix) or `NUL` (Windows).
+/// * `options` - Additional spawn configuration ([`SpawnOptions`]).
 ///
 /// # Errors
 ///
@@ -87,22 +110,20 @@ pub fn spawn_daemon(
     command: &str,
     args: &[&str],
     config_dir: &Path,
-    working_dir: Option<&Path>,
-    env_vars: &[(&str, &str)],
-    detach_stdio: bool,
+    options: &SpawnOptions,
 ) -> anyhow::Result<std::process::Child> {
     let mut cmd = std::process::Command::new(command);
     cmd.args(args);
 
-    if let Some(dir) = working_dir {
+    if let Some(ref dir) = options.working_dir {
         cmd.current_dir(dir);
     }
 
-    for (key, value) in env_vars {
+    for (key, value) in &options.env_vars {
         cmd.env(key, value);
     }
 
-    if detach_stdio {
+    if options.detach_stdio {
         cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());

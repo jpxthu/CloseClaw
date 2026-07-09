@@ -15,7 +15,7 @@ pub use fs::{
 };
 pub use process::{
     pid_file_path, read_pid_file, send_signal, spawn_daemon, wait_for_shutdown_signal,
-    write_pid_file,
+    write_pid_file, SpawnOptions,
 };
 pub use terminal::{current_uid, is_terminal, read_line_raw, supports_ansi, write_raw};
 
