@@ -132,19 +132,21 @@ fn test_load_env_file_whitespace_trimming() {
 #[test]
 fn test_build_permission_engine_empty_dir() {
     let dir = TempDir::new().unwrap();
-    // Config dir has no templates/ subdirectory
+    // Config dir has no templates/ subdirectory — engine should initialize
+    // without error and contain the correct user_defaults.
     let engine = Daemon::build_permission_engine(dir.path().to_str().unwrap());
-    assert!(!Arc::ptr_eq(
-        &engine,
-        &Arc::new(PermissionEngine::new_with_default_data_root(
-            closeclaw_permission::RuleSet {
-                rules: Vec::new(),
-                defaults: closeclaw_permission::Defaults::default(),
-                template_includes: Vec::new(),
-                agent_creators: std::collections::HashMap::new(),
-            }
-        ))
-    ));
+    let guard = engine.blocking_read();
+    let rs = guard.rules();
+    assert!(rs.rules.is_empty(), "no templates should yield empty rules");
+    let ud = &rs.user_defaults;
+    let expected = closeclaw_permission::Defaults::user_defaults();
+    assert_eq!(ud.file, expected.file);
+    assert_eq!(ud.command, expected.command);
+    assert_eq!(ud.network, expected.network);
+    assert_eq!(ud.inter_agent, expected.inter_agent);
+    assert_eq!(ud.config, expected.config);
+    assert_eq!(ud.tool_call, expected.tool_call);
+    assert_eq!(ud.message, expected.message);
 }
 
 #[test]
