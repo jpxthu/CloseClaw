@@ -195,14 +195,19 @@ impl CompactionService {
     }
 
     /// Returns whether auto-compaction should run based on token usage and circuit breaker.
+    ///
+    /// Delegates to [`token_warning_state`](Self::token_warning_state) and returns
+    /// `true` only when the state is [`AutoCompactTriggered`](TokenWarningState::AutoCompactTriggered)
+    /// and the circuit breaker has not tripped.
     pub fn should_auto_compact(&self, messages: &[CompactionMessage], model: &str) -> bool {
         if self.consecutive_failures >= self.config.max_consecutive_failures {
             return false;
         }
         let tokens = estimate_messages_tokens(messages);
-        let threshold =
-            get_context_window(model).saturating_sub(self.config.auto_compact_buffer_tokens);
-        tokens >= threshold
+        matches!(
+            self.token_warning_state(tokens, model),
+            TokenWarningState::AutoCompactTriggered
+        )
     }
 
     /// Returns the number of consecutive compaction failures.

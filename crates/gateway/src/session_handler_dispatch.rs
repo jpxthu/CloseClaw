@@ -333,6 +333,21 @@ impl SessionMessageHandler {
             self.enqueue_pending(session_id, content).await;
             return HandleResult::MessageQueued;
         }
+        // Reject new requests when context window is nearly full.
+        if super::session_handler::is_blocking_state(
+            &self.compaction_service,
+            &self.session_manager,
+            session_id,
+        )
+        .await
+        {
+            super::session_handler::send_output(
+                &self.output_tx,
+                "Context window nearly full. Please run /compact to compress the session.",
+            )
+            .await;
+            return HandleResult::MessageQueued;
+        }
         self.check_and_run_auto_compact(session_id).await;
         self.dispatch_llm_call(session_id, content, meta, Some(gateway), Some(plugin))
             .await

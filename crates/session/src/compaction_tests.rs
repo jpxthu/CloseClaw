@@ -180,9 +180,10 @@ mod tests {
         service.record_failure();
         service.record_failure();
         service.record_failure();
+        // 3,948,004 chars * 0.25 = 987,001 tokens → AutoCompactTriggered (mini-max).
         let msgs = vec![CompactionMessage {
             role: "user".to_string(),
-            content: "x".repeat(4_000_000),
+            content: "x".repeat(3_948_004),
         }];
         assert!(!service.should_auto_compact(&msgs, "mini-max"));
         service.record_success();
@@ -322,14 +323,14 @@ mod tests {
         config.auto_compact_buffer_tokens = 0;
         let service = CompactionService::new(config);
 
-        // Need 1,000,000 tokens to hit mini-max context window with 0 buffer.
-        // 4,000,000 chars * 0.25 = 1,000,000 tokens.
+        // 3,948,004 chars * 0.25 = 987,001 tokens.
+        // mini-max context = 1,000,000 → remaining = 12,999 → AutoCompactTriggered.
         let msgs = vec![CompactionMessage {
             role: "user".to_string(),
-            content: "x".repeat(4_000_000),
+            content: "x".repeat(3_948_004),
         }];
 
-        // Above threshold: triggers compaction
+        // AutoCompactTriggered: triggers compaction
         assert!(service.should_auto_compact(&msgs, "mini-max"));
         // The same decision applies regardless of any plan_state that may
         // exist on the checkpoint — plan_state is never consulted by the
