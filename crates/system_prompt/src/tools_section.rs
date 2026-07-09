@@ -471,4 +471,83 @@ mod tests {
             "task writing guidance should NOT appear without sessions_spawn"
         );
     }
+
+    #[tokio::test]
+    async fn test_background_task_guidance_when_bash_available() {
+        let registry = ToolRegistry::new();
+        let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
+        let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
+        registry
+            .register_all(make_registrars(
+                disk_registry,
+                test_permission_engine(),
+                spawn_controller,
+                session_manager.clone(),
+                config_manager,
+                agent_registry,
+                test_approval_flow(&session_manager),
+            ))
+            .await
+            .unwrap();
+        let ctx = closeclaw_tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+        };
+        let section = build_tools_section(&registry, &ctx, None, None, None).await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        assert!(
+            content.contains("Background Task Guidance"),
+            "missing 'Background Task Guidance' header in: {}",
+            &content[content.len().saturating_sub(300)..]
+        );
+        assert!(
+            content.contains("do not need to poll"),
+            "missing 'do not need to poll' in background guidance"
+        );
+        assert!(
+            content.contains("Do not call process-query tools"),
+            "missing 'Do not call process-query tools' in background guidance"
+        );
+        assert!(
+            content.contains("10 seconds"),
+            "missing '10 seconds' threshold in background guidance"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_background_task_guidance_absent_when_bash_unavailable() {
+        // Empty registry → Bash is not in available_tool_names
+        let registry = ToolRegistry::new();
+        let ctx = closeclaw_tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+        };
+        let section = build_tools_section(&registry, &ctx, None, None, None).await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        assert!(
+            !content.contains("Background Task Guidance"),
+            "background task guidance should NOT appear without Bash, got: {}",
+            content
+        );
+        assert!(
+            !content.contains("do not need to poll"),
+            "background guidance text should NOT appear without Bash"
+        );
+    }
 }

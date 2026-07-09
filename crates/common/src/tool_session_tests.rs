@@ -193,3 +193,62 @@ async fn test_tool_session_with_arc_handles() {
     // The Arc should have at least 2 references: our local + the session's
     assert!(Arc::strong_count(&handles[0].1) >= 2);
 }
+
+// =========================================================================
+// manual_background_notify tests
+// =========================================================================
+
+/// Mock ToolSession that returns a Notify signal.
+struct MockToolSessionWithSignal {
+    handles: Mutex<Vec<(String, Arc<dyn KillHandle>)>>,
+    signal: Arc<tokio::sync::Notify>,
+}
+
+impl MockToolSessionWithSignal {
+    fn new() -> Self {
+        Self {
+            handles: Mutex::new(Vec::new()),
+            signal: Arc::new(tokio::sync::Notify::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl ToolSession for MockToolSessionWithSignal {
+    async fn register_tool_handle(&self, call_id: String, handle: Arc<dyn KillHandle>) {
+        self.handles.lock().unwrap().push((call_id, handle));
+    }
+
+    fn manual_background_notify(&self) -> Option<Arc<tokio::sync::Notify>> {
+        Some(Arc::clone(&self.signal))
+    }
+}
+
+/// Default trait impl returns None.
+#[test]
+fn test_tool_session_manual_background_notify_default_returns_none() {
+    let session = MockToolSession::new();
+    assert!(session.manual_background_notify().is_none());
+}
+
+/// Custom impl returns Some(Notify).
+#[test]
+fn test_tool_session_manual_background_notify_returns_signal() {
+    let session = MockToolSessionWithSignal::new();
+    assert!(session.manual_background_notify().is_some());
+}
+
+/// Signal fires → waiting future completes.
+#[tokio::test]
+async fn test_manual_background_notify_signal_wakes_waiter() {
+    let session = MockToolSessionWithSignal::new();
+    let signal = session.manual_background_notify().unwrap();
+    // Fire the signal — a waiter should be woken.
+    signal.notify_waiters();
+    // Immediately notify again so the notified() future resolves.
+    signal.notify_waiters();
+    // Wait on a fresh notification — should not block.
+    let notified = signal.notified();
+    signal.notify_waiters();
+    notified.await;
+}
