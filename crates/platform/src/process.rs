@@ -30,13 +30,13 @@ pub fn read_pid_file(path: &Path) -> Option<u32> {
 
 /// Sends a termination signal to the process identified by `pid`.
 ///
-/// On Unix, sends SIGTERM by default or SIGKILL when `force` is true.
+/// On Unix, sends SIGTERM by default or SIGINT when `force` is true.
 /// On Windows, uses `taskkill` without `/F` by default or with `/F`
 /// when `force` is true.
 pub fn send_signal(pid: u32, force: bool) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
-        let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
+        let signal = if force { libc::SIGINT } else { libc::SIGTERM };
         // SAFETY: kill with a valid signal is a standard POSIX operation.
         // The process ID is validated by the OS kernel.
         let ret = unsafe { libc::kill(pid as i32, signal) };

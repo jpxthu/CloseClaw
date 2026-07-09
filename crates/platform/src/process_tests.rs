@@ -80,18 +80,18 @@ fn test_send_signal_sigterm() {
 
 #[cfg(unix)]
 #[test]
-fn test_send_signal_sigkill() {
+fn test_send_signal_sigint() {
     let mut child = spawn_sleep_child();
     let pid = child.id();
 
-    // Send SIGKILL (force=true). Should succeed and terminate the child.
-    send_signal(pid, true).expect("send_signal(pid, SIGKILL) failed");
+    // Send SIGINT (force=true). Should succeed and terminate the child.
+    send_signal(pid, true).expect("send_signal(pid, SIGINT) failed");
     let status = child.wait().unwrap();
-    // SIGKILL cannot be caught; process must exit with signal 9.
+    // SIGINT = signal 2; default handler terminates the process.
     assert_eq!(
         status.signal(),
-        Some(9),
-        "child should be killed by SIGKILL: {status}"
+        Some(2),
+        "child should be killed by SIGINT: {status}"
     );
 }
 
