@@ -72,9 +72,8 @@ fn test_config_write_deny_rule_still_works() {
     );
 }
 
-/// ConfigWrite with default Allow (no rules) passes through defaults
-/// because the guard only intercepts explicit Allow rule matches.
-/// The whitelist.rs prevents ConfigWrite from being persisted as Allow.
+/// ConfigWrite with default Allow is now intercepted by the default guard.
+/// Design doc: "此维度永远高危，只能走单次审批".
 #[test]
 fn test_config_write_default_allow_not_intercepted_by_guard() {
     let ruleset = RuleSetBuilder::new()
@@ -89,12 +88,11 @@ fn test_config_write_default_allow_not_intercepted_by_guard() {
     });
     let response = engine.evaluate(request, None);
 
-    // The guard only fires on explicit Allow rule matches.
-    // Default Allow is handled by the defaults path, which is separate.
-    // whitelist.rs prevents ConfigWrite from being persisted as Allow.
+    // Step 1.8: default guard now intercepts ConfigWrite even when
+    // defaults.config is Allow, because this dimension is always high-risk.
     assert!(
-        matches!(response, PermissionResponse::Allowed { .. }),
-        "ConfigWrite default Allow without explicit rule is not intercepted by guard, got {:?}",
+        matches!(response, PermissionResponse::Denied { .. }),
+        "ConfigWrite default Allow should be intercepted by default guard, got {:?}",
         response
     );
 }

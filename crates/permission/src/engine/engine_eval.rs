@@ -767,6 +767,24 @@ impl PermissionEngine {
         defaults: &Defaults,
         reason: &str,
     ) -> PermissionResponse {
+        // Step 1.8: ConfigWrite default Allow guard — design doc requires
+        // "此维度永远高危，只能走单次审批". Even when defaults.config is Allow,
+        // ConfigWrite must always be Denied via the default path.
+        if matches!(request, PermissionRequestBody::ConfigWrite { .. }) {
+            info!(
+                agent = %request.agent_id(),
+                result = "denied",
+                reason = "config_write_default_guard",
+                "permission check completed"
+            );
+            return PermissionResponse::Denied {
+                reason: "config write is always high-risk, only single approval is allowed"
+                    .to_string(),
+                rule: "<config_write_default_guard>".to_string(),
+                risk_level: assess_risk_level(request),
+            };
+        }
+
         let effect = match request {
             PermissionRequestBody::FileOp { op, .. } => match op.as_str() {
                 "write" => defaults.file_write,
