@@ -294,6 +294,63 @@ fn test_conversation_session_multiple_turns() {
     assert_eq!(session.messages().len(), 2);
 }
 
+// ── append_user_message persists user input ──────────────────────────────
+
+#[test]
+fn test_append_user_message_adds_user_role() {
+    let mut session = ConversationSession::new("s_um1".into(), "gpt-4o".into(), tmp_path());
+    session.append_user_message("hello world");
+    assert_eq!(session.messages().len(), 1);
+    assert_eq!(session.messages()[0].role, "user");
+    assert_eq!(
+        session.messages()[0].content_blocks,
+        vec![ContentBlock::Text("hello world".into())]
+    );
+}
+
+#[test]
+fn test_append_user_message_preserves_order_with_assistant() {
+    let mut session = ConversationSession::new("s_um2".into(), "gpt-4o".into(), tmp_path());
+    session.append_user_message("question");
+    session.append_response(UnifiedResponse {
+        content_blocks: vec![ContentBlock::Text("answer".into())],
+        usage: UnifiedUsage {
+            prompt_tokens: 1,
+            completion_tokens: 1,
+            total_tokens: Some(2),
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+    });
+    assert_eq!(session.messages().len(), 2);
+    assert_eq!(session.messages()[0].role, "user");
+    assert_eq!(session.messages()[1].role, "assistant");
+}
+
+#[test]
+fn test_append_user_message_compact_includes_user() {
+    let mut session = ConversationSession::new("s_um3".into(), "gpt-4o".into(), tmp_path());
+    session.append_user_message("what is rust?");
+    session.append_response(UnifiedResponse {
+        content_blocks: vec![ContentBlock::Text("Rust is a systems language.".into())],
+        usage: UnifiedUsage {
+            prompt_tokens: 1,
+            completion_tokens: 1,
+            total_tokens: Some(2),
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+    });
+    let req = session.build_api_request();
+    // Should contain user + assistant messages in the API request
+    assert!(req.messages.iter().any(|m| m.role == "user"));
+    assert!(req.messages.iter().any(|m| m.role == "assistant"));
+}
+
 // ── model() getter ───────────────────────────────────────────────────────
 
 #[test]

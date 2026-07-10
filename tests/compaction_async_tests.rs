@@ -50,6 +50,12 @@ mod tests {
         assert!(r.performed);
         assert!(r.boundary_message.contains("Compacted summary content"));
         assert!(r.boundary_message.contains("手动压缩"));
+        // Boundary message should contain a UTC ISO 8601 timestamp
+        assert!(
+            r.boundary_message.contains("202") || r.boundary_message.contains("203"),
+            "boundary message should contain a timestamp year: {}",
+            r.boundary_message
+        );
         assert!(r.message.contains("2 messages"));
 
         // Verify mock received the correct messages
@@ -143,6 +149,12 @@ mod tests {
         let r = result.unwrap();
         assert!(r.boundary_message.contains("Test summary"));
         assert!(r.boundary_message.contains("自动压缩"));
+        // Boundary message should contain a UTC ISO 8601 timestamp
+        assert!(
+            r.boundary_message.contains("202") || r.boundary_message.contains("203"),
+            "boundary message should contain a timestamp year: {}",
+            r.boundary_message
+        );
     }
 
     #[tokio::test]

@@ -601,6 +601,15 @@ impl ConversationSession {
         std::mem::take(&mut self.announce_queue)
     }
 
+    /// Persist a user message into the conversation history.
+    ///
+    /// Writes the user input as a [`SessionMessage`] with `role="user"`
+    /// so that [`build_compact_messages`] can extract complete
+    /// user/assistant conversation history for compaction.
+    pub fn append_user_message(&mut self, content: &str) {
+        self.push_message("user", vec![ContentBlock::Text(content.to_string())]);
+    }
+
     /// Inject a system message into the conversation history.
     pub fn inject_system_message(&mut self, text: String) {
         self.push_message("system", vec![ContentBlock::Text(text)]);
