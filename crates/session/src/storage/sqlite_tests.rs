@@ -48,6 +48,7 @@ mod tests {
             approval_tool_calls: Vec::new(),
             plan_references: Vec::new(),
             session_mode: SessionMode::default(),
+            transcript: Vec::new(),
         }
     }
 
@@ -421,6 +422,7 @@ mod tests {
             approval_tool_calls: Vec::new(),
             plan_references: Vec::new(),
             session_mode: SessionMode::default(),
+            transcript: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -476,6 +478,7 @@ mod tests {
             approval_tool_calls: Vec::new(),
             plan_references: Vec::new(),
             session_mode: SessionMode::default(),
+            transcript: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -531,6 +534,7 @@ mod tests {
             approval_tool_calls: Vec::new(),
             plan_references: Vec::new(),
             session_mode: SessionMode::default(),
+            transcript: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 

@@ -213,6 +213,12 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 Normal）。
     #[serde(default)]
     pub session_mode: SessionMode,
+    /// 压缩后的对话 transcript（仅 boundary 消息，不含 system prompt）
+    ///
+    /// 设计文档要求"transcript 是唯一真实来源"，压缩后完整写入持久化存储。
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON。
+    #[serde(default)]
+    pub transcript: Vec<crate::llm_session::SessionMessage>,
 }
 
 impl SessionCheckpoint {
@@ -255,6 +261,7 @@ impl SessionCheckpoint {
             approval_tool_calls: Vec::new(),
             plan_references: Vec::new(),
             session_mode: SessionMode::default(),
+            transcript: Vec::new(),
         }
     }
 
