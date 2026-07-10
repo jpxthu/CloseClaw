@@ -16,9 +16,7 @@
 //! # Usage
 //!
 //! 1. At session start: [`BootstrapProtection::protect_session`] to scan and mark bootstrap content
-//! 2. Before compaction: [`BootstrapProtection::before_compact`] to store integrity hashes
-//! 3. After compaction: [`BootstrapProtection::after_compact`] to detect corruption
-//! 4. If corrupted: [`BootstrapProtection::reinject`] to prepend fresh bootstrap content
+//! 2. If corrupted: [`BootstrapProtection::reinject`] to prepend fresh bootstrap content
 
 pub mod context;
 pub mod helpers;

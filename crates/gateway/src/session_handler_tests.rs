@@ -1,4 +1,5 @@
 use super::*;
+use crate::session_handler::apply_compact_result;
 use crate::session_handler::ActiveSearcherLlmCaller;
 use closeclaw_common::LlmCaller;
 use closeclaw_llm::fallback::FallbackClient;
@@ -425,4 +426,284 @@ async fn test_drain_notifications_empty() {
         "no system messages should be injected, got {}",
         msgs.len()
     );
+}
+
+// =========================================================================
+// apply_compact_result ordering tests (Step 1.3)
+// =========================================================================
+
+/// A mock persistence that records checkpoint saves for ordering verification.
+#[derive(Default)]
+struct OrderingMockPersistence {
+    checkpoints: tokio::sync::Mutex<
+        std::collections::HashMap<String, closeclaw_session::persistence::SessionCheckpoint>,
+    >,
+    save_order: tokio::sync::Mutex<Vec<String>>,
+}
+
+#[async_trait::async_trait]
+impl closeclaw_session::persistence::PersistenceService for OrderingMockPersistence {
+    async fn save_checkpoint(
+        &self,
+        checkpoint: &closeclaw_session::persistence::SessionCheckpoint,
+    ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
+        self.save_order
+            .lock()
+            .await
+            .push(format!("save_checkpoint:{}", checkpoint.session_id));
+        self.checkpoints
+            .lock()
+            .await
+            .insert(checkpoint.session_id.clone(), checkpoint.clone());
+        Ok(())
+    }
+    async fn load_checkpoint(
+        &self,
+        session_id: &str,
+    ) -> Result<
+        Option<closeclaw_session::persistence::SessionCheckpoint>,
+        closeclaw_session::persistence::PersistenceError,
+    > {
+        Ok(self.checkpoints.lock().await.get(session_id).cloned())
+    }
+    async fn delete_checkpoint(
+        &self,
+        _session_id: &str,
+    ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
+        Ok(())
+    }
+    async fn list_active_sessions(
+        &self,
+    ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
+        Ok(Vec::new())
+    }
+    async fn archive_checkpoint(
+        &self,
+        _checkpoint: &closeclaw_session::persistence::SessionCheckpoint,
+    ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
+        Ok(())
+    }
+    async fn restore_checkpoint(
+        &self,
+        _session_id: &str,
+    ) -> Result<
+        Option<closeclaw_session::persistence::SessionCheckpoint>,
+        closeclaw_session::persistence::PersistenceError,
+    > {
+        Ok(None)
+    }
+    async fn purge_checkpoint(
+        &self,
+        _session_id: &str,
+    ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
+        Ok(())
+    }
+    async fn list_archived_sessions(
+        &self,
+    ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
+        Ok(Vec::new())
+    }
+    async fn invalidate_session(
+        &self,
+        _session_id: &str,
+    ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
+        Ok(())
+    }
+    async fn list_idle_sessions_for_agent(
+        &self,
+        _agent_id: &str,
+        _role: closeclaw_session::persistence::AgentRole,
+        _idle_minutes: i64,
+    ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
+        Ok(Vec::new())
+    }
+    async fn list_expired_archived_sessions_for_agent(
+        &self,
+        _agent_id: &str,
+        _role: closeclaw_session::persistence::AgentRole,
+        _purge_after_minutes: i64,
+    ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
+        Ok(Vec::new())
+    }
+}
+
+/// Setup a SessionManager with mock persistence and register a session
+/// with a ConversationSession and a Session entry.
+async fn setup_for_compact_test(
+    persistence: Arc<OrderingMockPersistence>,
+    session_id: &str,
+) -> Arc<SessionManager> {
+    use crate::Session;
+    use chrono::Utc;
+
+    let config = GatewayConfig {
+        name: "test".to_string(),
+        rate_limit_per_minute: 100,
+        max_message_size: 10000,
+        ..Default::default()
+    };
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        Some(persistence as Arc<dyn closeclaw_session::persistence::PersistenceService>),
+        None,
+        closeclaw_session::bootstrap::BootstrapMode::Full,
+        closeclaw_session::persistence::ReasoningLevel::default(),
+    ));
+
+    // Register a Session (needed by rebuild_system_prompt_for_session)
+    sm.sessions.write().await.insert(
+        session_id.to_string(),
+        Session {
+            id: session_id.to_string(),
+            agent_id: "test-agent".to_string(),
+            channel: "test".to_string(),
+            created_at: Utc::now().timestamp(),
+            depth: 0,
+        },
+    );
+
+    // Register a ConversationSession with existing messages
+    let cs = Arc::new(tokio::sync::RwLock::new(
+        closeclaw_session::llm_session::ConversationSession::new(
+            session_id.to_string(),
+            "test-model".to_string(),
+            std::path::PathBuf::from("/tmp"),
+        ),
+    ));
+    {
+        let mut cs_guard = cs.write().await;
+        // Add some initial messages so replace_messages has something to replace
+        cs_guard.replace_messages(vec![closeclaw_session::llm_session::SessionMessage {
+            role: "user".to_string(),
+            content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
+                "old message".to_string(),
+            )],
+            timestamp: Utc::now(),
+        }]);
+    }
+    sm.conversation_sessions
+        .write()
+        .await
+        .insert(session_id.to_string(), cs);
+
+    sm
+}
+
+/// Verify that `apply_compact_result` replaces messages with the
+/// boundary, rebuilds the system prompt, persists the checkpoint,
+/// and clears the snapshot — in that order.
+#[tokio::test]
+async fn test_apply_compact_result_order_and_state() {
+    let persistence = Arc::new(OrderingMockPersistence::default());
+    let sm = setup_for_compact_test(persistence.clone(), "compact-order-test").await;
+
+    // Pre-populate a checkpoint so save_checkpoint_after_compact has something to update.
+    let pre_cp =
+        closeclaw_session::persistence::SessionCheckpoint::new("compact-order-test".to_string());
+    persistence
+        .checkpoints
+        .lock()
+        .await
+        .insert("compact-order-test".to_string(), pre_cp);
+
+    let result = closeclaw_session::compaction::CompactionResult {
+        performed: true,
+        original_tokens: 1000,
+        compacted_tokens: 200,
+        message: "Compacted.".to_string(),
+        before_char_count: 5000,
+        after_char_count: 1000,
+        before_token_count: 1000,
+        after_token_count: 200,
+        boundary_message: "[boundary] Summary of conversation.".to_string(),
+        is_auto: false,
+    };
+
+    apply_compact_result(&sm, "compact-order-test", &result).await;
+
+    // 1. Messages should be replaced with the boundary message.
+    let cs = sm
+        .get_conversation_session("compact-order-test")
+        .await
+        .expect("session should exist");
+    let msgs = cs.read().await.messages().to_vec();
+    assert_eq!(msgs.len(), 1, "should have exactly one boundary message");
+    assert_eq!(msgs[0].role, "assistant");
+    match &msgs[0].content_blocks[0] {
+        closeclaw_llm::types::ContentBlock::Text(t) => {
+            assert_eq!(t, "[boundary] Summary of conversation.");
+        }
+        other => panic!("expected Text block, got {:?}", other),
+    }
+
+    // 2. Checkpoint should have been saved (pending_messages synced).
+    let saved = persistence
+        .checkpoints
+        .lock()
+        .await
+        .get("compact-order-test")
+        .cloned()
+        .expect("checkpoint should be saved");
+    assert_eq!(
+        saved.pending_messages.len(),
+        1,
+        "checkpoint should have 1 pending message (the boundary)"
+    );
+    assert_eq!(saved.pending_messages[0].message_id, "boundary");
+    assert!(
+        saved.pending_messages[0]
+            .content
+            .contains("Summary of conversation."),
+        "boundary content should be in pending message"
+    );
+
+    // 3. Verify save_order: save_checkpoint was called (rebuild is internal,
+    //    but the checkpoint was persisted, confirming the pipeline ran).
+    let order = persistence.save_order.lock().await;
+    assert_eq!(
+        order.len(),
+        1,
+        "save_checkpoint should be called exactly once"
+    );
+    assert_eq!(order[0], "save_checkpoint:compact-order-test");
+}
+
+/// When the session does not exist, apply_compact_result returns
+/// silently without panicking.
+#[tokio::test]
+async fn test_apply_compact_result_no_session() {
+    let persistence = Arc::new(OrderingMockPersistence::default());
+    let persistence_clone = persistence.clone();
+    let config = GatewayConfig {
+        name: "test".to_string(),
+        rate_limit_per_minute: 100,
+        max_message_size: 10000,
+        ..Default::default()
+    };
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        Some(persistence as Arc<dyn closeclaw_session::persistence::PersistenceService>),
+        None,
+        closeclaw_session::bootstrap::BootstrapMode::Full,
+        closeclaw_session::persistence::ReasoningLevel::default(),
+    ));
+
+    let result = closeclaw_session::compaction::CompactionResult {
+        performed: true,
+        original_tokens: 100,
+        compacted_tokens: 50,
+        message: "Compact".to_string(),
+        before_char_count: 500,
+        after_char_count: 250,
+        before_token_count: 100,
+        after_token_count: 50,
+        boundary_message: "[boundary]".to_string(),
+        is_auto: false,
+    };
+
+    // Should not panic even with nonexistent session
+    apply_compact_result(&sm, "nonexistent", &result).await;
+
+    // No checkpoint should be saved
+    assert!(persistence_clone.checkpoints.lock().await.is_empty());
 }

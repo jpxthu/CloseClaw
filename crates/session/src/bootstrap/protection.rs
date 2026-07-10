@@ -96,7 +96,6 @@ impl BootstrapProtection {
             regions,
             reinjected_after_last_compact: true,
             total_char_count,
-            pre_compact_hashes: Default::default(),
         };
 
         (modified, ctx)
@@ -149,59 +148,6 @@ impl BootstrapProtection {
         }
 
         None
-    }
-
-    /// Called before compaction to store integrity hashes
-    pub fn before_compact(&self, ctx: &mut BootstrapContext) {
-        ctx.pre_compact_hashes.clear();
-        for region in &ctx.regions {
-            ctx.pre_compact_hashes
-                .insert(region.region_id.clone(), region.content_hash.clone());
-        }
-    }
-
-    /// Called after compaction to detect corruption.
-    /// Returns list of file names that need reinject.
-    pub fn after_compact(&self, transcript: &str, ctx: &mut BootstrapContext) -> Vec<String> {
-        use super::types::BOOTSTRAP_REGION_START;
-
-        let mut to_reinject = Vec::new();
-
-        for region in &ctx.regions {
-            // Try to find the region in the modified transcript
-            let start_marker = format!("{}file={}", BOOTSTRAP_REGION_START, region.file_name);
-            if let Some(start_idx) = transcript.find(&start_marker) {
-                if let Some(marker_end) = transcript[start_idx..].find('>') {
-                    // body_content_start is right after the '>' of start marker
-                    let body_content_start = start_idx + marker_end + 1;
-                    if let Some(end_rel) =
-                        transcript[body_content_start..].find(BOOTSTRAP_REGION_END)
-                    {
-                        // Extract content - strip leading newline (after >) and trailing newline (before </bootstrap>)
-                        let raw_content =
-                            &transcript[body_content_start..body_content_start + end_rel];
-                        let content = raw_content.trim();
-                        if !region.verify_integrity(content) {
-                            to_reinject.push(region.file_name.clone());
-                        }
-                        continue;
-                    }
-                }
-            }
-
-            // Region not found or corrupted
-            if ctx.pre_compact_hashes.contains_key(&region.region_id) {
-                // Region exists in pre_compact_hashes but not found in transcript
-                // This means compaction removed or corrupted it
-                to_reinject.push(region.file_name.clone());
-            }
-        }
-
-        if !to_reinject.is_empty() {
-            ctx.reinjected_after_last_compact = false;
-        }
-
-        to_reinject
     }
 
     /// Generate reinject text for the specified files.

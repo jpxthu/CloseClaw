@@ -4,10 +4,6 @@ use chrono::Utc;
 
 use super::*;
 
-fn make_test_protection() -> BootstrapProtection {
-    BootstrapProtection::new()
-}
-
 #[test]
 fn test_bootstrap_region_new() {
     let content = "# AGENTS\n\nDo this and that.";
@@ -62,7 +58,6 @@ fn test_bootstrap_context_default() {
     assert!(ctx.regions.is_empty());
     assert!(ctx.reinjected_after_last_compact);
     assert_eq!(ctx.total_char_count, 0);
-    assert!(ctx.pre_compact_hashes.is_empty());
 }
 
 #[test]
@@ -98,62 +93,6 @@ fn test_bootstrap_context_exceeds_size_limit() {
 
     assert!(ctx.exceeds_size_limit(60 * 1024));
     assert!(!ctx.exceeds_size_limit(80 * 1024));
-}
-
-#[test]
-fn test_bootstrap_protection_before_compact() {
-    let protection = make_test_protection();
-    let mut ctx = BootstrapContext::default();
-    ctx.add_region(BootstrapRegion::new("AGENTS.md", "# test", false));
-
-    protection.before_compact(&mut ctx);
-
-    assert_eq!(ctx.pre_compact_hashes.len(), 1);
-    assert!(ctx
-        .pre_compact_hashes
-        .contains_key(&ctx.regions[0].region_id));
-}
-
-#[test]
-fn test_bootstrap_protection_after_compact_no_corruption() {
-    let protection = make_test_protection();
-    let mut ctx = BootstrapContext::default();
-    let content = "# AGENTS\n\nTest content.";
-    ctx.add_region(BootstrapRegion::new("AGENTS.md", content, false));
-
-    // Store pre-compact hashes
-    protection.before_compact(&mut ctx);
-
-    // Transcript unchanged - no corruption
-    let wrapped = ctx.regions[0].wrap_content(content);
-    let to_reinject = protection.after_compact(&wrapped, &mut ctx);
-
-    assert!(
-        to_reinject.is_empty(),
-        "unexpected reinject needed: {:?}",
-        to_reinject
-    );
-    assert!(ctx.reinjected_after_last_compact);
-}
-
-#[test]
-fn test_bootstrap_protection_after_compact_with_corruption() {
-    let protection = make_test_protection();
-    let mut ctx = BootstrapContext::default();
-    let original = "# AGENTS\n\nOriginal content.";
-    ctx.add_region(BootstrapRegion::new("AGENTS.md", original, false));
-
-    // Store pre-compact hashes
-    protection.before_compact(&mut ctx);
-
-    // Transcript modified by compaction
-    let corrupted = "# SUMMARY: agent lost original context";
-    let wrapped = ctx.regions[0].wrap_content(corrupted);
-    let to_reinject = protection.after_compact(&wrapped, &mut ctx);
-
-    assert_eq!(to_reinject.len(), 1);
-    assert_eq!(to_reinject[0], "AGENTS.md");
-    assert!(!ctx.reinjected_after_last_compact);
 }
 
 #[test]
