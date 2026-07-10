@@ -141,6 +141,17 @@ ID 在注册表但无 config.json → WARN 跳过
 生成 ResolvedAgentConfig（所有字段已补齐默认值），返回给调用方（Daemon → AgentRegistry）
 ```
 
+### ResolvedAgentConfig
+
+ResolvedAgentConfig 是 Agent 配置加载流程的最终产物——经过项目级与用户级字段合并、补齐所有默认值后的完整配置。与 raw config.json 的区别：
+
+- **config.json**：用户手写的配置文件，部分字段可留空（有默认值时可为 null）
+- **ResolvedAgentConfig**：所有字段均有确定值，不存在 null
+
+字段语义与 [§配置字段](#配置字段configjson) 完全一致，差异仅在于每个字段一定是 resolved 状态——合并完成、默认值填充完成。
+
+ResolvedAgentConfig 由 Config 模块的 AgentDirectoryProvider 产出，存入 Agent 模块的 AgentRegistry，被 Session/Permission/System Prompt 等多个下游模块消费。
+
 ### 模型解析优先级
 
 spawn 子 agent 时，模型的最终选择按以下顺序确定：
