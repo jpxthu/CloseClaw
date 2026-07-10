@@ -103,6 +103,30 @@ fn make_deps_deny(rules: Vec<Rule>) -> PermDeps {
     )
 }
 
+/// Like `make_deps_deny` but with message default also set to Deny.
+fn make_deps_with_message_deny(rules: Vec<Rule>) -> PermDeps {
+    let rs = RuleSetBuilder::new()
+        .rules(rules)
+        .defaults(Defaults {
+            tool_call: Effect::Deny,
+            file_read: Effect::Deny,
+            file_write: Effect::Deny,
+            command: Effect::Deny,
+            message: Effect::Deny,
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    (
+        Arc::new(tokio::sync::RwLock::new(
+            PermissionEngine::new_with_default_data_root(rs),
+        )),
+        make_sm(),
+        make_cm(),
+        make_af_deny(),
+    )
+}
+
 fn make_ctx(agent: &str) -> ToolContext {
     ToolContext {
         agent_id: agent.to_string(),
@@ -165,6 +189,33 @@ fn allow_network_rule(agent: &str, host: &str) -> Rule {
         actions: vec![Action::Network {
             hosts: vec![host.to_string()],
             ports: vec![],
+        }],
+        template: None,
+        priority: 0,
+    }
+}
+
+fn allow_message_rule(agent: &str) -> Rule {
+    Rule {
+        name: format!("allow-message-{agent}"),
+        subject: Rule::parse_subject(agent),
+        effect: Effect::Allow,
+        actions: vec![Action::Message {
+            direction: MessageDirection::Both,
+            targets: vec!["*".to_string()],
+        }],
+        template: None,
+        priority: 0,
+    }
+}
+
+fn allow_config_write_rule(agent: &str) -> Rule {
+    Rule {
+        name: format!("allow-cfgwrite-{agent}"),
+        subject: Rule::parse_subject(agent),
+        effect: Effect::Allow,
+        actions: vec![Action::ConfigWrite {
+            files: vec!["*".to_string()],
         }],
         template: None,
         priority: 0,
@@ -274,6 +325,55 @@ async fn test_network_denied_without_rule() {
     let deps = make_deps_deny(vec![]);
     let ctx = make_ctx("agent-a");
     let result = check_network_permission(&deps, &ctx, "evil.com", 80).await;
+    assert!(result.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// check_message_permission tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_message_permission_allowed() {
+    let deps = make_deps(vec![allow_message_rule("agent-a")]);
+    let ctx = make_ctx("agent-a");
+    let result = check_message_permission(&deps, &ctx, MessageDirection::Both, "chat_1").await;
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_none(), "allowed → None");
+}
+
+#[tokio::test]
+async fn test_message_permission_denied() {
+    let deps = make_deps_with_message_deny(vec![]);
+    let ctx = make_ctx("agent-a");
+    let result = check_message_permission(&deps, &ctx, MessageDirection::Send, "chat_1").await;
+    assert!(result.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// check_config_write_permission tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_config_write_permission_allowed() {
+    // ConfigWrite Allow rules are intercepted by the guard and forced to
+    // Denied, so even with an Allow rule, ConfigWrite is denied and
+    // routes through the approval flow.
+    let deps = make_deps(vec![allow_config_write_rule("agent-a")]);
+    let ctx = make_ctx("agent-a");
+    let result = check_config_write_permission(&deps, &ctx, "config.yaml").await;
+    assert!(result.is_ok());
+    // Guard intercepts Allow → routes through approval flow
+    assert!(
+        result.unwrap().is_some(),
+        "config write Allow should route to approval flow"
+    );
+}
+
+#[tokio::test]
+async fn test_config_write_permission_denied() {
+    let deps = make_deps_deny(vec![]);
+    let ctx = make_ctx("agent-a");
+    let result = check_config_write_permission(&deps, &ctx, "config.yaml").await;
     assert!(result.is_err());
 }
 
