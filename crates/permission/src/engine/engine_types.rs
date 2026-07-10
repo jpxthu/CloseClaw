@@ -51,21 +51,13 @@ impl RuleSet {
 /// Default permissions for each action type
 #[derive(Debug, Clone, Serialize)]
 pub struct Defaults {
-    #[serde(default = "default_deny")]
     pub file_read: Effect,
-    #[serde(default = "default_deny")]
     pub file_write: Effect,
-    #[serde(default = "default_deny")]
     pub command: Effect,
-    #[serde(default = "default_deny")]
     pub network: Effect,
-    #[serde(default = "default_deny")]
     pub inter_agent: Effect,
-    #[serde(default = "default_deny")]
     pub config: Effect,
-    #[serde(default = "default_deny")]
     pub tool_call: Effect,
-    #[serde(default = "default_allow")]
     pub message: Effect,
 }
 
