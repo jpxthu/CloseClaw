@@ -2,7 +2,9 @@
 
 use super::engine_eval::PermissionEngine;
 use super::engine_risk::assess_risk_level;
-use super::engine_types::{PermissionRequest, PermissionRequestBody, PermissionResponse, Subject};
+use super::engine_types::{
+    MessageDirection, PermissionRequest, PermissionRequestBody, PermissionResponse, Subject,
+};
 
 impl PermissionEngine {
     /// Simplified permission check — evaluates if `agent_id` may
@@ -46,6 +48,11 @@ impl PermissionEngine {
             "config_write" => PermissionRequestBody::ConfigWrite {
                 agent: agent_id.to_string(),
                 config_file: "*".to_string(),
+            },
+            "message" => PermissionRequestBody::MessageSend {
+                agent: agent_id.to_string(),
+                direction: MessageDirection::Both,
+                target: "*".to_string(),
             },
             _ => {
                 let body = PermissionRequestBody::ToolCall {

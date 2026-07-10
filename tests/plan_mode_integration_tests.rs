@@ -441,9 +441,11 @@ fn test_auto_mode_e2e_critical_risk_daemon_config_allowed() {
         None,
     );
 
+    // ConfigWrite is always high-risk (design doc: single approval only, no whitelist).
+    // Even auto mode + allow defaults must be intercepted by the config_write guard.
     assert!(
-        matches!(resp, PermissionResponse::Allowed { .. }),
-        "Auto mode + critical risk (daemon config) should be allowed (no risk gate), got: {:?}",
+        matches!(resp, PermissionResponse::Denied { .. }),
+        "Auto mode + critical risk (daemon config) should be denied (config write guard), got: {:?}",
         resp
     );
 }

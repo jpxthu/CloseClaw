@@ -477,7 +477,7 @@ mod tests {
             Arc::new(MockAutoModeQuery::new("test-agent", SessionMode::Auto)),
         );
 
-        // ConfigWrite with Allow rule → Allowed (risk gate removed)
+        // Step 1.8: ConfigWrite default guard forces Denied — "此维度永远高危，只能走单次审批"
         let resp = engine.evaluate(
             PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
                 agent: "test-agent".to_string(),
@@ -486,8 +486,8 @@ mod tests {
             None,
         );
         match resp {
-            PermissionResponse::Allowed { .. } => {}
-            other => panic!("expected Allowed, got {:?}", other),
+            PermissionResponse::Denied { .. } => {}
+            other => panic!("expected Denied by default guard, got {:?}", other),
         }
     }
 
@@ -506,7 +506,7 @@ mod tests {
             Arc::new(MockAutoModeQuery::new("test-agent", SessionMode::Auto)),
         );
 
-        // Empty config_file with Allow rule → Allowed (risk gate removed)
+        // Step 1.8: ConfigWrite default guard forces Denied — "此维度永远高危，只能走单次审批"
         let resp = engine.evaluate(
             PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
                 agent: "test-agent".to_string(),
@@ -515,8 +515,8 @@ mod tests {
             None,
         );
         match resp {
-            PermissionResponse::Allowed { .. } => {}
-            other => panic!("expected Allowed, got {:?}", other),
+            PermissionResponse::Denied { .. } => {}
+            other => panic!("expected Denied by default guard, got {:?}", other),
         }
     }
 
@@ -535,7 +535,7 @@ mod tests {
             Arc::new(MockAutoModeQuery::new("test-agent", SessionMode::Auto)),
         );
 
-        // daemon ConfigWrite with Allow rule → Allowed (risk gate removed)
+        // Step 1.8: ConfigWrite default guard forces Denied — "此维度永远高危，只能走单次审批"
         let resp = engine.evaluate(
             PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
                 agent: "test-agent".to_string(),
@@ -544,8 +544,8 @@ mod tests {
             None,
         );
         match resp {
-            PermissionResponse::Allowed { .. } => {}
-            other => panic!("expected Allowed, got {:?}", other),
+            PermissionResponse::Denied { .. } => {}
+            other => panic!("expected Denied by default guard, got {:?}", other),
         }
     }
 }
