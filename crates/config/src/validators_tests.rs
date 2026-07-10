@@ -4,19 +4,14 @@ use std::collections::HashSet;
 
 use crate::manager::ConfigSection;
 use crate::validators::{
-    for_section, validate_channels, validate_gateway, validate_models, validate_models_with_refs,
-    validate_plugins, validate_session, validate_system, CredentialProviderSet,
+    for_section, validate_channels, validate_channels_with_refs, validate_gateway, validate_models,
+    validate_models_with_refs, validate_plugins, validate_session, validate_system,
+    CredentialProviderSet, CrossRefData,
 };
 
 // ---------------------------------------------------------------------------
 // validate_models
 // ---------------------------------------------------------------------------
-
-#[test]
-fn test_validate_models_pass() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"models":[{"id":"m1"}]}"#).unwrap();
-    assert!(validate_models(&v).is_ok());
-}
 
 #[test]
 fn test_validate_models_pass_empty_object_or_with_array() {
@@ -27,17 +22,12 @@ fn test_validate_models_pass_empty_object_or_with_array() {
 }
 
 #[test]
-fn test_validate_models_fail_not_object() {
-    let v: serde_json::Value = serde_json::from_str(r#""string""#).unwrap();
-    let err = validate_models(&v).unwrap_err();
-    assert!(err.contains("JSON object"), "error: {}", err);
-}
-
-#[test]
-fn test_validate_models_fail_array_top_level() {
-    let v: serde_json::Value = serde_json::from_str(r#"[1,2,3]"#).unwrap();
-    let err = validate_models(&v).unwrap_err();
-    assert!(err.contains("JSON object"), "error: {}", err);
+fn test_validate_models_fail_not_object_variants() {
+    for json in [r#""string""#, r#"[1,2,3]"#] {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        let err = validate_models(&v).unwrap_err();
+        assert!(err.contains("JSON object"), "json={}: error: {}", json, err);
+    }
 }
 
 #[test]
@@ -136,32 +126,23 @@ fn test_validate_models_fail_provider_not_object() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_validate_channels_pass() {
-    let v: serde_json::Value = serde_json::from_str(
+fn test_validate_channels_pass_variants() {
+    for json in [
         r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":"acc1"}}]}"#,
-    )
-    .unwrap();
-    assert!(validate_channels(&v).is_ok());
+        r#"{}"#,
+    ] {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert!(validate_channels(&v).is_ok(), "json={}", json);
+    }
 }
 
 #[test]
-fn test_validate_channels_pass_empty_object() {
-    let v: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
-    assert!(validate_channels(&v).is_ok());
-}
-
-#[test]
-fn test_validate_channels_fail_not_object() {
-    let v: serde_json::Value = serde_json::from_str(r#"[1]"#).unwrap();
-    let err = validate_channels(&v).unwrap_err();
-    assert!(err.contains("JSON object"), "error: {}", err);
-}
-
-#[test]
-fn test_validate_channels_fail_channels_not_array() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"channels":"bad"}"#).unwrap();
-    let err = validate_channels(&v).unwrap_err();
-    assert!(err.contains("JSON object"), "error: {}", err);
+fn test_validate_channels_fail_not_object_or_bad_type() {
+    for json in [r#"[1]"#, r#"{"channels":"bad"}"#] {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        let err = validate_channels(&v).unwrap_err();
+        assert!(err.contains("JSON object"), "json={}: error: {}", json, err);
+    }
 }
 
 #[test]
@@ -195,92 +176,76 @@ fn test_validate_channels_fail_binding_not_object() {
 }
 
 #[test]
-fn test_validate_channels_fail_binding_missing_agent_id() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"bindings":[{"match":{"channel":"feishu","accountId":"a"}}]}"#)
-            .unwrap();
-    let err = validate_channels(&v).unwrap_err();
-    assert!(err.contains("agentId is required"), "error: {}", err);
+fn test_validate_channels_fail_binding_agent_id() {
+    let cases = [
+        (
+            r#"{"bindings":[{"match":{"channel":"feishu","accountId":"a"}}]}"#,
+            "agentId is required",
+        ),
+        (
+            r#"{"bindings":[{"agentId":"","match":{"channel":"feishu","accountId":"a"}}]}"#,
+            "agentId cannot be empty",
+        ),
+    ];
+    for (json, expected) in cases {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        let err = validate_channels(&v).unwrap_err();
+        assert!(err.contains(expected), "json={}: error: {}", json, err);
+    }
 }
 
 #[test]
-fn test_validate_channels_fail_binding_empty_agent_id() {
-    let v: serde_json::Value = serde_json::from_str(
-        r#"{"bindings":[{"agentId":"","match":{"channel":"feishu","accountId":"a"}}]}"#,
-    )
-    .unwrap();
-    let err = validate_channels(&v).unwrap_err();
-    assert!(err.contains("agentId cannot be empty"), "error: {}", err);
+fn test_validate_channels_fail_binding_match() {
+    let cases = [
+        (r#"{"bindings":[{"agentId":"a1"}]}"#, "match is required"),
+        (
+            r#"{"bindings":[{"agentId":"a1","match":"bad"}]}"#,
+            "match must be a JSON object",
+        ),
+    ];
+    for (json, expected) in cases {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        let err = validate_channels(&v).unwrap_err();
+        assert!(err.contains(expected), "json={}: error: {}", json, err);
+    }
 }
 
 #[test]
-fn test_validate_channels_fail_binding_missing_match() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"bindings":[{"agentId":"a1"}]}"#).unwrap();
-    let err = validate_channels(&v).unwrap_err();
-    assert!(err.contains("match is required"), "error: {}", err);
+fn test_validate_channels_fail_binding_channel() {
+    let cases = [
+        (
+            r#"{"bindings":[{"agentId":"a1","match":{"accountId":"a"}}]}"#,
+            "match.channel is required",
+        ),
+        (
+            r#"{"bindings":[{"agentId":"a1","match":{"channel":"","accountId":"a"}}]}"#,
+            "match.channel cannot be empty",
+        ),
+    ];
+    for (json, expected) in cases {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        let err = validate_channels(&v).unwrap_err();
+        assert!(err.contains(expected), "json={}: error: {}", json, err);
+    }
 }
 
 #[test]
-fn test_validate_channels_fail_binding_match_not_object() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"bindings":[{"agentId":"a1","match":"bad"}]}"#).unwrap();
-    let err = validate_channels(&v).unwrap_err();
-    assert!(
-        err.contains("match must be a JSON object"),
-        "error: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_channels_fail_binding_missing_channel() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"bindings":[{"agentId":"a1","match":{"accountId":"a"}}]}"#)
-            .unwrap();
-    let err = validate_channels(&v).unwrap_err();
-    assert!(err.contains("match.channel is required"), "error: {}", err);
-}
-
-#[test]
-fn test_validate_channels_fail_binding_empty_channel() {
-    let v: serde_json::Value = serde_json::from_str(
-        r#"{"bindings":[{"agentId":"a1","match":{"channel":"","accountId":"a"}}]}"#,
-    )
-    .unwrap();
-    let err = validate_channels(&v).unwrap_err();
-    assert!(
-        err.contains("match.channel cannot be empty"),
-        "error: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_channels_fail_binding_missing_account_id() {
-    let v: serde_json::Value = serde_json::from_str(
-        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"feishu"}}]}"#,
-    )
-    .unwrap();
-    let err = validate_channels(&v).unwrap_err();
-    assert!(
-        err.contains("match.accountId is required"),
-        "error: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_channels_fail_binding_empty_account_id() {
-    let v: serde_json::Value = serde_json::from_str(
-        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":""}}]}"#,
-    )
-    .unwrap();
-    let err = validate_channels(&v).unwrap_err();
-    assert!(
-        err.contains("match.accountId cannot be empty"),
-        "error: {}",
-        err
-    );
+fn test_validate_channels_fail_binding_account_id() {
+    let cases = [
+        (
+            r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"feishu"}}]}"#,
+            "match.accountId is required",
+        ),
+        (
+            r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":""}}]}"#,
+            "match.accountId cannot be empty",
+        ),
+    ];
+    for (json, expected) in cases {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        let err = validate_channels(&v).unwrap_err();
+        assert!(err.contains(expected), "json={}: error: {}", json, err);
+    }
 }
 
 #[test]
@@ -324,49 +289,31 @@ fn test_validate_gateway_fail_not_object() {
 
 #[test]
 fn test_validate_gateway_fail_port_and_timeout() {
-    // port out of range
-    let v: serde_json::Value = serde_json::from_str(r#"{"port":0}"#).unwrap();
-    let err = validate_gateway(&v).unwrap_err();
-    assert!(err.contains("range 1-65535"), "error: {}", err);
-    // port too high
-    let v: serde_json::Value = serde_json::from_str(r#"{"port":99999}"#).unwrap();
-    let err = validate_gateway(&v).unwrap_err();
-    assert!(err.contains("range 1-65535"), "error: {}", err);
-    // port string
-    let v: serde_json::Value = serde_json::from_str(r#"{"port":"abc"}"#).unwrap();
-    let err = validate_gateway(&v).unwrap_err();
-    assert!(err.contains("non-negative integer"), "error: {}", err);
-    // negative port
-    let v: serde_json::Value = serde_json::from_str(r#"{"port":-1}"#).unwrap();
-    let err = validate_gateway(&v).unwrap_err();
-    assert!(err.contains("non-negative integer"), "error: {}", err);
-    // timeout negative
-    let v: serde_json::Value = serde_json::from_str(r#"{"timeout":-1000}"#).unwrap();
-    let err = validate_gateway(&v).unwrap_err();
-    assert!(err.contains("non-negative"), "error: {}", err);
-    // timeout string
-    let v: serde_json::Value = serde_json::from_str(r#"{"timeout":"not-a-number"}"#).unwrap();
-    let err = validate_gateway(&v).unwrap_err();
-    assert!(err.contains("must be a number"), "error: {}", err);
+    let cases = [
+        (r#"{"port":0}"#, "range 1-65535"),
+        (r#"{"port":99999}"#, "range 1-65535"),
+        (r#"{"port":"abc"}"#, "non-negative integer"),
+        (r#"{"port":-1}"#, "non-negative integer"),
+        (r#"{"timeout":-1000}"#, "non-negative"),
+        (r#"{"timeout":"not-a-number"}"#, "must be a number"),
+    ];
+    for (json, expected) in cases {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        let err = validate_gateway(&v).unwrap_err();
+        assert!(err.contains(expected), "json={}: error: {}", json, err);
+    }
 }
 
 #[test]
-fn test_validate_gateway_pass_valid_timeout() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"timeout":30000}"#).unwrap();
-    assert!(validate_gateway(&v).is_ok());
-}
-
-#[test]
-fn test_validate_gateway_pass_zero_timeout() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"timeout":0}"#).unwrap();
-    assert!(validate_gateway(&v).is_ok());
-}
-
-#[test]
-fn test_validate_gateway_pass_all_valid_fields() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"port":8080,"timeout":30000,"name":"gw"}"#).unwrap();
-    assert!(validate_gateway(&v).is_ok());
+fn test_validate_gateway_pass_valid_values() {
+    for json in [
+        r#"{"timeout":30000}"#,
+        r#"{"timeout":0}"#,
+        r#"{"port":8080,"timeout":30000,"name":"gw"}"#,
+    ] {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert!(validate_gateway(&v).is_ok(), "json={}", json);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -520,40 +467,23 @@ fn test_validate_system_fail_not_object() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_validate_system_pass_version_non_empty() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"version":"1.0"}"#).unwrap();
-    assert!(validate_system(&v).is_ok());
-}
-
-#[test]
-fn test_validate_system_pass_version_absent() {
-    let v: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
-    assert!(validate_system(&v).is_ok());
-}
-
-#[test]
-fn test_validate_system_fail_version_empty_string() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"version":""}"#).unwrap();
-    let err = validate_system(&v).unwrap_err();
-    assert!(
-        err.contains("version cannot be an empty string"),
-        "error: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_system_fail_version_not_string() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"version":123}"#).unwrap();
-    let err = validate_system(&v).unwrap_err();
-    assert!(err.contains("version must be a string"), "error: {}", err);
-}
-
-#[test]
-fn test_validate_system_fail_version_null() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"version":null}"#).unwrap();
-    let err = validate_system(&v).unwrap_err();
-    assert!(err.contains("version must be a string"), "error: {}", err);
+fn test_validate_system_version() {
+    // valid cases
+    for json in [r#"{"version":"1.0"}"#, r#"{}"#] {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert!(validate_system(&v).is_ok(), "json={}", json);
+    }
+    // invalid cases
+    let cases = [
+        (r#"{"version":""}"#, "version cannot be an empty string"),
+        (r#"{"version":123}"#, "version must be a string"),
+        (r#"{"version":null}"#, "version must be a string"),
+    ];
+    for (json, expected) in cases {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        let err = validate_system(&v).unwrap_err();
+        assert!(err.contains(expected), "json={}: error: {}", json, err);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -687,6 +617,83 @@ fn test_for_section_credentials_always_passes() {
 }
 
 // ---------------------------------------------------------------------------
+// CrossRefData — channels binding cross-reference validation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validate_channels_cross_ref_unknown_agent_id() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"unknown-agent","match":{"channel":"feishu","accountId":"acc1"}}]}"#,
+    )
+    .unwrap();
+    let cr = CrossRefData {
+        agent_ids: ["known-agent".to_string()].into_iter().collect(),
+        account_ids: ["acc1".to_string()].into_iter().collect(),
+    };
+    let err = validate_channels_with_refs(&v, Some(&cr)).unwrap_err();
+    assert!(
+        err.contains("references an unknown agent"),
+        "error: {}",
+        err
+    );
+    assert!(
+        err.contains("unknown-agent"),
+        "error should mention the bad agent: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_channels_cross_ref_unknown_account_id() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"known-agent","match":{"channel":"feishu","accountId":"unknown-account"}}]}"#,
+    )
+    .unwrap();
+    let cr = CrossRefData {
+        agent_ids: ["known-agent".to_string()].into_iter().collect(),
+        account_ids: ["known-account".to_string()].into_iter().collect(),
+    };
+    let err = validate_channels_with_refs(&v, Some(&cr)).unwrap_err();
+    assert!(
+        err.contains("references an unknown account"),
+        "error: {}",
+        err
+    );
+    assert!(
+        err.contains("unknown-account"),
+        "error should mention the bad account: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_channels_cross_ref_known_agent_and_account() {
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"agent-1","match":{"channel":"feishu","accountId":"acc-1"}}]}"#,
+    )
+    .unwrap();
+    let cr = CrossRefData {
+        agent_ids: ["agent-1".to_string(), "agent-2".to_string()]
+            .into_iter()
+            .collect(),
+        account_ids: ["acc-1".to_string(), "acc-2".to_string()]
+            .into_iter()
+            .collect(),
+    };
+    assert!(validate_channels_with_refs(&v, Some(&cr)).is_ok());
+}
+
+#[test]
+fn test_validate_channels_cross_ref_none_skips_validation() {
+    // With None cross-ref, binding structural validation only — agentId/accountId not checked
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"any-agent","match":{"channel":"feishu","accountId":"any-account"}}]}"#,
+    )
+    .unwrap();
+    assert!(validate_channels_with_refs(&v, None).is_ok());
+}
+
+// ---------------------------------------------------------------------------
 // Boundary / edge-case tests (Step 1.8)
 // ---------------------------------------------------------------------------
 
@@ -700,21 +707,13 @@ fn test_validate_models_pass_empty_providers_or_models() {
 }
 
 #[test]
-fn test_validate_plugins_pass_empty_entries_object() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"entries":{}}"#).unwrap();
-    assert!(validate_plugins(&v).is_ok());
-}
-
-#[test]
-fn test_validate_plugins_pass_empty_allow_array() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"allow":[]}"#).unwrap();
-    assert!(validate_plugins(&v).is_ok());
-}
-
-#[test]
-fn test_validate_plugins_pass_empty_installs_object() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"installs":{}}"#).unwrap();
-    assert!(validate_plugins(&v).is_ok());
+fn test_validate_plugins_pass_empty_collections() {
+    let v1: serde_json::Value = serde_json::from_str(r#"{"entries":{}}"#).unwrap();
+    assert!(validate_plugins(&v1).is_ok());
+    let v2: serde_json::Value = serde_json::from_str(r#"{"allow":[]}"#).unwrap();
+    assert!(validate_plugins(&v2).is_ok());
+    let v3: serde_json::Value = serde_json::from_str(r#"{"installs":{}}"#).unwrap();
+    assert!(validate_plugins(&v3).is_ok());
 }
 
 // ---------------------------------------------------------------------------
