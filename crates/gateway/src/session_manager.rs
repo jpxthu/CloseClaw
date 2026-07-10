@@ -588,6 +588,52 @@ impl SessionManager {
         }
     }
 
+    /// Save a pre-compaction snapshot of the session messages.
+    ///
+    /// Must be called **before** compaction begins so that a failed
+    /// compaction can be rolled back via [`rollback_compaction`].
+    pub async fn save_pre_compaction_snapshot(&self, session_id: &str) {
+        let conv_sessions = self.conversation_sessions.read().await;
+        let Some(cs) = conv_sessions.get(session_id) else {
+            warn!(
+                session_id = %session_id,
+                "save_pre_compaction_snapshot: session not found"
+            );
+            return;
+        };
+        let mut cs = cs.write().await;
+        cs.save_snapshot();
+    }
+
+    /// Rollback a failed compaction by restoring the pre-compaction
+    /// snapshot.
+    ///
+    /// Returns `true` if a snapshot existed and was restored;
+    /// `false` if no snapshot was saved (caller should treat as
+    /// an error).
+    pub async fn rollback_compaction(&self, session_id: &str) -> bool {
+        let conv_sessions = self.conversation_sessions.read().await;
+        let Some(cs) = conv_sessions.get(session_id) else {
+            warn!(
+                session_id = %session_id,
+                "rollback_compaction: session not found"
+            );
+            return false;
+        };
+        let mut cs = cs.write().await;
+        cs.restore_snapshot()
+    }
+
+    /// Clear the pre-compaction snapshot after a successful compaction.
+    pub async fn clear_pre_compaction_snapshot(&self, session_id: &str) {
+        let conv_sessions = self.conversation_sessions.read().await;
+        let Some(cs) = conv_sessions.get(session_id) else {
+            return;
+        };
+        let mut cs = cs.write().await;
+        cs.clear_snapshot();
+    }
+
     /// Get the ConversationSession for a given session_id.
     /// Returns None if the session does not exist.
     pub async fn get_conversation_session(

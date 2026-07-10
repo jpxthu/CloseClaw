@@ -139,6 +139,13 @@ pub struct ConversationSession {
     last_activity_at: i64,
     /// Shutdown handle for busy-count tracking during tool execution.
     shutdown_handle: Option<Arc<dyn closeclaw_common::ShutdownSignal>>,
+    /// Pre-compaction transcript snapshot.
+    ///
+    /// Set by [`save_snapshot`](Self::save_snapshot) before compaction
+    /// begins so that a failed compaction can be rolled back via
+    /// [`restore_snapshot`](Self::restore_snapshot).
+    /// Cleared on successful compaction or after a rollback.
+    pre_compaction_messages: Option<Vec<SessionMessage>>,
     /// Runtime-only execution progress appends. Entries are tagged with
     /// [`PROGRESS_APPEND_PREFIX`] and managed by
     /// [`PlanStateNotifier::on_progress_changed`]. Merged into
@@ -204,6 +211,7 @@ impl ConversationSession {
             shutdown_handle: None,
             verbosity_level: VerbosityLevel::default(),
             session_mode: Arc::new(Mutex::new(SessionMode::default())),
+            pre_compaction_messages: None,
             progress_appends: Arc::new(Mutex::new(Vec::new())),
             llm_caller: None,
             system_prompt_builder: None,
@@ -725,6 +733,44 @@ impl ConversationSession {
         }
 
         ops
+    }
+}
+
+/// Pre-compaction snapshot save / restore.
+///
+/// Called by `SessionManager::save_pre_compaction_snapshot` and
+/// `SessionManager::rollback_compaction` to support rollback on
+/// compaction failure.
+impl ConversationSession {
+    /// Clone the current messages into the pre-compaction snapshot.
+    ///
+    /// Overwrites any previously saved snapshot (idempotent for
+    /// multiple consecutive calls).
+    pub fn save_snapshot(&mut self) {
+        self.pre_compaction_messages = Some(self.messages.clone());
+    }
+
+    /// Restore messages from the pre-compaction snapshot, then clear
+    /// the snapshot.
+    ///
+    /// Returns `true` if a snapshot existed and was restored; `false`
+    /// if the slot was already `None` (no-op).
+    pub fn restore_snapshot(&mut self) -> bool {
+        match self.pre_compaction_messages.take() {
+            Some(snapshot) => {
+                self.messages = snapshot;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Clear the pre-compaction snapshot without restoring.
+    ///
+    /// Called after a successful compaction to discard the now-stale
+    /// backup.
+    pub fn clear_snapshot(&mut self) {
+        self.pre_compaction_messages = None;
     }
 }
 

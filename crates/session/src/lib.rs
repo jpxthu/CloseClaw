@@ -24,6 +24,8 @@ mod active_searcher_tests;
 #[cfg(test)]
 mod background_tests;
 #[cfg(test)]
+mod compaction_integration_tests;
+#[cfg(test)]
 mod compaction_tests;
 #[cfg(test)]
 mod persistence_tests;
