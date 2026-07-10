@@ -354,6 +354,9 @@ pub(crate) async fn check_config_write_permission(
     }
 }
 
+/// Second-level check for network operations (NetOp dimension).
+///
+/// Validates whether the agent is allowed to connect to the specified host and port.
 #[allow(dead_code)]
 pub(crate) async fn check_network_permission(
     deps: &PermDeps,
