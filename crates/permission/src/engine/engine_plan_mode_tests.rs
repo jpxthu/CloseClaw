@@ -107,9 +107,11 @@ fn test_normal_mode_config_write_allowed() {
         }),
         None,
     );
+    // Step 1.8: ConfigWrite default guard forces Denied even when
+    // defaults.config is Allow — "此维度永远高危，只能走单次审批".
     assert!(
-        matches!(resp, PermissionResponse::Allowed { .. }),
-        "Normal mode should allow config write, got: {:?}",
+        matches!(resp, PermissionResponse::Denied { .. }),
+        "Normal mode config write should be Denied by default guard, got: {:?}",
         resp
     );
 }
@@ -351,9 +353,11 @@ fn test_auto_mode_config_write_allowed_by_rules() {
         }),
         None,
     );
+    // Step 1.8: ConfigWrite default guard forces Denied even when
+    // defaults.config is Allow — "此维度永远高危，只能走单次审批".
     assert!(
-        matches!(resp, PermissionResponse::Allowed { .. }),
-        "Auto mode + permissive config rule should allow config write, got: {:?}",
+        matches!(resp, PermissionResponse::Denied { .. }),
+        "Auto mode config write should be Denied by default guard, got: {:?}",
         resp
     );
 }
@@ -430,9 +434,11 @@ fn test_auto_mode_critical_risk_daemon_config_allowed() {
         }),
         None,
     );
+    // Step 1.8: ConfigWrite default guard forces Denied even when
+    // defaults.config is Allow — "此维度永远高危，只能走单次审批".
     assert!(
-        matches!(resp, PermissionResponse::Allowed { .. }),
-        "Auto mode + critical risk (daemon config) should be allowed (risk gate removed), got: {:?}",
+        matches!(resp, PermissionResponse::Denied { .. }),
+        "Auto mode + critical risk (daemon config) should be Denied by default guard, got: {:?}",
         resp
     );
 }
