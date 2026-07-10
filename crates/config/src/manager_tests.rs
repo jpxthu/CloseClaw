@@ -1,5 +1,4 @@
 //! Tests for ConfigManager
-
 use super::*;
 use crate::agents::AgentPermissionProvider;
 use std::fs;
@@ -23,9 +22,7 @@ fn write_mandatory_configs(dir: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
 // write_atomically
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_write_atomically_normal() {
@@ -499,15 +496,17 @@ fn test_config_manager_update_validation_failure() {
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     manager.load().unwrap();
 
+    // Use Gateway section (no auto cross-ref) to test that the user-provided
+    // validator is still called when cross-ref data is not available.
     let validator = |_: &serde_json::Value| {
         Err(ConfigValidationError {
-            path: PathBuf::from("models.json"),
+            path: PathBuf::from("gateway.json"),
             message: "always fail".to_string(),
         })
     };
     let result = manager.update(
-        ConfigSection::Models,
-        serde_json::json!({"bad": "value"}),
+        ConfigSection::Gateway,
+        serde_json::json!({"port": 8080}),
         validator,
     );
     assert!(result.is_err());

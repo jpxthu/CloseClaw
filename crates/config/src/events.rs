@@ -3,6 +3,8 @@
 //! Provides `ConfigChangeEvent` describing config section changes and
 //! `ConfigChangeBroadcaster` for creating/subscribing to broadcast channels.
 
+use std::path::PathBuf;
+
 use crate::manager::ConfigSection;
 use tokio::sync::broadcast;
 
@@ -13,10 +15,14 @@ const DEFAULT_CHANNEL_CAPACITY: usize = 64;
 #[derive(Debug, Clone)]
 pub enum ConfigChangeEvent {
     /// Config section was successfully reloaded.
-    Reloaded { section: ConfigSection },
+    Reloaded {
+        section: ConfigSection,
+        path: PathBuf,
+    },
     /// Config section reload failed (parse or validation error).
     Failed {
         section: ConfigSection,
+        path: PathBuf,
         error: String,
     },
 }

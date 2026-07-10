@@ -54,6 +54,7 @@ async fn test_subscriber_handles_reloaded_event() {
     // notify_config_changed without panic.
     config_mgr.notify_change(ConfigChangeEvent::Reloaded {
         section: ConfigSection::Models,
+        path: "models.json".into(),
     });
 
     // Allow the spawned task to process the event.
@@ -74,6 +75,7 @@ async fn test_subscriber_ignores_failed_event() {
     // Send a Failed event — subscriber should log and skip notification.
     config_mgr.notify_change(ConfigChangeEvent::Failed {
         section: ConfigSection::Channels,
+        path: "channels.json".into(),
         error: "test parse error".to_string(),
     });
 
@@ -100,18 +102,23 @@ async fn test_subscriber_handles_multiple_events() {
     ];
 
     for section in sections {
-        config_mgr.notify_change(ConfigChangeEvent::Reloaded { section });
+        config_mgr.notify_change(ConfigChangeEvent::Reloaded {
+            section,
+            path: section.path(config_mgr.config_dir()),
+        });
     }
 
     // Send a Failed event interleaved.
     config_mgr.notify_change(ConfigChangeEvent::Failed {
         section: ConfigSection::Models,
+        path: "models.json".into(),
         error: "interleaved failure".to_string(),
     });
 
     // More Reloaded events after the failure.
     config_mgr.notify_change(ConfigChangeEvent::Reloaded {
         section: ConfigSection::System,
+        path: "system.json".into(),
     });
 
     // Allow all events to be processed.
@@ -153,9 +160,11 @@ async fn test_broadcast_no_subscribers_no_panic() {
     // Sending with no receivers must not panic.
     broadcaster.send(ConfigChangeEvent::Reloaded {
         section: ConfigSection::Models,
+        path: "models.json".into(),
     });
     broadcaster.send(ConfigChangeEvent::Failed {
         section: ConfigSection::Channels,
+        path: "channels.json".into(),
         error: "test".to_string(),
     });
 }
@@ -171,6 +180,7 @@ async fn test_subscriber_handles_lagged_events() {
     for _ in 0..10 {
         broadcaster.send(ConfigChangeEvent::Reloaded {
             section: ConfigSection::Models,
+            path: "models.json".into(),
         });
     }
 
@@ -323,6 +333,7 @@ async fn test_subscriber_failed_event_with_owner_display() {
     // Gateway has no plugins registered, so it logs a warning.
     config_mgr.notify_change(ConfigChangeEvent::Failed {
         section: ConfigSection::Models,
+        path: "models.json".into(),
         error: "test failure for IM notification".to_string(),
     });
 

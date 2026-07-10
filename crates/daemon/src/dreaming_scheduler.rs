@@ -231,6 +231,7 @@ impl DreamingScheduler {
             result,
             Ok(ConfigChangeEvent::Reloaded {
                 section: ConfigSection::Memory,
+                ..
             })
         )
     }
