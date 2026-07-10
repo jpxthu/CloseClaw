@@ -20,6 +20,7 @@ use closeclaw_permission::engine::engine_risk::RiskLevel;
 use closeclaw_permission::engine::engine_types::{
     Caller, MessageDirection, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
+use closeclaw_permission::is_config_file_path;
 use closeclaw_permission::PermissionResponse as PR;
 
 use std::sync::Arc;
@@ -141,6 +142,17 @@ async fn is_session_sub_agent(session_manager: &Arc<SessionManager>, session_id:
         .get_session_depth(session_id)
         .await
         .is_some_and(|depth| depth > 0)
+}
+
+/// Check if a file path targets a config file.
+///
+/// Uses [`closeclaw_permission::is_config_file_path`] with the data root
+/// obtained from [`ConfigManager::config_dir`].  Returns `true` when the
+/// path is inside the config directory but outside any workspace.
+#[allow(dead_code)]
+pub(crate) fn is_config_file(config_manager: &ConfigManager, path: &str) -> bool {
+    let data_root = config_manager.config_dir();
+    is_config_file_path(data_root, path)
 }
 
 /// First-level check: verify the agent is allowed to invoke the given tool.

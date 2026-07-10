@@ -22,9 +22,10 @@ pub mod mock_session_lookup;
 mod tests;
 
 pub use engine::{
-    build_rejection_log, glob_match, Action, Caller, CommandArgs, Defaults, Effect,
-    FileRejectionLogger, MatchType, PermissionEngine, PermissionRequest, PermissionRequestBody,
-    PermissionResponse, RejectionLog, RejectionLogger, Rule, RuleSet, Subject, TemplateRef,
+    build_rejection_log, glob_match, is_config_file_path, Action, Caller, CommandArgs, Defaults,
+    Effect, FileRejectionLogger, MatchType, PermissionEngine, PermissionRequest,
+    PermissionRequestBody, PermissionResponse, RejectionLog, RejectionLogger, Rule, RuleSet,
+    Subject, TemplateRef,
 };
 pub use rules::{validation, RuleBuilder, RuleBuilderError, RuleSetBuilder, RuleSetBuilderError};
 pub use user_registry::{RegistryError, UserRegistry};

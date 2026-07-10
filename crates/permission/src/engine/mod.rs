@@ -20,6 +20,7 @@ pub use engine_types::{
     Action, Caller, CommandArgs, Defaults, Effect, MatchType, MessageDirection, PermissionRequest,
     PermissionRequestBody, PermissionResponse, Rule, RuleSet, Subject, TemplateRef,
 };
+pub use engine_workspace::is_config_file_path;
 pub use rejection_log::{build_rejection_log, FileRejectionLogger, RejectionLog, RejectionLogger};
 
 #[cfg(test)]
