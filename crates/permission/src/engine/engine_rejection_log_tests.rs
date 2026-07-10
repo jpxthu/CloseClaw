@@ -51,7 +51,8 @@ impl SessionModeQuery for MockModeQuery {
 /// Build a deny-all engine.
 fn deny_all_engine() -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
@@ -173,7 +174,8 @@ fn test_allowed_request_does_not_log() {
     let logger = Arc::new(TestLogger::new());
     // All-allow engine
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .default_command(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)

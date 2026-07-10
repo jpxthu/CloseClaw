@@ -727,7 +727,10 @@ impl PermissionEngine {
         reason: &str,
     ) -> PermissionResponse {
         let effect = match request {
-            PermissionRequestBody::FileOp { .. } => defaults.file,
+            PermissionRequestBody::FileOp { op, .. } => match op.as_str() {
+                "write" => defaults.file_write,
+                _ => defaults.file_read,
+            },
             PermissionRequestBody::CommandExec { .. } => defaults.command,
             PermissionRequestBody::NetOp { .. } => defaults.network,
             PermissionRequestBody::InterAgentMsg { .. } => defaults.inter_agent,

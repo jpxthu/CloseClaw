@@ -43,12 +43,14 @@ fn test_ruleset_builder() {
                 .build()
                 .unwrap(),
         )
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .build()
         .unwrap();
 
     assert_eq!(ruleset.rules.len(), 1);
-    assert_eq!(ruleset.defaults.file, Effect::Deny);
+    assert_eq!(ruleset.defaults.file_read, Effect::Deny);
+    assert_eq!(ruleset.defaults.file_write, Effect::Deny);
 }
 
 #[test]
@@ -205,7 +207,8 @@ fn test_defaults_json_empty_object_message_is_allow() {
     let json = r#"{}"#;
     let defaults: Defaults = serde_json::from_str(json).unwrap();
     assert_eq!(defaults.message, Effect::Allow);
-    assert_eq!(defaults.file, Effect::Deny);
+    assert_eq!(defaults.file_read, Effect::Deny);
+    assert_eq!(defaults.file_write, Effect::Deny);
     assert_eq!(defaults.tool_call, Effect::Deny);
 }
 

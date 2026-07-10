@@ -95,7 +95,8 @@ fn test_defaults_json_missing_message() {
     let json = r#"{"file":"deny","command":"deny","network":"deny","inter_agent":"deny","config":"deny","tool_call":"deny"}"#;
     let defaults: super::Defaults = serde_json::from_str(json).unwrap();
     assert_eq!(defaults.message, super::Effect::Allow);
-    assert_eq!(defaults.file, super::Effect::Deny);
+    assert_eq!(defaults.file_read, super::Effect::Deny);
+    assert_eq!(defaults.file_write, super::Effect::Deny);
     assert_eq!(defaults.tool_call, super::Effect::Deny);
 }
 

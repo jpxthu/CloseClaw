@@ -140,7 +140,8 @@ fn test_build_permission_engine_empty_dir() {
     assert!(rs.rules.is_empty(), "no templates should yield empty rules");
     let ud = &rs.user_defaults;
     let expected = closeclaw_permission::Defaults::user_defaults();
-    assert_eq!(ud.file, expected.file);
+    assert_eq!(ud.file_read, expected.file_read);
+    assert_eq!(ud.file_write, expected.file_write);
     assert_eq!(ud.command, expected.command);
     assert_eq!(ud.network, expected.network);
     assert_eq!(ud.inter_agent, expected.inter_agent);
