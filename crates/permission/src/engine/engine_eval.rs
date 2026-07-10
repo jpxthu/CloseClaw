@@ -282,6 +282,27 @@ impl PermissionEngine {
             self.collect_agent_candidates_with_index(&caller, &agent_id, rules, agent_rule_index);
         let agent_result = self.match_rules(&agent_candidates, rules, &caller, request.body());
 
+        // Step 1.4: ConfigWrite Allowed → forced Denied
+        // Design doc: "此维度永远高危，只能走单次审批，不能被加入白名单"
+        let agent_result = match agent_result {
+            Some(PermissionResponse::Allowed { .. })
+                if matches!(request.body(), PermissionRequestBody::ConfigWrite { .. }) =>
+            {
+                info!(
+                    agent = %agent_id,
+                    result = "denied",
+                    reason = "config_write_forced_deny",
+                    "permission check completed"
+                );
+                Some(PermissionResponse::Denied {
+                    reason: "config write cannot be whitelisted, only single approval".to_string(),
+                    rule: "<config_write_guard>".to_string(),
+                    risk_level: assess_risk_level(request.body()),
+                })
+            }
+            other => other,
+        };
+
         // Owner shortcut: skip User phase entirely, Agent result is final
         if is_owner {
             let response = agent_result.unwrap_or_else(|| {
@@ -308,6 +329,26 @@ impl PermissionEngine {
             user_agent_rule_index,
         );
         let user_result = self.match_rules(&user_candidates, rules, &caller, request.body());
+
+        // Step 1.4: ConfigWrite Allowed → forced Denied (user phase)
+        let user_result = match user_result {
+            Some(PermissionResponse::Allowed { .. })
+                if matches!(request.body(), PermissionRequestBody::ConfigWrite { .. }) =>
+            {
+                info!(
+                    agent = %agent_id,
+                    result = "denied",
+                    reason = "config_write_forced_deny",
+                    "permission check completed"
+                );
+                Some(PermissionResponse::Denied {
+                    reason: "config write cannot be whitelisted, only single approval".to_string(),
+                    rule: "<config_write_guard>".to_string(),
+                    risk_level: assess_risk_level(request.body()),
+                })
+            }
+            other => other,
+        };
 
         // Step 3: Merge results (two-phase logic)
         let response = match (agent_result, user_result) {
