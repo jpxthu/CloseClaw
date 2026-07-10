@@ -555,14 +555,14 @@ fn validate_system(value: &serde_json::Value) -> Result<(), String> {
 /// Validate the **session** config section.
 ///
 /// - Top-level must be a JSON object.
-/// - If `sweeperIntervalSecs` is present, it must be a positive number.
+/// - If `sweeperIntervalSeconds` is present, it must be a positive number.
 /// - If `idleMinutes` is present, it must be non-negative.
 /// - If `purgeAfterMinutes` is present, it must be non-negative.
 fn validate_session(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "session")?;
-    if let Some(secs) = value.get("sweeperIntervalSecs") {
+    if let Some(secs) = value.get("sweeperIntervalSeconds") {
         if !secs.is_number() || secs.as_u64().unwrap_or(0) == 0 {
-            return Err("session.sweeperIntervalSecs must be a positive number".to_string());
+            return Err("session.sweeperIntervalSeconds must be a positive number".to_string());
         }
     }
     validate_non_negative_field(value, "idleMinutes")?;

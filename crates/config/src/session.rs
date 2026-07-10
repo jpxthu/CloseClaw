@@ -68,6 +68,7 @@ pub struct SessionConfig {
     pub agents: BTreeMap<String, BTreeMap<AgentRole, PerAgentSessionConfig>>,
     /// Sweeper interval in seconds (default: 5 minutes)
     #[serde(default = "default_sweeper_interval")]
+    #[serde(rename = "sweeperIntervalSeconds")]
     pub sweeper_interval_secs: u64,
     /// Dreaming interval in seconds (default: 10 minutes)
     #[serde(default = "default_dreaming_interval")]
@@ -274,7 +275,7 @@ mod tests {
     /// Minimal valid session config JSON with given defaults and agents.
     fn valid_config_json(defaults: &str, agents: &str, sweeper_interval_secs: u64) -> String {
         format!(
-            r#"{{"defaults":{},"agents":{},"sweeperIntervalSecs":{}}}"#,
+            r#"{{"defaults":{},"agents":{},"sweeperIntervalSeconds":{}}}"#,
             defaults, agents, sweeper_interval_secs
         )
     }
@@ -287,7 +288,7 @@ mod tests {
         dreaming_interval_secs: u64,
     ) -> String {
         format!(
-            r#"{{"defaults":{},"agents":{},"sweeperIntervalSecs":{},"dreamingIntervalSecs":{}}}"#,
+            r#"{{"defaults":{},"agents":{},"sweeperIntervalSeconds":{},"dreamingIntervalSecs":{}}}"#,
             defaults, agents, sweeper_interval_secs, dreaming_interval_secs
         )
     }
