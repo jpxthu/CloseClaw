@@ -17,11 +17,11 @@
   },
   {
     "path": "docs/design/agent/agent-config.md",
-    "commit": "5033e15764f20862bc4e286a9e6b72a04011ae3c",
-    "commit_time": "2026-07-04T02:25:28+08:00",
-    "confirmed_time": "2026-07-11T01:12:39.788412+08:00",
+    "commit": "6bb30c94885bbf02a6842661ce6598e741782a5c",
+    "commit_time": "2026-07-11T01:13:39+08:00",
+    "confirmed_time": "2026-07-11T01:23:44.855174+08:00",
     "comment": "",
-    "blocked_reason": "doc internal contradiction: ResolvedAgentConfig no-null vs parentId default null; agentDir field not wired to bootstrap loader"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/agent/agent-permissions.md",
