@@ -593,6 +593,15 @@ impl SessionManager {
                 cp.pending_messages = cs.get_pending_messages();
             }
         }
+        // Sync transcript (boundary messages after compaction).
+        // Design doc §设计原则: transcript is the single source of truth.
+        {
+            let conv_sessions = self.conversation_sessions.read().await;
+            if let Some(cs) = conv_sessions.get(session_id) {
+                let cs = cs.read().await;
+                cp.transcript = cs.messages().to_vec();
+            }
+        }
         cp.touch();
         if let Err(e) = storage.save_checkpoint(&cp).await {
             warn!(
