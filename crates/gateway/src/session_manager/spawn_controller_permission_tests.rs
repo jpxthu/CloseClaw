@@ -89,6 +89,7 @@ async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
 }
 
 /// Create an `AgentPermissions` with the given allow/deny per dimension.
+#[allow(dead_code)]
 fn make_perms(agent_id: &str, allowed_dims: &[&str]) -> AgentPermissions {
     let dimensions = [
         "exec",
@@ -140,28 +141,10 @@ async fn test_validate_permission_denied_child_fully_denied() {
     // Child: all permissions denied.
     let child = make_agent("child", SubagentsConfig::default());
 
-    // Build permission maps.
-    let parent_perms = make_perms(
-        "parent",
-        &[
-            "exec",
-            "file_read",
-            "file_write",
-            "network",
-            "spawn",
-            "tool_call",
-            "config_write",
-        ],
-    );
-    let child_perms = make_perms("child", &[]); // nothing allowed
-
     let mut agents = HashMap::new();
     agents.insert("parent".to_string(), parent);
     agents.insert("child".to_string(), child);
-    let mut permissions = HashMap::new();
-    permissions.insert("parent".to_string(), parent_perms);
-    permissions.insert("child".to_string(), child_perms);
-    cm.restore_agents(agents, permissions);
+    cm.restore_agents(agents);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -202,27 +185,11 @@ async fn test_validate_permission_denied_parent_denies_all() {
 
     // Parent has everything denied; child has everything allowed.
     // Intersection: child ∩ parent = all denied.
-    let parent_perms = make_perms("parent", &[]);
-    let child_perms = make_perms(
-        "child",
-        &[
-            "exec",
-            "file_read",
-            "file_write",
-            "network",
-            "spawn",
-            "tool_call",
-            "config_write",
-        ],
-    );
 
     let mut agents = HashMap::new();
     agents.insert("parent".to_string(), parent);
     agents.insert("child".to_string(), child);
-    let mut permissions = HashMap::new();
-    permissions.insert("parent".to_string(), parent_perms);
-    permissions.insert("child".to_string(), child_perms);
-    cm.restore_agents(agents, permissions);
+    cm.restore_agents(agents);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -264,16 +231,11 @@ async fn test_validate_permission_allowed_partial_overlap() {
     // Parent allows exec only; child allows exec + file_read.
     // Intersection: exec=allow (both allow), everything else=deny.
     // Not fully denied because exec is allowed.
-    let parent_perms = make_perms("parent", &["exec"]);
-    let child_perms = make_perms("child", &["exec", "file_read"]);
 
     let mut agents = HashMap::new();
     agents.insert("parent".to_string(), parent);
     agents.insert("child".to_string(), child);
-    let mut permissions = HashMap::new();
-    permissions.insert("parent".to_string(), parent_perms);
-    permissions.insert("child".to_string(), child_perms);
-    cm.restore_agents(agents, permissions);
+    cm.restore_agents(agents);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -307,7 +269,7 @@ async fn test_validate_no_permissions_configured() {
     let mut agents = HashMap::new();
     agents.insert("parent".to_string(), parent);
     agents.insert("child".to_string(), child);
-    cm.restore_agents(agents, HashMap::new());
+    cm.restore_agents(agents);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 

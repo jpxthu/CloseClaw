@@ -32,6 +32,8 @@ mod streaming_pipeline_tests;
 pub mod sweeper;
 #[cfg(test)]
 mod sweeper_tests;
+#[cfg(test)]
+pub mod tests_checkpoint;
 #[cfg(feature = "full-tests")]
 mod tests_plugin;
 #[cfg(feature = "full-tests")]

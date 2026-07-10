@@ -410,7 +410,9 @@ fn allow_engine(
             inter_agent: Effect::Allow,
             config: Effect::Allow,
             tool_call: Effect::Allow,
+            message: Effect::Allow,
         },
+        user_defaults: Defaults::default(),
         template_includes: vec![],
         agent_creators: HashMap::new(),
     };
@@ -436,6 +438,7 @@ fn deny_engine(
             priority: 100,
         }],
         defaults: Defaults::default(),
+        user_defaults: Defaults::default(),
         template_includes: vec![],
         agent_creators: HashMap::new(),
     };
@@ -489,7 +492,9 @@ fn auto_mode_allow_engine(
             inter_agent: Effect::Allow,
             config: Effect::Allow,
             tool_call: Effect::Allow,
+            message: Effect::Allow,
         },
+        user_defaults: Defaults::default(),
         template_includes: vec![],
         agent_creators: HashMap::new(),
     };
