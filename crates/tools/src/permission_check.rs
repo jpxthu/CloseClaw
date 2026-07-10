@@ -149,7 +149,6 @@ async fn is_session_sub_agent(session_manager: &Arc<SessionManager>, session_id:
 /// Uses [`closeclaw_permission::is_config_file_path`] with the data root
 /// obtained from [`ConfigManager::config_dir`].  Returns `true` when the
 /// path is inside the config directory but outside any workspace.
-#[allow(dead_code)]
 pub(crate) fn is_config_file(config_manager: &ConfigManager, path: &str) -> bool {
     let data_root = config_manager.config_dir();
     is_config_file_path(data_root, path)
@@ -319,7 +318,6 @@ pub(crate) async fn check_message_permission(
 /// Second-level check for config write operations (ConfigWrite dimension).
 ///
 /// Validates whether the agent is allowed to write the given config file.
-#[allow(dead_code)]
 pub(crate) async fn check_config_write_permission(
     deps: &PermDeps,
     ctx: &crate::ToolContext,
