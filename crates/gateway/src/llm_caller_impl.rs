@@ -71,6 +71,7 @@ pub async fn execute_compact(
     model: &str,
     instruction: Option<&str>,
     is_auto: bool,
+    chars_per_token: f64,
 ) -> Result<
     closeclaw_session::compaction::CompactionResult,
     closeclaw_session::compaction::CompactionError,
@@ -117,8 +118,9 @@ pub async fn execute_compact(
                 content: m.content.clone(),
             })
             .collect::<Vec<_>>(),
+        chars_per_token,
     );
-    let after_tokens = estimate_tokens(&boundary);
+    let after_tokens = estimate_tokens(&boundary, chars_per_token);
     let before_chars: usize = messages.iter().map(|m| m.content.len()).sum();
     let after_chars = boundary.len();
 
@@ -318,7 +320,7 @@ mod tests {
         let registry = Arc::new(LLMRegistry::default());
         let client = FallbackClient::new(registry, vec![]);
 
-        let result = execute_compact(&[], &client, "stub-model", None, false).await;
+        let result = execute_compact(&[], &client, "stub-model", None, false, 0.25).await;
         assert!(matches!(result, Err(CompactionError::EmptyMessages)));
     }
 
@@ -334,7 +336,7 @@ mod tests {
             role: "user".to_string(),
             content: "Hello, how are you?".to_string(),
         }];
-        let result = execute_compact(&messages, &client, "stub-model", None, false).await;
+        let result = execute_compact(&messages, &client, "stub-model", None, false, 0.25).await;
         // Empty chain returns LLMCallFailed
         assert!(result.is_err());
     }

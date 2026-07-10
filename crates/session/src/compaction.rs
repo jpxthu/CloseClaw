@@ -6,6 +6,7 @@
 //! `execute_compact` function lives in the main crate's wrapper module.
 
 pub use closeclaw_common::CompactConfig;
+use closeclaw_common::RunningStats;
 
 /// Simple message type for compaction operations.
 ///
@@ -116,22 +117,50 @@ pub fn format_boundary_message(summary: &str, is_auto: bool) -> String {
 }
 
 /// Estimate token count for a text string using character count coefficient.
-pub fn estimate_tokens(text: &str) -> usize {
+pub fn estimate_tokens(text: &str, chars_per_token: f64) -> usize {
     if text.is_empty() {
         return 0;
     }
     let chars = text.chars().count();
-    (chars as f64 * 0.25).ceil() as usize
+    (chars as f64 * chars_per_token).ceil() as usize
 }
 
 /// Estimate total tokens for a slice of compaction messages.
-pub fn estimate_messages_tokens(messages: &[CompactionMessage]) -> usize {
-    messages.iter().map(|m| estimate_tokens(&m.content)).sum()
+pub fn estimate_messages_tokens(messages: &[CompactionMessage], chars_per_token: f64) -> usize {
+    messages
+        .iter()
+        .map(|m| estimate_tokens(&m.content, chars_per_token))
+        .sum()
+}
+
+/// Estimate total tokens combining precise RunningStats and character-based estimation.
+///
+/// When `stats.request_count > 0`, returns `stats.total_tokens` plus a character-based
+/// estimate for the given messages. When `request_count == 0` (no LLM calls yet),
+/// falls back to pure character-based estimation.
+pub fn estimate_total_tokens(
+    stats: &RunningStats,
+    messages: &[CompactionMessage],
+    chars_per_token: f64,
+) -> usize {
+    if stats.request_count > 0 {
+        stats.total_tokens as usize + estimate_messages_tokens(messages, chars_per_token)
+    } else {
+        estimate_messages_tokens(messages, chars_per_token)
+    }
 }
 
 /// Get the context window size for a model.
-/// Returns 128_000 for unknown models.
-pub fn get_context_window(model: &str) -> usize {
+///
+/// When `knowledge_context_window` is `Some(n)` and `n > 0`, returns `n`
+/// (knowledge base value). Otherwise falls back to the hardcoded
+/// [`MODEL_CONTEXT_WINDOWS`] table, defaulting to 128_000 for unknown models.
+pub fn get_context_window(model: &str, knowledge_context_window: Option<u32>) -> usize {
+    if let Some(kb_window) = knowledge_context_window {
+        if kb_window > 0 {
+            return kb_window as usize;
+        }
+    }
     MODEL_CONTEXT_WINDOWS
         .iter()
         .find(|(name, _)| model.starts_with(name))
@@ -156,8 +185,13 @@ impl CompactionService {
     }
 
     /// Returns the token warning state based on current usage and model context window.
-    pub fn token_warning_state(&self, used_tokens: usize, model: &str) -> TokenWarningState {
-        let context_window = get_context_window(model);
+    pub fn token_warning_state(
+        &self,
+        used_tokens: usize,
+        model: &str,
+        knowledge_context_window: Option<u32>,
+    ) -> TokenWarningState {
+        let context_window = get_context_window(model, knowledge_context_window);
         let remaining = context_window.saturating_sub(used_tokens);
 
         // Blocking: ≤ 3,000 tokens left
@@ -176,8 +210,13 @@ impl CompactionService {
     }
 
     /// Returns the percentage of context window remaining (0-100).
-    pub fn percent_left(&self, used_tokens: usize, model: &str) -> usize {
-        let context_window = get_context_window(model);
+    pub fn percent_left(
+        &self,
+        used_tokens: usize,
+        model: &str,
+        knowledge_context_window: Option<u32>,
+    ) -> usize {
+        let context_window = get_context_window(model, knowledge_context_window);
         if context_window == 0 {
             return 0;
         }
@@ -199,13 +238,19 @@ impl CompactionService {
     /// Delegates to [`token_warning_state`](Self::token_warning_state) and returns
     /// `true` only when the state is [`AutoCompactTriggered`](TokenWarningState::AutoCompactTriggered)
     /// and the circuit breaker has not tripped.
-    pub fn should_auto_compact(&self, messages: &[CompactionMessage], model: &str) -> bool {
+    pub fn should_auto_compact(
+        &self,
+        messages: &[CompactionMessage],
+        model: &str,
+        knowledge_context_window: Option<u32>,
+        stats: &RunningStats,
+    ) -> bool {
         if self.consecutive_failures >= self.config.max_consecutive_failures {
             return false;
         }
-        let tokens = estimate_messages_tokens(messages);
+        let tokens = estimate_total_tokens(stats, messages, self.config.chars_per_token);
         matches!(
-            self.token_warning_state(tokens, model),
+            self.token_warning_state(tokens, model, knowledge_context_window),
             TokenWarningState::AutoCompactTriggered
         )
     }
