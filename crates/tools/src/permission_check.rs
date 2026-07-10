@@ -307,6 +307,56 @@ pub(crate) async fn check_message_permission(
 /// Second-level check for network operations (Network dimension).
 ///
 /// Validates outbound network access to the given host and port.
+/// Second-level check for config write operations (ConfigWrite dimension).
+///
+/// Validates whether the agent is allowed to write the given config file.
+#[allow(dead_code)]
+pub(crate) async fn check_config_write_permission(
+    deps: &PermDeps,
+    ctx: &crate::ToolContext,
+    config_file: &str,
+) -> Result<Option<ToolResult>, ToolCallError> {
+    let (perm, session_manager, config_manager, approval_flow) = deps;
+    let request = PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
+        agent: ctx.agent_id.clone(),
+        config_file: config_file.to_string(),
+    });
+    let response = evaluate_permission(
+        perm,
+        session_manager,
+        config_manager,
+        ctx.session_id.as_deref(),
+        request,
+    )
+    .await;
+    match response {
+        PR::Allowed { .. } => Ok(None),
+        PR::Denied { risk_level, .. } => {
+            let caller = Caller {
+                user_id: String::new(),
+                agent: ctx.agent_id.clone(),
+                creator_id: String::new(),
+            };
+            let body = PermissionRequestBody::ConfigWrite {
+                agent: ctx.agent_id.clone(),
+                config_file: config_file.to_string(),
+            };
+            let sid = ctx.session_id.as_deref().unwrap_or("");
+            let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
+            route_denial(
+                &response,
+                &caller,
+                &body,
+                risk_level,
+                sid,
+                is_sub_agent,
+                approval_flow,
+            )
+            .await
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub(crate) async fn check_network_permission(
     deps: &PermDeps,
