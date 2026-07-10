@@ -16,7 +16,7 @@ impl PermissionEngine {
         extra_deny_subjects: Option<&[Subject]>,
     ) -> PermissionResponse {
         let body = match action {
-            "exec" => PermissionRequestBody::CommandExec {
+            "command" => PermissionRequestBody::CommandExec {
                 agent: agent_id.to_string(),
                 cmd: "*".to_string(),
                 args: Vec::new(),

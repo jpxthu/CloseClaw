@@ -38,6 +38,21 @@ pub(super) fn is_config_dir_path(data_root: &Path, path: &str) -> bool {
     norm_path == norm_root || !norm_path.starts_with(&ws_prefix)
 }
 
+/// Public API: check if a file path targets a config file.
+///
+/// A config file is any path inside `data_root` that is NOT under
+/// `data_root/workspaces/`.  This is used by the tool layer to decide
+/// whether a file-write operation should also trigger the ConfigWrite
+/// permission dimension.
+///
+/// # Arguments
+///
+/// * `data_root` – the permission data root directory.
+/// * `path` – absolute file path to check.
+pub fn is_config_file_path(data_root: &Path, path: &str) -> bool {
+    is_config_dir_path(data_root, path)
+}
+
 /// Normalize a path by resolving `.` and `..` components syntactically.
 pub(super) fn normalize_path(path: &str) -> String {
     let mut components: Vec<&str> = Vec::new();

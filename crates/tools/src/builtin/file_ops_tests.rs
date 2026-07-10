@@ -120,6 +120,19 @@ fn allow_file(agent: &str, path_glob: &str, op: &str) -> Rule {
     }
 }
 
+fn allow_config_write_rule(agent: &str) -> Rule {
+    Rule {
+        name: format!("allow-cfgwrite-{agent}"),
+        subject: Rule::parse_subject(agent),
+        effect: Effect::Allow,
+        actions: vec![Action::ConfigWrite {
+            files: vec!["*".to_string()],
+        }],
+        template: None,
+        priority: 0,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Metadata tests (migrated from inline)
 // ---------------------------------------------------------------------------
@@ -439,4 +452,138 @@ async fn test_grep_missing_pattern_arg() {
     let tool = GrepTool::new(make_engine(vec![]), make_sm(), make_cm(), make_af());
     let result = tool.call(serde_json::json!({}), &make_ctx("a")).await;
     assert!(matches!(result, Err(ToolCallError::InvalidArgs(_))));
+}
+
+// ---------------------------------------------------------------------------
+// ConfigWrite dimension tests
+// ---------------------------------------------------------------------------
+
+/// Create a PermissionEngine with a custom data_root so that
+/// `is_config_file_path` recognizes paths under that root as config files.
+fn make_engine_with_data_root(rules: Vec<Rule>, data_root: &std::path::Path) -> PermEngine {
+    let rs = RuleSetBuilder::new()
+        .rules(rules)
+        .defaults(Defaults {
+            tool_call: Effect::Deny,
+            file_read: Effect::Deny,
+            file_write: Effect::Deny,
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    Arc::new(tokio::sync::RwLock::new(PermissionEngine::new(
+        rs,
+        data_root.to_path_buf(),
+    )))
+}
+
+/// Bundled PermDeps for testing the three-level check flow.
+fn make_file_deps(
+    rules: Vec<Rule>,
+    data_root: &std::path::Path,
+) -> crate::permission_check::PermDeps {
+    (
+        make_engine_with_data_root(rules, data_root),
+        make_sm(),
+        make_cm(),
+        make_af_deny(),
+    )
+}
+
+/// Config file write is intercepted by ConfigWrite dimension (forced deny).
+/// The engine's config_write_forced_deny guard converts Allow → Denied,
+/// so even with a FileOp allow rule, the ConfigWrite check returns Denied.
+#[tokio::test]
+async fn test_config_write_intercepted_by_config_write_dimension() {
+    let cm = make_cm();
+    let data_root = cm.config_dir().to_path_buf();
+    // Path inside data_root but outside workspaces → is_config_file = true
+    let config_path = data_root.join("agents/a1/test.json");
+    std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+
+    let rules = vec![
+        allow_tool("a", "file_ops"),
+        allow_file("a", &format!("{}/**", data_root.display()), "write"),
+    ];
+    let deps = make_file_deps(rules, &data_root);
+    let ctx = make_ctx("a");
+
+    // Write via check_and_execute — ConfigWrite dimension should intercept
+    let result = check_and_execute(
+        &deps,
+        &ctx,
+        &config_path.to_string_lossy(),
+        "write",
+        write_file(&config_path.to_string_lossy(), "content"),
+    )
+    .await;
+    assert!(
+        result.is_err(),
+        "config file write should be denied by ConfigWrite dimension"
+    );
+    // File should NOT be written — ConfigWrite check blocks before I/O
+    assert!(!config_path.exists());
+}
+
+/// Regular file write is NOT affected by ConfigWrite check.
+/// The path is outside data_root, so is_config_file returns false
+/// and the ConfigWrite check is skipped entirely.
+#[tokio::test]
+async fn test_regular_write_not_affected_by_config_write_check() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("output.txt");
+    let cm = make_cm();
+    let data_root = cm.config_dir().to_path_buf();
+    let rules = vec![
+        allow_tool("a", "file_ops"),
+        allow_file("a", "/tmp/**", "write"),
+    ];
+    let deps = make_file_deps(rules, &data_root);
+    let ctx = make_ctx("a");
+
+    let result = check_and_execute(
+        &deps,
+        &ctx,
+        &path.to_string_lossy(),
+        "write",
+        write_file(&path.to_string_lossy(), "hello"),
+    )
+    .await;
+    assert!(result.is_ok(), "regular file write should succeed");
+    let content = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(content, "hello");
+}
+
+/// Config file write with explicit ConfigWrite Allow rule + FileWrite Allow rule.
+/// ConfigWrite forced deny guard overrides the Allow rule, so the write is blocked.
+/// This verifies the guard is applied at the engine level, not just at the tool level.
+#[tokio::test]
+async fn test_config_write_explicit_allow_still_denied_by_guard() {
+    let cm = make_cm();
+    let data_root = cm.config_dir().to_path_buf();
+    let config_path = data_root.join("agents/a1/models.json");
+    std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+
+    let rules = vec![
+        allow_tool("a", "file_ops"),
+        allow_file("a", &format!("{}/**", data_root.display()), "write"),
+        // Explicit ConfigWrite allow rule — guard should still override it
+        allow_config_write_rule("a"),
+    ];
+    let deps = make_file_deps(rules, &data_root);
+    let ctx = make_ctx("a");
+
+    let result = check_and_execute(
+        &deps,
+        &ctx,
+        &config_path.to_string_lossy(),
+        "write",
+        write_file(&config_path.to_string_lossy(), "{\"key\": \"value\"}"),
+    )
+    .await;
+    assert!(
+        result.is_err(),
+        "config write with explicit allow rule should be denied by forced deny guard"
+    );
+    assert!(!config_path.exists(), "config file should not be written");
 }

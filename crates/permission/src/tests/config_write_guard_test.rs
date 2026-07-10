@@ -119,6 +119,38 @@ fn test_config_write_default_deny() {
     );
 }
 
+/// ConfigWrite default guard: no rules + default Allow → Denied.
+/// Verifies the guard triggers even when defaults.config = Allow,
+/// confirming the "always high-risk" design doc requirement.
+#[test]
+fn test_config_write_no_rules_default_allow_still_denied() {
+    let ruleset = RuleSetBuilder::new()
+        .default_config(Effect::Allow)
+        .build()
+        .unwrap();
+
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
+    let request = PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
+        agent: "agent-a".to_string(),
+        config_file: "settings.json".to_string(),
+    });
+    let response = engine.evaluate(request, None);
+
+    match &response {
+        PermissionResponse::Denied { rule, .. } => {
+            assert!(
+                rule.contains("config_write"),
+                "denial rule should reference config_write guard, got: {}",
+                rule
+            );
+        }
+        other => panic!(
+            "expected Denied from config_write_default_guard, got {:?}",
+            other
+        ),
+    }
+}
+
 /// MessageSend direction is correctly passed through check().
 #[test]
 fn test_check_message_action() {

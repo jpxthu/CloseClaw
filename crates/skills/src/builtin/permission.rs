@@ -87,7 +87,7 @@ impl Skill for PermissionSkill {
 
                 if let Some(ref engine) = self.engine {
                     let body = match action {
-                        "exec" => PermissionRequestBody::CommandExec {
+                        "command" => PermissionRequestBody::CommandExec {
                             agent: agent_id.to_string(),
                             cmd: "*".to_string(),
                             args: Vec::new(),
@@ -189,7 +189,7 @@ impl Skill for PermissionSkill {
             }
             "list_actions" => Ok(serde_json::json!({
                 "actions": [
-                    "exec",
+                    "command",
                     "file_read",
                     "file_write",
                     "network",

@@ -34,7 +34,7 @@ fn test_permissions_save_load() {
         inherited_from: Some("parent-id".to_string()),
     };
     permissions.permissions.insert(
-        "exec".to_string(),
+        "command".to_string(),
         ActionPermission {
             allowed: true,
             limits: PermissionLimits {
@@ -52,7 +52,7 @@ fn test_permissions_save_load() {
     let loaded: AgentPermissions = serde_json::from_str(&raw).unwrap();
 
     assert_eq!(loaded.agent_id, permissions.agent_id);
-    assert!(loaded.is_allowed("exec"));
+    assert!(loaded.is_allowed("command"));
     assert!(!loaded.is_allowed("network"));
 }
 

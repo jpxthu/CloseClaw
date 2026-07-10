@@ -320,7 +320,7 @@ async fn test_skill_with_permission_engine_integration() {
     assert!(result.is_ok());
     let value = result.unwrap();
     let actions = value.get("actions").unwrap().as_array().unwrap();
-    assert!(actions.contains(&serde_json::json!("exec")));
+    assert!(actions.contains(&serde_json::json!("command")));
     assert!(actions.contains(&serde_json::json!("file_read")));
     assert!(actions.contains(&serde_json::json!("file_write")));
 }

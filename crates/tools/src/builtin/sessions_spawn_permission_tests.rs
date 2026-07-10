@@ -40,7 +40,7 @@ fn make_all_deny(agent_id: &str) -> AgentPermissions {
 /// and the rest are allowed.
 fn make_partial_deny(agent_id: &str, denied_dims: &[&str]) -> AgentPermissions {
     let all_dims = [
-        "exec",
+        "command",
         "file_read",
         "file_write",
         "network",
@@ -106,7 +106,7 @@ async fn test_child_all_deny_spawn_returns_permission_denied() {
 #[tokio::test]
 async fn test_child_partial_deny_spawn_success() {
     let engine = make_permission_engine();
-    let child = make_partial_deny("child-partial", &["exec", "file_write"]);
+    let child = make_partial_deny("child-partial", &["command", "file_write"]);
     let parent = make_all_allow("parent-agent");
 
     let result =
@@ -149,7 +149,7 @@ fn test_multi_generation_spawn_chain() {
     let engine = make_permission_engine();
 
     // Root agent: deny exec, allow rest.
-    let root = make_partial_deny("root-agent", &["exec"]);
+    let root = make_partial_deny("root-agent", &["command"]);
 
     // Child agent: all-allow (but inherits exec=deny from root).
     let child = make_all_allow("child-agent");
@@ -162,7 +162,7 @@ fn test_multi_generation_spawn_chain() {
     // Compute child's effective permissions (no cache — compute manually)
     let child_effective = child.intersect(&root);
     assert!(
-        !child_effective.permissions.get("exec").unwrap().allowed,
+        !child_effective.permissions.get("command").unwrap().allowed,
         "child effective should have exec=deny (inherited from root)"
     );
     assert!(
@@ -194,7 +194,7 @@ fn test_multi_generation_spawn_chain() {
     assert!(
         !grandchild_effective
             .permissions
-            .get("exec")
+            .get("command")
             .unwrap()
             .allowed,
         "grandchild effective should have exec=deny (inherited chain root→child)"
@@ -231,7 +231,7 @@ fn test_recursive_permission_intersection_three_layers() {
     let engine = make_permission_engine();
 
     // depth=0: root denies exec + file_write, allows rest.
-    let root = make_partial_deny("root-agent", &["exec", "file_write"]);
+    let root = make_partial_deny("root-agent", &["command", "file_write"]);
 
     // depth=1: child denies network + file_read, allows rest.
     let child = make_partial_deny("child-agent", &["network", "file_read"]);
@@ -246,7 +246,7 @@ fn test_recursive_permission_intersection_three_layers() {
     // Child effective: exec=deny (root), file_read=deny (child),
     // file_write=deny (root), network=deny (child),
     // spawn=allow, tool_call=allow, config_write=allow.
-    assert!(!child_effective.permissions.get("exec").unwrap().allowed);
+    assert!(!child_effective.permissions.get("command").unwrap().allowed);
     assert!(
         !child_effective
             .permissions
@@ -297,7 +297,7 @@ fn test_recursive_permission_intersection_three_layers() {
 
     // Grandchild effective: all denied dims from every level accumulate.
     assert!(
-        !gc_effective.permissions.get("exec").unwrap().allowed,
+        !gc_effective.permissions.get("command").unwrap().allowed,
         "exec should be denied (from root)"
     );
     assert!(

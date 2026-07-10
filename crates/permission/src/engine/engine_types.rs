@@ -552,7 +552,7 @@ impl PermissionRequestBody {
                 "write" => Some("file_write"),
                 _ => None,
             },
-            PermissionRequestBody::CommandExec { .. } => Some("exec"),
+            PermissionRequestBody::CommandExec { .. } => Some("command"),
             PermissionRequestBody::NetOp { .. } => Some("network"),
             PermissionRequestBody::InterAgentMsg { .. } => Some("spawn"),
             PermissionRequestBody::ToolCall { .. } => Some("tool_call"),

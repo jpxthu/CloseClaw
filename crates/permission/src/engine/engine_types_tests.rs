@@ -42,7 +42,7 @@ fn test_dimension_name_command_exec() {
         cmd: "ls".to_string(),
         args: vec![],
     };
-    assert_eq!(body.dimension_name(), Some("exec"));
+    assert_eq!(body.dimension_name(), Some("command"));
 }
 
 #[test]
@@ -115,12 +115,98 @@ fn test_defaults_json_with_message_deny() {
 }
 
 #[test]
+fn test_dimension_name_message_send() {
+    use super::MessageDirection;
+    let body = PermissionRequestBody::MessageSend {
+        agent: "a".to_string(),
+        direction: MessageDirection::Send,
+        target: "chat_1".to_string(),
+    };
+    assert_eq!(body.dimension_name(), Some("message"));
+}
+
+#[test]
 fn test_dimension_name_slash_command() {
     let body = PermissionRequestBody::SlashCommand {
         agent: "a".to_string(),
         command: "/status".to_string(),
     };
     assert_eq!(body.dimension_name(), None);
+}
+
+/// Supplemental: verify all non-None dimension_name() values are unique
+/// and match the expected dimension keys.
+#[test]
+fn test_dimension_name_all_variants_unique() {
+    use super::MessageDirection;
+    let bodies: Vec<PermissionRequestBody> = vec![
+        PermissionRequestBody::FileOp {
+            agent: "a".to_string(),
+            path: "/tmp/f".to_string(),
+            op: "read".to_string(),
+        },
+        PermissionRequestBody::FileOp {
+            agent: "a".to_string(),
+            path: "/tmp/f".to_string(),
+            op: "write".to_string(),
+        },
+        PermissionRequestBody::CommandExec {
+            agent: "a".to_string(),
+            cmd: "ls".to_string(),
+            args: vec![],
+        },
+        PermissionRequestBody::NetOp {
+            agent: "a".to_string(),
+            host: "x.com".to_string(),
+            port: 443,
+        },
+        PermissionRequestBody::InterAgentMsg {
+            from: "a".to_string(),
+            to: "b".to_string(),
+        },
+        PermissionRequestBody::ToolCall {
+            agent: "a".to_string(),
+            skill: "s".to_string(),
+            method: "m".to_string(),
+        },
+        PermissionRequestBody::ConfigWrite {
+            agent: "a".to_string(),
+            config_file: "c".to_string(),
+        },
+        PermissionRequestBody::MessageSend {
+            agent: "a".to_string(),
+            direction: MessageDirection::Send,
+            target: "t".to_string(),
+        },
+    ];
+    let mut names: Vec<&str> = bodies
+        .iter()
+        .map(|b| b.dimension_name().expect("dimension_name() returned None"))
+        .collect();
+    names.sort();
+    names.dedup();
+    assert_eq!(
+        names.len(),
+        8,
+        "expected 8 unique dimension names, got {:?}",
+        names
+    );
+    for expected in &[
+        "command",
+        "config_write",
+        "file_read",
+        "file_write",
+        "message",
+        "network",
+        "spawn",
+        "tool_call",
+    ] {
+        assert!(
+            names.contains(expected),
+            "missing dimension name: {}",
+            expected
+        );
+    }
 }
 
 // ------------------------------------------------------------------
