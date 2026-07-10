@@ -254,6 +254,18 @@ pub(crate) async fn check_file_op_permission(
 ///
 /// Validates whether the agent is allowed to send/receive messages
 /// in the given direction to/from the specified target.
+///
+/// # Retention rationale
+///
+/// Message sending/receiving is handled by the IM processor layer,
+/// not by tools. No built-in tool directly performs message operations.
+/// This function is retained for:
+/// - Unit tests that verify the MessageSend dimension evaluation path
+/// - Future tools that may directly send messages
+///   (e.g., a dedicated messaging tool)
+///
+/// The engine layer already evaluates the MessageSend dimension via
+/// `evaluate_user_permissions()` at the first level (ToolCall check).
 #[allow(dead_code)]
 pub(crate) async fn check_message_permission(
     deps: &PermDeps,
@@ -307,6 +319,21 @@ pub(crate) async fn check_message_permission(
 /// Second-level check for config write operations (ConfigWrite dimension).
 ///
 /// Validates whether the agent is allowed to write the given config file.
+///
+/// # Retention rationale
+///
+/// Config file writes are just file writes — already covered by
+/// [`check_file_op_permission`] used by `WriteTool` / `EditTool`.
+/// The design doc's data flow shows config_write as a separate
+/// sub-operation, but in practice config files are written through
+/// the same file I/O path as any other file.
+/// This function is retained for:
+/// - Unit tests that verify the ConfigWrite dimension evaluation path
+/// - Future tools that may directly write config files
+///   (e.g., a dedicated config management tool)
+///
+/// The engine layer already evaluates the ConfigWrite dimension via
+/// `evaluate_user_permissions()` at the first level (ToolCall check).
 #[allow(dead_code)]
 pub(crate) async fn check_config_write_permission(
     deps: &PermDeps,
@@ -357,6 +384,21 @@ pub(crate) async fn check_config_write_permission(
 /// Second-level check for network operations (NetOp dimension).
 ///
 /// Validates whether the agent is allowed to connect to the specified host and port.
+///
+/// # Retention rationale
+///
+/// Network access occurs within command execution (e.g., `curl`, `wget`
+/// inside BashTool) — already covered by [`check_command_permission`].
+/// The design doc's data flow shows network checks as a sub-operation
+/// of tool internal operations, but in practice network calls are
+/// indistinguishable from other shell commands at the tool layer.
+/// This function is retained for:
+/// - Unit tests that verify the NetOp dimension evaluation path
+/// - Future tools that may directly perform network I/O
+///   (e.g., a dedicated HTTP client tool)
+///
+/// The engine layer already evaluates the NetOp dimension via
+/// `evaluate_user_permissions()` at the first level (ToolCall check).
 #[allow(dead_code)]
 pub(crate) async fn check_network_permission(
     deps: &PermDeps,
