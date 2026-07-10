@@ -201,13 +201,10 @@ impl Gateway {
                 agent_permissions.as_ref(),
             )
             .await;
-        match response {
-            PermissionResponse::Denied { reason, .. } => {
-                self.send_reply_if_available(&format!("无权限：{reason}"))
-                    .await;
-                return false;
-            }
-            _ => {}
+        if let PermissionResponse::Denied { reason, .. } = response {
+            self.send_reply_if_available(&format!("无权限：{reason}"))
+                .await;
+            return false;
         }
         true
     }
@@ -816,11 +813,8 @@ impl GatewaySlashExecutor {
             },
         };
         let response = engine.read().await.evaluate(request, None);
-        match response {
-            PermissionResponse::Denied { reason, .. } => {
-                return Err(vec![ContentBlock::Text(format!("无权限：{reason}"))]);
-            }
-            _ => {}
+        if let PermissionResponse::Denied { reason, .. } = response {
+            return Err(vec![ContentBlock::Text(format!("无权限：{reason}"))]);
         }
         Ok(())
     }
