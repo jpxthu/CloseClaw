@@ -89,7 +89,7 @@ pub async fn execute_compact(
 
     let summary = extract_summary(&response.content).ok_or(CompactionError::SummaryParseFailed)?;
 
-    let boundary = format_boundary_message(&summary, is_auto);
+    let boundary = format_boundary_message(&summary, is_auto, chrono::Utc::now());
     let after_token_count = estimate_tokens(&boundary, chars_per_token);
     let after_char_count = boundary.chars().count();
 

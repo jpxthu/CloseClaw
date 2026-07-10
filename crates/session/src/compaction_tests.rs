@@ -279,14 +279,18 @@ mod tests {
 
     #[test]
     fn test_format_boundary_message_auto() {
-        let msg = format_boundary_message("summary", true);
+        let ts = chrono::Utc::now();
+        let msg = format_boundary_message("summary", true, ts);
         assert!(msg.contains("自动压缩"));
+        assert!(msg.contains(&ts.to_string()));
     }
 
     #[test]
     fn test_format_boundary_message_manual() {
-        let msg = format_boundary_message("summary", false);
+        let ts = chrono::Utc::now();
+        let msg = format_boundary_message("summary", false, ts);
         assert!(msg.contains("手动压缩"));
+        assert!(msg.contains(&ts.to_string()));
     }
 
     // ===================================================================
@@ -470,15 +474,17 @@ mod tests {
     // format_boundary_message tests - additional coverage
     #[test]
     fn test_format_boundary_message_auto_full() {
-        let msg = format_boundary_message("summary text", true);
-        assert!(msg.contains("[Session Compaction | 自动压缩]"));
+        let ts = chrono::Utc::now();
+        let msg = format_boundary_message("summary text", true, ts);
+        assert!(msg.contains(&format!("[Session Compaction | 自动压缩 | {}]", ts)));
         assert!(msg.contains("summary text"));
     }
 
     #[test]
     fn test_format_boundary_message_manual_full() {
-        let msg = format_boundary_message("summary text", false);
-        assert!(msg.contains("[Session Compaction | 手动压缩]"));
+        let ts = chrono::Utc::now();
+        let msg = format_boundary_message("summary text", false, ts);
+        assert!(msg.contains(&format!("[Session Compaction | 手动压缩 | {}]", ts)));
         assert!(msg.contains("summary text"));
     }
 
@@ -559,9 +565,10 @@ mod tests {
 
         // Simulate compaction: messages are replaced by boundary summary
         let summary = "Discussed design doc for new feature.";
+        let ts = chrono::Utc::now();
         let compacted_messages = vec![CompactionMessage {
             role: "system".to_string(),
-            content: format_boundary_message(summary, true),
+            content: format_boundary_message(summary, true, ts),
         }];
         let compacted_tokens = estimate_messages_tokens(&compacted_messages, 0.25);
         assert!(compacted_tokens > 0);
@@ -581,17 +588,20 @@ mod tests {
     #[test]
     fn test_compaction_boundary_demarcation_preserves_checkpoint_context() {
         let summary = "User is working on plan mode project with 3 pending steps";
+        let ts = chrono::Utc::now();
 
         // Auto compaction boundary
-        let auto_boundary = format_boundary_message(summary, true);
+        let auto_boundary = format_boundary_message(summary, true, ts);
         assert!(auto_boundary.contains(summary));
         assert!(auto_boundary.contains("Session Compaction"));
         assert!(auto_boundary.contains("自动压缩"));
+        assert!(auto_boundary.contains(&ts.to_string()));
 
         // Manual compaction boundary
-        let manual_boundary = format_boundary_message(summary, false);
+        let manual_boundary = format_boundary_message(summary, false, ts);
         assert!(manual_boundary.contains(summary));
         assert!(manual_boundary.contains("手动压缩"));
+        assert!(manual_boundary.contains(&ts.to_string()));
 
         // Both boundaries are system messages that sit at the compaction split
         // point — plan_state lives outside this message boundary on the

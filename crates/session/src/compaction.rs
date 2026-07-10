@@ -107,13 +107,23 @@ pub fn extract_summary(response: &str) -> Option<String> {
 }
 
 /// Formats a boundary system message containing the summary.
-pub fn format_boundary_message(summary: &str, is_auto: bool) -> String {
+///
+/// Output format: `[Session Compaction | {trigger} | {timestamp}]\n\n{summary}`
+/// where trigger is "手动压缩" or "自动压缩" and timestamp is UTC ISO 8601.
+pub fn format_boundary_message(
+    summary: &str,
+    is_auto: bool,
+    timestamp: chrono::DateTime<chrono::Utc>,
+) -> String {
     let trigger = if is_auto {
         "自动压缩"
     } else {
         "手动压缩"
     };
-    format!("[Session Compaction | {}]\n\n{}", trigger, summary)
+    format!(
+        "[Session Compaction | {} | {}]\n\n{}",
+        trigger, timestamp, summary
+    )
 }
 
 /// Estimate token count for a text string using character count coefficient.
