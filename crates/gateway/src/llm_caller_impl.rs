@@ -130,7 +130,7 @@ pub async fn execute_compact(
         chars_per_token,
     );
     let after_tokens = estimate_tokens(&boundary, chars_per_token);
-    let after_chars = boundary.len();
+    let after_chars = boundary.chars().count();
 
     Ok(CompactionResult {
         performed: true,
