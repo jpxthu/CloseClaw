@@ -77,6 +77,13 @@ impl ConfigManager {
             *self.repo_root.write().expect("RwLock poisoned") = repo_root.map(Path::to_path_buf);
         }
 
+        // Update permissions provider with project-level directory.
+        if let Some(repo) = repo_root {
+            let project_agents_dir = repo.join(".closeclaw").join("agents");
+            self.agent_permissions
+                .set_project_agents_dir(project_agents_dir);
+        }
+
         let agents_json_path = self.config_dir.join("agents.json");
         let user_ids = self.load_agents_json(&agents_json_path)?;
 
