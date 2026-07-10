@@ -76,7 +76,7 @@ impl RejectionLogger for InMemoryLogger {
 /// Build an allow-all engine with mode query injected.
 fn allow_all_engine_with_mode(mode: SessionMode) -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
         .default_command(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
@@ -91,7 +91,7 @@ fn allow_all_engine_with_mode(mode: SessionMode) -> PermissionEngine {
 /// Build a deny-all engine (no mode query, no rejection logger).
 fn deny_all_engine() -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
@@ -104,7 +104,7 @@ fn deny_all_engine() -> PermissionEngine {
 /// Build a deny-all engine with rejection logger.
 fn deny_all_engine_with_logger(logger: Arc<dyn RejectionLogger>) -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
