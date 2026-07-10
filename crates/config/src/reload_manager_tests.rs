@@ -648,4 +648,125 @@ mod tests {
             "8.8"
         );
     }
+
+    // ------------------------------------------------------------------
+    // Step 1.2 — reload_section backup ordering tests
+    // ------------------------------------------------------------------
+
+    /// Validation failure should NOT create any backup file.
+    #[test]
+    fn test_reload_section_validation_failure_no_backup_file() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let cb = Arc::new(MockCallback::new());
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb);
+
+        let backups_before = cm
+            .backup_manager()
+            .list_backups(d.path().join("system.json"))
+            .unwrap();
+        let count_before = backups_before.len();
+
+        std::fs::write(d.path().join("system.json"), r#"{"version":123}"#).unwrap();
+        let result = mgr.reload_section(ConfigSection::System);
+        assert!(result.is_err());
+
+        let backups_after = cm
+            .backup_manager()
+            .list_backups(d.path().join("system.json"))
+            .unwrap();
+        assert_eq!(
+            backups_after.len(),
+            count_before,
+            "validation failure should not create any backup file"
+        );
+    }
+
+    /// Parse failure should NOT create any backup file.
+    #[test]
+    fn test_reload_section_parse_failure_no_backup_file() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let cb = Arc::new(MockCallback::new());
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb);
+
+        let backups_before = cm
+            .backup_manager()
+            .list_backups(d.path().join("system.json"))
+            .unwrap();
+        let count_before = backups_before.len();
+
+        std::fs::write(d.path().join("system.json"), "not json!!!").unwrap();
+        let result = mgr.reload_section(ConfigSection::System);
+        assert!(result.is_err());
+
+        let backups_after = cm
+            .backup_manager()
+            .list_backups(d.path().join("system.json"))
+            .unwrap();
+        assert_eq!(
+            backups_after.len(),
+            count_before,
+            "parse failure should not create any backup file"
+        );
+    }
+
+    /// Validation passes → backup file is created for old in-memory value.
+    #[test]
+    fn test_reload_section_success_creates_backup() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let cb = Arc::new(MockCallback::new());
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb);
+
+        let backups_before = cm
+            .backup_manager()
+            .list_backups(d.path().join("system.json"))
+            .unwrap();
+        let count_before = backups_before.len();
+
+        std::fs::write(d.path().join("system.json"), r#"{"version":"9.9"}"#).unwrap();
+        mgr.reload_section(ConfigSection::System).unwrap();
+
+        let backups_after = cm
+            .backup_manager()
+            .list_backups(d.path().join("system.json"))
+            .unwrap();
+        assert_eq!(
+            backups_after.len(),
+            count_before + 1,
+            "successful reload should create exactly one backup of old value"
+        );
+    }
+
+    /// First load (no old value) → success, no backup (nothing to back up).
+    #[test]
+    fn test_reload_section_first_load_no_backup() {
+        let d = TempDir::new().unwrap();
+        let cm = Arc::new(ConfigManager::new(d.path().to_path_buf()).unwrap());
+        let cb = Arc::new(MockCallback::new());
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb);
+
+        let backups_before = cm
+            .backup_manager()
+            .list_backups(d.path().join("system.json"))
+            .unwrap();
+        let count_before = backups_before.len();
+
+        std::fs::write(d.path().join("system.json"), r#"{"version":"1.0"}"#).unwrap();
+        mgr.reload_section(ConfigSection::System).unwrap();
+
+        let backups_after = cm
+            .backup_manager()
+            .list_backups(d.path().join("system.json"))
+            .unwrap();
+        assert_eq!(
+            backups_after.len(),
+            count_before,
+            "first load with no old value should not create any backup"
+        );
+
+        let val = cm.section(ConfigSection::System).unwrap();
+        assert_eq!(val["version"], "1.0");
+    }
 }
