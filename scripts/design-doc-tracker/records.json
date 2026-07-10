@@ -345,9 +345,9 @@
   },
   {
     "path": "docs/design/permission/approval-workflow.md",
-    "commit": "6a3ce3c989c1946e23d7297fcde5e830440ae528",
-    "commit_time": "2026-07-09T04:48:55+08:00",
-    "confirmed_time": "2026-07-09T04:55:21.617539+08:00",
+    "commit": "0a4160a0108a36833421a0732bd48c1a9175e5f4",
+    "commit_time": "2026-07-10T14:49:54+08:00",
+    "confirmed_time": "2026-07-10T15:02:47.956169+08:00",
     "comment": "",
     "blocked_reason": ""
   },
