@@ -11,7 +11,7 @@
 热重载由 ConfigReloadManager 驱动，包含三个核心环节：
 
 - **文件监听**：通过文件系统事件监听配置目录变更，去抖合并短时间内的多次变更，避免频繁重载。
-- **增量重载**：仅解析和重载发生变更的配置文件，不重新加载整个配置目录。agents.json 的变更由 AgentDirectoryProvider 独立处理，不通过 ConfigReloadManager 热重载。
+- **增量重载**：仅解析和重载发生变更的配置文件，不重新加载整个配置目录。agents.json 的变更同样通过 ConfigReloadManager 处理——变更通知到达后，AgentDirectoryProvider 根据最新注册清单重新扫描 agents/ 目录，重新合并并补齐默认值。
 - **校验失败处理**：新配置校验通过后更新内存。校验或解析失败时，保留内存中的旧配置继续运行，不恢复备份文件，记录错误日志并通过 IM 推送通知 Owner。若该配置在内存中无旧值（首次加载后即损坏），阻塞该配置的加载及依赖该配置的后续流程。
 
 ### 变更通知
@@ -36,7 +36,7 @@
 1. 文件变更事件触发
    → ConfigReloadManager 去抖合并短时间内的多次变更
 
-2. 读取变更文件内容
+2. 读取所有变更文件内容
 
 3. 校验新配置
    - 校验通过 → 更新内存中的配置缓存 → 进入步骤 4
@@ -57,7 +57,7 @@
 ## 模块关系
 
 - **上游**：ConfigManager（所有配置加载成功后注册热重载监听器，注册后才进入运行状态）、文件系统（触发变更事件）
-- **下游**：会话模块、权限模块、Gateway 等消费配置的模块（接收变更通知，自行决定重载策略）
-  > 本文档从 ConfigReloadManager 子组件视角描述关系。从配置模块整体看，这些模块属于间接消费方（通过事件通道订阅，不构成 API 调用关系），详见 config/README.md 模块关系节。
+- **下游**：各消费配置的模块通过 ConfigReloadManager 的 pub/sub 事件通道接收变更通知，自行决定重载策略。哪些模块订阅、各模块如何响应变更，是各模块自身的设计决策。
+  > 本文档从 ConfigReloadManager 子组件视角描述关系。从配置模块整体看，消费方通过不同方式获取配置数据——API 查询、文件延迟读取、事件通道订阅，详见 config/README.md 模块关系节。
 - **与 ConfigManager 的关系**：ConfigReloadManager 负责运行时变更处理，ConfigManager 负责启动时加载和写入接口。ConfigManager 启动时通过其 BackupManager 组件（滚动备份管理，启动时回退损坏文件）恢复损坏配置；ConfigReloadManager 热重载校验失败时不回退备份，仅保留内存旧配置并通知 Owner。
 - **无关**：processor_chain、tools、skills（不直接依赖热重载，通过上层模块间接使用更新后的配置）

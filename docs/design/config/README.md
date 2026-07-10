@@ -56,7 +56,7 @@
 - **AgentsConfigProvider**：管理 Agent 注册清单（`config/agents.json`），一个显式的 Agent ID 列表。只列出已显式注册的 ID，不在列表中的 Agent 即使目录存在也不加载。支持 JSONC 格式，注释掉某行即取消注册。
 - **AgentDirectoryProvider**：根据注册清单中的 ID，扫描 `agents/` 目录加载每个 Agent 的 `config.json` 和 `permissions.json`。支持多级加载（项目级优先于用户级），同 ID 的配置进行字段级覆盖合并。仅加载注册清单中列出的 ID，目录中存在但未被注册的 Agent 配置会被忽略。
 
-  AgentDirectoryProvider 独立于 ConfigProvider 体系，负责扫描多文件和多级目录的 Agent 配置，由 ConfigManager 直接持有和调用。
+  AgentDirectoryProvider 独立于 ConfigProvider 体系——它不实现 ConfigProvider 接口，由 ConfigManager 直接持有和调用。启动时从 AgentsConfigProvider 获取注册清单，扫描 agents/ 目录完成多级加载和字段合并。热重载时在收到 agents.json 变更通知后重新扫描。
 
 子功能文档：
 
@@ -69,7 +69,7 @@
 ```
 Config 模块启动时
   ↓
-加载 config/ 下所有配置文件（不含 agents.json，由 AgentDirectoryProvider 独立加载）
+加载 config/ 下所有配置文件（含 agents.json，由 AgentsConfigProvider 加载注册清单）
   │     │
   │     ├─ 解析成功 & 校验通过 → 补齐缺失字段默认值 → 加载到内存
   │     │
@@ -86,6 +86,12 @@ Config 模块启动时
 加载 credentials/ 目录
   │
   └─ 加载失败 → 使用空凭据，记录 WARN（不阻塞启动）
+  ↓
+AgentDirectoryProvider 读取注册清单
+  ├─ 扫描 agents/ 目录（用户级 + 项目级）
+  ├─ 对每个注册 ID，加载 config.json + permissions.json
+  ├─ 字段级覆盖合并（项目 > 用户）
+  └─ 补齐默认值 → 生成 ResolvedAgentConfig[]（字段定义见 agent/agent-config.md）
   ↓
 全部加载成功 → 启动 ConfigReloadManager（注册文件监听、热重载）
   ↓
@@ -122,7 +128,7 @@ Daemon 正常运行，热重载监听器后台运行
   ├─ 1. 校验新配置值
   │     └─ 校验失败 → 立即返回错误，不写任何文件
   │
-  ├─ 2. 备份当前配置文件
+  ├─ 2. 创建 `.backups/` 目录（如不存在），备份当前配置文件
   │     └─ 备份失败 → 返回错误，不执行写入
   │
   ├─ 3. 原子写入新配置
@@ -151,5 +157,5 @@ Daemon 正常运行，热重载监听器后台运行
 ## 模块关系
 
 - **上游**：daemon（启动时加载配置）、CLI（配置变更命令，含 `config setup` 交互式配置向导）、agent（提供 Agent 配置文件，Config 启动时扫描加载并合并为 ResolvedAgentConfig）
-- **下游**：无（配置模块不主动调用其他模块 API，仅读写文件系统和提供查询接口）。ConfigReloadManager 通过事件通道以 publish/subscribe 模式向订阅模块推送变更通知，由各模块自行决定是否重载，不构成调用关系。**间接消费方**：session（读取会话配置，如 sweeper/compaction 查询 SessionConfigProvider）、IM Adapter（入站身份映射时查询 accounts.json 将 sender_id 转为 account_id）、权限模块/Gateway（订阅热重载变更通知）
-- **无关**：processor_chain、tools、skills（无调用关系，这些模块通过上层模块间接使用配置）
+- **下游**：无（配置模块不主动调用其他模块 API，仅读写文件系统和提供查询接口）。ConfigReloadManager 通过事件通道以 publish/subscribe 模式向订阅模块推送变更通知——是否订阅、订阅后如何重载，由各模块自行决定，不构成调用关系。**间接消费方**：session（通过 SessionConfigProvider 查询会话配置参数）、IM Adapter（入站身份映射时查询 accounts.json）、权限模块（延迟加载 agent 配置目录下的 permissions.json 文件，热适应由权限模块内部机制实现）
+- **无关**：processor_chain、tools、skills、Gateway（无调用关系，这些模块通过上层模块间接使用配置；Gateway 的运行时参数在启动时一次性读取，不订阅动态变更）
