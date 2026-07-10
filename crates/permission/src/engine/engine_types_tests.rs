@@ -42,7 +42,7 @@ fn test_dimension_name_command_exec() {
         cmd: "ls".to_string(),
         args: vec![],
     };
-    assert_eq!(body.dimension_name(), Some("exec"));
+    assert_eq!(body.dimension_name(), Some("command"));
 }
 
 #[test]

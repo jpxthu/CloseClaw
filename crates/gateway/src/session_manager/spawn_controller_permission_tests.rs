@@ -92,7 +92,7 @@ async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
 #[allow(dead_code)]
 fn make_perms(agent_id: &str, allowed_dims: &[&str]) -> AgentPermissions {
     let dimensions = [
-        "exec",
+        "command",
         "file_read",
         "file_write",
         "network",
