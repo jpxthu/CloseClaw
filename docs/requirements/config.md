@@ -8,7 +8,7 @@
 
 ### F1. 多文件配置结构
 
-Owner 的 CloseClaw 配置按职责拆分为多个独立配置文件，存放在 `~/.openclaw/config/` 目录下。一个文件损坏不影响其他文件的加载。
+Owner 的 CloseClaw 配置按职责拆分为多个独立配置文件，存放在 `~/.closeclaw/config/` 目录下。一个文件损坏不影响其他文件的加载。
 
 配置文件按职责划分，包括模型定义、渠道配置、账户绑定、Gateway 参数、插件列表、会话参数、系统设置、Agent 注册清单等。Agent 的独立配置（`config.json`、`permissions.json`）存放在 `agents/<agent-id>/` 目录下。
 
