@@ -290,3 +290,42 @@ fn test_config_dir_path_traversal_attack() {
         &path
     ));
 }
+
+// ---- is_config_file_path tests (public API) ----
+
+#[test]
+fn test_config_file_path_in_config_dir() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp
+        .path()
+        .join("agents/a1/permissions.json")
+        .to_string_lossy()
+        .into_owned();
+    assert!(super::engine_workspace::is_config_file_path(
+        tmp.path(),
+        &path
+    ));
+}
+
+#[test]
+fn test_config_file_path_in_workspace() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp
+        .path()
+        .join("workspaces/a1/u1/file.txt")
+        .to_string_lossy()
+        .into_owned();
+    assert!(!super::engine_workspace::is_config_file_path(
+        tmp.path(),
+        &path
+    ));
+}
+
+#[test]
+fn test_config_file_path_normal_file() {
+    let tmp = TempDir::new().unwrap();
+    assert!(!super::engine_workspace::is_config_file_path(
+        tmp.path(),
+        "/tmp/regular/file.txt"
+    ));
+}

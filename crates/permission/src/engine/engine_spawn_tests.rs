@@ -27,7 +27,7 @@ fn make_engine() -> PermissionEngine {
 
 fn make_allowed_perms(agent_id: &str) -> AgentPermissions {
     let dims = [
-        "exec",
+        "command",
         "file_read",
         "file_write",
         "network",
@@ -139,7 +139,7 @@ fn test_validate_and_inject_spawn_user_partial_deny() {
     // User denies exec but allows everything else
     let mut user_perms_map = HashMap::new();
     for dim in &[
-        "exec",
+        "command",
         "file_read",
         "file_write",
         "network",
@@ -150,7 +150,7 @@ fn test_validate_and_inject_spawn_user_partial_deny() {
         user_perms_map.insert(
             dim.to_string(),
             closeclaw_config::agents::ActionPermission {
-                allowed: *dim != "exec",
+                allowed: *dim != "command",
                 limits: closeclaw_config::agents::PermissionLimits::default(),
             },
         );
@@ -377,16 +377,16 @@ async fn test_three_level_chain_effective_permissions() {
         "root".to_string(),
         make_perms(
             "root",
-            &[("exec", true), ("file_write", true), ("network", false)],
+            &[("command", true), ("file_write", true), ("network", false)],
         ),
     );
     perms.insert(
         "agent-a".to_string(),
-        make_perms("agent-a", &[("exec", true), ("file_write", false)]),
+        make_perms("agent-a", &[("command", true), ("file_write", false)]),
     );
     perms.insert(
         "agent-b".to_string(),
-        make_perms("agent-b", &[("exec", true)]),
+        make_perms("agent-b", &[("command", true)]),
     );
 
     let result = collect_chain_effective_permissions(
@@ -402,7 +402,7 @@ async fn test_three_level_chain_effective_permissions() {
     // Root intersects with A: exec=T∩T→T, file_write=T∩F→F,
     // network=F∩absent→F
     assert!(
-        effective.permissions["exec"].allowed,
+        effective.permissions["command"].allowed,
         "exec should be allowed"
     );
     assert!(
@@ -430,7 +430,7 @@ async fn test_single_level_spawn_no_extra_restrictions() {
         make_perms(
             "parent",
             &[
-                ("exec", true),
+                ("command", true),
                 ("file_read", true),
                 ("file_write", true),
                 ("network", true),
@@ -453,7 +453,7 @@ async fn test_single_level_spawn_no_extra_restrictions() {
 
     // No ancestors above parent -> parent's own perms returned
     for dim in &[
-        "exec",
+        "command",
         "file_read",
         "file_write",
         "network",
@@ -485,7 +485,7 @@ async fn test_chain_with_fully_denied_level() {
         "root".to_string(),
         make_perms(
             "root",
-            &[("exec", true), ("file_write", true), ("network", true)],
+            &[("command", true), ("file_write", true), ("network", true)],
         ),
     );
     // A is fully denied

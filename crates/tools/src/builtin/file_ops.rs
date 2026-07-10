@@ -53,6 +53,11 @@ where
     if let Some(r) = permission_check::check_file_op_permission(deps, ctx, path, op).await? {
         return Ok(r);
     }
+    if op == "write" && permission_check::is_config_file(deps.2.as_ref(), path) {
+        if let Some(r) = permission_check::check_config_write_permission(deps, ctx, path).await? {
+            return Ok(r);
+        }
+    }
     io_fn.await
 }
 

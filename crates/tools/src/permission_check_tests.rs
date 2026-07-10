@@ -328,6 +328,25 @@ async fn test_network_denied_without_rule() {
     assert!(result.is_err());
 }
 
+/// Network permission with specific port: allowed host but non-matching port.
+#[tokio::test]
+async fn test_network_allowed_specific_port() {
+    let deps = make_deps(vec![allow_network_rule("agent-a", "example.com")]);
+    let ctx = make_ctx("agent-a");
+    let result = check_network_permission(&deps, &ctx, "example.com", 8443).await;
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_none(), "allowed → None");
+}
+
+/// Network permission: allowed host but wrong host → denied.
+#[tokio::test]
+async fn test_network_denied_wrong_host() {
+    let deps = make_deps_deny(vec![allow_network_rule("agent-a", "safe.com")]);
+    let ctx = make_ctx("agent-a");
+    let result = check_network_permission(&deps, &ctx, "unsafe.com", 443).await;
+    assert!(result.is_err());
+}
+
 // ---------------------------------------------------------------------------
 // check_message_permission tests
 // ---------------------------------------------------------------------------
@@ -714,4 +733,36 @@ async fn test_is_session_sub_agent_depth_positive() {
     let sm = make_sm();
     setup_sessions_with_depth(&sm, "root-1", "child-1").await;
     assert!(is_session_sub_agent(&sm, "child-1").await);
+}
+
+// ---------------------------------------------------------------------------
+// is_config_file tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_is_config_file_in_config_dir() {
+    let cm = make_cm();
+    let data_root = cm.config_dir();
+    let path = data_root
+        .join("agents/a1/permissions.json")
+        .to_string_lossy()
+        .into_owned();
+    assert!(is_config_file(&cm, &path));
+}
+
+#[test]
+fn test_is_config_file_in_workspace() {
+    let cm = make_cm();
+    let data_root = cm.config_dir();
+    let path = data_root
+        .join("workspaces/a1/u1/file.txt")
+        .to_string_lossy()
+        .into_owned();
+    assert!(!is_config_file(&cm, &path));
+}
+
+#[test]
+fn test_is_config_file_normal_file() {
+    let cm = make_cm();
+    assert!(!is_config_file(&cm, "/tmp/regular/file.txt"));
 }

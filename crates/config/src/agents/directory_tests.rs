@@ -20,7 +20,7 @@ fn write_permissions(dir: &Path, id: &str, marker: &str) {
     // Embed `marker` inside the agent_id so we can assert which file won.
     let json = format!(
         r#"{{ "agent_id": "{}",
-"permissions": {{ "exec": {{ "allowed": true,
+"permissions": {{ "command": {{ "allowed": true,
 "limits": {{}} }} }} }}"#,
         marker
     );
@@ -166,7 +166,7 @@ fn test_permissions_user_fallback_when_no_project_file() {
         .get("epsilon")
         .expect("epsilon permissions should be loaded from user");
     assert_eq!(perms.agent_id, "user-marker");
-    assert!(perms.is_allowed("exec"));
+    assert!(perms.is_allowed("command"));
 }
 
 #[test]
