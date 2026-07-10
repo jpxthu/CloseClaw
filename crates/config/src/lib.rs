@@ -14,6 +14,7 @@ pub mod manager;
 pub mod manager_reload;
 pub mod migration;
 pub mod providers;
+pub mod reload_manager;
 pub mod session;
 pub mod spawn_validation;
 pub mod validators;
@@ -37,6 +38,7 @@ pub use providers::{
     AccountsConfigData, ChannelsConfigData, ConfigError, ConfigProvider, CredentialsProvider,
     GatewayConfigData, ModelsConfigData, SystemConfigData,
 };
+pub use reload_manager::{ConfigReloadManager, ReloadCallback, WatcherHandle};
 pub use session::{
     IdentifierFormat, JsonSessionConfigProvider, PerAgentSessionConfig, PlanConfig, SessionConfig,
     SessionConfigProvider,

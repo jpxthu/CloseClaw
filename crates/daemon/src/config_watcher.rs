@@ -3,11 +3,12 @@
 //! Thin initialization entry point for config hot-reload at daemon startup.
 //! Delegates file watching and event dispatch to [`ConfigReloadManager`].
 
-use crate::config_reload::reload::{ConfigReloadManager, WatcherHandle};
+use crate::config_reload::DaemonReloadCallback;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::events::ConfigChangeEvent;
 use closeclaw_config::manager::{ConfigManager, ConfigSection};
 use closeclaw_config::providers::SystemConfigData;
+use closeclaw_config::{ConfigReloadManager, WatcherHandle};
 use closeclaw_gateway::{Gateway, SessionManager};
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -22,11 +23,6 @@ pub(crate) struct ConfigWatcherHandle {
 
 /// Spawn a background task that subscribes to config change events and
 /// notifies the [`SessionManager`].
-///
-/// When a [`ConfigChangeEvent::Reloaded`] arrives, the subscriber calls
-/// [`SessionManager::notify_config_changed`] with the section and the
-/// latest config snapshot. `Failed` events trigger an IM notification
-/// to the configured owner (if `owner_display` is set in `system.json`).
 fn spawn_config_change_subscriber(
     config_manager: Arc<ConfigManager>,
     session_manager: Arc<SessionManager>,
@@ -43,7 +39,6 @@ fn spawn_config_change_subscriber(
                         section = %section,
                         "config change event received, notifying sessions"
                     );
-                    // Block until the matching snapshot arrives.
                     let snapshot = match snapshot_rx.recv().await {
                         Ok(s) => s,
                         Err(e) => {
@@ -65,7 +60,6 @@ fn spawn_config_change_subscriber(
                         error = %error,
                         "config change event failed, skipping session notification"
                     );
-                    // Try to notify the owner via IM.
                     let target = parse_owner_target(&config_manager);
                     if let Some((channel, chat_id)) = target {
                         let msg = format!(
@@ -101,9 +95,6 @@ fn spawn_config_change_subscriber(
 }
 
 /// Parse the owner notification target from `SystemConfigData.commands.owner_display`.
-///
-/// Expected format: `"platform:chat_id"` (e.g. `"feishu:oc_xxx"`).
-/// Returns `None` if not configured or invalid.
 fn parse_owner_target(config_manager: &ConfigManager) -> Option<(String, String)> {
     let raw = config_manager
         .get_section_value(ConfigSection::System)
@@ -123,8 +114,6 @@ fn parse_owner_target(config_manager: &ConfigManager) -> Option<(String, String)
 
 /// Initialize config hot-reload: create a [`ConfigReloadManager`], start the
 /// file watcher, and subscribe to config change events.
-///
-/// Returns a [`ConfigWatcherHandle`] (RAII: stops watching on drop).
 pub(crate) fn init_config_hot_reload(
     config_dir: &str,
     config_manager: Arc<ConfigManager>,
@@ -132,10 +121,8 @@ pub(crate) fn init_config_hot_reload(
     session_manager: Arc<SessionManager>,
     gateway: Arc<Gateway>,
 ) -> anyhow::Result<ConfigWatcherHandle> {
-    let mut manager = ConfigReloadManager::with_defaults(
-        Arc::clone(&config_manager),
-        Arc::clone(&agent_registry),
-    );
+    let callback = Arc::new(DaemonReloadCallback::new(Arc::clone(&agent_registry)));
+    let mut manager = ConfigReloadManager::with_defaults(Arc::clone(&config_manager), callback);
 
     let watcher = manager
         .watch(config_dir)

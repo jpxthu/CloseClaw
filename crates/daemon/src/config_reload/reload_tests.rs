@@ -1,15 +1,13 @@
 #[cfg(test)]
 mod reload_tests {
     use crate::config_reload::reload::{
-        dispatch_change, extract_agent_id_from_permissions_path, filename_to_section,
-        is_agents_path, is_permissions_path, ConfigReloadManager, DEFAULT_DEBOUNCE,
+        extract_agent_id_from_permissions_path, DaemonReloadCallback,
     };
     use closeclaw_agent::registry::AgentRegistry;
-    use closeclaw_config::agents::AgentPermissionProvider;
     use closeclaw_config::manager::{ConfigManager, ConfigSection};
+    use closeclaw_config::ReloadCallback;
     use std::path::Path;
-    use std::sync::{mpsc, Arc};
-    use std::time::Duration;
+    use std::sync::Arc;
     use tempfile::TempDir;
 
     fn make_config_manager(dir: &std::path::Path) -> Arc<ConfigManager> {
@@ -33,640 +31,10 @@ mod reload_tests {
         Arc::new(AgentRegistry::new())
     }
 
-    #[test]
-    fn test_new_and_defaults() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm, ar);
-        assert_eq!(mgr.debounce_duration, DEFAULT_DEBOUNCE);
-    }
-
-    #[test]
-    fn test_new_custom_debounce() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::new(cm, ar, Duration::from_secs(2));
-        assert_eq!(mgr.debounce_duration, Duration::from_secs(2));
-    }
-
-    #[test]
-    fn test_watch_returns_handle() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mut mgr = ConfigReloadManager::with_defaults(cm, ar);
-        let handle = mgr.watch(d.path().to_str().unwrap());
-        assert!(handle.is_ok());
-        drop(handle.unwrap());
-    }
-
-    #[test]
-    fn test_filename_to_section_mapping() {
-        assert_eq!(
-            filename_to_section("models.json"),
-            Some(ConfigSection::Models)
-        );
-        assert_eq!(
-            filename_to_section("channels.json"),
-            Some(ConfigSection::Channels)
-        );
-        assert_eq!(
-            filename_to_section("gateway.json"),
-            Some(ConfigSection::Gateway)
-        );
-        assert_eq!(
-            filename_to_section("plugins.json"),
-            Some(ConfigSection::Plugins)
-        );
-        assert_eq!(
-            filename_to_section("system.json"),
-            Some(ConfigSection::System)
-        );
-        assert_eq!(
-            filename_to_section("session.json"),
-            Some(ConfigSection::Session)
-        );
-        assert_eq!(
-            filename_to_section("accounts.json"),
-            Some(ConfigSection::Accounts)
-        );
-        assert_eq!(
-            filename_to_section("memory.json"),
-            Some(ConfigSection::Memory)
-        );
-        assert_eq!(filename_to_section("agents.json"), None);
-        assert_eq!(filename_to_section("unknown.json"), None);
-    }
-
-    #[test]
-    fn test_is_agents_path() {
-        assert!(is_agents_path(Path::new("/config/agents/test.json")));
-        assert!(is_agents_path(Path::new("/config\\agents\\test.json")));
-        assert!(is_agents_path(Path::new(
-            "/config/agents/alpha/permissions.json"
-        )));
-        assert!(!is_agents_path(Path::new("/config/models.json")));
-    }
-
-    #[test]
-    fn test_dispatch_section_change() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
-
-        std::fs::write(d.path().join("models.json"), r#"{"models":[{"id":"m1"}]}"#).unwrap();
-
-        let path = d.path().join("models.json");
-        dispatch_change(&path, &mgr);
-
-        let val = cm.section(ConfigSection::Models).unwrap();
-        assert!(val.get("models").is_some());
-    }
-
-    #[test]
-    fn test_dispatch_agents_json_change() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm, ar);
-
-        std::fs::create_dir_all(d.path().join("agents")).unwrap();
-        std::fs::write(d.path().join("agents.json"), r#"{"agents":{}}"#).unwrap();
-
-        let path = d.path().join("agents.json");
-        dispatch_change(&path, &mgr);
-    }
-
-    #[test]
-    fn test_dispatch_unknown_file_is_noop() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm, ar);
-
-        let path = d.path().join("unknown.json");
-        dispatch_change(&path, &mgr);
-    }
-
-    #[test]
-    fn test_dispatch_nonexistent_agents_dir() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm, ar);
-
-        let path = d.path().join("agents").join("test.json");
-        dispatch_change(&path, &mgr);
-    }
-
-    #[test]
-    fn test_watcher_handle_stop() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mut mgr = ConfigReloadManager::with_defaults(cm, ar);
-        let handle = mgr.watch(d.path().to_str().unwrap()).unwrap();
-        handle.stop();
-    }
-
     // ------------------------------------------------------------------
-    // Debounce integration tests
+    // extract_agent_id_from_permissions_path
     // ------------------------------------------------------------------
 
-    /// Watcher handles rapid file changes without panic or deadlock.
-    /// The debounce logic ensures only some reloads fire, but the key
-    /// invariant is that the system remains stable under rapid input.
-    #[test]
-    fn test_rapid_file_changes_stable() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mut mgr = ConfigReloadManager::new(cm.clone(), ar, Duration::from_millis(50));
-        let (tx, rx) = mpsc::channel();
-        mgr.set_test_completion(tx);
-        let _handle = mgr.watch(d.path().to_str().unwrap()).unwrap();
-
-        // Rapid writes across multiple sections
-        for i in 1..=10 {
-            std::fs::write(
-                d.path().join("gateway.json"),
-                format!(r#"{{"port":{}}}"#, 8000 + i),
-            )
-            .unwrap();
-            std::fs::write(
-                d.path().join("models.json"),
-                format!(r#"{{"models":[{{"id":"m{}"}}]}}"#, i),
-            )
-            .unwrap();
-        }
-
-        // Wait for at least one dispatch cycle to complete via signal
-        rx.recv_timeout(Duration::from_secs(5))
-            .expect("reload loop should have completed at least one dispatch cycle");
-
-        // Verify the system is in a consistent state (no panic, no deadlock).
-        let gw = cm.section(ConfigSection::Gateway).unwrap();
-        assert!(gw.is_object(), "gateway section should be an object");
-        let md = cm.section(ConfigSection::Models).unwrap();
-        assert!(md.is_object(), "models section should be an object");
-    }
-
-    /// A single file change triggers exactly one reload (no debounce skipping
-    /// when only one event arrives).
-    #[test]
-    fn test_single_change_reloads_correctly() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mut mgr = ConfigReloadManager::new(cm.clone(), ar, Duration::from_millis(50));
-        let (tx, rx) = mpsc::channel();
-        mgr.set_test_completion(tx);
-        let _handle = mgr.watch(d.path().to_str().unwrap()).unwrap();
-
-        std::fs::write(
-            d.path().join("plugins.json"),
-            r#"{"plugins":[{"id":"p1"}]}"#,
-        )
-        .unwrap();
-
-        // Wait for the dispatch cycle to complete via signal
-        rx.recv_timeout(Duration::from_secs(5))
-            .expect("reload loop should have processed the file change");
-
-        let val = cm.section(ConfigSection::Plugins).unwrap();
-        assert!(val.get("plugins").is_some());
-    }
-
-    /// Multiple file changes within the debounce window are merged and
-    /// all dispatched when the window closes.
-    #[test]
-    fn test_debounce_merges_multiple_file_changes() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mut mgr = ConfigReloadManager::new(cm.clone(), ar, Duration::from_millis(100));
-        let (tx, rx) = mpsc::channel();
-        mgr.set_test_completion(tx);
-        let _handle = mgr.watch(d.path().to_str().unwrap()).unwrap();
-
-        // Write to multiple sections rapidly — all should be collected
-        std::fs::write(d.path().join("models.json"), r#"{"models":[{"id":"m1"}]}"#).unwrap();
-        std::fs::write(
-            d.path().join("channels.json"),
-            r#"{"channels":{"type":{}}}"#,
-        )
-        .unwrap();
-        std::fs::write(d.path().join("gateway.json"), r#"{"port":9999}"#).unwrap();
-
-        // Wait for the debounce window to close and dispatch to fire
-        rx.recv_timeout(Duration::from_secs(5))
-            .expect("reload loop should have dispatched all merged changes");
-
-        // All three sections should have been reloaded
-        let md = cm.section(ConfigSection::Models).unwrap();
-        assert!(md.get("models").is_some(), "models should be reloaded");
-        let ch = cm.section(ConfigSection::Channels).unwrap();
-        assert!(ch.get("channels").is_some(), "channels should be reloaded");
-        let gw = cm.section(ConfigSection::Gateway).unwrap();
-        assert!(gw.is_object(), "gateway should be reloaded");
-    }
-
-    // ------------------------------------------------------------------
-    // Dispatch per-section tests
-    // ------------------------------------------------------------------
-
-    /// Each known config section triggers the correct ConfigSection variant.
-    #[test]
-    fn test_dispatch_all_config_sections() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
-
-        let cases = [
-            (
-                "channels.json",
-                ConfigSection::Channels,
-                r#"{"channels":{"type":{}}}"#,
-            ),
-            ("gateway.json", ConfigSection::Gateway, r#"{"port":9090}"#),
-            (
-                "plugins.json",
-                ConfigSection::Plugins,
-                r#"{"plugins":[{"id":"pl1"}]}"#,
-            ),
-            ("system.json", ConfigSection::System, r#"{"version":"2.0"}"#),
-            (
-                "models.json",
-                ConfigSection::Models,
-                r#"{"models":[{"id":"m1"}]}"#,
-            ),
-            (
-                "session.json",
-                ConfigSection::Session,
-                r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":999}"#,
-            ),
-            (
-                "memory.json",
-                ConfigSection::Memory,
-                r#"{"mining":{"enabled":true}}"#,
-            ),
-        ];
-
-        for (filename, section, content) in cases {
-            std::fs::write(d.path().join(filename), content).unwrap();
-            let path = d.path().join(filename);
-            dispatch_change(&path, &mgr);
-            let val = cm.section(section).unwrap();
-            assert!(val.is_object(), "section {:?} should be an object", section);
-        }
-    }
-
-    /// agents/ directory change dispatches to the agent reload path.
-    #[test]
-    fn test_dispatch_agents_dir_change() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm, ar);
-
-        let agents_dir = d.path().join("agents");
-        std::fs::create_dir_all(&agents_dir).unwrap();
-        std::fs::write(agents_dir.join("test.json"), r#"{}"#).unwrap();
-
-        let path = agents_dir.join("test.json");
-        dispatch_change(&path, &mgr);
-        // Should not panic; agent reload path was exercised
-    }
-
-    /// Verify WatcherHandle RAII: dropping the handle does not panic
-    /// even when the watcher is active.
-    #[test]
-    fn test_watcher_handle_drop_is_safe() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mut mgr = ConfigReloadManager::with_defaults(cm, ar);
-        let handle = mgr.watch(d.path().to_str().unwrap()).unwrap();
-        drop(handle); // RAII drop — must not panic
-    }
-
-    /// ConfigReloadManager holds shared Arc references — cloning them
-    /// does not affect the original manager.
-    #[test]
-    fn test_config_reload_manager_clones_arcs() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let _mgr1 = ConfigReloadManager::with_defaults(cm.clone(), ar.clone());
-        let _mgr2 = ConfigReloadManager::with_defaults(cm.clone(), ar.clone());
-        // Both managers share the same underlying ConfigManager (Arc ptr_eq)
-        // We can verify by checking they produce the same section data
-        let s1 = cm.section(ConfigSection::System).unwrap();
-        let s2 = cm.section(ConfigSection::System).unwrap();
-        assert_eq!(s1, s2, "shared Arc should produce identical data");
-    }
-
-    // ------------------------------------------------------------------
-    // Agent rollback disk tests
-    // ------------------------------------------------------------------
-
-    /// reload_agents snapshot/restore correctly preserves in-memory agent state,
-    /// but does NOT rollback disk files on failure (per design doc).
-    /// Tests the behavior in reload_agents_with_log:
-    /// 1. Load valid agents
-    /// 2. Snapshot the valid state
-    /// 3. Modify agents (add new agent)
-    /// 4. Simulate failure → restore from snapshot (memory only)
-    /// 5. Verify original in-memory state is recovered
-    /// 6. Verify disk files are NOT rolled back
-    #[test]
-    fn test_reload_agents_failure_no_disk_rollback() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let _ar = make_agent_registry();
-
-        // Set up valid agent files: agents.json + agents/alpha/config.json
-        // agents.json is at config_dir root (e.g. ~/.closeclaw/agents.json)
-        let agents_json_path = d.path().join("agents.json");
-        std::fs::write(&agents_json_path, r#"{ "agents": ["alpha"] }"#).unwrap();
-
-        // agents/ is at root level (parent of config_dir)
-        let root_dir = d.path().parent().unwrap().to_path_buf();
-        let alpha_dir = root_dir.join("agents").join("alpha");
-        std::fs::create_dir_all(&alpha_dir).unwrap();
-        std::fs::write(
-            alpha_dir.join("config.json"),
-            r#"{ "id": "alpha", "name": "Alpha" }"#,
-        )
-        .unwrap();
-
-        // Load agents into memory
-        cm.load_agents(None).unwrap();
-        assert!(cm.agents().contains_key("alpha"));
-
-        // Snapshot valid state (as reload_agents_with_log does before reload)
-        let old_agents = cm.snapshot_agents();
-        assert_eq!(old_agents.len(), 1);
-        assert!(old_agents.contains_key("alpha"));
-
-        // Backup disk files before modification (as reload_agents_with_log does)
-        let _ = cm.backup_manager().backup(&agents_json_path);
-        let _ = cm.backup_manager().backup(alpha_dir.join("config.json"));
-
-        // Record original disk content for later verification
-        let original_agents_json = std::fs::read_to_string(&agents_json_path).unwrap();
-        let original_alpha_config = std::fs::read_to_string(alpha_dir.join("config.json")).unwrap();
-
-        // Add a new agent (simulating a change that will fail to reload)
-        let beta_dir = root_dir.join("agents").join("beta");
-        std::fs::create_dir_all(&beta_dir).unwrap();
-        std::fs::write(
-            beta_dir.join("config.json"),
-            r#"{ "id": "beta", "name": "Beta" }"#,
-        )
-        .unwrap();
-        std::fs::write(&agents_json_path, r#"{ "agents": ["alpha", "beta"] }"#).unwrap();
-        cm.reload_agents().unwrap();
-        assert!(
-            cm.agents().contains_key("beta"),
-            "beta should be present after adding"
-        );
-
-        // Simulate failure: restore from snapshot (memory only, no disk rollback)
-        cm.restore_agents(old_agents);
-
-        // Verify: original memory state recovered, beta is gone
-        assert!(
-            cm.agents().contains_key("alpha"),
-            "alpha should be present after restore"
-        );
-        assert_eq!(cm.agents()["alpha"].id, "alpha");
-        assert!(
-            !cm.agents().contains_key("beta"),
-            "beta should not exist after restore"
-        );
-
-        // Verify: disk files are NOT rolled back (per design doc: "不恢复备份文件")
-        let current_agents_json = std::fs::read_to_string(&agents_json_path).unwrap();
-        assert_ne!(
-            current_agents_json, original_agents_json,
-            "agents.json should NOT be rolled back on failure"
-        );
-        assert_eq!(
-            current_agents_json, r#"{ "agents": ["alpha", "beta"] }"#,
-            "agents.json should retain the modified content"
-        );
-        let current_alpha_config = std::fs::read_to_string(alpha_dir.join("config.json")).unwrap();
-        assert_eq!(
-            current_alpha_config, original_alpha_config,
-            "alpha config.json should remain unchanged (was not modified)"
-        );
-    }
-
-    // ------------------------------------------------------------------
-    // Debounce dedup tests
-    // ------------------------------------------------------------------
-
-    /// Multiple rapid writes to the same file within the debounce window
-    /// are deduplicated — only one reload fires for that path.
-    #[test]
-    fn test_debounce_dedup_same_file() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mut mgr = ConfigReloadManager::new(cm.clone(), ar, Duration::from_millis(100));
-        let (tx, rx) = mpsc::channel();
-        mgr.set_test_completion(tx);
-        let _handle = mgr.watch(d.path().to_str().unwrap()).unwrap();
-
-        // Rapid writes to the SAME file — should be deduplicated
-        for i in 1..=20 {
-            std::fs::write(
-                d.path().join("gateway.json"),
-                format!(r#"{{"port":{}}}"#, 8000 + i),
-            )
-            .unwrap();
-        }
-
-        // Wait for debounce window to close
-        rx.recv_timeout(Duration::from_secs(5))
-            .expect("reload loop should have completed at least one dispatch cycle");
-
-        // The gateway section should reflect the LAST write (port 8020)
-        let gw = cm.section(ConfigSection::Gateway).unwrap();
-        assert_eq!(
-            gw["port"], 8020,
-            "gateway port should reflect the last write after dedup"
-        );
-    }
-
-    /// dispatch_change uses the default validator — reloading an invalid
-    /// config via dispatch_change is rejected and the in-memory value
-    /// is unchanged.
-    #[test]
-    fn test_dispatch_validates_with_default_validator() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
-
-        // Load initial valid models.json
-        std::fs::write(d.path().join("models.json"), r#"{"models":[{"id":"m1"}]}"#).unwrap();
-        let path = d.path().join("models.json");
-        dispatch_change(&path, &mgr);
-        let before = cm.section(ConfigSection::Models).unwrap();
-        assert!(before.get("models").is_some());
-
-        // Write a valid JSON file but with a non-array "models" field.
-        // The default validator should reject this.
-        std::fs::write(d.path().join("models.json"), r#"{"models":"not an array"}"#).unwrap();
-        dispatch_change(&path, &mgr);
-
-        // In-memory must still be the old value (validator rejected reload)
-        let after = cm.section(ConfigSection::Models).unwrap();
-        // The new invalid value should NOT be present
-        let models = after.get("models").unwrap();
-        assert!(
-            models.is_array(),
-            "models should still be the valid array, not replaced by the invalid value"
-        );
-    }
-
-    // ------------------------------------------------------------------
-    // ConfigReloadManager::reload_section tests
-    // ------------------------------------------------------------------
-
-    /// ConfigReloadManager::reload_section correctly reloads a config section.
-    #[test]
-    fn test_reload_section_via_manager() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
-
-        std::fs::write(d.path().join("system.json"), r#"{"version":"2.0"}"#).unwrap();
-        let section = ConfigSection::System;
-        mgr.reload_section(section).unwrap();
-
-        let val = cm.section(section).unwrap();
-        assert_eq!(val["version"], "2.0");
-    }
-
-    /// ConfigReloadManager::reload_section handles validation failure.
-    #[test]
-    fn test_reload_section_validation_failure_via_manager() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
-
-        // Write invalid JSON (non-object for Models which expects array)
-        std::fs::write(d.path().join("models.json"), r#"{"models":"not array"}"#).unwrap();
-        let section = ConfigSection::Models;
-        let result = mgr.reload_section(section);
-        assert!(result.is_err());
-
-        // In-memory should still be the old value
-        let val = cm.section(section).unwrap();
-        assert!(val.get("models").is_some());
-    }
-
-    // ------------------------------------------------------------------
-    // Step 1.8 — supplementary tests
-    // ------------------------------------------------------------------
-
-    /// ConfigReloadManager::reload_section uses default_validator;
-    /// a section that passes default validation is reloaded into the
-    /// in-memory cache and a snapshot is broadcast.
-    #[test]
-    fn test_reload_section_via_manager_with_validation() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
-
-        // Write valid system.json that passes the default validator
-        std::fs::write(d.path().join("system.json"), r#"{"version":"8.8"}"#).unwrap();
-        let mut snapshot_rx = cm.subscribe_config_snapshots();
-
-        mgr.reload_section(ConfigSection::System).unwrap();
-
-        // In-memory should be updated
-        let val = cm.section(ConfigSection::System).unwrap();
-        assert_eq!(val["version"], "8.8");
-
-        // Snapshot should have been broadcast
-        let snapshot = snapshot_rx
-            .try_recv()
-            .expect("should receive a snapshot after successful reload");
-        assert_eq!(
-            snapshot.get(&ConfigSection::System).unwrap()["version"],
-            "8.8"
-        );
-    }
-
-    /// ConfigReloadManager::reload_agents_with_log succeeds when agent
-    /// files are valid; the AgentRegistry is synced with the new configs.
-    #[test]
-    fn test_reload_agents_with_log_direct() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar.clone());
-
-        // Set up valid agent files: agents.json + agents/alpha/config.json
-        // agents.json is at config_dir root
-        let agents_json_path = d.path().join("agents.json");
-        std::fs::write(&agents_json_path, r#"{ "agents": ["alpha"] }"#).unwrap();
-
-        // agents/ is at root level (parent of config_dir)
-        let root_dir = d.path().parent().unwrap().to_path_buf();
-        let alpha_dir = root_dir.join("agents").join("alpha");
-        std::fs::create_dir_all(&alpha_dir).unwrap();
-        std::fs::write(
-            alpha_dir.join("config.json"),
-            r#"{ "id": "alpha", "name": "Alpha" }"#,
-        )
-        .unwrap();
-
-        // Trigger reload via reload_agents_with_log
-        let path = agents_json_path.clone();
-        mgr.reload_agents_with_log(&path);
-
-        // AgentRegistry should be synced with alpha
-        let agents: Vec<_> = ar.iter().map(|e| e.key().clone()).collect();
-        assert!(
-            agents.contains(&"alpha".to_string()),
-            "AgentRegistry should contain alpha after reload"
-        );
-    }
-
-    // ------------------------------------------------------------------
-    // Step 1.3 — permissions.json independent hot-reload tests
-    // ------------------------------------------------------------------
-
-    /// is_permissions_path matches permissions.json and rejects
-    /// other filenames.
-    #[test]
-    fn test_is_permissions_path() {
-        assert!(is_permissions_path(Path::new(
-            "/config/agents/alpha/permissions.json"
-        )));
-        assert!(is_permissions_path(Path::new(
-            "/config/agents/beta/permissions.json"
-        )));
-        assert!(!is_permissions_path(Path::new(
-            "/config/agents/alpha/config.json"
-        )));
-        assert!(!is_permissions_path(Path::new("/config/models.json")));
-    }
-
-    /// extract_agent_id_from_permissions_path returns the agent ID
-    /// when the parent directory contains a config.json.
     #[test]
     fn test_extract_agent_id_from_permissions_path() {
         let d = TempDir::new().unwrap();
@@ -681,8 +49,6 @@ mod reload_tests {
         );
     }
 
-    /// extract_agent_id_from_permissions_path returns None when
-    /// the parent directory has no config.json.
     #[test]
     fn test_extract_agent_id_no_config_json() {
         let d = TempDir::new().unwrap();
@@ -692,71 +58,99 @@ mod reload_tests {
         assert_eq!(extract_agent_id_from_permissions_path(&perm_path), None);
     }
 
-    /// dispatch_change routes permissions.json to the lightweight
-    /// reload path (not full agent reload).
+    // ------------------------------------------------------------------
+    // DaemonReloadCallback — agent reload + registry sync
+    // ------------------------------------------------------------------
+
     #[test]
-    fn test_dispatch_permissions_change_is_lightweight() {
+    fn test_daemon_callback_agents_changed_syncs_registry() {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
+        let callback = DaemonReloadCallback::new(ar.clone());
 
-        // agents/ is at root level (parent of config_dir)
+        let agents_json_path = d.path().join("agents.json");
+        std::fs::write(&agents_json_path, r#"{ "agents": ["alpha"] }"#).unwrap();
+
         let root_dir = d.path().parent().unwrap().to_path_buf();
-        let agents_dir = root_dir.join("agents").join("delta");
-        std::fs::create_dir_all(&agents_dir).unwrap();
+        let alpha_dir = root_dir.join("agents").join("alpha");
+        std::fs::create_dir_all(&alpha_dir).unwrap();
         std::fs::write(
-            agents_dir.join("config.json"),
-            r#"{"id":"delta","name":"Delta"}"#,
-        )
-        .unwrap();
-        let perms_path = agents_dir.join("permissions.json");
-        std::fs::write(&perms_path, r#"{"agent_id":"delta","permissions":{}}"#).unwrap();
-
-        // Also set up agents.json so agent loads correctly
-        let agents_json = d.path().join("agents.json");
-        std::fs::write(&agents_json, r#"{"agents":["delta"]}"#).unwrap();
-
-        // Load agents first so permissions cache is populated
-        cm.load_agents(None).unwrap();
-        let before = cm.agent_permissions();
-        assert!(before.get("delta").is_some());
-
-        // Sleep to ensure mtime changes (filesystem mtime resolution is 1s)
-        std::thread::sleep(std::time::Duration::from_secs(1));
-
-        // Update permissions.json with new content (ActionPermission struct format)
-        std::fs::write(
-            &perms_path,
-            r#"{"agent_id":"delta","permissions":{"read":{"allowed":true}}}"#,
+            alpha_dir.join("config.json"),
+            r#"{ "id": "alpha", "name": "Alpha" }"#,
         )
         .unwrap();
 
-        // dispatch_change should route to reload_permissions_with_log
-        dispatch_change(&perms_path, &mgr);
+        callback.on_agents_changed(&agents_json_path, &cm);
 
-        // Permissions cache should be updated
-        let after = cm.agent_permissions();
-        let delta_perms = after
-            .get("delta")
-            .expect("delta should be in permissions cache");
-        let read_perm = delta_perms.permissions.get("read");
-        assert!(read_perm.is_some(), "read permission should exist");
+        let agents: Vec<_> = ar.iter().map(|e| e.key().clone()).collect();
         assert!(
-            read_perm.unwrap().allowed,
-            "read permission should be allowed"
+            agents.contains(&"alpha".to_string()),
+            "AgentRegistry should contain alpha after callback"
         );
     }
 
-    /// permissions reload failure does not corrupt agent config cache.
     #[test]
-    fn test_permissions_reload_fault_isolation() {
+    fn test_daemon_callback_agents_failure_no_disk_rollback() {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
+        let callback = DaemonReloadCallback::new(ar);
 
-        // agents/ is at root level (parent of config_dir)
+        let agents_json_path = d.path().join("agents.json");
+        std::fs::write(&agents_json_path, r#"{ "agents": ["alpha"] }"#).unwrap();
+
+        let root_dir = d.path().parent().unwrap().to_path_buf();
+        let alpha_dir = root_dir.join("agents").join("alpha");
+        std::fs::create_dir_all(&alpha_dir).unwrap();
+        std::fs::write(
+            alpha_dir.join("config.json"),
+            r#"{ "id": "alpha", "name": "Alpha" }"#,
+        )
+        .unwrap();
+
+        cm.load_agents(None).unwrap();
+        let old_agents = cm.snapshot_agents();
+
+        // Backup before modification
+        let _ = cm.backup_manager().backup(&agents_json_path);
+        let _ = cm.backup_manager().backup(alpha_dir.join("config.json"));
+
+        let original_agents_json = std::fs::read_to_string(&agents_json_path).unwrap();
+
+        // Add beta
+        let beta_dir = root_dir.join("agents").join("beta");
+        std::fs::create_dir_all(&beta_dir).unwrap();
+        std::fs::write(
+            beta_dir.join("config.json"),
+            r#"{ "id": "beta", "name": "Beta" }"#,
+        )
+        .unwrap();
+        std::fs::write(&agents_json_path, r#"{ "agents": ["alpha", "beta"] }"#).unwrap();
+        cm.reload_agents().unwrap();
+        assert!(cm.agents().contains_key("beta"));
+
+        cm.restore_agents(old_agents);
+
+        assert!(cm.agents().contains_key("alpha"));
+        assert!(!cm.agents().contains_key("beta"));
+
+        // Disk NOT rolled back
+        let current = std::fs::read_to_string(&agents_json_path).unwrap();
+        assert_ne!(current, original_agents_json);
+    }
+
+    // ------------------------------------------------------------------
+    // DaemonReloadCallback — permissions
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_daemon_callback_permissions_changed() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+        let callback = DaemonReloadCallback::new(ar);
+
         let root_dir = d.path().parent().unwrap().to_path_buf();
         let agents_dir = root_dir.join("agents").join("epsilon");
         std::fs::create_dir_all(&agents_dir).unwrap();
@@ -770,224 +164,78 @@ mod reload_tests {
 
         let agents_json = d.path().join("agents.json");
         std::fs::write(&agents_json, r#"{"agents":["epsilon"]}"#).unwrap();
-
-        // Load agents so cache is populated
         cm.load_agents(None).unwrap();
+
         let before = cm.agent_permissions();
         assert!(before.get("epsilon").is_some());
 
-        // Sleep to ensure mtime changes (filesystem mtime resolution is 1s)
+        // Sleep to ensure mtime changes
         std::thread::sleep(std::time::Duration::from_secs(1));
 
-        // Write invalid JSON to permissions.json
+        // Write invalid JSON
         std::fs::write(&perms_path, "not valid json{{").unwrap();
 
-        // dispatch_change should attempt reload, fail, and restore
-        dispatch_change(&perms_path, &mgr);
+        callback.on_permissions_changed(&perms_path, &cm);
 
-        // LazyAgentPermissions detects mtime change and re-reads from disk.
-        // Since the file is invalid JSON, get() returns None — the lazy
-        // loader does not cache stale/invalid values.
         let after = cm.agent_permissions();
         assert!(
             after.get("epsilon").is_none(),
             "lazy loader should return None for invalid permissions file"
         );
-        // Agent config should be unchanged
-        assert!(
-            cm.agents().contains_key("epsilon"),
-            "agent config should be unaffected by permissions failure"
-        );
-    }
-
-    /// config.json change triggers full agent reload (not permissions-only).
-    #[test]
-    fn test_dispatch_config_change_triggers_full_reload() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
-
-        // agents/ is at root level (parent of config_dir)
-        let root_dir = d.path().parent().unwrap().to_path_buf();
-        let agents_dir = root_dir.join("agents").join("zeta");
-        std::fs::create_dir_all(&agents_dir).unwrap();
-        std::fs::write(
-            agents_dir.join("config.json"),
-            r#"{"id":"zeta","name":"Zeta"}"#,
-        )
-        .unwrap();
-        let perms_path = agents_dir.join("permissions.json");
-        std::fs::write(&perms_path, r#"{"agent_id":"zeta","permissions":{}}"#).unwrap();
-        let agents_json = d.path().join("agents.json");
-        std::fs::write(&agents_json, r#"{"agents":["zeta"]}"#).unwrap();
-
-        cm.load_agents(None).unwrap();
-
-        // Modify config.json — should trigger full agent reload
-        let config_path = agents_dir.join("config.json");
-        std::fs::write(&config_path, r#"{"id":"zeta","name":"Zeta Updated"}"#).unwrap();
-
-        dispatch_change(&config_path, &mgr);
-
-        // Agent config should reflect the update
-        let agents = cm.agents();
-        assert!(agents.contains_key("zeta"));
     }
 
     // ------------------------------------------------------------------
-    // Gap 1 — no rollback on reload failure
+    // DaemonReloadCallback — session
     // ------------------------------------------------------------------
 
-    /// Parse failure does NOT rollback the file on disk.
     #[test]
-    fn test_reload_section_parse_failure_no_rollback() {
+    fn test_daemon_callback_session_reloaded() {
         let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm, ar);
-
-        // Overwrite with invalid JSON
-        std::fs::write(d.path().join("system.json"), "not json!!!").unwrap();
-        let result = mgr.reload_section(ConfigSection::System);
-        assert!(result.is_err());
-
-        // File should still contain the corrupted content (no rollback)
-        let content = std::fs::read_to_string(d.path().join("system.json")).unwrap();
-        assert_eq!(
-            content, "not json!!!",
-            "file must NOT be rolled back on parse failure"
-        );
-    }
-
-    /// Validation failure during reload_section does NOT rollback the file on disk.
-    #[test]
-    fn test_reload_section_validation_failure_no_rollback() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm, ar);
-
-        // Write valid JSON that fails Models validation (non-array)
-        std::fs::write(d.path().join("models.json"), r#"{"models":"not array"}"#).unwrap();
-        let result = mgr.reload_section(ConfigSection::Models);
-        assert!(result.is_err());
-
-        // File should still contain the new invalid content (no rollback)
-        let content = std::fs::read_to_string(d.path().join("models.json")).unwrap();
-        assert!(
-            content.contains("not array"),
-            "file must NOT be rolled back on validation failure"
-        );
-    }
-
-    /// Agent reload failure does NOT rollback agents.json on disk.
-    #[test]
-    fn test_reload_agents_failure_no_rollback() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
-
-        // Set up valid agents
-        let agents_json = d.path().join("agents.json");
-        std::fs::write(&agents_json, r#"{ "agents": ["alpha"] }"#).unwrap();
-        let root_dir = d.path().parent().unwrap().to_path_buf();
-        let alpha_dir = root_dir.join("agents").join("alpha");
-        std::fs::create_dir_all(&alpha_dir).unwrap();
-        std::fs::write(alpha_dir.join("config.json"), r#"{ "id": "alpha" }"#).unwrap();
-        cm.load_agents(None).unwrap();
-        assert!(cm.agents().contains_key("alpha"));
-
-        // Corrupt agents.json
-        std::fs::write(&agents_json, "not json!!").unwrap();
-
-        // reload_agents_with_log should fail and NOT rollback agents.json
-        mgr.reload_agents_with_log(&agents_json);
-
-        // agents.json on disk should still be corrupted (no rollback)
-        let content = std::fs::read_to_string(&agents_json).unwrap();
-        assert_eq!(
-            content, "not json!!",
-            "agents.json must NOT be rolled back on failure"
-        );
-    }
-
-    // ------------------------------------------------------------------
-    // Gap 3 — first-load no-old-value blocking
-    // ------------------------------------------------------------------
-
-    /// Reload failure on a never-loaded section blocks it (get_section_value → None).
-    #[test]
-    fn test_reload_section_no_old_value_blocks_section() {
-        let d = TempDir::new().unwrap();
+        let sections = [
+            ("models.json", r#"{"models":[]}"#),
+            ("channels.json", r#"{"channels":{}}"#),
+            ("gateway.json", r#"{"port":8080}"#),
+            ("plugins.json", r#"{"plugins":[]}"#),
+            ("system.json", r#"{"version":"1"}"#),
+            ("accounts.json", r#"{"accounts":[]}"#),
+            (
+                "session.json",
+                r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+            ),
+        ];
+        for (name, content) in &sections {
+            std::fs::write(d.path().join(name), content).unwrap();
+        }
         let cm = Arc::new(ConfigManager::new(d.path().to_path_buf()).unwrap());
+        cm.load().unwrap();
         let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
+        let callback = DaemonReloadCallback::new(ar);
 
-        std::fs::write(d.path().join("system.json"), "not json").unwrap();
-        assert!(mgr.reload_section(ConfigSection::System).is_err());
+        let provider = cm.session_config_provider().unwrap();
+        assert_eq!(provider.sweeper_interval_secs(), 600);
 
-        assert!(cm.is_blocked(ConfigSection::System));
-        assert!(cm.get_section_value(ConfigSection::System).is_none());
-    }
-
-    /// Blocked section clears on next successful reload.
-    #[test]
-    fn test_reload_section_blocked_section_cleared_on_success() {
-        let d = TempDir::new().unwrap();
-        let cm = Arc::new(ConfigManager::new(d.path().to_path_buf()).unwrap());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
-
-        cm.block_section(ConfigSection::System);
-        assert!(cm.is_blocked(ConfigSection::System));
-        assert!(cm.get_section_value(ConfigSection::System).is_none());
-
-        std::fs::write(d.path().join("system.json"), r#"{"version":"9.9"}"#).unwrap();
-        mgr.reload_section(ConfigSection::System).unwrap();
-
-        assert!(!cm.is_blocked(ConfigSection::System));
-        let val = cm.get_section_value(ConfigSection::System).unwrap();
-        assert_eq!(val["version"], "9.9");
-    }
-
-    // ------------------------------------------------------------------
-    // Step 1.4 — accounts.json hot-reload monitoring tests
-    // ------------------------------------------------------------------
-
-    /// filename_to_section maps accounts.json to ConfigSection::Accounts.
-    #[test]
-    fn test_accounts_json_maps_to_accounts_section() {
-        assert_eq!(
-            filename_to_section("accounts.json"),
-            Some(ConfigSection::Accounts)
-        );
-    }
-
-    /// dispatch_change routes accounts.json changes to the Accounts section
-    /// reload path (not agent reload, not unknown file).
-    #[test]
-    fn test_dispatch_accounts_json_change() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
-
-        // Write a valid accounts.json
         std::fs::write(
-            d.path().join("accounts.json"),
-            r#"{"accounts":[{"accountId":"acc1","senderId":"s1"}]}"#,
+            d.path().join("session.json"),
+            r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":9999}"#,
         )
         .unwrap();
 
-        let path = d.path().join("accounts.json");
-        dispatch_change(&path, &mgr);
+        callback.on_session_reloaded(&cm);
 
-        // In-memory section should be updated
-        let val = cm.section(ConfigSection::Accounts).unwrap();
-        let accounts = val.get("accounts").unwrap().as_array().unwrap();
-        assert_eq!(accounts.len(), 1);
-        assert_eq!(accounts[0]["accountId"], "acc1");
+        let provider = cm.session_config_provider().unwrap();
+        assert_eq!(provider.sweeper_interval_secs(), 9999);
+    }
+
+    // ------------------------------------------------------------------
+    // ConfigReloadManager import from config crate
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_config_reload_manager_importable_from_config_crate() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+        let callback = Arc::new(DaemonReloadCallback::new(ar));
+        let _mgr = closeclaw_config::ConfigReloadManager::with_defaults(cm, callback);
     }
 }
