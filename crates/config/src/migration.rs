@@ -119,7 +119,7 @@ fn write_if_present(
     };
     let content = content.map_err(ConfigMigrationError::ParseError)?;
     let path = config_dir.join(filename);
-    crate::manager::write_atomically(&path, content.as_bytes())
+    crate::manager::write_atomically(&path, content.as_bytes(), None)
         .map_err(ConfigMigrationError::WriteError)?;
     Ok(())
 }
@@ -137,7 +137,7 @@ fn write_channels(config_dir: &Path, json: &Value) -> Result<(), ConfigMigration
     let content =
         serde_json::to_string_pretty(&merged).map_err(ConfigMigrationError::ParseError)?;
     let path = config_dir.join("channels.json");
-    crate::manager::write_atomically(&path, content.as_bytes())
+    crate::manager::write_atomically(&path, content.as_bytes(), None)
         .map_err(ConfigMigrationError::WriteError)?;
     Ok(())
 }
@@ -186,7 +186,7 @@ fn write_system(config_dir: &Path, json: &Value) -> Result<(), ConfigMigrationEr
     let value = Value::Object(system);
     let content = serde_json::to_string_pretty(&value).map_err(ConfigMigrationError::ParseError)?;
     let path = config_dir.join("system.json");
-    crate::manager::write_atomically(&path, content.as_bytes())
+    crate::manager::write_atomically(&path, content.as_bytes(), None)
         .map_err(ConfigMigrationError::WriteError)?;
     Ok(())
 }
@@ -227,7 +227,7 @@ fn write_credentials(config_dir: &Path, json: &Value) -> Result<(), ConfigMigrat
             .map_err(ConfigMigrationError::ParseError)?;
         let filename = format!("{}.json", provider);
         let path = creds_dir.join(filename);
-        crate::manager::write_atomically(&path, content.as_bytes())
+        crate::manager::write_atomically(&path, content.as_bytes(), Some(0o600))
             .map_err(ConfigMigrationError::WriteError)?;
     }
 

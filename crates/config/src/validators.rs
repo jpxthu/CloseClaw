@@ -27,7 +27,7 @@ pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {
         // Credentials is a directory, not a JSON section — no validator needed.
         ConfigSection::Session => Box::new(validate_session),
         ConfigSection::Credentials => Box::new(|_| Ok(())),
-        ConfigSection::Accounts => Box::new(validate_accounts),
+        ConfigSection::Accounts => Box::new(|v| validate_accounts(v, None)),
         ConfigSection::Memory => Box::new(validate_memory),
     }
 }
@@ -435,7 +435,12 @@ fn validate_session(value: &serde_json::Value) -> Result<(), String> {
 /// - Each account must have a non-empty `senderId`.
 /// - All `accountId` values must be unique.
 /// - Each `platform` must be one of the allowed channel types.
-fn validate_accounts(value: &serde_json::Value) -> Result<(), String> {
+/// - If `channels_config` is provided, each account's `platform` must
+///   correspond to a channel configured in `channels.json`.
+pub fn validate_accounts(
+    value: &serde_json::Value,
+    channels_config: Option<&serde_json::Value>,
+) -> Result<(), String> {
     ensure_object(value, "accounts")?;
 
     let accounts = match value.get("accounts") {
@@ -448,6 +453,14 @@ fn validate_accounts(value: &serde_json::Value) -> Result<(), String> {
         }
         None => return Ok(()), // no accounts key is fine (empty list)
     };
+
+    // Collect configured channel type keys for cross-reference validation.
+    let configured_channels: std::collections::HashSet<String> = channels_config
+        .and_then(|c| c.get("channels"))
+        .and_then(|c| c.as_object())
+        .map(|obj| obj.keys().cloned().collect())
+        .unwrap_or_default();
+    let has_channels_config = channels_config.is_some();
 
     let mut seen_ids = std::collections::HashSet::new();
 
@@ -469,6 +482,11 @@ fn validate_accounts(value: &serde_json::Value) -> Result<(), String> {
 
         check_account_id_unique(entry, i, &mut seen_ids)?;
         validate_account_platform(entry, i)?;
+
+        // Cross-reference: account.platform must have a matching channel config.
+        if has_channels_config {
+            validate_account_channel_reference(entry, i, &configured_channels)?;
+        }
     }
 
     Ok(())
@@ -507,6 +525,31 @@ fn validate_account_platform(entry: &serde_json::Value, index: usize) -> Result<
                 index,
                 platform,
                 ALLOWED_CHANNEL_TYPES.join(", ")
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Validate that an account's `platform` has a corresponding channel
+/// configured in `channels.json`.
+///
+/// `configured_channels` is the set of keys from the `channels` object
+/// in `channels.json`.
+fn validate_account_channel_reference(
+    entry: &serde_json::Value,
+    index: usize,
+    configured_channels: &std::collections::HashSet<String>,
+) -> Result<(), String> {
+    if let Some(platform) = entry.get("platform").and_then(|v| v.as_str()) {
+        if !configured_channels.is_empty() && !configured_channels.contains(platform) {
+            let defined: Vec<&str> = configured_channels.iter().map(String::as_str).collect();
+            return Err(format!(
+                "accounts.accounts[{}].platform '{}' does not correspond \
+                 to any configured channel. Configured channels: {}",
+                index,
+                platform,
+                defined.join(", ")
             ));
         }
     }
