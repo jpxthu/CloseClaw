@@ -475,8 +475,8 @@ fn find_context_window_for_model(knowledge: &ProviderModelKnowledge, model: &str
 
 /// Replace session messages with boundary message on compaction.
 ///
-/// After replacing messages, persists the checkpoint to ensure
-/// plan_state (and other checkpoint fields) survive a subsequent crash.
+/// Follows the design doc pipeline: replace messages → rebuild system
+/// prompt → persist checkpoint → clear snapshot.
 async fn apply_compact_result(
     sm: &Arc<SessionManager>,
     session_id: &str,
@@ -494,16 +494,18 @@ async fn apply_compact_result(
         let mut cs = cs.write().await;
         cs.replace_messages(vec![boundary]);
     }
-    // Persist checkpoint immediately after compaction to protect plan_state.
-    // This ensures plan_state survives a crash before the next periodic flush.
+    // Rebuild system prompt after compaction so skills stay fresh.
+    // The write guard above is now dropped, so we can safely acquire
+    // a write lock for the rebuild. This must happen before persisting
+    // the checkpoint, per the design doc's compaction pipeline.
+    sm.rebuild_system_prompt_for_session(session_id).await;
+    // Persist checkpoint after rebuild to protect plan_state.
+    // system prompt is a runtime field not in the checkpoint, so
+    // rebuilding first does not affect data consistency.
     sm.save_checkpoint_after_compact(session_id).await;
     // Clear the pre-compaction snapshot — compaction succeeded, so
     // the backup is no longer needed.
     sm.clear_pre_compaction_snapshot(session_id).await;
-    // Rebuild system prompt after compaction so skills stay fresh.
-    // The write guard above is now dropped, so we can safely acquire
-    // a write lock for the rebuild.
-    sm.rebuild_system_prompt_for_session(session_id).await;
 }
 
 pub(crate) async fn send_output(output_tx: &OutputTx, text: &str) {
