@@ -32,7 +32,7 @@ type PermEngine = tokio::sync::RwLock<PermissionEngine>;
 type ApprovalMutex = TokioMutex<ApprovalFlow>;
 
 /// Bundled permission dependencies shared across all built-in tools.
-pub(crate) type PermDeps = (
+pub type PermDeps = (
     Arc<PermEngine>,
     Arc<SessionManager>,
     Arc<ConfigManager>,
@@ -367,8 +367,12 @@ pub(crate) async fn check_config_write_permission(
 /// Second-level check for network operations (NetOp dimension).
 ///
 /// Validates whether the agent is allowed to connect to the specified host and port.
-#[allow(dead_code)]
-pub(crate) async fn check_network_permission(
+///
+/// Currently, BashTool's network access is implicitly covered by the command dimension
+/// (CommandExec) since network commands like `curl`/`wget` are treated as command execution.
+/// This function is reserved for future dedicated network tools that perform direct I/O
+/// (e.g., an HTTP client tool) and need explicit network permission checks.
+pub async fn check_network_permission(
     deps: &PermDeps,
     ctx: &crate::ToolContext,
     host: &str,
