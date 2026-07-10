@@ -319,3 +319,47 @@ fn test_prefixes_all_non_empty() {
         assert!(!tpl.prefix().is_empty(), "{tpl:?} has empty prefix");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Validation prefix content correctness
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validation_prefix_mentions_audit_mode() {
+    let prefix = PromptTemplate::Validation.prefix();
+    assert!(
+        prefix.contains("VALIDATION/AUDIT"),
+        "Validation prefix must mention VALIDATION/AUDIT mode"
+    );
+}
+
+#[test]
+fn test_validation_prefix_mentions_item_by_item() {
+    let prefix = PromptTemplate::Validation.prefix();
+    assert!(
+        prefix.contains("item-by-item"),
+        "Validation prefix must mention item-by-item validation"
+    );
+}
+
+#[test]
+fn test_validation_prefix_mentions_pass_fail() {
+    let prefix = PromptTemplate::Validation.prefix();
+    assert!(
+        prefix.contains("PASS"),
+        "Validation prefix must mention PASS status"
+    );
+    assert!(
+        prefix.contains("FAIL"),
+        "Validation prefix must mention FAIL status"
+    );
+}
+
+#[test]
+fn test_validation_prefix_is_read_only() {
+    let prefix = PromptTemplate::Validation.prefix();
+    // Validation mode should not claim full toolset
+    assert!(!prefix.contains("full toolset"));
+    // But should mention structured output
+    assert!(prefix.contains("structured"));
+}

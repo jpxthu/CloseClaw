@@ -741,7 +741,115 @@ fn test_from_single_without_memory_uses_default() {
     assert_eq!(resolved.memory, MemoryConfig::default());
 }
 
-// --- Merge project+user with different memory configs ---
+// ------------------------------------------------------------------
+// from_single vs merge consistency: subagent defaults
+// ------------------------------------------------------------------
+
+/// Verify that `from_single` and `merge` produce consistent subagent
+/// defaults when given equivalent input. Both paths must yield the same
+/// `require_agent_id`, `max_spawn_depth`, and `max_children` values.
+#[test]
+fn test_from_single_merge_consistency_subagent_defaults() {
+    // from_single path: single config with all subagent fields None
+    let single_config = AgentConfig {
+        id: "consistency-agent".to_string(),
+        subagents: SubagentsConfig::default(),
+        ..Default::default()
+    };
+    let from_single_result =
+        ResolvedAgentConfig::from_single(single_config, ConfigSource::User, "<test>", None)
+            .unwrap();
+
+    // merge path: project has empty id (so user id wins), all subagent fields None
+    let project_config = AgentConfig {
+        id: String::new(),
+        subagents: SubagentsConfig::default(),
+        ..Default::default()
+    };
+    let user_config = AgentConfig {
+        id: "consistency-agent".to_string(),
+        subagents: SubagentsConfig::default(),
+        ..Default::default()
+    };
+    let merge_result =
+        ResolvedAgentConfig::merge(project_config, user_config, "<test>", None).unwrap();
+
+    // Subagent defaults must be identical across both paths
+    assert_eq!(
+        from_single_result.subagents.require_agent_id, merge_result.subagents.require_agent_id,
+        "require_agent_id must match between from_single and merge"
+    );
+    assert_eq!(
+        from_single_result.subagents.max_spawn_depth, merge_result.subagents.max_spawn_depth,
+        "max_spawn_depth must match between from_single and merge"
+    );
+    assert_eq!(
+        from_single_result.subagents.max_children, merge_result.subagents.max_children,
+        "max_children must match between from_single and merge"
+    );
+
+    // Both should have the canonical defaults
+    assert_eq!(from_single_result.subagents.require_agent_id, Some(false));
+    assert_eq!(from_single_result.subagents.max_spawn_depth, Some(1));
+    assert_eq!(from_single_result.subagents.max_children, Some(5));
+}
+
+/// Verify that from_single preserves explicit subagent values and merge
+/// with matching explicit values produces the same result.
+#[test]
+fn test_from_single_merge_consistency_explicit_values() {
+    let subagents = SubagentsConfig {
+        require_agent_id: Some(true),
+        max_spawn_depth: Some(3),
+        max_children: Some(10),
+        ..Default::default()
+    };
+
+    let from_single_result = ResolvedAgentConfig::from_single(
+        AgentConfig {
+            id: "explicit-agent".to_string(),
+            subagents: subagents.clone(),
+            ..Default::default()
+        },
+        ConfigSource::User,
+        "<test>",
+        None,
+    )
+    .unwrap();
+
+    let merge_result = ResolvedAgentConfig::merge(
+        AgentConfig {
+            id: String::new(),
+            subagents: SubagentsConfig::default(),
+            ..Default::default()
+        },
+        AgentConfig {
+            id: "explicit-agent".to_string(),
+            subagents,
+            ..Default::default()
+        },
+        "<test>",
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(
+        from_single_result.subagents.require_agent_id,
+        merge_result.subagents.require_agent_id
+    );
+    assert_eq!(
+        from_single_result.subagents.max_spawn_depth,
+        merge_result.subagents.max_spawn_depth
+    );
+    assert_eq!(
+        from_single_result.subagents.max_children,
+        merge_result.subagents.max_children
+    );
+}
+
+// ------------------------------------------------------------------
+// MemoryConfig field-level merge: merge_overrides
+// ------------------------------------------------------------------
 
 #[test]
 fn test_merge_project_user_memory_field_level() {
