@@ -1,5 +1,6 @@
 use super::*;
 use crate::actions::ActionBuilder;
+use crate::engine::engine_types::{PermissionRequest, PermissionRequestBody, PermissionResponse};
 use serde_json;
 
 #[test]
@@ -210,6 +211,162 @@ fn test_defaults_json_empty_object_message_is_allow() {
     assert_eq!(defaults.file_read, Effect::Deny);
     assert_eq!(defaults.file_write, Effect::Deny);
     assert_eq!(defaults.tool_call, Effect::Deny);
+}
+
+// ------------------------------------------------------------------
+// Step 1.3: Independent file_read / file_write defaults
+// ------------------------------------------------------------------
+
+#[test]
+fn test_file_read_and_file_write_independent_defaults() {
+    // file_read = Allow, file_write = Deny
+    let ruleset = RuleSetBuilder::new()
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Deny)
+        .default_command(Effect::Deny)
+        .default_network(Effect::Deny)
+        .default_inter_agent(Effect::Deny)
+        .default_config(Effect::Deny)
+        .default_tool_call(Effect::Deny)
+        .build()
+        .unwrap();
+    let engine = crate::engine::PermissionEngine::new_with_default_data_root(ruleset);
+
+    // FileOp read → file_read default (Allow)
+    let read_resp = engine.check("unknown-agent", "file_read", None);
+    assert!(
+        matches!(read_resp, PermissionResponse::Allowed { .. }),
+        "file_read default Allow should produce Allowed, got {:?}",
+        read_resp
+    );
+
+    // FileOp write → file_write default (Deny)
+    let write_resp = engine.check("unknown-agent", "file_write", None);
+    assert!(
+        matches!(write_resp, PermissionResponse::Denied { .. }),
+        "file_write default Deny should produce Denied, got {:?}",
+        write_resp
+    );
+}
+
+#[test]
+fn test_file_read_deny_file_write_allow_independent() {
+    // file_read = Deny, file_write = Allow (reverse of above)
+    let ruleset = RuleSetBuilder::new()
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Allow)
+        .default_command(Effect::Deny)
+        .default_network(Effect::Deny)
+        .default_inter_agent(Effect::Deny)
+        .default_config(Effect::Deny)
+        .default_tool_call(Effect::Deny)
+        .build()
+        .unwrap();
+    let engine = crate::engine::PermissionEngine::new_with_default_data_root(ruleset);
+
+    let read_resp = engine.check("unknown-agent", "file_read", None);
+    assert!(
+        matches!(read_resp, PermissionResponse::Denied { .. }),
+        "file_read default Deny should produce Denied, got {:?}",
+        read_resp
+    );
+
+    let write_resp = engine.check("unknown-agent", "file_write", None);
+    assert!(
+        matches!(write_resp, PermissionResponse::Allowed { .. }),
+        "file_write default Allow should produce Allowed, got {:?}",
+        write_resp
+    );
+}
+
+#[test]
+fn test_file_read_write_default_response_dispatches_correctly() {
+    // Verify that default_response() dispatches based on the FileOp op field:
+    // read → file_read default, write → file_write default.
+    // Use evaluate() with explicit FileOp requests to be precise.
+    let ruleset = RuleSetBuilder::new()
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Deny)
+        .default_command(Effect::Deny)
+        .default_network(Effect::Deny)
+        .default_inter_agent(Effect::Deny)
+        .default_config(Effect::Deny)
+        .default_tool_call(Effect::Deny)
+        .build()
+        .unwrap();
+    let engine = crate::engine::PermissionEngine::new_with_default_data_root(ruleset);
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let path = tmp.path().join("test.txt").to_string_lossy().into_owned();
+
+    // FileOp read → should use file_read default (Allow)
+    let read_resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "unknown-agent".to_string(),
+            path: path.clone(),
+            op: "read".to_string(),
+        }),
+        None,
+    );
+    assert!(
+        matches!(read_resp, PermissionResponse::Allowed { .. }),
+        "FileOp read should use file_read default (Allow), got {:?}",
+        read_resp
+    );
+
+    // FileOp write → should use file_write default (Deny)
+    let write_resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "unknown-agent".to_string(),
+            path: path.clone(),
+            op: "write".to_string(),
+        }),
+        None,
+    );
+    assert!(
+        matches!(write_resp, PermissionResponse::Denied { .. }),
+        "FileOp write should use file_write default (Deny), got {:?}",
+        write_resp
+    );
+}
+
+// ------------------------------------------------------------------
+// Step 1.3: Old config 'file' field deserialization compat
+// ------------------------------------------------------------------
+
+#[test]
+fn test_old_config_file_field_sets_both_read_and_write() {
+    // Old config with single 'file' field should set both file_read and file_write.
+    let json = r#"{"file": "allow", "command": "deny", "network": "deny"}"#;
+    let defaults: Defaults = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        defaults.file_read,
+        Effect::Allow,
+        "old 'file' field should set file_read"
+    );
+    assert_eq!(
+        defaults.file_write,
+        Effect::Allow,
+        "old 'file' field should set file_write"
+    );
+}
+
+#[test]
+fn test_explicit_file_read_write_overrides_old_file() {
+    // When both 'file' and 'file_read'/'file_write' are present,
+    // explicit fields take precedence.
+    let json = r#"{"file": "allow", "file_read": "deny", "file_write": "allow"}"#;
+    let defaults: Defaults = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        defaults.file_read,
+        Effect::Deny,
+        "file_read should override old 'file' field"
+    );
+    assert_eq!(
+        defaults.file_write,
+        Effect::Allow,
+        "file_write should override old 'file' field"
+    );
 }
 
 #[test]
