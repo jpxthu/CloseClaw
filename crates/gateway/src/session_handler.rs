@@ -282,9 +282,7 @@ impl SessionMessageHandler {
                         .compaction_service
                         .lock()
                         .expect("compaction_service poisoned");
-                    if breaker.consecutive_failures()
-                        >= CompactConfig::default().max_consecutive_failures
-                    {
+                    if breaker.consecutive_failures() >= breaker.config().max_consecutive_failures {
                         return;
                     }
                 }
