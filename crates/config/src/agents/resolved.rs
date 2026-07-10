@@ -169,7 +169,7 @@ impl ResolvedAgentConfig {
             skills: config.skills,
             tools: config.tools,
             disallowed_tools: config.disallowed_tools,
-            subagents: config.subagents,
+            subagents: apply_subagent_defaults(config.subagents),
             memory,
             source,
         })
@@ -271,6 +271,23 @@ impl TryFrom<AgentConfig> for ResolvedAgentConfig {
 /// specifies a value (both `None`).
 const DEFAULT_MAX_SPAWN_DEPTH: u32 = 1;
 const DEFAULT_MAX_CHILDREN: u32 = 5;
+const DEFAULT_REQUIRE_AGENT_ID: bool = false;
+
+/// Apply defaults to a single [`SubagentsConfig`], filling `None` fields
+/// with their canonical values. Used by both `from_single` and `merge`
+/// paths to keep defaulting consistent.
+fn apply_subagent_defaults(mut config: SubagentsConfig) -> SubagentsConfig {
+    if config.require_agent_id.is_none() {
+        config.require_agent_id = Some(DEFAULT_REQUIRE_AGENT_ID);
+    }
+    if config.max_spawn_depth.is_none() {
+        config.max_spawn_depth = Some(DEFAULT_MAX_SPAWN_DEPTH);
+    }
+    if config.max_children.is_none() {
+        config.max_children = Some(DEFAULT_MAX_CHILDREN);
+    }
+    config
+}
 
 /// Field-level merge for [`SubagentsConfig`]; mirrors the rules used in
 /// [`ResolvedAgentConfig::merge`].
@@ -278,18 +295,13 @@ const DEFAULT_MAX_CHILDREN: u32 = 5;
 /// For `Option<T>` fields: project's `Some` wins, otherwise user's `Some`,
 /// otherwise the field's default value.
 fn merge_subagents(project: SubagentsConfig, user: SubagentsConfig) -> SubagentsConfig {
-    SubagentsConfig {
+    let merged = SubagentsConfig {
         allow_agents: override_if_non_empty(project.allow_agents, user.allow_agents),
         require_agent_id: project.require_agent_id.or(user.require_agent_id),
-        max_spawn_depth: project
-            .max_spawn_depth
-            .or(user.max_spawn_depth)
-            .or(Some(DEFAULT_MAX_SPAWN_DEPTH)),
-        max_children: project
-            .max_children
-            .or(user.max_children)
-            .or(Some(DEFAULT_MAX_CHILDREN)),
+        max_spawn_depth: project.max_spawn_depth.or(user.max_spawn_depth),
+        max_children: project.max_children.or(user.max_children),
         default_child_agent: project.default_child_agent.or(user.default_child_agent),
         model: project.model.or(user.model),
-    }
+    };
+    apply_subagent_defaults(merged)
 }

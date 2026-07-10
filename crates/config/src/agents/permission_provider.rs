@@ -37,20 +37,23 @@ impl AgentPermissionProvider for NoopPermissionProvider {
 
 /// Lazy-loading agent permission provider.
 ///
-/// On first access for a given agent ID, reads
-/// `<config_dir>/agents/<agent-id>/permissions.json` from disk and caches
-/// the result. Subsequent accesses check the file's mtime; if unchanged,
-/// the cached value is returned. If the mtime has changed, the file is
-/// re-read.
+/// On first access for a given agent ID, checks two paths in priority order:
+/// 1. Project-level: `<project_agents_dir>/<agent-id>/permissions.json`
+///    (highest priority — when present, used exclusively)
+/// 2. User-level: `<config_dir>/agents/<agent-id>/permissions.json`
+///    (fallback when project-level does not exist)
 ///
-/// If the file does not exist, `None` is returned (the agent has no
-/// custom permission configuration).
+/// If neither file exists, `None` is returned. Results are cached with
+/// mtime tracking for automatic invalidation.
 #[derive(Debug)]
 pub struct LazyAgentPermissions {
     /// The base config directory (e.g. `~/.closeclaw`).
     config_dir: PathBuf,
-    /// Cache: agent_id → (permissions, file_mtime_at_load).
-    cache: RwLock<HashMap<String, (AgentPermissions, SystemTime)>>,
+    /// Optional project-level agents directory (e.g. `<repo>/.closeclaw/agents`).
+    /// When set, project-level permissions take priority over user-level.
+    project_agents_dir: RwLock<Option<PathBuf>>,
+    /// Cache: agent_id → (permissions, file_mtime_at_load, resolved_path).
+    cache: RwLock<HashMap<String, (AgentPermissions, SystemTime, PathBuf)>>,
 }
 
 impl LazyAgentPermissions {
@@ -61,33 +64,71 @@ impl LazyAgentPermissions {
     pub fn new(config_dir: PathBuf) -> Self {
         Self {
             config_dir,
+            project_agents_dir: RwLock::new(None),
             cache: RwLock::new(HashMap::new()),
         }
     }
 
-    /// Resolve the permissions.json path for a given agent.
-    fn permissions_path(&self, agent_id: &str) -> PathBuf {
+    /// Set the project-level agents directory for priority loading.
+    ///
+    /// `project_agents_dir` is the `<repo>/.closeclaw/agents` directory.
+    /// When set, project-level `permissions.json` takes priority over
+    /// user-level for any given agent.
+    pub fn set_project_agents_dir(&self, project_agents_dir: PathBuf) {
+        *self.project_agents_dir.write().expect("RwLock poisoned") = Some(project_agents_dir);
+    }
+
+    /// Resolve the user-level permissions.json path for a given agent.
+    fn user_permissions_path(&self, agent_id: &str) -> PathBuf {
         self.config_dir
             .join("agents")
             .join(agent_id)
             .join("permissions.json")
     }
+
+    /// Resolve the project-level permissions.json path for a given agent.
+    fn project_permissions_path(&self, agent_id: &str) -> Option<PathBuf> {
+        self.project_agents_dir
+            .read()
+            .expect("RwLock poisoned")
+            .as_ref()
+            .map(|d| d.join(agent_id).join("permissions.json"))
+    }
+
+    /// Resolve which permissions.json to use, applying priority rules:
+    /// project-level > user-level.
+    fn resolve_path(&self, agent_id: &str) -> Option<PathBuf> {
+        // Check project-level first (highest priority).
+        if let Some(proj_path) = self.project_permissions_path(agent_id) {
+            if proj_path.exists() {
+                return Some(proj_path);
+            }
+        }
+        // Fall back to user-level.
+        let user_path = self.user_permissions_path(agent_id);
+        if user_path.exists() {
+            Some(user_path)
+        } else {
+            None
+        }
+    }
 }
 
 impl AgentPermissionProvider for LazyAgentPermissions {
     fn get(&self, agent_id: &str) -> Option<AgentPermissions> {
-        let path = self.permissions_path(agent_id);
-
         // Fast path: check cache with read lock.
         {
             let cache = self.cache.read().expect("RwLock poisoned");
-            if let Some((perms, cached_mtime)) = cache.get(agent_id) {
-                // Check if file still exists and mtime is unchanged.
-                let current_mtime = fs::metadata(&path).ok().and_then(|m| m.modified().ok());
+            if let Some((perms, cached_mtime, cached_path)) = cache.get(agent_id) {
+                // Check if the cached file still exists and mtime is unchanged.
+                let current_mtime = fs::metadata(cached_path)
+                    .ok()
+                    .and_then(|m| m.modified().ok());
                 match current_mtime {
                     Some(mtime) if mtime == *cached_mtime => {
                         debug!(
                             agent_id = %agent_id,
+                            path = %cached_path.display(),
                             "permission cache hit (mtime unchanged)"
                         );
                         return Some(perms.clone());
@@ -102,7 +143,8 @@ impl AgentPermissionProvider for LazyAgentPermissions {
             }
         }
 
-        // Slow path: read from disk and update cache.
+        // Slow path: resolve path with priority, read from disk, and cache.
+        let path = self.resolve_path(agent_id)?;
         let content = fs::read_to_string(&path).ok()?;
         let perms: AgentPermissions = match serde_json::from_str(&content) {
             Ok(p) => p,
@@ -123,10 +165,10 @@ impl AgentPermissionProvider for LazyAgentPermissions {
 
         {
             let mut cache = self.cache.write().expect("RwLock poisoned");
-            cache.insert(agent_id.to_string(), (perms.clone(), mtime));
+            cache.insert(agent_id.to_string(), (perms.clone(), mtime, path.clone()));
         }
 
-        debug!(agent_id = %agent_id, "loaded permissions from disk");
+        debug!(agent_id = %agent_id, path = %path.display(), "loaded permissions from disk");
         Some(perms)
     }
 }
