@@ -48,6 +48,7 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         approval_tool_calls: Vec::new(),
         plan_references: Vec::new(),
         session_mode: SessionMode::default(),
+        transcript: Vec::new(),
     }
 }
 

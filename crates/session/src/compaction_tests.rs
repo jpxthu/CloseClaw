@@ -610,4 +610,8 @@ mod tests {
         assert!(!auto_boundary.is_empty());
         assert!(!manual_boundary.is_empty());
     }
+
+    // ===================================================================
+    // execute_compact integration tests — see crates/llm/src/compaction_tests.rs
+    // ===================================================================
 }

@@ -3,6 +3,8 @@
 pub mod anthropic;
 pub mod cache_adapter;
 pub mod compaction;
+#[cfg(test)]
+mod compaction_tests;
 pub mod fallback;
 #[cfg(test)]
 mod fallback_tests;

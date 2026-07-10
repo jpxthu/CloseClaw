@@ -135,6 +135,11 @@ impl SessionManager {
                                 cs.restore_pending_messages(cp.pending_messages.clone());
                                 cs.restore_system_appends(cp.system_appends.clone());
                                 cs.set_verbosity_level(cp.verbosity_level);
+                                // Restore transcript from checkpoint ("transcript is the
+                                // single source of truth" per design doc).
+                                if !cp.transcript.is_empty() {
+                                    cs.replace_messages(cp.transcript.clone());
+                                }
                             }
                         }
 

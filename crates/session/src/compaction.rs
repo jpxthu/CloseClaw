@@ -160,6 +160,36 @@ pub fn estimate_total_tokens(
     }
 }
 
+/// Compute the token count before compaction using precise stats when available.
+///
+/// When `stats` is provided with `request_count > 0`, returns
+/// `stats.total_tokens` (precise usage from completed API calls) plus
+/// a character-based estimate for messages beyond the counted set.
+/// When `stats` is `None` or `request_count == 0`, falls back to
+/// pure character-based estimation for all messages.
+///
+/// This is the single source of truth for before-compaction token
+/// counting, shared by `llm::compaction::execute_compact` and
+/// `gateway::llm_caller_impl::execute_compact`.
+pub fn compute_before_tokens(
+    messages: &[CompactionMessage],
+    stats: Option<&RunningStats>,
+    chars_per_token: f64,
+) -> usize {
+    match stats {
+        Some(s) if s.request_count > 0 => {
+            let precise = s.total_tokens as usize;
+            let start = (s.request_count as usize).min(messages.len());
+            let remaining_tokens: usize = messages[start..]
+                .iter()
+                .map(|m| estimate_tokens(&m.content, chars_per_token))
+                .sum();
+            precise + remaining_tokens
+        }
+        _ => estimate_messages_tokens(messages, chars_per_token),
+    }
+}
+
 /// Get the context window size for a model.
 ///
 /// When `knowledge_context_window` is `Some(n)` and `n > 0`, returns `n`

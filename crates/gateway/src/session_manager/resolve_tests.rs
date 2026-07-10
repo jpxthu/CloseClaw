@@ -508,3 +508,73 @@ async fn test_resolve_different_routing_keys_independent() {
     assert_eq!(reg.get(&rk1).unwrap(), &id1);
     assert_eq!(reg.get(&rk2).unwrap(), &id2);
 }
+
+// ── transcript restore from checkpoint (Step 1.6) ──────────────────────────
+
+/// Verify that when a checkpoint with non-empty transcript is archived,
+/// calling find_or_create restores the transcript into the ConversationSession.
+#[tokio::test]
+async fn test_resolve_restores_transcript_from_checkpoint() {
+    use closeclaw_common::ContentBlock;
+    use closeclaw_session::llm_session::ChatSession;
+    use closeclaw_session::llm_session::SessionMessage;
+    use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint, SessionStatus};
+    use closeclaw_session::storage::memory::MemoryStorage;
+    use std::sync::Arc;
+
+    let storage: Arc<MemoryStorage> = Arc::new(MemoryStorage::new());
+    let mgr = Arc::new(SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
+
+    let session_id = "restore-transcript-test";
+    let boundary = SessionMessage {
+        role: "system".to_string(),
+        content_blocks: vec![ContentBlock::Text(
+            "[Session Compaction] Test summary".to_string(),
+        )],
+        timestamp: chrono::Utc::now(),
+    };
+
+    // Save checkpoint with transcript to storage
+    let mut cp = SessionCheckpoint::new(session_id.to_string());
+    cp.transcript = vec![boundary.clone()];
+    cp.status = SessionStatus::Archived;
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    // Restore the archived session
+    storage.restore_checkpoint(session_id).await.unwrap();
+
+    // Add key_registry entry so resolve finds the session
+    let msg = test_message();
+    let routing_key = SessionManager::compute_routing_key("feishu", &msg, None);
+    {
+        let mut reg = mgr.key_registry.write().await;
+        reg.insert(routing_key.to_string(), session_id.to_string());
+    }
+
+    // find_or_create triggers restore path
+    let resolved_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    assert_eq!(resolved_id, session_id);
+
+    // Verify transcript was restored into ConversationSession
+    let conv = mgr.get_conversation_session(session_id).await.unwrap();
+    let conv = conv.read().await;
+    let messages = conv.messages();
+    assert_eq!(
+        messages.len(),
+        1,
+        "transcript should have 1 boundary message"
+    );
+    assert_eq!(messages[0].role, "system");
+    assert_eq!(
+        messages[0].content_blocks,
+        vec![ContentBlock::Text(
+            "[Session Compaction] Test summary".to_string()
+        )]
+    );
+}
