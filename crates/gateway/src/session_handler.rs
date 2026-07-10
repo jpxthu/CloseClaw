@@ -13,9 +13,11 @@ use super::Gateway;
 use crate::llm_caller_impl::execute_compact;
 use crate::session_manager::SessionManager;
 use crate::shutdown_handle::ShutdownHandle;
+use closeclaw_common::RunningStats;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::Message as ChatMessage;
+use closeclaw_llm::ProviderModelKnowledge;
 use closeclaw_session::compaction::{
     CompactConfig, CompactionMessage, CompactionResult, CompactionService, TokenWarningState,
 };
@@ -87,6 +89,11 @@ pub struct SessionMessageHandler {
     /// Path to the SQLite database file used by the active-searcher.
     /// When set, `dispatch_llm_call` spawns a background searcher task.
     pub(super) memory_db_path: Option<std::path::PathBuf>,
+    /// Knowledge base for model context window lookups.
+    ///
+    /// When set, compaction threshold checks use the knowledge base's
+    /// context window for the model instead of the hardcoded table.
+    pub(super) model_knowledge: Option<ProviderModelKnowledge>,
 }
 
 // ── Construction ──
@@ -109,6 +116,7 @@ impl SessionMessageHandler {
             gateway: None,
             shutdown_handle: None,
             memory_db_path: None,
+            model_knowledge: None,
         }
     }
     /// Create a new handler without an output channel (used in tests).
@@ -128,6 +136,7 @@ impl SessionMessageHandler {
             gateway: None,
             shutdown_handle: None,
             memory_db_path: None,
+            model_knowledge: None,
         }
     }
     /// Attach a back-reference (weak) to the owning [`Gateway`].
@@ -159,6 +168,15 @@ impl SessionMessageHandler {
         self.memory_db_path = Some(path);
         self
     }
+
+    /// Set the model knowledge base for context window lookups.
+    ///
+    /// When set, compaction threshold checks use the knowledge base's
+    /// context window for the model instead of the hardcoded table.
+    pub fn with_model_knowledge(mut self, knowledge: ProviderModelKnowledge) -> Self {
+        self.model_knowledge = Some(knowledge);
+        self
+    }
 }
 // ── Message dispatch ──
 impl SessionMessageHandler {
@@ -179,7 +197,14 @@ impl SessionMessageHandler {
             return HandleResult::MessageQueued;
         }
         // Reject new requests when context window is nearly full.
-        if is_blocking_state(&self.compaction_service, &self.session_manager, session_id).await {
+        if is_blocking_state(
+            &self.compaction_service,
+            &self.session_manager,
+            session_id,
+            self.model_knowledge.as_ref(),
+        )
+        .await
+        {
             send_output(
                 &self.output_tx,
                 "Context window nearly full. Please run /compact to compress the session.",
@@ -200,7 +225,7 @@ impl SessionMessageHandler {
             .strip_prefix("/compact")
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
-        let Some((model, llm_messages)) =
+        let Some((model, llm_messages, _stats)) =
             load_compact_inputs(&self.session_manager, session_id).await
         else {
             tracing::warn!(session_id, "session not found for /compact");
@@ -233,7 +258,7 @@ impl SessionMessageHandler {
     }
 
     pub(super) async fn check_and_run_auto_compact(&self, session_id: &str) {
-        let Some((model, mut llm_messages)) =
+        let Some((model, mut llm_messages, stats)) =
             load_compact_inputs(&self.session_manager, session_id).await
         else {
             return;
@@ -260,13 +285,18 @@ impl SessionMessageHandler {
                 .expect("compaction_service poisoned");
             svc.config().chars_per_token
         };
-        let tokens = closeclaw_session::compaction::estimate_messages_tokens(&compaction_msgs, cpt);
+        let tokens =
+            closeclaw_session::compaction::estimate_total_tokens(&stats, &compaction_msgs, cpt);
+        let kb_window = self
+            .model_knowledge
+            .as_ref()
+            .and_then(|kb| find_context_window_for_model(kb, &model));
         let warning = {
             let svc = self
                 .compaction_service
                 .lock()
                 .expect("compaction_service poisoned");
-            svc.token_warning_state(tokens, &model)
+            svc.token_warning_state(tokens, &model, kb_window)
         };
         match warning {
             TokenWarningState::Normal => (),
@@ -412,6 +442,22 @@ fn build_compact_messages(
         .collect()
 }
 
+/// Look up a model's context window from the knowledge base.
+///
+/// Searches across all known providers. Returns `Some(context_window)`
+/// when the model is found in the knowledge base, `None` otherwise.
+///
+/// Known providers: minimax, glm, volcengine, deepseek, mimo.
+fn find_context_window_for_model(knowledge: &ProviderModelKnowledge, model: &str) -> Option<u32> {
+    const PROVIDERS: &[&str] = &["minimax", "glm", "volcengine", "deepseek", "mimo"];
+    for provider in PROVIDERS {
+        if let Some(params) = knowledge.find(provider, model) {
+            return Some(params.context_window);
+        }
+    }
+    None
+}
+
 /// Replace session messages with boundary message on compaction.
 ///
 /// After replacing messages, persists the checkpoint to ensure
@@ -456,8 +502,9 @@ pub(crate) async fn is_blocking_state(
     svc: &Arc<std::sync::Mutex<CompactionService>>,
     sm: &Arc<SessionManager>,
     session_id: &str,
+    model_knowledge: Option<&ProviderModelKnowledge>,
 ) -> bool {
-    let Some((model, mut llm_messages)) = load_compact_inputs(sm, session_id).await else {
+    let Some((model, mut llm_messages, stats)) = load_compact_inputs(sm, session_id).await else {
         return false;
     };
     // Apply message truncation before token estimation so that a
@@ -480,25 +527,28 @@ pub(crate) async fn is_blocking_state(
         .expect("compaction_service poisoned")
         .config()
         .chars_per_token;
-    let tokens = closeclaw_session::compaction::estimate_messages_tokens(&compaction_msgs, cpt);
+    let tokens =
+        closeclaw_session::compaction::estimate_total_tokens(&stats, &compaction_msgs, cpt);
+    let kb_window = model_knowledge.and_then(|kb| find_context_window_for_model(kb, &model));
     matches!(
         svc.lock()
             .expect("compaction_service poisoned")
-            .token_warning_state(tokens, &model),
+            .token_warning_state(tokens, &model, kb_window),
         TokenWarningState::Blocking
     )
 }
 
-/// Load compaction inputs: (model, llm_messages). Returns None if session not found.
+/// Load compaction inputs: (model, llm_messages, stats). Returns None if session not found.
 async fn load_compact_inputs(
     sm: &Arc<SessionManager>,
     session_id: &str,
-) -> Option<(String, Vec<ChatMessage>)> {
+) -> Option<(String, Vec<ChatMessage>, RunningStats)> {
     let cs = sm.get_conversation_session(session_id).await?;
     let cs_read = cs.read().await;
     let model = cs_read.model().to_string();
     let llm_msgs = build_compact_messages(ChatSession::messages(&*cs_read));
-    Some((model, llm_msgs))
+    let stats = cs_read.stats().clone();
+    Some((model, llm_msgs, stats))
 }
 
 /// Truncate `llm_messages` to the most recent `max` entries.

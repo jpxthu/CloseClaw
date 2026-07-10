@@ -42,17 +42,34 @@ mod tests {
 
     #[test]
     fn test_get_context_window_minimax() {
-        assert_eq!(get_context_window("mini-max"), 1_000_000);
+        assert_eq!(get_context_window("mini-max", None), 1_000_000);
     }
 
     #[test]
     fn test_get_context_window_glm() {
-        assert_eq!(get_context_window("glm-5.1"), 256_000);
+        assert_eq!(get_context_window("glm-5.1", None), 256_000);
     }
 
     #[test]
     fn test_get_context_window_unknown() {
-        assert_eq!(get_context_window("unknown-model-xyz"), 128_000);
+        assert_eq!(get_context_window("unknown-model-xyz", None), 128_000);
+    }
+
+    #[test]
+    fn test_get_context_window_knowledge_override() {
+        // Knowledge base value takes precedence over hardcoded table
+        assert_eq!(get_context_window("mini-max", Some(500_000)), 500_000);
+    }
+
+    #[test]
+    fn test_get_context_window_knowledge_zero_falls_back() {
+        // knowledge_context_window = 0 means unknown → fallback to hardcoded
+        assert_eq!(get_context_window("mini-max", Some(0)), 1_000_000);
+    }
+
+    #[test]
+    fn test_get_context_window_knowledge_none_falls_back() {
+        assert_eq!(get_context_window("glm-5.1", None), 256_000);
     }
 
     #[test]
@@ -63,7 +80,7 @@ mod tests {
             role: "user".to_string(),
             content: "short".to_string(),
         }];
-        assert!(!service.should_auto_compact(&msgs, "mini-max"));
+        assert!(!service.should_auto_compact(&msgs, "mini-max", None));
     }
 
     #[test]
@@ -80,7 +97,7 @@ mod tests {
             content: "x".repeat(900_000),
         }];
         // Circuit breaker should trip
-        assert!(!service.should_auto_compact(&msgs, "mini-max"));
+        assert!(!service.should_auto_compact(&msgs, "mini-max", None));
     }
 
     #[test]
@@ -89,7 +106,7 @@ mod tests {
         let service = CompactionService::new(config);
         // 1,000,000 - 50,000 = 950,000 used -> 50,000 remaining > 20,000
         assert_eq!(
-            service.token_warning_state(950_000, "mini-max"),
+            service.token_warning_state(950_000, "mini-max", None),
             TokenWarningState::Normal
         );
     }
@@ -100,7 +117,7 @@ mod tests {
         let service = CompactionService::new(config);
         // remaining = 20,000 -> Warning
         assert_eq!(
-            service.token_warning_state(980_000, "mini-max"),
+            service.token_warning_state(980_000, "mini-max", None),
             TokenWarningState::Warning
         );
     }
@@ -111,7 +128,7 @@ mod tests {
         let service = CompactionService::new(config);
         // remaining = 13,000 -> AutoCompactTriggered
         assert_eq!(
-            service.token_warning_state(987_000, "mini-max"),
+            service.token_warning_state(987_000, "mini-max", None),
             TokenWarningState::AutoCompactTriggered
         );
     }
@@ -122,8 +139,19 @@ mod tests {
         let service = CompactionService::new(config);
         // remaining = 3,000 -> Blocking
         assert_eq!(
-            service.token_warning_state(997_000, "mini-max"),
+            service.token_warning_state(997_000, "mini-max", None),
             TokenWarningState::Blocking
+        );
+    }
+
+    #[test]
+    fn test_token_warning_state_knowledge_override() {
+        let config = CompactConfig::default();
+        let service = CompactionService::new(config);
+        // Knowledge base context = 500,000; used = 485,000 → remaining = 15,000 → Warning
+        assert_eq!(
+            service.token_warning_state(485_000, "mini-max", Some(500_000)),
+            TokenWarningState::Warning
         );
     }
 
@@ -131,21 +159,29 @@ mod tests {
     fn test_percent_left_normal() {
         let config = CompactConfig::default();
         let service = CompactionService::new(config);
-        assert_eq!(service.percent_left(500_000, "mini-max"), 50);
+        assert_eq!(service.percent_left(500_000, "mini-max", None), 50);
     }
 
     #[test]
     fn test_percent_left_zero_used() {
         let config = CompactConfig::default();
         let service = CompactionService::new(config);
-        assert_eq!(service.percent_left(0, "mini-max"), 100);
+        assert_eq!(service.percent_left(0, "mini-max", None), 100);
     }
 
     #[test]
     fn test_percent_left_near_full() {
         let config = CompactConfig::default();
         let service = CompactionService::new(config);
-        assert_eq!(service.percent_left(999_000, "mini-max"), 0);
+        assert_eq!(service.percent_left(999_000, "mini-max", None), 0);
+    }
+
+    #[test]
+    fn test_percent_left_knowledge_override() {
+        let config = CompactConfig::default();
+        let service = CompactionService::new(config);
+        // Knowledge base context = 200,000; used = 150,000 → 25% left
+        assert_eq!(service.percent_left(150_000, "mini-max", Some(200_000)), 25);
     }
 
     #[test]
@@ -185,9 +221,9 @@ mod tests {
             role: "user".to_string(),
             content: "x".repeat(3_948_004),
         }];
-        assert!(!service.should_auto_compact(&msgs, "mini-max"));
+        assert!(!service.should_auto_compact(&msgs, "mini-max", None));
         service.record_success();
-        assert!(service.should_auto_compact(&msgs, "mini-max"));
+        assert!(service.should_auto_compact(&msgs, "mini-max", None));
     }
 
     // Step 1.2 tests: Prompt template and summary extraction
@@ -331,7 +367,7 @@ mod tests {
         }];
 
         // AutoCompactTriggered: triggers compaction
-        assert!(service.should_auto_compact(&msgs, "mini-max"));
+        assert!(service.should_auto_compact(&msgs, "mini-max", None));
         // The same decision applies regardless of any plan_state that may
         // exist on the checkpoint — plan_state is never consulted by the
         // compaction threshold logic.
@@ -365,6 +401,7 @@ mod tests {
             },
         ];
         let original_tokens = estimate_messages_tokens(&original_messages, 0.25);
+        let _ = original_tokens;
         assert!(original_tokens > 0);
 
         // Simulate compaction: messages are replaced by boundary summary

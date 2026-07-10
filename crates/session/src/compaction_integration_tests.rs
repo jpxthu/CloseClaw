@@ -142,50 +142,50 @@ mod tests {
 
         // Normal: remaining > 20,000
         assert_eq!(
-            svc.token_warning_state(context_window - 20_001, model),
+            svc.token_warning_state(context_window - 20_001, model, None),
             TokenWarningState::Normal,
             "remaining 20,001 should be Normal"
         );
 
         // Warning: remaining <= 20,000 and > 13,000
         assert_eq!(
-            svc.token_warning_state(context_window - 20_000, model),
+            svc.token_warning_state(context_window - 20_000, model, None),
             TokenWarningState::Warning,
             "remaining 20,000 should be Warning"
         );
         assert_eq!(
-            svc.token_warning_state(context_window - 13_001, model),
+            svc.token_warning_state(context_window - 13_001, model, None),
             TokenWarningState::Warning,
             "remaining 13,001 should be Warning"
         );
 
         // AutoCompactTriggered: remaining <= 13,000 and > 3,000
         assert_eq!(
-            svc.token_warning_state(context_window - 13_000, model),
+            svc.token_warning_state(context_window - 13_000, model, None),
             TokenWarningState::AutoCompactTriggered,
             "remaining 13,000 should be AutoCompactTriggered"
         );
         assert_eq!(
-            svc.token_warning_state(context_window - 3_001, model),
+            svc.token_warning_state(context_window - 3_001, model, None),
             TokenWarningState::AutoCompactTriggered,
             "remaining 3,001 should be AutoCompactTriggered"
         );
 
         // Blocking: remaining <= 3,000
         assert_eq!(
-            svc.token_warning_state(context_window - 3_000, model),
+            svc.token_warning_state(context_window - 3_000, model, None),
             TokenWarningState::Blocking,
             "remaining 3,000 should be Blocking"
         );
         assert_eq!(
-            svc.token_warning_state(context_window - 1, model),
+            svc.token_warning_state(context_window - 1, model, None),
             TokenWarningState::Blocking,
             "remaining 1 should be Blocking"
         );
 
         // Fully used context.
         assert_eq!(
-            svc.token_warning_state(context_window, model),
+            svc.token_warning_state(context_window, model, None),
             TokenWarningState::Blocking,
             "remaining 0 should be Blocking"
         );
@@ -202,7 +202,7 @@ mod tests {
 
         // Reach the AutoCompactTriggered range.
         let msgs = vec![comp_msg(&"x".repeat(3_948_004))]; // ~987,001 tokens
-        assert!(svc.should_auto_compact(&msgs, "mini-max"));
+        assert!(svc.should_auto_compact(&msgs, "mini-max", None));
 
         // Trip the circuit breaker.
         svc.record_failure();
@@ -212,11 +212,11 @@ mod tests {
         // token_warning_state still returns AutoCompactTriggered...
         let tokens = estimate_messages_tokens(&msgs, 0.25);
         assert_eq!(
-            svc.token_warning_state(tokens, "mini-max"),
+            svc.token_warning_state(tokens, "mini-max", None),
             TokenWarningState::AutoCompactTriggered
         );
         // ...but should_auto_compact blocks it via circuit breaker.
-        assert!(!svc.should_auto_compact(&msgs, "mini-max"));
+        assert!(!svc.should_auto_compact(&msgs, "mini-max", None));
     }
 
     /// Blocking state: the raw token_warning_state returns Blocking, and
@@ -228,12 +228,12 @@ mod tests {
         let msgs = vec![comp_msg(&"x".repeat(3_996_004))]; // ~999,001 tokens
         let tokens = estimate_messages_tokens(&msgs, 0.25);
         assert_eq!(
-            svc.token_warning_state(tokens, "mini-max"),
+            svc.token_warning_state(tokens, "mini-max", None),
             TokenWarningState::Blocking
         );
         // should_auto_compact delegates to token_warning_state; Blocking
         // is not AutoCompactTriggered, so it returns false.
-        assert!(!svc.should_auto_compact(&msgs, "mini-max"));
+        assert!(!svc.should_auto_compact(&msgs, "mini-max", None));
     }
 
     /// Warning state logs but does not trigger compaction.
@@ -243,10 +243,10 @@ mod tests {
         let msgs = vec![comp_msg(&"x".repeat(3_920_004))]; // ~980,001 tokens → remaining 19,999
         let tokens = estimate_messages_tokens(&msgs, 0.25);
         assert_eq!(
-            svc.token_warning_state(tokens, "mini-max"),
+            svc.token_warning_state(tokens, "mini-max", None),
             TokenWarningState::Warning
         );
-        assert!(!svc.should_auto_compact(&msgs, "mini-max"));
+        assert!(!svc.should_auto_compact(&msgs, "mini-max", None));
     }
 
     // =====================================================================
@@ -346,12 +346,12 @@ mod tests {
         let svc = CompactionService::new(CompactConfig::default());
         // Original total would be Warning range.
         assert_eq!(
-            svc.token_warning_state(total_tokens_before, model),
+            svc.token_warning_state(total_tokens_before, model, None),
             TokenWarningState::Warning
         );
         // Truncated total should be Normal (fewer tokens).
         assert_eq!(
-            svc.token_warning_state(total_tokens_after, model),
+            svc.token_warning_state(total_tokens_after, model, None),
             TokenWarningState::Normal
         );
     }

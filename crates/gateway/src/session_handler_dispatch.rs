@@ -338,6 +338,7 @@ impl SessionMessageHandler {
             &self.compaction_service,
             &self.session_manager,
             session_id,
+            self.model_knowledge.as_ref(),
         )
         .await
         {
