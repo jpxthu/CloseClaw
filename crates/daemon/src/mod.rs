@@ -311,6 +311,7 @@ pub(crate) struct Phase5Deps<'a> {
     pub session_manager: &'a Arc<SessionManager>,
     pub permission_engine: &'a Arc<tokio::sync::RwLock<PermissionEngine>>,
     pub approval_flow: &'a Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    pub gateway: &'a Arc<Gateway>,
 }
 
 // --- Phase 4-5 initialization ---
@@ -433,6 +434,7 @@ impl Daemon {
             session_manager,
             permission_engine,
             approval_flow,
+            gateway,
         } = deps;
         let (sweeper_tx, sweeper_rx) = watch::channel(());
         let (dreaming_tx, dreaming_rx) = watch::channel(());
@@ -462,6 +464,7 @@ impl Daemon {
             spawn_controller: Arc::clone(&spawn_controller),
             approval_flow,
             config_subdir: &config_subdir,
+            gateway,
         };
         let config_watcher = registries::populate_registries(&ctx).await;
         session_manager
