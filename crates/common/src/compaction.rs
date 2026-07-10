@@ -12,6 +12,10 @@ pub struct CompactConfig {
     pub auto_compact_buffer_tokens: usize,
     /// Maximum consecutive compaction failures before circuit breaker trips.
     pub max_consecutive_failures: usize,
+    /// Maximum number of history messages to keep before compaction.
+    /// `None` means no truncation.
+    #[serde(default)]
+    pub max_history_messages: Option<usize>,
 }
 
 impl Default for CompactConfig {
@@ -20,6 +24,7 @@ impl Default for CompactConfig {
             chars_per_token: 0.25,
             auto_compact_buffer_tokens: 13_000,
             max_consecutive_failures: 3,
+            max_history_messages: None,
         }
     }
 }
