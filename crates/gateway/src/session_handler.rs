@@ -225,7 +225,7 @@ impl SessionMessageHandler {
             .strip_prefix("/compact")
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
-        let Some((model, llm_messages, _stats)) =
+        let Some((model, llm_messages, stats)) =
             load_compact_inputs(&self.session_manager, session_id).await
         else {
             tracing::warn!(session_id, "session not found for /compact");
@@ -246,6 +246,7 @@ impl SessionMessageHandler {
                 model,
                 llm_messages,
                 instruction,
+                stats,
             )
             .await;
         });
@@ -309,7 +310,7 @@ impl SessionMessageHandler {
                 );
             }
             TokenWarningState::AutoCompactTriggered => {
-                self.run_auto_compact(session_id, &llm_messages, &model)
+                self.run_auto_compact(session_id, &llm_messages, &model, &stats)
                     .await;
             }
             TokenWarningState::Blocking => {
@@ -322,7 +323,13 @@ impl SessionMessageHandler {
     }
 
     /// Execute auto-compaction: check breaker, snapshot, compact, finalize.
-    async fn run_auto_compact(&self, session_id: &str, llm_messages: &[ChatMessage], model: &str) {
+    async fn run_auto_compact(
+        &self,
+        session_id: &str,
+        llm_messages: &[ChatMessage],
+        model: &str,
+        stats: &RunningStats,
+    ) {
         {
             let breaker = self
                 .compaction_service
@@ -341,8 +348,16 @@ impl SessionMessageHandler {
             .expect("compaction_service poisoned")
             .config()
             .chars_per_token;
-        let result =
-            execute_compact(llm_messages, &self.fallback_client, model, None, true, cpt).await;
+        let result = execute_compact(
+            llm_messages,
+            &self.fallback_client,
+            model,
+            None,
+            true,
+            cpt,
+            Some(stats),
+        )
+        .await;
         finalize_auto_compact(
             &self.session_manager,
             &self.compaction_service,
@@ -575,6 +590,7 @@ async fn run_manual_compact(
     model: String,
     llm_messages: Vec<ChatMessage>,
     instruction: Option<String>,
+    stats: RunningStats,
 ) {
     // Save a snapshot before compaction so we can rollback on failure.
     sm.save_pre_compaction_snapshot(&sid).await;
@@ -590,6 +606,7 @@ async fn run_manual_compact(
         instruction.as_deref(),
         false,
         cpt,
+        Some(&stats),
     )
     .await;
     match result {

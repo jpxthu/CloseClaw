@@ -12,6 +12,8 @@ pub use closeclaw_session::compaction::{
     MODEL_CONTEXT_WINDOWS, NO_TOOLS_PREAMBLE, NO_TOOLS_TRAILER,
 };
 
+use closeclaw_common::RunningStats;
+
 use crate::fallback::FallbackClient;
 use crate::{ChatRequest, Message};
 
@@ -23,6 +25,12 @@ use crate::{ChatRequest, Message};
 /// * `model_name` - Model name for the request
 /// * `custom_instructions` - Optional custom instructions appended to the prompt
 /// * `is_auto` - Whether this is an automatic compaction
+/// * `chars_per_token` - Character-to-token ratio for estimation
+/// * `stats` - Optional running stats for precise token counting. When
+///   provided with `request_count > 0`, uses `stats.total_tokens` as the
+///   base and adds character-based estimation for messages beyond the
+///   previously counted set. Falls back to pure character estimation
+///   when `None` or when `stats.request_count == 0`.
 ///
 /// # Errors
 /// * `EmptyMessages` - No messages provided
@@ -35,22 +43,48 @@ pub async fn execute_compact(
     custom_instructions: Option<&str>,
     is_auto: bool,
     chars_per_token: f64,
+    stats: Option<&RunningStats>,
 ) -> Result<CompactionResult, CompactionError> {
     if messages.is_empty() {
         return Err(CompactionError::EmptyMessages);
     }
 
     let before_char_count: usize = messages.iter().map(|m| m.content.chars().count()).sum();
-    let before_token_count = estimate_messages_tokens(
-        &messages
-            .iter()
-            .map(|m| CompactionMessage {
-                role: m.role.clone(),
-                content: m.content.clone(),
-            })
-            .collect::<Vec<_>>(),
-        chars_per_token,
-    );
+    let before_token_count = match stats {
+        Some(s) if s.request_count > 0 => {
+            // Precise usage from previous API calls + char estimate for
+            // messages that have not yet been counted in the stats.
+            let precise = s.total_tokens as usize;
+            let remaining = &messages[s.request_count as usize..];
+            let remaining_tokens: usize = remaining
+                .iter()
+                .map(|m| {
+                    estimate_tokens(
+                        &CompactionMessage {
+                            role: m.role.clone(),
+                            content: m.content.clone(),
+                        }
+                        .content,
+                        chars_per_token,
+                    )
+                })
+                .sum();
+            precise + remaining_tokens
+        }
+        _ => {
+            // No stats available or no API calls yet: pure character estimation.
+            estimate_messages_tokens(
+                &messages
+                    .iter()
+                    .map(|m| CompactionMessage {
+                        role: m.role.clone(),
+                        content: m.content.clone(),
+                    })
+                    .collect::<Vec<_>>(),
+                chars_per_token,
+            )
+        }
+    };
 
     // Filter: only user/assistant messages enter the compaction request.
     // System-prompt and other roles are excluded per compact-process.md.
