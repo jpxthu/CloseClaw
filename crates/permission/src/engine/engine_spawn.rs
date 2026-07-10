@@ -93,14 +93,14 @@ impl super::engine_eval::PermissionEngine {
     /// Evaluate user permissions across all dimensions for a given user and agent,
     /// returning an `AgentPermissions` that can be used for spawn-time intersection.
     ///
-    /// Iterates over each permission dimension (exec, file_read, file_write, network,
+    /// Iterates over each permission dimension (command, file_read, file_write, network,
     /// spawn, tool_call, config_write, message), constructs a representative request body,
     /// evaluates the User phase (UserAndAgent rules only), and collects the results
     /// into an `AgentPermissions`.
     pub fn evaluate_user_permissions(&self, user_id: &str, agent_id: &str) -> AgentPermissions {
         let dimensions = [
             (
-                "exec",
+                "command",
                 PermissionRequestBody::CommandExec {
                     agent: agent_id.to_string(),
                     cmd: String::new(),

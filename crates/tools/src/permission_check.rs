@@ -20,6 +20,7 @@ use closeclaw_permission::engine::engine_risk::RiskLevel;
 use closeclaw_permission::engine::engine_types::{
     Caller, MessageDirection, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
+use closeclaw_permission::is_config_file_path;
 use closeclaw_permission::PermissionResponse as PR;
 
 use std::sync::Arc;
@@ -31,7 +32,7 @@ type PermEngine = tokio::sync::RwLock<PermissionEngine>;
 type ApprovalMutex = TokioMutex<ApprovalFlow>;
 
 /// Bundled permission dependencies shared across all built-in tools.
-pub(crate) type PermDeps = (
+pub type PermDeps = (
     Arc<PermEngine>,
     Arc<SessionManager>,
     Arc<ConfigManager>,
@@ -141,6 +142,16 @@ async fn is_session_sub_agent(session_manager: &Arc<SessionManager>, session_id:
         .get_session_depth(session_id)
         .await
         .is_some_and(|depth| depth > 0)
+}
+
+/// Check if a file path targets a config file.
+///
+/// Uses [`closeclaw_permission::is_config_file_path`] with the data root
+/// obtained from [`ConfigManager::config_dir`].  Returns `true` when the
+/// path is inside the config directory but outside any workspace.
+pub(crate) fn is_config_file(config_manager: &ConfigManager, path: &str) -> bool {
+    let data_root = config_manager.config_dir();
+    is_config_file_path(data_root, path)
 }
 
 /// First-level check: verify the agent is allowed to invoke the given tool.
@@ -254,18 +265,6 @@ pub(crate) async fn check_file_op_permission(
 ///
 /// Validates whether the agent is allowed to send/receive messages
 /// in the given direction to/from the specified target.
-///
-/// # Retention rationale
-///
-/// Message sending/receiving is handled by the IM processor layer,
-/// not by tools. No built-in tool directly performs message operations.
-/// This function is retained for:
-/// - Unit tests that verify the MessageSend dimension evaluation path
-/// - Future tools that may directly send messages
-///   (e.g., a dedicated messaging tool)
-///
-/// The engine layer already evaluates the MessageSend dimension via
-/// `evaluate_user_permissions()` at the first level (ToolCall check).
 #[allow(dead_code)]
 pub(crate) async fn check_message_permission(
     deps: &PermDeps,
@@ -319,22 +318,6 @@ pub(crate) async fn check_message_permission(
 /// Second-level check for config write operations (ConfigWrite dimension).
 ///
 /// Validates whether the agent is allowed to write the given config file.
-///
-/// # Retention rationale
-///
-/// Config file writes are just file writes — already covered by
-/// [`check_file_op_permission`] used by `WriteTool` / `EditTool`.
-/// The design doc's data flow shows config_write as a separate
-/// sub-operation, but in practice config files are written through
-/// the same file I/O path as any other file.
-/// This function is retained for:
-/// - Unit tests that verify the ConfigWrite dimension evaluation path
-/// - Future tools that may directly write config files
-///   (e.g., a dedicated config management tool)
-///
-/// The engine layer already evaluates the ConfigWrite dimension via
-/// `evaluate_user_permissions()` at the first level (ToolCall check).
-#[allow(dead_code)]
 pub(crate) async fn check_config_write_permission(
     deps: &PermDeps,
     ctx: &crate::ToolContext,
@@ -385,22 +368,11 @@ pub(crate) async fn check_config_write_permission(
 ///
 /// Validates whether the agent is allowed to connect to the specified host and port.
 ///
-/// # Retention rationale
-///
-/// Network access occurs within command execution (e.g., `curl`, `wget`
-/// inside BashTool) — already covered by [`check_command_permission`].
-/// The design doc's data flow shows network checks as a sub-operation
-/// of tool internal operations, but in practice network calls are
-/// indistinguishable from other shell commands at the tool layer.
-/// This function is retained for:
-/// - Unit tests that verify the NetOp dimension evaluation path
-/// - Future tools that may directly perform network I/O
-///   (e.g., a dedicated HTTP client tool)
-///
-/// The engine layer already evaluates the NetOp dimension via
-/// `evaluate_user_permissions()` at the first level (ToolCall check).
-#[allow(dead_code)]
-pub(crate) async fn check_network_permission(
+/// Currently, BashTool's network access is implicitly covered by the command dimension
+/// (CommandExec) since network commands like `curl`/`wget` are treated as command execution.
+/// This function is reserved for future dedicated network tools that perform direct I/O
+/// (e.g., an HTTP client tool) and need explicit network permission checks.
+pub async fn check_network_permission(
     deps: &PermDeps,
     ctx: &crate::ToolContext,
     host: &str,
