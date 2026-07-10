@@ -598,7 +598,7 @@ impl ConfigManager {
         // Build cross-ref for Channels if not provided but section is Channels
         let cross_ref_owned;
         let effective_cross_ref = if section == ConfigSection::Channels && cross_ref.is_none() {
-            cross_ref_owned = build_channels_cross_ref_for_update(self);
+            cross_ref_owned = self.build_channels_cross_ref();
             cross_ref_owned.as_ref()
         } else {
             cross_ref
@@ -607,36 +607,49 @@ impl ConfigManager {
         // Build credential cross-ref for Models if section is Models
         let models_cross_ref_owned;
         let credential_providers = if section == ConfigSection::Models {
-            models_cross_ref_owned = build_models_cross_ref_for_update(self);
+            models_cross_ref_owned = self.build_models_cross_ref();
             models_cross_ref_owned.as_ref()
         } else {
             None
         };
 
         // Step 1: validate
-        if let Some(cr) = effective_cross_ref {
-            if section == ConfigSection::Channels {
+        // When cross-ref validation is available for Channels/Models, it already
+        // includes the full structural checks (via validate_*_with_refs), so we
+        // skip the redundant base validator call.
+        if section == ConfigSection::Channels {
+            if let Some(cr) = effective_cross_ref {
                 if let Err(msg) =
                     crate::validators::validate_channels_with_refs(&new_value, Some(cr))
                 {
                     return Err(ConfigWriteError::ValidationFailed(section.to_string(), msg));
                 }
+            } else if let Err(e) = validator(&new_value) {
+                return Err(ConfigWriteError::ValidationFailed(
+                    section.to_string(),
+                    e.message.clone(),
+                ));
             }
-        }
-        if let Some(crps) = credential_providers {
-            if section == ConfigSection::Models {
+        } else if section == ConfigSection::Models {
+            if let Some(crps) = credential_providers {
                 if let Err(msg) =
                     crate::validators::validate_models_with_refs(&new_value, Some(crps))
                 {
                     return Err(ConfigWriteError::ValidationFailed(section.to_string(), msg));
                 }
+            } else if let Err(e) = validator(&new_value) {
+                return Err(ConfigWriteError::ValidationFailed(
+                    section.to_string(),
+                    e.message.clone(),
+                ));
             }
-        }
-        if let Err(e) = validator(&new_value) {
-            return Err(ConfigWriteError::ValidationFailed(
-                section.to_string(),
-                e.message.clone(),
-            ));
+        } else {
+            if let Err(e) = validator(&new_value) {
+                return Err(ConfigWriteError::ValidationFailed(
+                    section.to_string(),
+                    e.message.clone(),
+                ));
+            }
         }
 
         let path = section.path(&self.config_dir);
@@ -738,6 +751,53 @@ impl ConfigManager {
         {
             info!(section = %section, "unblocked config section after successful reload");
         }
+    }
+
+    /// Build cross-reference data for channels binding validation.
+    ///
+    /// Extracts registered agent IDs from the agents registry and
+    /// account IDs from the in-memory Accounts section. Returns `None`
+    /// only if the resulting sets are both empty (unlikely in practice).
+    pub fn build_channels_cross_ref(&self) -> Option<CrossRefData> {
+        let agent_ids: HashSet<String> = self
+            .agents
+            .read()
+            .expect("RwLock for agents was poisoned")
+            .keys()
+            .cloned()
+            .collect();
+        let accounts_value = self.get_section_value(ConfigSection::Accounts);
+        let account_ids: HashSet<String> = accounts_value
+            .and_then(|v| v.get("accounts").cloned())
+            .and_then(|arr| arr.as_array().cloned())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|entry| {
+                        entry
+                            .get("accountId")
+                            .and_then(|v| v.as_str())
+                            .map(String::from)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Some(CrossRefData {
+            agent_ids,
+            account_ids,
+        })
+    }
+
+    /// Build credential cross-reference data for models validation.
+    ///
+    /// Extracts credential provider names from the in-memory Credentials section.
+    pub fn build_models_cross_ref(&self) -> Option<CredentialProviderSet> {
+        let creds_value = self.get_section_value(ConfigSection::Credentials);
+        let names: HashSet<String> = creds_value
+            .and_then(|v| v.get("providers").cloned())
+            .and_then(|obj| obj.as_object().cloned())
+            .map(|obj| obj.keys().cloned().collect())
+            .unwrap_or_default();
+        Some(CredentialProviderSet { names })
     }
 
     /// Subscribe to config snapshot broadcasts.
@@ -859,51 +919,6 @@ impl ConfigManager {
 
         infos
     }
-}
-
-/// Build cross-reference data for channels binding validation
-/// during the update path.
-fn build_channels_cross_ref_for_update(config_manager: &ConfigManager) -> Option<CrossRefData> {
-    let agent_ids: HashSet<String> = config_manager
-        .agents
-        .read()
-        .expect("RwLock for agents was poisoned")
-        .keys()
-        .cloned()
-        .collect();
-    let accounts_value = config_manager.get_section_value(ConfigSection::Accounts);
-    let account_ids: HashSet<String> = accounts_value
-        .and_then(|v| v.get("accounts").cloned())
-        .and_then(|arr| arr.as_array().cloned())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|entry| {
-                    entry
-                        .get("accountId")
-                        .and_then(|v| v.as_str())
-                        .map(String::from)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    Some(CrossRefData {
-        agent_ids,
-        account_ids,
-    })
-}
-
-/// Build credential cross-reference data for models validation
-/// during the update path.
-fn build_models_cross_ref_for_update(
-    config_manager: &ConfigManager,
-) -> Option<CredentialProviderSet> {
-    let creds_value = config_manager.get_section_value(ConfigSection::Credentials);
-    let names: HashSet<String> = creds_value
-        .and_then(|v| v.get("providers").cloned())
-        .and_then(|obj| obj.as_object().cloned())
-        .map(|obj| obj.keys().cloned().collect())
-        .unwrap_or_default();
-    Some(CredentialProviderSet { names })
 }
 
 #[cfg(test)]

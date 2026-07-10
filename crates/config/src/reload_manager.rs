@@ -16,7 +16,6 @@ use tracing::{debug, info, warn};
 
 use crate::events::ConfigChangeEvent;
 use crate::manager::{ConfigLoadError, ConfigManager, ConfigSection};
-use crate::validators::{CredentialProviderSet, CrossRefData};
 
 /// Default debounce duration for file change events.
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -187,10 +186,10 @@ impl ConfigReloadManager {
                 None => crate::validators::validate_accounts(&value, None),
             }
         } else if section == ConfigSection::Channels {
-            let cross_ref = build_channels_cross_ref(&self.config_manager);
+            let cross_ref = self.config_manager.build_channels_cross_ref();
             crate::validators::validate_channels_with_refs(&value, cross_ref.as_ref())
         } else if section == ConfigSection::Models {
-            let credential_providers = build_models_cross_ref(&self.config_manager);
+            let credential_providers = self.config_manager.build_models_cross_ref();
             crate::validators::validate_models_with_refs(&value, credential_providers.as_ref())
         } else {
             let validator = section.default_validator();
@@ -450,52 +449,6 @@ pub fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
                 .on_session_reloaded(&manager.config_manager);
         }
     }
-}
-
-/// Build cross-reference data for channels binding validation.
-///
-/// Extracts registered agent IDs from `ConfigManager.agents` and
-/// account IDs from the in-memory Accounts section.
-fn build_channels_cross_ref(config_manager: &ConfigManager) -> Option<CrossRefData> {
-    let agent_ids: std::collections::HashSet<String> = config_manager
-        .agents
-        .read()
-        .expect("RwLock for agents was poisoned")
-        .keys()
-        .cloned()
-        .collect();
-    let accounts_value = config_manager.get_section_value(ConfigSection::Accounts);
-    let account_ids: std::collections::HashSet<String> = accounts_value
-        .and_then(|v| v.get("accounts").cloned())
-        .and_then(|arr| arr.as_array().cloned())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|entry| {
-                    entry
-                        .get("accountId")
-                        .and_then(|v| v.as_str())
-                        .map(String::from)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    Some(CrossRefData {
-        agent_ids,
-        account_ids,
-    })
-}
-
-/// Build cross-reference data for models credential validation.
-///
-/// Extracts credential provider names from the in-memory Credentials section.
-fn build_models_cross_ref(config_manager: &ConfigManager) -> Option<CredentialProviderSet> {
-    let creds_value = config_manager.get_section_value(ConfigSection::Credentials);
-    let names: std::collections::HashSet<String> = creds_value
-        .and_then(|v| v.get("providers").cloned())
-        .and_then(|obj| obj.as_object().cloned())
-        .map(|obj| obj.keys().cloned().collect())
-        .unwrap_or_default();
-    Some(CredentialProviderSet { names })
 }
 
 #[cfg(test)]
