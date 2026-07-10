@@ -40,7 +40,8 @@ async fn test_user_and_agent_rule_matching() {
                 .build()
                 .unwrap(),
         )
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .build()
         .unwrap();
 
@@ -82,7 +83,8 @@ async fn test_user_and_agent_rule_user_mismatch() {
                 .build()
                 .unwrap(),
         )
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .build()
         .unwrap();
 
@@ -131,7 +133,8 @@ async fn test_bare_request_uses_agent_only_matching() {
                 .build()
                 .unwrap(),
         )
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .build()
         .unwrap();
 
@@ -178,7 +181,8 @@ async fn test_with_caller_request_still_matches_agent_only_rules() {
                 .build()
                 .unwrap(),
         )
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .build()
         .unwrap();
 
@@ -229,7 +233,8 @@ async fn test_rule_priority_higher_evaluated_first() {
                 .build()
                 .unwrap(),
         )
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .build()
         .unwrap();
 

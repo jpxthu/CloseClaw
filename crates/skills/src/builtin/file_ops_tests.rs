@@ -9,7 +9,8 @@ use tempfile::TempDir;
 
 fn make_allowed_engine() -> Arc<closeclaw_permission::PermissionEngine> {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .rule(
             RuleBuilder::new()
                 .name("allow-file-read")
@@ -147,7 +148,8 @@ fn make_allowed_engine() -> Arc<closeclaw_permission::PermissionEngine> {
 
 fn make_denied_engine() -> Arc<closeclaw_permission::PermissionEngine> {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .build()
         .unwrap();
     Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(ruleset))

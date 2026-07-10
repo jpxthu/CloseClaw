@@ -14,7 +14,8 @@ fn make_ruleset(default_file: Effect, rules: Vec<Rule>) -> PermissionEngine {
     let ruleset = RuleSet {
         rules,
         defaults: super::engine_types::Defaults {
-            file: default_file,
+            file_read: default_file,
+            file_write: default_file,
             command: default_file,
             network: default_file,
             inter_agent: default_file,
@@ -567,7 +568,8 @@ fn test_message_send_non_owner_no_rules() {
 #[test]
 fn test_user_defaults_returns_all_deny() {
     let ud = super::engine_types::Defaults::user_defaults();
-    assert_eq!(ud.file, Effect::Deny);
+    assert_eq!(ud.file_read, Effect::Deny);
+    assert_eq!(ud.file_write, Effect::Deny);
     assert_eq!(ud.command, Effect::Deny);
     assert_eq!(ud.network, Effect::Deny);
     assert_eq!(ud.inter_agent, Effect::Deny);
@@ -616,7 +618,8 @@ fn test_ruleset_deserialize_without_user_defaults() {
         "defaults": {"message": "allow"}
     }"#;
     let ruleset: super::engine_types::RuleSet = serde_json::from_str(json).unwrap();
-    assert_eq!(ruleset.user_defaults.file, Effect::Deny);
+    assert_eq!(ruleset.user_defaults.file_read, Effect::Deny);
+    assert_eq!(ruleset.user_defaults.file_write, Effect::Deny);
     assert_eq!(ruleset.user_defaults.command, Effect::Deny);
     assert_eq!(ruleset.user_defaults.network, Effect::Deny);
     assert_eq!(ruleset.user_defaults.inter_agent, Effect::Deny);

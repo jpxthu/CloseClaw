@@ -390,7 +390,8 @@ mod tests {
 
         let query = Arc::new(MockModeQuery::new().with_mode(agent_id, SessionMode::Plan));
         let ruleset = RuleSetBuilder::new()
-            .default_file(Effect::Allow)
+            .default_file_read(Effect::Allow)
+            .default_file_write(Effect::Allow)
             .default_command(Effect::Allow)
             .default_network(Effect::Allow)
             .default_inter_agent(Effect::Allow)
@@ -408,7 +409,8 @@ mod tests {
 
         let query = Arc::new(MockModeQuery::new().with_mode(agent_id, SessionMode::Normal));
         let ruleset = RuleSetBuilder::new()
-            .default_file(Effect::Allow)
+            .default_file_read(Effect::Allow)
+            .default_file_write(Effect::Allow)
             .default_command(Effect::Allow)
             .default_network(Effect::Allow)
             .default_inter_agent(Effect::Allow)

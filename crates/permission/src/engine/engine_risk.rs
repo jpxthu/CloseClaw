@@ -388,7 +388,8 @@ mod tests {
     #[test]
     fn test_git_path_deny_risk_level_high() {
         let ruleset = RuleSetBuilder::new()
-            .default_file(Effect::Deny)
+            .default_file_read(Effect::Deny)
+            .default_file_write(Effect::Deny)
             .default_command(Effect::Deny)
             .default_network(Effect::Deny)
             .default_inter_agent(Effect::Deny)
@@ -415,7 +416,8 @@ mod tests {
     #[test]
     fn test_normal_path_deny_risk_level_low() {
         let ruleset = RuleSetBuilder::new()
-            .default_file(Effect::Deny)
+            .default_file_read(Effect::Deny)
+            .default_file_write(Effect::Deny)
             .default_command(Effect::Deny)
             .default_network(Effect::Deny)
             .default_inter_agent(Effect::Deny)
@@ -463,7 +465,8 @@ mod tests {
     #[test]
     fn test_auto_mode_config_write_allowed_by_rules() {
         let ruleset = RuleSetBuilder::new()
-            .default_file(Effect::Deny)
+            .default_file_read(Effect::Deny)
+            .default_file_write(Effect::Deny)
             .default_command(Effect::Deny)
             .default_network(Effect::Deny)
             .default_inter_agent(Effect::Deny)
@@ -491,7 +494,8 @@ mod tests {
     #[test]
     fn test_auto_mode_empty_config_write_allowed_by_rules() {
         let ruleset = RuleSetBuilder::new()
-            .default_file(Effect::Deny)
+            .default_file_read(Effect::Deny)
+            .default_file_write(Effect::Deny)
             .default_command(Effect::Deny)
             .default_network(Effect::Deny)
             .default_inter_agent(Effect::Deny)
@@ -519,7 +523,8 @@ mod tests {
     #[test]
     fn test_auto_mode_daemon_config_write_allowed_by_rules() {
         let ruleset = RuleSetBuilder::new()
-            .default_file(Effect::Deny)
+            .default_file_read(Effect::Deny)
+            .default_file_write(Effect::Deny)
             .default_command(Effect::Deny)
             .default_network(Effect::Deny)
             .default_inter_agent(Effect::Deny)

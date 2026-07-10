@@ -12,7 +12,8 @@ use crate::rules::RuleSetBuilder;
 async fn test_creator_rule_short_circuit_caller_creator_id() {
     let ruleset = RuleSetBuilder::new()
         .agent_creator("dev-agent-01", "ou_john")
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .build()
         .unwrap();
 
@@ -38,7 +39,8 @@ async fn test_creator_rule_short_circuit_caller_creator_id() {
 async fn test_creator_rule_short_circuit_agent_creators_map() {
     let ruleset = RuleSetBuilder::new()
         .agent_creator("dev-agent-01", "ou_john")
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .build()
         .unwrap();
 
@@ -64,7 +66,8 @@ async fn test_creator_rule_short_circuit_agent_creators_map() {
 async fn test_creator_rule_not_matching_non_creator() {
     let ruleset = RuleSetBuilder::new()
         .agent_creator("dev-agent-01", "ou_john")
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .build()
         .unwrap();
 
@@ -99,7 +102,8 @@ async fn test_creator_rule_priority_over_explicit_deny() {
                 .build()
                 .unwrap(),
         )
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .build()
         .unwrap();
 
@@ -125,7 +129,8 @@ async fn test_creator_rule_priority_over_explicit_deny() {
 async fn test_creator_rule_caller_creator_id_takes_precedence() {
     let ruleset = RuleSetBuilder::new()
         .agent_creator("dev-agent-01", "ou_john")
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .build()
         .unwrap();
 

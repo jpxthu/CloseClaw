@@ -238,11 +238,15 @@ pub enum ApprovalMode {
 /// Reason a whitelist approval was rejected.
 ///
 /// This is returned when `ApprovalMode::WithWhitelist { .. }` is used for a
-/// high-risk or critical-risk operation.
+/// high-risk or critical-risk operation, or for ConfigWrite requests that
+/// must never be whitelisted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RejectWhitelistReason {
     /// The operation's risk level is too high for whitelisting.
     HighRisk,
+    /// ConfigWrite requests are always high-risk and can never be whitelisted.
+    /// This is a hard-coded constraint independent of RiskLevel.
+    ConfigWrite,
 }
 
 /// A pending approval entry.
@@ -371,6 +375,11 @@ impl ApprovalQueue {
     ) -> Result<bool, RejectWhitelistReason> {
         if matches!(mode, ApprovalMode::WithWhitelist { .. }) {
             if let Some(pending) = self.pending.get(request_id) {
+                // Hard-coded: ConfigWrite can never be whitelisted,
+                // regardless of risk level.
+                if matches!(pending.request, PermissionRequestBody::ConfigWrite { .. }) {
+                    return Err(RejectWhitelistReason::ConfigWrite);
+                }
                 match pending.risk_level {
                     RiskLevel::High | RiskLevel::Critical => {
                         return Err(RejectWhitelistReason::HighRisk);
