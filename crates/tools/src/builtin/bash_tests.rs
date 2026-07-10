@@ -92,6 +92,10 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
     async fn get_task(&self, task_id: &str) -> Option<closeclaw_tasks::BackgroundTask> {
         self.tasks.read().await.get(task_id).cloned()
     }
+    async fn drain_notifications(&self) -> Vec<closeclaw_tasks::CompletionNotification> {
+        vec![]
+    }
+    async fn cleanup_finished(&self) {}
 }
 
 fn test_session_manager() -> Arc<closeclaw_gateway::SessionManager> {
