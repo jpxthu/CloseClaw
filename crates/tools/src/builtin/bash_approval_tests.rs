@@ -109,6 +109,10 @@ fn make_bg_manager() -> Arc<dyn closeclaw_tasks::TaskManager> {
         async fn get_task(&self, _task_id: &str) -> Option<closeclaw_tasks::BackgroundTask> {
             None
         }
+        async fn drain_notifications(&self) -> Vec<closeclaw_tasks::CompletionNotification> {
+            vec![]
+        }
+        async fn cleanup_finished(&self) {}
     }
     Arc::new(DummyTaskManager)
 }
