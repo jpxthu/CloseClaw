@@ -97,7 +97,7 @@ fn make_test_ruleset() -> RuleSet {
                 .build()
                 .unwrap(),
         )
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
