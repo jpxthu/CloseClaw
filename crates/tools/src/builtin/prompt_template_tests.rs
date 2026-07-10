@@ -11,15 +11,15 @@ use super::prompt_template::PromptTemplate;
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_from_str_verification_returns_ok() {
-    let result = PromptTemplate::from_str("verification");
+fn test_from_str_validation_returns_ok() {
+    let result = PromptTemplate::from_str("validation");
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), PromptTemplate::Verification);
+    assert_eq!(result.unwrap(), PromptTemplate::Validation);
 }
 
 #[test]
-fn test_to_string_verification() {
-    assert_eq!(PromptTemplate::Verification.to_string(), "verification");
+fn test_to_string_validation() {
+    assert_eq!(PromptTemplate::Validation.to_string(), "validation");
 }
 
 #[test]
@@ -59,15 +59,15 @@ fn test_to_string_executor() {
 }
 
 // ---------------------------------------------------------------------------
-// Backward-compat: old "validation" value rejected
+// Backward-compat: old "verification" value rejected
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_from_str_validation_rejected() {
-    let result = PromptTemplate::from_str("validation");
+fn test_from_str_verification_rejected() {
+    let result = PromptTemplate::from_str("verification");
     assert!(
         result.is_err(),
-        "old value \"validation\" must no longer be accepted"
+        "old value \"verification\" must no longer be accepted"
     );
 }
 
@@ -91,7 +91,7 @@ fn test_from_str_unknown_value_rejected() {
 fn test_all_variants_round_trip() {
     let variants = [
         ("explore", PromptTemplate::Explore),
-        ("verification", PromptTemplate::Verification),
+        ("validation", PromptTemplate::Validation),
         ("plan", PromptTemplate::Plan),
         ("executor", PromptTemplate::Executor),
     ];
@@ -111,7 +111,7 @@ fn test_all_variants_round_trip() {
 fn test_all_variants_unique_string_values() {
     let all = [
         PromptTemplate::Explore,
-        PromptTemplate::Verification,
+        PromptTemplate::Validation,
         PromptTemplate::Plan,
         PromptTemplate::Executor,
     ];
@@ -127,53 +127,53 @@ fn test_all_variants_unique_string_values() {
 }
 
 // ---------------------------------------------------------------------------
-// Tool whitelist: Verification gets read-only + Bash
+// Tool whitelist: Validation gets read-only + Bash
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_verification_default_tools_non_empty() {
-    let tools = PromptTemplate::Verification
+fn test_validation_default_tools_non_empty() {
+    let tools = PromptTemplate::Validation
         .default_allowed_tools()
-        .expect("Verification should have default tools");
+        .expect("Validation should have default tools");
     assert!(!tools.is_empty());
 }
 
 #[test]
-fn test_verification_includes_bash() {
-    let tools = PromptTemplate::Verification
+fn test_validation_includes_bash() {
+    let tools = PromptTemplate::Validation
         .default_allowed_tools()
-        .expect("Verification should have default tools");
+        .expect("Validation should have default tools");
     assert!(
         tools.contains(&"Bash"),
-        "Verification must include Bash for running test scripts"
+        "Validation must include Bash for running test scripts"
     );
 }
 
 #[test]
-fn test_verification_no_write_tools() {
-    let tools = PromptTemplate::Verification
+fn test_validation_no_write_tools() {
+    let tools = PromptTemplate::Validation
         .default_allowed_tools()
-        .expect("Verification should have default tools");
+        .expect("Validation should have default tools");
     assert!(!tools.contains(&"Write"));
     assert!(!tools.contains(&"Edit"));
     assert!(!tools.contains(&"GitCommit"));
 }
 
 #[test]
-fn test_verification_includes_read_tools() {
-    let tools = PromptTemplate::Verification
+fn test_validation_includes_read_tools() {
+    let tools = PromptTemplate::Validation
         .default_allowed_tools()
-        .expect("Verification should have default tools");
+        .expect("Validation should have default tools");
     assert!(tools.contains(&"Read"));
     assert!(tools.contains(&"Grep"));
     assert!(tools.contains(&"Ls"));
 }
 
 #[test]
-fn test_verification_no_approval_tool() {
-    let tools = PromptTemplate::Verification
+fn test_validation_no_approval_tool() {
+    let tools = PromptTemplate::Validation
         .default_allowed_tools()
-        .expect("Verification should have default tools");
+        .expect("Validation should have default tools");
     assert!(!tools.contains(&"plan_approval"));
 }
 
@@ -280,7 +280,7 @@ fn test_read_only_templates_excludes_approval() {
     let templates = [
         PromptTemplate::Explore,
         PromptTemplate::Plan,
-        PromptTemplate::Verification,
+        PromptTemplate::Validation,
     ];
     for tpl in &templates {
         let tools = tpl
@@ -295,7 +295,7 @@ fn test_all_templates_have_consistent_read_tools() {
     let templates = [
         PromptTemplate::Explore,
         PromptTemplate::Plan,
-        PromptTemplate::Verification,
+        PromptTemplate::Validation,
     ];
     for tpl in &templates {
         let tools = tpl
@@ -311,7 +311,7 @@ fn test_all_templates_have_consistent_read_tools() {
 fn test_prefixes_all_non_empty() {
     let templates = [
         PromptTemplate::Explore,
-        PromptTemplate::Verification,
+        PromptTemplate::Validation,
         PromptTemplate::Plan,
         PromptTemplate::Executor,
     ];
