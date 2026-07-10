@@ -137,28 +137,11 @@ impl ConfigReloadManager {
             }
         };
 
-        // Step 2: backup old in-memory value before replacing
-        let old_value = self.config_manager.get_section_value(section);
-        if let Some(ref old) = old_value {
-            let old_json = serde_json::to_string(old).unwrap_or_default();
-            if let Err(e) = self
-                .config_manager
-                .backup_manager()
-                .backup_with_content(&path, old_json.as_bytes())
-            {
-                warn!(
-                    path = %path.display(),
-                    error = %e,
-                    "failed to backup config content before reload"
-                );
-            }
-        }
-
-        // Step 3: parse JSON
+        // Step 2: parse JSON
         let value: serde_json::Value = match serde_json::from_str(&content) {
             Ok(v) => v,
             Err(e) => {
-                if old_value.is_none() {
+                if self.config_manager.get_section_value(section).is_none() {
                     self.config_manager.block_section(section);
                 }
                 self.config_manager
@@ -174,7 +157,7 @@ impl ConfigReloadManager {
             }
         };
 
-        // Step 4: validate
+        // Step 3: validate
         let validate_result = if section == ConfigSection::Accounts {
             let channels_value = self
                 .config_manager
@@ -196,7 +179,7 @@ impl ConfigReloadManager {
             validator(&value)
         };
         if let Err(msg) = validate_result {
-            if old_value.is_none() {
+            if self.config_manager.get_section_value(section).is_none() {
                 self.config_manager.block_section(section);
             }
             self.config_manager
@@ -206,6 +189,23 @@ impl ConfigReloadManager {
                     error: msg.clone(),
                 });
             return Err(ConfigLoadError::ValidationError { path, message: msg });
+        }
+
+        // Step 4: backup old in-memory value after validation passes
+        let old_value = self.config_manager.get_section_value(section);
+        if let Some(ref old) = old_value {
+            let old_json = serde_json::to_string(old).unwrap_or_default();
+            if let Err(e) = self
+                .config_manager
+                .backup_manager()
+                .backup_with_content(&path, old_json.as_bytes())
+            {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "failed to backup config content before reload"
+                );
+            }
         }
 
         // Step 5: success — update cache and broadcast snapshot
