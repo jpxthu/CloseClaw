@@ -578,6 +578,15 @@ impl SessionManager {
             Ok(Some(cp)) => cp,
             _ => return,
         };
+        // Sync pending_messages from ConversationSession so checkpoint
+        // reflects the post-compaction state (design doc §数据流).
+        {
+            let conv_sessions = self.conversation_sessions.read().await;
+            if let Some(cs) = conv_sessions.get(session_id) {
+                let cs = cs.read().await;
+                cp.pending_messages = cs.get_pending_messages();
+            }
+        }
         cp.touch();
         if let Err(e) = storage.save_checkpoint(&cp).await {
             warn!(
