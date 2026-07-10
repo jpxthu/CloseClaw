@@ -1,5 +1,4 @@
 use super::engine_eval::PermissionEngine;
-use super::engine_risk::RiskLevel;
 use super::engine_types::{
     Caller, Effect, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
@@ -341,7 +340,7 @@ fn test_auto_mode_low_risk_command_exec_allowed() {
 }
 
 #[test]
-fn test_auto_mode_non_daemon_config_write_requires_approval() {
+fn test_auto_mode_config_write_allowed_by_rules() {
     let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
     let engine = make_permissive_engine(query);
     let resp = engine.evaluate(
@@ -351,26 +350,19 @@ fn test_auto_mode_non_daemon_config_write_requires_approval() {
         }),
         None,
     );
-    match resp {
-        PermissionResponse::ApprovalRequired {
-            risk_level, rule, ..
-        } => {
-            assert_eq!(risk_level, RiskLevel::Critical);
-            assert_eq!(rule, "<auto_mode_risk_gate>");
-        }
-        other => panic!(
-            "Auto mode + non-daemon config write should require approval (Critical risk), got: {:?}",
-            other
-        ),
-    }
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "Auto mode + permissive config rule should allow config write, got: {:?}",
+        resp
+    );
 }
 
 // ---------------------------------------------------------------------------
-// Auto mode: high risk → approval required
+// Auto mode: risk gate removed — high/critical risk allowed by rules
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_auto_mode_high_risk_git_path_requires_approval() {
+fn test_auto_mode_high_risk_git_path_allowed() {
     let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
     let engine = make_permissive_engine(query);
     let resp = engine.evaluate(
@@ -381,25 +373,15 @@ fn test_auto_mode_high_risk_git_path_requires_approval() {
         }),
         None,
     );
-    match resp {
-        PermissionResponse::ApprovalRequired {
-            risk_level,
-            rule,
-            operation_desc,
-        } => {
-            assert_eq!(risk_level, RiskLevel::High);
-            assert_eq!(rule, "<auto_mode_risk_gate>");
-            assert!(operation_desc.contains(".git"));
-        }
-        other => panic!(
-            "Auto mode + high risk should require approval, got: {:?}",
-            other
-        ),
-    }
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "Auto mode + high risk should be allowed (risk gate removed), got: {:?}",
+        resp
+    );
 }
 
 #[test]
-fn test_auto_mode_high_risk_bare_rm_rf_requires_approval() {
+fn test_auto_mode_high_risk_bare_rm_rf_allowed() {
     let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
     let engine = make_permissive_engine(query);
     let resp = engine.evaluate(
@@ -410,22 +392,15 @@ fn test_auto_mode_high_risk_bare_rm_rf_requires_approval() {
         }),
         None,
     );
-    match resp {
-        PermissionResponse::ApprovalRequired {
-            risk_level, rule, ..
-        } => {
-            assert_eq!(risk_level, RiskLevel::High);
-            assert_eq!(rule, "<auto_mode_risk_gate>");
-        }
-        other => panic!(
-            "Auto mode + high risk (rm -rf) should require approval, got: {:?}",
-            other
-        ),
-    }
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "Auto mode + high risk (rm -rf) should be allowed (risk gate removed), got: {:?}",
+        resp
+    );
 }
 
 #[test]
-fn test_auto_mode_critical_risk_permissions_json_requires_approval() {
+fn test_auto_mode_critical_risk_permissions_json_allowed() {
     let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
     let engine = make_permissive_engine(query);
     let resp = engine.evaluate(
@@ -436,22 +411,15 @@ fn test_auto_mode_critical_risk_permissions_json_requires_approval() {
         }),
         None,
     );
-    match resp {
-        PermissionResponse::ApprovalRequired {
-            risk_level, rule, ..
-        } => {
-            assert_eq!(risk_level, RiskLevel::Critical);
-            assert_eq!(rule, "<auto_mode_risk_gate>");
-        }
-        other => panic!(
-            "Auto mode + critical risk should require approval, got: {:?}",
-            other
-        ),
-    }
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "Auto mode + critical risk should be allowed (risk gate removed), got: {:?}",
+        resp
+    );
 }
 
 #[test]
-fn test_auto_mode_critical_risk_daemon_config_requires_approval() {
+fn test_auto_mode_critical_risk_daemon_config_allowed() {
     let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
     let engine = make_permissive_engine(query);
     let resp = engine.evaluate(
@@ -461,18 +429,11 @@ fn test_auto_mode_critical_risk_daemon_config_requires_approval() {
         }),
         None,
     );
-    match resp {
-        PermissionResponse::ApprovalRequired {
-            risk_level, rule, ..
-        } => {
-            assert_eq!(risk_level, RiskLevel::Critical);
-            assert_eq!(rule, "<auto_mode_risk_gate>");
-        }
-        other => panic!(
-            "Auto mode + critical risk (daemon config) should require approval, got: {:?}",
-            other
-        ),
-    }
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "Auto mode + critical risk (daemon config) should be allowed (risk gate removed), got: {:?}",
+        resp
+    );
 }
 
 // ---------------------------------------------------------------------------

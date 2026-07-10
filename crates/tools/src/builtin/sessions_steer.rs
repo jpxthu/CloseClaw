@@ -130,11 +130,6 @@ impl Tool for SessionsSteerTool {
         match response {
             PermissionResponse::Denied {
                 reason, risk_level, ..
-            }
-            | PermissionResponse::ApprovalRequired {
-                operation_desc: reason,
-                risk_level,
-                ..
             } => {
                 let caller = Caller {
                     user_id: String::new(),

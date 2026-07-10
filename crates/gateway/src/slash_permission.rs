@@ -15,7 +15,6 @@ use closeclaw_common::slash_router::{
 };
 use closeclaw_config::agents::{AgentPermissionProvider, LazyAgentPermissions};
 use closeclaw_permission::approval::WhitelistTarget;
-use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
@@ -208,40 +207,6 @@ impl Gateway {
                     .await;
                 return false;
             }
-            PermissionResponse::ApprovalRequired {
-                operation_desc,
-                risk_level,
-                ..
-            } => {
-                let flow_guard = self.approval_flow.read().await;
-                if let Some(flow) = flow_guard.as_ref() {
-                    let mut flow = flow.lock().await;
-                    if flow
-                        .submit_denial(
-                            &Caller {
-                                user_id: sender_id.unwrap_or("owner").to_owned(),
-                                agent: agent_id.clone(),
-                                creator_id: String::new(),
-                            },
-                            &PermissionRequestBody::SlashCommand {
-                                agent: agent_id,
-                                command: cmd.to_owned(),
-                            },
-                            risk_level,
-                            session_id,
-                            false,
-                        )
-                        .is_some()
-                    {
-                        self.send_reply_if_available(&format!("⏳ 操作需要审批：{operation_desc}"))
-                            .await;
-                        return false;
-                    }
-                }
-                self.send_reply_if_available(&format!("无权限：{operation_desc}"))
-                    .await;
-                return false;
-            }
             _ => {}
         }
         true
@@ -355,12 +320,10 @@ impl Gateway {
         let session_mgr: Arc<dyn closeclaw_common::SessionLookup> =
             self.session_manager.clone() as Arc<dyn closeclaw_common::SessionLookup>;
         let perm_engine = self.permission_engine.read().await.clone();
-        let af = self.approval_flow.read().await.clone();
         let executor: Arc<dyn SlashEffectExecutor> = Arc::new(GatewaySlashExecutor {
             session_manager: Arc::clone(&self.session_manager),
             session_handler: self.session_handler.clone(),
             permission_engine: perm_engine,
-            approval_flow: af,
         });
         let side_effect_ctx = SideEffectContext {
             session_id: session_id.to_owned(),
@@ -671,7 +634,6 @@ struct GatewaySlashExecutor {
     session_manager: Arc<SessionManager>,
     session_handler: Option<Arc<SessionMessageHandler>>,
     permission_engine: Option<Arc<tokio::sync::RwLock<PermissionEngine>>>,
-    approval_flow: Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>,
 }
 
 #[async_trait::async_trait]
@@ -857,40 +819,6 @@ impl GatewaySlashExecutor {
         match response {
             PermissionResponse::Denied { reason, .. } => {
                 return Err(vec![ContentBlock::Text(format!("无权限：{reason}"))]);
-            }
-            PermissionResponse::ApprovalRequired {
-                operation_desc,
-                risk_level,
-                ..
-            } => {
-                if let Some(ref flow) = self.approval_flow {
-                    let mut flow = flow.lock().await;
-                    if flow
-                        .submit_denial(
-                            &Caller {
-                                user_id: "owner".to_owned(),
-                                agent: agent_id.to_owned(),
-                                creator_id: String::new(),
-                            },
-                            &PermissionRequestBody::CommandExec {
-                                agent: agent_id.to_owned(),
-                                cmd: cmd.to_owned(),
-                                args: args.to_vec(),
-                            },
-                            risk_level,
-                            "",
-                            false,
-                        )
-                        .is_some()
-                    {
-                        return Err(vec![ContentBlock::Text(format!(
-                            "⏳ 操作需要审批：{operation_desc}"
-                        ))]);
-                    }
-                }
-                return Err(vec![ContentBlock::Text(format!(
-                    "无权限：{operation_desc}"
-                ))]);
             }
             _ => {}
         }

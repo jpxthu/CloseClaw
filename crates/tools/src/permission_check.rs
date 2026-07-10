@@ -8,8 +8,8 @@
 //! 2. **Domain dimension** — is the specific operation (FileOp / CommandExec)
 //!    allowed?
 //!
-//! If either level returns `Denied` or `ApprovalRequired`, the denial is
-//! routed through [`ApprovalFlow`] for owner approval.
+//! If either level returns `Denied`, the denial is routed through
+//! [`ApprovalFlow`] for owner approval.
 
 use crate::{ToolCallError, ToolResult};
 use closeclaw_config::ConfigManager;
@@ -50,7 +50,7 @@ pub(crate) enum CommandPermissionResult {
     Denied(String),
 }
 
-/// Route a `Denied` or `ApprovalRequired` response through the approval flow.
+/// Route a `Denied` response through the approval flow.
 ///
 /// On success returns `Ok(Some(ToolResult))` with approval-pending status.
 /// If the approval flow rejects the submission (sub-agent / duplicate),
@@ -66,10 +66,6 @@ async fn route_denial(
 ) -> Result<Option<ToolResult>, ToolCallError> {
     let reason = match response {
         PR::Denied { reason, .. } => reason.clone(),
-        PR::ApprovalRequired {
-            operation_desc: desc,
-            ..
-        } => desc.clone(),
         _ => return Ok(None),
     };
     let mut flow = approval_flow.lock().await;
@@ -84,7 +80,7 @@ async fn route_denial(
     Err(ToolCallError::PermissionDenied(reason))
 }
 
-/// Route a `Denied` / `ApprovalRequired` response for command-level checks.
+/// Route a `Denied` response for command-level checks.
 ///
 /// Returns `PendingApproval` if the approval flow accepted the request,
 /// or `Denied` if the flow rejected it (caller should sandbox the command).
@@ -99,10 +95,6 @@ async fn route_command_denial(
 ) -> CommandPermissionResult {
     let reason = match response {
         PR::Denied { reason, .. } => reason.clone(),
-        PR::ApprovalRequired {
-            operation_desc: desc,
-            ..
-        } => desc.clone(),
         _ => return CommandPermissionResult::Permitted,
     };
     let mut flow = approval_flow.lock().await;
@@ -178,7 +170,7 @@ pub(crate) async fn check_tool_permission(
     .await;
     match response {
         PR::Allowed { .. } => Ok(None),
-        PR::Denied { risk_level, .. } | PR::ApprovalRequired { risk_level, .. } => {
+        PR::Denied { risk_level, .. } => {
             let caller = Caller {
                 user_id: String::new(),
                 agent: ctx.agent_id.clone(),
@@ -231,7 +223,7 @@ pub(crate) async fn check_file_op_permission(
     .await;
     match response {
         PR::Allowed { .. } => Ok(None),
-        PR::Denied { risk_level, .. } | PR::ApprovalRequired { risk_level, .. } => {
+        PR::Denied { risk_level, .. } => {
             let caller = Caller {
                 user_id: String::new(),
                 agent: ctx.agent_id.clone(),
@@ -287,7 +279,7 @@ pub(crate) async fn check_command_permission(
     .await;
     match response {
         PR::Allowed { .. } => CommandPermissionResult::Permitted,
-        PR::Denied { risk_level, .. } | PR::ApprovalRequired { risk_level, .. } => {
+        PR::Denied { risk_level, .. } => {
             let caller = Caller {
                 user_id: String::new(),
                 agent: ctx.agent_id.clone(),

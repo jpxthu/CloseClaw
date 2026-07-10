@@ -461,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn test_auto_mode_deny_config_write_triggers_approval() {
+    fn test_auto_mode_config_write_allowed_by_rules() {
         let ruleset = RuleSetBuilder::new()
             .default_file(Effect::Deny)
             .default_command(Effect::Deny)
@@ -474,7 +474,7 @@ mod tests {
             Arc::new(MockAutoModeQuery::new("test-agent", SessionMode::Auto)),
         );
 
-        // Non-daemon/gateway ConfigWrite — should trigger ApprovalRequired
+        // ConfigWrite with Allow rule → Allowed (risk gate removed)
         let resp = engine.evaluate(
             PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
                 agent: "test-agent".to_string(),
@@ -483,15 +483,13 @@ mod tests {
             None,
         );
         match resp {
-            PermissionResponse::ApprovalRequired { risk_level, .. } => {
-                assert_eq!(risk_level, RiskLevel::Critical);
-            }
-            other => panic!("expected ApprovalRequired, got {:?}", other),
+            PermissionResponse::Allowed { .. } => {}
+            other => panic!("expected Allowed, got {:?}", other),
         }
     }
 
     #[test]
-    fn test_auto_mode_deny_empty_config_write_triggers_approval() {
+    fn test_auto_mode_empty_config_write_allowed_by_rules() {
         let ruleset = RuleSetBuilder::new()
             .default_file(Effect::Deny)
             .default_command(Effect::Deny)
@@ -504,7 +502,7 @@ mod tests {
             Arc::new(MockAutoModeQuery::new("test-agent", SessionMode::Auto)),
         );
 
-        // Empty config_file — should still trigger ApprovalRequired
+        // Empty config_file with Allow rule → Allowed (risk gate removed)
         let resp = engine.evaluate(
             PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
                 agent: "test-agent".to_string(),
@@ -513,15 +511,13 @@ mod tests {
             None,
         );
         match resp {
-            PermissionResponse::ApprovalRequired { risk_level, .. } => {
-                assert_eq!(risk_level, RiskLevel::Critical);
-            }
-            other => panic!("expected ApprovalRequired, got {:?}", other),
+            PermissionResponse::Allowed { .. } => {}
+            other => panic!("expected Allowed, got {:?}", other),
         }
     }
 
     #[test]
-    fn test_auto_mode_deny_daemon_config_write_triggers_approval() {
+    fn test_auto_mode_daemon_config_write_allowed_by_rules() {
         let ruleset = RuleSetBuilder::new()
             .default_file(Effect::Deny)
             .default_command(Effect::Deny)
@@ -534,7 +530,7 @@ mod tests {
             Arc::new(MockAutoModeQuery::new("test-agent", SessionMode::Auto)),
         );
 
-        // daemon ConfigWrite — still triggers ApprovalRequired
+        // daemon ConfigWrite with Allow rule → Allowed (risk gate removed)
         let resp = engine.evaluate(
             PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
                 agent: "test-agent".to_string(),
@@ -543,10 +539,8 @@ mod tests {
             None,
         );
         match resp {
-            PermissionResponse::ApprovalRequired { risk_level, .. } => {
-                assert_eq!(risk_level, RiskLevel::Critical);
-            }
-            other => panic!("expected ApprovalRequired, got {:?}", other),
+            PermissionResponse::Allowed { .. } => {}
+            other => panic!("expected Allowed, got {:?}", other),
         }
     }
 }
