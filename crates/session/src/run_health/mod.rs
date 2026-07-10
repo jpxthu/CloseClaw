@@ -14,6 +14,7 @@
 
 pub mod hard_rules;
 pub mod health_types;
+pub mod snapshot_manager;
 pub mod unhealthy_handler;
 
 pub use hard_rules::{
@@ -24,11 +25,14 @@ pub use health_types::{
     FailureCategory, HardRuleViolation, HealthCheckInput, HealthCheckOutput, HealthStatus,
     RecoverableAction, RetryPolicy,
 };
+pub use snapshot_manager::{RuntimeSnapshotManager, Snapshot, TranscriptOp};
 pub use unhealthy_handler::{BackoffCounter, UnhealthyHandler};
 
 #[cfg(test)]
 mod hard_rules_tests;
 #[cfg(test)]
 mod health_types_tests;
+#[cfg(test)]
+mod snapshot_manager_tests;
 #[cfg(test)]
 mod unhealthy_handler_tests;

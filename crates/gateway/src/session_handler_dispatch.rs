@@ -429,6 +429,12 @@ impl SessionMessageHandler {
                 h.increment_busy();
             }
 
+            // Persist user message to session history so compaction
+            // can extract complete user/assistant conversation context.
+            if let Some(cs) = sm.get_conversation_session(&session_id).await {
+                cs.write().await.append_user_message(&content_for_task);
+            }
+
             // Check if streaming is enabled for this session
             let stream_enabled = if let Some(cs) = sm.get_conversation_session(&session_id).await {
                 cs.read().await.stream_enabled()
