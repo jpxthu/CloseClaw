@@ -361,9 +361,9 @@
   },
   {
     "path": "docs/design/permission/permission-dimensions.md",
-    "commit": "7ce44303b6674f753b8a717af9e5378196c488cd",
-    "commit_time": "2026-07-09T11:54:55+08:00",
-    "confirmed_time": "2026-07-09T12:04:15.239255+08:00",
+    "commit": "c71763526d81a6bcbb3a3203f2833d7c8d59e4ab",
+    "commit_time": "2026-07-10T19:04:47+08:00",
+    "confirmed_time": "2026-07-10T19:12:20.949614+08:00",
     "comment": "",
     "blocked_reason": ""
   },
