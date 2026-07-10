@@ -17,7 +17,7 @@ use closeclaw_gateway::session_manager::{ChildSessionInfo, SpawnMode};
 use closeclaw_gateway::{DmScope, GatewayConfig, Message, Session, SessionManager};
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
-use closeclaw_permission::engine::engine_types::{Action, Effect, Rule, Subject};
+use closeclaw_permission::engine::engine_types::{Action, Effect, Rule, RuleSet, Subject};
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
@@ -109,6 +109,7 @@ fn make_mock_approval_flow() -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
+        RuleSet::default(),
     )))
 }
 

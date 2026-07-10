@@ -20,7 +20,7 @@ use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_risk::RiskLevel;
 use closeclaw_permission::engine::engine_types::{
     Action, Caller, Effect, PermissionRequest, PermissionRequestBody, PermissionResponse, Rule,
-    Subject,
+    RuleSet, Subject,
 };
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_session::bootstrap::BootstrapMode;
@@ -110,6 +110,7 @@ fn make_approval_flow() -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
+        RuleSet::default(),
     )))
 }
 

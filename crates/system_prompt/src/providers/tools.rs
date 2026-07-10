@@ -106,6 +106,8 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
+    use closeclaw_permission::engine::engine_types::RuleSet;
+
     #[test]
     fn test_provider_name_and_priority() {
         let registry = Arc::new(ToolRegistry::new());
@@ -176,6 +178,7 @@ mod tests {
                 tokio::runtime::Handle::current(),
                 closeclaw_permission::approval_flow::HeartbeatApprovalMode::default(),
                 tmp.path().to_path_buf(),
+                RuleSet::default(),
             ),
         ));
         let registrars: Vec<Box<dyn closeclaw_tools::ToolRegistrar>> = vec![

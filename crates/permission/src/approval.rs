@@ -12,8 +12,8 @@
 //! ## Single-use approval (`Once` mode)
 //!
 //! ```
-//! use closeclaw::permission::approval::{ApprovalQueue, ApprovalMode};
-//! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody};
+//! use closeclaw::permission::approval::{ApprovalQueue, ApprovalMode, EnqueueRequest};
+//! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
 //! use closeclaw::permission::engine::engine_risk::RiskLevel;
 //!
 //! let mut queue = ApprovalQueue::new();
@@ -29,14 +29,17 @@
 //! };
 //! let request_id = queue
 //!     .enqueue(
-//!         request,
-//!         caller,
-//!         "Test operation".to_string(),
-//!         RiskLevel::Medium,
-//!         "session_resume".to_string(),
-//!         Box::new(|result| {
-//!             println!("Result: {:?}", result);
-//!         }),
+//!         EnqueueRequest {
+//!             request,
+//!             caller,
+//!             operation_desc: "Test operation".to_string(),
+//!             risk_level: RiskLevel::Medium,
+//!             session_resume: "session_resume".to_string(),
+//!             callback: Box::new(|result| {
+//!                 println!("Result: {:?}", result);
+//!             }),
+//!         },
+//!         &RuleSet::default(),
 //!     )
 //!     .expect("enqueue succeeded");
 //!
@@ -54,8 +57,8 @@
 //! High and critical risk operations are rejected.
 //!
 //! ```
-//! use closeclaw::permission::approval::{ApprovalQueue, ApprovalMode, WhitelistTarget};
-//! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody};
+//! use closeclaw::permission::approval::{ApprovalQueue, ApprovalMode, EnqueueRequest, WhitelistTarget};
+//! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
 //! use closeclaw::permission::engine::engine_risk::RiskLevel;
 //!
 //! let mut queue = ApprovalQueue::new();
@@ -71,14 +74,17 @@
 //! };
 //! let request_id = queue
 //!     .enqueue(
-//!         request,
-//!         caller,
-//!         "Test operation".to_string(),
-//!         RiskLevel::Low,
-//!         "session_resume".to_string(),
-//!         Box::new(|result| {
-//!             println!("Result: {:?}", result);
-//!         }),
+//!         EnqueueRequest {
+//!             request,
+//!             caller,
+//!             operation_desc: "Test operation".to_string(),
+//!             risk_level: RiskLevel::Low,
+//!             session_resume: "session_resume".to_string(),
+//!             callback: Box::new(|result| {
+//!                 println!("Result: {:?}", result);
+//!             }),
+//!         },
+//!         &RuleSet::default(),
 //!     )
 //!     .expect("enqueue succeeded");
 //!
@@ -98,10 +104,10 @@
 //!
 //! ```
 //! use closeclaw::permission::approval::{
-//!     ApprovalQueue, ApprovalMode, RejectWhitelistReason,
+//!     ApprovalQueue, ApprovalMode, EnqueueRequest, RejectWhitelistReason,
 //!     WhitelistTarget,
 //! };
-//! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody};
+//! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
 //! use closeclaw::permission::engine::engine_risk::RiskLevel;
 //!
 //! let mut queue = ApprovalQueue::new();
@@ -117,14 +123,17 @@
 //! };
 //! let request_id = queue
 //!     .enqueue(
-//!         request,
-//!         caller,
-//!         "Dangerous operation".to_string(),
-//!         RiskLevel::High,
-//!         "session_resume".to_string(),
-//!         Box::new(|result| {
-//!             println!("Result: {:?}", result);
-//!         }),
+//!         EnqueueRequest {
+//!             request,
+//!             caller,
+//!             operation_desc: "Dangerous operation".to_string(),
+//!             risk_level: RiskLevel::High,
+//!             session_resume: "session_resume".to_string(),
+//!             callback: Box::new(|result| {
+//!                 println!("Result: {:?}", result);
+//!             }),
+//!         },
+//!         &RuleSet::default(),
 //!     )
 //!     .expect("enqueue succeeded");
 //!
@@ -148,7 +157,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use super::engine::engine_risk::RiskLevel;
-use super::engine::engine_types::{Caller, PermissionRequestBody};
+use super::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
 
 /// Unique identifier for a pending approval request.
 pub type RequestId = String;
@@ -161,6 +170,26 @@ pub type OperationKey = String;
 pub enum ApproveOrDeny {
     Approve,
     Deny,
+}
+
+/// Bundled parameters for [`ApprovalQueue::enqueue`].
+///
+/// Groups the individual enqueue arguments into a single struct to
+/// satisfy clippy's `too_many_arguments` limit while keeping the
+/// public API ergonomic.
+pub struct EnqueueRequest {
+    /// The original permission request body.
+    pub request: PermissionRequestBody,
+    /// Caller that initiated the operation.
+    pub caller: Caller,
+    /// Human-readable operation description.
+    pub operation_desc: String,
+    /// Risk level of the operation.
+    pub risk_level: RiskLevel,
+    /// Session resume handle (opaque token for session continuation).
+    pub session_resume: String,
+    /// Callback invoked when an approval decision is made.
+    pub callback: Callback,
 }
 
 /// Reason why a request was rejected at enqueue time.
@@ -235,6 +264,10 @@ pub struct PendingApproval {
     pub session_resume: String,
     /// When this entry was created.
     pub created_at: DateTime<Utc>,
+    /// Snapshot of the rule version at enqueue time.
+    pub rule_version: String,
+    /// Snapshot of the full rule set at enqueue time (for re-evaluation on approval).
+    pub snapshotted_rules: RuleSet,
 }
 
 /// In-memory queue for pending approval requests.
@@ -284,14 +317,10 @@ impl ApprovalQueue {
     /// if an equivalent request (same body → same operation_key) is already pending.
     pub fn enqueue(
         &mut self,
-        request: PermissionRequestBody,
-        caller: Caller,
-        operation_desc: String,
-        risk_level: RiskLevel,
-        session_resume: String,
-        callback: Callback,
+        req: EnqueueRequest,
+        current_rules: &RuleSet,
     ) -> Result<RequestId, RejectReason> {
-        let operation_key = Self::compute_operation_key(&caller, &request);
+        let operation_key = Self::compute_operation_key(&req.caller, &req.request);
 
         // Check for duplicate by scanning all pending entries.
         let is_duplicate = self
@@ -305,16 +334,18 @@ impl ApprovalQueue {
         let request_id = Uuid::new_v4().to_string();
         let pending = PendingApproval {
             request_id: request_id.clone(),
-            caller,
-            request,
+            caller: req.caller,
+            request: req.request,
             operation_key,
-            operation_desc,
-            risk_level,
-            session_resume,
+            operation_desc: req.operation_desc,
+            risk_level: req.risk_level,
+            session_resume: req.session_resume,
             created_at: Utc::now(),
+            rule_version: current_rules.rule_version.clone(),
+            snapshotted_rules: current_rules.clone(),
         };
 
-        self.callbacks.insert(request_id.clone(), callback);
+        self.callbacks.insert(request_id.clone(), req.callback);
         self.pending.insert(request_id.clone(), pending);
         Ok(request_id)
     }

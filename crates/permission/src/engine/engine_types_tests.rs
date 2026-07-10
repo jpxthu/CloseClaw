@@ -121,3 +121,80 @@ fn test_dimension_name_slash_command() {
     };
     assert_eq!(body.dimension_name(), None);
 }
+
+// ------------------------------------------------------------------
+// RuleSet::compute_version tests
+// ------------------------------------------------------------------
+
+use super::{Effect, Rule, RuleSet, Subject};
+
+fn make_rule(name: &str, agent: &str, effect: Effect) -> Rule {
+    Rule {
+        name: name.to_string(),
+        subject: Subject::AgentOnly {
+            agent: agent.to_string(),
+            match_type: Default::default(),
+        },
+        effect,
+        actions: vec![super::Action::All],
+        template: None,
+        priority: 0,
+    }
+}
+
+#[test]
+fn test_same_rules_produce_same_version() {
+    let mut a = RuleSet {
+        rules: vec![make_rule("r1", "agent1", Effect::Allow)],
+        ..Default::default()
+    };
+    let mut b = RuleSet {
+        rules: vec![make_rule("r1", "agent1", Effect::Allow)],
+        ..Default::default()
+    };
+    a.compute_version();
+    b.compute_version();
+    assert_eq!(a.rule_version, b.rule_version);
+}
+
+#[test]
+fn test_different_rules_produce_different_version() {
+    let mut a = RuleSet {
+        rules: vec![make_rule("r1", "agent1", Effect::Allow)],
+        ..Default::default()
+    };
+    let mut b = RuleSet {
+        rules: vec![make_rule("r1", "agent1", Effect::Deny)],
+        ..Default::default()
+    };
+    a.compute_version();
+    b.compute_version();
+    assert_ne!(a.rule_version, b.rule_version);
+}
+
+#[test]
+fn test_empty_ruleset_produces_valid_hash() {
+    let mut rs = RuleSet::default();
+    assert!(rs.rule_version.is_empty());
+    rs.compute_version();
+    assert!(!rs.rule_version.is_empty());
+    assert_eq!(rs.rule_version.len(), 64); // SHA-256 hex = 64 chars
+}
+
+#[test]
+fn test_rule_version_skipped_in_serde() {
+    let mut rs = RuleSet {
+        rules: vec![make_rule("r1", "agent1", Effect::Allow)],
+        ..Default::default()
+    };
+    rs.compute_version();
+    let json = serde_json::to_string(&rs).unwrap();
+    assert!(!json.contains(&rs.rule_version));
+    assert!(!json.contains("rule_version")); // #[serde(skip)] omits the field entirely
+}
+
+#[test]
+fn test_rule_version_default_is_empty() {
+    let rs = RuleSet::default();
+    assert_eq!(rs.rule_version, "");
+}

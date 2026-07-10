@@ -25,6 +25,7 @@ fn make_ruleset(default_file: Effect, rules: Vec<Rule>) -> PermissionEngine {
         user_defaults: super::engine_types::Defaults::user_defaults(),
         template_includes: vec![],
         agent_creators: HashMap::new(),
+        rule_version: String::new(),
     };
     PermissionEngine::new_with_default_data_root(ruleset)
 }

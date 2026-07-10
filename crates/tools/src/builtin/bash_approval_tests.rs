@@ -16,7 +16,7 @@ use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_risk::RiskLevel;
 use closeclaw_permission::engine::engine_types::{
     Action, Caller, Effect, MatchType, PermissionRequest, PermissionRequestBody,
-    PermissionResponse, Rule, Subject,
+    PermissionResponse, Rule, RuleSet, Subject,
 };
 use closeclaw_permission::rules::RuleSetBuilder;
 use serde_json::json;
@@ -217,6 +217,7 @@ fn make_approval_flow() -> Arc<TokioMutex<ApprovalFlow>> {
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
+        RuleSet::default(),
     )))
 }
 

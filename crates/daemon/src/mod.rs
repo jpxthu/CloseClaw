@@ -28,7 +28,7 @@ use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
-use closeclaw_permission::PermissionEngine;
+use closeclaw_permission::{PermissionEngine, RuleSet};
 use closeclaw_processor_chain as processor_chain;
 use closeclaw_session::persistence::PersistenceService;
 use closeclaw_session::persistence::ReasoningLevel;
@@ -325,8 +325,14 @@ impl Daemon {
     ) -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
         // Build the whitelist-updated callback: reads agent permissions.json,
         // constructs a RuleSet, and reloads the permission engine.
+        //
+        // The approval flow is created after this callback, so we use a
+        // OnceLock to defer the reference. The callback updates both the
+        // permission engine and the approval flow snapshot on hot-reload.
         let pe_clone = Arc::clone(permission_engine);
         let cfg_dir = std::path::PathBuf::from(config_dir);
+        let af_ref = Arc::new(std::sync::OnceLock::<Arc<tokio::sync::Mutex<ApprovalFlow>>>::new());
+        let af_ref_clone = Arc::clone(&af_ref);
         let whitelist_cb: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |agent_id: &str| {
             let path = cfg_dir
                 .join("agents")
@@ -338,7 +344,7 @@ impl Daemon {
                         Ok(ruleset) => {
                             // Best-effort: try_write avoids blocking the approval flow.
                             if let Ok(mut guard) = pe_clone.try_write() {
-                                guard.reload_rules(ruleset);
+                                guard.reload_rules(ruleset.clone());
                                 tracing::info!(
                                     agent = %agent_id,
                                     "whitelist rules reloaded after approval"
@@ -348,6 +354,13 @@ impl Daemon {
                                     agent = %agent_id,
                                     "permission engine write lock contended, skipping hot-reload"
                                 );
+                            }
+                            // Sync approval flow snapshot so subsequent snapshots
+                            // reflect the updated rules.
+                            if let Some(af) = af_ref_clone.get() {
+                                if let Ok(mut af_guard) = af.try_lock() {
+                                    af_guard.update_rules(ruleset);
+                                }
                             }
                         }
                         Err(e) => {
@@ -376,7 +389,22 @@ impl Daemon {
             tokio::runtime::Handle::current(),
             HeartbeatApprovalMode::default(),
             std::path::PathBuf::from(config_dir),
+            RuleSet::default(),
         )));
+        // Wire the approval flow into the whitelist callback so hot-reload
+        // updates the snapshot too (see OnceLock in the callback above).
+        let _ = af_ref.set(Arc::clone(&approval_flow));
+
+        // Sync approval flow snapshot with actual loaded rules.
+        // Without this, the approval flow holds `RuleSet::default()` and
+        // all snapshots would evaluate against empty rules.
+        {
+            let pe_guard = permission_engine.read().await;
+            let engine_rules = pe_guard.rules().clone();
+            drop(pe_guard);
+            approval_flow.lock().await.update_rules(engine_rules);
+        }
+
         gateway.set_approval_flow(Arc::clone(&approval_flow)).await;
         let _builtin_skills = builtin_skills_with_engine_and_approval_flow(
             Arc::clone(permission_engine),

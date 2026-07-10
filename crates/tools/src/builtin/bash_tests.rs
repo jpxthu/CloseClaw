@@ -596,7 +596,7 @@ async fn test_handle_foreground_result_returns_foreground_on_success() {
 // Step 1.5: Two-level permission tests for BashTool
 // ---------------------------------------------------------------------------
 
-use closeclaw_permission::engine::engine_types::{Action, Effect};
+use closeclaw_permission::engine::engine_types::{Action, Effect, RuleSet};
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_permission::Defaults;
 
@@ -653,6 +653,7 @@ fn correct_approval_flow() -> Arc<TokioMutex<ApprovalFlow>> {
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
+        RuleSet::default(),
     )))
 }
 
@@ -665,6 +666,7 @@ fn deny_approval_flow() -> Arc<TokioMutex<ApprovalFlow>> {
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
+        RuleSet::default(),
     )))
 }
 

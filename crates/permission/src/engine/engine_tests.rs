@@ -626,3 +626,224 @@ fn test_workspace_still_allowed_with_default_allow() {
         resp
     );
 }
+
+// ----------------------------------------------------------------------
+// Rule version computation on engine construction
+// ----------------------------------------------------------------------
+
+#[test]
+fn test_engine_new_computes_rule_version() {
+    // PermissionEngine::new() should compute rule_version from the ruleset.
+    let tmp = TempDir::new().unwrap();
+    let ruleset = RuleSetBuilder::new().build().unwrap();
+    let engine = PermissionEngine::new(ruleset, tmp.path().to_path_buf());
+    let version = engine.rules().rule_version.clone();
+    assert!(
+        !version.is_empty(),
+        "rule_version should be computed on new()"
+    );
+}
+
+#[test]
+fn test_engine_reload_computes_rule_version() {
+    // PermissionEngine::reload_rules() should recompute rule_version.
+    let tmp = TempDir::new().unwrap();
+    let ruleset_a = RuleSetBuilder::new().build().unwrap();
+    let mut engine = PermissionEngine::new(ruleset_a, tmp.path().to_path_buf());
+    let version_a = engine.rules().rule_version.clone();
+
+    let ruleset_b = RuleSetBuilder::new().build().unwrap();
+    engine.reload_rules(ruleset_b);
+    let version_b = engine.rules().rule_version.clone();
+
+    assert!(
+        !version_b.is_empty(),
+        "rule_version should be computed on reload_rules()"
+    );
+    // Same defaults → same version
+    assert_eq!(
+        version_a, version_b,
+        "identical rulesets should produce same version"
+    );
+}
+
+#[test]
+fn test_engine_new_different_rules_different_version() {
+    // Two engines with different rules should have different versions.
+    let tmp = TempDir::new().unwrap();
+    let ruleset_a = RuleSetBuilder::new().build().unwrap();
+    let engine_a = PermissionEngine::new(ruleset_a, tmp.path().to_path_buf());
+
+    let ruleset_b = RuleSetBuilder::new()
+        .default_file(Effect::Allow)
+        .build()
+        .unwrap();
+    let engine_b = PermissionEngine::new(ruleset_b, tmp.path().to_path_buf());
+
+    assert_ne!(
+        engine_a.rules().rule_version,
+        engine_b.rules().rule_version,
+        "different rulesets should produce different versions"
+    );
+}
+
+// -------------------------------------------------------------------------
+// evaluate_with_rules tests
+// -------------------------------------------------------------------------
+
+#[test]
+fn test_evaluate_with_rules_uses_external_rules() {
+    // Engine has deny-all defaults; external rules allow the request.
+    let tmp = TempDir::new().unwrap();
+    let engine_rules = RuleSetBuilder::new()
+        .default_file(Effect::Deny)
+        .default_command(Effect::Deny)
+        .default_network(Effect::Deny)
+        .default_inter_agent(Effect::Deny)
+        .default_config(Effect::Deny)
+        .build()
+        .unwrap();
+    let engine = PermissionEngine::new(engine_rules, tmp.path().to_path_buf());
+
+    // Normal evaluate → denied (no matching rule, defaults deny)
+    let resp = engine.evaluate(
+        PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/data/file.txt".to_string(),
+            op: "read".to_string(),
+        }),
+        None,
+    );
+    assert!(
+        matches!(resp, PermissionResponse::Denied { .. }),
+        "expected Denied from engine's own rules"
+    );
+
+    // External rules allow the same request
+    let mut external_rules = RuleSetBuilder::new()
+        .default_file(Effect::Deny)
+        .default_command(Effect::Deny)
+        .default_network(Effect::Deny)
+        .default_inter_agent(Effect::Deny)
+        .default_config(Effect::Deny)
+        .rule(
+            RuleBuilder::new()
+                .name("allow-read")
+                .subject_agent("test-agent")
+                .allow()
+                .action(
+                    ActionBuilder::file("read", vec!["/data/**".to_string()])
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .build()
+        .unwrap();
+    external_rules.compute_version();
+
+    let resp = engine.evaluate_with_rules(
+        PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/data/file.txt".to_string(),
+            op: "read".to_string(),
+        }),
+        None,
+        &external_rules,
+    );
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "expected Allowed from external rules"
+    );
+}
+
+#[test]
+fn test_evaluate_with_rules_different_rules_different_result() {
+    // Two rule sets with opposite effects produce different evaluation results
+    // for the same request.
+    let tmp = TempDir::new().unwrap();
+    let engine_rules = RuleSetBuilder::new().build().unwrap();
+    let engine = PermissionEngine::new(engine_rules, tmp.path().to_path_buf());
+
+    let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
+        agent: "test-agent".to_string(),
+        path: "/data/file.txt".to_string(),
+        op: "read".to_string(),
+    });
+
+    // Rule set A: allow read
+    let mut rules_a = RuleSetBuilder::new()
+        .default_file(Effect::Deny)
+        .rule(
+            RuleBuilder::new()
+                .name("allow-read")
+                .subject_agent("test-agent")
+                .allow()
+                .action(
+                    ActionBuilder::file("read", vec!["/data/**".to_string()])
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .build()
+        .unwrap();
+    rules_a.compute_version();
+
+    // Rule set B: deny read
+    let mut rules_b = RuleSetBuilder::new()
+        .default_file(Effect::Allow)
+        .rule(
+            RuleBuilder::new()
+                .name("deny-read")
+                .subject_agent("test-agent")
+                .deny()
+                .action(
+                    ActionBuilder::file("read", vec!["/data/**".to_string()])
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .build()
+        .unwrap();
+    rules_b.compute_version();
+
+    let resp_a = engine.evaluate_with_rules(request.clone(), None, &rules_a);
+    let resp_b = engine.evaluate_with_rules(request, None, &rules_b);
+
+    assert!(matches!(resp_a, PermissionResponse::Allowed { .. }));
+    assert!(matches!(resp_b, PermissionResponse::Denied { .. }));
+}
+
+#[test]
+fn test_evaluate_with_rules_empty_rules_uses_defaults() {
+    // External rules with empty rule list → defaults apply
+    let tmp = TempDir::new().unwrap();
+    let engine_rules = RuleSetBuilder::new().build().unwrap();
+    let engine = PermissionEngine::new(engine_rules, tmp.path().to_path_buf());
+
+    let mut external_rules = RuleSetBuilder::new()
+        .default_file(Effect::Allow)
+        .default_command(Effect::Allow)
+        .default_network(Effect::Allow)
+        .default_inter_agent(Effect::Allow)
+        .default_config(Effect::Allow)
+        .build()
+        .unwrap();
+    external_rules.compute_version();
+
+    let resp = engine.evaluate_with_rules(
+        PermissionRequest::Bare(PermissionRequestBody::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/any/path".to_string(),
+            op: "read".to_string(),
+        }),
+        None,
+        &external_rules,
+    );
+    assert!(matches!(resp, PermissionResponse::Allowed { .. }));
+}

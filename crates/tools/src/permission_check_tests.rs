@@ -6,7 +6,7 @@ use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
-use closeclaw_permission::engine::engine_types::{Action, Effect, Rule};
+use closeclaw_permission::engine::engine_types::{Action, Effect, Rule, RuleSet};
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_permission::Defaults;
 use std::sync::Arc;
@@ -66,6 +66,7 @@ fn make_af() -> Arc<ApprovalMutex> {
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
+        RuleSet::default(),
     )))
 }
 
@@ -78,6 +79,7 @@ fn make_af_deny() -> Arc<ApprovalMutex> {
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
+        RuleSet::default(),
     )))
 }
 
