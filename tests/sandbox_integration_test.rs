@@ -390,12 +390,6 @@ async fn test_sandbox_evaluate_permission_request() {
                     reason
                 );
             }
-            PermissionResponse::ApprovalRequired { operation_desc, .. } => {
-                panic!(
-                    "expected Allowed with permissive rules, got ApprovalRequired: {}",
-                    operation_desc
-                );
-            }
         }
 
         // Shutdown

@@ -360,9 +360,10 @@ fn test_auto_mode_e2e_low_risk_command_allowed() {
     );
 }
 
-/// Auto mode: high risk (git path write) → ApprovalRequired.
+/// Auto mode: high risk (git path write) → allowed
+/// (risk gate removed; only Deny triggers approval per design doc).
 #[test]
-fn test_auto_mode_e2e_high_risk_git_path_approval() {
+fn test_auto_mode_e2e_high_risk_git_path_allowed() {
     let engine = allow_all_engine_with_mode(SessionMode::Auto);
 
     let resp = engine.evaluate(
@@ -374,26 +375,17 @@ fn test_auto_mode_e2e_high_risk_git_path_approval() {
         None,
     );
 
-    match resp {
-        PermissionResponse::ApprovalRequired {
-            risk_level,
-            rule,
-            operation_desc,
-        } => {
-            assert_eq!(risk_level, closeclaw_permission::engine::RiskLevel::High);
-            assert_eq!(rule, "<auto_mode_risk_gate>");
-            assert!(operation_desc.contains(".git"));
-        }
-        other => panic!(
-            "Auto mode + high risk (git path) should require approval, got: {:?}",
-            other
-        ),
-    }
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "Auto mode + high risk (git path) should be allowed (no risk gate), got: {:?}",
+        resp
+    );
 }
 
-/// Auto mode: high risk (bare rm -rf) → ApprovalRequired.
+/// Auto mode: high risk (bare rm -rf) → allowed
+/// (risk gate removed; only Deny triggers approval per design doc).
 #[test]
-fn test_auto_mode_e2e_high_risk_bare_rm_rf_approval() {
+fn test_auto_mode_e2e_high_risk_bare_rm_rf_allowed() {
     let engine = allow_all_engine_with_mode(SessionMode::Auto);
 
     let resp = engine.evaluate(
@@ -405,23 +397,17 @@ fn test_auto_mode_e2e_high_risk_bare_rm_rf_approval() {
         None,
     );
 
-    match resp {
-        PermissionResponse::ApprovalRequired {
-            risk_level, rule, ..
-        } => {
-            assert_eq!(risk_level, closeclaw_permission::engine::RiskLevel::High);
-            assert_eq!(rule, "<auto_mode_risk_gate>");
-        }
-        other => panic!(
-            "Auto mode + high risk (rm -rf) should require approval, got: {:?}",
-            other
-        ),
-    }
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "Auto mode + high risk (rm -rf) should be allowed (no risk gate), got: {:?}",
+        resp
+    );
 }
 
-/// Auto mode: critical risk (permissions.json write) → ApprovalRequired.
+/// Auto mode: critical risk (permissions.json write) → allowed
+/// (risk gate removed; only Deny triggers approval per design doc).
 #[test]
-fn test_auto_mode_e2e_critical_risk_permissions_json_approval() {
+fn test_auto_mode_e2e_critical_risk_permissions_json_allowed() {
     let engine = allow_all_engine_with_mode(SessionMode::Auto);
 
     let resp = engine.evaluate(
@@ -433,26 +419,17 @@ fn test_auto_mode_e2e_critical_risk_permissions_json_approval() {
         None,
     );
 
-    match resp {
-        PermissionResponse::ApprovalRequired {
-            risk_level, rule, ..
-        } => {
-            assert_eq!(
-                risk_level,
-                closeclaw_permission::engine::RiskLevel::Critical
-            );
-            assert_eq!(rule, "<auto_mode_risk_gate>");
-        }
-        other => panic!(
-            "Auto mode + critical risk (permissions.json) should require approval, got: {:?}",
-            other
-        ),
-    }
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "Auto mode + critical risk (permissions.json) should be allowed (no risk gate), got: {:?}",
+        resp
+    );
 }
 
-/// Auto mode: critical risk (daemon config write) → ApprovalRequired.
+/// Auto mode: critical risk (daemon config write) → allowed
+/// (risk gate removed; only Deny triggers approval per design doc).
 #[test]
-fn test_auto_mode_e2e_critical_risk_daemon_config_approval() {
+fn test_auto_mode_e2e_critical_risk_daemon_config_allowed() {
     let engine = allow_all_engine_with_mode(SessionMode::Auto);
 
     let resp = engine.evaluate(
@@ -463,25 +440,15 @@ fn test_auto_mode_e2e_critical_risk_daemon_config_approval() {
         None,
     );
 
-    match resp {
-        PermissionResponse::ApprovalRequired {
-            risk_level, rule, ..
-        } => {
-            assert_eq!(
-                risk_level,
-                closeclaw_permission::engine::RiskLevel::Critical
-            );
-            assert_eq!(rule, "<auto_mode_risk_gate>");
-        }
-        other => panic!(
-            "Auto mode + critical risk (daemon config) should require approval, got: {:?}",
-            other
-        ),
-    }
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "Auto mode + critical risk (daemon config) should be allowed (no risk gate), got: {:?}",
+        resp
+    );
 }
 
-/// Auto mode: full e2e flow — low risk passes, high risk requires approval,
-/// critical risk requires approval, low risk passes again.
+/// Auto mode: full e2e flow — all operations pass through
+/// (risk gate removed; only Deny triggers approval per design doc).
 #[test]
 fn test_auto_mode_e2e_full_flow() {
     let engine = allow_all_engine_with_mode(SessionMode::Auto);
@@ -498,7 +465,7 @@ fn test_auto_mode_e2e_full_flow() {
     );
     assert!(matches!(resp, PermissionResponse::Allowed { .. }));
 
-    // Step 2: High risk (git path) → approval required
+    // Step 2: High risk (git path) → allowed (no risk gate)
     let resp = engine.evaluate(
         PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: agent_id.to_string(),
@@ -507,9 +474,9 @@ fn test_auto_mode_e2e_full_flow() {
         }),
         None,
     );
-    assert!(matches!(resp, PermissionResponse::ApprovalRequired { .. }));
+    assert!(matches!(resp, PermissionResponse::Allowed { .. }));
 
-    // Step 3: Critical risk (permissions.json) → approval required
+    // Step 3: Critical risk (permissions.json) → allowed (no risk gate)
     let resp = engine.evaluate(
         PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: agent_id.to_string(),
@@ -518,7 +485,7 @@ fn test_auto_mode_e2e_full_flow() {
         }),
         None,
     );
-    assert!(matches!(resp, PermissionResponse::ApprovalRequired { .. }));
+    assert!(matches!(resp, PermissionResponse::Allowed { .. }));
 
     // Step 4: Low risk command → allowed again
     let resp = engine.evaluate(
@@ -553,13 +520,12 @@ fn test_normal_mode_e2e_high_risk_not_gated() {
     );
 }
 
-/// Plan mode: Plan mode filtering takes priority over risk gate
-/// (Plan mode denies write before risk gate can trigger).
+/// Plan mode: Plan mode filtering denies write operations.
 #[test]
-fn test_plan_mode_e2e_write_denied_before_risk_gate() {
+fn test_plan_mode_e2e_write_denied() {
     let engine = allow_all_engine_with_mode(SessionMode::Plan);
 
-    // .git write is high risk, but Plan mode denies it first
+    // .git write is denied by Plan mode filter
     let resp = engine.evaluate(
         PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "test-agent".to_string(),
