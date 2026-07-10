@@ -5,9 +5,39 @@
 //! Deep cross-section validation (e.g., credentials reference resolution)
 //! belongs in the startup path via Provider `validate()` methods.
 
+use std::collections::HashSet;
+
 use crate::manager::ConfigSection;
 use crate::providers::channels::ALLOWED_CHANNEL_TYPES;
 use crate::SectionValidator;
+
+// ---------------------------------------------------------------------------
+// Cross-reference data
+// ---------------------------------------------------------------------------
+
+/// Cross-reference data for validating binding targets.
+///
+/// Carries the set of registered agent IDs and account IDs so that
+/// channel binding validators can verify that referenced agents and
+/// accounts actually exist.  Used by `validate_channels` in the
+/// hot-reload and update paths where cross-section data is available.
+pub struct CrossRefData {
+    /// Set of registered agent IDs.
+    pub agent_ids: HashSet<String>,
+    /// Set of registered account IDs.
+    pub account_ids: HashSet<String>,
+}
+
+/// Set of credential provider names loaded from `config/credentials/`.
+///
+/// Used by `validate_models` to cross-validate that providers in
+/// `models.json` that declare an `apiKey` have a corresponding
+/// credentials provider entry.  Carried by the hot-reload and update
+/// paths where the in-memory credential set is available.
+pub struct CredentialProviderSet {
+    /// Set of credential provider names (map keys from credentials config).
+    pub names: HashSet<String>,
+}
 
 // ---------------------------------------------------------------------------
 // Public helpers
@@ -44,7 +74,25 @@ pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {
 /// - Each model ID must be non-empty.
 /// - `baseUrl`, if present, must start with `http://` or `https://` (or be
 ///   empty/absent).
+///
+/// This is the basic structural validator without cross-section data.
+/// Use [`validate_models_with_refs`] in the hot-reload and update paths
+/// where credential provider names are available for cross-validation.
 fn validate_models(value: &serde_json::Value) -> Result<(), String> {
+    validate_models_with_refs(value, None)
+}
+
+/// Validate the **models** config section with optional credential
+/// cross-reference data.
+///
+/// When `credential_providers` is provided, providers that declare an
+/// `apiKey` field are validated against the loaded credential provider
+/// names — the provider must either have a matching credential entry or
+/// a valid `credentialPath`.
+pub fn validate_models_with_refs(
+    value: &serde_json::Value,
+    credential_providers: Option<&CredentialProviderSet>,
+) -> Result<(), String> {
     ensure_object(value, "models")?;
     if let Some(arr) = value.get("models") {
         ensure_array(arr, "models.models")?;
@@ -56,7 +104,7 @@ fn validate_models(value: &serde_json::Value) -> Result<(), String> {
                 if provider_id.is_empty() {
                     return Err("models provider ID cannot be empty".to_string());
                 }
-                validate_provider(provider_id, provider_val)?;
+                validate_provider(provider_id, provider_val, credential_providers)?;
             }
         }
     }
@@ -64,7 +112,15 @@ fn validate_models(value: &serde_json::Value) -> Result<(), String> {
 }
 
 /// Validate a single provider entry within the models section.
-fn validate_provider(provider_id: &str, provider: &serde_json::Value) -> Result<(), String> {
+///
+/// When `credential_providers` is provided and the provider declares an
+/// `apiKey` field, validates that a matching credential entry exists
+/// (either a loaded provider name or a resolvable `credentialPath`).
+fn validate_provider(
+    provider_id: &str,
+    provider: &serde_json::Value,
+    credential_providers: Option<&CredentialProviderSet>,
+) -> Result<(), String> {
     if !provider.is_object() {
         return Err(format!(
             "models.providers.{} must be a JSON object",
@@ -103,6 +159,30 @@ fn validate_provider(provider_id: &str, provider: &serde_json::Value) -> Result<
                 "models.providers.{}.credentialPath must be a string",
                 provider_id
             ));
+        }
+    }
+    // Cross-validate apiKey: provider must exist in credentials if apiKey is set
+    if let Some(api_key) = provider.get("apiKey") {
+        if api_key.is_string() {
+            if let Some(crps) = credential_providers {
+                let has_credential_path = provider
+                    .get("credentialPath")
+                    .and_then(|v| v.as_str())
+                    .map(|s| !s.is_empty())
+                    .unwrap_or(false);
+                if !has_credential_path && !crps.names.contains(provider_id) {
+                    return Err(format!(
+                        "models.providers.{}.apiKey references an unknown credential provider. \
+                         Known providers: {}",
+                        provider_id,
+                        crps.names
+                            .iter()
+                            .map(String::as_str)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
+            }
         }
     }
     // Validate each model entry
@@ -151,6 +231,17 @@ fn validate_model(provider_id: &str, model: &serde_json::Value) -> Result<(), St
 /// - `bindings` key, if present, must be a JSON array.  Each entry must
 ///   have non-empty `agentId`, `match.channel`, and `match.accountId`.
 fn validate_channels(value: &serde_json::Value) -> Result<(), String> {
+    validate_channels_with_refs(value, None)
+}
+
+/// Validate the **channels** config section with optional cross-reference data.
+///
+/// When `cross_ref` is provided, binding entries are additionally
+/// validated against the registered agent and account ID sets.
+pub fn validate_channels_with_refs(
+    value: &serde_json::Value,
+    cross_ref: Option<&CrossRefData>,
+) -> Result<(), String> {
     ensure_object(value, "channels")?;
 
     // Validate channel type keys
@@ -189,7 +280,7 @@ fn validate_channels(value: &serde_json::Value) -> Result<(), String> {
         ensure_array(bindings, "channels.bindings")?;
         if let Some(arr) = bindings.as_array() {
             for (i, entry) in arr.iter().enumerate() {
-                validate_binding_entry(i, entry, &channel_types)?;
+                validate_binding_entry(i, entry, &channel_types, cross_ref)?;
             }
         }
     }
@@ -202,6 +293,7 @@ fn validate_binding_entry(
     index: usize,
     entry: &serde_json::Value,
     channel_types: &std::collections::HashSet<String>,
+    cross_ref: Option<&CrossRefData>,
 ) -> Result<(), String> {
     if !entry.is_object() {
         return Err(format!(
@@ -258,6 +350,39 @@ fn validate_binding_entry(
         "accountId",
         &format!("channels.bindings[{}].match.accountId", index),
     )?;
+
+    // Cross-reference validation: verify agentId and accountId exist
+    if let Some(cr) = cross_ref {
+        let agent_id = entry.get("agentId").and_then(|v| v.as_str()).unwrap_or("");
+        if !agent_id.is_empty() && !cr.agent_ids.is_empty() && !cr.agent_ids.contains(agent_id) {
+            let known: Vec<&str> = cr.agent_ids.iter().map(String::as_str).collect();
+            return Err(format!(
+                "channels.bindings[{}].agentId '{}' references an unknown agent. \
+                 Known agents: {}",
+                index,
+                agent_id,
+                known.join(", ")
+            ));
+        }
+        let account_id = match_obj
+            .get("accountId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if !account_id.is_empty()
+            && !cr.account_ids.is_empty()
+            && !cr.account_ids.contains(account_id)
+        {
+            let known: Vec<&str> = cr.account_ids.iter().map(String::as_str).collect();
+            return Err(format!(
+                "channels.bindings[{}].match.accountId '{}' references an unknown \
+                 account. Known accounts: {}",
+                index,
+                account_id,
+                known.join(", ")
+            ));
+        }
+    }
+
     Ok(())
 }
 

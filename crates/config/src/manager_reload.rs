@@ -41,6 +41,7 @@ impl ConfigManager {
             Err(e) => {
                 self.notify_change(ConfigChangeEvent::Failed {
                     section,
+                    path: path.clone(),
                     error: e.to_string(),
                 });
                 return Err(ConfigLoadError::IoError {
@@ -80,6 +81,7 @@ impl ConfigManager {
                 }
                 self.notify_change(ConfigChangeEvent::Failed {
                     section,
+                    path: path.clone(),
                     error: e.to_string(),
                 });
                 return Err(ConfigLoadError::ParseError {
@@ -97,6 +99,7 @@ impl ConfigManager {
                 }
                 self.notify_change(ConfigChangeEvent::Failed {
                     section,
+                    path: path.clone(),
                     error: msg.clone(),
                 });
                 return Err(ConfigLoadError::ValidationError { path, message: msg });
@@ -104,7 +107,7 @@ impl ConfigManager {
         }
 
         // Step 5: success — update in-memory cache and broadcast snapshot
-        self.update_section_cache(section, value);
+        self.update_section_cache(section, path, value);
         Ok(())
     }
 

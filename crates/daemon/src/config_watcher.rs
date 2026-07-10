@@ -34,7 +34,7 @@ fn spawn_config_change_subscriber(
         loop {
             let event = event_rx.recv().await;
             match event {
-                Ok(ConfigChangeEvent::Reloaded { section }) => {
+                Ok(ConfigChangeEvent::Reloaded { section, .. }) => {
                     info!(
                         section = %section,
                         "config change event received, notifying sessions"
@@ -54,7 +54,7 @@ fn spawn_config_change_subscriber(
                         .notify_config_changed(section, snapshot)
                         .await;
                 }
-                Ok(ConfigChangeEvent::Failed { section, error }) => {
+                Ok(ConfigChangeEvent::Failed { section, error, .. }) => {
                     warn!(
                         section = %section,
                         error = %error,

@@ -127,6 +127,7 @@ impl ConfigReloadManager {
                 self.config_manager
                     .notify_change(ConfigChangeEvent::Failed {
                         section,
+                        path: path.clone(),
                         error: e.to_string(),
                     });
                 return Err(ConfigLoadError::IoError {
@@ -163,6 +164,7 @@ impl ConfigReloadManager {
                 self.config_manager
                     .notify_change(ConfigChangeEvent::Failed {
                         section,
+                        path: path.clone(),
                         error: e.to_string(),
                     });
                 return Err(ConfigLoadError::ParseError {
@@ -183,6 +185,12 @@ impl ConfigReloadManager {
                 }
                 None => crate::validators::validate_accounts(&value, None),
             }
+        } else if section == ConfigSection::Channels {
+            let cross_ref = self.config_manager.build_channels_cross_ref();
+            crate::validators::validate_channels_with_refs(&value, cross_ref.as_ref())
+        } else if section == ConfigSection::Models {
+            let credential_providers = self.config_manager.build_models_cross_ref();
+            crate::validators::validate_models_with_refs(&value, credential_providers.as_ref())
         } else {
             let validator = section.default_validator();
             validator(&value)
@@ -194,13 +202,15 @@ impl ConfigReloadManager {
             self.config_manager
                 .notify_change(ConfigChangeEvent::Failed {
                     section,
+                    path: path.clone(),
                     error: msg.clone(),
                 });
             return Err(ConfigLoadError::ValidationError { path, message: msg });
         }
 
         // Step 5: success — update cache and broadcast snapshot
-        self.config_manager.update_section_cache(section, value);
+        self.config_manager
+            .update_section_cache(section, path, value);
         Ok(())
     }
 
