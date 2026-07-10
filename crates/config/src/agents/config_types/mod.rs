@@ -709,7 +709,7 @@ impl AgentPermissions {
 
     /// Compute the intersection of this agent's permissions with a parent's.
     ///
-    /// Seven dimensions: exec, file_read, file_write, network, spawn,
+    /// Seven dimensions: command, file_read, file_write, network, spawn,
     /// tool_call, config_write.
     ///
     /// - Both Allow → Allow
