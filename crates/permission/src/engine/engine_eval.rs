@@ -293,7 +293,6 @@ impl PermissionEngine {
                 result = %match &response {
                     PermissionResponse::Allowed { .. } => "allowed",
                     PermissionResponse::Denied { .. } => "denied",
-                    PermissionResponse::ApprovalRequired { .. } => "approval_required",
                 },
                 reason = "owner_shortcut",
                 "permission check completed"
@@ -354,7 +353,6 @@ impl PermissionEngine {
             result = %match &response {
                 PermissionResponse::Allowed { .. } => "allowed",
                 PermissionResponse::Denied { .. } => "denied",
-                PermissionResponse::ApprovalRequired { .. } => "approval_required",
             },
             reason = "two_phase_merge",
             "permission check completed"
