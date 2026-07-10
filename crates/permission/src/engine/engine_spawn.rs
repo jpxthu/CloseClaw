@@ -94,7 +94,7 @@ impl super::engine_eval::PermissionEngine {
     /// returning an `AgentPermissions` that can be used for spawn-time intersection.
     ///
     /// Iterates over each permission dimension (exec, file_read, file_write, network,
-    /// spawn, tool_call, config_write), constructs a representative request body,
+    /// spawn, tool_call, config_write, message), constructs a representative request body,
     /// evaluates the User phase (UserAndAgent rules only), and collects the results
     /// into an `AgentPermissions`.
     pub fn evaluate_user_permissions(&self, user_id: &str, agent_id: &str) -> AgentPermissions {
@@ -151,6 +151,14 @@ impl super::engine_eval::PermissionEngine {
                 PermissionRequestBody::ConfigWrite {
                     agent: agent_id.to_string(),
                     config_file: String::new(),
+                },
+            ),
+            (
+                "message",
+                PermissionRequestBody::MessageSend {
+                    agent: agent_id.to_string(),
+                    direction: super::engine_types::MessageDirection::Both,
+                    target: String::new(),
                 },
             ),
         ];

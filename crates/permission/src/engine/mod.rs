@@ -55,3 +55,6 @@ mod engine_matching_tests;
 
 #[cfg(test)]
 pub(crate) mod engine_test_providers;
+
+#[cfg(test)]
+mod engine_eval_user_permissions_tests;
