@@ -7,6 +7,7 @@ use chrono::{DateTime, Local};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
@@ -113,7 +114,14 @@ impl std::error::Error for ConfigValidationError {}
 
 /// Write content to a file atomically: write to a temp file, fsync,
 /// then rename to the target path. Cleans up the temp file on failure.
-pub fn write_atomically(path: &Path, content: &[u8]) -> io::Result<()> {
+///
+/// If `file_permissions` is `Some(mode)`, the target file's permission
+/// is set to `mode` (octal, e.g. `0o600`) after the rename.
+pub fn write_atomically(
+    path: &Path,
+    content: &[u8],
+    file_permissions: Option<u32>,
+) -> io::Result<()> {
     let parent = path.parent().unwrap_or(Path::new("."));
     fs::create_dir_all(parent)?;
 
@@ -140,6 +148,13 @@ pub fn write_atomically(path: &Path, content: &[u8]) -> io::Result<()> {
     if let Err(e) = fs::rename(&tmp_path, path) {
         let _ = fs::remove_file(&tmp_path);
         return Err(e);
+    }
+
+    // Set file permissions after rename to ensure the final file has
+    // the correct mode. This is done post-rename so the rename itself
+    // remains atomic.
+    if let Some(mode) = file_permissions {
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
     }
 
     Ok(())
@@ -342,8 +357,20 @@ impl ConfigManager {
             };
 
             // Business validation: reuse the same validators used by hot-reload.
-            let validate = crate::validators::for_section(section);
-            if let Err(msg) = validate(&value) {
+            // For Accounts, pass the channels config for cross-reference validation.
+            let validate_result = if section == ConfigSection::Accounts {
+                let channels_value = sections.get(&ConfigSection::Channels).cloned();
+                match channels_value {
+                    Some(channels_val) => {
+                        crate::validators::validate_accounts(&value, Some(&channels_val))
+                    }
+                    None => crate::validators::validate_accounts(&value, None),
+                }
+            } else {
+                let validate = crate::validators::for_section(section);
+                validate(&value)
+            };
+            if let Err(msg) = validate_result {
                 warn!(
                     section = %section,
                     error = %msg,
@@ -584,9 +611,16 @@ impl ConfigManager {
                 error: e.to_string(),
             })?;
 
-        write_atomically(&path, &content).map_err(|e| ConfigWriteError::WriteFailed {
-            path,
-            error: e.to_string(),
+        let permissions = if section == ConfigSection::Credentials {
+            Some(0o600)
+        } else {
+            None
+        };
+        write_atomically(&path, &content, permissions).map_err(|e| {
+            ConfigWriteError::WriteFailed {
+                path: path.clone(),
+                error: e.to_string(),
+            }
         })?;
 
         // Step 4: update in-memory cache

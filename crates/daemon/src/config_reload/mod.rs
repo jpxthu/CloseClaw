@@ -1,13 +1,15 @@
 //! Config hot-reload module (daemon-level).
 //!
-//! Contains the `ConfigReloadManager` that watches config files for changes
-//! and orchestrates reload via `ConfigManager`. This module stays in the
-//! main crate because it depends on `AgentRegistry` (daemon-level glue code).
+//! Imports `ConfigReloadManager` and `WatcherHandle` from the config crate.
+//! Contains the daemon-specific [`reload::DaemonReloadCallback`] that
+//! handles agent registry sync and permissions reload.
 
 pub mod reload;
 
-// Re-export the main types for convenience
-pub use reload::{ConfigReloadManager, WatcherHandle};
+// Re-export types from config crate for convenience
+pub use closeclaw_config::{ConfigReloadManager, WatcherHandle};
+// Re-export daemon-specific callback
+pub use reload::DaemonReloadCallback;
 
 #[cfg(test)]
 mod manager_reload_tests;
