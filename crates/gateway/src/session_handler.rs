@@ -244,12 +244,7 @@ impl SessionMessageHandler {
                 .compaction_service
                 .lock()
                 .expect("compaction_service poisoned");
-            if let Some(max) = svc.config().max_history_messages {
-                if llm_messages.len() > max {
-                    let drain = llm_messages.len() - max;
-                    llm_messages.drain(..drain);
-                }
-            }
+            truncate_messages(&mut llm_messages, svc.config().max_history_messages);
         }
         let compaction_msgs: Vec<CompactionMessage> = llm_messages
             .iter()
@@ -443,9 +438,17 @@ pub(crate) async fn is_blocking_state(
     sm: &Arc<SessionManager>,
     session_id: &str,
 ) -> bool {
-    let Some((model, llm_messages)) = load_compact_inputs(sm, session_id).await else {
+    let Some((model, mut llm_messages)) = load_compact_inputs(sm, session_id).await else {
         return false;
     };
+    // Apply message truncation before token estimation so that a
+    // configured `max_history_messages` is respected.  Without this,
+    // the function would over-estimate tokens and incorrectly report
+    // Blocking when the effective history is shorter.
+    {
+        let svc_guard = svc.lock().expect("compaction_service poisoned");
+        truncate_messages(&mut llm_messages, svc_guard.config().max_history_messages);
+    }
     let compaction_msgs: Vec<CompactionMessage> = llm_messages
         .iter()
         .map(|m| CompactionMessage {
@@ -472,6 +475,20 @@ async fn load_compact_inputs(
     let model = cs_read.model().to_string();
     let llm_msgs = build_compact_messages(ChatSession::messages(&*cs_read));
     Some((model, llm_msgs))
+}
+
+/// Truncate `llm_messages` to the most recent `max` entries.
+///
+/// If `max` is `None` or the list is already within the limit, this is a
+/// no-op.  System prompts are unaffected because `llm_messages` only
+/// contains user/assistant turns (see [`build_compact_messages`]).
+fn truncate_messages(llm_messages: &mut Vec<ChatMessage>, max: Option<usize>) {
+    if let Some(max) = max {
+        if llm_messages.len() > max {
+            let drain = llm_messages.len() - max;
+            llm_messages.drain(..drain);
+        }
+    }
 }
 /// Run manual `/compact` invocation.
 #[allow(clippy::too_many_arguments)]
