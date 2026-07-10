@@ -18,6 +18,32 @@ use tracing::info;
 // NOTE: Cache fields (agent_permissions, user_effective_permissions) removed per
 // design doc: "权限评估每次新鲜计算，不缓存评估结果"
 
+/// Build O(1) lookup indices from a RuleSet.
+///
+/// Returns `(agent_rule_index, user_agent_rule_index)` used for fast
+/// candidate collection during evaluation.
+pub(crate) fn build_rule_indices(
+    rules: &RuleSet,
+) -> (HashMap<String, Vec<usize>>, HashMap<String, Vec<usize>>) {
+    let mut agent_index: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut user_agent_index: HashMap<String, Vec<usize>> = HashMap::new();
+
+    for (idx, rule) in rules.rules.iter().enumerate() {
+        match &rule.subject {
+            Subject::AgentOnly { agent, .. } => {
+                agent_index.entry(agent.clone()).or_default().push(idx);
+            }
+            Subject::UserAndAgent { user_id, agent, .. } => {
+                let key = format!("{}:{}", user_id, agent);
+                user_agent_index.entry(key).or_default().push(idx);
+                agent_index.entry(agent.clone()).or_default().push(idx);
+            }
+        }
+    }
+
+    (agent_index, user_agent_index)
+}
+
 /// Permission Engine - evaluates access requests against rules
 pub struct PermissionEngine {
     /// RuleSet
@@ -43,7 +69,8 @@ pub struct PermissionEngine {
 
 impl PermissionEngine {
     /// Create a new PermissionEngine from a RuleSet
-    pub fn new(rules: RuleSet, data_root: PathBuf) -> Self {
+    pub fn new(mut rules: RuleSet, data_root: PathBuf) -> Self {
+        rules.compute_version();
         let mut engine = Self {
             rules: rules.clone(),
             agent_rule_index: HashMap::new(),
@@ -64,28 +91,14 @@ impl PermissionEngine {
 
     /// Rebuild the lookup indices from a given ruleset (sync helper).
     pub fn rebuild_indices_with_rules(&mut self, rules: &RuleSet) {
-        let mut agent_index: HashMap<String, Vec<usize>> = HashMap::new();
-        let mut user_agent_index: HashMap<String, Vec<usize>> = HashMap::new();
-
-        for (idx, rule) in rules.rules.iter().enumerate() {
-            match &rule.subject {
-                Subject::AgentOnly { agent, .. } => {
-                    agent_index.entry(agent.clone()).or_default().push(idx);
-                }
-                Subject::UserAndAgent { user_id, agent, .. } => {
-                    let key = format!("{}:{}", user_id, agent);
-                    user_agent_index.entry(key.clone()).or_default().push(idx);
-                    agent_index.entry(agent.clone()).or_default().push(idx);
-                }
-            }
-        }
-
+        let (agent_index, user_agent_index) = build_rule_indices(rules);
         self.agent_rule_index = agent_index;
         self.user_agent_rule_index = user_agent_index;
     }
 
     /// Reload rules from a new RuleSet
-    pub fn reload_rules(&mut self, rules: RuleSet) {
+    pub fn reload_rules(&mut self, mut rules: RuleSet) {
+        rules.compute_version();
         self.rebuild_indices_with_rules(&rules);
         self.rules = rules;
     }
@@ -179,11 +192,54 @@ impl PermissionEngine {
 // --- Evaluation & helpers ---
 
 impl PermissionEngine {
-    /// Evaluate a permission request.
+    /// Evaluate a permission request using the engine's current rules.
     pub fn evaluate(
         &self,
         request: PermissionRequest,
         extra_deny_subjects: Option<Vec<Subject>>,
+    ) -> PermissionResponse {
+        self.evaluate_inner(
+            request,
+            extra_deny_subjects,
+            &self.rules,
+            &self.agent_rule_index,
+            &self.user_agent_rule_index,
+        )
+    }
+
+    /// Evaluate a permission request using an external rule set.
+    ///
+    /// Builds temporary O(1) indices from the provided `rules` and delegates
+    /// to the same evaluation logic as `evaluate()`. This allows re-evaluation
+    /// against a snapshot of rules (e.g., for approval re-evaluation).
+    pub fn evaluate_with_rules(
+        &self,
+        request: PermissionRequest,
+        extra_deny_subjects: Option<Vec<Subject>>,
+        rules: &RuleSet,
+    ) -> PermissionResponse {
+        let (agent_index, user_agent_index) = build_rule_indices(rules);
+        self.evaluate_inner(
+            request,
+            extra_deny_subjects,
+            rules,
+            &agent_index,
+            &user_agent_index,
+        )
+    }
+
+    /// Core evaluation logic shared by `evaluate` and `evaluate_with_rules`.
+    ///
+    /// `agent_rule_index` and `user_agent_rule_index` provide O(1) lookup
+    /// for candidate collection — either from the engine's own cache or from
+    /// temporary indices built for an external rule set.
+    fn evaluate_inner(
+        &self,
+        request: PermissionRequest,
+        extra_deny_subjects: Option<Vec<Subject>>,
+        rules: &RuleSet,
+        agent_rule_index: &HashMap<String, Vec<usize>>,
+        user_agent_rule_index: &HashMap<String, Vec<usize>>,
     ) -> PermissionResponse {
         let caller = request.caller();
         let agent_id = caller.agent.clone();
@@ -253,11 +309,10 @@ impl PermissionEngine {
             return response;
         }
 
-        let rules = self.rules.clone();
-
         // Step 1: Agent phase — collect AgentOnly candidates and evaluate
-        let agent_candidates = self.collect_agent_candidates(&caller, &agent_id, &rules);
-        let agent_result = self.match_rules(&agent_candidates, &rules, &caller, request.body());
+        let agent_candidates =
+            self.collect_agent_candidates_with_index(&caller, &agent_id, rules, agent_rule_index);
+        let agent_result = self.match_rules(&agent_candidates, rules, &caller, request.body());
 
         // Owner shortcut: skip User phase entirely, Agent result is final
         if is_owner {
@@ -279,8 +334,13 @@ impl PermissionEngine {
         }
 
         // Step 2: User phase — collect UserAndAgent candidates and evaluate
-        let user_candidates = self.collect_user_agent_candidates(&caller, &agent_id, &rules);
-        let user_result = self.match_rules(&user_candidates, &rules, &caller, request.body());
+        let user_candidates = self.collect_user_agent_candidates_with_index(
+            &caller,
+            &agent_id,
+            rules,
+            user_agent_rule_index,
+        );
+        let user_result = self.match_rules(&user_candidates, rules, &caller, request.body());
 
         // Step 3: Merge results (two-phase logic)
         let response = match (agent_result, user_result) {
@@ -522,17 +582,18 @@ impl PermissionEngine {
 // --- Candidate collection & rule matching ---
 
 impl PermissionEngine {
-    /// Collect Subject::AgentOnly candidate rule indices via agent_rule_index (O(1)),
+    /// Collect Subject::AgentOnly candidate rule indices via provided index (O(1)),
     /// then via Glob fallback if no exact match (matches AgentOnly only).
-    fn collect_agent_candidates(
+    fn collect_agent_candidates_with_index(
         &self,
         caller: &super::engine_types::Caller,
         agent_id: &str,
         rules: &RuleSet,
+        agent_rule_index: &HashMap<String, Vec<usize>>,
     ) -> Vec<usize> {
         let mut candidates: Vec<usize> = Vec::new();
 
-        if let Some(indices) = self.agent_rule_index.get(agent_id) {
+        if let Some(indices) = agent_rule_index.get(agent_id) {
             let filtered = indices
                 .iter()
                 .filter(|&&idx| rules.rules[idx].subject.is_agent_only())
@@ -552,18 +613,19 @@ impl PermissionEngine {
         candidates
     }
 
-    /// Collect Subject::UserAndAgent candidate rule indices via user_agent_rule_index (O(1)),
+    /// Collect Subject::UserAndAgent candidate rule indices via provided index (O(1)),
     /// then via Glob fallback if no exact match (matches UserAndAgent only).
-    pub(crate) fn collect_user_agent_candidates(
+    pub(crate) fn collect_user_agent_candidates_with_index(
         &self,
         caller: &super::engine_types::Caller,
         agent_id: &str,
         rules: &RuleSet,
+        user_agent_rule_index: &HashMap<String, Vec<usize>>,
     ) -> Vec<usize> {
         let mut candidates: Vec<usize> = Vec::new();
 
         let index_key = format!("{}:{}", caller.user_id, agent_id);
-        if let Some(indices) = self.user_agent_rule_index.get(&index_key) {
+        if let Some(indices) = user_agent_rule_index.get(&index_key) {
             candidates.extend(indices);
         }
 
@@ -577,6 +639,21 @@ impl PermissionEngine {
 
         candidates.sort_by(|&a, &b| rules.rules[b].priority.cmp(&rules.rules[a].priority));
         candidates
+    }
+
+    /// Collect Subject::UserAndAgent candidate rule indices via engine's own index.
+    pub(crate) fn collect_user_agent_candidates(
+        &self,
+        caller: &super::engine_types::Caller,
+        agent_id: &str,
+        rules: &RuleSet,
+    ) -> Vec<usize> {
+        self.collect_user_agent_candidates_with_index(
+            caller,
+            agent_id,
+            rules,
+            &self.user_agent_rule_index,
+        )
     }
 
     /// Steps 3-4: Expand templates, then evaluate rules (deny-precedence).

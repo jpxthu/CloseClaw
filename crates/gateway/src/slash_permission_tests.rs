@@ -610,6 +610,7 @@ async fn test_auto_mode_slash_approval_required_routes_through_flow() {
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
+        RuleSet::default(),
     )));
     let mut flow_guard = flow.lock().await;
     let request_id = flow_guard

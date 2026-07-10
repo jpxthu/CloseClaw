@@ -113,6 +113,7 @@ impl RuleSetBuilder {
             user_defaults: self.user_defaults,
             template_includes: self.template_includes,
             agent_creators: self.agent_creators,
+            rule_version: String::new(),
         })
     }
 

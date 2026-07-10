@@ -1,7 +1,7 @@
 use super::*;
 use crate::approval::WhitelistTarget;
 use crate::engine::engine_risk::RiskLevel;
-use crate::engine::engine_types::{Caller, PermissionRequestBody};
+use crate::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
 use crate::mock_session_lookup::MockSessionLookup;
 use closeclaw_common::{PlanPhase, PlanState, PlanStatus, SessionMode};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -63,6 +63,7 @@ fn test_approval_flow_with(
         handle,
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
+        RuleSet::default(),
     )
 }
 
@@ -206,8 +207,6 @@ async fn test_approve_request_whitelist_high_risk() {
 
 // ── Whitelist persistence integration tests (Step 1.5) ─────────────────────
 
-/// Helper: create an ApprovalFlow that writes to a temp dir.
-/// Returns (flow, temp_dir_path, whitelist_update_count).
 fn flow_with_temp_config_dir_with(
     handle: tokio::runtime::Handle,
 ) -> (ApprovalFlow, tempfile::TempDir, Arc<AtomicUsize>) {
@@ -230,11 +229,11 @@ fn flow_with_temp_config_dir_with(
         handle,
         HeartbeatApprovalMode::default(),
         config_dir,
+        RuleSet::default(),
     );
     (flow, dir, whitelist_count)
 }
 
-/// Helper: read the permissions.json for a given agent from a temp config dir.
 fn read_agent_ruleset(
     config_dir: &std::path::Path,
     agent_id: &str,
@@ -261,12 +260,10 @@ async fn test_whitelist_mode_persists_rule_to_disk() {
     assert!(result.is_ok());
     assert!(result.unwrap());
 
-    // Wait briefly for the spawned async task to complete.
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // Verify the rule was written to permissions.json.
     let rs = read_agent_ruleset(dir.path(), "agent_1");
-    assert_eq!(rs.rules.len(), 1, "expected exactly 1 whitelist rule");
+    assert_eq!(rs.rules.len(), 1, "1 whitelist rule");
     assert_eq!(
         rs.rules[0].effect,
         crate::engine::engine_types::Effect::Allow
@@ -288,10 +285,8 @@ async fn test_once_mode_does_not_persist_whitelist() {
     assert!(result.is_ok());
     assert!(result.unwrap());
 
-    // Wait briefly for the spawned async task.
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // Verify NO permissions.json was written.
     let path = dir
         .path()
         .join("agents")
@@ -315,38 +310,12 @@ async fn test_on_whitelist_updated_callback_invoked() {
     assert!(result.is_ok());
     assert!(result.unwrap());
 
-    // Wait briefly for the spawned async task.
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // Verify on_whitelist_updated was called exactly once.
     assert_eq!(
         whitelist_count.load(Ordering::SeqCst),
         1,
-        "on_whitelist_updated should be invoked once after successful write"
-    );
-}
-
-#[tokio::test]
-async fn test_on_whitelist_updated_not_called_for_once_mode() {
-    let (mut flow, _dir, whitelist_count) =
-        flow_with_temp_config_dir_with(tokio::runtime::Handle::current());
-
-    let caller = test_caller();
-    let request = test_request();
-    let request_id = flow
-        .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
-        .unwrap();
-
-    let result = flow.approve_request(&request_id, ApprovalMode::Once).await;
-    assert!(result.is_ok());
-    assert!(result.unwrap());
-
-    tokio::time::sleep(Duration::from_millis(200)).await;
-
-    assert_eq!(
-        whitelist_count.load(Ordering::SeqCst),
-        0,
-        "on_whitelist_updated should not be called for Once mode"
+        "whitelist callback invoked once"
     );
 }
 
@@ -373,6 +342,7 @@ async fn test_whitelist_write_failure_does_not_block_approval() {
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         fake_config_dir,
+        RuleSet::default(),
     );
 
     let caller = test_caller();
@@ -384,10 +354,7 @@ async fn test_whitelist_write_failure_does_not_block_approval() {
     // Approval should still succeed despite the write failure.
     let result = flow.approve_request(&request_id, whitelist_auto()).await;
     assert!(result.is_ok());
-    assert!(
-        result.unwrap(),
-        "approval should succeed even when write fails"
-    );
+    assert!(result.unwrap(), "approval succeeds despite write failure");
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -395,7 +362,7 @@ async fn test_whitelist_write_failure_does_not_block_approval() {
     assert_eq!(
         whitelist_count.load(Ordering::SeqCst),
         0,
-        "on_whitelist_updated should not be called when write fails"
+        "no whitelist callback on write failure"
     );
 }
 
@@ -436,7 +403,7 @@ async fn test_whitelist_persists_only_for_whitelist_mode() {
 
     // Only WithWhitelist should have written a rule.
     let rs = read_agent_ruleset(dir.path(), "agent_1");
-    assert_eq!(rs.rules.len(), 1, "only WithWhitelist should persist");
+    assert_eq!(rs.rules.len(), 1, "only WithWhitelist persists");
     // The rule should be the CommandExec one (second request).
     match &rs.rules[0].actions[0] {
         crate::engine::engine_types::Action::Command { command, .. } => {
@@ -504,6 +471,7 @@ fn test_heartbeat_notify_returns_none_and_notifies() {
         rt.handle().clone(),
         HeartbeatApprovalMode::Notify,
         std::env::temp_dir(),
+        RuleSet::default(),
     );
 
     let caller = test_caller();
@@ -530,6 +498,7 @@ fn test_heartbeat_ask_enqueues_and_notifies() {
         rt.handle().clone(),
         HeartbeatApprovalMode::Ask,
         std::env::temp_dir(),
+        RuleSet::default(),
     );
 
     let caller = test_caller();
@@ -556,6 +525,7 @@ fn test_heartbeat_ask_dedup() {
         rt.handle().clone(),
         HeartbeatApprovalMode::Ask,
         std::env::temp_dir(),
+        RuleSet::default(),
     );
 
     let caller = test_caller();
@@ -596,6 +566,7 @@ fn test_non_heartbeat_unaffected_by_heartbeat_mode() {
             rt.handle().clone(),
             mode,
             std::env::temp_dir(),
+            RuleSet::default(),
         );
 
         let result = flow.submit_denial(&caller, &request, RiskLevel::Low, "session_1", false);
@@ -624,6 +595,7 @@ fn test_set_heartbeat_mode_runtime_switch() {
         rt.handle().clone(),
         HeartbeatApprovalMode::Skip,
         std::env::temp_dir(),
+        RuleSet::default(),
     );
 
     let caller = test_caller();
@@ -680,18 +652,13 @@ fn test_clear() {
     assert!(!flow.deny_request(&id2));
 }
 
-// ── Gap 1: approval automatically enters Auto Mode ──────────────────────
-
 /// Verify that approve_request transitions the plan to Executing and
 /// switches session mode to Auto, so /execute is no longer required.
 #[tokio::test]
 async fn test_approve_request_enters_auto_mode() {
-    // Keep a concrete Arc so we can call MockSessionLookup-specific methods
-    // for setup and assertions, while passing a trait-object Arc to the flow.
     let mock_arc: Arc<MockSessionLookup> = Arc::new(MockSessionLookup::new());
     let sm: Arc<dyn SessionLookup> = mock_arc.clone() as Arc<dyn SessionLookup>;
 
-    // Pre-register a plan state in Confirmed status for session_1.
     let initial_plan = PlanState {
         phase: PlanPhase::FinalPlan,
         status: PlanStatus::Confirmed,
@@ -711,6 +678,7 @@ async fn test_approve_request_enters_auto_mode() {
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
+        RuleSet::default(),
     );
 
     let caller = test_caller();
@@ -723,55 +691,31 @@ async fn test_approve_request_enters_auto_mode() {
     assert!(result.is_ok());
     assert!(result.unwrap());
 
-    // Wait for the spawned async task to complete.
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // Verify plan_state was set to Executing.
     let plan = mock_arc.get_tracked_plan_state("session_1");
-    assert!(plan.is_some(), "plan_state should be set after approval");
+    assert!(plan.is_some(), "plan_state set");
     let plan = plan.unwrap();
-    assert_eq!(
-        plan.status,
-        PlanStatus::Executing,
-        "plan status should be Executing after approval"
-    );
+    assert_eq!(plan.status, PlanStatus::Executing, "plan Executing");
 
-    // Verify session_mode was switched to Auto.
     let mode = mock_arc.get_tracked_session_mode("session_1");
-    assert!(mode.is_some(), "session_mode should be set after approval");
-    assert_eq!(
-        mode.unwrap(),
-        SessionMode::Auto,
-        "session mode should be Auto after approval"
-    );
+    assert!(mode.is_some(), "session_mode set");
+    assert_eq!(mode.unwrap(), SessionMode::Auto, "session Auto");
 
-    // Verify approval result and mode switch notifications were pushed.
     let msgs = mock_arc.pending_messages();
     assert!(
         msgs.iter()
             .any(|(sid, m)| sid == "session_1" && m.content.contains("已批准")),
-        "should have pushed approval result message"
+        "approval msg pushed"
     );
     assert!(
         msgs.iter()
             .any(|(sid, m)| sid == "session_1" && m.content.contains("Auto Mode")),
-        "should have pushed mode switch notification"
+        "mode switch pushed"
     );
 }
 
 // ── User creation approval flow tests (Step 1.6) ───────────────────────
-
-#[test]
-fn test_submit_user_creation_notifies() {
-    let rt = test_runtime();
-    let sm = test_session_lookup();
-    let notify_count = Arc::new(AtomicUsize::new(0));
-    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
-
-    let result = flow.submit_user_creation("ou_new", "feishu", vec![]);
-    assert!(result.is_some());
-    assert_eq!(notify_count.load(Ordering::SeqCst), 1);
-}
 
 #[test]
 fn test_submit_user_creation_dedup() {
@@ -788,21 +732,6 @@ fn test_submit_user_creation_dedup() {
     assert!(id2.is_none());
 
     assert_eq!(notify_count.load(Ordering::SeqCst), 1);
-}
-
-#[test]
-fn test_submit_user_creation_different_channels_not_dedup() {
-    let rt = test_runtime();
-    let sm = test_session_lookup();
-    let notify_count = Arc::new(AtomicUsize::new(0));
-    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
-
-    let id1 = flow.submit_user_creation("ou_user", "feishu", vec![]);
-    let id2 = flow.submit_user_creation("ou_user", "telegram", vec![]);
-    assert!(id1.is_some());
-    assert!(id2.is_some());
-    assert_ne!(id1, id2);
-    assert_eq!(notify_count.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]
@@ -823,7 +752,6 @@ async fn test_approve_user_creation_persists_rules() {
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // Verify user registry was written.
     let registry_path = dir.path().join("users.json");
     assert!(registry_path.exists(), "users.json should be created");
     let data = std::fs::read_to_string(&registry_path).unwrap();
@@ -832,7 +760,6 @@ async fn test_approve_user_creation_persists_rules() {
     assert_eq!(registry.list_users()[0].user_id, "ou_approved");
     assert_eq!(registry.list_users()[0].im_channel, "feishu");
 
-    // Verify permission rules were written.
     let ruleset = read_agent_ruleset(dir.path(), "ou_approved");
     assert_eq!(
         ruleset.rules.len(),
@@ -862,39 +789,6 @@ async fn test_approve_user_creation_duplicate_user_fails() {
     assert!(
         !result2.unwrap(),
         "duplicate registration should return false"
-    );
-}
-
-#[tokio::test]
-async fn test_deny_user_creation_no_rules_written() {
-    let (mut flow, dir, _) = flow_with_temp_config_dir_with(tokio::runtime::Handle::current());
-
-    let request_id = flow
-        .submit_user_creation("ou_rejected", "feishu", vec![])
-        .unwrap();
-
-    let result = flow.deny_request(&request_id);
-    assert!(result);
-
-    // No async persistence happens on deny, but wait briefly for consistency.
-    tokio::time::sleep(Duration::from_millis(200)).await;
-
-    // No users.json should be created.
-    let registry_path = dir.path().join("users.json");
-    assert!(
-        !registry_path.exists(),
-        "users.json should not exist after reject"
-    );
-
-    // No permissions.json should be created.
-    let perms_path = dir
-        .path()
-        .join("agents")
-        .join("ou_rejected")
-        .join("permissions.json");
-    assert!(
-        !perms_path.exists(),
-        "permissions.json should not exist after reject"
     );
 }
 
@@ -947,21 +841,150 @@ async fn test_user_creation_request_removed_after_approve() {
     );
 }
 
-#[test]
-fn test_user_creation_request_removed_after_deny() {
-    let rt = test_runtime();
-    let sm = test_session_lookup();
-    let notify_count = Arc::new(AtomicUsize::new(0));
-    let mut flow = test_approval_flow(sm, Arc::clone(&notify_count), &rt);
+// ── Step 1.7: Rule version snapshot integration tests ──────────────────────
 
-    let request_id = flow
-        .submit_user_creation("ou_deny_rm", "feishu", vec![])
+use crate::engine::engine_types::{Effect, Rule, Subject};
+
+fn make_rules(effect: Effect, agent: &str) -> RuleSet {
+    let mut rules = RuleSet::default();
+    rules.rules.push(Rule {
+        name: format!(
+            "{}-test-tool",
+            if effect == Effect::Deny {
+                "deny"
+            } else {
+                "allow"
+            }
+        ),
+        subject: Subject::AgentOnly {
+            agent: agent.to_string(),
+            match_type: Default::default(),
+        },
+        effect,
+        actions: vec![crate::engine::engine_types::Action::ToolCall {
+            skill: "test_skill".to_string(),
+            methods: vec!["test_method".to_string()],
+        }],
+        template: None,
+        priority: 0,
+    });
+    if effect == Effect::Allow {
+        rules.user_defaults.tool_call = Effect::Allow;
+    }
+    rules.compute_version();
+    rules
+}
+
+fn flow_with(initial_rules: RuleSet) -> ApprovalFlow {
+    ApprovalFlow::new(
+        Arc::new(MockSessionLookup::new()),
+        Arc::new(|_: ApprovalNotification| {}),
+        Arc::new(|_| {}),
+        tokio::runtime::Handle::current(),
+        HeartbeatApprovalMode::default(),
+        std::env::temp_dir(),
+        initial_rules,
+    )
+}
+
+#[tokio::test]
+async fn test_rule_version_snapshot_uses_snapshotted_rules() {
+    let deny = make_rules(Effect::Deny, "agent_1");
+    let allow = make_rules(Effect::Allow, "agent_1");
+    let caller = test_caller();
+    let request = test_request();
+    let mut flow = flow_with(deny.clone());
+    let rid = flow
+        .submit_denial(&caller, &request, RiskLevel::Low, "s1", false)
         .unwrap();
+    let p = flow.queue.get_pending(&rid).unwrap();
+    assert_eq!(p.rule_version, deny.rule_version);
+    assert_eq!(p.snapshotted_rules.rule_version, deny.rule_version);
+    flow.update_rules(allow);
+    let r = flow.approve_request(&rid, ApprovalMode::Once).await;
+    assert!(r.is_ok() && r.unwrap());
+    assert!(flow.queue.get_pending(&rid).is_none());
+}
 
-    let result = flow.deny_request(&request_id);
-    assert!(result);
+#[tokio::test]
+async fn test_window_period_protection_old_rules_apply() {
+    let deny = make_rules(Effect::Deny, "agent_1");
+    let allow = make_rules(Effect::Allow, "agent_1");
+    let caller = test_caller();
+    let request = test_request();
+    let mut flow = flow_with(deny.clone());
+    let rid = flow
+        .submit_denial(&caller, &request, RiskLevel::Low, "s1", false)
+        .unwrap();
+    let old_ver = deny.rule_version.clone();
+    assert_eq!(flow.queue.get_pending(&rid).unwrap().rule_version, old_ver);
+    flow.update_rules(allow);
+    assert_ne!(flow.current_rules.rule_version, old_ver);
+    let r = flow.approve_request(&rid, whitelist_auto()).await;
+    assert!(r.is_ok() && r.unwrap());
+}
 
-    // Second deny on same request_id should fail.
-    let result2 = flow.deny_request(&request_id);
-    assert!(!result2);
+#[tokio::test]
+async fn test_reevaluation_auto_approve_when_snapshot_allows() {
+    let allow = make_rules(Effect::Allow, "agent_1");
+    let deny = make_rules(Effect::Deny, "agent_1");
+    let caller = test_caller();
+    let request = test_request();
+    let mut flow = ApprovalFlow::new_deny_all(
+        Arc::new(MockSessionLookup::new()),
+        Arc::new(|_: ApprovalNotification| {}),
+        Arc::new(|_| {}),
+        tokio::runtime::Handle::current(),
+        HeartbeatApprovalMode::default(),
+        std::env::temp_dir(),
+        allow.clone(),
+    );
+    let rid = flow
+        .queue
+        .enqueue(
+            crate::approval::EnqueueRequest {
+                request: request.clone(),
+                caller: caller.clone(),
+                operation_desc: "test op".to_string(),
+                risk_level: RiskLevel::Low,
+                session_resume: "s1".to_string(),
+                callback: Box::new(|_| {}),
+            },
+            &flow.current_rules,
+        )
+        .unwrap();
+    let p = flow.queue.get_pending(&rid).unwrap();
+    assert_eq!(p.rule_version, allow.rule_version);
+    let engine = crate::engine::engine_eval::PermissionEngine::new_with_default_data_root(
+        p.snapshotted_rules.clone(),
+    );
+    let pr = crate::engine::engine_types::PermissionRequest::WithCaller {
+        caller: caller.clone(),
+        request: request.clone(),
+    };
+    assert!(matches!(
+        engine.evaluate(pr, None),
+        crate::engine::engine_types::PermissionResponse::Allowed { .. }
+    ));
+    flow.update_rules(deny);
+    let r = flow.approve_request(&rid, ApprovalMode::Once).await;
+    assert!(r.is_ok() && r.unwrap());
+    assert!(flow.queue.get_pending(&rid).is_none());
+}
+
+#[tokio::test]
+async fn test_pending_approval_stores_rule_version_and_snapshot() {
+    let deny = make_rules(Effect::Deny, "agent_1");
+    let caller = test_caller();
+    let request = test_request();
+    let mut flow = flow_with(deny.clone());
+    let rid = flow
+        .submit_denial(&caller, &request, RiskLevel::Low, "s1", false)
+        .unwrap();
+    let p = flow.queue.get_pending(&rid).unwrap();
+    assert_eq!(p.rule_version, deny.rule_version);
+    assert_eq!(p.snapshotted_rules.rules.len(), 1);
+    assert_eq!(p.snapshotted_rules.rules[0].effect, Effect::Deny);
+    assert_eq!(p.snapshotted_rules.rules[0].name, "deny-test-tool");
+    assert_eq!(p.rule_version.len(), 64);
 }

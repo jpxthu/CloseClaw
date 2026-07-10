@@ -106,6 +106,7 @@ mod tests {
     use closeclaw_gateway::{GatewayConfig, SessionManager};
     use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
     use closeclaw_permission::engine::engine_eval::PermissionEngine;
+    use closeclaw_permission::engine::engine_types::RuleSet;
     use closeclaw_permission::rules::RuleSetBuilder;
     use closeclaw_session::bootstrap::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
@@ -133,6 +134,7 @@ mod tests {
             tokio::runtime::Handle::current(),
             HeartbeatApprovalMode::default(),
             std::env::temp_dir(),
+            RuleSet::default(),
         )))
     }
 

@@ -26,15 +26,20 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::engine::engine_eval::PermissionEngine;
 use crate::engine::engine_risk::RiskLevel;
-use crate::engine::engine_types::{Caller, PermissionRequestBody};
+use crate::engine::engine_types::{
+    Caller, PermissionRequest, PermissionRequestBody, PermissionResponse, RuleSet,
+};
 use crate::user_registry::UserRegistry;
 use closeclaw_common::permission_op::{InitialPermissionSet, UserCreationRequest};
 use closeclaw_common::{PendingMessage, PlanPhase, PlanStatus, SessionLookup, SessionMode};
 
 use closeclaw_session::plan_file;
 
-use super::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectWhitelistReason};
+use super::approval::{
+    ApprovalMode, ApprovalQueue, ApproveOrDeny, EnqueueRequest, RejectWhitelistReason,
+};
 
 /// How heartbeat operations are handled when denied by the permission engine.
 ///
@@ -113,6 +118,8 @@ pub struct ApprovalFlow {
     config_dir: PathBuf,
     /// Pending user creation requests keyed by request_id.
     user_creation_requests: HashMap<String, UserCreationRequest>,
+    /// Current effective rule set (snapshot for approval flow).
+    current_rules: RuleSet,
     /// When true, `submit_denial` always returns `None` (silent deny).
     ///
     /// Defaults to `false` in production. Tests set this to `true` to
@@ -151,6 +158,7 @@ impl ApprovalFlow {
         runtime_handle: tokio::runtime::Handle,
         heartbeat_mode: HeartbeatApprovalMode,
         config_dir: PathBuf,
+        initial_rules: RuleSet,
     ) -> Self {
         Self {
             queue: ApprovalQueue::new(),
@@ -161,6 +169,7 @@ impl ApprovalFlow {
             heartbeat_mode,
             config_dir,
             user_creation_requests: HashMap::new(),
+            current_rules: initial_rules,
             force_deny: false,
         }
     }
@@ -177,6 +186,7 @@ impl ApprovalFlow {
         runtime_handle: tokio::runtime::Handle,
         heartbeat_mode: HeartbeatApprovalMode,
         config_dir: PathBuf,
+        initial_rules: RuleSet,
     ) -> Self {
         Self {
             queue: ApprovalQueue::new(),
@@ -187,6 +197,7 @@ impl ApprovalFlow {
             heartbeat_mode,
             config_dir,
             user_creation_requests: HashMap::new(),
+            current_rules: initial_rules,
             force_deny: true,
         }
     }
@@ -216,6 +227,14 @@ impl ApprovalFlow {
     /// recreating the [`ApprovalFlow`].
     pub fn set_heartbeat_mode(&mut self, mode: HeartbeatApprovalMode) {
         self.heartbeat_mode = mode;
+    }
+
+    /// Update the current rule set snapshot.
+    ///
+    /// Called by the permission engine hot-reload path to keep the
+    /// approval flow's rule snapshot in sync with the live rules.
+    pub fn update_rules(&mut self, rules: RuleSet) {
+        self.current_rules = rules;
     }
 
     /// Handle a denied heartbeat operation according to the configured mode.
@@ -331,12 +350,15 @@ impl ApprovalFlow {
         let request_id = self
             .queue
             .enqueue(
-                request.clone(),
-                caller.clone(),
-                operation_desc.clone(),
-                risk_level,
-                session_id.to_string(),
-                callback,
+                EnqueueRequest {
+                    request: request.clone(),
+                    caller: caller.clone(),
+                    operation_desc: operation_desc.clone(),
+                    risk_level,
+                    session_resume: session_id.to_string(),
+                    callback,
+                },
+                &self.current_rules,
             )
             .ok()?;
         (self.on_notify_owner)(ApprovalNotification {
@@ -448,19 +470,62 @@ impl ApprovalFlow {
                 p.session_resume.clone(),
                 p.caller.clone(),
                 p.request.clone(),
+                p.snapshotted_rules.clone(),
+                p.rule_version.clone(),
             )
         });
 
-        let result = self.queue.approve(request_id, mode)?;
+        // Step: Re-evaluate with snapshotted rules to check if the snapshot
+        // rules already allow the operation (owner decision not needed).
+        let effective_mode =
+            if let Some((_, ref caller, ref request, ref snapshotted_rules, ref _rule_version)) =
+                pending_info
+            {
+                let temp_engine =
+                    PermissionEngine::new_with_default_data_root(snapshotted_rules.clone());
+                let perm_request = PermissionRequest::WithCaller {
+                    caller: caller.clone(),
+                    request: request.clone(),
+                };
+                let re_result = temp_engine.evaluate(perm_request, None);
+                match re_result {
+                    PermissionResponse::Allowed { .. } => {
+                        // Design rationale: when the snapshotted rules already allow
+                        // the operation, the operation itself no longer requires
+                        // approval — the rules have already granted permission.
+                        // Owner intervention is unnecessary for an action that the
+                        // rules explicitly permit, so we auto-pass and log for
+                        // observability.
+                        tracing::info!(
+                            request_id = %request_id,
+                            "规则已变更，操作已自动放行"
+                        );
+                        Some(ApprovalMode::Once)
+                    }
+                    _ => {
+                        // Denied or ApprovalRequired → owner decision takes effect.
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+        let final_mode = effective_mode.unwrap_or(mode);
+        let result = self.queue.approve(request_id, final_mode)?;
 
         // Whitelist persistence: best-effort write after approve succeeds.
-        let target_opt = match mode {
+        let target_opt = match final_mode {
             ApprovalMode::WithWhitelist { target } => Some(target),
             _ => None,
         };
         if let (Some(target), true) = (target_opt, result) {
-            if let Some((_, caller, request)) = &pending_info {
-                let name = format!("whitelist-{}", chrono::Utc::now().timestamp_millis());
+            if let Some((_, caller, request, _, ref rule_version)) = &pending_info {
+                let name = format!(
+                    "whitelist-{}-{}",
+                    chrono::Utc::now().timestamp_millis(),
+                    rule_version
+                );
                 if let Some(rule) =
                     crate::whitelist::build_whitelist_rule(caller, request, &name, target)
                 {
@@ -484,7 +549,7 @@ impl ApprovalFlow {
         }
 
         if result {
-            if let Some((session_id, _, _)) = pending_info {
+            if let Some((session_id, _, _, _, _)) = pending_info {
                 let sm = Arc::clone(&self.session_manager);
                 let handle = self.runtime_handle.clone();
                 let rid = request_id.to_string();

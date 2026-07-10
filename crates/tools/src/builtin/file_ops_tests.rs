@@ -3,7 +3,7 @@
 use super::*;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
-use closeclaw_permission::engine::engine_types::{Action, Effect, Rule};
+use closeclaw_permission::engine::engine_types::{Action, Effect, Rule, RuleSet};
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_permission::Defaults;
 use std::sync::Arc;
@@ -62,6 +62,7 @@ fn make_af() -> ApprovalMtx {
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
+        RuleSet::default(),
     )))
 }
 
@@ -74,6 +75,7 @@ fn make_af_deny() -> ApprovalMtx {
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
+        RuleSet::default(),
     )))
 }
 

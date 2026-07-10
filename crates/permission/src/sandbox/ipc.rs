@@ -284,6 +284,7 @@ mod tests {
             user_defaults: crate::engine::Defaults::user_defaults(),
             template_includes: vec![],
             agent_creators: Default::default(),
+            rule_version: String::new(),
         };
         let req = SandboxRequest::ReloadRules { rules };
         let json = serde_json::to_vec(&req).unwrap();
