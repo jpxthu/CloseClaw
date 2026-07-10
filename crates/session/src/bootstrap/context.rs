@@ -1,7 +1,5 @@
 //! Bootstrap context — metadata tracking all bootstrap regions
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
 use super::types::BootstrapRegion;
@@ -15,9 +13,6 @@ pub struct BootstrapContext {
     pub reinjected_after_last_compact: bool,
     /// Total character count of all bootstrap content
     pub total_char_count: usize,
-    /// Integrity hashes stored at last before_compact call (keyed by region_id)
-    #[serde(default)]
-    pub pre_compact_hashes: HashMap<String, String>,
 }
 
 impl Default for BootstrapContext {
@@ -27,7 +22,6 @@ impl Default for BootstrapContext {
             // At session start, bootstrap is in its "re-injected" (original) state
             reinjected_after_last_compact: true,
             total_char_count: 0,
-            pre_compact_hashes: HashMap::new(),
         }
     }
 }
