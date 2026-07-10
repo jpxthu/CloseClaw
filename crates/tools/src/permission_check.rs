@@ -304,9 +304,6 @@ pub(crate) async fn check_message_permission(
     }
 }
 
-/// Second-level check for network operations (Network dimension).
-///
-/// Validates outbound network access to the given host and port.
 /// Second-level check for config write operations (ConfigWrite dimension).
 ///
 /// Validates whether the agent is allowed to write the given config file.
