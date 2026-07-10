@@ -19,6 +19,7 @@ use closeclaw_gateway::GatewayConfig;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::engine::engine_types::RuleSet;
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
@@ -106,6 +107,7 @@ fn correct_approval_flow() -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
         tokio::runtime::Handle::current(),
         HeartbeatApprovalMode::default(),
         std::env::temp_dir(),
+        RuleSet::default(),
     )))
 }
 

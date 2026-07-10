@@ -4,6 +4,7 @@
 use super::engine_matching::glob_match;
 use super::engine_risk::RiskLevel;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 /// RuleSet parsed from permissions.json
@@ -24,6 +25,27 @@ pub struct RuleSet {
     /// Used to automatically generate creator full-access rules.
     #[serde(default)]
     pub agent_creators: HashMap<String, String>,
+    /// Runtime-computed version hash of the rule set.
+    /// Skipped during serialization/deserialization; call
+    /// `compute_version()` after loading to populate.
+    #[serde(skip)]
+    pub rule_version: String,
+}
+
+impl RuleSet {
+    /// Compute a SHA-256 version hash from the rule content.
+    /// Serializes `rules`, `defaults`, and `user_defaults` to JSON,
+    /// then stores the hex digest in `self.rule_version`.
+    pub fn compute_version(&mut self) {
+        let payload = serde_json::json!({
+            "rules": self.rules,
+            "defaults": self.defaults,
+            "user_defaults": self.user_defaults,
+        });
+        let json = serde_json::to_string(&payload).expect("RuleSet fields are always serializable");
+        let hash = Sha256::digest(json.as_bytes());
+        self.rule_version = hex::encode(hash);
+    }
 }
 
 /// Default permissions for each action type

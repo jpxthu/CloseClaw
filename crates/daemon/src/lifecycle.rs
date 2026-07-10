@@ -423,6 +423,7 @@ impl Daemon {
             user_defaults: Defaults::user_defaults(),
             template_includes: Vec::new(),
             agent_creators: std::collections::HashMap::new(),
+            rule_version: String::new(),
         };
         let mut engine = PermissionEngine::new(rule_set, std::path::PathBuf::from(config_dir));
         let templates_dir = std::path::Path::new(config_dir).join("templates");

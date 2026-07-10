@@ -3,10 +3,11 @@
 //!
 
 use crate::approval::{
-    ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectWhitelistReason, WhitelistTarget,
+    ApprovalMode, ApprovalQueue, ApproveOrDeny, EnqueueRequest, RejectWhitelistReason,
+    WhitelistTarget,
 };
 use crate::engine::engine_risk::RiskLevel;
-use crate::engine::engine_types::{Caller, PermissionRequestBody};
+use crate::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
 
 fn dummy_caller() -> Caller {
     Caller {
@@ -37,19 +38,26 @@ fn make_file_op(body_variant: &str) -> PermissionRequestBody {
     }
 }
 
+fn default_rules() -> RuleSet {
+    RuleSet::default()
+}
+
 #[test]
 fn test_approve_whitelist_low_risk() {
     let mut queue = ApprovalQueue::new();
     let id = queue
         .enqueue(
-            make_file_op("a"),
-            dummy_caller(),
-            "low risk op".to_string(),
-            RiskLevel::Low,
-            "resume-1".to_string(),
-            Box::new(|result| {
-                assert_eq!(result, ApproveOrDeny::Approve);
-            }),
+            EnqueueRequest {
+                request: make_file_op("a"),
+                caller: dummy_caller(),
+                operation_desc: "low risk op".to_string(),
+                risk_level: RiskLevel::Low,
+                session_resume: "resume-1".to_string(),
+                callback: Box::new(|result| {
+                    assert_eq!(result, ApproveOrDeny::Approve);
+                }),
+            },
+            &default_rules(),
         )
         .unwrap();
 
@@ -70,14 +78,17 @@ fn test_approve_whitelist_medium_risk() {
     let mut queue = ApprovalQueue::new();
     let id = queue
         .enqueue(
-            make_file_op("a"),
-            dummy_caller(),
-            "medium risk op".to_string(),
-            RiskLevel::Medium,
-            "resume-1".to_string(),
-            Box::new(|result| {
-                assert_eq!(result, ApproveOrDeny::Approve);
-            }),
+            EnqueueRequest {
+                request: make_file_op("a"),
+                caller: dummy_caller(),
+                operation_desc: "medium risk op".to_string(),
+                risk_level: RiskLevel::Medium,
+                session_resume: "resume-1".to_string(),
+                callback: Box::new(|result| {
+                    assert_eq!(result, ApproveOrDeny::Approve);
+                }),
+            },
+            &default_rules(),
         )
         .unwrap();
 
@@ -98,14 +109,17 @@ fn test_approve_whitelist_high_risk() {
     let mut queue = ApprovalQueue::new();
     let id = queue
         .enqueue(
-            make_file_op("a"),
-            dummy_caller(),
-            "high risk op".to_string(),
-            RiskLevel::High,
-            "resume-1".to_string(),
-            Box::new(|_| {
-                panic!("callback should not be invoked on WithWhitelist reject");
-            }),
+            EnqueueRequest {
+                request: make_file_op("a"),
+                caller: dummy_caller(),
+                operation_desc: "high risk op".to_string(),
+                risk_level: RiskLevel::High,
+                session_resume: "resume-1".to_string(),
+                callback: Box::new(|_| {
+                    panic!("callback should not be invoked on WithWhitelist reject");
+                }),
+            },
+            &default_rules(),
         )
         .unwrap();
 
@@ -127,14 +141,17 @@ fn test_approve_whitelist_critical_risk() {
     let mut queue = ApprovalQueue::new();
     let id = queue
         .enqueue(
-            make_file_op("a"),
-            dummy_caller(),
-            "critical risk op".to_string(),
-            RiskLevel::Critical,
-            "resume-1".to_string(),
-            Box::new(|_| {
-                panic!("callback should not be invoked on WithWhitelist reject");
-            }),
+            EnqueueRequest {
+                request: make_file_op("a"),
+                caller: dummy_caller(),
+                operation_desc: "critical risk op".to_string(),
+                risk_level: RiskLevel::Critical,
+                session_resume: "resume-1".to_string(),
+                callback: Box::new(|_| {
+                    panic!("callback should not be invoked on WithWhitelist reject");
+                }),
+            },
+            &default_rules(),
         )
         .unwrap();
 
@@ -155,14 +172,17 @@ fn test_approve_once_high_risk() {
     let mut queue = ApprovalQueue::new();
     let id = queue
         .enqueue(
-            make_file_op("a"),
-            dummy_caller(),
-            "high risk op".to_string(),
-            RiskLevel::High,
-            "resume-1".to_string(),
-            Box::new(|result| {
-                assert_eq!(result, ApproveOrDeny::Approve);
-            }),
+            EnqueueRequest {
+                request: make_file_op("a"),
+                caller: dummy_caller(),
+                operation_desc: "high risk op".to_string(),
+                risk_level: RiskLevel::High,
+                session_resume: "resume-1".to_string(),
+                callback: Box::new(|result| {
+                    assert_eq!(result, ApproveOrDeny::Approve);
+                }),
+            },
+            &default_rules(),
         )
         .unwrap();
 
@@ -178,14 +198,17 @@ fn test_approve_once_critical_risk() {
     let mut queue = ApprovalQueue::new();
     let id = queue
         .enqueue(
-            make_file_op("a"),
-            dummy_caller(),
-            "critical risk op".to_string(),
-            RiskLevel::Critical,
-            "resume-1".to_string(),
-            Box::new(|result| {
-                assert_eq!(result, ApproveOrDeny::Approve);
-            }),
+            EnqueueRequest {
+                request: make_file_op("a"),
+                caller: dummy_caller(),
+                operation_desc: "critical risk op".to_string(),
+                risk_level: RiskLevel::Critical,
+                session_resume: "resume-1".to_string(),
+                callback: Box::new(|result| {
+                    assert_eq!(result, ApproveOrDeny::Approve);
+                }),
+            },
+            &default_rules(),
         )
         .unwrap();
 
@@ -217,14 +240,17 @@ fn test_deny_behavior_unchanged() {
 
     let id = queue
         .enqueue(
-            body,
-            caller,
-            "op".to_string(),
-            RiskLevel::Low,
-            "resume".to_string(),
-            Box::new(|result| {
-                assert_eq!(result, ApproveOrDeny::Deny);
-            }),
+            EnqueueRequest {
+                request: body,
+                caller: caller,
+                operation_desc: "op".to_string(),
+                risk_level: RiskLevel::Low,
+                session_resume: "resume".to_string(),
+                callback: Box::new(|result| {
+                    assert_eq!(result, ApproveOrDeny::Deny);
+                }),
+            },
+            &default_rules(),
         )
         .unwrap();
 
@@ -363,14 +389,17 @@ fn test_approve_with_agent_only_target_low_risk() {
     let mut queue = ApprovalQueue::new();
     let id = queue
         .enqueue(
-            make_file_op("a"),
-            dummy_caller(),
-            "low risk op".to_string(),
-            RiskLevel::Low,
-            "resume-1".to_string(),
-            Box::new(|result| {
-                assert_eq!(result, ApproveOrDeny::Approve);
-            }),
+            EnqueueRequest {
+                request: make_file_op("a"),
+                caller: dummy_caller(),
+                operation_desc: "low risk op".to_string(),
+                risk_level: RiskLevel::Low,
+                session_resume: "resume-1".to_string(),
+                callback: Box::new(|result| {
+                    assert_eq!(result, ApproveOrDeny::Approve);
+                }),
+            },
+            &default_rules(),
         )
         .unwrap();
 
@@ -390,14 +419,17 @@ fn test_approve_with_user_and_agent_target_medium_risk() {
     let mut queue = ApprovalQueue::new();
     let id = queue
         .enqueue(
-            make_file_op("a"),
-            dummy_caller(),
-            "medium risk op".to_string(),
-            RiskLevel::Medium,
-            "resume-1".to_string(),
-            Box::new(|result| {
-                assert_eq!(result, ApproveOrDeny::Approve);
-            }),
+            EnqueueRequest {
+                request: make_file_op("a"),
+                caller: dummy_caller(),
+                operation_desc: "medium risk op".to_string(),
+                risk_level: RiskLevel::Medium,
+                session_resume: "resume-1".to_string(),
+                callback: Box::new(|result| {
+                    assert_eq!(result, ApproveOrDeny::Approve);
+                }),
+            },
+            &default_rules(),
         )
         .unwrap();
 

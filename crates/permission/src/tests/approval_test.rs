@@ -2,9 +2,9 @@
 //! ApprovalQueue unit tests
 //!
 
-use crate::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, RejectReason};
+use crate::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, EnqueueRequest, RejectReason};
 use crate::engine::engine_risk::RiskLevel;
-use crate::engine::engine_types::{Caller, PermissionRequestBody};
+use crate::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
 
 fn dummy_caller() -> Caller {
     Caller {
@@ -33,6 +33,10 @@ fn make_file_op(body_variant: &str) -> PermissionRequestBody {
         },
         _ => unreachable!(),
     }
+}
+
+fn default_rules() -> RuleSet {
+    RuleSet::default()
 }
 
 #[test]
@@ -80,12 +84,15 @@ fn test_enqueue_success() {
     let caller = dummy_caller();
 
     let result = queue.enqueue(
-        body,
-        caller.clone(),
-        "read file".to_string(),
-        RiskLevel::Low,
-        "resume-token-1".to_string(),
-        Box::new(|_| {}),
+        EnqueueRequest {
+            request: body,
+            caller: caller.clone(),
+            operation_desc: "read file".to_string(),
+            risk_level: RiskLevel::Low,
+            session_resume: "resume-token-1".to_string(),
+            callback: Box::new(|_| {}),
+        },
+        &default_rules(),
     );
 
     assert!(result.is_ok());
@@ -108,23 +115,29 @@ fn test_enqueue_reject_duplicate() {
 
     let id1 = queue
         .enqueue(
-            body.clone(),
-            caller.clone(),
-            "op1".to_string(),
-            RiskLevel::Medium,
-            "resume-1".to_string(),
-            Box::new(|_| {}),
+            EnqueueRequest {
+                request: body.clone(),
+                caller: caller.clone(),
+                operation_desc: "op1".to_string(),
+                risk_level: RiskLevel::Medium,
+                session_resume: "resume-1".to_string(),
+                callback: Box::new(|_| {}),
+            },
+            &default_rules(),
         )
         .unwrap();
 
     // Same body → same operation_key → must reject
     let id2 = queue.enqueue(
-        body,
-        caller.clone(),
-        "op2".to_string(),
-        RiskLevel::High,
-        "resume-2".to_string(),
-        Box::new(|_| {}),
+        EnqueueRequest {
+            request: body,
+            caller: caller.clone(),
+            operation_desc: "op2".to_string(),
+            risk_level: RiskLevel::High,
+            session_resume: "resume-2".to_string(),
+            callback: Box::new(|_| {}),
+        },
+        &default_rules(),
     );
 
     assert!(id2.is_err());
@@ -142,14 +155,17 @@ fn test_approve_triggers_approve_callback() {
 
     let id = queue
         .enqueue(
-            body,
-            caller,
-            "op".to_string(),
-            RiskLevel::Low,
-            "resume".to_string(),
-            Box::new(|result| {
-                assert_eq!(result, ApproveOrDeny::Approve);
-            }),
+            EnqueueRequest {
+                request: body,
+                caller,
+                operation_desc: "op".to_string(),
+                risk_level: RiskLevel::Low,
+                session_resume: "resume".to_string(),
+                callback: Box::new(|result| {
+                    assert_eq!(result, ApproveOrDeny::Approve);
+                }),
+            },
+            &default_rules(),
         )
         .unwrap();
 
@@ -166,14 +182,17 @@ fn test_deny_triggers_deny_callback() {
 
     let id = queue
         .enqueue(
-            body,
-            caller,
-            "op".to_string(),
-            RiskLevel::Low,
-            "resume".to_string(),
-            Box::new(|result| {
-                assert_eq!(result, ApproveOrDeny::Deny);
-            }),
+            EnqueueRequest {
+                request: body,
+                caller,
+                operation_desc: "op".to_string(),
+                risk_level: RiskLevel::Low,
+                session_resume: "resume".to_string(),
+                callback: Box::new(|result| {
+                    assert_eq!(result, ApproveOrDeny::Deny);
+                }),
+            },
+            &default_rules(),
         )
         .unwrap();
 
@@ -208,19 +227,22 @@ fn test_clear_triggers_deny_for_all_entries() {
         let captured_id = format!("id-{}", i);
         queue
             .enqueue(
-                make_file_op(match i {
-                    0 => "a",
-                    1 => "b",
-                    _ => "c", // i=2 uses a third distinct body
-                }),
-                caller.clone(),
-                format!("op-{}", i),
-                RiskLevel::Low,
-                format!("resume-{}", i),
-                Box::new(move |result| {
-                    assert_eq!(result, ApproveOrDeny::Deny);
-                    cleared_ids_clone.lock().unwrap().push(captured_id.clone());
-                }),
+                EnqueueRequest {
+                    request: make_file_op(match i {
+                        0 => "a",
+                        1 => "b",
+                        _ => "c",
+                    }),
+                    caller: caller.clone(),
+                    operation_desc: format!("op-{}", i),
+                    risk_level: RiskLevel::Low,
+                    session_resume: format!("resume-{}", i),
+                    callback: Box::new(move |result| {
+                        assert_eq!(result, ApproveOrDeny::Deny);
+                        cleared_ids_clone.lock().unwrap().push(captured_id.clone());
+                    }),
+                },
+                &default_rules(),
             )
             .unwrap();
     }
@@ -242,12 +264,15 @@ fn test_get_pending_returns_correct_pending_approval() {
 
     let id = queue
         .enqueue(
-            body,
-            caller.clone(),
-            "my operation".to_string(),
-            RiskLevel::High,
-            "session-resume-abc".to_string(),
-            Box::new(|_| {}),
+            EnqueueRequest {
+                request: body,
+                caller: caller.clone(),
+                operation_desc: "my operation".to_string(),
+                risk_level: RiskLevel::High,
+                session_resume: "session-resume-abc".to_string(),
+                callback: Box::new(|_| {}),
+            },
+            &default_rules(),
         )
         .unwrap();
 
@@ -276,12 +301,15 @@ fn test_callback_signature_send() {
     let mut queue = ApprovalQueue::new();
     let body = make_file_op("a");
     let _ = queue.enqueue(
-        body,
-        dummy_caller(),
-        "op".to_string(),
-        RiskLevel::Low,
-        "resume".to_string(),
-        Box::new(|_| {}),
+        EnqueueRequest {
+            request: body,
+            caller: dummy_caller(),
+            operation_desc: "op".to_string(),
+            risk_level: RiskLevel::Low,
+            session_resume: "resume".to_string(),
+            callback: Box::new(|_| {}),
+        },
+        &default_rules(),
     );
 }
 
@@ -292,24 +320,30 @@ fn test_enqueue_different_bodies_not_duplicate() {
 
     let id1 = queue
         .enqueue(
-            make_file_op("a"),
-            caller.clone(),
-            "op-a".to_string(),
-            RiskLevel::Low,
-            "resume-1".to_string(),
-            Box::new(|_| {}),
+            EnqueueRequest {
+                request: make_file_op("a"),
+                caller: caller.clone(),
+                operation_desc: "op-a".to_string(),
+                risk_level: RiskLevel::Low,
+                session_resume: "resume-1".to_string(),
+                callback: Box::new(|_| {}),
+            },
+            &default_rules(),
         )
         .unwrap();
 
     // Different body → different operation_key → must succeed
     let id2 = queue
         .enqueue(
-            make_file_op("b"),
-            caller.clone(),
-            "op-b".to_string(),
-            RiskLevel::Low,
-            "resume-2".to_string(),
-            Box::new(|_| {}),
+            EnqueueRequest {
+                request: make_file_op("b"),
+                caller: caller.clone(),
+                operation_desc: "op-b".to_string(),
+                risk_level: RiskLevel::Low,
+                session_resume: "resume-2".to_string(),
+                callback: Box::new(|_| {}),
+            },
+            &default_rules(),
         )
         .unwrap();
 
@@ -335,24 +369,30 @@ fn test_different_caller_same_body_not_duplicate() {
 
     let id1 = queue
         .enqueue(
-            body.clone(),
-            caller1,
-            "op1".to_string(),
-            RiskLevel::Low,
-            "resume-1".to_string(),
-            Box::new(|_| {}),
+            EnqueueRequest {
+                request: body.clone(),
+                caller: caller1,
+                operation_desc: "op1".to_string(),
+                risk_level: RiskLevel::Low,
+                session_resume: "resume-1".to_string(),
+                callback: Box::new(|_| {}),
+            },
+            &default_rules(),
         )
         .unwrap();
 
     // Different caller, same body → different operation_key → must succeed
     let id2 = queue
         .enqueue(
-            body,
-            caller2,
-            "op2".to_string(),
-            RiskLevel::Low,
-            "resume-2".to_string(),
-            Box::new(|_| {}),
+            EnqueueRequest {
+                request: body,
+                caller: caller2,
+                operation_desc: "op2".to_string(),
+                risk_level: RiskLevel::Low,
+                session_resume: "resume-2".to_string(),
+                callback: Box::new(|_| {}),
+            },
+            &default_rules(),
         )
         .unwrap();
 
@@ -368,23 +408,29 @@ fn test_same_caller_same_body_is_duplicate() {
 
     let id1 = queue
         .enqueue(
-            body.clone(),
-            caller.clone(),
-            "op1".to_string(),
-            RiskLevel::Low,
-            "resume-1".to_string(),
-            Box::new(|_| {}),
+            EnqueueRequest {
+                request: body.clone(),
+                caller: caller.clone(),
+                operation_desc: "op1".to_string(),
+                risk_level: RiskLevel::Low,
+                session_resume: "resume-1".to_string(),
+                callback: Box::new(|_| {}),
+            },
+            &default_rules(),
         )
         .unwrap();
 
     // Same caller, same body → same operation_key → must reject
     let id2 = queue.enqueue(
-        body,
-        caller,
-        "op2".to_string(),
-        RiskLevel::Low,
-        "resume-2".to_string(),
-        Box::new(|_| {}),
+        EnqueueRequest {
+            request: body,
+            caller,
+            operation_desc: "op2".to_string(),
+            risk_level: RiskLevel::Low,
+            session_resume: "resume-2".to_string(),
+            callback: Box::new(|_| {}),
+        },
+        &default_rules(),
     );
 
     assert!(id2.is_err());
@@ -399,12 +445,15 @@ fn test_pending_approval_created_at_is_set() {
     let before = chrono::Utc::now();
     let id = queue
         .enqueue(
-            make_file_op("a"),
-            dummy_caller(),
-            "op".to_string(),
-            RiskLevel::Low,
-            "resume".to_string(),
-            Box::new(|_| {}),
+            EnqueueRequest {
+                request: make_file_op("a"),
+                caller: dummy_caller(),
+                operation_desc: "op".to_string(),
+                risk_level: RiskLevel::Low,
+                session_resume: "resume".to_string(),
+                callback: Box::new(|_| {}),
+            },
+            &default_rules(),
         )
         .unwrap();
     let after = chrono::Utc::now();
