@@ -81,7 +81,7 @@ mod tests {
             role: "user".to_string(),
             content: "short".to_string(),
         }];
-        assert!(!service.should_auto_compact(&msgs, "mini-max", None));
+        assert!(!service.should_auto_compact(&msgs, "mini-max", None, &RunningStats::new()));
     }
 
     #[test]
@@ -98,7 +98,7 @@ mod tests {
             content: "x".repeat(900_000),
         }];
         // Circuit breaker should trip
-        assert!(!service.should_auto_compact(&msgs, "mini-max", None));
+        assert!(!service.should_auto_compact(&msgs, "mini-max", None, &RunningStats::new()));
     }
 
     #[test]
@@ -222,9 +222,9 @@ mod tests {
             role: "user".to_string(),
             content: "x".repeat(3_948_004),
         }];
-        assert!(!service.should_auto_compact(&msgs, "mini-max", None));
+        assert!(!service.should_auto_compact(&msgs, "mini-max", None, &RunningStats::new()));
         service.record_success();
-        assert!(service.should_auto_compact(&msgs, "mini-max", None));
+        assert!(service.should_auto_compact(&msgs, "mini-max", None, &RunningStats::new()));
     }
 
     // Step 1.2 tests: Prompt template and summary extraction
@@ -411,7 +411,7 @@ mod tests {
             role: "user".to_string(),
             content: "x".repeat(1_974_002),
         }];
-        assert!(service.should_auto_compact(&msgs, "mini-max", None));
+        assert!(service.should_auto_compact(&msgs, "mini-max", None, &RunningStats::new()));
     }
 
     // ===================================================================
@@ -520,7 +520,7 @@ mod tests {
         }];
 
         // AutoCompactTriggered: triggers compaction
-        assert!(service.should_auto_compact(&msgs, "mini-max", None));
+        assert!(service.should_auto_compact(&msgs, "mini-max", None, &RunningStats::new()));
         // The same decision applies regardless of any plan_state that may
         // exist on the checkpoint — plan_state is never consulted by the
         // compaction threshold logic.

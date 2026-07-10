@@ -243,11 +243,12 @@ impl CompactionService {
         messages: &[CompactionMessage],
         model: &str,
         knowledge_context_window: Option<u32>,
+        stats: &RunningStats,
     ) -> bool {
         if self.consecutive_failures >= self.config.max_consecutive_failures {
             return false;
         }
-        let tokens = estimate_messages_tokens(messages, self.config.chars_per_token);
+        let tokens = estimate_total_tokens(stats, messages, self.config.chars_per_token);
         matches!(
             self.token_warning_state(tokens, model, knowledge_context_window),
             TokenWarningState::AutoCompactTriggered

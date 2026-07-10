@@ -203,7 +203,7 @@ mod tests {
 
         // Reach the AutoCompactTriggered range.
         let msgs = vec![comp_msg(&"x".repeat(3_948_004))]; // ~987,001 tokens
-        assert!(svc.should_auto_compact(&msgs, "mini-max", None));
+        assert!(svc.should_auto_compact(&msgs, "mini-max", None, &RunningStats::new()));
 
         // Trip the circuit breaker.
         svc.record_failure();
@@ -217,7 +217,7 @@ mod tests {
             TokenWarningState::AutoCompactTriggered
         );
         // ...but should_auto_compact blocks it via circuit breaker.
-        assert!(!svc.should_auto_compact(&msgs, "mini-max", None));
+        assert!(!svc.should_auto_compact(&msgs, "mini-max", None, &RunningStats::new()));
     }
 
     /// Blocking state: the raw token_warning_state returns Blocking, and
@@ -234,7 +234,7 @@ mod tests {
         );
         // should_auto_compact delegates to token_warning_state; Blocking
         // is not AutoCompactTriggered, so it returns false.
-        assert!(!svc.should_auto_compact(&msgs, "mini-max", None));
+        assert!(!svc.should_auto_compact(&msgs, "mini-max", None, &RunningStats::new()));
     }
 
     /// Warning state logs but does not trigger compaction.
@@ -247,7 +247,7 @@ mod tests {
             svc.token_warning_state(tokens, "mini-max", None),
             TokenWarningState::Warning
         );
-        assert!(!svc.should_auto_compact(&msgs, "mini-max", None));
+        assert!(!svc.should_auto_compact(&msgs, "mini-max", None, &RunningStats::new()));
     }
 
     // =====================================================================
@@ -432,7 +432,7 @@ mod tests {
         let mut config_025 = CompactConfig::default();
         config_025.chars_per_token = 0.25;
         let svc_025 = CompactionService::new(config_025);
-        assert!(svc_025.should_auto_compact(&msgs_025, "mini-max", None));
+        assert!(svc_025.should_auto_compact(&msgs_025, "mini-max", None, &RunningStats::new()));
 
         // With chars_per_token = 0.5, same chars produce 2x tokens →
         // compaction should trigger with fewer chars.
@@ -441,7 +441,7 @@ mod tests {
         config_05.chars_per_token = 0.5;
         let svc_05 = CompactionService::new(config_05);
         // 1_980_000 * 0.5 = 990_000 tokens → remaining = 10_000 → AutoCompactTriggered
-        assert!(svc_05.should_auto_compact(&msgs_05, "mini-max", None));
+        assert!(svc_05.should_auto_compact(&msgs_05, "mini-max", None, &RunningStats::new()));
 
         // But with chars_per_token = 0.1, same chars produce fewer tokens →
         // might not trigger.
@@ -450,7 +450,7 @@ mod tests {
         config_01.chars_per_token = 0.1;
         let svc_01 = CompactionService::new(config_01);
         // 3_948_004 * 0.1 = 394_800 tokens → Normal (960_200 remaining)
-        assert!(!svc_01.should_auto_compact(&msgs_01, "mini-max", None));
+        assert!(!svc_01.should_auto_compact(&msgs_01, "mini-max", None, &RunningStats::new()));
     }
 
     /// Integration: knowledge_context_window affects auto_compact threshold.
@@ -460,10 +460,10 @@ mod tests {
         let svc = CompactionService::new(CompactConfig::default());
 
         // Without knowledge: mini-max = 1_000_000 → AutoCompactTriggered
-        assert!(svc.should_auto_compact(&msgs, "mini-max", None));
+        assert!(svc.should_auto_compact(&msgs, "mini-max", None, &RunningStats::new()));
 
         // With knowledge: 500_000 context → tokens are way over → Blocking
         // (not AutoCompactTriggered), so should_auto_compact returns false.
-        assert!(!svc.should_auto_compact(&msgs, "mini-max", Some(500_000)));
+        assert!(!svc.should_auto_compact(&msgs, "mini-max", Some(500_000), &RunningStats::new()));
     }
 }
