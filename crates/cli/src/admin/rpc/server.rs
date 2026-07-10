@@ -228,14 +228,16 @@ async fn update_agents_json(name: &str, context: &AdminContext) -> Result<(), Ad
         })?;
 
     // Write agents.json atomically (blocking I/O)
-    tokio::task::spawn_blocking(move || write_atomically(&agents_json_path, &agents_json_bytes))
-        .await
-        .map_err(|e| AdminResponse::Error {
-            message: format!("failed to update agents.json: {}", e),
-        })?
-        .map_err(|e| AdminResponse::Error {
-            message: format!("failed to update agents.json: {}", e),
-        })
+    tokio::task::spawn_blocking(move || {
+        write_atomically(&agents_json_path, &agents_json_bytes, None)
+    })
+    .await
+    .map_err(|e| AdminResponse::Error {
+        message: format!("failed to update agents.json: {}", e),
+    })?
+    .map_err(|e| AdminResponse::Error {
+        message: format!("failed to update agents.json: {}", e),
+    })
 }
 
 /// Reload agent configs and repopulate the registry.
