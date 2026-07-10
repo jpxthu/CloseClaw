@@ -272,27 +272,8 @@ impl SessionMessageHandler {
                 );
             }
             TokenWarningState::AutoCompactTriggered => {
-                {
-                    let breaker = self
-                        .compaction_service
-                        .lock()
-                        .expect("compaction_service poisoned");
-                    if breaker.consecutive_failures() >= breaker.config().max_consecutive_failures {
-                        return;
-                    }
-                }
-                self.session_manager
-                    .save_pre_compaction_snapshot(session_id)
+                self.run_auto_compact(session_id, &llm_messages, &model)
                     .await;
-                let result =
-                    execute_compact(&llm_messages, &self.fallback_client, &model, None, true).await;
-                finalize_auto_compact(
-                    &self.session_manager,
-                    &self.compaction_service,
-                    session_id,
-                    result,
-                )
-                .await;
             }
             TokenWarningState::Blocking => {
                 tracing::warn!(
@@ -301,6 +282,30 @@ impl SessionMessageHandler {
                 );
             }
         }
+    }
+
+    /// Execute auto-compaction: check breaker, snapshot, compact, finalize.
+    async fn run_auto_compact(&self, session_id: &str, llm_messages: &[ChatMessage], model: &str) {
+        {
+            let breaker = self
+                .compaction_service
+                .lock()
+                .expect("compaction_service poisoned");
+            if breaker.consecutive_failures() >= breaker.config().max_consecutive_failures {
+                return;
+            }
+        }
+        self.session_manager
+            .save_pre_compaction_snapshot(session_id)
+            .await;
+        let result = execute_compact(llm_messages, &self.fallback_client, model, None, true).await;
+        finalize_auto_compact(
+            &self.session_manager,
+            &self.compaction_service,
+            session_id,
+            result,
+        )
+        .await;
     }
 }
 
