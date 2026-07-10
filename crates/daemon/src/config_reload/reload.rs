@@ -163,9 +163,23 @@ impl ConfigReloadManager {
             }
         };
 
-        // Step 4: validate with section's default validator
-        let validator = section.default_validator();
-        if let Err(msg) = validator(&value) {
+        // Step 4: validate with section's default validator.
+        // For Accounts, pass the channels config for cross-reference validation.
+        let validate_result = if section == ConfigSection::Accounts {
+            let channels_value = self
+                .config_manager
+                .get_section_value(ConfigSection::Channels);
+            match channels_value {
+                Some(channels_val) => {
+                    closeclaw_config::validators::validate_accounts(&value, Some(&channels_val))
+                }
+                None => closeclaw_config::validators::validate_accounts(&value, None),
+            }
+        } else {
+            let validator = section.default_validator();
+            validator(&value)
+        };
+        if let Err(msg) = validate_result {
             if old_value.is_none() {
                 self.config_manager.block_section(section);
             }

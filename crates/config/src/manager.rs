@@ -357,8 +357,20 @@ impl ConfigManager {
             };
 
             // Business validation: reuse the same validators used by hot-reload.
-            let validate = crate::validators::for_section(section);
-            if let Err(msg) = validate(&value) {
+            // For Accounts, pass the channels config for cross-reference validation.
+            let validate_result = if section == ConfigSection::Accounts {
+                let channels_value = sections.get(&ConfigSection::Channels).cloned();
+                match channels_value {
+                    Some(channels_val) => {
+                        crate::validators::validate_accounts(&value, Some(&channels_val))
+                    }
+                    None => crate::validators::validate_accounts(&value, None),
+                }
+            } else {
+                let validate = crate::validators::for_section(section);
+                validate(&value)
+            };
+            if let Err(msg) = validate_result {
                 warn!(
                     section = %section,
                     error = %msg,
