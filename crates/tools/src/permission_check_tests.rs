@@ -328,6 +328,25 @@ async fn test_network_denied_without_rule() {
     assert!(result.is_err());
 }
 
+/// Network permission with specific port: allowed host but non-matching port.
+#[tokio::test]
+async fn test_network_allowed_specific_port() {
+    let deps = make_deps(vec![allow_network_rule("agent-a", "example.com")]);
+    let ctx = make_ctx("agent-a");
+    let result = check_network_permission(&deps, &ctx, "example.com", 8443).await;
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_none(), "allowed → None");
+}
+
+/// Network permission: allowed host but wrong host → denied.
+#[tokio::test]
+async fn test_network_denied_wrong_host() {
+    let deps = make_deps_deny(vec![allow_network_rule("agent-a", "safe.com")]);
+    let ctx = make_ctx("agent-a");
+    let result = check_network_permission(&deps, &ctx, "unsafe.com", 443).await;
+    assert!(result.is_err());
+}
+
 // ---------------------------------------------------------------------------
 // check_message_permission tests
 // ---------------------------------------------------------------------------

@@ -120,6 +120,19 @@ fn allow_file(agent: &str, path_glob: &str, op: &str) -> Rule {
     }
 }
 
+fn allow_config_write_rule(agent: &str) -> Rule {
+    Rule {
+        name: format!("allow-cfgwrite-{agent}"),
+        subject: Rule::parse_subject(agent),
+        effect: Effect::Allow,
+        actions: vec![Action::ConfigWrite {
+            files: vec!["*".to_string()],
+        }],
+        template: None,
+        priority: 0,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Metadata tests (migrated from inline)
 // ---------------------------------------------------------------------------
@@ -539,4 +552,38 @@ async fn test_regular_write_not_affected_by_config_write_check() {
     assert!(result.is_ok(), "regular file write should succeed");
     let content = std::fs::read_to_string(&path).unwrap();
     assert_eq!(content, "hello");
+}
+
+/// Config file write with explicit ConfigWrite Allow rule + FileWrite Allow rule.
+/// ConfigWrite forced deny guard overrides the Allow rule, so the write is blocked.
+/// This verifies the guard is applied at the engine level, not just at the tool level.
+#[tokio::test]
+async fn test_config_write_explicit_allow_still_denied_by_guard() {
+    let cm = make_cm();
+    let data_root = cm.config_dir().to_path_buf();
+    let config_path = data_root.join("agents/a1/models.json");
+    std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+
+    let rules = vec![
+        allow_tool("a", "file_ops"),
+        allow_file("a", &format!("{}/**", data_root.display()), "write"),
+        // Explicit ConfigWrite allow rule — guard should still override it
+        allow_config_write_rule("a"),
+    ];
+    let deps = make_file_deps(rules, &data_root);
+    let ctx = make_ctx("a");
+
+    let result = check_and_execute(
+        &deps,
+        &ctx,
+        &config_path.to_string_lossy(),
+        "write",
+        write_file(&config_path.to_string_lossy(), "{\"key\": \"value\"}"),
+    )
+    .await;
+    assert!(
+        result.is_err(),
+        "config write with explicit allow rule should be denied by forced deny guard"
+    );
+    assert!(!config_path.exists(), "config file should not be written");
 }
