@@ -3,10 +3,11 @@
 #[cfg(test)]
 mod tests {
     use crate::compaction::{
-        build_compact_prompt, estimate_messages_tokens, estimate_tokens, extract_summary,
-        format_boundary_message, get_context_window, CompactConfig, CompactionError,
-        CompactionMessage, CompactionService, TokenWarningState,
+        build_compact_prompt, estimate_messages_tokens, estimate_tokens, estimate_total_tokens,
+        extract_summary, format_boundary_message, get_context_window, CompactConfig,
+        CompactionError, CompactionMessage, CompactionService, TokenWarningState,
     };
+    use closeclaw_common::RunningStats;
 
     #[test]
     fn test_estimate_tokens_english() {
@@ -288,7 +289,159 @@ mod tests {
         assert!(msg.contains("手动压缩"));
     }
 
+    // ===================================================================
+    // Step 1.4 tests: estimate_total_tokens
+    // ===================================================================
+
+    #[test]
+    fn test_estimate_total_tokens_with_llm_history() {
+        let mut stats = RunningStats::default();
+        stats.request_count = 5;
+        stats.total_tokens = 10_000;
+        let msgs = vec![CompactionMessage {
+            role: "user".to_string(),
+            content: "hello world".to_string(),
+        }];
+        let result = estimate_total_tokens(&stats, &msgs, 0.25);
+        // 10,000 + estimate_tokens("hello world", 0.25)
+        // "hello world" = 11 chars * 0.25 = 2.75 -> ceil = 3
+        assert_eq!(result, 10_003);
+    }
+
+    #[test]
+    fn test_estimate_total_tokens_no_llm_history() {
+        let stats = RunningStats::default();
+        let msgs = vec![CompactionMessage {
+            role: "user".to_string(),
+            content: "hello world".to_string(),
+        }];
+        let result = estimate_total_tokens(&stats, &msgs, 0.25);
+        // Pure char estimation: 11 * 0.25 = 2.75 -> ceil = 3
+        assert_eq!(result, 3);
+    }
+
+    #[test]
+    fn test_estimate_total_tokens_zero_messages_with_history() {
+        let mut stats = RunningStats::default();
+        stats.request_count = 10;
+        stats.total_tokens = 50_000;
+        let msgs: Vec<CompactionMessage> = vec![];
+        let result = estimate_total_tokens(&stats, &msgs, 0.25);
+        assert_eq!(result, 50_000);
+    }
+
+    #[test]
+    fn test_estimate_total_tokens_zero_messages_no_history() {
+        let stats = RunningStats::default();
+        let msgs: Vec<CompactionMessage> = vec![];
+        let result = estimate_total_tokens(&stats, &msgs, 0.25);
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_estimate_total_tokens_multiple_messages() {
+        let mut stats = RunningStats::default();
+        stats.request_count = 3;
+        stats.total_tokens = 1_000;
+        let msgs = vec![
+            CompactionMessage {
+                role: "user".to_string(),
+                content: "hi".to_string(),
+            },
+            CompactionMessage {
+                role: "assistant".to_string(),
+                content: "hello there".to_string(),
+            },
+        ];
+        let result = estimate_total_tokens(&stats, &msgs, 0.25);
+        // 1000 + estimate_tokens("hi", 0.25) + estimate_tokens("hello there", 0.25)
+        // 1000 + ceil(2*0.25) + ceil(11*0.25) = 1000 + 1 + 3 = 1004
+        assert_eq!(result, 1_004);
+    }
+
+    // ===================================================================
+    // Step 1.4 tests: chars_per_token different values
+    // ===================================================================
+
+    #[test]
+    fn test_estimate_tokens_different_chars_per_token() {
+        // 100 chars with different coefficients
+        let text = "a".repeat(100);
+        assert_eq!(estimate_tokens(&text, 0.25), 25); // 100 * 0.25 = 25
+        assert_eq!(estimate_tokens(&text, 0.3), 30); // 100 * 0.3 = 30
+        assert_eq!(estimate_tokens(&text, 0.5), 50); // 100 * 0.5 = 50
+        assert_eq!(estimate_tokens(&text, 1.0), 100); // 100 * 1.0 = 100
+        assert_eq!(estimate_tokens(&text, 0.1), 10); // 100 * 0.1 = 10
+    }
+
+    #[test]
+    fn test_estimate_messages_tokens_different_chars_per_token() {
+        let msgs = vec![CompactionMessage {
+            role: "user".to_string(),
+            content: "a".repeat(100),
+        }];
+        assert_eq!(estimate_messages_tokens(&msgs, 0.25), 25);
+        assert_eq!(estimate_messages_tokens(&msgs, 0.3), 30);
+        assert_eq!(estimate_messages_tokens(&msgs, 0.5), 50);
+    }
+
+    #[test]
+    fn test_estimate_total_tokens_different_chars_per_token() {
+        let mut stats = RunningStats::default();
+        stats.request_count = 2;
+        stats.total_tokens = 1_000;
+        let msgs = vec![CompactionMessage {
+            role: "user".to_string(),
+            content: "a".repeat(100),
+        }];
+        assert_eq!(estimate_total_tokens(&stats, &msgs, 0.25), 1_025);
+        assert_eq!(estimate_total_tokens(&stats, &msgs, 0.3), 1_030);
+        assert_eq!(estimate_total_tokens(&stats, &msgs, 0.5), 1_050);
+    }
+
+    #[test]
+    fn test_should_auto_compact_different_chars_per_token() {
+        // With chars_per_token = 0.5, fewer chars needed to reach threshold
+        let mut config = CompactConfig::default();
+        config.chars_per_token = 0.5;
+        let service = CompactionService::new(config);
+        // mini-max context = 1_000_000, need ~987_001 tokens for AutoCompactTriggered
+        // chars_per_token = 0.5: 987_001 / 0.5 ≈ 1_974_002 chars needed
+        let msgs = vec![CompactionMessage {
+            role: "user".to_string(),
+            content: "x".repeat(1_974_002),
+        }];
+        assert!(service.should_auto_compact(&msgs, "mini-max", None));
+    }
+
+    // ===================================================================
+    // Step 1.4 tests: get_context_window knowledge priority
+    // ===================================================================
+
+    #[test]
+    fn test_get_context_window_knowledge_overrides_all() {
+        // Knowledge base value always takes priority
+        assert_eq!(get_context_window("unknown-model", Some(100_000)), 100_000);
+        assert_eq!(get_context_window("glm-5", Some(50_000)), 50_000);
+        assert_eq!(get_context_window("mini-max", Some(1_500_000)), 1_500_000);
+    }
+
+    #[test]
+    fn test_get_context_window_knowledge_zero_defers_to_hardcoded() {
+        assert_eq!(get_context_window("glm-5", Some(0)), 256_000);
+        assert_eq!(get_context_window("mini-max", Some(0)), 1_000_000);
+    }
+
+    #[test]
+    fn test_get_context_window_none_defers_to_hardcoded() {
+        assert_eq!(get_context_window("glm-4", None), 256_000);
+        assert_eq!(get_context_window("glm-3", None), 128_000);
+        assert_eq!(get_context_window("no-such-model", None), 128_000);
+    }
+
+    // ===================================================================
     // Step 1.4 tests: Complete UT coverage
+    // ===================================================================
 
     // build_compact_prompt tests - additional coverage
     #[test]

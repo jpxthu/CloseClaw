@@ -4,12 +4,13 @@
 #[cfg(test)]
 mod tests {
     use crate::compaction::{
-        estimate_messages_tokens, CompactConfig, CompactionMessage, CompactionService,
-        TokenWarningState,
+        estimate_messages_tokens, estimate_total_tokens, CompactConfig, CompactionMessage,
+        CompactionService, TokenWarningState,
     };
     use crate::llm_session::{ChatSession, ConversationSession, SessionMessage};
     use chrono::Utc;
     use closeclaw_common::ContentBlock;
+    use closeclaw_common::RunningStats;
     use std::path::PathBuf;
 
     // Helper to build a SessionMessage with plain text.
@@ -374,5 +375,95 @@ mod tests {
 
         assert_eq!(msgs.len(), 3);
         assert_eq!(msgs[0].content, "msg-0");
+    }
+
+    // =====================================================================
+    // 4. RunningStats integration: estimate_total_tokens
+    // =====================================================================
+
+    /// When stats have LLM call history (request_count > 0), token estimation
+    /// combines precise total_tokens from stats with char-based estimation for
+    /// the pending messages.
+    #[test]
+    fn test_estimate_total_tokens_with_stats_and_messages() {
+        let mut stats = RunningStats::default();
+        stats.request_count = 5;
+        stats.total_tokens = 50_000;
+
+        let msgs = vec![comp_msg(&"a".repeat(1000)), comp_msg(&"b".repeat(2000))];
+        // chars_per_token = 0.25
+        // 50_000 + ceil(1000*0.25) + ceil(2000*0.25) = 50_000 + 250 + 500 = 50_750
+        let total = estimate_total_tokens(&stats, &msgs, 0.25);
+        assert_eq!(total, 50_750);
+    }
+
+    /// When stats have no LLM calls (request_count == 0), fall back to
+    /// pure character-based estimation.
+    #[test]
+    fn test_estimate_total_tokens_fallback_pure_char() {
+        let stats = RunningStats::default();
+        assert_eq!(stats.request_count, 0);
+
+        let msgs = vec![comp_msg(&"a".repeat(4000))];
+        let total = estimate_total_tokens(&stats, &msgs, 0.25);
+        assert_eq!(total, 1000); // 4000 * 0.25 = 1000
+    }
+
+    /// Empty messages with stats history returns just the stats total.
+    #[test]
+    fn test_estimate_total_tokens_empty_msgs_with_stats() {
+        let mut stats = RunningStats::default();
+        stats.request_count = 10;
+        stats.total_tokens = 120_000;
+
+        let msgs: Vec<CompactionMessage> = vec![];
+        let total = estimate_total_tokens(&stats, &msgs, 0.25);
+        assert_eq!(total, 120_000);
+    }
+
+    /// Integration: CompactionService should_auto_compact uses
+    /// estimate_messages_tokens internally, so different chars_per_token
+    /// values shift the compaction threshold.
+    #[test]
+    fn test_auto_compact_threshold_shifts_with_chars_per_token() {
+        // With default chars_per_token = 0.25, need ~3_948_004 chars for
+        // mini-max AutoCompactTriggered range.
+        let msgs_025 = vec![comp_msg(&"x".repeat(3_948_004))];
+        let mut config_025 = CompactConfig::default();
+        config_025.chars_per_token = 0.25;
+        let svc_025 = CompactionService::new(config_025);
+        assert!(svc_025.should_auto_compact(&msgs_025, "mini-max", None));
+
+        // With chars_per_token = 0.5, same chars produce 2x tokens →
+        // compaction should trigger with fewer chars.
+        let msgs_05 = vec![comp_msg(&"x".repeat(1_980_000))];
+        let mut config_05 = CompactConfig::default();
+        config_05.chars_per_token = 0.5;
+        let svc_05 = CompactionService::new(config_05);
+        // 1_980_000 * 0.5 = 990_000 tokens → remaining = 10_000 → AutoCompactTriggered
+        assert!(svc_05.should_auto_compact(&msgs_05, "mini-max", None));
+
+        // But with chars_per_token = 0.1, same chars produce fewer tokens →
+        // might not trigger.
+        let msgs_01 = vec![comp_msg(&"x".repeat(3_948_004))];
+        let mut config_01 = CompactConfig::default();
+        config_01.chars_per_token = 0.1;
+        let svc_01 = CompactionService::new(config_01);
+        // 3_948_004 * 0.1 = 394_800 tokens → Normal (960_200 remaining)
+        assert!(!svc_01.should_auto_compact(&msgs_01, "mini-max", None));
+    }
+
+    /// Integration: knowledge_context_window affects auto_compact threshold.
+    #[test]
+    fn test_auto_compact_with_knowledge_context_window() {
+        let msgs = vec![comp_msg(&"x".repeat(3_948_004))];
+        let svc = CompactionService::new(CompactConfig::default());
+
+        // Without knowledge: mini-max = 1_000_000 → AutoCompactTriggered
+        assert!(svc.should_auto_compact(&msgs, "mini-max", None));
+
+        // With knowledge: 500_000 context → tokens are way over → Blocking
+        // (not AutoCompactTriggered), so should_auto_compact returns false.
+        assert!(!svc.should_auto_compact(&msgs, "mini-max", Some(500_000)));
     }
 }
