@@ -250,6 +250,59 @@ pub(crate) async fn check_file_op_permission(
     }
 }
 
+/// Second-level check for network operations (Network dimension).
+///
+/// Validates outbound network access to the given host and port.
+#[allow(dead_code)]
+pub(crate) async fn check_network_permission(
+    deps: &PermDeps,
+    ctx: &crate::ToolContext,
+    host: &str,
+    port: u16,
+) -> Result<Option<ToolResult>, ToolCallError> {
+    let (perm, session_manager, config_manager, approval_flow) = deps;
+    let request = PermissionRequest::Bare(PermissionRequestBody::NetOp {
+        agent: ctx.agent_id.clone(),
+        host: host.to_string(),
+        port,
+    });
+    let response = evaluate_permission(
+        perm,
+        session_manager,
+        config_manager,
+        ctx.session_id.as_deref(),
+        request,
+    )
+    .await;
+    match response {
+        PR::Allowed { .. } => Ok(None),
+        PR::Denied { risk_level, .. } => {
+            let caller = Caller {
+                user_id: String::new(),
+                agent: ctx.agent_id.clone(),
+                creator_id: String::new(),
+            };
+            let body = PermissionRequestBody::NetOp {
+                agent: ctx.agent_id.clone(),
+                host: host.to_string(),
+                port,
+            };
+            let sid = ctx.session_id.as_deref().unwrap_or("");
+            let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
+            route_denial(
+                &response,
+                &caller,
+                &body,
+                risk_level,
+                sid,
+                is_sub_agent,
+                approval_flow,
+            )
+            .await
+        }
+    }
+}
+
 /// Second-level check for command execution (CommandExec dimension).
 ///
 /// Validates whether the given command and arguments are permitted.

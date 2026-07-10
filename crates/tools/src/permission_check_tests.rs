@@ -20,7 +20,8 @@ fn make_engine_with_rules(rules: Vec<Rule>) -> Arc<tokio::sync::RwLock<Permissio
         .rules(rules)
         .defaults(Defaults {
             tool_call: Effect::Deny,
-            file: Effect::Deny,
+            file_read: Effect::Deny,
+            file_write: Effect::Deny,
             command: Effect::Deny,
             ..Default::default()
         })
@@ -156,6 +157,20 @@ fn allow_cmd_rule(agent: &str, cmd_pattern: &str) -> Rule {
     }
 }
 
+fn allow_network_rule(agent: &str, host: &str) -> Rule {
+    Rule {
+        name: format!("allow-net-{host}"),
+        subject: Rule::parse_subject(agent),
+        effect: Effect::Allow,
+        actions: vec![Action::Network {
+            hosts: vec![host.to_string()],
+            ports: vec![],
+        }],
+        template: None,
+        priority: 0,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // check_tool_permission tests
 // ---------------------------------------------------------------------------
@@ -239,6 +254,27 @@ async fn test_command_denied_without_rule() {
     let result =
         check_command_permission(&deps, &ctx, "rm", &["-rf".to_string(), "/".to_string()]).await;
     assert!(matches!(result, CommandPermissionResult::Denied(_)));
+}
+
+// ---------------------------------------------------------------------------
+// check_network_permission tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_network_allowed() {
+    let deps = make_deps(vec![allow_network_rule("agent-a", "example.com")]);
+    let ctx = make_ctx("agent-a");
+    let result = check_network_permission(&deps, &ctx, "example.com", 443).await;
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_none(), "allowed → None");
+}
+
+#[tokio::test]
+async fn test_network_denied_without_rule() {
+    let deps = make_deps_deny(vec![]);
+    let ctx = make_ctx("agent-a");
+    let result = check_network_permission(&deps, &ctx, "evil.com", 80).await;
+    assert!(result.is_err());
 }
 
 // ---------------------------------------------------------------------------

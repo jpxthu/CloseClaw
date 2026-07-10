@@ -18,7 +18,8 @@ fn make_engine(rules: Vec<Rule>) -> PermEngine {
         .rules(rules)
         .defaults(Defaults {
             tool_call: Effect::Deny,
-            file: Effect::Deny,
+            file_read: Effect::Deny,
+            file_write: Effect::Deny,
             ..Default::default()
         })
         .build()
