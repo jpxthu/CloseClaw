@@ -34,6 +34,7 @@ pub async fn execute_compact(
     model_name: &str,
     custom_instructions: Option<&str>,
     is_auto: bool,
+    chars_per_token: f64,
 ) -> Result<CompactionResult, CompactionError> {
     if messages.is_empty() {
         return Err(CompactionError::EmptyMessages);
@@ -48,6 +49,7 @@ pub async fn execute_compact(
                 content: m.content.clone(),
             })
             .collect::<Vec<_>>(),
+        chars_per_token,
     );
 
     // Filter: only user/assistant messages enter the compaction request.
@@ -88,7 +90,7 @@ pub async fn execute_compact(
     let summary = extract_summary(&response.content).ok_or(CompactionError::SummaryParseFailed)?;
 
     let boundary = format_boundary_message(&summary, is_auto);
-    let after_token_count = estimate_tokens(&boundary);
+    let after_token_count = estimate_tokens(&boundary, chars_per_token);
     let after_char_count = boundary.chars().count();
 
     Ok(CompactionResult {
