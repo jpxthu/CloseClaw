@@ -477,7 +477,7 @@ fn find_context_window_for_model(knowledge: &ProviderModelKnowledge, model: &str
 ///
 /// Follows the design doc pipeline: replace messages → rebuild system
 /// prompt → persist checkpoint → clear snapshot.
-async fn apply_compact_result(
+pub(crate) async fn apply_compact_result(
     sm: &Arc<SessionManager>,
     session_id: &str,
     result: &CompactionResult,
