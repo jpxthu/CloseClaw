@@ -2,7 +2,7 @@
 
 use super::engine_helpers::{generate_token, get_agent_deny_subjects, resolve_template_actions};
 use super::engine_matching::action_matches_request;
-use super::engine_risk::{assess_risk_level, RiskLevel};
+use super::engine_risk::assess_risk_level;
 use super::engine_types::{
     Defaults, Effect, PermissionRequest, PermissionRequestBody, PermissionResponse, Rule, RuleSet,
     Subject,
@@ -155,38 +155,6 @@ impl PermissionEngine {
             }
         }
     }
-
-    /// Check if Auto Mode requires approval for this operation.
-    ///
-    /// In Auto Mode, high and critical risk operations need user approval.
-    /// Returns `Some(ApprovalRequired)` if approval is needed, `None` otherwise.
-    fn check_auto_mode_approval(
-        &self,
-        request: &PermissionRequest,
-        agent_id: &str,
-        risk_level: RiskLevel,
-    ) -> Option<PermissionResponse> {
-        let query = self.session_mode_query.as_ref()?;
-        let mode = query.get_session_mode(agent_id)?;
-        if mode != SessionMode::Auto {
-            return None;
-        }
-        if !risk_level.is_high_or_critical() {
-            return None;
-        }
-        info!(
-            agent = agent_id,
-            result = "approval_required",
-            reason = "auto_mode_high_risk",
-            risk_level = ?risk_level,
-            "permission check completed"
-        );
-        Some(PermissionResponse::ApprovalRequired {
-            operation_desc: format_operation_desc(request.body()),
-            risk_level,
-            rule: "<auto_mode_risk_gate>".to_string(),
-        })
-    }
 }
 
 // --- Evaluation & helpers ---
@@ -325,7 +293,6 @@ impl PermissionEngine {
                 result = %match &response {
                     PermissionResponse::Allowed { .. } => "allowed",
                     PermissionResponse::Denied { .. } => "denied",
-                    PermissionResponse::ApprovalRequired { .. } => "approval_required",
                 },
                 reason = "owner_shortcut",
                 "permission check completed"
@@ -386,22 +353,10 @@ impl PermissionEngine {
             result = %match &response {
                 PermissionResponse::Allowed { .. } => "allowed",
                 PermissionResponse::Denied { .. } => "denied",
-                PermissionResponse::ApprovalRequired { .. } => "approval_required",
             },
             reason = "two_phase_merge",
             "permission check completed"
         );
-
-        // Step 4: Auto Mode risk gate — high/critical risk operations need user approval
-        if let PermissionResponse::Allowed { .. } = &response {
-            if let Some(approval_needed) = self.check_auto_mode_approval(
-                &request,
-                &agent_id,
-                assess_risk_level(request.body()),
-            ) {
-                return approval_needed;
-            }
-        }
 
         // Step 9: Extra Deny — override with deny if caller matches any extra deny subject
         if let Some(extra_subjects) = extra_deny_subjects {
@@ -823,45 +778,4 @@ impl PermissionEngine {
 /// Returns `true` if path starts with `plans/` or contains `/plans/`.
 fn is_plans_path(path: &str) -> bool {
     path.starts_with("plans/") || path.contains("/plans/")
-}
-
-/// Build a human-readable operation description for approval requests.
-fn format_operation_desc(body: &PermissionRequestBody) -> String {
-    match body {
-        PermissionRequestBody::FileOp { agent, path, op } => {
-            format!("{} file {} {}", agent, op, path)
-        }
-        PermissionRequestBody::CommandExec { agent, cmd, args } => {
-            let args_str = args.join(" ");
-            if args_str.is_empty() {
-                format!("{} execute {}", agent, cmd)
-            } else {
-                format!("{} execute {} {}", agent, cmd, args_str)
-            }
-        }
-        PermissionRequestBody::NetOp { agent, host, port } => {
-            format!("{} network {}:{}", agent, host, port)
-        }
-        PermissionRequestBody::ToolCall {
-            agent,
-            skill,
-            method,
-        } => format!("{} tool {}/{}", agent, skill, method),
-        PermissionRequestBody::InterAgentMsg { from, to } => {
-            format!("inter-agent {} -> {}", from, to)
-        }
-        PermissionRequestBody::ConfigWrite { agent, config_file } => {
-            format!("{} config write {}", agent, config_file)
-        }
-        PermissionRequestBody::SlashCommand { agent, command } => {
-            format!("{} slash /{}", agent, command)
-        }
-        PermissionRequestBody::MessageSend {
-            agent,
-            direction,
-            target,
-        } => {
-            format!("{} message {:?} {}", agent, direction, target)
-        }
-    }
 }

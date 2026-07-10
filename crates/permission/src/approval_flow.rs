@@ -503,7 +503,7 @@ impl ApprovalFlow {
                         Some(ApprovalMode::Once)
                     }
                     _ => {
-                        // Denied or ApprovalRequired → owner decision takes effect.
+                        // Denied → owner decision takes effect.
                         None
                     }
                 }

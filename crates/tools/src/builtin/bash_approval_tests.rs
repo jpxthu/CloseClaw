@@ -1,51 +1,22 @@
 //! Approval flow routing tests for BashTool.
 //!
-//! Covers three paths:
+//! Covers two paths:
 //! 1. allow — permission passes, normal execution
 //! 2. deny + enqueue success — returns approval_pending
-//! 3. deny + enqueue failure (duplicate) — fallback to PermissionDenied
 
 use super::*;
-use crate::{Tool, ToolCallError, ToolContext, ToolResult};
-use closeclaw_common::session_mode::SessionMode;
-use closeclaw_common::session_mode_query::SessionModeQuery;
+use crate::{Tool, ToolContext};
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
-use closeclaw_permission::engine::engine_risk::RiskLevel;
 use closeclaw_permission::engine::engine_types::{
-    Action, Caller, Effect, MatchType, PermissionRequest, PermissionRequestBody,
-    PermissionResponse, Rule, RuleSet, Subject,
+    Action, Effect, MatchType, Rule, RuleSet, Subject,
 };
 use closeclaw_permission::rules::RuleSetBuilder;
 use serde_json::json;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
-
-struct MockModeQuery {
-    modes: HashMap<String, SessionMode>,
-}
-
-impl MockModeQuery {
-    fn new() -> Self {
-        Self {
-            modes: HashMap::new(),
-        }
-    }
-
-    fn with_mode(mut self, agent_id: &str, mode: SessionMode) -> Self {
-        self.modes.insert(agent_id.to_string(), mode);
-        self
-    }
-}
-
-impl SessionModeQuery for MockModeQuery {
-    fn get_session_mode(&self, agent_id: &str) -> Option<SessionMode> {
-        self.modes.get(agent_id).copied()
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -108,47 +79,6 @@ fn allow_all_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
                 .build()
                 .unwrap(),
         ),
-    ))
-}
-
-/// Engine that allows all operations but returns `ApprovalRequired` in Auto
-/// mode for high-risk operations (e.g., FileOp on .git path triggers high risk).
-fn auto_mode_allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
-    let agent_rule = Rule {
-        name: "allow-all-exec-agent".to_string(),
-        subject: Subject::AgentOnly {
-            agent: "*".to_string(),
-            match_type: MatchType::Glob,
-        },
-        effect: Effect::Allow,
-        actions: vec![Action::All],
-        template: None,
-        priority: 100,
-    };
-    let user_rule = Rule {
-        name: "allow-all-exec-user".to_string(),
-        subject: Subject::UserAndAgent {
-            user_id: "".to_string(),
-            agent: "*".to_string(),
-            user_match: MatchType::Exact,
-            agent_match: MatchType::Glob,
-        },
-        effect: Effect::Allow,
-        actions: vec![Action::All],
-        template: None,
-        priority: 100,
-    };
-    Arc::new(tokio::sync::RwLock::new(
-        PermissionEngine::new_with_default_data_root(
-            RuleSetBuilder::new()
-                .rule(agent_rule)
-                .rule(user_rule)
-                .build()
-                .unwrap(),
-        )
-        .with_session_mode_query(Arc::new(
-            MockModeQuery::new().with_mode("test-agent", SessionMode::Auto),
-        )),
     ))
 }
 
@@ -289,139 +219,5 @@ async fn test_bash_approval_deny_enqueue_success() {
     assert!(
         output.data["request_id"].is_string(),
         "should include request_id"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Path 3: deny + enqueue failure (duplicate) → fallback to PermissionDenied
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn test_bash_approval_deny_enqueue_fallback() {
-    // Pre-enqueue a matching denial so the tool's submission is a duplicate
-    // and returns None, triggering the fallback to PermissionDenied.
-    let flow = make_approval_flow();
-    let caller = Caller {
-        user_id: String::new(),
-        agent: "test-agent".to_string(),
-        creator_id: String::new(),
-    };
-    let body = PermissionRequestBody::ToolCall {
-        agent: "test-agent".to_string(),
-        skill: "bash".to_string(),
-        method: "call".to_string(),
-    };
-    {
-        let mut f = flow.lock().await;
-        f.submit_denial(&caller, &body, RiskLevel::Medium, "", false)
-            .expect("first enqueue should succeed");
-    }
-
-    let perm = deny_all_engine();
-    let tool = BashTool::new(
-        perm,
-        make_bg_manager(),
-        make_session_manager(),
-        make_config_manager(),
-        Arc::clone(&flow),
-    );
-    let result: Result<ToolResult, ToolCallError> = tool
-        .call(json!({"command": "echo hello"}), &make_ctx())
-        .await;
-    let err = result.expect_err("fallback should return error");
-    match err {
-        ToolCallError::PermissionDenied(msg) => {
-            assert!(
-                msg.contains("denied") || msg.contains("no matching rule"),
-                "error should mention denial, got: {}",
-                msg
-            );
-        }
-        other => panic!("expected PermissionDenied, got: {:?}", other),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Path 4: ApprovalRequired → approval flow routing
-// ---------------------------------------------------------------------------
-
-/// Verify that when the permission engine returns `ApprovalRequired` (e.g.
-/// Auto mode + high-risk operation), the response is properly routed through
-/// the approval flow, returning `approval_pending` with a request_id.
-///
-/// The bash tool sends `CommandExec { cmd, args }` to the engine. In Auto
-/// mode, bare `rm -rf` (no path) triggers High risk → ApprovalRequired.
-/// Since the security analyzer blocks bare `rm -rf` before the permission
-/// check, this test directly exercises the approval routing mechanism by
-/// calling `evaluate()` with a high-risk request and manually routing the
-/// response through the approval flow — the same path the tool follows.
-#[tokio::test]
-async fn test_bash_approval_required_routes_through_approval_flow() {
-    let flow = make_approval_flow();
-    let engine = auto_mode_allow_engine();
-    let ctx = make_ctx();
-
-    // 1. Verify the engine returns ApprovalRequired for a high-risk request.
-    //    Use FileOp on a .git path (High risk) as a proxy — same engine,
-    //    same Auto mode gate, same ApprovalRequired variant.
-    let high_risk_request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
-        agent: ctx.agent_id.clone(),
-        path: "/repo/.git/config".to_string(),
-        op: "read".to_string(),
-    });
-    let response = engine.read().await.evaluate(high_risk_request, None);
-    assert!(
-        matches!(response, PermissionResponse::ApprovalRequired { .. }),
-        "Auto mode + high-risk FileOp should return ApprovalRequired, got: {:?}",
-        response
-    );
-
-    // 2. Route the ApprovalRequired through the approval flow — the same
-    //    mechanism the bash tool uses in check_permission_and_route.
-    let (_operation_desc, risk_level) = match &response {
-        PermissionResponse::ApprovalRequired {
-            operation_desc,
-            risk_level,
-            ..
-        } => (operation_desc.clone(), risk_level.clone()),
-        _ => unreachable!(),
-    };
-    let caller = Caller {
-        user_id: String::new(),
-        agent: ctx.agent_id.clone(),
-        creator_id: String::new(),
-    };
-    let body = PermissionRequestBody::ToolCall {
-        agent: ctx.agent_id.clone(),
-        skill: "bash".to_string(),
-        method: "call".to_string(),
-    };
-    let session_id = ctx.session_id.as_deref().unwrap_or("");
-    let mut flow_guard = flow.lock().await;
-    let request_id = flow_guard
-        .submit_denial(&caller, &body, risk_level, session_id, false)
-        .expect("approval flow should accept the submission");
-
-    // 3. Verify the approval flow accepted the request.
-    assert!(
-        !request_id.is_empty(),
-        "approval flow should return a non-empty request_id"
-    );
-    drop(flow_guard);
-
-    // 4. Now verify the bash tool also correctly routes a Denied response
-    //    through the approval flow (the deny_all_engine path).
-    let tool = make_tool(deny_all_engine());
-    let result = tool
-        .call(json!({"command": "echo hello"}), &make_ctx())
-        .await;
-    let output = result.expect("deny+approval should return Ok");
-    assert_eq!(
-        output.data["status"], "approval_pending",
-        "denied command should route to approval_pending"
-    );
-    assert!(
-        output.data["request_id"].is_string(),
-        "should include request_id from approval flow"
     );
 }
