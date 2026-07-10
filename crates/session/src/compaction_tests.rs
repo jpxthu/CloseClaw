@@ -116,9 +116,9 @@ mod tests {
     fn test_token_warning_state_warning() {
         let config = CompactConfig::default();
         let service = CompactionService::new(config);
-        // remaining = 20,000 -> Warning
+        // remaining = 19,500 -> Warning (buffer_tokens * 3 / 2)
         assert_eq!(
-            service.token_warning_state(980_000, "mini-max", None),
+            service.token_warning_state(980_500, "mini-max", None),
             TokenWarningState::Warning
         );
     }
@@ -514,8 +514,7 @@ mod tests {
     /// message token counts and circuit breaker state.
     #[test]
     fn test_compaction_service_threshold_is_purely_token_based() {
-        let mut config = CompactConfig::default();
-        config.auto_compact_buffer_tokens = 0;
+        let config = CompactConfig::default();
         let service = CompactionService::new(config);
 
         // 3,948,004 chars * 0.25 = 987,001 tokens.
