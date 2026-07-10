@@ -65,7 +65,7 @@ fn make_permissive_ruleset() -> RuleSet {
                 .build()
                 .unwrap(),
         )
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
         .default_command(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)

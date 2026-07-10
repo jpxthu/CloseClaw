@@ -50,7 +50,8 @@ impl SessionModeQuery for MockModeQuery {
 /// so that non-Owner users with no matching rules still get Allow.
 fn allow_all_engine() -> PermissionEngine {
     let permissive = Defaults {
-        file: Effect::Allow,
+        file_read: Effect::Allow,
+        file_write: Effect::Allow,
         command: Effect::Allow,
         network: Effect::Allow,
         inter_agent: Effect::Allow,
