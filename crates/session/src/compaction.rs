@@ -116,17 +116,20 @@ pub fn format_boundary_message(summary: &str, is_auto: bool) -> String {
 }
 
 /// Estimate token count for a text string using character count coefficient.
-pub fn estimate_tokens(text: &str) -> usize {
+pub fn estimate_tokens(text: &str, chars_per_token: f64) -> usize {
     if text.is_empty() {
         return 0;
     }
     let chars = text.chars().count();
-    (chars as f64 * 0.25).ceil() as usize
+    (chars as f64 * chars_per_token).ceil() as usize
 }
 
 /// Estimate total tokens for a slice of compaction messages.
-pub fn estimate_messages_tokens(messages: &[CompactionMessage]) -> usize {
-    messages.iter().map(|m| estimate_tokens(&m.content)).sum()
+pub fn estimate_messages_tokens(messages: &[CompactionMessage], chars_per_token: f64) -> usize {
+    messages
+        .iter()
+        .map(|m| estimate_tokens(&m.content, chars_per_token))
+        .sum()
 }
 
 /// Get the context window size for a model.
@@ -203,7 +206,7 @@ impl CompactionService {
         if self.consecutive_failures >= self.config.max_consecutive_failures {
             return false;
         }
-        let tokens = estimate_messages_tokens(messages);
+        let tokens = estimate_messages_tokens(messages, self.config.chars_per_token);
         matches!(
             self.token_warning_state(tokens, model),
             TokenWarningState::AutoCompactTriggered

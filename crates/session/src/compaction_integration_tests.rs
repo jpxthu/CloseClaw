@@ -210,7 +210,7 @@ mod tests {
         svc.record_failure();
 
         // token_warning_state still returns AutoCompactTriggered...
-        let tokens = estimate_messages_tokens(&msgs);
+        let tokens = estimate_messages_tokens(&msgs, 0.25);
         assert_eq!(
             svc.token_warning_state(tokens, "mini-max"),
             TokenWarningState::AutoCompactTriggered
@@ -226,7 +226,7 @@ mod tests {
     fn test_blocking_state_rejects_compaction() {
         let svc = CompactionService::new(CompactConfig::default());
         let msgs = vec![comp_msg(&"x".repeat(3_996_004))]; // ~999,001 tokens
-        let tokens = estimate_messages_tokens(&msgs);
+        let tokens = estimate_messages_tokens(&msgs, 0.25);
         assert_eq!(
             svc.token_warning_state(tokens, "mini-max"),
             TokenWarningState::Blocking
@@ -241,7 +241,7 @@ mod tests {
     fn test_warning_state_no_compaction() {
         let svc = CompactionService::new(CompactConfig::default());
         let msgs = vec![comp_msg(&"x".repeat(3_920_004))]; // ~980,001 tokens → remaining 19,999
-        let tokens = estimate_messages_tokens(&msgs);
+        let tokens = estimate_messages_tokens(&msgs, 0.25);
         assert_eq!(
             svc.token_warning_state(tokens, "mini-max"),
             TokenWarningState::Warning
@@ -321,7 +321,7 @@ mod tests {
             .collect();
 
         // Without truncation: 240 messages, ~240,000 tokens.
-        let total_tokens_before = estimate_messages_tokens(&all_msgs);
+        let total_tokens_before = estimate_messages_tokens(&all_msgs, 0.25);
         assert!(total_tokens_before > 75_000);
 
         // With max_history_messages = 20: truncate first 220.
@@ -332,7 +332,7 @@ mod tests {
             truncated.drain(..drain);
         }
 
-        let total_tokens_after = estimate_messages_tokens(&truncated);
+        let total_tokens_after = estimate_messages_tokens(&truncated, 0.25);
         assert!(total_tokens_after < total_tokens_before);
 
         // The truncated set should be roughly 1/12 of original (20/240).

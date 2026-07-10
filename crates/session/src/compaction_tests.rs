@@ -11,33 +11,33 @@ mod tests {
     #[test]
     fn test_estimate_tokens_english() {
         // "hello" = 5 chars * 0.25 = 1.25 -> ceil = 2
-        let tokens = estimate_tokens("hello");
+        let tokens = estimate_tokens("hello", 0.25);
         assert!(tokens >= 2 && tokens <= 5, "expected 2-5, got {}", tokens);
     }
 
     #[test]
     fn test_estimate_tokens_chinese() {
         // "你好" = 2 chars * 0.25 = 0.5 -> ceil = 1
-        let tokens = estimate_tokens("你好");
+        let tokens = estimate_tokens("你好", 0.25);
         assert!(tokens >= 1 && tokens <= 4, "expected 1-4, got {}", tokens);
     }
 
     #[test]
     fn test_estimate_tokens_empty() {
-        assert_eq!(estimate_tokens(""), 0);
+        assert_eq!(estimate_tokens("", 0.25), 0);
     }
 
     #[test]
     fn test_estimate_tokens_emoji() {
         // "🎉🎊🔥" = 3 chars * 0.25 = 0.75 -> ceil = 1
-        let tokens = estimate_tokens("🎉🎊🔥");
+        let tokens = estimate_tokens("🎉🎊🔥", 0.25);
         assert!(tokens >= 1 && tokens <= 4, "expected 1-4, got {}", tokens);
     }
 
     #[test]
     fn test_estimate_tokens_long_string() {
         let s = "a".repeat(1000);
-        assert_eq!(estimate_tokens(&s), 250);
+        assert_eq!(estimate_tokens(&s, 0.25), 250);
     }
 
     #[test]
@@ -364,7 +364,7 @@ mod tests {
                 content: "Sure, I'll review the design doc and provide feedback.".repeat(50),
             },
         ];
-        let original_tokens = estimate_messages_tokens(&original_messages);
+        let original_tokens = estimate_messages_tokens(&original_messages, 0.25);
         assert!(original_tokens > 0);
 
         // Simulate compaction: messages are replaced by boundary summary
@@ -373,7 +373,7 @@ mod tests {
             role: "system".to_string(),
             content: format_boundary_message(summary, true),
         }];
-        let compacted_tokens = estimate_messages_tokens(&compacted_messages);
+        let compacted_tokens = estimate_messages_tokens(&compacted_messages, 0.25);
         assert!(compacted_tokens > 0);
         assert!(compacted_tokens < original_tokens);
 

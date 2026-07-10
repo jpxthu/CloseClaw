@@ -253,7 +253,14 @@ impl SessionMessageHandler {
                 content: m.content.clone(),
             })
             .collect();
-        let tokens = closeclaw_session::compaction::estimate_messages_tokens(&compaction_msgs);
+        let cpt = {
+            let svc = self
+                .compaction_service
+                .lock()
+                .expect("compaction_service poisoned");
+            svc.config().chars_per_token
+        };
+        let tokens = closeclaw_session::compaction::estimate_messages_tokens(&compaction_msgs, cpt);
         let warning = {
             let svc = self
                 .compaction_service
@@ -298,7 +305,14 @@ impl SessionMessageHandler {
         self.session_manager
             .save_pre_compaction_snapshot(session_id)
             .await;
-        let result = execute_compact(llm_messages, &self.fallback_client, model, None, true).await;
+        let cpt = self
+            .compaction_service
+            .lock()
+            .expect("compaction_service poisoned")
+            .config()
+            .chars_per_token;
+        let result =
+            execute_compact(llm_messages, &self.fallback_client, model, None, true, cpt).await;
         finalize_auto_compact(
             &self.session_manager,
             &self.compaction_service,
@@ -461,7 +475,12 @@ pub(crate) async fn is_blocking_state(
             content: m.content.clone(),
         })
         .collect();
-    let tokens = closeclaw_session::compaction::estimate_messages_tokens(&compaction_msgs);
+    let cpt = svc
+        .lock()
+        .expect("compaction_service poisoned")
+        .config()
+        .chars_per_token;
+    let tokens = closeclaw_session::compaction::estimate_messages_tokens(&compaction_msgs, cpt);
     matches!(
         svc.lock()
             .expect("compaction_service poisoned")
@@ -509,7 +528,20 @@ async fn run_manual_compact(
 ) {
     // Save a snapshot before compaction so we can rollback on failure.
     sm.save_pre_compaction_snapshot(&sid).await;
-    let result = execute_compact(&llm_messages, &fc, &model, instruction.as_deref(), false).await;
+    let cpt = svc
+        .lock()
+        .expect("compaction_service poisoned")
+        .config()
+        .chars_per_token;
+    let result = execute_compact(
+        &llm_messages,
+        &fc,
+        &model,
+        instruction.as_deref(),
+        false,
+        cpt,
+    )
+    .await;
     match result {
         Ok(r) => {
             apply_compact_result(&sm, &sid, &r).await;
