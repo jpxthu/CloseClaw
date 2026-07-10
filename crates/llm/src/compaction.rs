@@ -6,9 +6,9 @@
 //! intentionally avoids depending on `llm`.
 
 pub use closeclaw_session::compaction::{
-    build_compact_prompt, estimate_messages_tokens, estimate_tokens, extract_summary,
-    format_boundary_message, get_context_window, CompactConfig, CompactionError, CompactionMessage,
-    CompactionResult, CompactionService, TokenWarningState, BASE_COMPACT_PROMPT,
+    build_compact_prompt, compute_before_tokens, estimate_messages_tokens, estimate_tokens,
+    extract_summary, format_boundary_message, get_context_window, CompactConfig, CompactionError,
+    CompactionMessage, CompactionResult, CompactionService, TokenWarningState, BASE_COMPACT_PROMPT,
     MODEL_CONTEXT_WINDOWS, NO_TOOLS_PREAMBLE, NO_TOOLS_TRAILER,
 };
 
@@ -50,41 +50,14 @@ pub async fn execute_compact(
     }
 
     let before_char_count: usize = messages.iter().map(|m| m.content.chars().count()).sum();
-    let before_token_count = match stats {
-        Some(s) if s.request_count > 0 => {
-            // Precise usage from previous API calls + char estimate for
-            // messages that have not yet been counted in the stats.
-            let precise = s.total_tokens as usize;
-            let remaining = &messages[s.request_count as usize..];
-            let remaining_tokens: usize = remaining
-                .iter()
-                .map(|m| {
-                    estimate_tokens(
-                        &CompactionMessage {
-                            role: m.role.clone(),
-                            content: m.content.clone(),
-                        }
-                        .content,
-                        chars_per_token,
-                    )
-                })
-                .sum();
-            precise + remaining_tokens
-        }
-        _ => {
-            // No stats available or no API calls yet: pure character estimation.
-            estimate_messages_tokens(
-                &messages
-                    .iter()
-                    .map(|m| CompactionMessage {
-                        role: m.role.clone(),
-                        content: m.content.clone(),
-                    })
-                    .collect::<Vec<_>>(),
-                chars_per_token,
-            )
-        }
-    };
+    let compaction_msgs: Vec<CompactionMessage> = messages
+        .iter()
+        .map(|m| CompactionMessage {
+            role: m.role.clone(),
+            content: m.content.clone(),
+        })
+        .collect();
+    let before_token_count = compute_before_tokens(&compaction_msgs, stats, chars_per_token);
 
     // Filter: only user/assistant messages enter the compaction request.
     // System-prompt and other roles are excluded per compact-process.md.

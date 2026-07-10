@@ -116,29 +116,20 @@ pub async fn execute_compact(
     let summary = extract_summary(&response.content).ok_or(CompactionError::SummaryParseFailed)?;
 
     let boundary = format_boundary_message(&summary, is_auto, chrono::Utc::now());
-    let before_tokens = match stats {
-        Some(s) if s.request_count > 0 => {
-            let precise = s.total_tokens as usize;
-            let remaining = &messages[s.request_count as usize..];
-            let remaining_tokens: usize = remaining
-                .iter()
-                .map(|m| estimate_tokens(&m.content, chars_per_token))
-                .sum();
-            precise + remaining_tokens
-        }
-        _ => estimate_messages_tokens(
-            &messages
-                .iter()
-                .map(|m| CompactionMessage {
-                    role: m.role.clone(),
-                    content: m.content.clone(),
-                })
-                .collect::<Vec<_>>(),
-            chars_per_token,
-        ),
-    };
+    let before_chars: usize = messages.iter().map(|m| m.content.chars().count()).sum();
+    let compaction_msgs: Vec<closeclaw_session::compaction::CompactionMessage> = messages
+        .iter()
+        .map(|m| closeclaw_session::compaction::CompactionMessage {
+            role: m.role.clone(),
+            content: m.content.clone(),
+        })
+        .collect();
+    let before_tokens = closeclaw_session::compaction::compute_before_tokens(
+        &compaction_msgs,
+        stats,
+        chars_per_token,
+    );
     let after_tokens = estimate_tokens(&boundary, chars_per_token);
-    let before_chars: usize = messages.iter().map(|m| m.content.len()).sum();
     let after_chars = boundary.len();
 
     Ok(CompactionResult {
