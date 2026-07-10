@@ -62,7 +62,10 @@ fn full_config() -> SystemConfigData {
                 max_entries: 500,
             },
         }),
-        cron: Some(CronConfig { enabled: true }),
+        cron: Some(CronConfig {
+            enabled: true,
+            schedule: None,
+        }),
         hooks: Some(HooksConfig {
             internal: HooksInternalConfig {
                 enabled: true,
@@ -376,7 +379,10 @@ fn test_is_default_false_when_sub_struct_not_default() {
             ..Default::default()
         },
         SystemConfigData {
-            cron: Some(CronConfig { enabled: false }),
+            cron: Some(CronConfig {
+                enabled: false,
+                schedule: None,
+            }),
             ..Default::default()
         },
     ];

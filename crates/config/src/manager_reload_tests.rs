@@ -730,21 +730,21 @@ fn test_reload_session_section_success() {
     setup_config_dir_at(tmp.path());
     fs::write(
         tmp.path().join("session.json"),
-        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":600}"#,
     )
     .unwrap();
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     manager.load().unwrap();
     fs::write(
         tmp.path().join("session.json"),
-        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":1200}"#,
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":1200}"#,
     )
     .unwrap();
     manager
         .reload_section(ConfigSection::Session, None)
         .unwrap();
     let section = manager.section(ConfigSection::Session).unwrap();
-    assert_eq!(section["sweeperIntervalSecs"], 1200);
+    assert_eq!(section["sweeperIntervalSeconds"], 1200);
 }
 
 /// reload_session_provider rebuilds provider from session.json on disk.
@@ -754,7 +754,7 @@ fn test_reload_session_provider_rebuilds_from_disk() {
     setup_config_dir_at(tmp.path());
     fs::write(
         tmp.path().join("session.json"),
-        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":600}"#,
     )
     .unwrap();
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
@@ -763,7 +763,7 @@ fn test_reload_session_provider_rebuilds_from_disk() {
     assert_eq!(provider.sweeper_interval_secs(), 600);
     fs::write(
         tmp.path().join("session.json"),
-        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":9999}"#,
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":9999}"#,
     )
     .unwrap();
     manager.reload_session_provider();
@@ -778,7 +778,7 @@ fn test_reload_session_provider_fallback_on_missing_file() {
     setup_config_dir_at(tmp.path());
     fs::write(
         tmp.path().join("session.json"),
-        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":600}"#,
     )
     .unwrap();
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
@@ -799,7 +799,7 @@ fn test_reload_session_provider_fallback_on_invalid_json() {
     setup_config_dir_at(tmp.path());
     fs::write(
         tmp.path().join("session.json"),
-        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":600}"#,
     )
     .unwrap();
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
@@ -820,18 +820,18 @@ fn test_reload_session_section_invalid_json_preserves_old() {
     setup_config_dir_at(tmp.path());
     fs::write(
         tmp.path().join("session.json"),
-        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":600}"#,
     )
     .unwrap();
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     manager.load().unwrap();
     let before = manager.section(ConfigSection::Session).unwrap();
-    assert_eq!(before["sweeperIntervalSecs"], 600);
+    assert_eq!(before["sweeperIntervalSeconds"], 600);
     fs::write(tmp.path().join("session.json"), "not json").unwrap();
     let result = manager.reload_section(ConfigSection::Session, None);
     assert!(result.is_err());
     let after = manager.section(ConfigSection::Session).unwrap();
-    assert_eq!(after["sweeperIntervalSecs"], 600);
+    assert_eq!(after["sweeperIntervalSeconds"], 600);
 }
 
 /// reload_section with failing validator preserves old value.
@@ -841,16 +841,16 @@ fn test_reload_session_section_validator_failure_preserves_old() {
     setup_config_dir_at(tmp.path());
     fs::write(
         tmp.path().join("session.json"),
-        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":600}"#,
     )
     .unwrap();
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     manager.load().unwrap();
     let before = manager.section(ConfigSection::Session).unwrap();
-    assert_eq!(before["sweeperIntervalSecs"], 600);
+    assert_eq!(before["sweeperIntervalSeconds"], 600);
     fs::write(
         tmp.path().join("session.json"),
-        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":0}"#,
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":0}"#,
     )
     .unwrap();
     let v = ConfigSection::Session.default_validator();
@@ -861,7 +861,7 @@ fn test_reload_session_section_validator_failure_preserves_old() {
         ConfigLoadError::ValidationError { .. }
     ));
     let after = manager.section(ConfigSection::Session).unwrap();
-    assert_eq!(after["sweeperIntervalSecs"], 600);
+    assert_eq!(after["sweeperIntervalSeconds"], 600);
 }
 
 // =========================================================================

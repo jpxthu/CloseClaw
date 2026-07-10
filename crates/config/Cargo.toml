@@ -21,6 +21,7 @@ regex = "1.10"
 regex-lite = "0.1"
 dirs = "5"
 tokio = { version = "=1.35.0", features = ["full"] }
+cron = "0.15"
 
 [dev-dependencies]
 tempfile = "3.10"

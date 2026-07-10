@@ -723,11 +723,11 @@ fn test_validate_plugins_pass_empty_collections() {
 #[test]
 fn test_validate_session_pass_variants() {
     for json in [
-        r#"{"sweeperIntervalSecs":600,"compact":{}}"#,
+        r#"{"sweeperIntervalSeconds":600,"compact":{}}"#,
         r#"{}"#,
         r#"{"compact":{}}"#,
-        r#"{"sweeperIntervalSecs":1}"#,
-        r#"{"sweeperIntervalSecs":600,"idleMinutes":30,"purgeAfterMinutes":1440,"compact":{}}"#,
+        r#"{"sweeperIntervalSeconds":1}"#,
+        r#"{"sweeperIntervalSeconds":600,"idleMinutes":30,"purgeAfterMinutes":1440,"compact":{}}"#,
     ] {
         let v: serde_json::Value = serde_json::from_str(json).unwrap();
         assert!(validate_session(&v).is_ok(), "json={}", json);
@@ -742,10 +742,10 @@ fn test_validate_session_fail_invalid_type_and_sweeper() {
         assert!(err.contains("JSON object"), "{}: error: {}", json, err);
     }
     let cases = [
-        r#"{"sweeperIntervalSecs":0}"#,
-        r#"{"sweeperIntervalSecs":"not a number"}"#,
-        r#"{"sweeperIntervalSecs":-5}"#,
-        r#"{"sweeperIntervalSecs":null}"#,
+        r#"{"sweeperIntervalSeconds":0}"#,
+        r#"{"sweeperIntervalSeconds":"not a number"}"#,
+        r#"{"sweeperIntervalSeconds":-5}"#,
+        r#"{"sweeperIntervalSeconds":null}"#,
     ];
     for json in cases {
         let v: serde_json::Value = serde_json::from_str(json).unwrap();
@@ -798,7 +798,7 @@ fn test_validate_session_fail_multiple_invalid() {
 #[test]
 fn test_default_validator_session_passes_valid_json() {
     let v: serde_json::Value =
-        serde_json::from_str(r#"{"sweeperIntervalSecs":300,"compact":{}}"#).unwrap();
+        serde_json::from_str(r#"{"sweeperIntervalSeconds":300,"compact":{}}"#).unwrap();
     let validator = ConfigSection::Session.default_validator();
     assert!(validator(&v).is_ok());
 }

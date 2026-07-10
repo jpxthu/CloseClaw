@@ -8,7 +8,7 @@ use closeclaw_common::CompactConfig;
 /// Minimal valid session config JSON with given defaults, agents, and sweeper interval.
 fn valid_config_json(defaults: &str, agents: &str, sweeper_interval_secs: u64) -> String {
     format!(
-        r#"{{"defaults":{},"agents":{},"sweeperIntervalSecs":{}}}"#,
+        r#"{{"defaults":{},"agents":{},"sweeperIntervalSeconds":{}}}"#,
         defaults, agents, sweeper_interval_secs
     )
 }
@@ -23,7 +23,7 @@ fn write_temp_json(content: &str) -> (TempDir, std::path::PathBuf) {
 
 #[test]
 fn test_compact_config_parsed_when_present() {
-    let json = r#"{"defaults":{"mainAgent":{"idleMinutes":10,"purgeAfterMinutes":60}},"agents":{},"sweeperIntervalSecs":300,"compact":{"charsPerToken":0.3,"autoCompactBufferTokens":15000,"maxConsecutiveFailures":5}}"#.to_string();
+    let json = r#"{"defaults":{"mainAgent":{"idleMinutes":10,"purgeAfterMinutes":60}},"agents":{},"sweeperIntervalSeconds":300,"compact":{"charsPerToken":0.3,"autoCompactBufferTokens":15000,"maxConsecutiveFailures":5}}"#.to_string();
     let (_temp, path) = write_temp_json(&json);
 
     let provider = JsonSessionConfigProvider::new(&path).unwrap();

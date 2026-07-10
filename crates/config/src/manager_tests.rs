@@ -354,7 +354,7 @@ fn test_session_config_provider_with_valid_session_json() {
     setup_config_dir(&tmp);
     fs::write(
         tmp.path().join("session.json"),
-        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":600}"#,
     )
     .unwrap();
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
@@ -405,7 +405,7 @@ fn test_list_configs_includes_session_excludes_credentials() {
     let session_path = tmp.path().join("session.json");
     fs::write(
         &session_path,
-        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":600}"#,
     )
     .unwrap();
     // Verify file was written correctly
@@ -848,7 +848,7 @@ fn test_load_session_business_validation_success() {
     write_mandatory_configs(tmp.path()).unwrap();
     fs::write(
         tmp.path().join("session.json"),
-        r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":900}"#,
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":900}"#,
     )
     .unwrap();
 

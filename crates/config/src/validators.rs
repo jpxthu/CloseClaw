@@ -506,6 +506,7 @@ fn validate_plugin_install(name: &str, info: &serde_json::Value) -> Result<(), S
 /// - Top-level must be a JSON object.
 /// - `version`, if present, must be a non-empty string.
 /// - `cron`, if present, must be a JSON object.
+/// - `cron.schedule`, if present, must be a valid cron expression.
 fn validate_system(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "system")?;
 
@@ -523,12 +524,28 @@ fn validate_system(value: &serde_json::Value) -> Result<(), String> {
     }
 
     // cron field: if present, must be a JSON object
-    if let Some(cron) = value.get("cron") {
-        if !cron.is_object() {
+    if let Some(cron_obj) = value.get("cron") {
+        if !cron_obj.is_object() {
             return Err(format!(
                 "system.cron must be a JSON object, got {}",
-                type_name(cron)
+                type_name(cron_obj)
             ));
+        }
+        // cron.schedule: if present, must be a valid cron expression
+        if let Some(schedule) = cron_obj.get("schedule") {
+            if let Some(expr) = schedule.as_str() {
+                if !expr.is_empty() {
+                    use cron::Schedule;
+                    use std::str::FromStr;
+                    if Schedule::from_str(expr).is_err() {
+                        return Err(
+                            "system.cron.schedule must be a valid cron expression".to_string()
+                        );
+                    }
+                }
+            } else if !schedule.is_null() {
+                return Err("system.cron.schedule must be a string".to_string());
+            }
         }
     }
 
@@ -538,14 +555,14 @@ fn validate_system(value: &serde_json::Value) -> Result<(), String> {
 /// Validate the **session** config section.
 ///
 /// - Top-level must be a JSON object.
-/// - If `sweeperIntervalSecs` is present, it must be a positive number.
+/// - If `sweeperIntervalSeconds` is present, it must be a positive number.
 /// - If `idleMinutes` is present, it must be non-negative.
 /// - If `purgeAfterMinutes` is present, it must be non-negative.
 fn validate_session(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "session")?;
-    if let Some(secs) = value.get("sweeperIntervalSecs") {
+    if let Some(secs) = value.get("sweeperIntervalSeconds") {
         if !secs.is_number() || secs.as_u64().unwrap_or(0) == 0 {
-            return Err("session.sweeperIntervalSecs must be a positive number".to_string());
+            return Err("session.sweeperIntervalSeconds must be a positive number".to_string());
         }
     }
     validate_non_negative_field(value, "idleMinutes")?;
@@ -775,3 +792,7 @@ impl ConfigSection {
 #[cfg(test)]
 #[path = "validators_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "validators_cron_tests.rs"]
+mod validators_cron_tests;

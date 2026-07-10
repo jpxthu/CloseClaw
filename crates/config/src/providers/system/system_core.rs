@@ -152,11 +152,16 @@ impl Default for SessionConfig {
 pub struct CronConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default)]
+    pub schedule: Option<String>,
 }
 
 impl Default for CronConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            schedule: None,
+        }
     }
 }
 
