@@ -63,9 +63,15 @@ impl RuleSetBuilder {
         self
     }
 
-    /// Set a specific default effect for file operations.
-    pub fn default_file(mut self, effect: Effect) -> Self {
-        self.defaults.file = effect;
+    /// Set a specific default effect for file read operations.
+    pub fn default_file_read(mut self, effect: Effect) -> Self {
+        self.defaults.file_read = effect;
+        self
+    }
+
+    /// Set a specific default effect for file write operations.
+    pub fn default_file_write(mut self, effect: Effect) -> Self {
+        self.defaults.file_write = effect;
         self
     }
 

@@ -14,7 +14,8 @@ use closeclaw_config::agents::{ActionPermission, AgentPermissions, PermissionLim
 
 fn make_engine_with_defaults() -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .default_command(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
@@ -253,7 +254,8 @@ async fn test_no_chain_matches_evaluate() {
 #[tokio::test]
 async fn test_deny_subject_propagation_through_chain() {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .default_command(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
@@ -304,7 +306,8 @@ async fn test_deny_subject_propagation_through_chain() {
 #[tokio::test]
 async fn test_deny_propagation_blocks_all_actions_for_child() {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .default_command(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
@@ -676,7 +679,8 @@ async fn test_chain_intersection_unknown_op_not_blocked() {
 #[tokio::test]
 async fn test_three_level_chain_intersection() {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .default_command(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)

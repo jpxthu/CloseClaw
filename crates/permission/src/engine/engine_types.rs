@@ -49,21 +49,15 @@ impl RuleSet {
 }
 
 /// Default permissions for each action type
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Defaults {
-    #[serde(default = "default_deny")]
-    pub file: Effect,
-    #[serde(default = "default_deny")]
+    pub file_read: Effect,
+    pub file_write: Effect,
     pub command: Effect,
-    #[serde(default = "default_deny")]
     pub network: Effect,
-    #[serde(default = "default_deny")]
     pub inter_agent: Effect,
-    #[serde(default = "default_deny")]
     pub config: Effect,
-    #[serde(default = "default_deny")]
     pub tool_call: Effect,
-    #[serde(default = "default_allow")]
     pub message: Effect,
 }
 
@@ -72,7 +66,8 @@ impl Defaults {
     /// User has no privileges unless explicitly granted.
     pub fn user_defaults() -> Self {
         Self {
-            file: Effect::Deny,
+            file_read: Effect::Deny,
+            file_write: Effect::Deny,
             command: Effect::Deny,
             network: Effect::Deny,
             inter_agent: Effect::Deny,
@@ -86,7 +81,8 @@ impl Defaults {
 impl Default for Defaults {
     fn default() -> Self {
         Self {
-            file: Effect::Deny,
+            file_read: Effect::Deny,
+            file_write: Effect::Deny,
             command: Effect::Deny,
             network: Effect::Deny,
             inter_agent: Effect::Deny,
@@ -96,12 +92,81 @@ impl Default for Defaults {
         }
     }
 }
-fn default_deny() -> Effect {
-    Effect::Deny
+
+/// Custom deserializer for `Defaults` that provides backward compatibility
+/// with old configs using a single `file` field (now split into `file_read`
+/// and `file_write`).
+///
+/// - `file_read` / `file_write` present → use them directly
+/// - Only `file` present → set both `file_read` and `file_write` to `file`
+/// - Neither present → both default to `Effect::Deny`
+impl<'de> serde::Deserialize<'de> for Defaults {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let map: serde_json::Map<String, serde_json::Value> =
+            serde_json::Map::deserialize(deserializer)?;
+
+        let read_effect = match map.get("file_read") {
+            Some(v) => serde_json::from_value(v.clone()).map_err(serde::de::Error::custom)?,
+            None => match map.get("file") {
+                Some(v) => serde_json::from_value(v.clone()).map_err(serde::de::Error::custom)?,
+                None => Effect::Deny,
+            },
+        };
+        let write_effect = match map.get("file_write") {
+            Some(v) => serde_json::from_value(v.clone()).map_err(serde::de::Error::custom)?,
+            None => match map.get("file") {
+                Some(v) => serde_json::from_value(v.clone()).map_err(serde::de::Error::custom)?,
+                None => Effect::Deny,
+            },
+        };
+
+        let command = map
+            .get("command")
+            .map(|v| serde_json::from_value(v.clone()).map_err(serde::de::Error::custom))
+            .transpose()?
+            .unwrap_or(Effect::Deny);
+        let network = map
+            .get("network")
+            .map(|v| serde_json::from_value(v.clone()).map_err(serde::de::Error::custom))
+            .transpose()?
+            .unwrap_or(Effect::Deny);
+        let inter_agent = map
+            .get("inter_agent")
+            .map(|v| serde_json::from_value(v.clone()).map_err(serde::de::Error::custom))
+            .transpose()?
+            .unwrap_or(Effect::Deny);
+        let config = map
+            .get("config")
+            .map(|v| serde_json::from_value(v.clone()).map_err(serde::de::Error::custom))
+            .transpose()?
+            .unwrap_or(Effect::Deny);
+        let tool_call = map
+            .get("tool_call")
+            .map(|v| serde_json::from_value(v.clone()).map_err(serde::de::Error::custom))
+            .transpose()?
+            .unwrap_or(Effect::Deny);
+        let message = map
+            .get("message")
+            .map(|v| serde_json::from_value(v.clone()).map_err(serde::de::Error::custom))
+            .transpose()?
+            .unwrap_or(Effect::Allow);
+
+        Ok(Defaults {
+            file_read: read_effect,
+            file_write: write_effect,
+            command,
+            network,
+            inter_agent,
+            config,
+            tool_call,
+            message,
+        })
+    }
 }
-fn default_allow() -> Effect {
-    Effect::Allow
-}
+
 /// A single permission rule
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Rule {

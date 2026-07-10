@@ -14,7 +14,8 @@ use std::collections::HashMap;
 
 fn make_engine() -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
@@ -517,7 +518,8 @@ async fn test_chain_with_fully_denied_level() {
 #[test]
 fn test_chain_deny_root_to_b_propagation() {
     let rules = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .default_command(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
@@ -564,7 +566,8 @@ fn test_chain_deny_root_to_b_propagation() {
 #[test]
 fn test_chain_deny_accumulates_across_levels() {
     let rules = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .default_command(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
@@ -612,7 +615,8 @@ fn test_chain_deny_accumulates_across_levels() {
 #[test]
 fn test_chain_deny_glob_match() {
     let rules = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .default_command(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
@@ -673,7 +677,8 @@ fn test_chain_deny_glob_match() {
 #[test]
 fn test_chain_deny_multiple_ancestors() {
     let rules = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .default_command(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)

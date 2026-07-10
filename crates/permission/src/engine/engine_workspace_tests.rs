@@ -55,7 +55,8 @@ fn make_exec_request(agent: &str) -> PermissionRequest {
 
 fn make_engine_with_root(data_root: PathBuf) -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)

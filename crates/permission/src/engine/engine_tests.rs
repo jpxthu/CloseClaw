@@ -52,7 +52,8 @@ fn test_glob_double_star() {
 
 fn make_engine() -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
@@ -98,7 +99,8 @@ fn test_engine_allow_read() {
 #[test]
 fn test_engine_default_deny() {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
@@ -113,7 +115,8 @@ fn test_engine_default_deny() {
 #[test]
 fn test_deny_takes_precedence() {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .rule(
             RuleBuilder::new()
                 .name("deny-sensitive")
@@ -340,7 +343,8 @@ fn test_command_args_allowed() {
 fn test_tool_call_default_independent_from_file() {
     // tool_call defaults to Deny while file defaults to Allow
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .default_tool_call(Effect::Deny)
         .build()
         .unwrap();
@@ -391,7 +395,8 @@ fn test_message_send_defaults_to_allow() {
     // With all defaults at Deny except message=Allow (the design-doc contract),
     // MessageSend should be Allowed while other operations are Denied.
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
@@ -421,7 +426,8 @@ fn test_message_send_defaults_to_allow() {
 /// Helper: build a ruleset with all dimensions Deny except message=Allow.
 fn deny_all_except_message_ruleset() -> super::engine_types::RuleSet {
     RuleSetBuilder::new()
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
@@ -547,7 +553,8 @@ fn test_config_dir_forced_deny_overrides_default_allow() {
     // (data_root itself) must still be denied by the hardcoded guard.
     let tmp = TempDir::new().unwrap();
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .build()
         .unwrap();
     let engine = PermissionEngine::new(ruleset, tmp.path().to_path_buf());
@@ -576,7 +583,8 @@ fn test_config_dir_forced_deny_write() {
     // Write to config dir → should also be denied.
     let tmp = TempDir::new().unwrap();
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .build()
         .unwrap();
     let engine = PermissionEngine::new(ruleset, tmp.path().to_path_buf());
@@ -604,7 +612,8 @@ fn test_workspace_still_allowed_with_default_allow() {
     // When default_file = Allow, workspace FileOp should still be allowed.
     let tmp = TempDir::new().unwrap();
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .build()
         .unwrap();
     let engine = PermissionEngine::new(ruleset, tmp.path().to_path_buf());
@@ -675,7 +684,8 @@ fn test_engine_new_different_rules_different_version() {
     let engine_a = PermissionEngine::new(ruleset_a, tmp.path().to_path_buf());
 
     let ruleset_b = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .build()
         .unwrap();
     let engine_b = PermissionEngine::new(ruleset_b, tmp.path().to_path_buf());
@@ -696,7 +706,8 @@ fn test_evaluate_with_rules_uses_external_rules() {
     // Engine has deny-all defaults; external rules allow the request.
     let tmp = TempDir::new().unwrap();
     let engine_rules = RuleSetBuilder::new()
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
@@ -721,7 +732,8 @@ fn test_evaluate_with_rules_uses_external_rules() {
 
     // External rules allow the same request
     let mut external_rules = RuleSetBuilder::new()
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .default_command(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
@@ -774,7 +786,8 @@ fn test_evaluate_with_rules_different_rules_different_result() {
 
     // Rule set A: allow read
     let mut rules_a = RuleSetBuilder::new()
-        .default_file(Effect::Deny)
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
         .rule(
             RuleBuilder::new()
                 .name("allow-read")
@@ -794,7 +807,8 @@ fn test_evaluate_with_rules_different_rules_different_result() {
 
     // Rule set B: deny read
     let mut rules_b = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .rule(
             RuleBuilder::new()
                 .name("deny-read")
@@ -827,7 +841,8 @@ fn test_evaluate_with_rules_empty_rules_uses_defaults() {
     let engine = PermissionEngine::new(engine_rules, tmp.path().to_path_buf());
 
     let mut external_rules = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .default_command(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)

@@ -37,7 +37,8 @@ impl SessionModeQuery for MockModeQuery {
 
 fn make_permissive_engine(query: Arc<dyn SessionModeQuery>) -> PermissionEngine {
     let permissive = super::engine_types::Defaults {
-        file: Effect::Allow,
+        file_read: Effect::Allow,
+        file_write: Effect::Allow,
         command: Effect::Allow,
         network: Effect::Allow,
         inter_agent: Effect::Allow,
@@ -533,7 +534,8 @@ fn test_plan_mode_critical_risk_read_not_gated() {
 #[test]
 fn test_no_query_file_write_allowed() {
     let ruleset = RuleSetBuilder::new()
-        .default_file(Effect::Allow)
+        .default_file_read(Effect::Allow)
+        .default_file_write(Effect::Allow)
         .default_command(Effect::Allow)
         .default_config(Effect::Allow)
         .build()

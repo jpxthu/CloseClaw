@@ -10,7 +10,16 @@ use tempfile::TempDir;
 #[test]
 fn test_user_defaults_all_deny() {
     let ud = Defaults::user_defaults();
-    assert_eq!(ud.file, Effect::Deny, "user_defaults.file should be Deny");
+    assert_eq!(
+        ud.file_read,
+        Effect::Deny,
+        "user_defaults.file_read should be Deny"
+    );
+    assert_eq!(
+        ud.file_write,
+        Effect::Deny,
+        "user_defaults.file_write should be Deny"
+    );
     assert_eq!(
         ud.command,
         Effect::Deny,
@@ -57,7 +66,8 @@ fn test_user_defaults_differs_from_engine_default() {
     assert_eq!(user_default.message, Effect::Deny);
 
     // All other fields are identical
-    assert_eq!(engine_default.file, user_default.file);
+    assert_eq!(engine_default.file_read, user_default.file_read);
+    assert_eq!(engine_default.file_write, user_default.file_write);
     assert_eq!(engine_default.command, user_default.command);
     assert_eq!(engine_default.network, user_default.network);
     assert_eq!(engine_default.inter_agent, user_default.inter_agent);
@@ -74,7 +84,8 @@ fn test_build_permission_engine_user_defaults_are_all_deny() {
     let guard = engine.blocking_read();
     let ud = &guard.rules().user_defaults;
 
-    assert_eq!(ud.file, Effect::Deny);
+    assert_eq!(ud.file_read, Effect::Deny);
+    assert_eq!(ud.file_write, Effect::Deny);
     assert_eq!(ud.command, Effect::Deny);
     assert_eq!(ud.network, Effect::Deny);
     assert_eq!(ud.inter_agent, Effect::Deny);

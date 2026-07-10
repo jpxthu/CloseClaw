@@ -443,3 +443,115 @@ fn test_approve_with_user_and_agent_target_medium_risk() {
     assert!(result.unwrap());
     assert_eq!(queue.pending_count(), 0);
 }
+
+// ===========================================================================
+// ConfigWrite hard-coded whitelist rejection tests
+// ===========================================================================
+
+#[test]
+fn test_config_write_with_whitelist_rejected_regardless_of_risk_level() {
+    for risk in [
+        RiskLevel::Low,
+        RiskLevel::Medium,
+        RiskLevel::High,
+        RiskLevel::Critical,
+    ] {
+        let mut queue = ApprovalQueue::new();
+        let id = queue
+            .enqueue(
+                EnqueueRequest {
+                    request: PermissionRequestBody::ConfigWrite {
+                        agent: "test-agent".to_string(),
+                        config_file: "/etc/app.toml".to_string(),
+                    },
+                    caller: dummy_caller(),
+                    operation_desc: "config write".to_string(),
+                    risk_level: risk,
+                    session_resume: "resume".to_string(),
+                    callback: Box::new(|_| {
+                        panic!("callback should not be invoked on WithWhitelist reject");
+                    }),
+                },
+                &default_rules(),
+            )
+            .unwrap();
+
+        let result = queue.approve(
+            &id,
+            ApprovalMode::WithWhitelist {
+                target: WhitelistTarget::Auto,
+            },
+        );
+        assert!(
+            result.is_err(),
+            "ConfigWrite must be rejected with WithWhitelist at risk {:?}",
+            risk
+        );
+        assert_eq!(result.unwrap_err(), RejectWhitelistReason::ConfigWrite);
+        // Request must remain pending (not resolved)
+        assert!(
+            queue.get_pending(&id).is_some(),
+            "ConfigWrite request must remain pending at risk {:?}",
+            risk
+        );
+    }
+}
+
+#[test]
+fn test_config_write_once_mode_still_works() {
+    let mut queue = ApprovalQueue::new();
+    let id = queue
+        .enqueue(
+            EnqueueRequest {
+                request: PermissionRequestBody::ConfigWrite {
+                    agent: "test-agent".to_string(),
+                    config_file: "/etc/app.toml".to_string(),
+                },
+                caller: dummy_caller(),
+                operation_desc: "config write".to_string(),
+                risk_level: RiskLevel::Low,
+                session_resume: "resume".to_string(),
+                callback: Box::new(|result| {
+                    assert_eq!(result, ApproveOrDeny::Approve);
+                }),
+            },
+            &default_rules(),
+        )
+        .unwrap();
+
+    let result = queue.approve(&id, ApprovalMode::Once);
+    assert!(result.is_ok());
+    assert!(result.unwrap());
+    assert_eq!(queue.pending_count(), 0);
+    assert!(queue.get_pending(&id).is_none());
+}
+
+#[test]
+fn test_non_config_write_with_whitelist_still_works() {
+    let mut queue = ApprovalQueue::new();
+    let id = queue
+        .enqueue(
+            EnqueueRequest {
+                request: make_file_op("a"),
+                caller: dummy_caller(),
+                operation_desc: "file read".to_string(),
+                risk_level: RiskLevel::Low,
+                session_resume: "resume".to_string(),
+                callback: Box::new(|result| {
+                    assert_eq!(result, ApproveOrDeny::Approve);
+                }),
+            },
+            &default_rules(),
+        )
+        .unwrap();
+
+    let result = queue.approve(
+        &id,
+        ApprovalMode::WithWhitelist {
+            target: WhitelistTarget::Auto,
+        },
+    );
+    assert!(result.is_ok());
+    assert!(result.unwrap());
+    assert_eq!(queue.pending_count(), 0);
+}
