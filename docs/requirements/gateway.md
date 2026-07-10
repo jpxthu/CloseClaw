@@ -33,7 +33,7 @@ Gateway 是消息路由中枢。User 通过不同 IM 平台发送的消息由 Ga
 
 - User 可以用 `/` 开头发送斜杠指令，指令在进入 LLM 对话之前被拦截，不进入 LLM 对话、不追加到对话历史
 - `/approve`、`/deny` 仅 Owner 可用（非 Owner 调用时收到权限不足提示），与 `/stop`、`/status`、`/help` 等同属 Immediate 类指令，绕过 Session 排队，即使 LLM 运行中也能立即响应
-- 非 Immediate 斜杠指令在 Session 忙时进入该 Session 的待处理队列等待
+- 非 Immediate 斜杠指令在 Session 忙时进入该 Session 的待处理队列，向 User 回复"⏳ 正在排队..."
 
 ### F6. 入站消息队列与过载保护
 
