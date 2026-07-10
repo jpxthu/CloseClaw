@@ -150,8 +150,8 @@ fn test_merge_project_require_agent_id_none_falls_back_to_user() {
 }
 
 #[test]
-fn test_merge_both_require_agent_id_none_uses_none() {
-    // Both levels unspecified → None (no default for require_agent_id).
+fn test_merge_both_require_agent_id_none_uses_default() {
+    // Both levels unspecified → filled with default (false).
     let project = AgentConfig {
         id: "test-agent".to_string(),
         subagents: SubagentsConfig {
@@ -169,7 +169,7 @@ fn test_merge_both_require_agent_id_none_uses_none() {
         ..Default::default()
     };
     let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
-    assert_eq!(resolved.subagents.require_agent_id, None);
+    assert_eq!(resolved.subagents.require_agent_id, Some(false));
 }
 
 // ------------------------------------------------------------------
@@ -359,9 +359,8 @@ fn test_from_single_resolves_bootstrap_mode_default() {
 }
 
 #[test]
-fn test_from_single_preserves_subagent_none_values() {
-    // from_single passes subagents through as-is; defaults are only
-    // applied during merge. None values remain None.
+fn test_from_single_fills_subagent_defaults() {
+    // from_single now fills subagent defaults via apply_subagent_defaults.
     let config = AgentConfig {
         id: "test-agent".to_string(),
         subagents: SubagentsConfig {
@@ -373,8 +372,9 @@ fn test_from_single_preserves_subagent_none_values() {
     };
     let resolved =
         ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>", None).unwrap();
-    assert_eq!(resolved.subagents.max_spawn_depth, None);
-    assert_eq!(resolved.subagents.max_children, None);
+    assert_eq!(resolved.subagents.require_agent_id, Some(false));
+    assert_eq!(resolved.subagents.max_spawn_depth, Some(1));
+    assert_eq!(resolved.subagents.max_children, Some(5));
 }
 
 #[test]
