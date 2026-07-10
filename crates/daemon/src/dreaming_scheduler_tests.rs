@@ -335,7 +335,11 @@ async fn test_config_change_memory_section_updates_components() {
             "enabled": true
         }
     });
-    config_manager.update_section_cache(closeclaw_config::ConfigSection::Memory, memory_value);
+    config_manager.update_section_cache(
+        closeclaw_config::ConfigSection::Memory,
+        std::path::PathBuf::from("memory.json"),
+        memory_value,
+    );
 
     // Build a pipeline/miner with dreaming/mining DISABLED initially,
     // so we can verify the config change flips them on.

@@ -5,9 +5,28 @@
 //! Deep cross-section validation (e.g., credentials reference resolution)
 //! belongs in the startup path via Provider `validate()` methods.
 
+use std::collections::HashSet;
+
 use crate::manager::ConfigSection;
 use crate::providers::channels::ALLOWED_CHANNEL_TYPES;
 use crate::SectionValidator;
+
+// ---------------------------------------------------------------------------
+// Cross-reference data
+// ---------------------------------------------------------------------------
+
+/// Cross-reference data for validating binding targets.
+///
+/// Carries the set of registered agent IDs and account IDs so that
+/// channel binding validators can verify that referenced agents and
+/// accounts actually exist.  Used by `validate_channels` in the
+/// hot-reload and update paths where cross-section data is available.
+pub struct CrossRefData {
+    /// Set of registered agent IDs.
+    pub agent_ids: HashSet<String>,
+    /// Set of registered account IDs.
+    pub account_ids: HashSet<String>,
+}
 
 // ---------------------------------------------------------------------------
 // Public helpers
@@ -151,6 +170,17 @@ fn validate_model(provider_id: &str, model: &serde_json::Value) -> Result<(), St
 /// - `bindings` key, if present, must be a JSON array.  Each entry must
 ///   have non-empty `agentId`, `match.channel`, and `match.accountId`.
 fn validate_channels(value: &serde_json::Value) -> Result<(), String> {
+    validate_channels_with_refs(value, None)
+}
+
+/// Validate the **channels** config section with optional cross-reference data.
+///
+/// When `cross_ref` is provided, binding entries are additionally
+/// validated against the registered agent and account ID sets.
+pub fn validate_channels_with_refs(
+    value: &serde_json::Value,
+    cross_ref: Option<&CrossRefData>,
+) -> Result<(), String> {
     ensure_object(value, "channels")?;
 
     // Validate channel type keys
@@ -189,7 +219,7 @@ fn validate_channels(value: &serde_json::Value) -> Result<(), String> {
         ensure_array(bindings, "channels.bindings")?;
         if let Some(arr) = bindings.as_array() {
             for (i, entry) in arr.iter().enumerate() {
-                validate_binding_entry(i, entry, &channel_types)?;
+                validate_binding_entry(i, entry, &channel_types, cross_ref)?;
             }
         }
     }
@@ -202,6 +232,7 @@ fn validate_binding_entry(
     index: usize,
     entry: &serde_json::Value,
     channel_types: &std::collections::HashSet<String>,
+    cross_ref: Option<&CrossRefData>,
 ) -> Result<(), String> {
     if !entry.is_object() {
         return Err(format!(
@@ -258,6 +289,39 @@ fn validate_binding_entry(
         "accountId",
         &format!("channels.bindings[{}].match.accountId", index),
     )?;
+
+    // Cross-reference validation: verify agentId and accountId exist
+    if let Some(cr) = cross_ref {
+        let agent_id = entry.get("agentId").and_then(|v| v.as_str()).unwrap_or("");
+        if !agent_id.is_empty() && !cr.agent_ids.is_empty() && !cr.agent_ids.contains(agent_id) {
+            let known: Vec<&str> = cr.agent_ids.iter().map(String::as_str).collect();
+            return Err(format!(
+                "channels.bindings[{}].agentId '{}' references an unknown agent. \
+                 Known agents: {}",
+                index,
+                agent_id,
+                known.join(", ")
+            ));
+        }
+        let account_id = match_obj
+            .get("accountId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if !account_id.is_empty()
+            && !cr.account_ids.is_empty()
+            && !cr.account_ids.contains(account_id)
+        {
+            let known: Vec<&str> = cr.account_ids.iter().map(String::as_str).collect();
+            return Err(format!(
+                "channels.bindings[{}].match.accountId '{}' references an unknown \
+                 account. Known accounts: {}",
+                index,
+                account_id,
+                known.join(", ")
+            ));
+        }
+    }
+
     Ok(())
 }
 

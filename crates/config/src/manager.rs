@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 use crate::backup::SafeBackupManager;
 use crate::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
+use crate::validators::CrossRefData;
 
 /// Snapshot of all config sections at a point in time.
 ///
@@ -580,7 +581,39 @@ impl ConfigManager {
         new_value: serde_json::Value,
         validator: impl FnOnce(&serde_json::Value) -> Result<(), ConfigValidationError>,
     ) -> Result<(), ConfigWriteError> {
+        self.update_with_cross_ref(section, new_value, None, validator)
+    }
+
+    /// Update a configuration section with optional cross-reference data.
+    ///
+    /// Same as [`update`] but also accepts [`CrossRefData`] for cross-section
+    /// validation (e.g., verifying that channel binding targets exist).
+    pub fn update_with_cross_ref(
+        &self,
+        section: ConfigSection,
+        new_value: serde_json::Value,
+        cross_ref: Option<&CrossRefData>,
+        validator: impl FnOnce(&serde_json::Value) -> Result<(), ConfigValidationError>,
+    ) -> Result<(), ConfigWriteError> {
+        // Build cross-ref for Channels if not provided but section is Channels
+        let cross_ref_owned;
+        let effective_cross_ref = if section == ConfigSection::Channels && cross_ref.is_none() {
+            cross_ref_owned = build_channels_cross_ref_for_update(self);
+            cross_ref_owned.as_ref()
+        } else {
+            cross_ref
+        };
+
         // Step 1: validate
+        if let Some(cr) = effective_cross_ref {
+            if section == ConfigSection::Channels {
+                if let Err(msg) =
+                    crate::validators::validate_channels_with_refs(&new_value, Some(cr))
+                {
+                    return Err(ConfigWriteError::ValidationFailed(section.to_string(), msg));
+                }
+            }
+        }
         if let Err(e) = validator(&new_value) {
             return Err(ConfigWriteError::ValidationFailed(
                 section.to_string(),
@@ -808,6 +841,37 @@ impl ConfigManager {
 
         infos
     }
+}
+
+/// Build cross-reference data for channels binding validation
+/// during the update path.
+fn build_channels_cross_ref_for_update(config_manager: &ConfigManager) -> Option<CrossRefData> {
+    let agent_ids: HashSet<String> = config_manager
+        .agents
+        .read()
+        .expect("RwLock for agents was poisoned")
+        .keys()
+        .cloned()
+        .collect();
+    let accounts_value = config_manager.get_section_value(ConfigSection::Accounts);
+    let account_ids: HashSet<String> = accounts_value
+        .and_then(|v| v.get("accounts").cloned())
+        .and_then(|arr| arr.as_array().cloned())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|entry| {
+                    entry
+                        .get("accountId")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(CrossRefData {
+        agent_ids,
+        account_ids,
+    })
 }
 
 #[cfg(test)]

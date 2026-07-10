@@ -16,6 +16,7 @@ use tracing::{debug, info, warn};
 
 use crate::events::ConfigChangeEvent;
 use crate::manager::{ConfigLoadError, ConfigManager, ConfigSection};
+use crate::validators::CrossRefData;
 
 /// Default debounce duration for file change events.
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -185,6 +186,9 @@ impl ConfigReloadManager {
                 }
                 None => crate::validators::validate_accounts(&value, None),
             }
+        } else if section == ConfigSection::Channels {
+            let cross_ref = build_channels_cross_ref(&self.config_manager);
+            crate::validators::validate_channels_with_refs(&value, cross_ref.as_ref())
         } else {
             let validator = section.default_validator();
             validator(&value)
@@ -443,6 +447,39 @@ pub fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
                 .on_session_reloaded(&manager.config_manager);
         }
     }
+}
+
+/// Build cross-reference data for channels binding validation.
+///
+/// Extracts registered agent IDs from `ConfigManager.agents` and
+/// account IDs from the in-memory Accounts section.
+fn build_channels_cross_ref(config_manager: &ConfigManager) -> Option<CrossRefData> {
+    let agent_ids: std::collections::HashSet<String> = config_manager
+        .agents
+        .read()
+        .expect("RwLock for agents was poisoned")
+        .keys()
+        .cloned()
+        .collect();
+    let accounts_value = config_manager.get_section_value(ConfigSection::Accounts);
+    let account_ids: std::collections::HashSet<String> = accounts_value
+        .and_then(|v| v.get("accounts").cloned())
+        .and_then(|arr| arr.as_array().cloned())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|entry| {
+                    entry
+                        .get("accountId")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(CrossRefData {
+        agent_ids,
+        account_ids,
+    })
 }
 
 #[cfg(test)]
