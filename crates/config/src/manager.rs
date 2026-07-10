@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use crate::backup::SafeBackupManager;
 use crate::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
-use crate::validators::CrossRefData;
+use crate::validators::{CredentialProviderSet, CrossRefData};
 
 /// Snapshot of all config sections at a point in time.
 ///
@@ -604,11 +604,29 @@ impl ConfigManager {
             cross_ref
         };
 
+        // Build credential cross-ref for Models if section is Models
+        let models_cross_ref_owned;
+        let credential_providers = if section == ConfigSection::Models {
+            models_cross_ref_owned = build_models_cross_ref_for_update(self);
+            models_cross_ref_owned.as_ref()
+        } else {
+            None
+        };
+
         // Step 1: validate
         if let Some(cr) = effective_cross_ref {
             if section == ConfigSection::Channels {
                 if let Err(msg) =
                     crate::validators::validate_channels_with_refs(&new_value, Some(cr))
+                {
+                    return Err(ConfigWriteError::ValidationFailed(section.to_string(), msg));
+                }
+            }
+        }
+        if let Some(crps) = credential_providers {
+            if section == ConfigSection::Models {
+                if let Err(msg) =
+                    crate::validators::validate_models_with_refs(&new_value, Some(crps))
                 {
                     return Err(ConfigWriteError::ValidationFailed(section.to_string(), msg));
                 }
@@ -872,6 +890,20 @@ fn build_channels_cross_ref_for_update(config_manager: &ConfigManager) -> Option
         agent_ids,
         account_ids,
     })
+}
+
+/// Build credential cross-reference data for models validation
+/// during the update path.
+fn build_models_cross_ref_for_update(
+    config_manager: &ConfigManager,
+) -> Option<CredentialProviderSet> {
+    let creds_value = config_manager.get_section_value(ConfigSection::Credentials);
+    let names: HashSet<String> = creds_value
+        .and_then(|v| v.get("providers").cloned())
+        .and_then(|obj| obj.as_object().cloned())
+        .map(|obj| obj.keys().cloned().collect())
+        .unwrap_or_default();
+    Some(CredentialProviderSet { names })
 }
 
 #[cfg(test)]

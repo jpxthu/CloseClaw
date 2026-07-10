@@ -1,9 +1,11 @@
 //! Tests for config section validators.
 
+use std::collections::HashSet;
+
 use crate::manager::ConfigSection;
 use crate::validators::{
-    for_section, validate_channels, validate_gateway, validate_models, validate_plugins,
-    validate_session, validate_system,
+    for_section, validate_channels, validate_gateway, validate_models, validate_models_with_refs,
+    validate_plugins, validate_session, validate_system, CredentialProviderSet,
 };
 
 // ---------------------------------------------------------------------------
@@ -17,16 +19,11 @@ fn test_validate_models_pass() {
 }
 
 #[test]
-fn test_validate_models_pass_empty_object() {
-    let v: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
-    assert!(validate_models(&v).is_ok());
-}
-
-#[test]
-fn test_validate_models_pass_with_array() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"providers":{"p":{"models":[{"id":"m1"}]}}}"#).unwrap();
-    assert!(validate_models(&v).is_ok());
+fn test_validate_models_pass_empty_object_or_with_array() {
+    for json in [r#"{}"#, r#"{"models":[{"id":"m1"}]}"#] {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert!(validate_models(&v).is_ok(), "json={}", json);
+    }
 }
 
 #[test]
@@ -86,19 +83,15 @@ fn test_validate_models_fail_invalid_base_url() {
 }
 
 #[test]
-fn test_validate_models_pass_valid_base_url() {
-    let v: serde_json::Value = serde_json::from_str(
-        r#"{"providers":{"p":{"baseUrl":"https://api.example.com","models":[]}}}"#,
-    )
-    .unwrap();
-    assert!(validate_models(&v).is_ok());
-}
-
-#[test]
-fn test_validate_models_pass_empty_base_url() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"providers":{"p":{"baseUrl":"","models":[]}}}"#).unwrap();
-    assert!(validate_models(&v).is_ok());
+fn test_validate_models_pass_valid_or_empty_base_url() {
+    for url in ["https://api.example.com", ""] {
+        let json = format!(
+            r#"{{"providers":{{"p":{{"baseUrl":"{}","models":[]}}}}}}"#,
+            url
+        );
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(validate_models(&v).is_ok(), "url={}", url);
+    }
 }
 
 #[test]
@@ -698,16 +691,12 @@ fn test_for_section_credentials_always_passes() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_validate_models_pass_empty_providers_object() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"providers":{}}"#).unwrap();
-    assert!(validate_models(&v).is_ok());
-}
-
-#[test]
-fn test_validate_models_pass_providers_with_empty_models_array() {
-    let v: serde_json::Value =
+fn test_validate_models_pass_empty_providers_or_models() {
+    let v1: serde_json::Value = serde_json::from_str(r#"{"providers":{}}"#).unwrap();
+    assert!(validate_models(&v1).is_ok());
+    let v2: serde_json::Value =
         serde_json::from_str(r#"{"providers":{"p":{"models":[]}}}"#).unwrap();
-    assert!(validate_models(&v).is_ok());
+    assert!(validate_models(&v2).is_ok());
 }
 
 #[test]
@@ -733,81 +722,37 @@ fn test_validate_plugins_pass_empty_installs_object() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_validate_session_pass() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"sweeperIntervalSecs":600,"compact":{}}"#).unwrap();
-    assert!(validate_session(&v).is_ok());
+fn test_validate_session_pass_variants() {
+    for json in [
+        r#"{"sweeperIntervalSecs":600,"compact":{}}"#,
+        r#"{}"#,
+        r#"{"compact":{}}"#,
+        r#"{"sweeperIntervalSecs":1}"#,
+        r#"{"sweeperIntervalSecs":600,"idleMinutes":30,"purgeAfterMinutes":1440,"compact":{}}"#,
+    ] {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert!(validate_session(&v).is_ok(), "json={}", json);
+    }
 }
 
 #[test]
-fn test_validate_session_pass_empty_object() {
-    let v: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
-    assert!(validate_session(&v).is_ok());
-}
-
-#[test]
-fn test_validate_session_pass_no_sweeper_interval() {
-    // sweeperIntervalSecs absent — should pass (optional field)
-    let v: serde_json::Value = serde_json::from_str(r#"{"compact":{}}"#).unwrap();
-    assert!(validate_session(&v).is_ok());
-}
-
-#[test]
-fn test_validate_session_fail_not_object() {
-    let v: serde_json::Value = serde_json::from_str(r#"[1]"#).unwrap();
-    let err = validate_session(&v).unwrap_err();
-    assert!(err.contains("JSON object"), "error: {}", err);
-}
-
-#[test]
-fn test_validate_session_fail_string() {
-    let v: serde_json::Value = serde_json::from_str(r#""hello""#).unwrap();
-    let err = validate_session(&v).unwrap_err();
-    assert!(err.contains("JSON object"), "error: {}", err);
-}
-
-#[test]
-fn test_validate_session_fail_sweeper_interval_zero() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"sweeperIntervalSecs":0}"#).unwrap();
-    let err = validate_session(&v).unwrap_err();
-    assert!(
-        err.contains("positive number"),
-        "error should mention positive number: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_session_fail_sweeper_interval_string() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"sweeperIntervalSecs":"not a number"}"#).unwrap();
-    let err = validate_session(&v).unwrap_err();
-    assert!(
-        err.contains("positive number"),
-        "error should mention positive number: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_session_fail_sweeper_interval_negative() {
-    // Negative number: as_u64() returns None for negative → unwrap_or(0) == 0
-    let v: serde_json::Value = serde_json::from_str(r#"{"sweeperIntervalSecs":-5}"#).unwrap();
-    let err = validate_session(&v).unwrap_err();
-    assert!(err.contains("positive number"), "error: {}", err);
-}
-
-#[test]
-fn test_validate_session_fail_sweeper_interval_null() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"sweeperIntervalSecs":null}"#).unwrap();
-    let err = validate_session(&v).unwrap_err();
-    assert!(err.contains("positive number"), "error: {}", err);
-}
-
-#[test]
-fn test_validate_session_pass_sweeper_interval_positive() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"sweeperIntervalSecs":1}"#).unwrap();
-    assert!(validate_session(&v).is_ok());
+fn test_validate_session_fail_invalid_type_and_sweeper() {
+    for json in [r#"[1]"#, r#""hello""#] {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        let err = validate_session(&v).unwrap_err();
+        assert!(err.contains("JSON object"), "{}: error: {}", json, err);
+    }
+    let cases = [
+        r#"{"sweeperIntervalSecs":0}"#,
+        r#"{"sweeperIntervalSecs":"not a number"}"#,
+        r#"{"sweeperIntervalSecs":-5}"#,
+        r#"{"sweeperIntervalSecs":null}"#,
+    ];
+    for json in cases {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        let err = validate_session(&v).unwrap_err();
+        assert!(err.contains("positive number"), "{}: {}", json, err);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -815,61 +760,29 @@ fn test_validate_session_pass_sweeper_interval_positive() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_validate_session_fail_idle_minutes_negative() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"idleMinutes":-1}"#).unwrap();
-    let err = validate_session(&v).unwrap_err();
-    assert!(
-        err.contains("idleMinutes must be non-negative"),
-        "error: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_session_fail_idle_minutes_string() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"idleMinutes":"abc"}"#).unwrap();
-    let err = validate_session(&v).unwrap_err();
-    assert!(
-        err.contains("idleMinutes must be a number"),
-        "error: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_session_fail_purge_after_minutes_negative() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"purgeAfterMinutes":-1}"#).unwrap();
-    let err = validate_session(&v).unwrap_err();
-    assert!(
-        err.contains("purgeAfterMinutes must be non-negative"),
-        "error: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_session_fail_purge_after_minutes_string() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"purgeAfterMinutes":"abc"}"#).unwrap();
-    let err = validate_session(&v).unwrap_err();
-    assert!(
-        err.contains("purgeAfterMinutes must be a number"),
-        "error: {}",
-        err
-    );
+fn test_validate_session_fail_idle_purge_invalid() {
+    let cases = [
+        (r#"{"idleMinutes":-1}"#, "idleMinutes must be non-negative"),
+        (r#"{"idleMinutes":"abc"}"#, "idleMinutes must be a number"),
+        (
+            r#"{"purgeAfterMinutes":-1}"#,
+            "purgeAfterMinutes must be non-negative",
+        ),
+        (
+            r#"{"purgeAfterMinutes":"abc"}"#,
+            "purgeAfterMinutes must be a number",
+        ),
+    ];
+    for (json, expected) in cases {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        let err = validate_session(&v).unwrap_err();
+        assert!(err.contains(expected), "{}: error: {}", json, err);
+    }
 }
 
 // ---------------------------------------------------------------------------
 // validate_session — combined fields
 // ---------------------------------------------------------------------------
-
-#[test]
-fn test_validate_session_pass_all_session_fields() {
-    let v: serde_json::Value = serde_json::from_str(
-        r#"{"sweeperIntervalSecs":600,"idleMinutes":30,"purgeAfterMinutes":1440,"compact":{}}"#,
-    )
-    .unwrap();
-    assert!(validate_session(&v).is_ok());
-}
 
 #[test]
 fn test_validate_session_fail_multiple_invalid() {
@@ -892,17 +805,12 @@ fn test_default_validator_session_passes_valid_json() {
 }
 
 #[test]
-fn test_default_validator_session_rejects_non_object() {
-    let v: serde_json::Value = serde_json::from_str(r#"[1]"#).unwrap();
-    let validator = ConfigSection::Session.default_validator();
-    assert!(validator(&v).is_err());
-}
-
-#[test]
-fn test_for_section_session_returns_validator() {
-    let validator = for_section(ConfigSection::Session);
+fn test_default_validator_session_and_for_section() {
     let valid: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
     let invalid: serde_json::Value = serde_json::from_str(r#"[1]"#).unwrap();
+    assert!(ConfigSection::Session.default_validator()(&valid).is_ok());
+    assert!(ConfigSection::Session.default_validator()(&invalid).is_err());
+    let validator = for_section(ConfigSection::Session);
     assert!(validator(&valid).is_ok());
     assert!(validator(&invalid).is_err());
 }
@@ -985,15 +893,82 @@ fn test_validate_models_credential_path_not_exists() {
 }
 
 #[test]
-fn test_validate_models_credential_path_null() {
-    let v: serde_json::Value =
+fn test_validate_models_credential_path_null_or_absent() {
+    let v_null: serde_json::Value =
         serde_json::from_str(r#"{"providers":{"p":{"credentialPath":null,"models":[]}}}"#).unwrap();
-    assert!(validate_models(&v).is_ok());
+    assert!(validate_models(&v_null).is_ok());
+    let v_absent: serde_json::Value =
+        serde_json::from_str(r#"{"providers":{"p":{"models":[]}}}"#).unwrap();
+    assert!(validate_models(&v_absent).is_ok());
+}
+
+// ---------------------------------------------------------------------------
+// Step 1.3 — models apiKey credential cross-validation tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validate_models_api_key_ref_unknown_cred_provider() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"providers":{"openai":{"apiKey":"sk-test","models":[]}}}"#)
+            .unwrap();
+    let crps = CredentialProviderSet {
+        names: ["anthropic".to_string()].into_iter().collect(),
+    };
+    let err = validate_models_with_refs(&v, Some(&crps)).unwrap_err();
+    assert!(
+        err.contains("references an unknown credential provider"),
+        "error: {}",
+        err
+    );
+    assert!(
+        err.contains("openai"),
+        "error should mention openai: {}",
+        err
+    );
 }
 
 #[test]
-fn test_validate_models_credential_path_absent() {
+fn test_validate_models_api_key_ref_known_cred_provider() {
     let v: serde_json::Value =
-        serde_json::from_str(r#"{"providers":{"p":{"models":[]}}}"#).unwrap();
-    assert!(validate_models(&v).is_ok());
+        serde_json::from_str(r#"{"providers":{"openai":{"apiKey":"sk-test","models":[]}}}"#)
+            .unwrap();
+    let crps = CredentialProviderSet {
+        names: ["openai".to_string(), "anthropic".to_string()]
+            .into_iter()
+            .collect(),
+    };
+    assert!(validate_models_with_refs(&v, Some(&crps)).is_ok());
+}
+
+#[test]
+fn test_validate_models_no_api_key_passes() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"providers":{"openai":{"models":[{"id":"gpt-4"}]}}}"#).unwrap();
+    let crps = CredentialProviderSet {
+        names: HashSet::new(),
+    };
+    assert!(validate_models_with_refs(&v, Some(&crps)).is_ok());
+}
+
+#[test]
+fn test_validate_models_api_key_with_credential_path_passes() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    let path = tmp.path().to_str().unwrap();
+    let json = format!(
+        r#"{{"providers":{{"openai":{{"apiKey":"sk-test","credentialPath":"{}","models":[]}}}}}}"#,
+        path
+    );
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let crps = CredentialProviderSet {
+        names: HashSet::new(),
+    };
+    assert!(validate_models_with_refs(&v, Some(&crps)).is_ok());
+}
+
+#[test]
+fn test_validate_models_no_cross_ref_skips_check() {
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"providers":{"openai":{"apiKey":"sk-test","models":[]}}}"#)
+            .unwrap();
+    assert!(validate_models_with_refs(&v, None).is_ok());
 }

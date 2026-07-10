@@ -16,7 +16,7 @@ use tracing::{debug, info, warn};
 
 use crate::events::ConfigChangeEvent;
 use crate::manager::{ConfigLoadError, ConfigManager, ConfigSection};
-use crate::validators::CrossRefData;
+use crate::validators::{CredentialProviderSet, CrossRefData};
 
 /// Default debounce duration for file change events.
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -189,6 +189,9 @@ impl ConfigReloadManager {
         } else if section == ConfigSection::Channels {
             let cross_ref = build_channels_cross_ref(&self.config_manager);
             crate::validators::validate_channels_with_refs(&value, cross_ref.as_ref())
+        } else if section == ConfigSection::Models {
+            let credential_providers = build_models_cross_ref(&self.config_manager);
+            crate::validators::validate_models_with_refs(&value, credential_providers.as_ref())
         } else {
             let validator = section.default_validator();
             validator(&value)
@@ -480,6 +483,19 @@ fn build_channels_cross_ref(config_manager: &ConfigManager) -> Option<CrossRefDa
         agent_ids,
         account_ids,
     })
+}
+
+/// Build cross-reference data for models credential validation.
+///
+/// Extracts credential provider names from the in-memory Credentials section.
+fn build_models_cross_ref(config_manager: &ConfigManager) -> Option<CredentialProviderSet> {
+    let creds_value = config_manager.get_section_value(ConfigSection::Credentials);
+    let names: std::collections::HashSet<String> = creds_value
+        .and_then(|v| v.get("providers").cloned())
+        .and_then(|obj| obj.as_object().cloned())
+        .map(|obj| obj.keys().cloned().collect())
+        .unwrap_or_default();
+    Some(CredentialProviderSet { names })
 }
 
 #[cfg(test)]
