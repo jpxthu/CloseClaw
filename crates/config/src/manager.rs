@@ -4,7 +4,7 @@
 //! to all JSON config files under the config/ directory.
 
 use chrono::{DateTime, Local};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -243,6 +243,11 @@ pub struct ConfigManager {
     event_broadcaster: ConfigChangeBroadcaster,
     /// Broadcast channel for config snapshots after each successful reload.
     snapshot_tx: broadcast::Sender<ConfigSnapshot>,
+    /// Sections that are blocked because they had no previous value
+    /// and the initial load/reload failed. Blocked sections return
+    /// `None` from `get_section_value` and are unblocked on next
+    /// successful reload.
+    blocked_sections: RwLock<HashSet<ConfigSection>>,
 }
 
 impl ConfigManager {
@@ -266,6 +271,7 @@ impl ConfigManager {
             repo_root: RwLock::new(None),
             event_broadcaster: ConfigChangeBroadcaster::new(),
             snapshot_tx: broadcast::channel(16).0,
+            blocked_sections: RwLock::new(HashSet::new()),
         })
     }
 
@@ -602,13 +608,51 @@ impl ConfigManager {
 
     /// Get a single section value from the in-memory cache.
     ///
-    /// Returns `None` if the section has not been loaded.
+    /// Returns `None` if the section has not been loaded or is blocked.
     pub fn get_section_value(&self, section: ConfigSection) -> Option<serde_json::Value> {
+        if self.is_blocked(section) {
+            return None;
+        }
         self.sections
             .read()
             .expect("RwLock for config sections was poisoned")
             .get(&section)
             .cloned()
+    }
+
+    /// Check if a section is blocked (no old value + failed load).
+    pub fn is_blocked(&self, section: ConfigSection) -> bool {
+        self.blocked_sections
+            .read()
+            .expect("RwLock for blocked_sections was poisoned")
+            .contains(&section)
+    }
+
+    /// Block a section because it had no old value and the reload failed.
+    ///
+    /// A blocked section's `get_section_value` returns `None`, which
+    /// signals downstream components that the config is unavailable.
+    pub fn block_section(&self, section: ConfigSection) {
+        warn!(
+            section = %section,
+            "blocking config section: no old value and reload failed"
+        );
+        self.blocked_sections
+            .write()
+            .expect("RwLock for blocked_sections was poisoned")
+            .insert(section);
+    }
+
+    /// Unblock a section. Called after a successful reload.
+    pub fn unblock_section(&self, section: ConfigSection) {
+        if self
+            .blocked_sections
+            .write()
+            .expect("RwLock for blocked_sections was poisoned")
+            .remove(&section)
+        {
+            info!(section = %section, "unblocked config section after successful reload");
+        }
     }
 
     /// Subscribe to config snapshot broadcasts.
@@ -628,6 +672,7 @@ impl ConfigManager {
     /// (e.g. `ConfigReloadManager::reload_section`) must go through
     /// this method instead of directly inserting into `sections`.
     pub fn update_section_cache(&self, section: ConfigSection, value: serde_json::Value) {
+        self.unblock_section(section);
         let snapshot = {
             let mut sections = self
                 .sections

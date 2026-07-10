@@ -4,8 +4,8 @@
 use crate::config_watcher;
 use closeclaw_common::PlanState;
 use closeclaw_config::ConfigManager;
-use closeclaw_gateway::SessionManager;
 use closeclaw_gateway::SpawnController;
+use closeclaw_gateway::{Gateway, SessionManager};
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_skills::DiskSkillRegistry;
@@ -39,6 +39,8 @@ pub(crate) struct RegistryContext<'a> {
     pub approval_flow: &'a Arc<tokio::sync::Mutex<ApprovalFlow>>,
     /// Path to the config subdirectory (for hot-reload).
     pub config_subdir: &'a Path,
+    /// Gateway reference for sending IM notifications on config reload failures.
+    pub gateway: &'a Arc<Gateway>,
 }
 
 /// Populate registries and wire them together.
@@ -120,6 +122,7 @@ fn init_config_hot_reload(
         Arc::clone(ctx.config_manager),
         Arc::clone(ctx.agent_registry),
         Arc::clone(ctx.session_manager),
+        Arc::clone(ctx.gateway),
     ) {
         Ok(handle) => Some(handle),
         Err(e) => {

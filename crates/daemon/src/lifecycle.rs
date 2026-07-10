@@ -51,6 +51,7 @@ impl Daemon {
                     session_manager: &session_manager,
                     permission_engine: &permission_engine,
                     approval_flow: &approval_flow,
+                    gateway: &gateway,
                 },
                 &data_dir,
             )
