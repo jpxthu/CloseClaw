@@ -975,3 +975,26 @@ fn test_config_manager_update_credentials_section_sets_0600() {
         mode
     );
 }
+/// Test: account.platform matches a configured channel → pass.
+#[test]
+fn test_validate_accounts_platform_matches_channel() {
+    let accounts = serde_json::json!({
+        "accounts": [{"accountId": "a1", "senderId": "s1", "platform": "feishu"}]
+    });
+    let channels = serde_json::json!({"channels": {"feishu": {"enabled": true}}});
+    assert!(crate::validators::validate_accounts(&accounts, Some(&channels)).is_ok());
+}
+
+#[test]
+fn test_validate_accounts_platform_not_in_channels() {
+    let accounts = serde_json::json!({
+        "accounts": [{"accountId": "a1", "senderId": "s1", "platform": "telegram"}]
+    });
+    let channels = serde_json::json!({"channels": {"feishu": {"enabled": true}}});
+    let err = crate::validators::validate_accounts(&accounts, Some(&channels)).unwrap_err();
+    assert!(
+        err.contains("does not correspond to any configured channel") && err.contains("telegram"),
+        "error: {}",
+        err
+    );
+}
