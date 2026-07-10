@@ -20,6 +20,7 @@ use closeclaw_session::persistence::{
     PendingMessage, PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
     SessionStatus,
 };
+use closeclaw_session::run_health::{RuntimeSnapshotManager, TranscriptOp};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -102,6 +103,10 @@ pub struct SessionManager {
     /// Background task manager for draining completion notifications
     /// and cleaning up finished task output files.
     task_manager: RwLock<Option<Arc<dyn closeclaw_tasks::TaskManager>>>,
+    /// Per-session runtime snapshot managers for transcript rollback.
+    /// Keyed by session_id. Created on demand when a snapshot is first
+    /// needed; lazily cleaned up when the session is removed.
+    snapshot_managers: RwLock<HashMap<String, Arc<RwLock<RuntimeSnapshotManager>>>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -147,6 +152,7 @@ impl SessionManager {
             cache_invalidator: RwLock::new(None),
             mining_notify_tx: std::sync::RwLock::new(None),
             task_manager: RwLock::new(None),
+            snapshot_managers: RwLock::new(HashMap::new()),
         }
     }
 
@@ -602,6 +608,12 @@ impl SessionManager {
     /// Must be called **before** compaction begins so that a failed
     /// compaction can be rolled back via [`rollback_compaction`].
     pub async fn save_pre_compaction_snapshot(&self, session_id: &str) {
+        // Ensure a snapshot manager exists for this session.
+        {
+            let mut mgrs = self.snapshot_managers.write().await;
+            mgrs.entry(session_id.to_string())
+                .or_insert_with(|| Arc::new(RwLock::new(RuntimeSnapshotManager::new())));
+        }
         let conv_sessions = self.conversation_sessions.read().await;
         let Some(cs) = conv_sessions.get(session_id) else {
             warn!(
@@ -610,8 +622,17 @@ impl SessionManager {
             );
             return;
         };
-        let mut cs = cs.write().await;
-        cs.save_snapshot();
+        let cs = cs.read().await;
+        let mgrs = self.snapshot_managers.read().await;
+        let Some(mgr) = mgrs.get(session_id) else {
+            warn!(
+                session_id = %session_id,
+                "save_pre_compaction_snapshot: snapshot manager not found"
+            );
+            return;
+        };
+        let mut mgr = mgr.write().await;
+        mgr.create_snapshot(cs.messages(), TranscriptOp::Rewrite);
     }
 
     /// Rollback a failed compaction by restoring the pre-compaction
@@ -621,6 +642,21 @@ impl SessionManager {
     /// `false` if no snapshot was saved (caller should treat as
     /// an error).
     pub async fn rollback_compaction(&self, session_id: &str) -> bool {
+        let mgrs = self.snapshot_managers.read().await;
+        let Some(mgr) = mgrs.get(session_id) else {
+            warn!(
+                session_id = %session_id,
+                "rollback_compaction: snapshot manager not found"
+            );
+            return false;
+        };
+        let mut mgr = mgr.write().await;
+        let Some(messages) = mgr.rollback() else {
+            return false;
+        };
+        drop(mgr);
+        drop(mgrs);
+        // Restore messages into the ConversationSession.
         let conv_sessions = self.conversation_sessions.read().await;
         let Some(cs) = conv_sessions.get(session_id) else {
             warn!(
@@ -630,17 +666,17 @@ impl SessionManager {
             return false;
         };
         let mut cs = cs.write().await;
-        cs.restore_snapshot()
+        cs.replace_messages(messages);
+        true
     }
 
     /// Clear the pre-compaction snapshot after a successful compaction.
     pub async fn clear_pre_compaction_snapshot(&self, session_id: &str) {
-        let conv_sessions = self.conversation_sessions.read().await;
-        let Some(cs) = conv_sessions.get(session_id) else {
-            return;
-        };
-        let mut cs = cs.write().await;
-        cs.clear_snapshot();
+        let mgrs = self.snapshot_managers.read().await;
+        if let Some(mgr) = mgrs.get(session_id) {
+            let mut mgr = mgr.write().await;
+            mgr.clear();
+        }
     }
 
     /// Get the ConversationSession for a given session_id.

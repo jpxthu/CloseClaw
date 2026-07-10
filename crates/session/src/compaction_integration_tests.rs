@@ -7,11 +7,11 @@ mod tests {
         estimate_messages_tokens, estimate_total_tokens, CompactConfig, CompactionMessage,
         CompactionService, TokenWarningState,
     };
-    use crate::llm_session::{ChatSession, ConversationSession, SessionMessage};
+    use crate::llm_session::SessionMessage;
+    use crate::run_health::{RuntimeSnapshotManager, TranscriptOp};
     use chrono::Utc;
     use closeclaw_common::ContentBlock;
     use closeclaw_common::RunningStats;
-    use std::path::PathBuf;
 
     // Helper to build a SessionMessage with plain text.
     fn msg(text: &str) -> SessionMessage {
@@ -30,103 +30,87 @@ mod tests {
         }
     }
 
-    // Helper to create a ConversationSession for tests.
-    fn new_session(id: &str) -> ConversationSession {
-        ConversationSession::new(id.into(), "glm-5".into(), PathBuf::from("/tmp"))
-    }
-
     // =====================================================================
     // 1. Pre-compaction snapshot
     // =====================================================================
 
     #[test]
     fn test_snapshot_save_restore_messages_intact() {
-        let mut session = new_session("s1");
+        let mut mgr = RuntimeSnapshotManager::new();
         let original = vec![msg("hello"), msg("world")];
-        session.replace_messages(original.clone());
 
         // Save snapshot before modification.
-        session.save_snapshot();
+        mgr.create_snapshot(&original, TranscriptOp::Rewrite);
 
-        // Mutate messages.
-        session.replace_messages(vec![msg("hello"), msg("world"), msg("added")]);
+        // Mutate messages (demonstrating the scenario).
+        // In real usage, mutated messages would be used for compaction.
 
         // Restore snapshot.
-        assert!(session.restore_snapshot());
-        // Messages should match original.
-        assert_eq!(session.messages().len(), 2);
+        let restored = mgr.rollback().expect("snapshot should exist");
+        assert_eq!(restored.len(), 2);
         assert_eq!(
-            session.messages()[0].content_blocks[0],
+            restored[0].content_blocks[0],
             ContentBlock::Text("hello".into())
         );
         assert_eq!(
-            session.messages()[1].content_blocks[0],
+            restored[1].content_blocks[0],
             ContentBlock::Text("world".into())
         );
     }
 
     #[test]
     fn test_snapshot_multiple_saves_override_old() {
-        let mut session = new_session("s1");
-        session.replace_messages(vec![msg("first")]);
-        session.save_snapshot();
+        let mut mgr = RuntimeSnapshotManager::new();
 
-        session.replace_messages(vec![msg("first"), msg("second")]);
-        session.save_snapshot(); // should override first snapshot
+        mgr.create_snapshot(&[msg("first")], TranscriptOp::Rewrite);
+        mgr.create_snapshot(&[msg("first"), msg("second")], TranscriptOp::Rewrite); // should override first snapshot
 
-        session.replace_messages(vec![msg("first"), msg("second"), msg("third")]);
-
-        assert!(session.restore_snapshot());
-        // Restored state should have "first" and "second" (from second save),
-        // but NOT "third".
-        assert_eq!(session.messages().len(), 2);
+        // Restore should return the most recent snapshot (second save).
+        let restored = mgr.rollback().expect("snapshot should exist");
+        assert_eq!(restored.len(), 2);
         assert_eq!(
-            session.messages()[0].content_blocks[0],
+            restored[0].content_blocks[0],
             ContentBlock::Text("first".into())
         );
         assert_eq!(
-            session.messages()[1].content_blocks[0],
+            restored[1].content_blocks[0],
             ContentBlock::Text("second".into())
         );
     }
 
     #[test]
     fn test_snapshot_restore_clears_snapshot() {
-        let mut session = new_session("s1");
-        session.replace_messages(vec![msg("keep")]);
-        session.save_snapshot();
-        session.replace_messages(vec![msg("keep"), msg("discard")]);
+        let mut mgr = RuntimeSnapshotManager::new();
 
-        // First restore: should succeed and clear snapshot.
-        assert!(session.restore_snapshot());
-        assert_eq!(session.messages().len(), 1);
+        mgr.create_snapshot(&[msg("keep")], TranscriptOp::Rewrite);
 
-        // Second restore: snapshot is None, returns false.
-        assert!(!session.restore_snapshot());
-        // Messages unchanged after failed restore.
-        assert_eq!(session.messages().len(), 1);
+        // First rollback: should succeed and remove snapshot.
+        let restored = mgr.rollback().expect("snapshot should exist");
+        assert_eq!(restored.len(), 1);
+
+        // Second rollback: no snapshot left, returns None.
+        assert!(mgr.rollback().is_none());
     }
 
     #[test]
     fn test_snapshot_no_messages() {
-        let mut session = new_session("s1");
-        session.save_snapshot();
-        assert!(session.restore_snapshot());
-        assert!(session.messages().is_empty());
+        let mut mgr = RuntimeSnapshotManager::new();
+        mgr.create_snapshot(&[], TranscriptOp::Rewrite);
+        let restored = mgr.rollback().expect("snapshot should exist");
+        assert!(restored.is_empty());
     }
 
     #[test]
     fn test_clear_snapshot_after_success() {
-        let mut session = new_session("s1");
-        session.replace_messages(vec![msg("data")]);
-        session.save_snapshot();
+        let mut mgr = RuntimeSnapshotManager::new();
+        mgr.create_snapshot(&[msg("data")], TranscriptOp::Rewrite);
 
-        session.clear_snapshot();
+        mgr.clear();
 
         // Restore is no-op.
-        assert!(!session.restore_snapshot());
-        // Original message is still there (clear doesn't touch messages).
-        assert_eq!(session.messages().len(), 1);
+        assert!(mgr.rollback().is_none());
+        // snapshot_count should be 0.
+        assert_eq!(mgr.snapshot_count(), 0);
     }
 
     // =====================================================================
