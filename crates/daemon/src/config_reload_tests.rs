@@ -3,7 +3,7 @@
 use super::*;
 use closeclaw_config::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 use closeclaw_config::manager::{ConfigManager, ConfigSection};
-use closeclaw_gateway::{GatewayConfig, SessionManager};
+use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
 use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
@@ -26,6 +26,14 @@ fn make_session_manager() -> Arc<SessionManager> {
     ))
 }
 
+/// Helper: create a Gateway with defaults (for subscriber tests).
+fn make_gateway() -> Arc<Gateway> {
+    Arc::new(Gateway::new(
+        GatewayConfig::default(),
+        make_session_manager(),
+    ))
+}
+
 // ---------------------------------------------------------------------------
 // spawn_config_change_subscriber tests
 // ---------------------------------------------------------------------------
@@ -37,7 +45,7 @@ async fn test_subscriber_handles_reloaded_event() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    spawn_config_change_subscriber(Arc::clone(&config_mgr), session_mgr);
+    spawn_config_change_subscriber(Arc::clone(&config_mgr), session_mgr, make_gateway());
 
     // Give the spawned task a moment to start.
     tokio::task::yield_now().await;
@@ -59,7 +67,7 @@ async fn test_subscriber_ignores_failed_event() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    spawn_config_change_subscriber(Arc::clone(&config_mgr), session_mgr);
+    spawn_config_change_subscriber(Arc::clone(&config_mgr), session_mgr, make_gateway());
 
     tokio::task::yield_now().await;
 
@@ -79,7 +87,7 @@ async fn test_subscriber_handles_multiple_events() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    spawn_config_change_subscriber(Arc::clone(&config_mgr), session_mgr);
+    spawn_config_change_subscriber(Arc::clone(&config_mgr), session_mgr, make_gateway());
 
     tokio::task::yield_now().await;
 
@@ -119,7 +127,7 @@ async fn test_subscriber_exits_on_channel_close() {
     let config_mgr = make_config_manager(&tmp);
     let _session_mgr = make_session_manager();
 
-    spawn_config_change_subscriber(Arc::clone(&config_mgr), _session_mgr);
+    spawn_config_change_subscriber(Arc::clone(&config_mgr), _session_mgr, make_gateway());
 
     tokio::task::yield_now().await;
 
@@ -188,4 +196,143 @@ async fn test_subscriber_handles_lagged_events() {
         got_lagged,
         "expected at least one Lagged error with buffer capacity 1 and 10 sends"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Gap 2 — IM notification on config reload failure
+// ---------------------------------------------------------------------------
+
+/// parse_owner_target correctly parses a valid owner_display value.
+#[test]
+fn test_parse_owner_target_valid() {
+    let tmp = TempDir::new().unwrap();
+    let config_dir = tmp.path().to_path_buf();
+    // Write system.json with owner_display
+    let system_json = serde_json::json!({
+        "commands": {
+            "ownerDisplay": "feishu:oc_xxx123"
+        }
+    });
+    std::fs::write(
+        config_dir.join("system.json"),
+        serde_json::to_string(&system_json).unwrap(),
+    )
+    .unwrap();
+    let cm = ConfigManager::new(config_dir).unwrap();
+    // Load only System section (others missing, but we only need System)
+    let _ = cm.reload_section(ConfigSection::System, None);
+
+    let result = parse_owner_target(&cm);
+    assert_eq!(
+        result,
+        Some(("feishu".to_string(), "oc_xxx123".to_string()))
+    );
+}
+
+/// parse_owner_target returns None when owner_display is not configured.
+#[test]
+fn test_parse_owner_target_not_configured() {
+    let tmp = TempDir::new().unwrap();
+    let config_dir = tmp.path().to_path_buf();
+    // Write system.json without owner_display
+    let system_json = serde_json::json!({ "version": "1.0" });
+    std::fs::write(
+        config_dir.join("system.json"),
+        serde_json::to_string(&system_json).unwrap(),
+    )
+    .unwrap();
+    let cm = ConfigManager::new(config_dir).unwrap();
+    let _ = cm.reload_section(ConfigSection::System, None);
+
+    let result = parse_owner_target(&cm);
+    assert_eq!(result, None);
+}
+
+/// parse_owner_target returns None for invalid owner_display format.
+#[test]
+fn test_parse_owner_target_invalid_format() {
+    let tmp = TempDir::new().unwrap();
+    let config_dir = tmp.path().to_path_buf();
+    // Missing colon separator
+    let system_json = serde_json::json!({
+        "commands": {
+            "ownerDisplay": "no-colon-here"
+        }
+    });
+    std::fs::write(
+        config_dir.join("system.json"),
+        serde_json::to_string(&system_json).unwrap(),
+    )
+    .unwrap();
+    let cm = ConfigManager::new(config_dir).unwrap();
+    let _ = cm.reload_section(ConfigSection::System, None);
+
+    let result = parse_owner_target(&cm);
+    assert_eq!(result, None);
+}
+
+/// parse_owner_target returns None when owner_display has empty parts.
+#[test]
+fn test_parse_owner_target_empty_parts() {
+    let tmp = TempDir::new().unwrap();
+    let config_dir = tmp.path().to_path_buf();
+    let system_json = serde_json::json!({
+        "commands": {
+            "ownerDisplay": ":oc_xxx"
+        }
+    });
+    std::fs::write(
+        config_dir.join("system.json"),
+        serde_json::to_string(&system_json).unwrap(),
+    )
+    .unwrap();
+    let cm = ConfigManager::new(config_dir).unwrap();
+    let _ = cm.reload_section(ConfigSection::System, None);
+
+    let result = parse_owner_target(&cm);
+    assert_eq!(result, None);
+}
+
+/// Subscriber handles Failed event when owner_display is configured.
+/// Since no IM plugin is registered, send_outbound_simplified will fail
+/// with UnknownChannel — the subscriber handles this gracefully.
+#[tokio::test]
+async fn test_subscriber_failed_event_with_owner_display() {
+    let tmp = TempDir::new().unwrap();
+    let config_dir = tmp.path().to_path_buf();
+    // Write system.json with owner_display
+    let system_json = serde_json::json!({
+        "commands": {
+            "ownerDisplay": "feishu:oc_test"
+        }
+    });
+    std::fs::write(
+        config_dir.join("system.json"),
+        serde_json::to_string(&system_json).unwrap(),
+    )
+    .unwrap();
+    let config_mgr = Arc::new(ConfigManager::new(config_dir).unwrap());
+    let _ = config_mgr.reload_section(ConfigSection::System, None);
+
+    let session_mgr = make_session_manager();
+    spawn_config_change_subscriber(Arc::clone(&config_mgr), session_mgr, make_gateway());
+
+    tokio::task::yield_now().await;
+
+    // Send a Failed event — subscriber will try IM notification but
+    // Gateway has no plugins registered, so it logs a warning.
+    config_mgr.notify_change(ConfigChangeEvent::Failed {
+        section: ConfigSection::Models,
+        error: "test failure for IM notification".to_string(),
+    });
+
+    // Allow the spawned task to process the event without panic.
+    tokio::task::yield_now().await;
+    tokio::time::timeout(std::time::Duration::from_millis(200), async {
+        loop {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .ok();
 }

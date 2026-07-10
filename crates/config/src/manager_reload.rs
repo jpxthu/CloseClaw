@@ -5,8 +5,9 @@
 //!
 //! Note: `reload_section` reads from the canonical section file path
 //! (`section.path(&self.config_dir)`). On parse/validation failure, the
-//! file is rolled back via `BackupManager` to keep the on-disk state
-//! consistent with the last known good version.
+//! file is NOT rolled back (per design doc). If the section had no
+//! previous in-memory value (first load), it is blocked so that
+//! `get_section_value` returns `None`.
 
 use std::sync::Arc;
 
@@ -21,8 +22,8 @@ impl ConfigManager {
     ///
     /// Flow: read file → parse JSON → validate →
     ///   success: update in-memory cache, emit Reloaded event
-    ///   failure: keep old in-memory value, restore file to last known good state,
-    ///            emit Failed event
+    ///   failure: keep old in-memory value, do NOT roll back file per design doc,
+    ///            emit Failed event. If no old value existed, block the section.
     ///
     /// The `validator` callback performs additional business validation
     /// on the parsed JSON value. Return `Ok(())` to accept, or
@@ -74,7 +75,9 @@ impl ConfigManager {
         let value: serde_json::Value = match serde_json::from_str(&content) {
             Ok(v) => v,
             Err(e) => {
-                let _ = self.backup_manager.rollback(&path);
+                if old_value.is_none() {
+                    self.block_section(section);
+                }
                 self.notify_change(ConfigChangeEvent::Failed {
                     section,
                     error: e.to_string(),
@@ -89,7 +92,9 @@ impl ConfigManager {
         // Step 4: validate
         if let Some(validate_fn) = validator {
             if let Err(msg) = validate_fn(&value) {
-                let _ = self.backup_manager.rollback(&path);
+                if old_value.is_none() {
+                    self.block_section(section);
+                }
                 self.notify_change(ConfigChangeEvent::Failed {
                     section,
                     error: msg.clone(),

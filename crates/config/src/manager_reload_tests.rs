@@ -57,7 +57,7 @@ fn test_reload_section_success() {
 }
 
 /// Test: reload_section with invalid JSON returns an error and leaves the
-/// cache unchanged.
+/// cache unchanged. The file is NOT rolled back per design doc.
 #[test]
 fn test_reload_section_invalid_json() {
     let tmp = tempfile::tempdir().unwrap();
@@ -81,13 +81,9 @@ fn test_reload_section_invalid_json() {
     let after = manager.section(ConfigSection::System).unwrap();
     assert_eq!(after["version"], "1.0");
 
-    // File is rolled back to the in-memory old value (last known good state)
+    // File is NOT rolled back per design doc — still contains the corrupt content
     let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
-    let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
-    assert_eq!(
-        restored["version"], "1.0",
-        "file should be rolled back to the in-memory old value"
-    );
+    assert_eq!(file_content, "not json");
 }
 
 // ---------------------------------------------------------------------------
@@ -121,7 +117,7 @@ fn test_reload_section_validator_success() {
 }
 
 /// Test: reload_section with failing validator rejects the reload, keeps old
-/// value in memory.
+/// value in memory. The file is NOT rolled back per design doc.
 #[test]
 fn test_reload_section_validator_failure_keeps_old_value() {
     let tmp = tempfile::tempdir().unwrap();
@@ -159,41 +155,11 @@ fn test_reload_section_validator_failure_keeps_old_value() {
     assert_eq!(after["version"], "1.0");
     assert!(after.get("bad_field").is_none());
 
-    // File is rolled back to the in-memory old value (last known good state)
+    // File is NOT rolled back per design doc — still contains the validation-failing content
     let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
-    let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
-    assert_eq!(restored["version"], "1.0");
-    assert!(
-        restored.get("bad_field").is_none(),
-        "file should be rolled back to the in-memory old value"
-    );
-}
-
-/// Test: reload_section parse failure keeps old value and restores file.
-#[test]
-fn test_reload_section_parse_failure_keeps_old_value() {
-    let tmp = tempfile::tempdir().unwrap();
-    setup_config_dir_at(tmp.path());
-    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
-    manager.load().unwrap();
-
-    // Corrupt the canonical file
-    fs::write(tmp.path().join("system.json"), "not json").unwrap();
-
-    let result = manager.reload_section(ConfigSection::System, None);
-    assert!(result.is_err());
-
-    // In-memory unchanged
-    let after = manager.section(ConfigSection::System).unwrap();
-    assert_eq!(after["version"], "1.0");
-
-    // File is rolled back to the in-memory old value (last known good state)
-    let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
-    let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
-    assert_eq!(
-        restored["version"], "1.0",
-        "file should be rolled back to the in-memory old value"
-    );
+    let file_value: serde_json::Value = serde_json::from_str(&file_content).unwrap();
+    assert_eq!(file_value["version"], "2.0");
+    assert!(file_value.get("bad_field").is_some());
 }
 
 // ---------------------------------------------------------------------------
@@ -526,60 +492,8 @@ fn test_reload_section_independent_sections() {
 // reload_section — file restore content correctness
 // ---------------------------------------------------------------------------
 
-/// Test: after parse failure, the restored file content is valid JSON
-/// matching the old in-memory value.
-#[test]
-fn test_reload_section_restored_file_is_valid_json() {
-    let tmp = tempfile::tempdir().unwrap();
-    setup_config_dir_at(tmp.path());
-    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
-    manager.load().unwrap();
-
-    // Corrupt the file
-    fs::write(tmp.path().join("gateway.json"), "not json!!!").unwrap();
-    let result = manager.reload_section(ConfigSection::Gateway, None);
-    assert!(result.is_err());
-
-    // File is rolled back to the in-memory old value (last known good state)
-    let file_content = fs::read_to_string(tmp.path().join("gateway.json")).unwrap();
-    let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
-    assert_eq!(
-        restored["version"], "1.0",
-        "file should be rolled back to the in-memory old value"
-    );
-}
-
-/// Test: after validation failure, the restored file content is valid JSON
-/// matching the old in-memory value.
-#[test]
-fn test_reload_section_validation_failure_restored_file_is_valid_json() {
-    let tmp = tempfile::tempdir().unwrap();
-    setup_config_dir_at(tmp.path());
-    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
-    manager.load().unwrap();
-
-    // Write valid JSON that fails validation
-    fs::write(tmp.path().join("gateway.json"), r#"{"version": "bad"}"#).unwrap();
-
-    let validator: &SectionValidator = &|v: &serde_json::Value| {
-        if v.get("version").and_then(|v| v.as_str()) == Some("1.0") {
-            Ok(())
-        } else {
-            Err("version must be 1.0".into())
-        }
-    };
-
-    let result = manager.reload_section(ConfigSection::Gateway, Some(validator));
-    assert!(result.is_err());
-
-    // File is rolled back to the in-memory old value (last known good state)
-    let file_content = fs::read_to_string(tmp.path().join("gateway.json")).unwrap();
-    let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
-    assert_eq!(restored["version"], "1.0");
-}
-
-/// Test: when in-memory section was never loaded (None),
-/// rollback does not change the file when no backup is available.
+/// Test: when no prior value was loaded (first load), the file is NOT
+/// restored (no backup available) and the section is blocked.
 #[test]
 fn test_reload_section_no_prior_value_no_restore_write() {
     let tmp = tempfile::tempdir().unwrap();
@@ -595,58 +509,15 @@ fn test_reload_section_no_prior_value_no_restore_write() {
     // File should still contain the bad JSON (no restore possible)
     let file_content = fs::read_to_string(tmp.path().join("system.json")).unwrap();
     assert_eq!(file_content, "bad json");
+
+    // Section should be blocked (no old value)
+    assert!(manager.is_blocked(ConfigSection::System));
+    assert!(manager.get_section_value(ConfigSection::System).is_none());
 }
 
 // ---------------------------------------------------------------------------
 // reload_section — combined validator + file restore
 // ---------------------------------------------------------------------------
-
-/// Test: validator failure after valid parse restores file to old content.
-#[test]
-fn test_reload_section_validator_failure_restores_file_after_valid_parse() {
-    let tmp = tempfile::tempdir().unwrap();
-    setup_config_dir_at(tmp.path());
-    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
-    manager.load().unwrap();
-
-    let before = manager.section(ConfigSection::Plugins).unwrap();
-    assert_eq!(before["version"], "1.0");
-
-    // Write valid JSON that will fail validation
-    fs::write(
-        tmp.path().join("plugins.json"),
-        r#"{"version": "9.0", "banned": true}"#,
-    )
-    .unwrap();
-
-    let validator: &SectionValidator = &|v: &serde_json::Value| {
-        if v.get("banned").is_some() {
-            Err("banned field not allowed".into())
-        } else {
-            Ok(())
-        }
-    };
-
-    let result = manager.reload_section(ConfigSection::Plugins, Some(validator));
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        ConfigLoadError::ValidationError { .. }
-    ));
-
-    // In-memory unchanged
-    let after = manager.section(ConfigSection::Plugins).unwrap();
-    assert_eq!(after["version"], "1.0");
-
-    // File is rolled back to the in-memory old value (last known good state)
-    let file_content = fs::read_to_string(tmp.path().join("plugins.json")).unwrap();
-    let restored: serde_json::Value = serde_json::from_str(&file_content).unwrap();
-    assert_eq!(restored["version"], "1.0");
-    assert!(
-        restored.get("banned").is_none(),
-        "file should be rolled back to the in-memory old value"
-    );
-}
 
 /// Test: reload_section success does not create backup files.
 /// On success the file content stays as-is (new content).
@@ -991,4 +862,82 @@ fn test_reload_session_section_validator_failure_preserves_old() {
     ));
     let after = manager.section(ConfigSection::Session).unwrap();
     assert_eq!(after["sweeperIntervalSecs"], 600);
+}
+
+// =========================================================================
+// Gap 3 — blocking on no old value
+// =========================================================================
+
+/// Test: first load failure (no old value) blocks the section so
+/// get_section_value returns None.
+#[test]
+fn test_reload_section_no_old_value_blocks_section() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    // Don't call load() — System section has no old value
+
+    // Write invalid JSON
+    fs::write(tmp.path().join("system.json"), "not json").unwrap();
+    let result = manager.reload_section(ConfigSection::System, None);
+    assert!(result.is_err());
+
+    // Section should be blocked
+    assert!(manager.is_blocked(ConfigSection::System));
+    assert!(manager.get_section_value(ConfigSection::System).is_none());
+}
+
+/// Test: first load validation failure (no old value) blocks the section.
+#[test]
+fn test_reload_section_no_old_value_validation_failure_blocks() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    // Don't call load() — System section has no old value
+
+    // Write valid JSON that fails validation
+    fs::write(
+        tmp.path().join("system.json"),
+        r#"{"version": "2.0", "bad_field": true}"#,
+    )
+    .unwrap();
+
+    let validator: &SectionValidator = &|v: &serde_json::Value| {
+        if v.get("bad_field").is_some() {
+            Err("bad_field not allowed".into())
+        } else {
+            Ok(())
+        }
+    };
+
+    let result = manager.reload_section(ConfigSection::System, Some(validator));
+    assert!(result.is_err());
+
+    // Section should be blocked
+    assert!(manager.is_blocked(ConfigSection::System));
+    assert!(manager.get_section_value(ConfigSection::System).is_none());
+}
+
+/// Test: blocked section is cleared on next successful reload.
+#[test]
+fn test_reload_section_blocked_section_cleared_on_success() {
+    let tmp = tempfile::tempdir().unwrap();
+    setup_config_dir_at(tmp.path());
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    // Don't call load() — System section has no old value
+
+    // First reload fails → section gets blocked
+    fs::write(tmp.path().join("system.json"), "not json").unwrap();
+    let result = manager.reload_section(ConfigSection::System, None);
+    assert!(result.is_err());
+    assert!(manager.is_blocked(ConfigSection::System));
+
+    // Second reload succeeds → section is unblocked
+    fs::write(tmp.path().join("system.json"), r#"{"version": "1.0"}"#).unwrap();
+    manager.reload_section(ConfigSection::System, None).unwrap();
+    assert!(!manager.is_blocked(ConfigSection::System));
+    assert_eq!(
+        manager.get_section_value(ConfigSection::System).unwrap()["version"],
+        "1.0"
+    );
 }

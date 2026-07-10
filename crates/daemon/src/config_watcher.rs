@@ -6,8 +6,9 @@
 use crate::config_reload::reload::{ConfigReloadManager, WatcherHandle};
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::events::ConfigChangeEvent;
-use closeclaw_config::manager::ConfigManager;
-use closeclaw_gateway::SessionManager;
+use closeclaw_config::manager::{ConfigManager, ConfigSection};
+use closeclaw_config::providers::SystemConfigData;
+use closeclaw_gateway::{Gateway, SessionManager};
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -24,11 +25,12 @@ pub(crate) struct ConfigWatcherHandle {
 ///
 /// When a [`ConfigChangeEvent::Reloaded`] arrives, the subscriber calls
 /// [`SessionManager::notify_config_changed`] with the section and the
-/// latest config snapshot. `Failed` events are logged but do not
-/// trigger a session notification.
+/// latest config snapshot. `Failed` events trigger an IM notification
+/// to the configured owner (if `owner_display` is set in `system.json`).
 fn spawn_config_change_subscriber(
     config_manager: Arc<ConfigManager>,
     session_manager: Arc<SessionManager>,
+    gateway: Arc<Gateway>,
 ) {
     let mut event_rx = config_manager.subscribe_config_changes();
     let mut snapshot_rx = config_manager.subscribe_config_snapshots();
@@ -63,6 +65,28 @@ fn spawn_config_change_subscriber(
                         error = %error,
                         "config change event failed, skipping session notification"
                     );
+                    // Try to notify the owner via IM.
+                    let target = parse_owner_target(&config_manager);
+                    if let Some((channel, chat_id)) = target {
+                        let msg = format!(
+                            "⚠️ Config reload failed for section `{}`: {}",
+                            section, error
+                        );
+                        if let Err(e) = gateway
+                            .send_outbound_simplified(&chat_id, &channel, &msg)
+                            .await
+                        {
+                            warn!(
+                                error = %e,
+                                "failed to send config reload failure notification to owner"
+                            );
+                        }
+                    } else {
+                        warn!(
+                            section = %section,
+                            "owner_display not configured — skipping IM notification"
+                        );
+                    }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     warn!(missed = n, "config change subscriber lagged, missed events");
@@ -76,6 +100,27 @@ fn spawn_config_change_subscriber(
     });
 }
 
+/// Parse the owner notification target from `SystemConfigData.commands.owner_display`.
+///
+/// Expected format: `"platform:chat_id"` (e.g. `"feishu:oc_xxx"`).
+/// Returns `None` if not configured or invalid.
+fn parse_owner_target(config_manager: &ConfigManager) -> Option<(String, String)> {
+    let raw = config_manager
+        .get_section_value(ConfigSection::System)
+        .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())?
+        .commands?
+        .owner_display?;
+    let parts: Vec<&str> = raw.splitn(2, ':').collect();
+    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+        warn!(
+            owner_display = %raw,
+            "invalid owner_display format, expected 'platform:chat_id'"
+        );
+        return None;
+    }
+    Some((parts[0].to_string(), parts[1].to_string()))
+}
+
 /// Initialize config hot-reload: create a [`ConfigReloadManager`], start the
 /// file watcher, and subscribe to config change events.
 ///
@@ -85,6 +130,7 @@ pub(crate) fn init_config_hot_reload(
     config_manager: Arc<ConfigManager>,
     agent_registry: Arc<AgentRegistry>,
     session_manager: Arc<SessionManager>,
+    gateway: Arc<Gateway>,
 ) -> anyhow::Result<ConfigWatcherHandle> {
     let mut manager = ConfigReloadManager::with_defaults(
         Arc::clone(&config_manager),
@@ -95,7 +141,7 @@ pub(crate) fn init_config_hot_reload(
         .watch(config_dir)
         .map_err(|e| anyhow::anyhow!("failed to start config hot-reload watcher: {}", e))?;
 
-    spawn_config_change_subscriber(config_manager, session_manager);
+    spawn_config_change_subscriber(config_manager, session_manager, gateway);
 
     info!("config hot-reload initialized, delegating to ConfigReloadManager");
 

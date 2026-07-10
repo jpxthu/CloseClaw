@@ -104,7 +104,8 @@ impl ConfigReloadManager {
     /// Reload a single config section: read file → parse → validate → update cache.
     ///
     /// On success, updates the in-memory cache and broadcasts a snapshot.
-    /// On failure, rolls back the file and emits a Failed event.
+    /// On failure, keeps the in-memory old config and emits a Failed event.
+    /// The file is NOT rolled back per design doc.
     /// Corresponds to the design doc data flow: ConfigReloadManager drives
     /// the reload orchestration (read → parse → validate → update).
     pub fn reload_section(&self, section: ConfigSection) -> Result<(), ConfigLoadError> {
@@ -147,7 +148,9 @@ impl ConfigReloadManager {
         let value: serde_json::Value = match serde_json::from_str(&content) {
             Ok(v) => v,
             Err(e) => {
-                let _ = self.config_manager.rollback_file(&path);
+                if old_value.is_none() {
+                    self.config_manager.block_section(section);
+                }
                 self.config_manager
                     .notify_change(ConfigChangeEvent::Failed {
                         section,
@@ -163,7 +166,9 @@ impl ConfigReloadManager {
         // Step 4: validate with section's default validator
         let validator = section.default_validator();
         if let Err(msg) = validator(&value) {
-            let _ = self.config_manager.rollback_file(&path);
+            if old_value.is_none() {
+                self.config_manager.block_section(section);
+            }
             self.config_manager
                 .notify_change(ConfigChangeEvent::Failed {
                     section,
@@ -215,9 +220,8 @@ impl ConfigReloadManager {
     ///
     /// Snapshots before reload; on failure, restores the previous in-memory
     /// state so the daemon keeps running with the last-known-good config.
-    /// Additionally, agent config files (agents.json, agents/*.json) are
-    /// backed up before reload and rolled back on failure to keep the
-    /// on-disk state consistent.
+    /// Agent config files are backed up before reload but NOT rolled back
+    /// on failure, per design doc.
     fn reload_agents_with_log(&self, path: &Path) {
         info!(
             path = %path.display(),
@@ -243,16 +247,8 @@ impl ConfigReloadManager {
         }
 
         if let Err(e) = self.config_manager.reload_agents() {
-            warn!(error = %e, "failed to reload agent configs, rolling back");
+            warn!(error = %e, "failed to reload agent configs, restoring in-memory state");
             self.config_manager.restore_agents(old_agents);
-
-            // Rollback disk files to last known good state
-            let _ = self.config_manager.backup_manager().rollback(&agents_json);
-            if agents_dir.exists() {
-                for_each_agent_json(&agents_dir, |p| {
-                    let _ = self.config_manager.backup_manager().rollback(p);
-                });
-            }
             return;
         }
 

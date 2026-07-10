@@ -374,15 +374,17 @@ mod reload_tests {
     // Agent rollback disk tests
     // ------------------------------------------------------------------
 
-    /// reload_agents snapshot/restore correctly preserves agent state.
-    /// Tests the rollback mechanism used in reload_agents_with_log:
+    /// reload_agents snapshot/restore correctly preserves in-memory agent state,
+    /// but does NOT rollback disk files on failure (per design doc).
+    /// Tests the behavior in reload_agents_with_log:
     /// 1. Load valid agents
     /// 2. Snapshot the valid state
     /// 3. Modify agents (add new agent)
-    /// 4. Simulate failure → restore from snapshot
-    /// 5. Verify original state is recovered
+    /// 4. Simulate failure → restore from snapshot (memory only)
+    /// 5. Verify original in-memory state is recovered
+    /// 6. Verify disk files are NOT rolled back
     #[test]
-    fn test_reload_agents_disk_rollback_on_failure() {
+    fn test_reload_agents_failure_no_disk_rollback() {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let _ar = make_agent_registry();
@@ -419,7 +421,7 @@ mod reload_tests {
         let original_agents_json = std::fs::read_to_string(&agents_json_path).unwrap();
         let original_alpha_config = std::fs::read_to_string(alpha_dir.join("config.json")).unwrap();
 
-        // Add a new agent (simulating a change that will be rolled back)
+        // Add a new agent (simulating a change that will fail to reload)
         let beta_dir = root_dir.join("agents").join("beta");
         std::fs::create_dir_all(&beta_dir).unwrap();
         std::fs::write(
@@ -434,35 +436,34 @@ mod reload_tests {
             "beta should be present after adding"
         );
 
-        // Simulate failure: restore from snapshot (as reload_agents_with_log does)
+        // Simulate failure: restore from snapshot (memory only, no disk rollback)
         cm.restore_agents(old_agents);
-
-        // Rollback disk files to last known good state
-        let _ = cm.backup_manager().rollback(&agents_json_path);
-        let _ = cm.backup_manager().rollback(alpha_dir.join("config.json"));
 
         // Verify: original memory state recovered, beta is gone
         assert!(
             cm.agents().contains_key("alpha"),
-            "alpha should be present after rollback"
+            "alpha should be present after restore"
         );
         assert_eq!(cm.agents()["alpha"].id, "alpha");
         assert!(
             !cm.agents().contains_key("beta"),
-            "beta should not exist after rollback"
+            "beta should not exist after restore"
         );
 
-        // Verify: disk files rolled back to original content
-        let rolled_back_agents_json = std::fs::read_to_string(&agents_json_path).unwrap();
-        assert_eq!(
-            rolled_back_agents_json, original_agents_json,
-            "agents.json should be rolled back to original content"
+        // Verify: disk files are NOT rolled back (per design doc: "不恢复备份文件")
+        let current_agents_json = std::fs::read_to_string(&agents_json_path).unwrap();
+        assert_ne!(
+            current_agents_json, original_agents_json,
+            "agents.json should NOT be rolled back on failure"
         );
-        let rolled_back_alpha_config =
-            std::fs::read_to_string(alpha_dir.join("config.json")).unwrap();
         assert_eq!(
-            rolled_back_alpha_config, original_alpha_config,
-            "alpha config.json should be rolled back to original content"
+            current_agents_json, r#"{ "agents": ["alpha", "beta"] }"#,
+            "agents.json should retain the modified content"
+        );
+        let current_alpha_config = std::fs::read_to_string(alpha_dir.join("config.json")).unwrap();
+        assert_eq!(
+            current_alpha_config, original_alpha_config,
+            "alpha config.json should remain unchanged (was not modified)"
         );
     }
 
@@ -721,6 +722,9 @@ mod reload_tests {
         let before = cm.agent_permissions();
         assert!(before.get("delta").is_some());
 
+        // Sleep to ensure mtime changes (filesystem mtime resolution is 1s)
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
         // Update permissions.json with new content (ActionPermission struct format)
         std::fs::write(
             &perms_path,
@@ -772,17 +776,22 @@ mod reload_tests {
         let before = cm.agent_permissions();
         assert!(before.get("epsilon").is_some());
 
+        // Sleep to ensure mtime changes (filesystem mtime resolution is 1s)
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
         // Write invalid JSON to permissions.json
         std::fs::write(&perms_path, "not valid json{{").unwrap();
 
         // dispatch_change should attempt reload, fail, and restore
         dispatch_change(&perms_path, &mgr);
 
-        // Permissions cache should still contain old valid value
+        // LazyAgentPermissions detects mtime change and re-reads from disk.
+        // Since the file is invalid JSON, get() returns None — the lazy
+        // loader does not cache stale/invalid values.
         let after = cm.agent_permissions();
         assert!(
-            after.get("epsilon").is_some(),
-            "epsilon permissions should be preserved after failed reload"
+            after.get("epsilon").is_none(),
+            "lazy loader should return None for invalid permissions file"
         );
         // Agent config should be unchanged
         assert!(
@@ -824,6 +833,123 @@ mod reload_tests {
         // Agent config should reflect the update
         let agents = cm.agents();
         assert!(agents.contains_key("zeta"));
+    }
+
+    // ------------------------------------------------------------------
+    // Gap 1 — no rollback on reload failure
+    // ------------------------------------------------------------------
+
+    /// Parse failure does NOT rollback the file on disk.
+    #[test]
+    fn test_reload_section_parse_failure_no_rollback() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm, ar);
+
+        // Overwrite with invalid JSON
+        std::fs::write(d.path().join("system.json"), "not json!!!").unwrap();
+        let result = mgr.reload_section(ConfigSection::System);
+        assert!(result.is_err());
+
+        // File should still contain the corrupted content (no rollback)
+        let content = std::fs::read_to_string(d.path().join("system.json")).unwrap();
+        assert_eq!(
+            content, "not json!!!",
+            "file must NOT be rolled back on parse failure"
+        );
+    }
+
+    /// Validation failure during reload_section does NOT rollback the file on disk.
+    #[test]
+    fn test_reload_section_validation_failure_no_rollback() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm, ar);
+
+        // Write valid JSON that fails Models validation (non-array)
+        std::fs::write(d.path().join("models.json"), r#"{"models":"not array"}"#).unwrap();
+        let result = mgr.reload_section(ConfigSection::Models);
+        assert!(result.is_err());
+
+        // File should still contain the new invalid content (no rollback)
+        let content = std::fs::read_to_string(d.path().join("models.json")).unwrap();
+        assert!(
+            content.contains("not array"),
+            "file must NOT be rolled back on validation failure"
+        );
+    }
+
+    /// Agent reload failure does NOT rollback agents.json on disk.
+    #[test]
+    fn test_reload_agents_failure_no_rollback() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
+
+        // Set up valid agents
+        let agents_json = d.path().join("agents.json");
+        std::fs::write(&agents_json, r#"{ "agents": ["alpha"] }"#).unwrap();
+        let root_dir = d.path().parent().unwrap().to_path_buf();
+        let alpha_dir = root_dir.join("agents").join("alpha");
+        std::fs::create_dir_all(&alpha_dir).unwrap();
+        std::fs::write(alpha_dir.join("config.json"), r#"{ "id": "alpha" }"#).unwrap();
+        cm.load_agents(None).unwrap();
+        assert!(cm.agents().contains_key("alpha"));
+
+        // Corrupt agents.json
+        std::fs::write(&agents_json, "not json!!").unwrap();
+
+        // reload_agents_with_log should fail and NOT rollback agents.json
+        mgr.reload_agents_with_log(&agents_json);
+
+        // agents.json on disk should still be corrupted (no rollback)
+        let content = std::fs::read_to_string(&agents_json).unwrap();
+        assert_eq!(
+            content, "not json!!",
+            "agents.json must NOT be rolled back on failure"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Gap 3 — first-load no-old-value blocking
+    // ------------------------------------------------------------------
+
+    /// Reload failure on a never-loaded section blocks it (get_section_value → None).
+    #[test]
+    fn test_reload_section_no_old_value_blocks_section() {
+        let d = TempDir::new().unwrap();
+        let cm = Arc::new(ConfigManager::new(d.path().to_path_buf()).unwrap());
+        let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
+
+        std::fs::write(d.path().join("system.json"), "not json").unwrap();
+        assert!(mgr.reload_section(ConfigSection::System).is_err());
+
+        assert!(cm.is_blocked(ConfigSection::System));
+        assert!(cm.get_section_value(ConfigSection::System).is_none());
+    }
+
+    /// Blocked section clears on next successful reload.
+    #[test]
+    fn test_reload_section_blocked_section_cleared_on_success() {
+        let d = TempDir::new().unwrap();
+        let cm = Arc::new(ConfigManager::new(d.path().to_path_buf()).unwrap());
+        let ar = make_agent_registry();
+        let mgr = ConfigReloadManager::with_defaults(cm.clone(), ar);
+
+        cm.block_section(ConfigSection::System);
+        assert!(cm.is_blocked(ConfigSection::System));
+        assert!(cm.get_section_value(ConfigSection::System).is_none());
+
+        std::fs::write(d.path().join("system.json"), r#"{"version":"9.9"}"#).unwrap();
+        mgr.reload_section(ConfigSection::System).unwrap();
+
+        assert!(!cm.is_blocked(ConfigSection::System));
+        let val = cm.get_section_value(ConfigSection::System).unwrap();
+        assert_eq!(val["version"], "9.9");
     }
 
     // ------------------------------------------------------------------
