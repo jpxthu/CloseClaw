@@ -369,6 +369,7 @@ async fn test_config_change_memory_section_updates_components() {
     // Send the Memory section reload event through the config manager's broadcaster.
     config_manager.notify_change(closeclaw_config::ConfigChangeEvent::Reloaded {
         section: closeclaw_config::ConfigSection::Memory,
+        path: "memory.json".into(),
     });
 
     // Allow the event to propagate (broadcast channel delivery).
@@ -447,6 +448,7 @@ async fn test_config_change_non_memory_ignored() {
     // Send a NON-Memory section reload event.
     config_manager.notify_change(closeclaw_config::ConfigChangeEvent::Reloaded {
         section: closeclaw_config::ConfigSection::Gateway,
+        path: "gateway.json".into(),
     });
 
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;

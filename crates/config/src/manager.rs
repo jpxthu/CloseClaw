@@ -705,7 +705,12 @@ impl ConfigManager {
     /// trigger snapshot delivery. Callers that need to update the cache
     /// (e.g. `ConfigReloadManager::reload_section`) must go through
     /// this method instead of directly inserting into `sections`.
-    pub fn update_section_cache(&self, section: ConfigSection, value: serde_json::Value) {
+    pub fn update_section_cache(
+        &self,
+        section: ConfigSection,
+        path: PathBuf,
+        value: serde_json::Value,
+    ) {
         self.unblock_section(section);
         let snapshot = {
             let mut sections = self
@@ -718,7 +723,7 @@ impl ConfigManager {
         // Broadcast snapshot (ignore send errors — no active subscribers).
         let _ = self.snapshot_tx.send(snapshot);
         // Broadcast change event.
-        self.notify_change(ConfigChangeEvent::Reloaded { section });
+        self.notify_change(ConfigChangeEvent::Reloaded { section, path });
         info!(section = %section, "reloaded config section");
     }
 

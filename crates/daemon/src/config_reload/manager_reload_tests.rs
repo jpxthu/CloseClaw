@@ -164,7 +164,7 @@ fn test_reload_section_success_emits_reloaded_event() {
 
     let event = rx.try_recv().expect("should receive a Reloaded event");
     match event {
-        ConfigChangeEvent::Reloaded { section } => {
+        ConfigChangeEvent::Reloaded { section, .. } => {
             assert_eq!(section, ConfigSection::Models);
         }
         other => panic!("expected Reloaded, got {:?}", other),
@@ -188,7 +188,7 @@ fn test_reload_section_validation_failure_emits_failed_event() {
 
     let event = rx.try_recv().expect("should receive a Failed event");
     match event {
-        ConfigChangeEvent::Failed { section, error } => {
+        ConfigChangeEvent::Failed { section, error, .. } => {
             assert_eq!(section, ConfigSection::Models);
             assert_eq!(error, "reject all");
         }
@@ -211,7 +211,7 @@ fn test_reload_section_parse_failure_emits_failed_event() {
 
     let event = rx.try_recv().expect("should receive a Failed event");
     match event {
-        ConfigChangeEvent::Failed { section, error } => {
+        ConfigChangeEvent::Failed { section, error, .. } => {
             assert_eq!(section, ConfigSection::Gateway);
             assert!(error.contains("expected"), "error: {}", error);
         }
@@ -234,7 +234,7 @@ fn test_reload_section_file_not_found_emits_failed_event() {
     // IoError path should emit a Failed event
     let event = rx.try_recv().expect("should receive a Failed event");
     match event {
-        ConfigChangeEvent::Failed { section, error } => {
+        ConfigChangeEvent::Failed { section, error, .. } => {
             assert_eq!(section, ConfigSection::System);
             assert!(error.contains("No such file") || error.contains("os error"));
         }

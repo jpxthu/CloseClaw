@@ -127,6 +127,7 @@ impl ConfigReloadManager {
                 self.config_manager
                     .notify_change(ConfigChangeEvent::Failed {
                         section,
+                        path: path.clone(),
                         error: e.to_string(),
                     });
                 return Err(ConfigLoadError::IoError {
@@ -163,6 +164,7 @@ impl ConfigReloadManager {
                 self.config_manager
                     .notify_change(ConfigChangeEvent::Failed {
                         section,
+                        path: path.clone(),
                         error: e.to_string(),
                     });
                 return Err(ConfigLoadError::ParseError {
@@ -194,13 +196,15 @@ impl ConfigReloadManager {
             self.config_manager
                 .notify_change(ConfigChangeEvent::Failed {
                     section,
+                    path: path.clone(),
                     error: msg.clone(),
                 });
             return Err(ConfigLoadError::ValidationError { path, message: msg });
         }
 
         // Step 5: success — update cache and broadcast snapshot
-        self.config_manager.update_section_cache(section, value);
+        self.config_manager
+            .update_section_cache(section, path, value);
         Ok(())
     }
 
