@@ -69,7 +69,7 @@ mod tests {
             ("accounts.json", r#"{"accounts":[]}"#),
             (
                 "session.json",
-                r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
+                r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":600}"#,
             ),
         ];
         for (name, content) in &sections {
@@ -292,7 +292,7 @@ mod tests {
 
         std::fs::write(
             d.path().join("session.json"),
-            r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":1200}"#,
+            r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":1200}"#,
         )
         .unwrap();
 
@@ -527,7 +527,7 @@ mod tests {
             (
                 "session.json",
                 ConfigSection::Session,
-                r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":999}"#,
+                r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":999}"#,
             ),
             (
                 "memory.json",
