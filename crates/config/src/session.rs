@@ -530,6 +530,60 @@ mod tests {
         let provider = JsonSessionConfigProvider::new(&nonexistent).unwrap();
         assert!(provider.list_agents().is_empty());
     }
+
+    // -------------------------------------------------------------------------
+    // Test: sweeperIntervalSeconds field name — serialization round-trip
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_sweeper_interval_seconds_serializes_to_correct_name() {
+        let config = SessionConfig::default();
+        let mut config = config;
+        config.sweeper_interval_secs = 600;
+        let json = serde_json::to_value(&config).unwrap();
+        // Must serialize as "sweeperIntervalSeconds" (not "sweeperIntervalSecs")
+        assert!(
+            json.get("sweeperIntervalSeconds").is_some(),
+            "expected sweeperIntervalSeconds, got: {}",
+            json
+        );
+        assert!(
+            json.get("sweeperIntervalSecs").is_none(),
+            "old field name sweeperIntervalSecs should not appear: {}",
+            json
+        );
+        assert_eq!(json["sweeperIntervalSeconds"], 600);
+    }
+
+    #[test]
+    fn test_sweeper_interval_seconds_deserializes_from_correct_name() {
+        let json = r#"{"defaults":{},"sweeperIntervalSeconds":600}"#;
+        let config: SessionConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.sweeper_interval_secs, 600);
+    }
+
+    // -------------------------------------------------------------------------
+    // Test: old field name sweeperIntervalSecs is NOT recognized
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_old_field_name_sweeper_interval_secs_not_recognized() {
+        let json = r#"{"defaults":{},"sweeperIntervalSecs":600}"#;
+        let config: SessionConfig = serde_json::from_str(json).unwrap();
+        // Old field name is not recognized; falls back to default (300)
+        assert_eq!(config.sweeper_interval_secs, DEFAULT_SWEEPER_INTERVAL_SECS);
+    }
+
+    // -------------------------------------------------------------------------
+    // Test: sweeperIntervalSeconds large value
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_sweeper_interval_seconds_large_value() {
+        let json = r#"{"defaults":{},"sweeperIntervalSeconds":86400}"#;
+        let config: SessionConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.sweeper_interval_secs, 86400);
+    }
 }
 
 #[cfg(test)]
