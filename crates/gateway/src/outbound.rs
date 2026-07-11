@@ -552,6 +552,12 @@ impl Gateway {
                 self.handle_block_delta(ctx, index, delta, state).await?;
             }
             StreamEvent::BlockEnd { block_type, .. } => {
+                // Thinking indicator: send stop signal before verbosity filtering.
+                if block_type == ContentBlockType::Thinking
+                    && state.verbosity_level != VerbosityLevel::Off
+                {
+                    ctx.plugin.send_thinking_indicator(false);
+                }
                 self.handle_block_end(ctx, event, block_type, state).await?;
             }
             StreamEvent::MessageEnd { usage, .. } => {
@@ -571,8 +577,15 @@ impl Gateway {
                     partial_content,
                 });
             }
-            StreamEvent::BlockStart { .. } => {
-                ctx.plugin.handle_stream_event(event);
+            StreamEvent::BlockStart { index, block_type } => {
+                // Thinking indicator: send start signal on Thinking BlockStart.
+                if block_type == ContentBlockType::Thinking
+                    && state.verbosity_level != VerbosityLevel::Off
+                {
+                    ctx.plugin.send_thinking_indicator(true);
+                }
+                ctx.plugin
+                    .handle_stream_event(StreamEvent::BlockStart { index, block_type });
             }
         }
         Ok(())

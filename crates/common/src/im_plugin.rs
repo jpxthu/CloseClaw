@@ -404,4 +404,18 @@ pub trait IMPlugin: Send + Sync {
     fn flush_stream(&self) -> StreamingOutput {
         StreamingOutput::default()
     }
+
+    /// Send a thinking/reasoning state indicator to the IM platform.
+    ///
+    /// Called by the Gateway when a Thinking `BlockStart` or `BlockEnd`
+    /// event is detected during streaming. Platforms can override this
+    /// to display a visual indicator (e.g. shimmer, typing animation)
+    /// while the LLM is reasoning.
+    ///
+    /// - `active = true`: thinking started — show indicator
+    /// - `active = false`: thinking ended — hide indicator
+    ///
+    /// The default implementation is a no-op. Platforms that support
+    /// thinking indicators should override this method.
+    fn send_thinking_indicator(&self, _active: bool) {}
 }
