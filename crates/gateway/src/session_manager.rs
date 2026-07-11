@@ -950,6 +950,8 @@ mod spawn_controller_budget_tests;
 #[cfg(test)]
 mod spawn_controller_permission_tests;
 #[cfg(test)]
+mod spawn_controller_step14_tests;
+#[cfg(test)]
 mod spawn_controller_tests;
 #[cfg(test)]
 mod spawn_mode_inherit_tests;
