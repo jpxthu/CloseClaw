@@ -435,6 +435,16 @@ impl SessionMessageHandler {
                 cs.write().await.append_user_message(&content_for_task);
             }
 
+            // Record pre-call fingerprint for cache-break attribution.
+            // Uses the session's system prompt; tools/headers are not
+            // currently passed through the InternalRequest so they are
+            // None here. This tracks system-prompt changes between calls.
+            if let Some(cs) = sm.get_conversation_session(&session_id).await {
+                let mut cs_write = cs.write().await;
+                let sys = cs_write.system_prompt().map(|s| s.to_string());
+                cs_write.record_prompt_fingerprint(sys.as_deref(), None, None);
+            }
+
             // Check if streaming is enabled for this session
             let stream_enabled = if let Some(cs) = sm.get_conversation_session(&session_id).await {
                 cs.read().await.stream_enabled()

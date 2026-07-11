@@ -137,6 +137,13 @@ impl SessionMessageHandler {
                 cs.set_llm_state(LlmState::Requesting);
             }
 
+            // Record pre-call fingerprint for cache-break attribution.
+            if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+                let mut cs_write = cs.write().await;
+                let sys = cs_write.system_prompt().map(|s| s.to_string());
+                cs_write.record_prompt_fingerprint(sys.as_deref(), None, None);
+            }
+
             // Non-streaming path: delegate to ConversationSession.
             let result: Result<StreamResult, closeclaw_llm::LLMError> = {
                 if let Some(cs) = session_manager.get_conversation_session(session_id).await {
