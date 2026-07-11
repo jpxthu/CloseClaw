@@ -8,7 +8,6 @@ use crate::providers::memory::MemoryFragmentProvider;
 use crate::providers::skills::SkillsFragmentProvider;
 use crate::providers::tools::ToolsFragmentProvider;
 use crate::sections::{get_cached_section, put_cached_section, Section};
-use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::BootstrapMode;
 use closeclaw_skills::DiskSkillRegistry;
@@ -218,10 +217,8 @@ pub struct WorkspaceBuildConfig {
     pub dynamic_sections: Vec<Section>,
     /// Content to append at the end of the prompt.
     pub append_section: Option<String>,
-    /// Optional AgentRegistry reference for bootstrap mode queries.
-    pub agent_registry: Option<Arc<AgentRegistry>>,
-    /// Bootstrap mode override — when `Some`, overrides the mode queried
-    /// from `AgentRegistry`.
+    /// Bootstrap mode for this build — caller is responsible for querying
+    /// the AgentRegistry and passing the result here.
     pub bootstrap_mode_override: Option<BootstrapMode>,
     /// Session mode for mode-aware tool filtering.
     pub session_mode: Option<SessionMode>,
@@ -241,15 +238,9 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
     let root = workspace_root.as_ref();
 
     // Resolve bootstrap mode for FragmentContext.
-    // Priority: override value > AgentRegistry query.
-    let bootstrap_mode = config.bootstrap_mode_override.or_else(|| {
-        config.agent_registry.as_ref().and_then(|reg| {
-            config
-                .agent_id
-                .as_deref()
-                .and_then(|id| reg.query_bootstrap_mode(id))
-        })
-    });
+    // The caller is responsible for querying the AgentRegistry and passing
+    // the bootstrap mode via `bootstrap_mode_override`.
+    let bootstrap_mode = config.bootstrap_mode_override;
 
     let ctx = FragmentContext {
         agent_id: config.agent_id.clone().unwrap_or_default(),
@@ -376,10 +367,10 @@ mod tests {
         assert_eq!(result1, result2);
     }
 
-    // ---- AgentRegistry bootstrap mode query path tests ----
+    // ---- WorkspaceBuildConfig tests ----
 
     #[test]
-    fn test_workspace_build_config_has_agent_registry_field() {
+    fn test_workspace_build_config_has_agent_id_field() {
         let config = WorkspaceBuildConfig {
             tool_registry: None,
             skill_registry: None,
@@ -389,35 +380,15 @@ mod tests {
             agent_skills: None,
             dynamic_sections: vec![],
             append_section: None,
-            agent_registry: None,
             bootstrap_mode_override: None,
             session_mode: None,
         };
-        assert!(config.agent_registry.is_none());
+        assert!(config.agent_id.is_none());
     }
 
     #[test]
-    fn test_workspace_build_config_with_agent_registry() {
-        use closeclaw_agent::registry::AgentRegistry;
-        use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
+    fn test_workspace_build_config_with_agent_id() {
         use closeclaw_session::bootstrap::loader::BootstrapMode;
-
-        let agent_reg = Arc::new(AgentRegistry::new());
-        agent_reg.populate(vec![ResolvedAgentConfig {
-            id: "test-agent".into(),
-            name: "test-agent".into(),
-            parent_id: None,
-            model: None,
-            workspace: None,
-            agent_dir: None,
-            bootstrap_mode: BootstrapMode::Minimal,
-            skills: vec![],
-            tools: vec![],
-            disallowed_tools: vec![],
-            subagents: Default::default(),
-            memory: MemoryConfig::default(),
-            source: ConfigSource::User,
-        }]);
 
         let config = WorkspaceBuildConfig {
             tool_registry: None,
@@ -428,75 +399,11 @@ mod tests {
             agent_skills: None,
             dynamic_sections: vec![],
             append_section: None,
-            agent_registry: Some(agent_reg),
-            bootstrap_mode_override: None,
+            bootstrap_mode_override: Some(BootstrapMode::Minimal),
             session_mode: None,
         };
-        assert!(config.agent_registry.is_some());
         assert_eq!(config.agent_id.as_deref(), Some("test-agent"));
-    }
-
-    #[test]
-    fn test_agent_registry_query_bootstrap_mode_minimal() {
-        use closeclaw_agent::registry::AgentRegistry;
-        use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
-        use closeclaw_session::bootstrap::loader::BootstrapMode;
-
-        let agent_reg = Arc::new(AgentRegistry::new());
-        agent_reg.populate(vec![ResolvedAgentConfig {
-            id: "minimal-agent".into(),
-            name: "minimal-agent".into(),
-            parent_id: None,
-            model: None,
-            workspace: None,
-            agent_dir: None,
-            bootstrap_mode: BootstrapMode::Minimal,
-            skills: vec![],
-            tools: vec![],
-            disallowed_tools: vec![],
-            subagents: Default::default(),
-            memory: MemoryConfig::default(),
-            source: ConfigSource::User,
-        }]);
-
-        let mode = agent_reg.query_bootstrap_mode("minimal-agent");
-        assert_eq!(mode, Some(BootstrapMode::Minimal));
-    }
-
-    #[test]
-    fn test_agent_registry_query_bootstrap_mode_full() {
-        use closeclaw_agent::registry::AgentRegistry;
-        use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
-        use closeclaw_session::bootstrap::loader::BootstrapMode;
-
-        let agent_reg = Arc::new(AgentRegistry::new());
-        agent_reg.populate(vec![ResolvedAgentConfig {
-            id: "full-agent".into(),
-            name: "full-agent".into(),
-            parent_id: None,
-            model: None,
-            workspace: None,
-            agent_dir: None,
-            bootstrap_mode: BootstrapMode::Full,
-            skills: vec![],
-            tools: vec![],
-            disallowed_tools: vec![],
-            subagents: Default::default(),
-            memory: MemoryConfig::default(),
-            source: ConfigSource::User,
-        }]);
-
-        let mode = agent_reg.query_bootstrap_mode("full-agent");
-        assert_eq!(mode, Some(BootstrapMode::Full));
-    }
-
-    #[test]
-    fn test_agent_registry_query_bootstrap_mode_not_found() {
-        use closeclaw_agent::registry::AgentRegistry;
-
-        let agent_reg = Arc::new(AgentRegistry::new());
-        let mode = agent_reg.query_bootstrap_mode("missing-agent");
-        assert_eq!(mode, None);
+        assert_eq!(config.bootstrap_mode_override, Some(BootstrapMode::Minimal));
     }
 
     // ---- PromptBuilder tests ----
@@ -548,31 +455,12 @@ mod tests {
     // ---- bootstrap_mode_override tests ----
 
     #[tokio::test]
-    async fn test_build_from_workspace_override_mode_overrides_registry() {
-        use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
-
+    async fn test_build_from_workspace_override_mode() {
         crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         // BOOTSTRAP.md is only loaded in Full mode, not Minimal.
         std::fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap only in full").unwrap();
         std::fs::write(tmp.path().join("AGENTS.md"), "agents content").unwrap();
-
-        let agent_reg = Arc::new(AgentRegistry::new());
-        agent_reg.populate(vec![ResolvedAgentConfig {
-            id: "test-agent".into(),
-            name: "test-agent".into(),
-            parent_id: None,
-            model: None,
-            workspace: None,
-            agent_dir: None,
-            bootstrap_mode: BootstrapMode::Full,
-            skills: vec![],
-            tools: vec![],
-            disallowed_tools: vec![],
-            subagents: Default::default(),
-            memory: MemoryConfig::default(),
-            source: ConfigSource::User,
-        }]);
 
         let config = WorkspaceBuildConfig {
             tool_registry: None,
@@ -583,7 +471,6 @@ mod tests {
             agent_skills: None,
             dynamic_sections: vec![],
             append_section: None,
-            agent_registry: Some(agent_reg),
             bootstrap_mode_override: Some(BootstrapMode::Minimal),
             session_mode: None,
         };
@@ -595,31 +482,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_build_from_workspace_no_override_uses_registry() {
-        use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
-
+    async fn test_build_from_workspace_no_override_defaults_to_full() {
         crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         // BOOTSTRAP.md is only loaded in Full mode.
         std::fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap only in full").unwrap();
         std::fs::write(tmp.path().join("AGENTS.md"), "agents content").unwrap();
-
-        let agent_reg = Arc::new(AgentRegistry::new());
-        agent_reg.populate(vec![ResolvedAgentConfig {
-            id: "test-agent".into(),
-            name: "test-agent".into(),
-            parent_id: None,
-            model: None,
-            workspace: None,
-            agent_dir: None,
-            bootstrap_mode: BootstrapMode::Full,
-            skills: vec![],
-            tools: vec![],
-            disallowed_tools: vec![],
-            subagents: Default::default(),
-            memory: MemoryConfig::default(),
-            source: ConfigSource::User,
-        }]);
 
         let config = WorkspaceBuildConfig {
             tool_registry: None,
@@ -630,13 +498,12 @@ mod tests {
             agent_skills: None,
             dynamic_sections: vec![],
             append_section: None,
-            agent_registry: Some(agent_reg),
             bootstrap_mode_override: None,
             session_mode: None,
         };
 
         let result = build_from_workspace(tmp.path(), config).await;
-        // No override → registry Full → BOOTSTRAP.md included.
+        // No override → defaults to Full → BOOTSTRAP.md included.
         assert!(result.contains("bootstrap only in full"));
     }
 }
