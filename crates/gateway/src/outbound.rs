@@ -564,6 +564,14 @@ impl Gateway {
                 self.handle_message_end(ctx, usage, state).await?;
             }
             StreamEvent::Error { message } => {
+                // Flush any in-progress text from the renderer so partial
+                // content from incomplete blocks is not lost.
+                let flush_out = ctx.plugin.flush_stream();
+                for text in flush_out.text_messages {
+                    if !text.is_empty() {
+                        state.content_blocks.push(ContentBlock::Text(text));
+                    }
+                }
                 let partial_content = std::mem::take(&mut state.content_blocks);
                 let partial_len = partial_content.len();
                 tracing::warn!(

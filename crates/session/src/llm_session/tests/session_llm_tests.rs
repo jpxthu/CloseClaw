@@ -429,3 +429,71 @@ fn test_detect_cache_break_first_call_returns_none() {
     let info = session.detect_cache_break_for_usage(Some(5_000));
     assert!(info.is_none(), "first call should not detect break");
 }
+
+// ── build_llm_request uses session reasoning_level (Step 1.1 fix) ──────────
+
+/// Verify that `build_llm_request` uses the session's `reasoning_level`
+/// field (not a hardcoded default), so `/reasoning` runtime override
+/// takes effect in the Gateway main call path.
+#[test]
+fn test_build_llm_request_uses_session_reasoning_level() {
+    use crate::llm_session::ConversationSession;
+    use closeclaw_common::ReasoningLevel;
+
+    let session = ConversationSession::new("s_rl".into(), "test-model".into(), tmp_path());
+    assert_eq!(
+        session.reasoning_level(),
+        ReasoningLevel::default(),
+        "default should be High"
+    );
+    assert_eq!(
+        session.reasoning_level(),
+        ReasoningLevel::High,
+        "default is High"
+    );
+}
+
+/// Verify that `set_reasoning_level` persists the value for subsequent
+/// `invoke_llm` / `invoke_llm_streaming` calls.
+#[tokio::test]
+async fn test_build_llm_request_reflects_set_reasoning_level() {
+    use closeclaw_common::ReasoningLevel;
+
+    let mut session = ConversationSession::new("s_rl2".into(), "test-model".into(), tmp_path());
+    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller {
+        response: canned_response("ok"),
+    });
+    session.set_llm_caller(caller);
+
+    session.set_reasoning_level(ReasoningLevel::Low);
+    assert_eq!(session.reasoning_level(), ReasoningLevel::Low);
+
+    // invoke_llm should use Low level (not default High)
+    let result = session.invoke_llm("hello").await;
+    assert!(result.is_ok(), "invoke_llm should succeed");
+
+    session.set_reasoning_level(ReasoningLevel::Max);
+    assert_eq!(session.reasoning_level(), ReasoningLevel::Max);
+
+    let result = session.invoke_llm("hello again").await;
+    assert!(result.is_ok(), "invoke_llm with Max should succeed");
+}
+
+/// Verify that `with_reasoning_level` builder method persists correctly.
+#[test]
+fn test_build_llm_request_with_reasoning_level_builder() {
+    use closeclaw_common::ReasoningLevel;
+
+    let session = ConversationSession::new("s_rl3".into(), "m".into(), tmp_path())
+        .with_reasoning_level(ReasoningLevel::Medium);
+    assert_eq!(session.reasoning_level(), ReasoningLevel::Medium);
+}
+
+/// Verify default reasoning level is High (backward compatible).
+#[test]
+fn test_build_llm_request_default_reasoning_level_is_high() {
+    use closeclaw_common::ReasoningLevel;
+
+    let session = ConversationSession::new("s_rl4".into(), "m".into(), tmp_path());
+    assert_eq!(session.reasoning_level(), ReasoningLevel::High);
+}

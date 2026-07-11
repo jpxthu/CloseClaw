@@ -815,4 +815,186 @@ mod tests {
         ));
         assert!(matches!(events[16], StreamEvent::MessageEnd { .. }));
     }
+
+    // ── response_to_stream: char-by-char push (Step 1.2 fix) ─────────────────
+
+    /// Multi-block text: each char produces one BlockDelta.
+    #[tokio::test]
+    async fn test_response_to_stream_char_by_char() {
+        use closeclaw_common::processor::UnifiedUsage;
+        let response = UnifiedResponse {
+            content_blocks: vec![ContentBlock::Text("ab".to_string())],
+            usage: UnifiedUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: Some(0),
+                reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
+            finish_reason: None,
+        };
+        let mut stream = response_to_stream(response);
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event.unwrap());
+        }
+        // BlockStart(0) + Delta(a) + Delta(b) + BlockEnd(0) + MessageEnd = 5
+        assert_eq!(events.len(), 5);
+        assert!(matches!(
+            events[0],
+            StreamEvent::BlockStart { index: 0, .. }
+        ));
+        if let StreamEvent::BlockDelta { delta, .. } = &events[1] {
+            assert!(matches!(delta, ContentDelta::Text { text } if text == "a"));
+        } else {
+            panic!("expected BlockDelta for 'a'");
+        }
+        if let StreamEvent::BlockDelta { delta, .. } = &events[2] {
+            assert!(matches!(delta, ContentDelta::Text { text } if text == "b"));
+        } else {
+            panic!("expected BlockDelta for 'b'");
+        }
+        assert!(matches!(events[3], StreamEvent::BlockEnd { index: 0, .. }));
+        assert!(matches!(events[4], StreamEvent::MessageEnd { .. }));
+    }
+
+    /// Empty string ContentBlock → no BlockDelta, only structure events.
+    #[tokio::test]
+    async fn test_response_to_stream_empty_text_no_delta() {
+        use closeclaw_common::processor::UnifiedUsage;
+        let response = UnifiedResponse {
+            content_blocks: vec![ContentBlock::Text(String::new())],
+            usage: UnifiedUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: Some(0),
+                reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
+            finish_reason: None,
+        };
+        let mut stream = response_to_stream(response);
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event.unwrap());
+        }
+        // BlockStart(0) + BlockEnd(0) + MessageEnd = 3 (no BlockDelta)
+        assert_eq!(events.len(), 3);
+        assert!(matches!(
+            events[0],
+            StreamEvent::BlockStart { index: 0, .. }
+        ));
+        assert!(matches!(events[1], StreamEvent::BlockEnd { index: 0, .. }));
+        assert!(matches!(events[2], StreamEvent::MessageEnd { .. }));
+    }
+
+    /// Unicode char: single char that is multi-byte produces one BlockDelta.
+    #[tokio::test]
+    async fn test_response_to_stream_unicode_char() {
+        use closeclaw_common::processor::UnifiedUsage;
+        let response = UnifiedResponse {
+            content_blocks: vec![ContentBlock::Text("é".to_string())],
+            usage: UnifiedUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: Some(0),
+                reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
+            finish_reason: None,
+        };
+        let mut stream = response_to_stream(response);
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event.unwrap());
+        }
+        // BlockStart + 1 Delta + BlockEnd + MessageEnd = 4
+        assert_eq!(events.len(), 4);
+        if let StreamEvent::BlockDelta { delta, .. } = &events[1] {
+            assert!(matches!(delta, ContentDelta::Text { text } if text == "é"));
+        } else {
+            panic!("expected BlockDelta for unicode char");
+        }
+    }
+
+    /// ToolUse block: single BlockDelta (not char-by-char).
+    #[tokio::test]
+    async fn test_response_to_stream_tool_use_single_delta() {
+        use closeclaw_common::processor::UnifiedUsage;
+
+        let response = UnifiedResponse {
+            content_blocks: vec![ContentBlock::ToolUse {
+                id: "call_1".to_string(),
+                name: "bash".to_string(),
+                input: "{}".to_string(),
+            }],
+            usage: UnifiedUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: Some(0),
+                reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
+            finish_reason: None,
+        };
+        let mut stream = response_to_stream(response);
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event.unwrap());
+        }
+        // BlockStart + 1 Delta (ToolUseInputChunk) + BlockEnd + MessageEnd = 4
+        assert_eq!(events.len(), 4);
+        assert!(matches!(
+            events[0],
+            StreamEvent::BlockStart {
+                block_type: ContentBlockType::ToolUse,
+                ..
+            }
+        ));
+        assert!(matches!(
+            events[1],
+            StreamEvent::BlockDelta {
+                delta: ContentDelta::ToolUseInputChunk { .. },
+                ..
+            }
+        ));
+        assert!(matches!(
+            events[2],
+            StreamEvent::BlockEnd {
+                block_type: ContentBlockType::ToolUse,
+                ..
+            }
+        ));
+        assert!(matches!(events[3], StreamEvent::MessageEnd { .. }));
+    }
+
+    /// Empty response (no content blocks) → only MessageEnd.
+    #[tokio::test]
+    async fn test_response_to_stream_empty_blocks() {
+        use closeclaw_common::processor::UnifiedUsage;
+
+        let response = UnifiedResponse {
+            content_blocks: vec![],
+            usage: UnifiedUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: Some(0),
+                reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
+            finish_reason: None,
+        };
+        let mut stream = response_to_stream(response);
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event.unwrap());
+        }
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], StreamEvent::MessageEnd { .. }));
+    }
 }
