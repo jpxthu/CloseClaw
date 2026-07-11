@@ -26,6 +26,7 @@ pub mod retry;
 pub mod session_state;
 pub mod sink_updater;
 pub mod stats;
+pub mod stream_utils;
 pub mod streaming;
 pub mod stub;
 pub mod turn;
