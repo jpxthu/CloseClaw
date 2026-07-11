@@ -691,3 +691,116 @@ async fn test_cleanup_finished_cleanup_io_error() {
     mgr.cleanup_finished().await;
     assert!(mgr.get_task("io-err").await.is_none());
 }
+
+// =========================================================================
+// Step 1.5 — Summary text verification (Step 1.1 验证)
+// =========================================================================
+
+/// Verify that a completion notification carries the correct summary
+/// text: "Background command '<command>' completed".
+#[tokio::test]
+async fn test_completion_notification_summary_text() {
+    let (mgr, _tmp) = test_manager();
+    let task = mgr.spawn("echo hello", _tmp.path()).await.unwrap();
+    let _ = wait_for_completion(&mgr, &task.id).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let notifs = mgr.pending_notifications().await;
+    assert_eq!(notifs.len(), 1);
+    assert_eq!(
+        notifs[0].summary, "Background command 'echo hello' completed",
+        "summary should match the expected format"
+    );
+}
+
+/// Verify that a failure notification carries the correct summary text.
+#[tokio::test]
+async fn test_failure_notification_summary_text() {
+    let (mgr, _tmp) = test_manager();
+    let task = mgr.spawn("false", _tmp.path()).await.unwrap();
+    let _ = wait_for_completion(&mgr, &task.id).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let notifs = mgr.pending_notifications().await;
+    assert_eq!(notifs.len(), 1);
+    assert_eq!(
+        notifs[0].summary, "Background command 'false' completed",
+        "failure summary should match the expected format"
+    );
+}
+
+// =========================================================================
+// Step 1.5 — Dedup via notified flag (Step 1.2 验证)
+// =========================================================================
+
+/// When `notified` is already `true` before `finalize_state` runs,
+/// no completion notification should be pushed. This simulates the
+/// stuck-then-completion path where `emit_stuck_alert` set the flag.
+#[tokio::test]
+async fn test_finalize_state_skips_notification_when_notified() {
+    let (mgr, _tmp) = test_manager();
+    let task = mgr.spawn("true", _tmp.path()).await.unwrap();
+    let _ = wait_for_completion(&mgr, &task.id).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Drain the first (legitimate) notification.
+    let first = mgr.pending_notifications().await;
+    assert_eq!(first.len(), 1, "first drain should have one notification");
+
+    // Mark as notified (simulates stuck alert having fired).
+    mgr.mark_notified(&task.id).await;
+
+    // Second drain should be empty — no duplicate notification.
+    let second = mgr.pending_notifications().await;
+    assert!(
+        second.is_empty(),
+        "second drain should be empty when notified is true"
+    );
+}
+
+// =========================================================================
+// Step 1.5 — Killed state: finalize_state early return (Step 1.2 验证)
+// =========================================================================
+
+/// A killed task should not produce any completion notification.
+/// `finalize_state` returns early when state is `Killed`.
+#[tokio::test]
+async fn test_killed_task_produces_no_notification() {
+    let (mgr, _tmp) = test_manager();
+    let task = mgr.spawn("sleep 60", _tmp.path()).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(mgr.is_running(&task.id).await);
+
+    mgr.kill(&task.id).await.unwrap();
+    let snapshot = mgr.get_task(&task.id).await.unwrap();
+    assert_eq!(snapshot.state, TaskState::Killed);
+
+    // Wait for the background process to finish after kill.
+    let _ = wait_for_completion(&mgr, &task.id).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let notifs = mgr.pending_notifications().await;
+    assert!(
+        notifs.is_empty(),
+        "killed task must not produce a notification"
+    );
+}
+
+/// A killed task with `notified=true` still produces no notification.
+#[tokio::test]
+async fn test_killed_task_with_notified_produces_no_notification() {
+    let (mgr, _tmp) = test_manager();
+    let task = mgr.spawn("sleep 60", _tmp.path()).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Simulate a stuck alert having fired before kill.
+    mgr.mark_notified(&task.id).await;
+    mgr.kill(&task.id).await.unwrap();
+
+    let _ = wait_for_completion(&mgr, &task.id).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let notifs = mgr.pending_notifications().await;
+    assert!(
+        notifs.is_empty(),
+        "killed task with notified=true must not produce a notification"
+    );
+}

@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 //! Tests for NewSessionHandler, StopHandler, StatusHandler, and /help inclusion.
 
 use std::sync::Arc;
@@ -5,7 +7,7 @@ use std::sync::Arc;
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
 use crate::registry::HandlerRegistry;
-use crate::{HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
+use crate::{BackgroundHandler, HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_gateway::session_manager::SessionManager;
 
@@ -163,5 +165,93 @@ async fn test_help_includes_new_stop_status() {
             assert!(t.contains("/status"), "missing /status, got: {t}");
         }
         _ => panic!("expected Reply"),
+    }
+}
+
+// ── BackgroundHandler (/bg) tests ───────────────────────────────────────────
+
+#[test]
+fn test_bg_handler_commands() {
+    let h = BackgroundHandler::new(make_workdir_session_manager());
+    assert_eq!(h.commands(), &["bg"]);
+}
+
+#[test]
+fn test_bg_handler_description() {
+    let h = BackgroundHandler::new(make_workdir_session_manager());
+    assert!(
+        h.description().contains("后台"),
+        "description should mention background"
+    );
+}
+
+#[test]
+fn test_bg_handler_immediate() {
+    let h = BackgroundHandler::new(make_workdir_session_manager());
+    assert!(!h.immediate("bg"), "/bg should not be immediate");
+}
+
+/// /bg with a valid session calls trigger_manual_background.
+/// Since no foreground command is actually running, the session manager
+/// returns Ok(true) after signaling — the handler should relay success.
+#[tokio::test]
+async fn test_bg_handler_with_valid_session() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    let h = BackgroundHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => {
+            assert!(
+                t.contains("后台"),
+                "handler should return a success message mentioning background, got: {t}"
+            );
+        }
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+/// /bg with a nonexistent session should return an error message
+/// (session not found).
+#[tokio::test]
+async fn test_bg_handler_nonexistent_session() {
+    let h = BackgroundHandler::new(make_workdir_session_manager());
+    let ctx = SlashContext {
+        command: "bg".to_owned(),
+        sender_id: "test_sender".to_owned(),
+        session_id: "nonexistent_session".to_owned(),
+        channel: "test_channel".to_owned(),
+    };
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => {
+            assert!(
+                t.contains("失败"),
+                "handler should return error for nonexistent session, got: {t}"
+            );
+        }
+        other => panic!("expected Reply with error, got {other:?}"),
+    }
+}
+
+/// /bg is registered in the dispatcher and responds to dispatch.
+#[tokio::test]
+async fn test_bg_handler_dispatch() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    let registry = HandlerRegistry::new();
+    registry.register(Arc::new(BackgroundHandler::new(Arc::clone(&sm))));
+    let dispatcher = crate::dispatcher::SlashDispatcher::new(registry);
+    let ctx = SlashContext {
+        command: String::new(),
+        sender_id: "u".to_owned(),
+        session_id: sid,
+        channel: "c".to_owned(),
+    };
+    match dispatcher.dispatch("/bg", &ctx).await {
+        SlashResult::Reply(t) => {
+            assert!(!t.is_empty(), "dispatch should return a reply");
+        }
+        other => panic!("expected Reply, got {other:?}"),
     }
 }

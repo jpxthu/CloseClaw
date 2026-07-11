@@ -541,6 +541,7 @@ async fn test_next_priority_notification_has_urgency_marker() {
         state: TaskState::Completed { exit_code: 0 },
         output_path: PathBuf::from("/tmp/test/output-next"),
         priority: NotificationPriority::Next,
+        summary: "Background command 'important_cmd' completed".to_string(),
     }];
     let mock_tm = Arc::new(MockTaskManager::new(notifications));
     mgr.set_task_manager(mock_tm as Arc<dyn TaskManager>).await;
@@ -600,6 +601,7 @@ async fn test_later_priority_notification_normal_format() {
         state: TaskState::Completed { exit_code: 0 },
         output_path: PathBuf::from("/tmp/test/output-later"),
         priority: NotificationPriority::Later,
+        summary: "Background command 'normal_cmd' completed".to_string(),
     }];
     let mock_tm = Arc::new(MockTaskManager::new(notifications));
     mgr.set_task_manager(mock_tm as Arc<dyn TaskManager>).await;
@@ -667,6 +669,7 @@ async fn test_priority_consistency_from_generation_to_consumption() {
             state: TaskState::Completed { exit_code: 0 },
             output_path: PathBuf::from("/tmp/output-later"),
             priority: NotificationPriority::Later,
+            summary: "Background command 'echo done' completed".to_string(),
         },
         CompletionNotification {
             task_id: "task-consist-next".to_string(),
@@ -674,6 +677,8 @@ async fn test_priority_consistency_from_generation_to_consumption() {
             state: TaskState::Failed { exit_code: 1 },
             output_path: PathBuf::from("/tmp/output-next"),
             priority: NotificationPriority::Next,
+            summary: "Background command 'stuck command' appears stuck at an interactive prompt"
+                .to_string(),
         },
     ];
     let mock_tm = Arc::new(MockTaskManager::new(notifications));
@@ -718,6 +723,7 @@ async fn test_next_vs_later_prefix_comparison() {
             state: TaskState::Completed { exit_code: 0 },
             output_path: PathBuf::from("/tmp/a"),
             priority: NotificationPriority::Next,
+            summary: "Background command 'cmd_a' completed".to_string(),
         },
         CompletionNotification {
             task_id: "task-b".to_string(),
@@ -725,6 +731,7 @@ async fn test_next_vs_later_prefix_comparison() {
             state: TaskState::Completed { exit_code: 0 },
             output_path: PathBuf::from("/tmp/b"),
             priority: NotificationPriority::Later,
+            summary: "Background command 'cmd_b' completed".to_string(),
         },
     ];
     let mock_tm = Arc::new(MockTaskManager::new(notifications));
@@ -800,6 +807,7 @@ async fn test_mock_task_manager_dedup() {
         state: TaskState::Completed { exit_code: 0 },
         output_path: PathBuf::from("/tmp/dedup"),
         priority: NotificationPriority::Later,
+        summary: "Background command 'echo dedup' completed".to_string(),
     }];
     let mock_tm = Arc::new(MockTaskManager::new(notifications));
     mgr.set_task_manager(mock_tm as Arc<dyn TaskManager>).await;

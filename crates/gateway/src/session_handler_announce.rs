@@ -198,26 +198,14 @@ impl SessionMessageHandler {
         };
         let mut cs_write = cs.write().await;
         for notif in notifications {
-            let state_text = match &notif.state {
-                closeclaw_tasks::TaskState::Completed { exit_code } => {
-                    format!("Completed (exit code: {})", exit_code)
-                }
-                closeclaw_tasks::TaskState::Failed { exit_code } => {
-                    format!("Failed (exit code: {})", exit_code)
-                }
-                closeclaw_tasks::TaskState::Killed => "Killed".to_string(),
-                closeclaw_tasks::TaskState::Running => "Running".to_string(),
-            };
             let prefix = match notif.priority {
                 NotificationPriority::Next => "[⚠️ 需立即处理] 后台任务",
                 NotificationPriority::Later => "[后台任务]",
             };
             let text = format!(
-                "{} 任务 {}（命令 '{}'）已完成（状态：{}）。输出文件：{}",
+                "{} {}。输出文件：{}",
                 prefix,
-                notif.task_id,
-                notif.command,
-                state_text,
+                notif.summary,
                 notif.output_path.display()
             );
             cs_write.inject_system_message(text);
