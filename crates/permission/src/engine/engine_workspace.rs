@@ -33,7 +33,7 @@ fn is_nested_workspace_path(
     user_id: &str,
     norm_path: &str,
 ) -> bool {
-    let ws_prefix = normalize_path(&data_root.join("workspaces").to_string_lossy().into_owned());
+    let ws_prefix = normalize_path(&data_root.join("workspaces").to_string_lossy());
     if norm_path != ws_prefix && !norm_path.starts_with(&format!("{}/", ws_prefix)) {
         return false;
     }
