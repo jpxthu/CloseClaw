@@ -61,7 +61,7 @@ Builder 在请求片段前检查缓存键命中。缓存策略不变：
 ```
 SessionManager 触发构建
   →
-  Builder 构建 FragmentContext（agent 标识 + bootstrap 模式 + 工作目录）
+  Builder 构建 FragmentContext（agent 标识 + bootstrap 模式 + bootstrap 目录）
   ↓
   按优先级遍历注册的 Provider：
     BootstrapFragmentProvider
@@ -94,7 +94,7 @@ SessionManager 触发构建
 
 ### 上游
 
-- **SessionManager**：在 session 创建、archive 恢复、compaction 完成时触发构建，传入 agent_id 和 workdir 用于构建 FragmentContext。
+- **SessionManager**：在 session 创建、archive 恢复、compaction 完成时触发构建，传入 agent_id 和 bootstrap_dir 用于构建 FragmentContext。
 - **ConversationSession**：提供 agent 的 bootstrap_mode（Minimal/Full）。
 
 ### 下游
