@@ -120,6 +120,7 @@ Sweeper 定时触发
     → session 状态更新为 active，清除归档时间
     → 返回 SessionCheckpoint
   → SessionManager 用 checkpoint 重建 ConversationSession
+    → 工作目录重新初始化为默认值（不进持久化存储）
     → 重新走注入流程，保证 system prompt 内容最新
   → 注册到映射表
 ```
