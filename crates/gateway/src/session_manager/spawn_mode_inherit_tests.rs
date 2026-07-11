@@ -86,6 +86,7 @@ async fn test_child_inherits_plan_mode_from_parent() {
             None,
             None,
             3,
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -134,6 +135,7 @@ async fn test_child_stays_normal_when_parent_is_normal() {
             None,
             None,
             3,
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -183,6 +185,7 @@ async fn test_child_stays_normal_when_parent_is_auto() {
             None,
             None,
             3,
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");

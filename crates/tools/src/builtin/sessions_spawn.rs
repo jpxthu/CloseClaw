@@ -127,6 +127,7 @@ impl SessionsSpawnTool {
         model: Option<&str>,
         parent_subagents_model: Option<&str>,
         max_spawn_depth: u32,
+        spawn_timeout: Option<u64>,
     ) -> Result<String, ToolCallError> {
         self.session_manager
             .create_child_session(
@@ -142,6 +143,7 @@ impl SessionsSpawnTool {
                 model,
                 parent_subagents_model,
                 max_spawn_depth,
+                spawn_timeout,
             )
             .await
             .map_err(|e| {
@@ -300,6 +302,7 @@ impl Tool for SessionsSpawnTool {
         };
         let config = spawn_result.config;
         let effective_max_spawn_depth = spawn_result.effective_max_spawn_depth;
+        let spawn_timeout = spawn_result.spawn_timeout;
         // Look up the parent agent's subagents.model config
         // (used as priority level 2 in the model priority chain).
         let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
@@ -345,6 +348,7 @@ impl Tool for SessionsSpawnTool {
                 spawn_args.model.as_deref(),
                 parent_subagents_model.as_deref(),
                 effective_max_spawn_depth,
+                spawn_timeout,
             )
             .await?;
         Ok(ToolResult {

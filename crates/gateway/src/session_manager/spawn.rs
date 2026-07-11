@@ -261,6 +261,7 @@ impl SessionManager {
         model_override: Option<&str>,
         parent_subagents_model: Option<&str>,
         max_spawn_depth: u32,
+        spawn_timeout: Option<u64>,
     ) -> Result<String, String> {
         // ── Increment busy count for drain tracking ────────────────────
         if let Some(sh) = self.get_shutdown_handle().await {
@@ -356,6 +357,11 @@ impl SessionManager {
             drop(parent_guard);
             token
         };
+
+        // Clone the token before consuming it — the original is
+        // passed to ConversationSession, the clone is retained for
+        // the optional spawn-timeout task (Step 1.3).
+        let timeout_token = child_token.clone();
 
         let mut cs = ConversationSession::with_cancel_token(
             child_session_id.clone(),
@@ -499,7 +505,26 @@ impl SessionManager {
         )
         .await;
 
-        // 9. Return child session id
+        // 9. Apply spawn timeout (Step 1.3)
+        // If the parent agent's subagents.timeout is configured,
+        // spawn a background task that cancels the child session
+        // after the deadline. Uses the existing CancellationToken
+        // — no new termination path introduced.
+        if let Some(timeout_secs) = spawn_timeout {
+            let token = timeout_token;
+            let child_id = child_session_id.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(timeout_secs)).await;
+                tracing::info!(
+                    session_id = %child_id,
+                    timeout_secs,
+                    "spawn timeout expired, cancelling child session"
+                );
+                token.cancel();
+            });
+        }
+
+        // 10. Return child session id
         Ok(child_session_id)
     }
 

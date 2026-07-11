@@ -23,6 +23,10 @@ pub struct SpawnValidationResult {
     /// Effective max spawn depth the child may use.
     /// Computed as `min(child.max_spawn_depth, parent.max_spawn_depth - 1)`.
     pub effective_max_spawn_depth: u32,
+    /// Sub-agent maximum execution duration (seconds), read from the
+    /// parent agent's `subagents.timeout` config. `None` means no
+    /// timeout override (child uses global default or no timeout).
+    pub spawn_timeout: Option<u64>,
 }
 
 /// Errors returned by SpawnController validation.
@@ -59,6 +63,7 @@ struct ParentSpawnConfig {
     max_children: u32,
     allow_agents: Vec<String>,
     require_agent_id: bool,
+    timeout: Option<u64>,
 }
 
 /// Result from resolving target agent configuration (agentId fallback).
@@ -118,7 +123,10 @@ impl SpawnController {
         }
 
         // ⑥ require_agent_id check — must come after concurrency/whitelist.
-        if parent_cfg.require_agent_id && resolved.target_id.is_none() {
+        // Check the original caller-provided agent_id, not the resolved fallback.
+        // Config-level defaults (default_child_agent, parent fallback) do not
+        // satisfy require_agent_id — only an explicit caller argument does.
+        if parent_cfg.require_agent_id && target_agent_id.is_none() {
             return Err(SpawnError::AgentIdRequired);
         }
         let target_id = resolved.target_id.ok_or(SpawnError::AgentIdRequired)?;
@@ -136,9 +144,13 @@ impl SpawnController {
         let effective_max =
             self.compute_effective_max_depth(parent.parent_effective_budget, Some(&config))?;
 
+        // ⑨ Read parent subagents.timeout (Step 1.2).
+        let spawn_timeout = self.read_parent_config(&parent_agent_id).await?.timeout;
+
         Ok(SpawnValidationResult {
             config,
             effective_max_spawn_depth: effective_max,
+            spawn_timeout,
         })
     }
 
@@ -282,19 +294,26 @@ impl SpawnController {
                     max_children: sc.max_children.unwrap_or(5),
                     allow_agents: sc.allow_agents.clone(),
                     require_agent_id: sc.require_agent_id.unwrap_or(false),
+                    timeout: sc.timeout,
                 }
             }
             None => ParentSpawnConfig {
                 max_children: 5u32,
                 allow_agents: vec!["*".to_string()],
                 require_agent_id: false,
+                timeout: None,
             },
         })
     }
 
     /// Resolve the target agent configuration under a single lock block.
-    /// Handles the agentId fallback: if no `target_agent_id` is provided,
-    /// falls back to the parent config's `default_child_agent`.
+    /// Handles the agentId fallback chain:
+    ///   1. Explicit `target_agent_id` (caller-provided)
+    ///   2. `default_child_agent` from parent config
+    ///   3. Parent agent ID itself (design doc §Spawn 控制流程 ④)
+    ///
+    /// The third fallback only applies when `require_agent_id` is false
+    /// (checked separately in `validate`).
     async fn resolve_target_config(
         &self,
         parent_agent_id: &str,
@@ -304,9 +323,11 @@ impl SpawnController {
             let agents = self.config_manager.agents();
             let parent_config = agents.get(parent_agent_id);
 
+            // Full fallback chain: explicit → default_child_agent → parent agent ID
             let target_id = target_agent_id
                 .map(|s| s.to_string())
-                .or_else(|| parent_config.and_then(|pc| pc.subagents.default_child_agent.clone()));
+                .or_else(|| parent_config.and_then(|pc| pc.subagents.default_child_agent.clone()))
+                .or_else(|| Some(parent_agent_id.to_string()));
 
             let target_config = target_id.as_ref().and_then(|id| agents.get(id).cloned());
 
@@ -395,6 +416,7 @@ impl closeclaw_config::spawn_validation::SpawnValidator for SpawnController {
         Ok(closeclaw_config::spawn_validation::SpawnValidationResult {
             config: result.config,
             effective_max_spawn_depth: result.effective_max_spawn_depth,
+            spawn_timeout: result.spawn_timeout,
         })
     }
 }

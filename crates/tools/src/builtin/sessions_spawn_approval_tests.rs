@@ -129,6 +129,7 @@ fn spawn_result() -> SpawnValidationResult {
             source: closeclaw_config::agents::ConfigSource::User,
         },
         effective_max_spawn_depth: 5,
+        spawn_timeout: None,
     }
 }
 

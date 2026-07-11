@@ -94,6 +94,7 @@ async fn test_model_priority_explicit_override_wins() {
             Some("override-model"),   // model_override
             Some("parent-sub-model"), // parent_subagents_model
             3,                        // max_spawn_depth
+            None,                     // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -130,6 +131,7 @@ async fn test_model_priority_parent_subagents_wins() {
             None,                    // model_override
             Some("parent-override"), // parent_subagents_model
             3,                       // max_spawn_depth
+            None,                    // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -166,6 +168,7 @@ async fn test_model_priority_target_agent_model() {
             None, // model_override
             None, // parent_subagents_model
             3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -202,6 +205,7 @@ async fn test_model_priority_system_default() {
             None, // model_override
             None, // parent_subagents_model
             3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -238,6 +242,7 @@ async fn test_model_priority_parent_subagents_beats_target() {
             None,                       // model_override
             Some("subagents-override"), // parent_subagents_model
             3,                          // max_spawn_depth
+            None,                       // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
