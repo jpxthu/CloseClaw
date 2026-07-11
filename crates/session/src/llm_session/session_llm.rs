@@ -5,15 +5,10 @@
 //! (`SessionMessageHandler::call_llm`). The session owns the
 //! [`LlmCaller`] reference and the memory-injection consumption.
 
-use std::pin::Pin;
-
-use futures::Stream;
-
-use crate::persistence::ReasoningLevel;
-use closeclaw_common::processor::StreamEvent;
 use closeclaw_common::LLMError;
 use closeclaw_common::{InternalMessage, InternalRequest, UnifiedResponse};
 
+use super::streaming_assembly::SessionStream;
 use super::ConversationSession;
 
 impl ConversationSession {
@@ -36,14 +31,16 @@ impl ConversationSession {
 
     /// Make a streaming LLM call via the injected [`LlmCaller`].
     ///
-    /// Returns a raw event stream. The caller (Gateway) is responsible
-    /// for wrapping with [`SinkUpdater`], racing
-    /// against a cancellation token, and dispatching through
-    /// [`Gateway::send_outbound_streaming`].
-    pub async fn invoke_llm_streaming(
-        &self,
-        content: &str,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>>, LLMError> {
+    /// Returns a [`SessionStream`] that wraps the raw LLM event stream
+    /// and accumulates [`ContentBlock`](closeclaw_common::ContentBlock)s
+    /// as events pass through. After the stream is fully consumed,
+    /// call [`SessionStream::into_content_blocks`] to extract the
+    /// assembled result.
+    ///
+    /// The caller (Gateway) is responsible for consuming the stream
+    /// for real-time rendering via
+    /// [`Gateway::send_outbound_streaming`](crate::Gateway::send_outbound_streaming).
+    pub async fn invoke_llm_streaming(&self, content: &str) -> Result<SessionStream, LLMError> {
         let Some(caller) = self.llm_caller.as_ref() else {
             return Err(LLMError::InvalidRequest(
                 "no LlmCaller injected into session".to_string(),
@@ -52,7 +49,8 @@ impl ConversationSession {
 
         let messages = self.build_llm_messages(content);
         let request = self.build_llm_request(messages, true);
-        caller.call_streaming(request).await
+        let raw_stream = caller.call_streaming(request).await?;
+        Ok(SessionStream::new(raw_stream))
     }
 
     /// Build the messages list for an LLM request, consuming any
@@ -97,7 +95,7 @@ impl ConversationSession {
             system_blocks: None,
             tools: None,
             session_id: None,
-            reasoning_level: ReasoningLevel::default(),
+            reasoning_level: self.reasoning_level,
             turn_count: None,
         }
     }

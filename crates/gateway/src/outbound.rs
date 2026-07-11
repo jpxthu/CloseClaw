@@ -411,8 +411,57 @@ impl Gateway {
         &self,
         session_id: &str,
         channel: &str,
+        stream: impl futures::Stream<Item = Result<StreamEvent, E>> + Unpin,
+        plugin: &std::sync::Arc<dyn IMPlugin>,
+    ) -> Result<StreamResult, GatewayError> {
+        self.send_outbound_streaming_inner(session_id, channel, stream, plugin, None)
+            .await
+    }
+
+    /// Streaming outbound dispatch with session-assembled content blocks.
+    ///
+    /// When `session_content_blocks` is provided (from
+    /// [`SessionStream`](closeclaw_session::llm_session::SessionStream)),
+    /// the post-stream pipeline uses them as the source of truth instead
+    /// of the Gateway-internal `StreamState` accumulation.
+    pub async fn send_outbound_streaming_assembled<E: std::fmt::Display>(
+        &self,
+        session_id: &str,
+        channel: &str,
+        stream: impl futures::Stream<Item = Result<StreamEvent, E>> + Unpin,
+        plugin: &std::sync::Arc<dyn IMPlugin>,
+        session_content_blocks: Vec<ContentBlock>,
+        session_usage: Option<UnifiedUsage>,
+    ) -> Result<StreamResult, GatewayError> {
+        self.send_outbound_streaming_inner(
+            session_id,
+            channel,
+            stream,
+            plugin,
+            Some((session_content_blocks, session_usage)),
+        )
+        .await
+    }
+
+    /// Core streaming outbound dispatch.
+    ///
+    /// Drives a [`DefaultStreamingRenderer`] over the [`StreamEvent`] stream,
+    /// dispatching incremental output to `plugin` as it becomes available:
+    /// - Text delta → line buffer → complete lines → `plugin.send` (text)
+    /// - BlockEnd (non-Text) → `plugin.render(&[block], None)` → `plugin.send`
+    /// - MessageEnd → flush remaining content → `plugin.send`
+    ///
+    /// When `session_blocks` is provided, the post-stream pipeline uses
+    /// those session-assembled `ContentBlock`s instead of the internal
+    /// `StreamState` accumulation. This ensures the Session layer is the
+    /// source of truth for `ContentBlock[]` assembly.
+    async fn send_outbound_streaming_inner<E: std::fmt::Display>(
+        &self,
+        session_id: &str,
+        channel: &str,
         mut stream: impl futures::Stream<Item = Result<StreamEvent, E>> + Unpin,
         plugin: &std::sync::Arc<dyn IMPlugin>,
+        session_blocks: Option<(Vec<ContentBlock>, Option<UnifiedUsage>)>,
     ) -> Result<StreamResult, GatewayError> {
         let chat_id = self
             .session_manager
@@ -437,14 +486,7 @@ impl Gateway {
         let processor_ref: &dyn closeclaw_common::processor::ProcessorChain =
             match processor_registry.as_ref() {
                 Some(r) => r.as_ref(),
-                None => {
-                    // Fallback: no processor chain configured. Use a no-op
-                    // passthrough via a local dummy that returns lines unchanged.
-                    // This block is unreachable in practice because
-                    // process_or_bypass handles the None case, but we need a
-                    // reference for the StreamContext lifetime.
-                    &NoopProcessorChain
-                }
+                None => &NoopProcessorChain,
             };
         let mut state = StreamState::new(verbosity_level);
         while let Some(event_result) = stream.next().await {
@@ -460,29 +502,35 @@ impl Gateway {
         }
         tracing::debug!(session_id, channel, "streaming outbound complete");
 
-        // Post-stream: run accumulated content_blocks through the three-step
-        // outbound pipeline.
-        // Real-time per-block verbosity filtering above is kept as an
-        // incremental optimization; the final result comes from the pipeline.
+        self.finish_streaming_pipeline(session_blocks, state, channel, session_id, verbosity_level)
+            .await
+    }
 
-        // Processor chain (VerbosityFilter → DslParser → OutboundRawLog).
+    /// Post-stream pipeline: select content blocks, run processor chain,
+    /// merge DSL results, and build the final [`StreamResult`].
+    async fn finish_streaming_pipeline(
+        &self,
+        session_blocks: Option<(Vec<ContentBlock>, Option<UnifiedUsage>)>,
+        mut state: StreamState,
+        channel: &str,
+        session_id: &str,
+        verbosity_level: VerbosityLevel,
+    ) -> Result<StreamResult, GatewayError> {
+        let (content_blocks_for_pipeline, usage_override) = match session_blocks {
+            Some((blocks, usage)) => (blocks, usage),
+            None => (std::mem::take(&mut state.content_blocks), None),
+        };
+
         let mut processed = self
             .process_or_bypass(
                 "",
-                state.content_blocks,
+                content_blocks_for_pipeline,
                 channel,
                 session_id,
                 verbosity_level,
             )
             .await?;
-        state.content_blocks = processed.content_blocks;
 
-        // Merge streaming DslParser results into the batch pipeline output.
-        // During streaming, DslParser processed each text line individually and
-        // accumulated results in `state.dsl_results`. The batch DslParser runs
-        // on already-clean content_blocks (DSL stripped), so it produces an
-        // empty result that overwrites the streaming results. Merge them back
-        // to avoid losing DSL instructions extracted during streaming.
         if !state.dsl_results.instructions.is_empty() {
             let streaming_json = serde_json::to_string(&state.dsl_results).unwrap_or_default();
             processed
@@ -490,7 +538,10 @@ impl Gateway {
                 .insert("dsl_result".to_string(), streaming_json);
         }
 
-        Ok(StreamState::into_result(state))
+        Ok(StreamResult {
+            content_blocks: processed.content_blocks,
+            usage: usage_override.unwrap_or(state.usage),
+        })
     }
 
     /// Process a single [`StreamEvent`] and update `state`.
@@ -509,16 +560,48 @@ impl Gateway {
                 self.handle_block_delta(ctx, index, delta, state).await?;
             }
             StreamEvent::BlockEnd { block_type, .. } => {
+                // Thinking indicator: send stop signal before verbosity filtering.
+                if block_type == ContentBlockType::Thinking
+                    && state.verbosity_level != VerbosityLevel::Off
+                {
+                    ctx.plugin.send_thinking_indicator(false);
+                }
                 self.handle_block_end(ctx, event, block_type, state).await?;
             }
             StreamEvent::MessageEnd { usage, .. } => {
                 self.handle_message_end(ctx, usage, state).await?;
             }
             StreamEvent::Error { message } => {
-                return Err(GatewayError::OutboundError(message));
+                // Flush any in-progress text from the renderer so partial
+                // content from incomplete blocks is not lost.
+                let flush_out = ctx.plugin.flush_stream();
+                for text in flush_out.text_messages {
+                    if !text.is_empty() {
+                        state.content_blocks.push(ContentBlock::Text(text));
+                    }
+                }
+                let partial_content = std::mem::take(&mut state.content_blocks);
+                let partial_len = partial_content.len();
+                tracing::warn!(
+                    session_id = ctx.chat_id,
+                    error = %message,
+                    partial_content_blocks = partial_len,
+                    "streaming error with partial content preserved"
+                );
+                return Err(GatewayError::StreamError {
+                    message,
+                    partial_content,
+                });
             }
-            StreamEvent::BlockStart { .. } => {
-                ctx.plugin.handle_stream_event(event);
+            StreamEvent::BlockStart { index, block_type } => {
+                // Thinking indicator: send start signal on Thinking BlockStart.
+                if block_type == ContentBlockType::Thinking
+                    && state.verbosity_level != VerbosityLevel::Off
+                {
+                    ctx.plugin.send_thinking_indicator(true);
+                }
+                ctx.plugin
+                    .handle_stream_event(StreamEvent::BlockStart { index, block_type });
             }
         }
         Ok(())
@@ -659,13 +742,6 @@ impl StreamState {
             dsl_results: DslParseResult {
                 instructions: vec![],
             },
-        }
-    }
-
-    fn into_result(self) -> StreamResult {
-        StreamResult {
-            content_blocks: self.content_blocks,
-            usage: self.usage,
         }
     }
 }

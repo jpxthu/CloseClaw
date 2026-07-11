@@ -11,19 +11,35 @@ use closeclaw_common::{LLMError, LlmCaller};
 use super::tmp_path;
 
 /// A fake LlmCaller that returns a canned response and supports streaming.
+/// Captures the last request for assertion on fields like `reasoning_level`.
 struct FakeLlmCaller {
     response: UnifiedResponse,
+    last_request: std::sync::Mutex<Option<InternalRequest>>,
+}
+
+impl FakeLlmCaller {
+    fn new(response: UnifiedResponse) -> Self {
+        Self {
+            response,
+            last_request: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn last_request(&self) -> Option<InternalRequest> {
+        self.last_request.lock().unwrap().clone()
+    }
 }
 
 #[async_trait]
 impl LlmCaller for FakeLlmCaller {
-    async fn call(&self, _request: InternalRequest) -> Result<UnifiedResponse, LLMError> {
+    async fn call(&self, request: InternalRequest) -> Result<UnifiedResponse, LLMError> {
+        *self.last_request.lock().unwrap() = Some(request);
         Ok(self.response.clone())
     }
 
     async fn call_streaming(
         &self,
-        _request: InternalRequest,
+        request: InternalRequest,
     ) -> Result<
         std::pin::Pin<
             Box<
@@ -36,6 +52,8 @@ impl LlmCaller for FakeLlmCaller {
     > {
         use closeclaw_common::processor::{ContentBlockType, StreamEvent};
         use futures::stream;
+
+        *self.last_request.lock().unwrap() = Some(request);
 
         // Produce a minimal valid stream: BlockStart → BlockDelta → BlockEnd → MessageEnd
         let text = self
@@ -134,9 +152,7 @@ async fn test_invoke_llm_no_caller_returns_error() {
 #[tokio::test]
 async fn test_invoke_llm_success() {
     let mut session = ConversationSession::new("s2".into(), "gpt-4o".into(), tmp_path());
-    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller {
-        response: canned_response("Hi from LLM!"),
-    });
+    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller::new(canned_response("Hi from LLM!")));
     session.set_llm_caller(caller);
 
     let result: Result<UnifiedResponse, LLMError> = session.invoke_llm("hello").await;
@@ -168,9 +184,7 @@ async fn test_invoke_llm_caller_error_propagates() {
 #[tokio::test]
 async fn test_invoke_llm_consumes_memory_injection_after_current() {
     let mut session = ConversationSession::new("s4".into(), "gpt-4o".into(), tmp_path());
-    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller {
-        response: canned_response("ok"),
-    });
+    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller::new(canned_response("ok")));
     session.set_llm_caller(caller);
 
     // Inject memory with AfterCurrent position
@@ -189,9 +203,7 @@ async fn test_invoke_llm_consumes_memory_injection_after_current() {
 #[tokio::test]
 async fn test_invoke_llm_consumes_memory_injection_before_next() {
     let mut session = ConversationSession::new("s5".into(), "gpt-4o".into(), tmp_path());
-    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller {
-        response: canned_response("ok"),
-    });
+    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller::new(canned_response("ok")));
     session.set_llm_caller(caller);
 
     let injection = MemoryInjection::new("pre-context".into(), InjectionPosition::BeforeNext);
@@ -207,9 +219,7 @@ async fn test_invoke_llm_consumes_memory_injection_before_next() {
 #[tokio::test]
 async fn test_invoke_llm_no_memory_injection() {
     let mut session = ConversationSession::new("s6".into(), "gpt-4o".into(), tmp_path());
-    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller {
-        response: canned_response("ok"),
-    });
+    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller::new(canned_response("ok")));
     session.set_llm_caller(caller);
 
     let result: Result<UnifiedResponse, LLMError> = session.invoke_llm("hello").await;
@@ -223,9 +233,7 @@ fn test_set_and_get_llm_caller() {
     let mut session = ConversationSession::new("s7".into(), "gpt-4o".into(), tmp_path());
     assert!(session.llm_caller().is_none());
 
-    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller {
-        response: canned_response("x"),
-    });
+    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller::new(canned_response("x")));
     session.set_llm_caller(caller.clone());
     assert!(session.llm_caller().is_some());
 
@@ -250,9 +258,7 @@ async fn test_invoke_llm_streaming_success() {
     use futures::StreamExt;
 
     let mut session = ConversationSession::new("s_stream_2".into(), "gpt-4o".into(), tmp_path());
-    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller {
-        response: canned_response("streamed"),
-    });
+    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller::new(canned_response("streamed")));
     session.set_llm_caller(caller);
 
     let result = session.invoke_llm_streaming("hello").await;
@@ -272,9 +278,7 @@ async fn test_invoke_llm_streaming_success() {
 #[tokio::test]
 async fn test_invoke_llm_streaming_consumes_memory_injection() {
     let mut session = ConversationSession::new("s_stream_3".into(), "gpt-4o".into(), tmp_path());
-    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller {
-        response: canned_response("ok"),
-    });
+    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller::new(canned_response("ok")));
     session.set_llm_caller(caller);
 
     let injection = MemoryInjection::new("stream context".into(), InjectionPosition::AfterCurrent);
@@ -350,20 +354,18 @@ async fn test_session_delegates_to_injected_caller() {
     use closeclaw_common::processor::ContentBlock;
 
     let mut session = ConversationSession::new("s_delegate".into(), "gpt-4o".into(), tmp_path());
-    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller {
-        response: UnifiedResponse {
-            content_blocks: vec![ContentBlock::Text("delegated response".into())],
-            usage: closeclaw_common::processor::UnifiedUsage {
-                prompt_tokens: 5,
-                completion_tokens: 3,
-                total_tokens: Some(8),
-                reasoning_tokens: None,
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-            },
-            finish_reason: Some("stop".into()),
+    let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller::new(UnifiedResponse {
+        content_blocks: vec![ContentBlock::Text("delegated response".into())],
+        usage: closeclaw_common::processor::UnifiedUsage {
+            prompt_tokens: 5,
+            completion_tokens: 3,
+            total_tokens: Some(8),
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         },
-    });
+        finish_reason: Some("stop".into()),
+    }));
     session.set_llm_caller(caller);
 
     let result = session.invoke_llm("test delegation").await.unwrap();
@@ -428,4 +430,82 @@ fn test_detect_cache_break_first_call_returns_none() {
     );
     let info = session.detect_cache_break_for_usage(Some(5_000));
     assert!(info.is_none(), "first call should not detect break");
+}
+
+// ── build_llm_request uses session reasoning_level (Step 1.1 fix) ──────────
+
+/// Verify that `build_llm_request` uses the session's `reasoning_level`
+/// field (not a hardcoded default), so `/reasoning` runtime override
+/// takes effect in the Gateway main call path.
+#[test]
+fn test_build_llm_request_uses_session_reasoning_level() {
+    use crate::llm_session::ConversationSession;
+    use closeclaw_common::ReasoningLevel;
+
+    let session = ConversationSession::new("s_rl".into(), "test-model".into(), tmp_path());
+    assert_eq!(
+        session.reasoning_level(),
+        ReasoningLevel::default(),
+        "default should be High"
+    );
+    assert_eq!(
+        session.reasoning_level(),
+        ReasoningLevel::High,
+        "default is High"
+    );
+}
+
+/// Verify that `set_reasoning_level` persists the value and that
+/// `FakeLlmCaller` captures the request so we can assert
+/// `request.reasoning_level` matches the session setting.
+#[tokio::test]
+async fn test_build_llm_request_reflects_set_reasoning_level() {
+    use closeclaw_common::ReasoningLevel;
+
+    let mut session = ConversationSession::new("s_rl2".into(), "test-model".into(), tmp_path());
+    let fake = Arc::new(FakeLlmCaller::new(canned_response("ok")));
+    let fake_ref = fake.clone();
+    session.set_llm_caller(fake);
+
+    session.set_reasoning_level(ReasoningLevel::Low);
+    assert_eq!(session.reasoning_level(), ReasoningLevel::Low);
+
+    let result = session.invoke_llm("hello").await;
+    assert!(result.is_ok(), "invoke_llm should succeed");
+
+    // Assert the request passed to the caller has the correct reasoning_level
+    let req = fake_ref
+        .last_request()
+        .expect("request should have been captured");
+    assert_eq!(req.reasoning_level, ReasoningLevel::Low);
+
+    session.set_reasoning_level(ReasoningLevel::Max);
+    assert_eq!(session.reasoning_level(), ReasoningLevel::Max);
+
+    let result = session.invoke_llm("hello again").await;
+    assert!(result.is_ok(), "invoke_llm with Max should succeed");
+
+    let req = fake_ref
+        .last_request()
+        .expect("request should have been captured");
+    assert_eq!(req.reasoning_level, ReasoningLevel::Max);
+}
+
+/// Verify that `with_reasoning_level` builder method persists correctly.
+#[test]
+fn test_build_llm_request_with_reasoning_level_builder() {
+    use closeclaw_common::ReasoningLevel;
+
+    let session = ConversationSession::new("s_rl3".into(), "m".into(), tmp_path())
+        .with_reasoning_level(ReasoningLevel::Medium);
+    assert_eq!(session.reasoning_level(), ReasoningLevel::Medium);
+}
+
+/// Verify default reasoning level is High (backward compatible).
+#[test]
+fn test_build_llm_request_default_reasoning_level_is_high() {
+    use closeclaw_common::ReasoningLevel;
+
+    let session = ConversationSession::new("s_rl4".into(), "m".into(), tmp_path());
+    assert_eq!(session.reasoning_level(), ReasoningLevel::High);
 }

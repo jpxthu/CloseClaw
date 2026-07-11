@@ -180,6 +180,19 @@ pub enum GatewayError {
 
     #[error("Outbound error: {0}")]
     OutboundError(String),
+
+    /// Streaming error that preserves partially received content blocks.
+    ///
+    /// When a [`StreamEvent::Error`](closeclaw_llm::types::StreamEvent::Error)
+    /// arrives mid-stream, any `ContentBlock`s accumulated so far are carried
+    /// here rather than silently discarded, allowing callers to log or inspect
+    /// the partial output.
+    #[error("Streaming error: {message}")]
+    StreamError {
+        message: String,
+        /// Content blocks received before the error occurred.
+        partial_content: Vec<ContentBlock>,
+    },
 }
 
 impl From<closeclaw_common::AdapterError> for GatewayError {
