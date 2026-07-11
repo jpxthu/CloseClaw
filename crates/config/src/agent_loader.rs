@@ -96,6 +96,8 @@ impl ConfigManager {
 
         let merged_ids = Self::merge_agent_ids(&user_ids, &project_ids);
         if merged_ids.is_empty() {
+            // Clear existing agents so reload with empty config fully replaces.
+            *self.agents.write().expect("RwLock for agents was poisoned") = HashMap::new();
             return Ok(());
         }
 

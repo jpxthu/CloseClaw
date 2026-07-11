@@ -241,7 +241,7 @@ async fn update_agents_json(name: &str, context: &AdminContext) -> Result<(), Ad
 }
 
 /// Reload agent configs and replace the registry.
-fn reload_registry(context: &AdminContext) -> Result<(), AdminResponse> {
+pub(crate) fn reload_registry(context: &AdminContext) -> Result<(), AdminResponse> {
     context
         .config_manager
         .reload_agents()
