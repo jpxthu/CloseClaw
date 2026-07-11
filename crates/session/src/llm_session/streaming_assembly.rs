@@ -102,79 +102,111 @@ impl StreamingContentAssembler {
 
     /// Apply a [`ContentDelta`] to the block at the given position.
     fn apply_delta(&mut self, pos: usize, delta: &ContentDelta) {
-        let block = &mut self.content_blocks[pos];
         match delta {
             ContentDelta::Text { text } => {
-                if let ContentBlock::Text(ref mut t) = block {
-                    t.push_str(text);
-                }
+                Self::apply_text_delta(&mut self.content_blocks[pos], text);
             }
             ContentDelta::Thinking {
                 thinking,
                 signature,
             } => {
-                if let ContentBlock::Thinking {
-                    thinking: ref mut th,
-                    signature: ref mut sig,
-                } = block
-                {
-                    th.push_str(thinking);
-                    if sig.is_none() {
-                        *sig = signature.clone();
-                    }
-                }
+                Self::apply_thinking_delta(&mut self.content_blocks[pos], thinking, signature);
             }
             ContentDelta::ToolUseId { id } => {
-                if let ContentBlock::ToolUse {
-                    id: ref mut tid, ..
-                } = block
-                {
-                    *tid = id.clone();
-                }
+                Self::apply_tool_use_id(&mut self.content_blocks[pos], id);
             }
             ContentDelta::ToolUseName { name } => {
-                if let ContentBlock::ToolUse {
-                    name: ref mut n, ..
-                } = block
-                {
-                    *n = name.clone();
-                }
+                Self::apply_tool_use_name(&mut self.content_blocks[pos], name);
             }
             ContentDelta::ToolUseInputChunk { input } => {
-                if let ContentBlock::ToolUse {
-                    input: ref mut i, ..
-                } = block
-                {
-                    i.push_str(input);
-                }
+                Self::apply_tool_use_input(&mut self.content_blocks[pos], input);
             }
             ContentDelta::ToolResultText { text } => {
-                if let ContentBlock::ToolResult {
-                    content: ref mut c, ..
-                } = block
-                {
-                    c.push_str(text);
-                }
+                Self::apply_tool_result_text(&mut self.content_blocks[pos], text);
             }
             ContentDelta::ImageRef { name, url } => {
-                *block = ContentBlock::Image {
-                    name: name.clone(),
-                    url: url.clone(),
-                };
+                Self::apply_media_ref(&mut self.content_blocks[pos], name, url, "image");
             }
             ContentDelta::AudioRef { name, url } => {
-                *block = ContentBlock::Audio {
-                    name: name.clone(),
-                    url: url.clone(),
-                };
+                Self::apply_media_ref(&mut self.content_blocks[pos], name, url, "audio");
             }
             ContentDelta::FileRef { name, url } => {
-                *block = ContentBlock::File {
-                    name: name.clone(),
-                    url: url.clone(),
-                };
+                Self::apply_media_ref(&mut self.content_blocks[pos], name, url, "file");
             }
         }
+    }
+
+    fn apply_text_delta(block: &mut ContentBlock, text: &str) {
+        if let ContentBlock::Text(ref mut t) = block {
+            t.push_str(text);
+        }
+    }
+
+    fn apply_thinking_delta(block: &mut ContentBlock, thinking: &str, signature: &Option<String>) {
+        if let ContentBlock::Thinking {
+            thinking: ref mut th,
+            signature: ref mut sig,
+        } = block
+        {
+            th.push_str(thinking);
+            if sig.is_none() {
+                *sig = signature.clone();
+            }
+        }
+    }
+
+    fn apply_tool_use_id(block: &mut ContentBlock, id: &str) {
+        if let ContentBlock::ToolUse {
+            id: ref mut tid, ..
+        } = block
+        {
+            *tid = id.to_string();
+        }
+    }
+
+    fn apply_tool_use_name(block: &mut ContentBlock, name: &str) {
+        if let ContentBlock::ToolUse {
+            name: ref mut n, ..
+        } = block
+        {
+            *n = name.to_string();
+        }
+    }
+
+    fn apply_tool_use_input(block: &mut ContentBlock, input: &str) {
+        if let ContentBlock::ToolUse {
+            input: ref mut i, ..
+        } = block
+        {
+            i.push_str(input);
+        }
+    }
+
+    fn apply_tool_result_text(block: &mut ContentBlock, text: &str) {
+        if let ContentBlock::ToolResult {
+            content: ref mut c, ..
+        } = block
+        {
+            c.push_str(text);
+        }
+    }
+
+    fn apply_media_ref(block: &mut ContentBlock, name: &str, url: &str, kind: &str) {
+        let new_block = match kind {
+            "audio" => ContentBlock::Audio {
+                name: name.to_string(),
+                url: url.to_string(),
+            },
+            "file" => ContentBlock::File {
+                name: name.to_string(),
+                url: url.to_string(),
+            },
+            _ => ContentBlock::Image {
+                name: name.to_string(),
+                url: url.to_string(),
+            },
+        };
+        *block = new_block;
     }
 
     /// Consume the assembler and return the accumulated content blocks.

@@ -53,7 +53,7 @@ mod session_exec;
 mod session_handles;
 mod session_llm;
 pub mod streaming_assembly;
-pub use streaming_assembly::{SessionStream, StreamingContentAssembler};
+pub use streaming_assembly::SessionStream;
 
 /// A single message in a conversation session.
 #[derive(Debug, Clone, Serialize, Deserialize)]

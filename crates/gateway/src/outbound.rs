@@ -502,16 +502,25 @@ impl Gateway {
         }
         tracing::debug!(session_id, channel, "streaming outbound complete");
 
-        // Post-stream: use session-assembled content_blocks when available
-        // (Session layer is the source of truth for ContentBlock[] assembly).
-        // Fall back to Gateway-internal StreamState accumulation for tests
-        // and backward compatibility.
+        self.finish_streaming_pipeline(session_blocks, state, channel, session_id, verbosity_level)
+            .await
+    }
+
+    /// Post-stream pipeline: select content blocks, run processor chain,
+    /// merge DSL results, and build the final [`StreamResult`].
+    async fn finish_streaming_pipeline(
+        &self,
+        session_blocks: Option<(Vec<ContentBlock>, Option<UnifiedUsage>)>,
+        mut state: StreamState,
+        channel: &str,
+        session_id: &str,
+        verbosity_level: VerbosityLevel,
+    ) -> Result<StreamResult, GatewayError> {
         let (content_blocks_for_pipeline, usage_override) = match session_blocks {
             Some((blocks, usage)) => (blocks, usage),
             None => (std::mem::take(&mut state.content_blocks), None),
         };
 
-        // Processor chain (VerbosityFilter → DslParser → OutboundRawLog).
         let mut processed = self
             .process_or_bypass(
                 "",
@@ -522,7 +531,6 @@ impl Gateway {
             )
             .await?;
 
-        // Merge streaming DslParser results into the batch pipeline output.
         if !state.dsl_results.instructions.is_empty() {
             let streaming_json = serde_json::to_string(&state.dsl_results).unwrap_or_default();
             processed
