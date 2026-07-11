@@ -799,4 +799,119 @@ mod tests {
         assert_eq!(info.drop_tokens, 4000);
         assert_eq!(stats.last_cache_read_tokens, Some(45000));
     }
+
+    // ── cache break attribution tests ────────────────────────────
+
+    #[test]
+    fn attribution_system_prompt_changed_triggers_cause() {
+        let mut stats = RunningStats::new();
+        stats.last_cache_read_tokens = Some(100_000);
+        let tools = vec!["tool_a".to_string()];
+
+        stats.record_fingerprint(Some("old prompt"), Some(&tools), None);
+        stats.record_fingerprint(Some("new prompt"), Some(&tools), None);
+
+        let info = stats.detect_cache_break_and_update(Some(90_000)).unwrap();
+        assert!(info.causes.contains(&CacheBreakCause::SystemPromptChanged));
+    }
+
+    #[test]
+    fn attribution_tools_changed_triggers_cause() {
+        let mut stats = RunningStats::new();
+        stats.last_cache_read_tokens = Some(100_000);
+        let tools_v1 = vec!["tool_a".to_string()];
+        let tools_v2 = vec!["tool_a".to_string(), "tool_b".to_string()];
+
+        stats.record_fingerprint(Some("prompt"), Some(&tools_v1), None);
+        stats.record_fingerprint(Some("prompt"), Some(&tools_v2), None);
+
+        let info = stats.detect_cache_break_and_update(Some(90_000)).unwrap();
+        assert!(info.causes.contains(&CacheBreakCause::ToolsChanged));
+    }
+
+    #[test]
+    fn attribution_headers_changed_triggers_cause() {
+        let mut stats = RunningStats::new();
+        stats.last_cache_read_tokens = Some(100_000);
+        let tools = vec!["tool_a".to_string()];
+        let h1 = vec![("x-api-key", "abc")];
+        let h2 = vec![("x-api-key", "xyz")];
+
+        stats.record_fingerprint(Some("prompt"), Some(&tools), Some(&h1));
+        stats.record_fingerprint(Some("prompt"), Some(&tools), Some(&h2));
+
+        let info = stats.detect_cache_break_and_update(Some(90_000)).unwrap();
+        assert!(info.causes.contains(&CacheBreakCause::HeadersChanged));
+    }
+
+    #[test]
+    fn attribution_ttl_expired_triggers_cause() {
+        let mut stats = RunningStats::new();
+        stats.last_cache_read_tokens = Some(100_000);
+        // Directly set pending_changes with a duration exceeding TTL
+        stats.pending_changes = Some(PendingChanges {
+            system_prompt_changed: false,
+            tools_changed: false,
+            headers_changed: false,
+            time_since_last: Some(std::time::Duration::from_secs(600)),
+        });
+
+        let info = stats.detect_cache_break_and_update(Some(90_000)).unwrap();
+        assert!(info.causes.contains(&CacheBreakCause::TtlExpired));
+    }
+
+    #[test]
+    fn attribution_no_pending_changes_yields_unknown() {
+        let mut stats = RunningStats::new();
+        stats.last_cache_read_tokens = Some(100_000);
+        // Set request_count > 0 to avoid SessionResumed trigger
+        stats.request_count = 1;
+        // No pending_changes recorded
+
+        let info = stats.detect_cache_break_and_update(Some(90_000)).unwrap();
+        assert!(info.causes.contains(&CacheBreakCause::Unknown));
+    }
+
+    #[test]
+    fn attribution_no_cache_break_no_causes() {
+        let mut stats = RunningStats::new();
+        stats.last_cache_read_tokens = Some(100_000);
+        let tools = vec!["tool_a".to_string()];
+
+        stats.record_fingerprint(Some("old prompt"), Some(&tools), None);
+        stats.record_fingerprint(Some("new prompt"), Some(&tools), None);
+
+        // Drop below threshold → no cache break → no causes
+        let result = stats.detect_cache_break_and_update(Some(99_000));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn attribution_after_take_pending_correct() {
+        let mut stats = RunningStats::new();
+        stats.last_cache_read_tokens = Some(100_000);
+        stats.request_count = 1;
+        let tools = vec!["tool_a".to_string()];
+
+        stats.record_fingerprint(Some("old"), Some(&tools), None);
+        stats.record_fingerprint(Some("new"), Some(&tools), None);
+
+        // Take pending changes before detection
+        let _taken = stats.take_pending_changes();
+        assert!(stats.pending_changes.is_none());
+
+        // After take, no pending → attribution yields Unknown
+        let info = stats.detect_cache_break_and_update(Some(90_000)).unwrap();
+        assert!(info.causes.contains(&CacheBreakCause::Unknown));
+    }
+
+    #[test]
+    fn attribution_session_resumed_on_first_accumulate() {
+        let mut stats = RunningStats::new();
+        stats.last_cache_read_tokens = Some(100_000);
+        // request_count == 0 + last_cache_read_tokens.is_some() → SessionResumed
+
+        let info = stats.detect_cache_break_and_update(Some(90_000)).unwrap();
+        assert!(info.causes.contains(&CacheBreakCause::SessionResumed));
+    }
 }
