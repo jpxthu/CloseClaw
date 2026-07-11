@@ -414,3 +414,512 @@ fn test_three_step_mixed_blocks_with_dsl() {
     let dsl = result.metadata.get("dsl_result").unwrap();
     assert!(dsl.contains("button"));
 }
+
+// ===========================================================================
+// Streaming error chunks preservation tests (Step 1.3)
+// ===========================================================================
+
+use crate::{DmScope, GatewayConfig, SessionManager};
+use closeclaw_common::processor::{StreamEvent, UnifiedUsage};
+use closeclaw_common::StreamingRenderer;
+use closeclaw_session::persistence::ReasoningLevel;
+use futures::stream;
+use std::path::PathBuf;
+
+/// Mock plugin that records thinking indicator calls for assertions.
+struct ThinkingIndicatorMock {
+    platform: String,
+    renderer: std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>,
+    thinking_calls: Arc<std::sync::Mutex<Vec<bool>>>,
+}
+
+impl ThinkingIndicatorMock {
+    fn new(platform: &str) -> Self {
+        Self {
+            platform: platform.to_string(),
+            renderer: std::sync::Mutex::new(
+                crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
+            ),
+            thinking_calls: Arc::new(std::sync::Mutex::new(Vec::new())),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl closeclaw_common::IMPlugin for ThinkingIndicatorMock {
+    fn platform(&self) -> &str {
+        &self.platform
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<
+        Option<closeclaw_common::im_plugin::NormalizedMessage>,
+        closeclaw_common::im_plugin::AdapterError,
+    > {
+        Ok(None)
+    }
+
+    fn render(
+        &self,
+        content_blocks: &[ContentBlock],
+        _dsl_result: Option<&closeclaw_common::processor::DslParseResult>,
+    ) -> closeclaw_common::im_plugin::RenderedOutput {
+        let text = content_blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        closeclaw_common::im_plugin::RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::json!({"content": {"text": text}}),
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &closeclaw_common::im_plugin::RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), closeclaw_common::im_plugin::AdapterError> {
+        Ok(())
+    }
+
+    fn send_thinking_indicator(&self, active: bool) {
+        self.thinking_calls.lock().expect("lock").push(active);
+    }
+
+    fn handle_stream_event(
+        &self,
+        event: closeclaw_common::processor::StreamEvent,
+    ) -> closeclaw_common::im_plugin::StreamingOutput {
+        self.renderer.lock().expect("lock").handle_event(event)
+    }
+
+    fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
+        self.renderer.lock().expect("lock").flush()
+    }
+}
+
+fn streaming_config() -> GatewayConfig {
+    GatewayConfig {
+        name: "test-streaming".to_string(),
+        rate_limit_per_minute: 100,
+        max_message_size: 1024,
+        dm_scope: DmScope::default(),
+        ..Default::default()
+    }
+}
+
+/// Helper: set up Gateway for streaming tests with a session mapped to a chat.
+async fn setup_streaming_gw(
+    session_id: &str,
+    plugin: Arc<dyn closeclaw_common::IMPlugin>,
+) -> crate::Gateway {
+    let config = streaming_config();
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        closeclaw_session::bootstrap::BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
+    // Map session → chat_id for send_outbound_streaming.
+    // get_chat_id() returns agent_id from sessions map.
+    sm.sessions.write().await.insert(
+        session_id.to_string(),
+        crate::Session {
+            id: session_id.to_string(),
+            agent_id: "chat_test".to_string(),
+            channel: "mock".to_string(),
+            created_at: 0,
+            depth: 0,
+        },
+    );
+    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    gw.register_plugin(plugin).await;
+    gw
+}
+
+/// Step 1.3 — StreamError carries partial_content blocks.
+///
+/// When the stream emits an error after receiving some content,
+/// the error variant must include the already-accumulated content_blocks.
+#[tokio::test]
+async fn test_stream_error_preserves_partial_content() {
+    let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(ThinkingIndicatorMock::new("mock"));
+    let gw = setup_streaming_gw("sess-err-1", Arc::clone(&plugin)).await;
+
+    // Stream: text block start + partial text + error
+    let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
+        Ok(StreamEvent::BlockStart {
+            index: 0,
+            block_type: closeclaw_common::ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 0,
+            delta: closeclaw_common::ContentDelta::Text {
+                text: "partial content".to_string(),
+            },
+        }),
+        Ok(StreamEvent::Error {
+            message: "stream interrupted".to_string(),
+        }),
+    ];
+    let stream = stream::iter(events);
+
+    let result = gw
+        .send_outbound_streaming("sess-err-1", "mock", stream, &plugin)
+        .await;
+
+    match result {
+        Err(crate::GatewayError::StreamError {
+            message,
+            partial_content,
+        }) => {
+            assert_eq!(message, "stream interrupted");
+            assert_eq!(partial_content.len(), 1, "should have 1 partial block");
+            assert!(
+                matches!(&partial_content[0], ContentBlock::Text(t) if t == "partial content"),
+                "partial block should be the text content"
+            );
+        }
+        other => panic!("expected StreamError with partial_content, got {:?}", other),
+    }
+}
+
+/// Step 1.3 — Error at stream start → empty partial_content, no panic.
+#[tokio::test]
+async fn test_stream_error_at_start_empty_content() {
+    let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(ThinkingIndicatorMock::new("mock"));
+    let gw = setup_streaming_gw("sess-err-2", Arc::clone(&plugin)).await;
+
+    let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![Ok(StreamEvent::Error {
+        message: "immediate failure".to_string(),
+    })];
+    let stream = stream::iter(events);
+
+    let result = gw
+        .send_outbound_streaming("sess-err-2", "mock", stream, &plugin)
+        .await;
+
+    match result {
+        Err(crate::GatewayError::StreamError {
+            partial_content, ..
+        }) => {
+            assert!(
+                partial_content.is_empty(),
+                "partial_content should be empty at stream start error"
+            );
+        }
+        other => panic!("expected StreamError, got {:?}", other),
+    }
+}
+
+/// Step 1.3 — Successful stream → no error, StreamResult returned.
+#[tokio::test]
+async fn test_stream_success_no_error() {
+    let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(ThinkingIndicatorMock::new("mock"));
+    let gw = setup_streaming_gw("sess-ok", Arc::clone(&plugin)).await;
+
+    let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
+        Ok(StreamEvent::BlockStart {
+            index: 0,
+            block_type: closeclaw_common::ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 0,
+            delta: closeclaw_common::ContentDelta::Text {
+                text: "complete".to_string(),
+            },
+        }),
+        Ok(StreamEvent::BlockEnd {
+            index: 0,
+            block_type: closeclaw_common::ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::MessageEnd {
+            usage: Some(UnifiedUsage {
+                prompt_tokens: 5,
+                completion_tokens: 3,
+                total_tokens: Some(8),
+                reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            }),
+            finish_reason: Some("stop".to_string()),
+        }),
+    ];
+    let stream = stream::iter(events);
+
+    let result = gw
+        .send_outbound_streaming("sess-ok", "mock", stream, &plugin)
+        .await;
+    assert!(result.is_ok(), "successful stream should not error");
+    let sr = result.unwrap();
+    assert!(
+        !sr.content_blocks.is_empty(),
+        "content blocks should not be empty"
+    );
+}
+
+/// Step 1.3 — Multiple blocks then error → all prior blocks preserved.
+#[tokio::test]
+async fn test_stream_error_preserves_multiple_blocks() {
+    let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(ThinkingIndicatorMock::new("mock"));
+    let gw = setup_streaming_gw("sess-err-3", Arc::clone(&plugin)).await;
+
+    let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
+        Ok(StreamEvent::BlockStart {
+            index: 0,
+            block_type: closeclaw_common::ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 0,
+            delta: closeclaw_common::ContentDelta::Text {
+                text: "block1".to_string(),
+            },
+        }),
+        Ok(StreamEvent::BlockEnd {
+            index: 0,
+            block_type: closeclaw_common::ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::BlockStart {
+            index: 1,
+            block_type: closeclaw_common::ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 1,
+            delta: closeclaw_common::ContentDelta::Text {
+                text: "block2".to_string(),
+            },
+        }),
+        Ok(StreamEvent::Error {
+            message: "mid-stream error".to_string(),
+        }),
+    ];
+    let stream = stream::iter(events);
+
+    let result = gw
+        .send_outbound_streaming("sess-err-3", "mock", stream, &plugin)
+        .await;
+
+    match result {
+        Err(crate::GatewayError::StreamError {
+            partial_content, ..
+        }) => {
+            assert_eq!(
+                partial_content.len(),
+                2,
+                "should have 2 partial blocks before error"
+            );
+        }
+        other => panic!("expected StreamError, got {:?}", other),
+    }
+}
+
+/// Step 1.5 — Thinking BlockStart → send_thinking_indicator(true).
+#[tokio::test]
+async fn test_thinking_indicator_sends_on_block_start() {
+    let mock = ThinkingIndicatorMock::new("mock");
+    let calls_ref = mock.thinking_calls.clone();
+    let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(mock);
+    let gw = setup_streaming_gw("sess-think-1", Arc::clone(&plugin)).await;
+
+    let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
+        Ok(StreamEvent::BlockStart {
+            index: 0,
+            block_type: closeclaw_common::ContentBlockType::Thinking,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 0,
+            delta: closeclaw_common::ContentDelta::Thinking {
+                thinking: "reasoning".to_string(),
+                signature: None,
+            },
+        }),
+        Ok(StreamEvent::BlockEnd {
+            index: 0,
+            block_type: closeclaw_common::ContentBlockType::Thinking,
+        }),
+        Ok(StreamEvent::BlockStart {
+            index: 1,
+            block_type: closeclaw_common::ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 1,
+            delta: closeclaw_common::ContentDelta::Text {
+                text: "answer".to_string(),
+            },
+        }),
+        Ok(StreamEvent::BlockEnd {
+            index: 1,
+            block_type: closeclaw_common::ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::MessageEnd {
+            usage: Some(default_usage()),
+            finish_reason: None,
+        }),
+    ];
+    let stream = stream::iter(events);
+
+    let _ = gw
+        .send_outbound_streaming("sess-think-1", "mock", stream, &plugin)
+        .await;
+
+    let calls = calls_ref.lock().expect("lock").clone();
+    // Should have [true, false] for BlockStart/BlockEnd pair
+    assert_eq!(calls.len(), 2, "should have 2 indicator calls");
+    assert!(calls[0], "first call should be true (BlockStart)");
+    assert!(!calls[1], "second call should be false (BlockEnd)");
+}
+
+/// Step 1.5 — VerbosityLevel::Off suppresses thinking indicator.
+#[tokio::test]
+async fn test_thinking_indicator_suppressed_at_off() {
+    use closeclaw_common::VerbosityLevel;
+
+    let config = streaming_config();
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        closeclaw_session::bootstrap::BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
+    let session_id = "sess-think-off";
+    sm.sessions.write().await.insert(
+        session_id.to_string(),
+        crate::Session {
+            id: session_id.to_string(),
+            agent_id: "chat_off".to_string(),
+            channel: "mock".to_string(),
+            created_at: 0,
+            depth: 0,
+        },
+    );
+    // Set verbosity to Off on the ConversationSession.
+    let cs = closeclaw_session::llm_session::ConversationSession::new(
+        session_id.to_string(),
+        "test-model".to_string(),
+        PathBuf::from("/tmp"),
+    );
+    let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
+    {
+        cs_arc
+            .write()
+            .await
+            .set_verbosity_level(VerbosityLevel::Off);
+    }
+    {
+        let mut conv = sm.conversation_sessions.write().await;
+        conv.insert(session_id.to_string(), cs_arc);
+    }
+
+    let mock = ThinkingIndicatorMock::new("mock");
+    let calls_ref = mock.thinking_calls.clone();
+    let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(mock);
+    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    gw.register_plugin(Arc::clone(&plugin)).await;
+
+    let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
+        Ok(StreamEvent::BlockStart {
+            index: 0,
+            block_type: closeclaw_common::ContentBlockType::Thinking,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 0,
+            delta: closeclaw_common::ContentDelta::Thinking {
+                thinking: "reasoning".to_string(),
+                signature: None,
+            },
+        }),
+        Ok(StreamEvent::BlockEnd {
+            index: 0,
+            block_type: closeclaw_common::ContentBlockType::Thinking,
+        }),
+        Ok(StreamEvent::BlockStart {
+            index: 1,
+            block_type: closeclaw_common::ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 1,
+            delta: closeclaw_common::ContentDelta::Text {
+                text: "answer".to_string(),
+            },
+        }),
+        Ok(StreamEvent::BlockEnd {
+            index: 1,
+            block_type: closeclaw_common::ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::MessageEnd {
+            usage: Some(default_usage()),
+            finish_reason: None,
+        }),
+    ];
+    let stream = stream::iter(events);
+
+    let _ = gw
+        .send_outbound_streaming(session_id, "mock", stream, &plugin)
+        .await;
+
+    let calls = calls_ref.lock().expect("lock").clone();
+    assert!(
+        calls.is_empty(),
+        "no thinking indicator calls expected at VerbosityLevel::Off"
+    );
+}
+
+/// Step 1.5 — Thinking BlockEnd → send_thinking_indicator(false) (stop).
+#[tokio::test]
+async fn test_thinking_indicator_stops_on_block_end() {
+    let mock = ThinkingIndicatorMock::new("mock");
+    let calls_ref = mock.thinking_calls.clone();
+    let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(mock);
+    let gw = setup_streaming_gw("sess-think-end", Arc::clone(&plugin)).await;
+
+    let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
+        Ok(StreamEvent::BlockStart {
+            index: 0,
+            block_type: closeclaw_common::ContentBlockType::Thinking,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 0,
+            delta: closeclaw_common::ContentDelta::Thinking {
+                thinking: "thinking".to_string(),
+                signature: None,
+            },
+        }),
+        Ok(StreamEvent::BlockEnd {
+            index: 0,
+            block_type: closeclaw_common::ContentBlockType::Thinking,
+        }),
+        Ok(StreamEvent::MessageEnd {
+            usage: Some(default_usage()),
+            finish_reason: None,
+        }),
+    ];
+    let stream = stream::iter(events);
+
+    let _ = gw
+        .send_outbound_streaming("sess-think-end", "mock", stream, &plugin)
+        .await;
+
+    let calls = calls_ref.lock().expect("lock").clone();
+    assert_eq!(calls, vec![true, false]);
+}
+
+/// Helper to provide default usage for tests that don't care about usage values.
+fn default_usage() -> UnifiedUsage {
+    UnifiedUsage {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: Some(0),
+        reasoning_tokens: None,
+        cache_read_tokens: None,
+        cache_write_tokens: None,
+    }
+}

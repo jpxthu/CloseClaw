@@ -52,6 +52,8 @@ pub use session_chat::ChatSession;
 mod session_exec;
 mod session_handles;
 mod session_llm;
+pub mod streaming_assembly;
+pub use streaming_assembly::SessionStream;
 
 /// A single message in a conversation session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -901,6 +903,9 @@ impl std::fmt::Debug for ConversationSession {
 pub fn tmp_path() -> std::path::PathBuf {
     tempfile::tempdir().unwrap().into_path()
 }
+
+#[cfg(test)]
+mod streaming_assembly_tests;
 
 #[cfg(test)]
 mod tests;
