@@ -27,6 +27,8 @@ Session 模块向 ToolRegistry 注册三个工具，供 agent 在其生命周期
 | `agentId` | 目标 agent 的 ID | 否 | 当前 Agent 的 ID（spawn 自身分身） |
 | `task` | 任务描述，注入子 session 首条消息 | 是 | — |
 | `mode` | `"run"`（一次性）/ `"session"`（持久线程） | 否 | `"run"` |
+
+> `mode` 描述子 session 的持久化策略，与 SessionCheckpoint 中的 `mode` 字段（对话模式：direct/plan/stream）含义不同——二者作用于不同数据结构。
 | `fork` | 是否 fork 父 agent 上下文 | 否 | `false` |
 | `model` | 覆盖目标 agent 的默认模型（解析优先级见下方） | 否 | 按优先级链自动解析 |
 | `timeout` | 子 agent 最大执行时长（秒），覆盖目标 agent 配置和全局默认值 | 否 | 目标 agent.subagents.timeout → 全局配置 |

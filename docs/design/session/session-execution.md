@@ -103,7 +103,7 @@ Waiting 有两种进入方式，行为不同：
 - **用户消息排队**：用户在此期间发送的消息进入等待队列，等 session 恢复后再处理
 - **子 agent 完成自动触发**：每收到一个子 agent 的完成 announce，系统注入到父 session 的消息队列
 - **全部完成后自动恢复**：所有子 agent 完成后，session 从 Waiting 回到 Idle，开始处理排队消息和 announce 结果
-- **超时保护**：若子 agent 在可配置的时间内未完成，系统解除 Waiting 状态，注入部分完成的 announce + 超时提示
+- **超时保护**：若子 agent 在可配置的时间内未完成，系统主动终止该子 agent（级联终止其所有后代子 session），再解除父 session 的 Waiting 状态并注入超时通知
 
 #### 禁止轮询
 
@@ -222,7 +222,7 @@ Forceful 模式：
 
 ### 下游
 
-- **LLM Provider**：停止时通过取消机制终止进行中的请求
+- **LLM Client**：停止时通过取消机制终止进行中的请求
 - **工具进程管理**（Session 内部）：停止时遍历并终止当前 session 持有的所有工具进程（前台+后台），进程句柄由 Session 自行管理
 - **Spawn 协调**：子 session 完成时通过消息队列注入结果
 
