@@ -2,7 +2,8 @@
 
 ## 概述
 
-Agent 模块是 CloseClaw 的配置定义层——定义每个 agent 的身份和能力边界。Agent 是纯配置档案，不持有运行时可变状态、不持有进程、不持有生命周期。对话运行时和进程执行状态由 Session 模块管理。
+- 关联需求文档：[agent.md](../../requirements/agent.md)
+- Agent 模块是 CloseClaw 的配置定义层——定义每个 agent 的身份和能力边界。Agent 是纯配置档案，不持有运行时可变状态、不持有进程、不持有生命周期。对话运行时和进程执行状态由 Session 模块管理。
 
 > **设计基调**：生命周期完全由 session 驱动，agent 就是一组 config。这条基调只有 owner 明确批准才能修改。
 
@@ -76,7 +77,7 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
    - tools/disallowedTools → 过滤 tool 注册表
    - subagents → 注入 session 的 spawn 控制上下文
 3. Permission 独立加载 permissions.json，获取 Agent 权限基线
-4. 两步完成后 Session 创建结束
+4. 以上步骤完成后 Session 创建结束
 
 ### Spawn 控制流
 
@@ -84,9 +85,9 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 2. Session 模块读取父 agent 配置中的 subagents 参数，执行前置检查：
    - depth 检查
    - 并发检查
+   - requireAgentId 检查
    - agentId 解析
    - 白名单检查
-   - requireAgentId 检查
    - 权限检查
 3. 全部通过后，Session 模块创建 child session（加载目标 agent 配置、注入 task、过滤工具集）
 4. 子 session 执行 task

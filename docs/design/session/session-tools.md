@@ -24,12 +24,13 @@ Session 模块向 ToolRegistry 注册三个工具，供 agent 在其生命周期
 
 | 参数 | 含义 | 必填 | 默认值 |
 |------|------|------|--------|
-| `agentId` | 目标 agent 的 ID | 否 | 父 agent 配置中的 `defaultChildAgent` |
+| `agentId` | 目标 agent 的 ID | 否 | 当前 Agent 的 ID（spawn 自身分身） |
 | `task` | 任务描述，注入子 session 首条消息 | 是 | — |
 | `mode` | `"run"`（一次性）/ `"session"`（持久线程） | 否 | `"run"` |
 | `fork` | 是否 fork 父 agent 上下文 | 否 | `false` |
 | `model` | 覆盖目标 agent 的默认模型（解析优先级见下方） | 否 | 按优先级链自动解析 |
-| `workspace` | 独立工作目录 | 否 | spawn 参数指定 → 目标 agent.workspace → 父 workspace 子目录 |
+| `timeout` | 子 agent 最大执行时长（秒），覆盖目标 agent 配置和全局默认值 | 否 | 目标 agent.subagents.timeout → 全局配置 |
+| `workspace` | 独立工作目录 | 否 | spawn 参数指定 → 目标 agent.workspace → 父 Agent 工作目录 |
 | `label` | 子 session 简短标签 | 否 | 自动生成 |
 | `lightContext` | 是否使用 minimal bootstrap | 否 | `false` |
 | `promptTemplate` | 注入的 prompt 模板（`explore` / `validation`） | 否 | 无 |
@@ -84,7 +85,7 @@ Session 模块接收调用
   ↓
 sessions_spawn：
   → 读取父 agent.subagents 配置 → 前置检查（depth/并发/白名单/requireAgentId）
-  → 权限检查（spawn 链路权限继承，见 agent-permissions.md）
+  → 权限检查（spawn 链路权限继承，见 ../agent/agent-permissions.md）
   → 全部通过 → 创建 child session → 注册到父 session 子 session 跟踪表
   → 子 session 启动执行 → 完成时 announce 注入父 session 消息队列
 
