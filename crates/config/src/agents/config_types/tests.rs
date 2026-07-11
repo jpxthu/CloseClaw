@@ -675,3 +675,39 @@ fn test_memory_config_full_deserialize() {
     assert!(config.search.enabled == Some(true));
     assert_eq!(config.search.timeout_ms, Some(6000));
 }
+
+// ── SubagentsConfig timeout tests ─────────────────────────────────
+
+#[test]
+fn test_subagents_config_timeout_serialize() {
+    let config = SubagentsConfig {
+        timeout: Some(120),
+        ..Default::default()
+    };
+    let json = serde_json::to_string(&config).unwrap();
+    assert!(json.contains("\"timeout\""));
+    assert!(json.contains("120"));
+}
+
+#[test]
+fn test_subagents_config_timeout_deserialize() {
+    let json = r#"{"timeout": 120}"#;
+    let config: SubagentsConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.timeout, Some(120));
+}
+
+#[test]
+fn test_subagents_config_default_timeout_is_none() {
+    let config = SubagentsConfig::default();
+    assert!(config.timeout.is_none());
+}
+
+#[test]
+fn test_subagents_config_timeout_none_skip() {
+    let config = SubagentsConfig {
+        timeout: None,
+        ..Default::default()
+    };
+    let json = serde_json::to_string(&config).unwrap();
+    assert!(!json.contains("\"timeout\""));
+}

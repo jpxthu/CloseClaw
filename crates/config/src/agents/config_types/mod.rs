@@ -76,6 +76,10 @@ pub struct SubagentsConfig {
     /// Maximum concurrent active child sessions.
     #[serde(default)]
     pub max_children: Option<u32>,
+    /// Sub-agent maximum execution duration (seconds).
+    /// Falls back to global config when unspecified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u64>,
     /// Default child agent ID (used when spawn omits agentId).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_child_agent: Option<String>,
@@ -91,6 +95,7 @@ impl Default for SubagentsConfig {
             require_agent_id: None,
             max_spawn_depth: None,
             max_children: None,
+            timeout: None,
             default_child_agent: None,
             model: None,
         }

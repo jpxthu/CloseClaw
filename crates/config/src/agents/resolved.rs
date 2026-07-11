@@ -300,6 +300,7 @@ fn merge_subagents(project: SubagentsConfig, user: SubagentsConfig) -> Subagents
         require_agent_id: project.require_agent_id.or(user.require_agent_id),
         max_spawn_depth: project.max_spawn_depth.or(user.max_spawn_depth),
         max_children: project.max_children.or(user.max_children),
+        timeout: project.timeout.or(user.timeout),
         default_child_agent: project.default_child_agent.or(user.default_child_agent),
         model: project.model.or(user.model),
     };
