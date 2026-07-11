@@ -373,3 +373,59 @@ async fn test_session_delegates_to_injected_caller() {
     }
     assert_eq!(result.usage.total_tokens, Some(8));
 }
+
+// ── cache break detection ───────────────────────────────────────────
+
+/// Verify that `detect_cache_break_for_usage` returns `CacheBreakInfo`
+/// when cache read tokens drop, simulating a cache break event.
+#[test]
+fn test_detect_cache_break_returns_info_on_drop() {
+    let mut session = ConversationSession::new(
+        "test-session".to_string(),
+        "test-model".to_string(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    // Set initial cache read tokens via detect_cache_break_and_update (first call sets the value).
+    let none = session.detect_cache_break_for_usage(Some(10_000));
+    assert!(none.is_none(), "first call should not detect break");
+    // Simulate a cache break: cache read drops to 2000.
+    let info = session.detect_cache_break_for_usage(Some(2_000));
+    assert!(info.is_some(), "should detect cache break");
+    let info = info.unwrap();
+    assert_eq!(info.previous_cache_read, 10_000);
+    assert_eq!(info.current_cache_read, 2_000);
+    assert_eq!(info.drop_tokens, 8_000);
+    assert!(info.drop_ratio > 0.7, "drop ratio should be significant");
+}
+
+/// Verify that `detect_cache_break_for_usage` returns `None` when
+/// cache read tokens do not drop (no break).
+#[test]
+fn test_detect_cache_break_returns_none_when_no_drop() {
+    let mut session = ConversationSession::new(
+        "test-session".to_string(),
+        "test-model".to_string(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    // Set initial cache read tokens.
+    let _ = session.detect_cache_break_for_usage(Some(10_000));
+    // Cache read increases — no break.
+    let info = session.detect_cache_break_for_usage(Some(12_000));
+    assert!(
+        info.is_none(),
+        "should not detect break when cache read increases"
+    );
+}
+
+/// Verify that the first call to `detect_cache_break_for_usage` returns
+/// `None` (no previous value to compare against).
+#[test]
+fn test_detect_cache_break_first_call_returns_none() {
+    let mut session = ConversationSession::new(
+        "test-session".to_string(),
+        "test-model".to_string(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    let info = session.detect_cache_break_for_usage(Some(5_000));
+    assert!(info.is_none(), "first call should not detect break");
+}

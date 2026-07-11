@@ -25,8 +25,13 @@ impl Daemon {
         let (config_manager, storage, data_dir) = Self::init_phase_1_foundation(config_dir)?;
         let (agent_registry, skill_registry, tool_registry, skill_watcher) =
             Self::init_phase_2_registries(config_dir).await?;
-        let (gateway, session_manager, shutdown) =
-            Self::init_phase_3_core_services(config_dir, &storage, &permission_engine).await?;
+        let (gateway, session_manager, shutdown) = Self::init_phase_3_core_services(
+            config_dir,
+            &storage,
+            &permission_engine,
+            &config_manager,
+        )
+        .await?;
         let shutdown = Arc::new(shutdown);
         // Wire shutdown handle into Gateway and SessionManager for
         // busy-count tracking during drain.

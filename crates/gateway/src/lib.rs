@@ -89,6 +89,8 @@ pub struct Gateway {
     outbound_middlewares: std::sync::RwLock<Vec<Arc<dyn closeclaw_common::OutboundMiddleware>>>,
     /// Config directory for permission rule persistence.
     config_dir: RwLock<Option<std::path::PathBuf>>,
+    /// Metrics emitter for operational metrics (cache breaks, etc.).
+    metrics_emitter: std::sync::RwLock<Option<Arc<dyn closeclaw_common::MetricsEmitter>>>,
 }
 
 impl Gateway {
@@ -109,6 +111,7 @@ impl Gateway {
             shutdown_handle: std::sync::Mutex::new(None),
             outbound_middlewares: std::sync::RwLock::new(Vec::new()),
             config_dir: RwLock::new(None),
+            metrics_emitter: std::sync::RwLock::new(None),
         }
     }
 
@@ -133,6 +136,7 @@ impl Gateway {
             shutdown_handle: std::sync::Mutex::new(None),
             outbound_middlewares: std::sync::RwLock::new(Vec::new()),
             config_dir: RwLock::new(None),
+            metrics_emitter: std::sync::RwLock::new(None),
         }
     }
 
@@ -199,6 +203,13 @@ impl Gateway {
 
     // set_slash_dispatcher, set_permission_engine, and set_approval_flow
     // are defined in slash_permission.rs and approval.rs respectively.
+
+    /// Set the metrics emitter for operational metrics.
+    pub async fn set_metrics_emitter(&self, emitter: Arc<dyn closeclaw_common::MetricsEmitter>) {
+        if let Ok(mut slot) = self.metrics_emitter.write() {
+            *slot = Some(emitter);
+        }
+    }
 
     /// Start the inbound bounded queue.
     ///

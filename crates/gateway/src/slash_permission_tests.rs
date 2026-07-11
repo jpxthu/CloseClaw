@@ -404,7 +404,8 @@ fn allow_engine(
             priority: 100,
         }],
         defaults: Defaults {
-            file: Effect::Allow,
+            file_read: Effect::Allow,
+            file_write: Effect::Allow,
             command: Effect::Allow,
             network: Effect::Allow,
             inter_agent: Effect::Allow,
@@ -415,6 +416,7 @@ fn allow_engine(
         user_defaults: Defaults::default(),
         template_includes: vec![],
         agent_creators: HashMap::new(),
+        ..Default::default()
     };
     Arc::new(tokio::sync::RwLock::new(
         closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(
@@ -441,6 +443,7 @@ fn deny_engine(
         user_defaults: Defaults::default(),
         template_includes: vec![],
         agent_creators: HashMap::new(),
+        ..Default::default()
     };
     Arc::new(tokio::sync::RwLock::new(
         closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(
@@ -486,7 +489,8 @@ fn auto_mode_allow_engine(
             priority: 100,
         }],
         defaults: Defaults {
-            file: Effect::Allow,
+            file_read: Effect::Allow,
+            file_write: Effect::Allow,
             command: Effect::Allow,
             network: Effect::Allow,
             inter_agent: Effect::Allow,
@@ -497,6 +501,7 @@ fn auto_mode_allow_engine(
         user_defaults: Defaults::default(),
         template_includes: vec![],
         agent_creators: HashMap::new(),
+        ..Default::default()
     };
     Arc::new(tokio::sync::RwLock::new(
         closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(

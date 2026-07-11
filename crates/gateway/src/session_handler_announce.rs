@@ -40,9 +40,17 @@ impl SessionMessageHandler {
         session_id: &str,
         result: Result<StreamResult, closeclaw_llm::LLMError>,
         output_tx: &OutputTx,
+        metrics_emitter: &Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
     ) {
-        Self::clear_busy_and_send(session_manager, session_id, result, output_tx).await;
-        Self::drain_pending_loop(session_manager, session_id, output_tx).await;
+        Self::clear_busy_and_send(
+            session_manager,
+            session_id,
+            result,
+            output_tx,
+            metrics_emitter,
+        )
+        .await;
+        Self::drain_pending_loop(session_manager, session_id, output_tx, metrics_emitter).await;
 
         // NOTE: Decrement is handled by the caller (spawned task in
         // `session_handler_dispatch.rs`), NOT here. This avoids a
@@ -64,6 +72,7 @@ impl SessionMessageHandler {
         session_id: &str,
         result: Result<StreamResult, closeclaw_llm::LLMError>,
         output_tx: &OutputTx,
+        metrics_emitter: &Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
     ) {
         if let Some(cs) = session_manager.get_conversation_session(session_id).await {
             let cs = cs.write().await;
@@ -92,6 +101,9 @@ impl SessionMessageHandler {
                             ratio = info.drop_ratio,
                             "Cache break detected"
                         );
+                        if let Some(emitter) = metrics_emitter {
+                            emitter.emit_cache_break(&info);
+                        }
                     }
                     cs_write.accumulate_usage(&stream_result.usage);
                 }
@@ -121,6 +133,7 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
         output_tx: &OutputTx,
+        metrics_emitter: &Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
     ) {
         // Step 1.5: drain queued announces.
         Self::drain_announce_events(session_manager, session_id).await;
@@ -166,7 +179,14 @@ impl SessionMessageHandler {
                     ))
                 }
             };
-            Self::clear_busy_and_send(session_manager, session_id, result, output_tx).await;
+            Self::clear_busy_and_send(
+                session_manager,
+                session_id,
+                result,
+                output_tx,
+                metrics_emitter,
+            )
+            .await;
         }
     }
 

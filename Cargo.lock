@@ -631,6 +631,7 @@ dependencies = [
  "futures",
  "hex",
  "libc",
+ "reqwest",
  "serde",
  "serde_json",
  "serial_test",

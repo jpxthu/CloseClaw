@@ -182,19 +182,15 @@ async fn test_full_chain_mixed_blocks_with_dsl() {
 
 /// Full chain: missing verbosity_level in metadata defaults to Full.
 #[tokio::test]
-async fn test_full_chain_missing_verbosity_defaults_to_full() {
+async fn test_full_chain_missing_verbosity_defaults_to_normal() {
     let registry = build_full_outbound_chain();
     let blocks = vec![thinking_block("reasoning"), text_block("Hello")];
     let output = make_llm_output(blocks, HashMap::new());
     let result = registry.process_outbound(output).await.unwrap();
 
-    // No verbosity_level → Full → all blocks kept
-    assert_eq!(result.content_blocks.len(), 2);
-    assert!(matches!(
-        &result.content_blocks[0],
-        ContentBlock::Thinking { .. }
-    ));
-    assert!(matches!(&result.content_blocks[1], ContentBlock::Text(_)));
+    // No verbosity_level → Normal (default) → Thinking filtered
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(_)));
 }
 
 /// Full chain: Normal verbosity with DSL in mixed text — verifies ordering.

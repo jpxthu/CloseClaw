@@ -644,7 +644,7 @@ async fn test_verbose_query_no_args() {
     match h.handle("", &ctx).await {
         SlashResult::Reply(t) => {
             assert!(t.contains("当前输出详细度"), "got: {t}");
-            assert!(t.contains("full"), "default should be full, got: {t}");
+            assert!(t.contains("normal"), "default should be normal, got: {t}");
         }
         _ => panic!("expected Reply with current level"),
     }

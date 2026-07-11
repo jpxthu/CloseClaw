@@ -13,6 +13,21 @@ use crate::types::InternalRequest;
 use closeclaw_session::persistence::ReasoningLevel;
 use serde_json::{json, Value};
 
+/// MiniMax M3 supports High/Max (enabled) and Low/Medium (disabled).
+/// Max is equivalent to High; downgrade Max→High and log the downgrade.
+fn downgrade_max_to_high_m3(request: &mut InternalRequest) {
+    if request.reasoning_level == ReasoningLevel::Max {
+        tracing::info!(
+            provider = "minimax",
+            model = %request.model,
+            from = "max",
+            to = "high",
+            "reasoning level downgraded: Max is equivalent to High on MiniMax M3"
+        );
+        request.reasoning_level = ReasoningLevel::High;
+    }
+}
+
 /// Plugin that enriches MiniMax requests with provider-specific parameters.
 ///
 /// Handles conditional `reasoning_split` injection: the flag is set only when
@@ -39,10 +54,13 @@ impl ModelPlugin for MiniMaxPlugin {
 
         // M3 requires explicit `thinking` parameter to produce thinking blocks.
         // High/Max → enabled, Low/Medium → disabled (binary toggle per design doc).
+        // Max is equivalent to High; downgrade before matching.
         if request.model.starts_with("MiniMax-M3") {
+            downgrade_max_to_high_m3(request);
             let thinking_type = match request.reasoning_level {
-                ReasoningLevel::High | ReasoningLevel::Max => "enabled",
+                ReasoningLevel::High => "enabled",
                 ReasoningLevel::Low | ReasoningLevel::Medium => "disabled",
+                ReasoningLevel::Max => unreachable!("Max should have been downgraded to High"),
             };
             request
                 .extra_body
