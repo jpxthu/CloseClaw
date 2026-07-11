@@ -254,32 +254,10 @@ fn response_to_stream(response: UnifiedResponse) -> OutgoingEventStream {
 
     let mut events: Vec<Result<StreamEvent, ProtocolError>> = Vec::new();
     for (i, block) in response.content_blocks.iter().enumerate() {
-        let (block_type, delta) = match block {
-            ContentBlock::Text(text) => (
-                ContentBlockType::Text,
-                ContentDelta::Text { text: text.clone() },
-            ),
-            ContentBlock::Thinking {
-                thinking,
-                signature,
-            } => (
-                ContentBlockType::Thinking,
-                ContentDelta::Thinking {
-                    thinking: thinking.clone(),
-                    signature: signature.clone(),
-                },
-            ),
-            ContentBlock::ToolUse { id, name, input } => (
-                ContentBlockType::ToolUse,
-                ContentDelta::ToolUseInputChunk {
-                    input: serde_json::json!({
-                        "id": id,
-                        "name": name,
-                        "input": input
-                    })
-                    .to_string(),
-                },
-            ),
+        let block_type = match block {
+            ContentBlock::Text(_) => ContentBlockType::Text,
+            ContentBlock::Thinking { .. } => ContentBlockType::Thinking,
+            ContentBlock::ToolUse { .. } => ContentBlockType::ToolUse,
             ContentBlock::ToolResult { .. } => continue,
             ContentBlock::Image { .. } => continue,
             ContentBlock::Audio { .. } => continue,
@@ -289,7 +267,49 @@ fn response_to_stream(response: UnifiedResponse) -> OutgoingEventStream {
             index: i,
             block_type,
         }));
-        events.push(Ok(StreamEvent::BlockDelta { index: i, delta }));
+        // For Text blocks, emit one BlockDelta per character (typewriter effect).
+        // For other block types, emit a single BlockDelta as before.
+        match block {
+            ContentBlock::Text(text) => {
+                for ch in text.chars() {
+                    events.push(Ok(StreamEvent::BlockDelta {
+                        index: i,
+                        delta: ContentDelta::Text {
+                            text: ch.to_string(),
+                        },
+                    }));
+                }
+            }
+            ContentBlock::Thinking {
+                thinking,
+                signature,
+            } => {
+                events.push(Ok(StreamEvent::BlockDelta {
+                    index: i,
+                    delta: ContentDelta::Thinking {
+                        thinking: thinking.clone(),
+                        signature: signature.clone(),
+                    },
+                }));
+            }
+            ContentBlock::ToolUse { id, name, input } => {
+                events.push(Ok(StreamEvent::BlockDelta {
+                    index: i,
+                    delta: ContentDelta::ToolUseInputChunk {
+                        input: serde_json::json!({
+                            "id": id,
+                            "name": name,
+                            "input": input
+                        })
+                        .to_string(),
+                    },
+                }));
+            }
+            ContentBlock::ToolResult { .. }
+            | ContentBlock::Image { .. }
+            | ContentBlock::Audio { .. }
+            | ContentBlock::File { .. } => unreachable!(),
+        };
         events.push(Ok(StreamEvent::BlockEnd {
             index: i,
             block_type,
@@ -773,20 +793,26 @@ mod tests {
         while let Some(event) = stream.next().await {
             events.push(event.unwrap());
         }
-        assert_eq!(events.len(), 7);
+        // Text "hello world" = 11 chars → 11 BlockDelta events
+        // Thinking = 1 BlockDelta event
+        // Total: 1 BlockStart + 11 BlockDelta + 1 BlockEnd + 1 BlockStart + 1 BlockDelta + 1 BlockEnd + 1 MessageEnd = 17
+        assert_eq!(events.len(), 17);
         assert!(matches!(
             events[0],
             StreamEvent::BlockStart { index: 0, .. }
         ));
+        // First BlockDelta is the first char 'h'
+        if let StreamEvent::BlockDelta { index: 0, delta } = &events[1] {
+            assert!(matches!(delta, ContentDelta::Text { text } if text == "h"));
+        } else {
+            panic!("expected BlockDelta at index 1");
+        }
+        // BlockEnd for text block at position 12
+        assert!(matches!(events[12], StreamEvent::BlockEnd { index: 0, .. }));
         assert!(matches!(
-            events[1],
-            StreamEvent::BlockDelta { index: 0, .. }
-        ));
-        assert!(matches!(events[2], StreamEvent::BlockEnd { index: 0, .. }));
-        assert!(matches!(
-            events[3],
+            events[13],
             StreamEvent::BlockStart { index: 1, .. }
         ));
-        assert!(matches!(events[6], StreamEvent::MessageEnd { .. }));
+        assert!(matches!(events[16], StreamEvent::MessageEnd { .. }));
     }
 }
