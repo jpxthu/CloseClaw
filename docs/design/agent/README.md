@@ -99,7 +99,7 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 
 | 模块 | 调用关系 |
 |------|---------|
-| Config | 扫描 agent 配置目录，向注册表填充所有 agent 配置档案并生成完整配置（含合并默认值） |
+| Config | 扫描 agent 配置目录，加载并合并所有 agent 配置档案，产出 ResolvedAgentConfig 供 Daemon 填充注册表 |
 | Gateway/Daemon | 查询注册表获取目标 agent 的完整配置，以 agent 配置为输入触发 session 创建 |
 
 ### 下游（消费 Agent 配置档案产出数据）
