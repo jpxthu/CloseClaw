@@ -103,14 +103,11 @@ impl Provider for MockProvider {
     }
 
     fn http_client(&self) -> &reqwest::Client {
-        static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
-        CLIENT.get_or_init(reqwest::Client::new)
+        mock_provider_client()
     }
 
     fn default_headers(&self) -> &reqwest::header::HeaderMap {
-        static HEADERS: std::sync::OnceLock<reqwest::header::HeaderMap> =
-            std::sync::OnceLock::new();
-        HEADERS.get_or_init(reqwest::header::HeaderMap::new)
+        mock_provider_headers()
     }
 
     async fn send(
@@ -345,6 +342,16 @@ fn openai_content_delta(text: &str) -> String {
 
 // --- Mock providers for streaming tests ---
 
+fn mock_provider_headers() -> &'static reqwest::header::HeaderMap {
+    static HEADERS: std::sync::OnceLock<reqwest::header::HeaderMap> = std::sync::OnceLock::new();
+    HEADERS.get_or_init(reqwest::header::HeaderMap::new)
+}
+
+fn mock_provider_client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(reqwest::Client::new)
+}
+
 /// A provider that streams SSE chunks and also supports non-streaming.
 struct StreamingProvider {
     name: String,
@@ -396,13 +403,10 @@ impl Provider for StreamingProvider {
         &[]
     }
     fn http_client(&self) -> &reqwest::Client {
-        static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
-        CLIENT.get_or_init(reqwest::Client::new)
+        mock_provider_client()
     }
     fn default_headers(&self) -> &reqwest::header::HeaderMap {
-        static HEADERS: std::sync::OnceLock<reqwest::header::HeaderMap> =
-            std::sync::OnceLock::new();
-        HEADERS.get_or_init(reqwest::header::HeaderMap::new)
+        mock_provider_headers()
     }
 
     async fn send(
@@ -465,13 +469,10 @@ impl Provider for HangingStreamingProvider {
         &[]
     }
     fn http_client(&self) -> &reqwest::Client {
-        static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
-        CLIENT.get_or_init(reqwest::Client::new)
+        mock_provider_client()
     }
     fn default_headers(&self) -> &reqwest::header::HeaderMap {
-        static HEADERS: std::sync::OnceLock<reqwest::header::HeaderMap> =
-            std::sync::OnceLock::new();
-        HEADERS.get_or_init(reqwest::header::HeaderMap::new)
+        mock_provider_headers()
     }
 
     async fn send(
@@ -522,13 +523,10 @@ impl Provider for AlwaysFailProvider {
         &[]
     }
     fn http_client(&self) -> &reqwest::Client {
-        static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
-        CLIENT.get_or_init(reqwest::Client::new)
+        mock_provider_client()
     }
     fn default_headers(&self) -> &reqwest::header::HeaderMap {
-        static HEADERS: std::sync::OnceLock<reqwest::header::HeaderMap> =
-            std::sync::OnceLock::new();
-        HEADERS.get_or_init(reqwest::header::HeaderMap::new)
+        mock_provider_headers()
     }
 
     async fn send(

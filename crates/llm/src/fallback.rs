@@ -369,85 +369,104 @@ impl FallbackClient {
                     // All streaming entries exhausted — degrade to non-streaming.
                     return self.degraded_stream(request).await;
                 }
-                Some(entry) => {
-                    if self
-                        .cooldown
-                        .is_in_cooldown(&entry.provider, &entry.model)
-                        .await
-                    {
-                        tracing::debug!(
-                            provider = %entry.provider,
-                            model = %entry.model,
-                            "model in cooldown, skipping"
-                        );
+                Some(entry) => match self.try_streaming_entry(entry, &mut request).await {
+                    Ok(stream) => return Ok(stream),
+                    Err(()) => {
                         idx += 1;
-                        continue;
                     }
-
-                    let provider = match self.registry.get(&entry.provider).await {
-                        Some(p) => p,
-                        None => {
-                            tracing::warn!(
-                                provider = %entry.provider,
-                                "provider not found, trying next"
-                            );
-                            idx += 1;
-                            continue;
-                        }
-                    };
-
-                    request.model = entry.model.clone();
-                    let body = serde_json::to_value(&request)
-                        .map_err(|e| LLMError::InvalidRequest(e.to_string()))?;
-
-                    match tokio::time::timeout(
-                        self.call_timeout,
-                        provider.send_streaming(request.clone(), body),
-                    )
-                    .await
-                    {
-                        Ok(Ok(sse_stream)) => {
-                            self.cooldown
-                                .record_success(&entry.provider, &entry.model)
-                                .await;
-                            let incoming: IncomingSseStream =
-                                Box::pin(ReceiverStream::new(sse_stream));
-                            let machine = self.protocol.create_sse_machine();
-                            let stream = self.protocol.parse_sse_stream(incoming, machine).await;
-                            return Ok(stream);
-                        }
-                        Ok(Err(provider_err)) => {
-                            let llm_err = LLMError::ApiError(provider_err.to_string());
-                            let kind = llm_err.kind();
-                            tracing::warn!(
-                                provider = %entry.provider,
-                                model = %entry.model,
-                                error = %llm_err,
-                                kind = ?kind,
-                                "fallback streaming call failed"
-                            );
-                            self.cooldown
-                                .record_failure(&entry.provider, &entry.model, kind)
-                                .await;
-                            idx += 1;
-                        }
-                        Err(_elapsed) => {
-                            tracing::warn!(
-                                provider = %entry.provider,
-                                model = %entry.model,
-                                "fallback streaming call timed out"
-                            );
-                            self.cooldown
-                                .record_failure(&entry.provider, &entry.model, ErrorKind::Transient)
-                                .await;
-                            idx += 1;
-                        }
-                    }
-                }
+                },
             }
         }
     }
+}
 
+impl FallbackClient {
+    /// Try streaming with a single provider entry.
+    ///
+    /// Returns `Ok(stream)` on success, or `Err(())` if the entry should be
+    /// skipped (cooldown, missing provider, call failure).
+    async fn try_streaming_entry(
+        &self,
+        entry: &ModelEntry,
+        request: &mut InternalRequest,
+    ) -> Result<OutgoingEventStream, ()> {
+        if self
+            .cooldown
+            .is_in_cooldown(&entry.provider, &entry.model)
+            .await
+        {
+            tracing::debug!(
+                provider = %entry.provider,
+                model = %entry.model,
+                "model in cooldown, skipping"
+            );
+            return Err(());
+        }
+
+        let provider = match self.registry.get(&entry.provider).await {
+            Some(p) => p,
+            None => {
+                tracing::warn!(
+                    provider = %entry.provider,
+                    "provider not found, trying next"
+                );
+                return Err(());
+            }
+        };
+
+        request.model = entry.model.clone();
+        let body = serde_json::to_value(&request)
+            .map_err(|e| LLMError::InvalidRequest(e.to_string()))
+            .map_err(|_| ())?;
+
+        match tokio::time::timeout(
+            self.call_timeout,
+            provider.send_streaming(request.clone(), body),
+        )
+        .await
+        {
+            Ok(Ok(sse_stream)) => {
+                self.cooldown
+                    .record_success(&entry.provider, &entry.model)
+                    .await;
+                let incoming: IncomingSseStream = Box::pin(ReceiverStream::new(sse_stream));
+                let machine = self.protocol.create_sse_machine();
+                let stream = self.protocol.parse_sse_stream(incoming, machine).await;
+                Ok(stream)
+            }
+            Ok(Err(provider_err)) => {
+                let llm_err = LLMError::ApiError(provider_err.to_string());
+                let kind = llm_err.kind();
+                tracing::warn!(
+                    provider = %entry.provider,
+                    model = %entry.model,
+                    error = %llm_err,
+                    kind = ?kind,
+                    "fallback streaming call failed"
+                );
+                self.cooldown
+                    .record_failure(&entry.provider, &entry.model, kind)
+                    .await;
+                Err(())
+            }
+            Err(_elapsed) => {
+                tracing::warn!(
+                    provider = %entry.provider,
+                    model = %entry.model,
+                    "fallback streaming call timed out"
+                );
+                self.cooldown
+                    .record_failure(&entry.provider, &entry.model, ErrorKind::Transient)
+                    .await;
+                Err(())
+            }
+        }
+    }
+}
+
+// --- Degraded streaming fallback ---
+
+impl FallbackClient {
     /// All streaming entries failed — degrade to non-streaming.
     ///
     /// Walks the chain without cooldown checks (the streaming cooldown
