@@ -9,7 +9,6 @@ use closeclaw_common::im_plugin::{AdapterError, CardActionEvent, IMPlugin, Norma
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_common::processor::ProcessedMessage;
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use serde_json::json;
 use std::collections::HashMap;
@@ -155,7 +154,6 @@ fn make_gw(config: GatewayConfig) -> (crate::Gateway, Arc<SessionManager>) {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = crate::Gateway::new(config, Arc::clone(&sm));
@@ -461,7 +459,6 @@ async fn test_no_sessions_for_unknown_agent() {
             &make_config(),
             None,
             None,
-            BootstrapMode::Full,
             ReasoningLevel::default(),
         )),
     );

@@ -24,7 +24,6 @@ use closeclaw_llm::openai::OpenAIProvider;
 use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
 use closeclaw_llm::LLMRegistry;
 use closeclaw_processor_chain as processor_chain;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_slash::dispatcher::SlashDispatcher;
 use closeclaw_slash::registry::HandlerRegistry;
 use closeclaw_slash::{ClearHandler, HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
@@ -87,7 +86,6 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
         &gateway_config,
         None,
         None,
-        BootstrapMode::Full,
         reasoning_level,
     ));
 

@@ -6,7 +6,6 @@ use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
 
@@ -112,7 +111,6 @@ fn make_gw(config: GatewayConfig) -> (Gateway, Arc<SessionManager>) {
         &config,
         None,
         None,
-        BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
     let gw = Gateway::new(config, Arc::clone(&sm));

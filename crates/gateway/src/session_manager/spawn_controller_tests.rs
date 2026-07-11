@@ -9,10 +9,10 @@
 
 use std::sync::Arc;
 
+use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
 use closeclaw_config::ConfigManager;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 
 use crate::session_manager::spawn_controller::{SpawnController, SpawnError};
@@ -43,13 +43,7 @@ fn make_permission_engine() -> PermissionEngine {
 
 /// Build a `SessionManager` with no storage and no workspace.
 fn make_session_manager() -> SessionManager {
-    SessionManager::new(
-        &test_config(),
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    )
+    SessionManager::new(&test_config(), None, None, ReasoningLevel::default())
 }
 
 /// Build a `ConfigManager` over a tempdir. We don't call `load()` because

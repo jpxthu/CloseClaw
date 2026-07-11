@@ -8,12 +8,54 @@
 use super::spawn::{ChildSessionInfo, SpawnMode};
 use super::SessionManager;
 use chrono::Utc;
+use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
 use closeclaw_llm::types::{ContentBlock, UnifiedResponse, UnifiedUsage};
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::llm_session::{ChatSession, ConversationSession, SessionMessage};
 use std::path::PathBuf;
+
+// ── Mock agent registry query ─────────────────────────────────────────────
+
+/// Mock agent registry that returns configurable bootstrap mode.
+pub(super) struct MockAgentRegistryQuery {
+    pub bootstrap_mode: BootstrapMode,
+}
+
+#[async_trait::async_trait]
+impl closeclaw_agent::AgentLookup for MockAgentRegistryQuery {
+    async fn get_agent_model(&self, _agent_id: &str) -> Option<ModelSpec> {
+        None
+    }
+    async fn agent_exists(&self, _agent_id: &str) -> bool {
+        true
+    }
+    async fn query_bootstrap_mode(&self, _agent_id: &str) -> Option<BootstrapMode> {
+        Some(self.bootstrap_mode)
+    }
+    async fn get_agent_workspace(&self, _agent_id: &str) -> Option<PathBuf> {
+        None
+    }
+}
+
+#[async_trait::async_trait]
+impl closeclaw_agent::AgentSkillsQuery for MockAgentRegistryQuery {
+    fn get_agent_skills(&self, _agent_id: &str) -> Option<Vec<String>> {
+        Some(vec![])
+    }
+}
+
+#[async_trait::async_trait]
+impl closeclaw_agent::AgentToolsConfigQuery for MockAgentRegistryQuery {
+    async fn get_agent_tools_config(
+        &self,
+        _agent_id: &str,
+    ) -> Option<closeclaw_agent::AgentToolsConfig> {
+        None
+    }
+}
+
+impl closeclaw_agent::AgentRegistryQuery for MockAgentRegistryQuery {}
 
 /// Build a `ResolvedAgentConfig` for tests. Identical to the one in
 /// `spawn_tests` / `announce_tests` — kept local to avoid a

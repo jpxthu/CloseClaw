@@ -3,10 +3,10 @@
 
 use std::sync::Arc;
 
+use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
 use closeclaw_config::ConfigManager;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint};
 use closeclaw_session::storage::memory::MemoryStorage;
@@ -83,7 +83,6 @@ fn make_session_manager_with_memory_storage() -> (Arc<SessionManager>, Arc<Memor
         &test_config(),
         Some(storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     (mgr, storage)
@@ -464,7 +463,6 @@ async fn test_kill_run_mode_child_succeeds() {
         &test_config(),
         Some(storage),
         Some(tmp.path().to_path_buf()),
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 
@@ -541,7 +539,6 @@ async fn test_kill_session_mode_child_succeeds() {
         &test_config(),
         Some(storage),
         Some(tmp.path().to_path_buf()),
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 
@@ -623,7 +620,6 @@ async fn test_cascade_terminate_all_children_simulation() {
         &test_config(),
         Some(storage),
         Some(tmp.path().to_path_buf()),
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 
@@ -716,7 +712,6 @@ async fn test_cascade_terminate_no_children_noop() {
         &test_config(),
         Some(storage),
         Some(tmp.path().to_path_buf()),
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 

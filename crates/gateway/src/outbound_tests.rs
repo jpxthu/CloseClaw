@@ -525,7 +525,6 @@ async fn setup_streaming_gw(
         &config,
         None,
         None,
-        closeclaw_session::bootstrap::BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     // Map session → chat_id for send_outbound_streaming.
@@ -787,7 +786,6 @@ async fn test_thinking_indicator_suppressed_at_off() {
         &config,
         None,
         None,
-        closeclaw_session::bootstrap::BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let session_id = "sess-think-off";

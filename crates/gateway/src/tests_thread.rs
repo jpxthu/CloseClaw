@@ -9,7 +9,6 @@ use closeclaw_common::processor::DslParseResult;
 use closeclaw_llm::types::{
     ContentBlock, ContentBlockType, ContentDelta, StreamEvent, UnifiedUsage,
 };
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
 use futures::stream;
 use serde_json::json;
@@ -224,7 +223,6 @@ async fn setup_with_thread_id(
         &make_config(),
         Some(mock_storage),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = Gateway::new(make_config(), Arc::clone(&sm));
@@ -284,7 +282,6 @@ async fn test_route_message_forwards_thread_id() {
         &make_config(),
         Some(mock_storage),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = Gateway::new(make_config(), Arc::clone(&sm));
@@ -320,7 +317,6 @@ async fn test_send_outbound_streaming_forwards_thread_id() {
         &make_config(),
         Some(mock_storage),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = Gateway::new(make_config(), Arc::clone(&sm));
@@ -464,7 +460,6 @@ async fn test_send_outbound_streaming_forwards_block_delta_index() {
         &make_config(),
         Some(mock_storage),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = Gateway::new(make_config(), Arc::clone(&sm));

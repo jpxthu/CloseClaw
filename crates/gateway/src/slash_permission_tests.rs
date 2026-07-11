@@ -10,7 +10,6 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use closeclaw_common::bootstrap::BootstrapMode;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::session_mode_query::SessionModeQuery;
 use closeclaw_common::slash_router::{
@@ -90,7 +89,6 @@ fn make_gateway() -> Arc<Gateway> {
         &config,
         None,
         None,
-        BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
     Arc::new(Gateway::new(config, sm))
@@ -243,7 +241,6 @@ async fn test_clear_without_callback_no_panic() {
         &config,
         None,
         None,
-        BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
     {
@@ -289,7 +286,6 @@ async fn test_callback_called_on_clear() {
         &config,
         None,
         None,
-        BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
     {

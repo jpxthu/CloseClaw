@@ -119,7 +119,6 @@ fn make_bg_manager() -> Arc<dyn closeclaw_tasks::TaskManager> {
 
 fn make_session_manager() -> Arc<SessionManager> {
     use closeclaw_gateway::GatewayConfig;
-    use closeclaw_session::bootstrap::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
     Arc::new(SessionManager::new(
         &GatewayConfig {
@@ -131,7 +130,6 @@ fn make_session_manager() -> Arc<SessionManager> {
         },
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ))
 }

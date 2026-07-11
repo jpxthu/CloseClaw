@@ -13,7 +13,6 @@ use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, Ren
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_gateway::{Gateway, GatewayError, SessionManager};
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::{Arc, Mutex};
 
@@ -157,7 +156,6 @@ async fn test_plugin_text_path() {
         &config,
         None,
         None,
-        BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
     let registry = make_registry_with_processor(MockOutboundProcessor {
@@ -198,7 +196,6 @@ async fn test_plugin_interactive_path() {
         &config,
         None,
         None,
-        BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
     let registry = make_registry_with_processor(MockOutboundProcessor {
@@ -232,7 +229,6 @@ async fn test_plugin_dsl_result_passed_to_render() {
         &config,
         None,
         None,
-        BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
     let dsl_json = serde_json::to_string(&DslParseResult {
@@ -273,7 +269,6 @@ async fn test_plugin_suppress_skips_send() {
         &config,
         None,
         None,
-        BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
     let registry = make_registry_with_processor(MockOutboundProcessor {

@@ -34,7 +34,6 @@ fn make_engine_with_rules(rules: Vec<Rule>) -> Arc<tokio::sync::RwLock<Permissio
 
 fn make_sm() -> Arc<SessionManager> {
     use closeclaw_gateway::GatewayConfig;
-    use closeclaw_session::bootstrap::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
     Arc::new(SessionManager::new(
         &GatewayConfig {
@@ -46,7 +45,6 @@ fn make_sm() -> Arc<SessionManager> {
         },
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ))
 }

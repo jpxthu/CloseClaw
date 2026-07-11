@@ -7,7 +7,6 @@ use super::tests::{make_test_mgr, test_config};
 use super::SessionManager;
 use crate::Session;
 use chrono::Utc;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
 use closeclaw_session::ReasoningLevel;
 use std::sync::Arc;
@@ -21,7 +20,6 @@ fn make_mgr_with_storage(
         &test_config(),
         Some(storage),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     )
 }
@@ -32,7 +30,6 @@ fn make_mgr_with_persistence(storage: Arc<dyn PersistenceService>) -> SessionMan
         &test_config(),
         Some(storage),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     )
 }

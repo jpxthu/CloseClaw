@@ -12,7 +12,6 @@ use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, GatewayError, Message, 
 use closeclaw_im_adapter::AdapterError as LocalAdapterError;
 use closeclaw_im_adapter::IMAdapter;
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -181,7 +180,6 @@ pub(crate) fn make_outbound_gw(config: GatewayConfig) -> (Gateway, Arc<SessionMa
         &config,
         None,
         None,
-        BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
     let gw = Gateway::new(config, Arc::clone(&sm));
@@ -216,7 +214,6 @@ async fn test_send_outbound_text_path() {
         &config,
         None,
         None,
-        BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
     let registry = Arc::new({
@@ -253,7 +250,6 @@ async fn test_send_outbound_interactive_path() {
         &config,
         None,
         None,
-        BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
     let registry = Arc::new({
@@ -290,7 +286,6 @@ async fn test_send_outbound_suppress() {
         &config,
         None,
         None,
-        BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
     let registry = Arc::new({

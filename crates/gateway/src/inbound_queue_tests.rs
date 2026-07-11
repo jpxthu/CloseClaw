@@ -11,7 +11,6 @@ use async_trait::async_trait;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, RenderedOutput};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_common::{ContentBlock, MessageType, NormalizedMessage};
-use closeclaw_session::bootstrap::loader::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use tokio::sync::mpsc;
 
@@ -75,7 +74,6 @@ fn make_gateway() -> Arc<Gateway> {
         &config,
         None,
         None,
-        BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
     Arc::new(Gateway::new(config, sm))

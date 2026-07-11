@@ -18,7 +18,6 @@ use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::LLMRegistry;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::SessionStatus;
 use closeclaw_session::persistence::{PersistenceError, ReasoningLevel, SessionCheckpoint};
 use serde_json::json;
@@ -271,7 +270,6 @@ async fn make_gw_with_handler(
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let handler = build_handler(Arc::clone(&sm));
@@ -291,7 +289,6 @@ async fn make_gw_with_failing_handler(
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let handler = build_handler(Arc::clone(&sm));
@@ -360,7 +357,6 @@ async fn test_restore_notification_none_initially() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
 
@@ -380,7 +376,6 @@ async fn test_restore_notification_idempotent() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
 
@@ -413,7 +408,6 @@ async fn test_restore_notification_session_scoped() {
         &config,
         Some(mock_storage),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
 
@@ -442,7 +436,6 @@ async fn test_active_session_no_restore_notification() {
         &config,
         Some(mock_storage),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
 

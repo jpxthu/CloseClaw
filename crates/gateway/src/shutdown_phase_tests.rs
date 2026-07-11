@@ -11,7 +11,6 @@ use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::shutdown::{DrainStatus, ShutdownSignal, ShutdownState};
 
 use crate::shutdown_handle::ShutdownHandle;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::{PersistenceError, ReasoningLevel};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -139,7 +138,6 @@ async fn test_close_outbound_calls_shutdown_outbound_on_plugins() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = crate::Gateway::new(config, sm);
@@ -175,7 +173,6 @@ async fn test_close_outbound_clears_plugin_registry() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = crate::Gateway::new(config, sm);
@@ -203,7 +200,6 @@ async fn test_close_outbound_clears_processor_registry() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = crate::Gateway::new(config, sm);
@@ -230,7 +226,6 @@ async fn test_sync_storage_delegates_to_persistence_sync() {
         &config,
         Some(tracking.clone() as Arc<dyn closeclaw_session::persistence::PersistenceService>),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = crate::Gateway::new(config, sm);
@@ -253,7 +248,6 @@ async fn test_sync_storage_noop_without_storage() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = crate::Gateway::new(config, sm);
@@ -274,7 +268,6 @@ async fn test_close_storage_delegates_to_persistence_close() {
         &config,
         Some(tracking.clone() as Arc<dyn closeclaw_session::persistence::PersistenceService>),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = crate::Gateway::new(config, sm);
@@ -297,7 +290,6 @@ async fn test_close_storage_noop_without_storage() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = crate::Gateway::new(config, sm);

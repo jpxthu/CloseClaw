@@ -1,7 +1,6 @@
 use super::test_helpers::MockPersistService;
 use super::tests::{make_test_mgr, test_config};
 use crate::session_manager::SessionManager;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::{ReasoningLevel, SessionCheckpoint};
 use std::sync::Arc;
 
@@ -29,7 +28,6 @@ async fn test_get_thread_id_returns_none_when_no_thread_id() {
         &test_config(),
         Some(mock_storage),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
     let result = mgr.get_thread_id("sess_no_tid").await;
@@ -52,7 +50,6 @@ async fn test_get_thread_id_returns_value_when_set() {
         &test_config(),
         Some(mock_storage),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
     let result = mgr.get_thread_id("sess_has_tid").await;

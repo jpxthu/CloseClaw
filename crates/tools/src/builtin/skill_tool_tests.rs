@@ -14,7 +14,6 @@ mod tests {
     };
     use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
     use closeclaw_gateway::{GatewayConfig, SessionManager};
-    use closeclaw_session::bootstrap::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
     use closeclaw_skills::disk::types::{
         DiskSkill, SkillContext, SkillEffort, SkillManifest, SkillSource,
@@ -65,7 +64,6 @@ mod tests {
             },
             None,
             workspace,
-            BootstrapMode::Full,
             ReasoningLevel::default(),
         ))
     }

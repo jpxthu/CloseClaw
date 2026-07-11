@@ -157,6 +157,7 @@ fn test_agent_config_new_fields_roundtrip() {
             require_agent_id: Some(true),
             max_spawn_depth: Some(3),
             max_children: Some(10),
+            timeout: None,
             default_child_agent: Some("child-agent".to_string()),
             model: Some(ModelSpec::single("claude-3")),
         },
@@ -824,6 +825,7 @@ fn test_merge_subagents_model_project_overrides_user() {
         id: "test-agent".to_string(),
         subagents: SubagentsConfig {
             model: Some(ModelSpec::single("gpt-4o")),
+            timeout: None,
             ..Default::default()
         },
         ..Default::default()
@@ -849,6 +851,7 @@ fn test_merge_subagents_model_project_none_falls_back_to_user() {
         id: "test-agent".to_string(),
         subagents: SubagentsConfig {
             model: None,
+            timeout: None,
             ..Default::default()
         },
         ..Default::default()
@@ -857,6 +860,7 @@ fn test_merge_subagents_model_project_none_falls_back_to_user() {
         id: "test-agent".to_string(),
         subagents: SubagentsConfig {
             model: Some(ModelSpec::single("claude-3")),
+            timeout: None,
             ..Default::default()
         },
         ..Default::default()

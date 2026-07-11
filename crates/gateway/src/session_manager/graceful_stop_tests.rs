@@ -22,7 +22,6 @@ use crate::Session;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_llm::session_state::{LlmState, ToolExecState};
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::llm_session::{ChatSession, ConversationSession};
 
 use std::path::PathBuf;
@@ -34,7 +33,7 @@ use super::spawn::SpawnMode;
 
 fn make_test_session_manager() -> SessionManager {
     let config = crate::GatewayConfig::default();
-    SessionManager::new(&config, None, None, BootstrapMode::Full, Default::default())
+    SessionManager::new(&config, None, None, Default::default())
 }
 
 fn make_conversation_session(id: &str) -> Arc<tokio::sync::RwLock<ConversationSession>> {

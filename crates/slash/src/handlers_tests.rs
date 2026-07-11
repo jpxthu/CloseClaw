@@ -88,7 +88,6 @@ fn test_compact_handler_commands_and_description() {
 async fn test_clear_handler_handle_returns_reply() {
     use closeclaw_gateway::session_manager::SessionManager;
     use closeclaw_gateway::DmScope;
-    use closeclaw_session::bootstrap::loader::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
 
     let gc = closeclaw_gateway::GatewayConfig {
@@ -102,7 +101,6 @@ async fn test_clear_handler_handle_returns_reply() {
         &gc,
         None, // storage
         None, // workspace_dir
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let handler = ClearHandler::new(sm);
@@ -252,7 +250,6 @@ fn test_dispatcher_is_immediate_false() {
 /// `create_test_session` to obtain a `session_id`.
 fn make_workdir_session_manager() -> std::sync::Arc<SessionManager> {
     use closeclaw_gateway::DmScope;
-    use closeclaw_session::bootstrap::loader::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
 
     let gc = closeclaw_gateway::GatewayConfig {
@@ -266,7 +263,6 @@ fn make_workdir_session_manager() -> std::sync::Arc<SessionManager> {
         &gc,
         None, // storage
         None, // workspace_dir
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ))
 }

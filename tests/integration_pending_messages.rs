@@ -20,7 +20,6 @@ use closeclaw_gateway::{DmScope, GatewayConfig, Message};
 use closeclaw_llm::fake::FakeProvider;
 use closeclaw_llm::provider::Provider;
 use closeclaw_llm::LLMRegistry;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::PendingMessage;
 use closeclaw_session::persistence::ReasoningLevel;
 
@@ -56,7 +55,6 @@ async fn setup_session_manager() -> Arc<SessionManager> {
         &test_config(),
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
 

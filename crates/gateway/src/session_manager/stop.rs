@@ -541,12 +541,11 @@ mod tests {
     use super::*;
     use crate::session_manager::spawn::SpawnMode;
     use crate::session_manager::test_helpers::{register_child_only, setup_parent_with_conv};
-    use closeclaw_session::bootstrap::BootstrapMode;
     use std::sync::Arc;
 
     fn make_test_session_manager() -> SessionManager {
         let config = crate::GatewayConfig::default();
-        SessionManager::new(&config, None, None, BootstrapMode::Full, Default::default())
+        SessionManager::new(&config, None, None, Default::default())
     }
 
     // ── stop_order_from_tree tests ───────────────────────────────────────

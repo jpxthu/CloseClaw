@@ -6,7 +6,6 @@
 
 use closeclaw_common::{MessageType, NormalizedMessage};
 use closeclaw_gateway::{GatewayConfig, InboundChainInput, SessionManager};
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
 
@@ -101,7 +100,6 @@ async fn test_build_gateway_slash_help_dispatchable() {
         },
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     slash_registry.register(Arc::new(closeclaw_slash::ClearHandler::new(Arc::clone(
@@ -254,7 +252,6 @@ fn make_gw_with_registry(registry: ProcessorRegistry) -> closeclaw_gateway::Gate
             },
             None,
             None,
-            closeclaw_session::bootstrap::BootstrapMode::Full,
             closeclaw_session::persistence::ReasoningLevel::default(),
         )),
         Arc::new(registry),

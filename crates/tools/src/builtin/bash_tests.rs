@@ -100,7 +100,6 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
 
 fn test_session_manager() -> Arc<closeclaw_gateway::SessionManager> {
     use closeclaw_gateway::GatewayConfig;
-    use closeclaw_session::bootstrap::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
     Arc::new(closeclaw_gateway::SessionManager::new(
         &GatewayConfig {
@@ -112,7 +111,6 @@ fn test_session_manager() -> Arc<closeclaw_gateway::SessionManager> {
         },
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ))
 }

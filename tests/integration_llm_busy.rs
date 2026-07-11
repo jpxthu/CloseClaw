@@ -23,7 +23,6 @@ use closeclaw_llm::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStre
 use closeclaw_llm::provider::Provider;
 use closeclaw_llm::types::{InternalRequest, InternalResponse, ProtocolId, SseStateMachine};
 use closeclaw_llm::LLMRegistry;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use reqwest::header::HeaderMap;
 
@@ -129,7 +128,6 @@ async fn test_idle_message_returns_llm_started() {
         &test_config(),
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
@@ -182,7 +180,6 @@ async fn test_busy_message_returns_queued() {
         &test_config(),
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
@@ -234,7 +231,6 @@ async fn test_fake_provider_call_count_while_busy() {
         &test_config(),
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
@@ -313,7 +309,6 @@ async fn test_pending_fifo_after_delay() {
         &test_config(),
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
@@ -388,7 +383,6 @@ async fn test_idle_after_delay_drain() {
         &test_config(),
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();

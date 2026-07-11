@@ -227,7 +227,6 @@ mod tests {
     use super::*;
     use crate::{SpawnError, SpawnValidationResult, SpawnValidator, ToolContext};
     use closeclaw_config::agents::MemoryConfig;
-    use closeclaw_session::bootstrap::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
     use closeclaw_skills::disk::types::{
         DiskSkill, SkillContext, SkillEffort, SkillManifest, SkillSource,
@@ -275,7 +274,6 @@ mod tests {
             },
             None,
             None,
-            BootstrapMode::Full,
             ReasoningLevel::default(),
         ))
     }

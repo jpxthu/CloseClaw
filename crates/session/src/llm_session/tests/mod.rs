@@ -2,6 +2,7 @@ use super::*;
 use crate::persistence::PendingMessage;
 use closeclaw_common::{UnifiedResponse, UnifiedUsage};
 
+mod bootstrap_mode_tests;
 mod clone_messages_tests;
 mod exec_state_tests;
 mod extract_pending_tool_calls_tests;

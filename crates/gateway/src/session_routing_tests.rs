@@ -12,7 +12,6 @@ use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin};
 use closeclaw_common::processor::{DslParseResult, ProcessError, ProcessedMessage, ProcessorChain};
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use serde_json::json;
 use std::collections::HashMap;
@@ -185,7 +184,6 @@ async fn make_gw(channel: &str) -> (crate::Gateway, Arc<CapturingPlugin>) {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = crate::Gateway::new(config, Arc::clone(&sm));
@@ -208,7 +206,6 @@ async fn make_gw_with_processor(
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let chain: Arc<RecordingProcessorChain> = Arc::new(RecordingProcessorChain::new());
@@ -233,7 +230,6 @@ async fn make_gw_with_failing_resolve(channel: &str) -> (crate::Gateway, Arc<Cap
         &config,
         None,
         Some(PathBuf::from("/proc")),
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = crate::Gateway::new(config, Arc::clone(&sm));
