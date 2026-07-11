@@ -1,6 +1,7 @@
 //! Built-in sessions_spawn tool — creates child sessions for sub-agents.
 
 use super::prompt_template::PromptTemplate;
+use crate::permission_check::is_session_sub_agent;
 use crate::{SpawnValidator, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use closeclaw_gateway::session_manager::{SessionManager, SpawnMode};
 use closeclaw_permission::approval_flow::ApprovalFlow;
@@ -274,8 +275,9 @@ impl Tool for SessionsSpawnTool {
                 };
                 let session_id = ctx.session_id.as_deref().unwrap_or("");
                 let mut flow = self.approval_flow.lock().await;
+                let is_sub_agent = is_session_sub_agent(&self.session_manager, session_id).await;
                 if let Some(request_id) =
-                    flow.submit_denial(&caller, &body, RiskLevel::Medium, session_id, false)
+                    flow.submit_denial(&caller, &body, RiskLevel::Medium, session_id, is_sub_agent)
                 {
                     return Ok(ToolResult {
                         data: json!({

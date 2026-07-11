@@ -709,8 +709,8 @@ impl AgentPermissions {
 
     /// Compute the intersection of this agent's permissions with a parent's.
     ///
-    /// Seven dimensions: command, file_read, file_write, network, spawn,
-    /// tool_call, config_write.
+    /// Eight dimensions: command, file_read, file_write, network, spawn,
+    /// tool_call, config_write, message.
     ///
     /// - Both Allow → Allow
     /// - Either Deny or absent → Deny
@@ -728,6 +728,7 @@ impl AgentPermissions {
             "spawn",
             "tool_call",
             "config_write",
+            "message",
         ];
 
         let mut permissions = HashMap::with_capacity(dimensions.len());
@@ -781,7 +782,7 @@ impl AgentPermissions {
         }
     }
 
-    /// Returns true if all seven permission dimensions are denied or absent.
+    /// Returns true if all eight permission dimensions are denied or absent.
     pub fn is_fully_denied(&self) -> bool {
         ![
             "command",
@@ -791,6 +792,7 @@ impl AgentPermissions {
             "spawn",
             "tool_call",
             "config_write",
+            "message",
         ]
         .iter()
         .any(|&dim| self.permissions.get(dim).is_some_and(|p| p.allowed))
