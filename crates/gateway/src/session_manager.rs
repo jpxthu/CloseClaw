@@ -938,6 +938,8 @@ mod flush_tests;
 #[cfg(test)]
 mod graceful_stop_tests;
 #[cfg(test)]
+mod resolve_registry_tests;
+#[cfg(test)]
 mod resolve_tests;
 #[cfg(test)]
 mod spawn_cascade_tests;
