@@ -848,6 +848,76 @@ fn test_from_single_merge_consistency_explicit_values() {
 }
 
 // ------------------------------------------------------------------
+// merge_subagents: timeout field merge
+// ------------------------------------------------------------------
+
+#[test]
+fn test_merge_project_timeout_overrides_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            timeout: Some(60),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            timeout: Some(120),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    assert_eq!(resolved.subagents.timeout, Some(60));
+}
+
+#[test]
+fn test_merge_project_timeout_none_falls_back_to_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            timeout: None,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            timeout: Some(120),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    assert_eq!(resolved.subagents.timeout, Some(120));
+}
+
+#[test]
+fn test_merge_both_timeout_none_remains_none() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            timeout: None,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            timeout: None,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    assert!(resolved.subagents.timeout.is_none());
+}
+
+// ------------------------------------------------------------------
 // MemoryConfig field-level merge: merge_overrides
 // ------------------------------------------------------------------
 
