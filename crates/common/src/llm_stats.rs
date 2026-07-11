@@ -4,7 +4,116 @@
 //! a session, including cache hit/write metrics, and exposes derived
 //! statistics like cache hit rate.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::time::Instant;
+
 use crate::processor::UnifiedUsage;
+
+// ── Pre-call fingerprint types ───────────────────────────────────
+
+/// A fingerprint of the prompt components relevant to cache behavior.
+///
+/// Captured at pre-call time so that post-call can attribute cache
+/// breaks to specific component changes.
+///
+/// `request_timestamp` is excluded from `PartialEq` (and therefore
+/// `Eq`) because `Instant` does not implement equality traits.
+#[derive(Debug, Clone)]
+pub struct PromptFingerprint {
+    /// Hash of the static portion of the system prompt.
+    pub system_static_hash: Option<u64>,
+    /// Hash of the sorted, joined tools list.
+    pub tools_hash: Option<u64>,
+    /// Hash of the normalized HTTP headers.
+    pub headers_hash: Option<u64>,
+    /// Wall-clock time when this fingerprint was recorded.
+    pub request_timestamp: Option<Instant>,
+}
+
+impl PartialEq for PromptFingerprint {
+    fn eq(&self, other: &Self) -> bool {
+        self.system_static_hash == other.system_static_hash
+            && self.tools_hash == other.tools_hash
+            && self.headers_hash == other.headers_hash
+        // request_timestamp is intentionally excluded
+    }
+}
+
+impl PromptFingerprint {
+    /// Computes a fingerprint from the given prompt components.
+    pub fn compute(
+        system_static: Option<&str>,
+        tools: Option<&[String]>,
+        headers: Option<&[(&str, &str)]>,
+    ) -> Self {
+        Self {
+            system_static_hash: system_static.map(hash_str),
+            tools_hash: tools.map(hash_tools),
+            headers_hash: headers.map(hash_headers),
+            request_timestamp: Some(Instant::now()),
+        }
+    }
+}
+
+/// Describes which prompt components changed between two consecutive
+/// LLM calls (pre-call comparison).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingChanges {
+    /// System prompt content changed since the last fingerprint.
+    pub system_prompt_changed: bool,
+    /// Tools list changed since the last fingerprint.
+    pub tools_changed: bool,
+    /// HTTP headers changed since the last fingerprint.
+    pub headers_changed: bool,
+    /// Wall-clock duration since the last fingerprint was recorded.
+    pub time_since_last: Option<std::time::Duration>,
+}
+
+/// Possible root causes for a cache break.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CacheBreakCause {
+    /// The system prompt was rebuilt or modified.
+    SystemPromptChanged,
+    /// The tools list was modified.
+    ToolsChanged,
+    /// HTTP headers were modified.
+    HeadersChanged,
+    /// The time between calls exceeded the cache TTL.
+    TtlExpired,
+    /// The session was resumed from a saved state.
+    SessionResumed,
+    /// No specific cause could be determined.
+    Unknown,
+}
+
+// ── Hash helpers ─────────────────────────────────────────────────
+
+fn hash_str(s: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    s.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn hash_tools(tools: &[String]) -> u64 {
+    let mut sorted: Vec<&str> = tools.iter().map(String::as_str).collect();
+    sorted.sort();
+    let joined = sorted.join("\x00");
+    hash_str(&joined)
+}
+
+fn hash_headers(headers: &[(&str, &str)]) -> u64 {
+    let mut sorted: Vec<(&str, &str)> = headers.to_vec();
+    sorted.sort_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(b.1)));
+    let joined: String = sorted
+        .iter()
+        .map(|(k, v)| format!("{k}: {v}"))
+        .collect::<Vec<_>>()
+        .join("\x00");
+    hash_str(&joined)
+}
+
+// ── Cache break info ─────────────────────────────────────────────
 
 /// Information about a detected cache break between two consecutive calls.
 #[derive(Debug, Clone, PartialEq)]
@@ -17,6 +126,8 @@ pub struct CacheBreakInfo {
     pub drop_tokens: u32,
     /// Ratio of the drop relative to the previous value (0.0–1.0).
     pub drop_ratio: f64,
+    /// Attributed causes for this cache break.
+    pub causes: Vec<CacheBreakCause>,
 }
 
 /// Detects a cache break between two consecutive cache-read token counts.
@@ -54,6 +165,7 @@ pub fn detect_cache_break(previous: Option<u32>, current: Option<u32>) -> Option
         current_cache_read: curr,
         drop_tokens,
         drop_ratio,
+        causes: vec![],
     })
 }
 
