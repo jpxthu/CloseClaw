@@ -153,8 +153,8 @@ async fn test_validate_empty_allow_agents_blocks_target() {
 }
 
 /// Empty `allow_agents` array with no target (and no default_child_agent)
-/// should fail with AgentIdRequired -- even though require_agent_id=false,
-/// the `target_id.ok_or(AgentIdRequired)` fires because no target resolves.
+/// should fail with AgentNotAllowed — the new parent-agent-id fallback
+/// resolves to "parent", which is then rejected by the empty allowlist.
 #[tokio::test]
 async fn test_validate_empty_allow_agents_no_target_requires_id() {
     let cm = Arc::new(make_config_manager());
@@ -175,20 +175,19 @@ async fn test_validate_empty_allow_agents_no_target_requires_id() {
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
-    // target_agent_id = None and no default -> resolved target_id = None
-    // require_agent_id = false -> not rejected by explicit check
-    // But line `target_id.ok_or(AgentIdRequired)` still fires because
-    // there's no resolved target to validate against.
+    // No target_agent_id + no default_child_agent -> falls back to parent_agent_id
+    // ("parent"). Empty allowlist rejects "parent" -> AgentNotAllowed.
     let err = controller
         .validate(&parent_id, None)
         .await
-        .expect_err("should fail with AgentIdRequired when no target resolves");
+        .expect_err("should fail when parent agent not in empty allowlist");
 
-    assert!(
-        matches!(err, SpawnError::AgentIdRequired),
-        "expected AgentIdRequired, got {:?}",
-        err
-    );
+    match err {
+        SpawnError::AgentNotAllowed { agent_id } => {
+            assert_eq!(agent_id, "parent");
+        }
+        other => panic!("expected AgentNotAllowed, got {:?}", other),
+    }
 }
 
 /// Parent not in agents map -> read_parent_config returns defaults:
@@ -223,8 +222,8 @@ async fn test_validate_unparent_config_uses_defaults() {
 }
 
 /// requireAgentId=false, no default_child_agent, no target_agent_id ->
-/// should fail with AgentIdRequired (target_id.ok_or fires regardless of
-/// require_agent_id setting, because there's no target to validate against).
+/// the new parent-agent-id fallback resolves to the parent agent itself.
+/// Validation succeeds because the parent agent is in its own allowlist.
 #[tokio::test]
 async fn test_validate_require_agent_id_false_no_target_no_default() {
     let cm = Arc::new(make_config_manager());
@@ -244,19 +243,14 @@ async fn test_validate_require_agent_id_false_no_target_no_default() {
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
-    // No target -> resolved_target.target_id = None, target_config = None
-    // require_agent_id=false -> passes explicit require check
-    // But target_id.ok_or(AgentIdRequired) still fires
-    let err = controller
+    // No target_agent_id + no default_child_agent -> falls back to parent_agent_id
+    // ("parent"). Default allow_agents=["*"] -> whitelist passes.
+    let result = controller
         .validate(&parent_id, None)
         .await
-        .expect_err("should fail with AgentIdRequired when no target resolves");
+        .expect("should succeed: parent-agent-id fallback resolves to parent itself");
 
-    assert!(
-        matches!(err, SpawnError::AgentIdRequired),
-        "expected AgentIdRequired, got {:?}",
-        err
-    );
+    assert_eq!(result.config.id, "parent");
 }
 
 /// Default max_children (5) allows up to 4 concurrent children.

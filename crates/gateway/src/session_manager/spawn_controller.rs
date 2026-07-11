@@ -118,7 +118,10 @@ impl SpawnController {
         }
 
         // ⑥ require_agent_id check — must come after concurrency/whitelist.
-        if parent_cfg.require_agent_id && resolved.target_id.is_none() {
+        // Check the original caller-provided agent_id, not the resolved fallback.
+        // Config-level defaults (default_child_agent, parent fallback) do not
+        // satisfy require_agent_id — only an explicit caller argument does.
+        if parent_cfg.require_agent_id && target_agent_id.is_none() {
             return Err(SpawnError::AgentIdRequired);
         }
         let target_id = resolved.target_id.ok_or(SpawnError::AgentIdRequired)?;
@@ -293,8 +296,13 @@ impl SpawnController {
     }
 
     /// Resolve the target agent configuration under a single lock block.
-    /// Handles the agentId fallback: if no `target_agent_id` is provided,
-    /// falls back to the parent config's `default_child_agent`.
+    /// Handles the agentId fallback chain:
+    ///   1. Explicit `target_agent_id` (caller-provided)
+    ///   2. `default_child_agent` from parent config
+    ///   3. Parent agent ID itself (design doc §Spawn 控制流程 ④)
+    ///
+    /// The third fallback only applies when `require_agent_id` is false
+    /// (checked separately in `validate`).
     async fn resolve_target_config(
         &self,
         parent_agent_id: &str,
@@ -304,9 +312,11 @@ impl SpawnController {
             let agents = self.config_manager.agents();
             let parent_config = agents.get(parent_agent_id);
 
+            // Full fallback chain: explicit → default_child_agent → parent agent ID
             let target_id = target_agent_id
                 .map(|s| s.to_string())
-                .or_else(|| parent_config.and_then(|pc| pc.subagents.default_child_agent.clone()));
+                .or_else(|| parent_config.and_then(|pc| pc.subagents.default_child_agent.clone()))
+                .or_else(|| Some(parent_agent_id.to_string()));
 
             let target_config = target_id.as_ref().and_then(|id| agents.get(id).cloned());
 
