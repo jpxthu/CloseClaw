@@ -51,7 +51,7 @@ Agent 应能获取跨会话保留的长期记忆内容。长期记忆在主 Agen
 
 Owner 可以在对话中通过指令管理 System Prompt 末尾的动态指令。动态指令的追加、查看、清除等基本操作由 session 模块处理；本模块定义与 System Prompt 内容状态相关的专属行为。
 
-- 清除动态指令时，静态内容缓存同步刷新，确保下次重建为干净状态
+- 清除动态指令时，触发全部缓存失效并重建，确保下次 System Prompt 为干净状态
 
 > **交叉引用**：动态指令的追加、查看、清除基础行为，见 [session §F2](../requirements/session.md)（Agent 角色与能力配置）。本节仅定义 System Prompt 内容层的专属行为。
 
