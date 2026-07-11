@@ -524,6 +524,25 @@ impl ConversationSession {
         &self.stats
     }
 
+    /// Records a pre-call fingerprint of prompt components.
+    ///
+    /// Computes a fingerprint from the system prompt, tools, and
+    /// headers, then compares it against the previous fingerprint to
+    /// detect pending changes. The resulting [`PendingChanges`][closeclaw_common::PendingChanges]
+    /// are stored in [`RunningStats`] and consumed by the post-call
+    /// cache-break attribution logic.
+    ///
+    /// Should be called **before** the LLM call while holding a
+    /// write lock on the session.
+    pub fn record_prompt_fingerprint(
+        &mut self,
+        system_static: Option<&str>,
+        tools: Option<&[String]>,
+        headers: Option<&[(&str, &str)]>,
+    ) {
+        self.stats.record_fingerprint(system_static, tools, headers);
+    }
+
     /// Returns the streaming sink, if set.
     pub fn streaming_sink(&self) -> Option<&Arc<dyn StreamingSink>> {
         self.streaming_sink.as_ref()

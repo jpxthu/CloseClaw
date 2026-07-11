@@ -111,3 +111,58 @@ fn test_session_total_cache_saved() {
     session.accumulate_usage(&make_usage(100, 50, Some(150), Some(42), Some(10)));
     assert_eq!(session.stats().total_cache_saved(), 42);
 }
+
+// ── record_prompt_fingerprint integration ─────────────────────────────────
+
+#[test]
+fn test_session_record_prompt_fingerprint_initial_no_changes() {
+    let mut session = ConversationSession::new("sess_fp_init".into(), "gpt-4o".into(), tmp_path());
+    let tools = vec!["tool_a".to_string()];
+
+    // First call: no previous fingerprint → pending_changes is None
+    session.record_prompt_fingerprint(Some("You are helpful"), Some(&tools), None);
+    assert!(session.stats().pending_changes.is_none());
+}
+
+#[test]
+fn test_session_record_prompt_fingerprint_detects_system_prompt_change() {
+    let mut session = ConversationSession::new("sess_fp_sys".into(), "gpt-4o".into(), tmp_path());
+    let tools = vec!["tool_a".to_string()];
+
+    session.record_prompt_fingerprint(Some("old prompt"), Some(&tools), None);
+    session.record_prompt_fingerprint(Some("new prompt"), Some(&tools), None);
+
+    let pc = session.stats().pending_changes.as_ref().unwrap();
+    assert!(pc.system_prompt_changed);
+    assert!(!pc.tools_changed);
+}
+
+#[test]
+fn test_session_record_prompt_fingerprint_detects_tools_change() {
+    let mut session = ConversationSession::new("sess_fp_tools".into(), "gpt-4o".into(), tmp_path());
+    let tools_v1 = vec!["tool_a".to_string()];
+    let tools_v2 = vec!["tool_a".to_string(), "tool_b".to_string()];
+
+    session.record_prompt_fingerprint(Some("prompt"), Some(&tools_v1), None);
+    session.record_prompt_fingerprint(Some("prompt"), Some(&tools_v2), None);
+
+    let pc = session.stats().pending_changes.as_ref().unwrap();
+    assert!(pc.tools_changed);
+    assert!(!pc.system_prompt_changed);
+}
+
+#[test]
+fn test_session_record_prompt_fingerprint_detects_headers_change() {
+    let mut session = ConversationSession::new("sess_fp_hdr".into(), "gpt-4o".into(), tmp_path());
+    let tools = vec!["tool_a".to_string()];
+    let h1 = vec![("x-api-key", "abc")];
+    let h2 = vec![("x-api-key", "xyz")];
+
+    session.record_prompt_fingerprint(Some("prompt"), Some(&tools), Some(&h1));
+    session.record_prompt_fingerprint(Some("prompt"), Some(&tools), Some(&h2));
+
+    let pc = session.stats().pending_changes.as_ref().unwrap();
+    assert!(pc.headers_changed);
+    assert!(!pc.system_prompt_changed);
+    assert!(!pc.tools_changed);
+}

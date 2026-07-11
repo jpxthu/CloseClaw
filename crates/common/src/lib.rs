@@ -63,7 +63,10 @@ pub use im_plugin::{
 };
 pub use llm_caller::LlmCaller;
 pub use llm_error::{ErrorKind, LLMError};
-pub use llm_stats::{detect_cache_break, CacheBreakInfo, RunningStats};
+pub use llm_stats::{
+    detect_cache_break, CacheBreakCause, CacheBreakInfo, PendingChanges, PromptFingerprint,
+    RunningStats,
+};
 pub use llm_streaming::{StreamDone, StreamingSink};
 pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinition};
 pub use middleware::{MiddlewareError, OutboundMiddleware};
