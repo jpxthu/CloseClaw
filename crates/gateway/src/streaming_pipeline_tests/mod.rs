@@ -676,26 +676,19 @@ async fn test_streaming_non_text_block_rendered_and_sent() {
         .await
         .unwrap();
 
-    // plugin.send should be called twice:
-    // 1. Thinking block → render → send
-    // 2. Text line → send
+    // With default verbosity Normal, Thinking blocks are filtered out.
+    // Only the Text line should be sent.
     let sent = plugin.drain_sent();
-    assert_eq!(sent.len(), 2, "should send Thinking block and text line");
-
-    // The Thinking block render output is logged before send.
-    // Verify the Thinking block was sent (render + send path).
-    let thinking_payload = &sent[0];
-    let thinking_text = extract_text(thinking_payload);
-    assert!(
-        thinking_text.contains("internal reasoning"),
-        "Thinking block should be rendered and sent: {:?}",
-        thinking_payload
+    assert_eq!(
+        sent.len(),
+        1,
+        "should send only Text line (Thinking filtered by default Normal verbosity)"
     );
 
     // The text line is sent via send_text.
-    assert_eq!(extract_text(&sent[1]), "Final answer.");
+    assert_eq!(extract_text(&sent[0]), "Final answer.");
 
-    // Content blocks include both Thinking and Text.
+    // With default Normal verbosity, Thinking is filtered from both send and content_blocks.
     let has_thinking = result
         .content_blocks
         .iter()
@@ -704,7 +697,10 @@ async fn test_streaming_non_text_block_rendered_and_sent() {
         .content_blocks
         .iter()
         .any(|b| matches!(b, ContentBlock::Text(_)));
-    assert!(has_thinking, "result should contain Thinking block");
+    assert!(
+        !has_thinking,
+        "result should NOT contain Thinking block (filtered by Normal verbosity)"
+    );
     assert!(has_text, "result should contain Text block");
 }
 

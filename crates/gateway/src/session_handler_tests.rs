@@ -214,9 +214,9 @@ async fn test_set_verbosity_persists() {
     let sm = make_sm();
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
-    // Verify default verbosity is Full
+    // Verify default verbosity is Normal
     let cs = sm.get_conversation_session(&sid).await.expect("session");
-    assert_eq!(cs.read().await.verbosity_level(), VerbosityLevel::Full);
+    assert_eq!(cs.read().await.verbosity_level(), VerbosityLevel::Normal);
 
     // Set verbosity to Normal
     cs.write().await.set_verbosity_level(VerbosityLevel::Normal);

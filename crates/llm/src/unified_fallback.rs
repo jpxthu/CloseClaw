@@ -9,9 +9,11 @@
 //! the same five-layer architecture as the streaming path.
 
 use crate::client::{ClientError, UnifiedChatClient};
+use crate::protocol::{OutgoingEventStream, ProtocolError};
 use crate::retry::CooldownManager;
 use crate::types::{InternalRequest, UnifiedResponse};
 use crate::LLMError;
+use closeclaw_common::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
 use std::sync::Arc;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -81,10 +83,101 @@ impl UnifiedFallbackClient {
     }
 
     /// Returns a reference to the first client in the chain.
-    ///
-    /// Used by the streaming path which needs a single `UnifiedChatClient`.
     pub fn primary(&self) -> &Arc<UnifiedChatClient> {
         &self.chain.first().expect("chain must not be empty").client
+    }
+
+    /// Send a streaming chat request through the fallback chain.
+    ///
+    /// Walks the chain trying `chat_streaming` on each entry, skipping
+    /// cooldown entries. On success returns the stream; on failure records
+    /// cooldown and tries the next entry. If every entry's streaming call
+    /// fails, degrades to a non-streaming [`chat`](Self::chat) and wraps
+    /// the complete response as a single-chunk stream.
+    pub async fn chat_streaming(
+        &self,
+        mut request: InternalRequest,
+    ) -> Result<OutgoingEventStream, ClientError> {
+        let mut idx = 0;
+        loop {
+            match self.chain.get(idx) {
+                None => {
+                    // All streaming entries exhausted — degrade to non-streaming.
+                    return self.degraded_stream(request).await;
+                }
+                Some(entry) => {
+                    if self
+                        .cooldown
+                        .is_in_cooldown(&entry.provider_id, &entry.model_id)
+                        .await
+                    {
+                        tracing::debug!(
+                            provider = %entry.provider_id,
+                            model = %entry.model_id,
+                            "model in cooldown, skipping"
+                        );
+                        idx += 1;
+                        continue;
+                    }
+
+                    request.model = entry.model_id.clone();
+
+                    match entry.client.chat_streaming(request.clone()).await {
+                        Ok(stream) => {
+                            self.cooldown
+                                .record_success(&entry.provider_id, &entry.model_id)
+                                .await;
+                            return Ok(stream);
+                        }
+                        Err(client_err) => {
+                            let llm_err: LLMError = client_err.into();
+                            let kind = llm_err.kind();
+                            tracing::warn!(
+                                provider = %entry.provider_id,
+                                model = %entry.model_id,
+                                error = %llm_err,
+                                kind = ?kind,
+                                "unified fallback streaming call failed"
+                            );
+                            self.cooldown
+                                .record_failure(&entry.provider_id, &entry.model_id, kind)
+                                .await;
+                            idx += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// All streaming entries failed — degrade to non-streaming.
+    ///
+    /// Walks the chain without cooldown checks (the streaming cooldown
+    /// should not block a non-streaming attempt) and wraps the first
+    /// successful response as a single-chunk [`OutgoingEventStream`].
+    async fn degraded_stream(
+        &self,
+        mut request: InternalRequest,
+    ) -> Result<OutgoingEventStream, ClientError> {
+        tracing::warn!("all streaming entries failed, degrading to non-streaming");
+        for entry in &self.chain {
+            request.model = entry.model_id.clone();
+            match entry.client.chat(request.clone()).await {
+                Ok(response) => return Ok(response_to_stream(response)),
+                Err(client_err) => {
+                    let llm_err: LLMError = client_err.into();
+                    tracing::warn!(
+                        provider = %entry.provider_id,
+                        model = %entry.model_id,
+                        error = %llm_err,
+                        "degraded non-streaming call also failed"
+                    );
+                }
+            }
+        }
+        Err(ClientError::Protocol(ProtocolError::ResponseParse(
+            "all models in unified fallback chain exhausted".to_string(),
+        )))
     }
 }
 
@@ -149,6 +242,67 @@ impl UnifiedFallbackClient {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Degraded-stream helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Convert a [`UnifiedResponse`] into a single-chunk [`OutgoingEventStream`].
+///
+/// Each [`ContentBlock`] in the response becomes a `BlockStart → BlockDelta
+/// → BlockEnd` triple, followed by a `MessageEnd` with usage stats.
+fn response_to_stream(response: UnifiedResponse) -> OutgoingEventStream {
+    use futures::stream;
+
+    let mut events: Vec<Result<StreamEvent, ProtocolError>> = Vec::new();
+    for (i, block) in response.content_blocks.iter().enumerate() {
+        let (block_type, delta) = match block {
+            ContentBlock::Text(text) => (
+                ContentBlockType::Text,
+                ContentDelta::Text { text: text.clone() },
+            ),
+            ContentBlock::Thinking {
+                thinking,
+                signature,
+            } => (
+                ContentBlockType::Thinking,
+                ContentDelta::Thinking {
+                    thinking: thinking.clone(),
+                    signature: signature.clone(),
+                },
+            ),
+            ContentBlock::ToolUse { id, name, input } => (
+                ContentBlockType::ToolUse,
+                ContentDelta::ToolUseInputChunk {
+                    input: serde_json::json!({
+                        "id": id,
+                        "name": name,
+                        "input": input
+                    })
+                    .to_string(),
+                },
+            ),
+            ContentBlock::ToolResult { .. } => continue,
+            ContentBlock::Image { .. } => continue,
+            ContentBlock::Audio { .. } => continue,
+            ContentBlock::File { .. } => continue,
+        };
+        events.push(Ok(StreamEvent::BlockStart {
+            index: i,
+            block_type,
+        }));
+        events.push(Ok(StreamEvent::BlockDelta { index: i, delta }));
+        events.push(Ok(StreamEvent::BlockEnd {
+            index: i,
+            block_type,
+        }));
+    }
+    events.push(Ok(StreamEvent::MessageEnd {
+        usage: Some(response.usage),
+        finish_reason: response.finish_reason,
+    }));
+    Box::pin(stream::iter(events))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -157,6 +311,7 @@ mod tests {
     use super::*;
     use crate::retry::CooldownManager;
     use crate::ErrorKind;
+    use futures::StreamExt;
 
     /// Build a mock chain entry with a no-op UnifiedChatClient.
     ///
@@ -397,5 +552,241 @@ mod tests {
         let cooldown = Arc::new(CooldownManager::new());
         let client = UnifiedFallbackClient::new(vec![], cooldown);
         let _ = client.primary();
+    }
+
+    // ── Streaming fallback tests ───────────────────────────────────────────────
+
+    /// A provider whose `send_streaming` always fails but `send` succeeds.
+    struct StreamingFailProvider {
+        msg: String,
+        id: String,
+    }
+
+    impl StreamingFailProvider {
+        fn new(id: impl Into<String>, msg: impl Into<String>) -> Self {
+            Self {
+                id: id.into(),
+                msg: msg.into(),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::provider::Provider for StreamingFailProvider {
+        fn id(&self) -> &str {
+            &self.id
+        }
+        fn base_url(&self) -> &str {
+            ""
+        }
+        fn api_key(&self) -> &str {
+            ""
+        }
+        fn supported_protocols(&self) -> &[crate::types::ProtocolId] {
+            &[]
+        }
+        fn http_client(&self) -> &reqwest::Client {
+            static DUMMY: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+            DUMMY.get_or_init(reqwest::Client::new)
+        }
+        fn default_headers(&self) -> &reqwest::header::HeaderMap {
+            static EMPTY: std::sync::OnceLock<reqwest::header::HeaderMap> =
+                std::sync::OnceLock::new();
+            EMPTY.get_or_init(reqwest::header::HeaderMap::new)
+        }
+        async fn send(
+            &self,
+            _request: crate::types::InternalRequest,
+            _body: serde_json::Value,
+        ) -> crate::provider::Result<crate::types::InternalResponse> {
+            use crate::types::{RawContentBlock, RawUsage};
+            Ok(crate::types::InternalResponse {
+                content_blocks: vec![RawContentBlock::Text(self.msg.clone())],
+                usage: RawUsage {
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                    total_tokens: Some(0),
+                    cache_read_tokens: None,
+                    cache_write_tokens: None,
+                },
+                finish_reason: None,
+            })
+        }
+        async fn send_streaming(
+            &self,
+            _request: crate::types::InternalRequest,
+            _body: serde_json::Value,
+        ) -> crate::provider::Result<crate::provider::SseStream> {
+            Err(crate::provider::ProviderError::Legacy(self.msg.clone()))
+        }
+    }
+
+    fn streaming_fail_entry(provider_id: &str, model_id: &str, msg: &str) -> ChainEntry {
+        use crate::cache_adapter::NoopCacheAdapter;
+        use crate::client::UnifiedChatClient;
+        use crate::interpreter::InterpreterRegistry;
+        use crate::plugin::PluginPipeline;
+        use crate::protocol::OpenAiProtocol;
+
+        let provider = Arc::new(StreamingFailProvider::new(provider_id, msg));
+        let protocol = Arc::new(OpenAiProtocol::default());
+        let registry = InterpreterRegistry::new(vec![]);
+        let pipeline = PluginPipeline::new();
+        let client = Arc::new(UnifiedChatClient::new(
+            provider,
+            protocol,
+            registry,
+            pipeline,
+            Arc::new(NoopCacheAdapter),
+        ));
+        ChainEntry {
+            provider_id: provider_id.to_string(),
+            model_id: model_id.to_string(),
+            client,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fallback_degraded_stream() {
+        let cooldown = Arc::new(CooldownManager::new());
+        let entry = streaming_fail_entry("p1", "m1", "streaming not supported");
+        let client = UnifiedFallbackClient::new(vec![entry], cooldown);
+        let request = make_request("m1");
+        let result = client.chat_streaming(request).await;
+        assert!(result.is_ok(), "should degrade to non-streaming");
+        let mut stream = result.unwrap();
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event);
+        }
+        assert!(!events.is_empty(), "degraded stream should produce events");
+        let last = events.last().unwrap().as_ref().unwrap();
+        assert!(
+            matches!(last, StreamEvent::MessageEnd { .. }),
+            "last event should be MessageEnd"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fallback_streaming_chain_traversal() {
+        use crate::cache_adapter::NoopCacheAdapter;
+        use crate::client::UnifiedChatClient;
+        use crate::interpreter::InterpreterRegistry;
+        use crate::plugin::PluginPipeline;
+        use crate::protocol::OpenAiProtocol;
+        use crate::stub::StubProvider;
+
+        let cooldown = Arc::new(CooldownManager::new());
+
+        let entry_fail = streaming_fail_entry("p-fail", "m-fail", "no streaming");
+
+        let provider = Arc::new(StubProvider::new());
+        let protocol = Arc::new(OpenAiProtocol::default());
+        let registry = InterpreterRegistry::new(vec![]);
+        let pipeline = PluginPipeline::new();
+        let client_ok = Arc::new(UnifiedChatClient::new(
+            provider,
+            protocol,
+            registry,
+            pipeline,
+            Arc::new(NoopCacheAdapter),
+        ));
+        let entry_ok = ChainEntry {
+            provider_id: "p-ok".to_string(),
+            model_id: "m-ok".to_string(),
+            client: client_ok,
+        };
+
+        let client = UnifiedFallbackClient::new(vec![entry_fail, entry_ok], cooldown);
+        let request = make_request("m-fail");
+        let result = client.chat_streaming(request).await;
+        assert!(
+            result.is_ok(),
+            "should succeed via second entry after first fails"
+        );
+        let mut stream = result.unwrap();
+        let first = stream.next().await;
+        assert!(first.is_some(), "stream should yield at least one event");
+    }
+
+    #[tokio::test]
+    async fn test_fallback_streaming_all_fail_degrades() {
+        let cooldown = Arc::new(CooldownManager::new());
+        let entry1 = streaming_fail_entry("p1", "m1", "fail 1");
+        let entry2 = streaming_fail_entry("p2", "m2", "fail 2");
+        let client = UnifiedFallbackClient::new(vec![entry1, entry2], cooldown);
+        let request = make_request("m1");
+        // Both entries fail streaming but send() succeeds → degraded
+        let result = client.chat_streaming(request).await;
+        assert!(
+            result.is_ok(),
+            "should degrade to non-streaming successfully"
+        );
+        let mut stream = result.unwrap();
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event);
+        }
+        assert!(!events.is_empty(), "degraded stream should produce events");
+    }
+
+    #[tokio::test]
+    async fn test_fallback_streaming_cooldown_skip() {
+        let cooldown = Arc::new(CooldownManager::new());
+        cooldown
+            .record_failure("p-cd", "m-cd", ErrorKind::Transient)
+            .await;
+        assert!(cooldown.is_in_cooldown("p-cd", "m-cd").await);
+
+        let entry_cd = streaming_fail_entry("p-cd", "m-cd", "cd");
+        let entry_ok = mock_entry("p-ok", "m-ok");
+        let client = UnifiedFallbackClient::new(vec![entry_cd, entry_ok], cooldown);
+        let request = make_request("dummy");
+        let result = client.chat_streaming(request).await;
+        assert!(result.is_ok(), "should skip cooldown entry and use second");
+    }
+
+    #[tokio::test]
+    async fn test_response_to_stream_roundtrip() {
+        use closeclaw_common::processor::{ContentBlock, UnifiedUsage};
+
+        let response = UnifiedResponse {
+            content_blocks: vec![
+                ContentBlock::Text("hello world".to_string()),
+                ContentBlock::Thinking {
+                    thinking: "reasoning".to_string(),
+                    signature: None,
+                },
+            ],
+            usage: UnifiedUsage {
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                total_tokens: Some(15),
+                reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
+            finish_reason: Some("stop".to_string()),
+        };
+        let mut stream = response_to_stream(response);
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event.unwrap());
+        }
+        assert_eq!(events.len(), 7);
+        assert!(matches!(
+            events[0],
+            StreamEvent::BlockStart { index: 0, .. }
+        ));
+        assert!(matches!(
+            events[1],
+            StreamEvent::BlockDelta { index: 0, .. }
+        ));
+        assert!(matches!(events[2], StreamEvent::BlockEnd { index: 0, .. }));
+        assert!(matches!(
+            events[3],
+            StreamEvent::BlockStart { index: 1, .. }
+        ));
+        assert!(matches!(events[6], StreamEvent::MessageEnd { .. }));
     }
 }

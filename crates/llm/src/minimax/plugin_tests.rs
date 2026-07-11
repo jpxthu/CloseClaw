@@ -204,8 +204,52 @@ fn test_m3_max_reasoning_injects_thinking() {
     assert_eq!(
         req.extra_body.get("thinking"),
         Some(&json!({"type": "enabled"})),
-        "M3 + Max should inject thinking enabled"
+        "M3 + Max should inject thinking enabled (after downgrade to High)"
     );
+}
+
+#[test]
+fn test_m3_max_downgrades_to_high() {
+    let plugin = MiniMaxPlugin;
+    let mut req = make_m3_request(ReasoningLevel::Max);
+    assert_eq!(req.reasoning_level, ReasoningLevel::Max);
+    plugin.before_request(&mut req);
+    assert_eq!(req.reasoning_level, ReasoningLevel::High);
+}
+
+#[test]
+fn test_non_m3_max_does_not_downgrade() {
+    let plugin = MiniMaxPlugin;
+    let mut req = make_request(ReasoningLevel::Max);
+    req.model = "minimax-model".into();
+    plugin.before_request(&mut req);
+    // Non-M3 models don't go through the M3 downgrade path
+    assert_eq!(req.reasoning_level, ReasoningLevel::Max);
+}
+
+// ── downgrade logging verification ──────────────────────────────────
+
+/// Verify M3 Max→High downgrade path fires (which includes tracing::info!).
+#[test]
+fn test_m3_max_downgrade_triggers_logging_path() {
+    let plugin = MiniMaxPlugin;
+    let mut req = make_m3_request(ReasoningLevel::Max);
+    assert_eq!(req.reasoning_level, ReasoningLevel::Max);
+    plugin.before_request(&mut req);
+    assert_eq!(req.reasoning_level, ReasoningLevel::High);
+    assert_eq!(
+        req.extra_body.get("thinking"),
+        Some(&json!({"type": "enabled"}))
+    );
+}
+
+/// M3 High should NOT trigger the downgrade path.
+#[test]
+fn test_m3_high_no_downgrade() {
+    let plugin = MiniMaxPlugin;
+    let mut req = make_m3_request(ReasoningLevel::High);
+    plugin.before_request(&mut req);
+    assert_eq!(req.reasoning_level, ReasoningLevel::High);
 }
 
 #[test]

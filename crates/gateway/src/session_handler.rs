@@ -94,6 +94,8 @@ pub struct SessionMessageHandler {
     /// When set, compaction threshold checks use the knowledge base's
     /// context window for the model instead of the hardcoded table.
     pub(super) model_knowledge: Option<ProviderModelKnowledge>,
+    /// Metrics emitter for operational metrics (cache breaks, etc.).
+    pub(super) metrics_emitter: Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
 }
 
 // ── Construction ──
@@ -117,6 +119,7 @@ impl SessionMessageHandler {
             shutdown_handle: None,
             memory_db_path: None,
             model_knowledge: None,
+            metrics_emitter: None,
         }
     }
     /// Create a new handler without an output channel (used in tests).
@@ -137,6 +140,7 @@ impl SessionMessageHandler {
             shutdown_handle: None,
             memory_db_path: None,
             model_knowledge: None,
+            metrics_emitter: None,
         }
     }
     /// Attach a back-reference (weak) to the owning [`Gateway`].
@@ -175,6 +179,14 @@ impl SessionMessageHandler {
     /// context window for the model instead of the hardcoded table.
     pub fn with_model_knowledge(mut self, knowledge: ProviderModelKnowledge) -> Self {
         self.model_knowledge = Some(knowledge);
+        self
+    }
+    /// Set the metrics emitter for operational metrics.
+    pub fn with_metrics_emitter(
+        mut self,
+        emitter: Arc<dyn closeclaw_common::MetricsEmitter>,
+    ) -> Self {
+        self.metrics_emitter = Some(emitter);
         self
     }
 }

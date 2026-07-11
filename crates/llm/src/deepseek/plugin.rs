@@ -9,6 +9,22 @@ use crate::types::InternalRequest;
 use closeclaw_session::persistence::ReasoningLevel;
 use serde_json::Value;
 
+/// DeepSeek supports Low/Medium/High natively.
+/// Max is equivalent to High (`reasoner` has no extra effect);
+/// downgrade Max→High for clarity and log the downgrade.
+fn downgrade_max_to_high(request: &mut InternalRequest) {
+    if request.reasoning_level == ReasoningLevel::Max {
+        tracing::info!(
+            provider = "deepseek",
+            model = %request.model,
+            from = "max",
+            to = "high",
+            "reasoning level downgraded: Max is equivalent to High on DeepSeek"
+        );
+        request.reasoning_level = ReasoningLevel::High;
+    }
+}
+
 /// Plugin that enriches DeepSeek requests with provider-specific parameters.
 ///
 /// Currently handles `reasoning_effort` injection for the OpenAI protocol path.
@@ -20,11 +36,12 @@ impl ModelPlugin for DeepSeekPlugin {
     }
 
     fn before_request(&self, request: &mut InternalRequest) {
+        downgrade_max_to_high(request);
+
         let effort = match request.reasoning_level {
             ReasoningLevel::Low => Some("low"),
             ReasoningLevel::Medium => Some("base"),
-            ReasoningLevel::High => Some("high"),
-            ReasoningLevel::Max => Some("reasoner"),
+            ReasoningLevel::High | ReasoningLevel::Max => Some("high"),
         };
 
         if let Some(val) = effort {

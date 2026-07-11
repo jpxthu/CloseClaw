@@ -49,7 +49,6 @@ impl LlmCaller for FallbackLlmCaller {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>>, LLMError> {
         let raw_stream = self
             .0
-            .primary()
             .chat_streaming(request)
             .await
             .map_err(|e| LLMError::ApiError(e.to_string()))?;
@@ -251,6 +250,120 @@ mod tests {
         let _ = stream.next().await;
     }
 
+    /// Verify that `call_streaming` walks the fallback chain: first entry
+    /// streaming fails → falls through to second entry which succeeds.
+    #[tokio::test]
+    async fn test_fallback_llm_caller_streaming_chain_traversal() {
+        use closeclaw_llm::cache_adapter::NoopCacheAdapter;
+        use closeclaw_llm::interpreter::InterpreterRegistry;
+        use closeclaw_llm::plugin::PluginPipeline;
+        use closeclaw_llm::protocol::OpenAiProtocol;
+        use closeclaw_llm::retry::CooldownManager;
+        use closeclaw_llm::stub::StubProvider;
+        use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
+
+        // First entry: streaming always fails, but non-streaming works.
+        struct StreamingFailProvider;
+
+        #[async_trait::async_trait]
+        impl closeclaw_llm::provider::Provider for StreamingFailProvider {
+            fn id(&self) -> &str {
+                "fail"
+            }
+            fn base_url(&self) -> &str {
+                ""
+            }
+            fn api_key(&self) -> &str {
+                ""
+            }
+            fn supported_protocols(&self) -> &[closeclaw_llm::types::ProtocolId] {
+                &[]
+            }
+            fn http_client(&self) -> &reqwest::Client {
+                static D: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+                D.get_or_init(reqwest::Client::new)
+            }
+            fn default_headers(&self) -> &reqwest::header::HeaderMap {
+                static H: std::sync::OnceLock<reqwest::header::HeaderMap> =
+                    std::sync::OnceLock::new();
+                H.get_or_init(reqwest::header::HeaderMap::new)
+            }
+            async fn send(
+                &self,
+                _req: closeclaw_llm::types::InternalRequest,
+                _body: serde_json::Value,
+            ) -> closeclaw_llm::provider::Result<closeclaw_llm::types::InternalResponse>
+            {
+                use closeclaw_llm::types::{RawContentBlock, RawUsage};
+                Ok(closeclaw_llm::types::InternalResponse {
+                    content_blocks: vec![RawContentBlock::Text("ok".to_string())],
+                    usage: RawUsage {
+                        prompt_tokens: 0,
+                        completion_tokens: 0,
+                        total_tokens: Some(0),
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                    },
+                    finish_reason: None,
+                })
+            }
+            async fn send_streaming(
+                &self,
+                _req: closeclaw_llm::types::InternalRequest,
+                _body: serde_json::Value,
+            ) -> closeclaw_llm::provider::Result<closeclaw_llm::provider::SseStream> {
+                Err(closeclaw_llm::provider::ProviderError::Legacy(
+                    "streaming not supported".to_string(),
+                ))
+            }
+        }
+
+        let fail_client = Arc::new(UnifiedChatClient::new(
+            Arc::new(StreamingFailProvider),
+            Arc::new(OpenAiProtocol::default()),
+            InterpreterRegistry::new(vec![]),
+            PluginPipeline::new(),
+            Arc::new(NoopCacheAdapter),
+        ));
+        let entry_fail = ChainEntry {
+            provider_id: "fail".to_string(),
+            model_id: "fail-model".to_string(),
+            client: fail_client,
+        };
+
+        // Second entry: streaming works (StubProvider)
+        let ok_client = Arc::new(UnifiedChatClient::new(
+            Arc::new(StubProvider::new()),
+            Arc::new(OpenAiProtocol::default()),
+            InterpreterRegistry::new(vec![]),
+            PluginPipeline::new(),
+            Arc::new(NoopCacheAdapter),
+        ));
+        let entry_ok = ChainEntry {
+            provider_id: "stub".to_string(),
+            model_id: "stub-model".to_string(),
+            client: ok_client,
+        };
+
+        let cooldown = Arc::new(CooldownManager::new());
+        let fallback = Arc::new(UnifiedFallbackClient::new(
+            vec![entry_fail, entry_ok],
+            cooldown,
+        ));
+        let caller = FallbackLlmCaller(fallback);
+
+        let mut request = make_request("hello");
+        request.stream = true;
+        let result = caller.call_streaming(request).await;
+        assert!(
+            result.is_ok(),
+            "call_streaming should succeed via second entry"
+        );
+        let mut stream = result.unwrap();
+        let first = stream.next().await;
+        assert!(first.is_some(), "stream should yield at least one event");
+    }
+
     // ── LlmCaller error propagation ─────────────────────────────────────
 
     #[tokio::test]
@@ -315,6 +428,108 @@ mod tests {
         let result = caller.call(request).await;
         // StubProvider accepts empty messages — call succeeds
         assert!(result.is_ok(), "empty messages should not fail with stub");
+    }
+
+    /// Verify that `call_streaming` degrades to non-streaming when all
+    /// entries' streaming fails but non-streaming succeeds.
+    #[tokio::test]
+    async fn test_fallback_llm_caller_call_streaming_degraded() {
+        use closeclaw_llm::cache_adapter::NoopCacheAdapter;
+        use closeclaw_llm::interpreter::InterpreterRegistry;
+        use closeclaw_llm::plugin::PluginPipeline;
+        use closeclaw_llm::protocol::OpenAiProtocol;
+        use closeclaw_llm::retry::CooldownManager;
+        use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
+
+        // Provider that fails on streaming but succeeds on non-streaming.
+        struct StreamingFailProvider;
+
+        #[async_trait::async_trait]
+        impl closeclaw_llm::provider::Provider for StreamingFailProvider {
+            fn id(&self) -> &str {
+                "fail"
+            }
+            fn base_url(&self) -> &str {
+                ""
+            }
+            fn api_key(&self) -> &str {
+                ""
+            }
+            fn supported_protocols(&self) -> &[closeclaw_llm::types::ProtocolId] {
+                &[]
+            }
+            fn http_client(&self) -> &reqwest::Client {
+                static D: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+                D.get_or_init(reqwest::Client::new)
+            }
+            fn default_headers(&self) -> &reqwest::header::HeaderMap {
+                static H: std::sync::OnceLock<reqwest::header::HeaderMap> =
+                    std::sync::OnceLock::new();
+                H.get_or_init(reqwest::header::HeaderMap::new)
+            }
+            async fn send(
+                &self,
+                _req: closeclaw_llm::types::InternalRequest,
+                _body: serde_json::Value,
+            ) -> closeclaw_llm::provider::Result<closeclaw_llm::types::InternalResponse>
+            {
+                use closeclaw_llm::types::{RawContentBlock, RawUsage};
+                Ok(closeclaw_llm::types::InternalResponse {
+                    content_blocks: vec![RawContentBlock::Text("ok".to_string())],
+                    usage: RawUsage {
+                        prompt_tokens: 0,
+                        completion_tokens: 0,
+                        total_tokens: Some(0),
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                    },
+                    finish_reason: None,
+                })
+            }
+            async fn send_streaming(
+                &self,
+                _req: closeclaw_llm::types::InternalRequest,
+                _body: serde_json::Value,
+            ) -> closeclaw_llm::provider::Result<closeclaw_llm::provider::SseStream> {
+                Err(closeclaw_llm::provider::ProviderError::Legacy(
+                    "streaming not supported".to_string(),
+                ))
+            }
+        }
+
+        let provider = Arc::new(StreamingFailProvider);
+        let protocol = Arc::new(OpenAiProtocol::default());
+        let registry = InterpreterRegistry::new(vec![]);
+        let pipeline = PluginPipeline::new();
+        let client = Arc::new(UnifiedChatClient::new(
+            provider,
+            protocol,
+            registry,
+            pipeline,
+            Arc::new(NoopCacheAdapter),
+        ));
+        let entry = ChainEntry {
+            provider_id: "fail".to_string(),
+            model_id: "fail-model".to_string(),
+            client,
+        };
+        let cooldown = Arc::new(CooldownManager::new());
+        let fallback = Arc::new(UnifiedFallbackClient::new(vec![entry], cooldown));
+        let caller = FallbackLlmCaller(fallback);
+
+        let mut request = make_request("hello");
+        request.stream = true;
+        let result = caller.call_streaming(request).await;
+        assert!(
+            result.is_ok(),
+            "call_streaming should degrade to non-streaming successfully"
+        );
+        let mut stream = result.unwrap();
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event);
+        }
+        assert!(!events.is_empty(), "degraded stream should produce events");
     }
 
     // ── execute_compact tests ─────────────────────────────────────────────
