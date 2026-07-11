@@ -420,6 +420,13 @@ impl SessionManager {
         // Stop the session (cancel token, kill tool handles, clear state).
         cs.read().await.stop(false).await;
 
+        // Stage 2→3 boundary: clean up finished task output files.
+        // Must happen after tool processes are terminated (stage 2) and
+        // before clearing execution state (stage 3).
+        if let Some(tm) = self.get_task_manager().await {
+            tm.cleanup_finished().await;
+        }
+
         // Persist checkpoint.
         if let Err(e) = self
             .persist_checkpoint_with_pending(session_id, pending_ops)

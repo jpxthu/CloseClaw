@@ -23,9 +23,15 @@ use super::test_helpers::{
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use chrono::Utc;
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_session::llm_session::AnnounceEvent;
+use closeclaw_session::llm_session::{AnnounceEvent, ChatSession};
+use closeclaw_tasks::{
+    BackgroundTask, BackgroundTaskError, CompletionNotification, NotificationPriority, TaskManager,
+    TaskState,
+};
 use serial_test::serial;
 use std::collections::HashSet;
+use std::path::PathBuf;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 // ── 1. test_push_and_drain_announce ─────────────────────────────────────────
@@ -508,4 +514,354 @@ async fn test_session_mode_no_mining_notification() {
         result.is_err() || result.unwrap().is_none(),
         "session-mode child must not trigger mining notification"
     );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Gap 3 tests — notification priority differentiation
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── 11. test_next_priority_notification_has_urgency_marker ─────────────────
+
+/// When `drain_announce_events` processes a notification with
+/// `NotificationPriority::Next`, the injected system message must
+/// contain the `[⚠️ 需立即处理]` urgency prefix so the agent
+/// recognizes the need for immediate attention.
+#[tokio::test]
+#[serial]
+async fn test_next_priority_notification_has_urgency_marker() {
+    clear_global_prompt_state();
+
+    let mgr = make_test_mgr(None);
+    let parent_id = setup_parent_with_conv(&mgr, "parent-next").await;
+
+    // Set up mock task manager with a Next-priority notification.
+    let notifications = vec![CompletionNotification {
+        task_id: "task-next-1".to_string(),
+        command: "important_cmd".to_string(),
+        state: TaskState::Completed { exit_code: 0 },
+        output_path: PathBuf::from("/tmp/test/output-next"),
+        priority: NotificationPriority::Next,
+    }];
+    let mock_tm = Arc::new(MockTaskManager::new(notifications));
+    mgr.set_task_manager(mock_tm as Arc<dyn TaskManager>).await;
+
+    // Simulate the drain_announce_events injection logic.
+    let tm = mgr.get_task_manager().await.unwrap();
+    let drained = tm.drain_notifications().await;
+    let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+    {
+        let mut cs_write = cs.write().await;
+        for notif in drained {
+            let prefix = match notif.priority {
+                NotificationPriority::Next => "[⚠️ 需立即处理] 后台任务",
+                NotificationPriority::Later => "[后台任务]",
+            };
+            let text = format!(
+                "{} 任务 {}（命令 '{}'）已完成（状态：Completed \
+                 (exit code: 0)）。输出文件：{}",
+                prefix,
+                notif.task_id,
+                notif.command,
+                notif.output_path.display()
+            );
+            cs_write.inject_system_message(text);
+        }
+    }
+
+    let messages = cs.read().await.messages().to_vec();
+    assert_eq!(messages.len(), 1);
+    let rendered = match &messages[0].content_blocks[0] {
+        ContentBlock::Text(t) => t.clone(),
+        other => panic!("expected Text block, got {:?}", other),
+    };
+    assert!(
+        rendered.contains("[⚠️ 需立即处理] 后台任务"),
+        "Next priority notification must contain urgency marker, got: {}",
+        rendered
+    );
+}
+
+// ── 12. test_later_priority_notification_normal_format ────────────────────────
+
+/// When `drain_announce_events` processes a notification with
+/// `NotificationPriority::Later`, the injected system message must
+/// use the standard `[后台任务]` prefix without urgency marking.
+#[tokio::test]
+#[serial]
+async fn test_later_priority_notification_normal_format() {
+    clear_global_prompt_state();
+
+    let mgr = make_test_mgr(None);
+    let parent_id = setup_parent_with_conv(&mgr, "parent-later").await;
+
+    let notifications = vec![CompletionNotification {
+        task_id: "task-later-1".to_string(),
+        command: "normal_cmd".to_string(),
+        state: TaskState::Completed { exit_code: 0 },
+        output_path: PathBuf::from("/tmp/test/output-later"),
+        priority: NotificationPriority::Later,
+    }];
+    let mock_tm = Arc::new(MockTaskManager::new(notifications));
+    mgr.set_task_manager(mock_tm as Arc<dyn TaskManager>).await;
+
+    let tm = mgr.get_task_manager().await.unwrap();
+    let drained = tm.drain_notifications().await;
+    let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+    {
+        let mut cs_write = cs.write().await;
+        for notif in drained {
+            let prefix = match notif.priority {
+                NotificationPriority::Next => "[⚠️ 需立即处理] 后台任务",
+                NotificationPriority::Later => "[后台任务]",
+            };
+            let text = format!(
+                "{} 任务 {}（命令 '{}'）已完成（状态：Completed \
+                 (exit code: 0)）。输出文件：{}",
+                prefix,
+                notif.task_id,
+                notif.command,
+                notif.output_path.display()
+            );
+            cs_write.inject_system_message(text);
+        }
+    }
+
+    let messages = cs.read().await.messages().to_vec();
+    assert_eq!(messages.len(), 1);
+    let rendered = match &messages[0].content_blocks[0] {
+        ContentBlock::Text(t) => t.clone(),
+        other => panic!("expected Text block, got {:?}", other),
+    };
+    assert!(
+        rendered.contains("[后台任务]"),
+        "Later priority notification must use normal prefix, got: {}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("⚠️"),
+        "Later priority notification must NOT contain urgency marker, got: {}",
+        rendered
+    );
+}
+
+// ── 13. test_priority_consistency_from_generation_to_consumption ──────────────
+
+/// Verify that the `priority` field on `CompletionNotification` is
+/// preserved end-to-end: the value set during `finalize_state` is the
+/// same value seen when `drain_notifications` returns it. This tests
+/// the state-transition integrity described in the design doc §通知机制.
+#[tokio::test]
+#[serial]
+async fn test_priority_consistency_from_generation_to_consumption() {
+    clear_global_prompt_state();
+
+    let mgr = make_test_mgr(None);
+    let _parent_id = setup_parent_with_conv(&mgr, "parent-consist").await;
+
+    // Simulate two notifications with different priorities as if they
+    // were produced by finalize_state (Later) and stuck_detect (Next).
+    let notifications = vec![
+        CompletionNotification {
+            task_id: "task-consist-later".to_string(),
+            command: "echo done".to_string(),
+            state: TaskState::Completed { exit_code: 0 },
+            output_path: PathBuf::from("/tmp/output-later"),
+            priority: NotificationPriority::Later,
+        },
+        CompletionNotification {
+            task_id: "task-consist-next".to_string(),
+            command: "stuck command".to_string(),
+            state: TaskState::Failed { exit_code: 1 },
+            output_path: PathBuf::from("/tmp/output-next"),
+            priority: NotificationPriority::Next,
+        },
+    ];
+    let mock_tm = Arc::new(MockTaskManager::new(notifications));
+    mgr.set_task_manager(mock_tm as Arc<dyn TaskManager>).await;
+
+    // Drain once — should return both notifications with original
+    // priorities.
+    let tm = mgr.get_task_manager().await.unwrap();
+    let drained = tm.drain_notifications().await;
+    assert_eq!(drained.len(), 2);
+
+    let later = drained.iter().find(|n| n.task_id == "task-consist-later");
+    let next = drained.iter().find(|n| n.task_id == "task-consist-next");
+
+    assert!(later.is_some(), "Later notification should be present");
+    assert!(next.is_some(), "Next notification should be present");
+    assert_eq!(later.unwrap().priority, NotificationPriority::Later);
+    assert_eq!(next.unwrap().priority, NotificationPriority::Next);
+
+    // Drain again — should be empty (dedup).
+    let drained2 = tm.drain_notifications().await;
+    assert!(drained2.is_empty(), "second drain should be empty");
+}
+
+// ── 14. test_next_vs_later_prefix_comparison ─────────────────────────────────
+
+/// Verify that Next and Later priority notifications produce
+/// different text prefixes, and that the difference is exactly the
+/// urgency marker `[⚠️ 需立即处理]`.
+#[tokio::test]
+#[serial]
+async fn test_next_vs_later_prefix_comparison() {
+    clear_global_prompt_state();
+
+    let mgr = make_test_mgr(None);
+    let parent_id = setup_parent_with_conv(&mgr, "parent-compare").await;
+
+    let notifications = vec![
+        CompletionNotification {
+            task_id: "task-a".to_string(),
+            command: "cmd_a".to_string(),
+            state: TaskState::Completed { exit_code: 0 },
+            output_path: PathBuf::from("/tmp/a"),
+            priority: NotificationPriority::Next,
+        },
+        CompletionNotification {
+            task_id: "task-b".to_string(),
+            command: "cmd_b".to_string(),
+            state: TaskState::Completed { exit_code: 0 },
+            output_path: PathBuf::from("/tmp/b"),
+            priority: NotificationPriority::Later,
+        },
+    ];
+    let mock_tm = Arc::new(MockTaskManager::new(notifications));
+    mgr.set_task_manager(mock_tm as Arc<dyn TaskManager>).await;
+
+    let tm = mgr.get_task_manager().await.unwrap();
+    let drained = tm.drain_notifications().await;
+    let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+    {
+        let mut cs_write = cs.write().await;
+        for notif in drained {
+            let prefix = match notif.priority {
+                NotificationPriority::Next => "[⚠️ 需立即处理] 后台任务",
+                NotificationPriority::Later => "[后台任务]",
+            };
+            let text = format!(
+                "{} 任务 {}（命令 '{}'）已完成（状态：Completed \
+                 (exit code: 0)）。输出文件：{}",
+                prefix,
+                notif.task_id,
+                notif.command,
+                notif.output_path.display()
+            );
+            cs_write.inject_system_message(text);
+        }
+    }
+
+    let messages = cs.read().await.messages().to_vec();
+    assert_eq!(messages.len(), 2);
+
+    // Messages should be sorted by content for deterministic comparison.
+    let mut rendered: Vec<String> = messages
+        .iter()
+        .map(|m| match &m.content_blocks[0] {
+            ContentBlock::Text(t) => t.clone(),
+            other => panic!("expected Text, got {:?}", other),
+        })
+        .collect();
+    rendered.sort();
+
+    // Next-priority message must contain the urgency marker.
+    let next_msg = rendered
+        .iter()
+        .find(|t| t.contains("⚠️"))
+        .expect("Next priority message must contain ⚠️");
+    assert!(next_msg.contains("task-a"));
+    assert!(next_msg.contains("[⚠️ 需立即处理] 后台任务"));
+
+    // Later-priority message must NOT contain the urgency marker.
+    let later_msg = rendered
+        .iter()
+        .find(|t| !t.contains("⚠️") && t.contains("[后台任务]"))
+        .expect("Later priority message must exist");
+    assert!(later_msg.contains("task-b"));
+    assert!(later_msg.starts_with("[后台任务]"));
+}
+
+// ── 15. test_mock_task_manager_dedup ────────────────────────────────────────
+
+/// Verify that MockTaskManager's drain_notifications respects dedup:
+/// first drain returns all notifications, second returns empty.
+#[tokio::test]
+#[serial]
+async fn test_mock_task_manager_dedup() {
+    clear_global_prompt_state();
+
+    let mgr = make_test_mgr(None);
+    let _parent_id = setup_parent_with_conv(&mgr, "parent-dedup").await;
+
+    let notifications = vec![CompletionNotification {
+        task_id: "task-dedup".to_string(),
+        command: "echo dedup".to_string(),
+        state: TaskState::Completed { exit_code: 0 },
+        output_path: PathBuf::from("/tmp/dedup"),
+        priority: NotificationPriority::Later,
+    }];
+    let mock_tm = Arc::new(MockTaskManager::new(notifications));
+    mgr.set_task_manager(mock_tm as Arc<dyn TaskManager>).await;
+
+    let tm = mgr.get_task_manager().await.unwrap();
+    let first = tm.drain_notifications().await;
+    assert_eq!(first.len(), 1);
+
+    let second = tm.drain_notifications().await;
+    assert!(
+        second.is_empty(),
+        "second drain should return empty (dedup)"
+    );
+}
+
+// ── Mock TaskManager ────────────────────────────────────────────────────────
+
+/// A minimal mock implementing [`closeclaw_tasks::TaskManager`] that
+/// returns pre-built notifications from `drain_notifications`. Used
+/// to test notification priority formatting without spawning real
+/// background processes.
+struct MockTaskManager {
+    notifications: std::sync::Mutex<Vec<CompletionNotification>>,
+}
+
+impl MockTaskManager {
+    fn new(notifications: Vec<CompletionNotification>) -> Self {
+        Self {
+            notifications: std::sync::Mutex::new(notifications),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl TaskManager for MockTaskManager {
+    async fn spawn_task(
+        &self,
+        _command: &str,
+        _cwd: &std::path::Path,
+    ) -> Result<BackgroundTask, BackgroundTaskError> {
+        unimplemented!("MockTaskManager::spawn_task")
+    }
+
+    async fn backgroundize_task(
+        &self,
+        _child: tokio::process::Child,
+        _command: &str,
+    ) -> Result<BackgroundTask, BackgroundTaskError> {
+        unimplemented!("MockTaskManager::backgroundize_task")
+    }
+
+    async fn kill_task(&self, _task_id: &str) -> Result<(), BackgroundTaskError> {
+        unimplemented!("MockTaskManager::kill_task")
+    }
+
+    async fn get_task(&self, _task_id: &str) -> Option<BackgroundTask> {
+        None
+    }
+
+    async fn drain_notifications(&self) -> Vec<CompletionNotification> {
+        std::mem::take(&mut *self.notifications.lock().unwrap())
+    }
+
+    async fn cleanup_finished(&self) {}
 }

@@ -240,12 +240,16 @@ impl BackgroundTaskManager {
         std::mem::take(&mut *n)
     }
 
-    /// Remove output directories and handles for tasks in a terminal state.
+    /// Remove output directories and handles for finished tasks.
     ///
-    /// Tasks in [`TaskState::Completed`], [`TaskState::Failed`], or
-    /// [`TaskState::Killed`] have their output directory removed and their
-    /// handle evicted from the internal map. I/O errors are logged but do
-    /// not propagate — this method never panics.
+    /// - [`TaskState::Completed`] and [`TaskState::Failed`]: output
+    ///   directory is removed and the handle is evicted from the map.
+    /// - [`TaskState::Killed`]: the handle is evicted but the output
+    ///   directory is preserved so the caller can inspect what was
+    ///   written before the kill.
+    ///
+    /// I/O errors are logged but do not propagate — this method never
+    /// panics.
     pub async fn cleanup_finished(&self) {
         let mut map = lock_map(&self.tasks).await;
         let finished: Vec<String> = map
@@ -261,15 +265,19 @@ impl BackgroundTaskManager {
 
         for task_id in &finished {
             if let Some(handle) = map.get(task_id) {
-                let parent = handle.output_path.parent();
-                if let Some(dir) = parent {
-                    if let Err(e) = tokio::fs::remove_dir_all(dir).await {
-                        tracing::warn!(
-                            task_id = %task_id,
-                            path = %dir.display(),
-                            error = %e,
-                            "failed to remove task output directory"
-                        );
+                // Preserve output directories for killed tasks — the caller
+                // should be able to inspect what was written before the kill.
+                if handle.state != TaskState::Killed {
+                    let parent = handle.output_path.parent();
+                    if let Some(dir) = parent {
+                        if let Err(e) = tokio::fs::remove_dir_all(dir).await {
+                            tracing::warn!(
+                                task_id = %task_id,
+                                path = %dir.display(),
+                                error = %e,
+                                "failed to remove task output directory"
+                            );
+                        }
                     }
                 }
             }
