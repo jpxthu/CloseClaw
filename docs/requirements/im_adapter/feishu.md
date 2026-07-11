@@ -20,7 +20,8 @@
 | 加粗/删除线/下划线 | ✅ `im-message-receive_v1` | F1, F4 |
 | 引用块 | ✅ `im-message-receive_v1` | F1, F4 |
 | 表情消息 | ✅ `im-message-receive_v1` | F1 |
-| 图片消息（独立） | ✅ `im-message-receive_v1` | F1 |
+| 图片消息（独立） | ✅ `im-message-receive_v1` | F1（丢弃） |
+| 内嵌图片（Post 内） | ✅ `im-message-receive_v1` | F1（占位符） |
 | 话题消息 | ✅ `im-message-receive_v1` | F1, F7 |
 | 表情回应 | ✅ `im-message-reaction-created_v1` | F2 |
 | 卡片按钮点击 | ✅ `card-action-trigger` | F2, F5 |
@@ -44,7 +45,8 @@
 - **行内代码/超链接**（⬜ 无 fixture）：行内代码和可点击链接的解析行为暂基于设计文档推导
 - **引用/回复消息**（✅ fixture）：提取被引用消息的文本内容（截断至 500 字符），拼接在本消息正文前，以引用格式呈现
 - **话题消息**（✅ fixture）：提取话题 ID，用于回复定位。话题 ID 不参与会话路由
-- **非文本消息**（✅ fixture 图片，⬜ 文件）：图片消息有 fixture，显示为占位符；文件/语音消息无 fixture，不进行语义理解
+- **非文本消息**（⬜ 独立图片/文件/语音消息无 fixture）：独立非文本消息不进行语义理解，记录日志后丢弃
+- **富文本内嵌媒体**（✅ fixture）：富文本消息中内嵌的图片等媒体内容以 `[图片]` 等占位符表示
 - **表情消息**（✅ fixture）：消息中的表情符号渲染为文本占位符形式（如 `[OK]`、`[赞]`）
 
 入站解析后输出归一化消息，包含平台标识（feishu）、发送者、会话 ID、消息正文。
