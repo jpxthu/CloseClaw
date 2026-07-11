@@ -73,7 +73,9 @@ pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinitio
 pub use metrics::{MetricsEmitter, NoopMetricsEmitter};
 pub use middleware::{MiddlewareError, OutboundMiddleware};
 pub use notifier::{NoopNotifier, PlanStateNotifier};
-pub use permission_check::{ExecutionPermissionCheck, PermissionDenied};
+pub use permission_check::{
+    ExecutionPermissionCheck, PermissionChecker, PermissionDenied, SpawnPermissionError,
+};
 pub use permission_op::{
     InitialPermissionSet, PermissionOperation, UserCreationRequest, UserRegistration,
 };

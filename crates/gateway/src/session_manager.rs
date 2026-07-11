@@ -35,6 +35,7 @@ mod key_registry;
 mod resolve;
 mod session_helpers;
 mod spawn;
+pub mod spawn_adapter;
 pub mod spawn_controller;
 pub mod stop;
 pub use spawn::{ChildSessionInfo, SpawnMode};
