@@ -12,7 +12,6 @@ use closeclaw_gateway::session_manager::SessionManager;
 
 fn make_sm() -> Arc<SessionManager> {
     use closeclaw_gateway::DmScope;
-    use closeclaw_session::bootstrap::loader::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
 
     let gc = closeclaw_gateway::GatewayConfig {
@@ -26,7 +25,6 @@ fn make_sm() -> Arc<SessionManager> {
         &gc,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ))
 }

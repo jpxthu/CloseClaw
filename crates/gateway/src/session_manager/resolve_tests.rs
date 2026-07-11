@@ -4,7 +4,6 @@ use super::session_helpers;
 use super::tests::{make_test_mgr, test_config};
 use super::SessionManager;
 use crate::{Message, Session};
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
 
@@ -201,13 +200,7 @@ async fn test_rebuild_key_registry() {
     }
 
     let mock = Arc::new(RebuildMockWithLoad { checkpoints: cps });
-    let mgr = SessionManager::new(
-        &test_config(),
-        Some(mock),
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    );
+    let mgr = SessionManager::new(&test_config(), Some(mock), None, ReasoningLevel::default());
 
     mgr.rebuild_key_registry().await.unwrap();
 
@@ -279,13 +272,7 @@ async fn test_rebuild_then_resolve_consistency() {
         checkpoint: tokio::sync::Mutex::new(Some(cp)),
         session_id: session_id_clone.clone(),
     });
-    let mgr = SessionManager::new(
-        &test_config(),
-        Some(mock),
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    );
+    let mgr = SessionManager::new(&test_config(), Some(mock), None, ReasoningLevel::default());
 
     // Simulate daemon restart: rebuild_key_registry populates key_registry
     mgr.rebuild_key_registry().await.unwrap();
@@ -527,7 +514,6 @@ async fn test_resolve_restores_transcript_from_checkpoint() {
         &test_config(),
         Some(storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
 

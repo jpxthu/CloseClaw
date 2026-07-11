@@ -24,7 +24,6 @@ pub(crate) fn dummy_ctx() -> SlashContext {
 
 fn make_workdir_session_manager() -> std::sync::Arc<SessionManager> {
     use closeclaw_gateway::DmScope;
-    use closeclaw_session::bootstrap::loader::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
 
     let gc = closeclaw_gateway::GatewayConfig {
@@ -38,7 +37,6 @@ fn make_workdir_session_manager() -> std::sync::Arc<SessionManager> {
         &gc,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ))
 }

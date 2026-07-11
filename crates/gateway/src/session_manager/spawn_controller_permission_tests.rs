@@ -8,12 +8,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{
     ActionPermission, AgentPermissions, ModelSpec, PermissionLimits, SubagentsConfig,
 };
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 
 use crate::session_manager::spawn_controller::{SpawnController, SpawnError};
@@ -40,13 +40,7 @@ fn make_permission_engine() -> PermissionEngine {
 }
 
 fn make_session_manager() -> SessionManager {
-    SessionManager::new(
-        &test_config(),
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    )
+    SessionManager::new(&test_config(), None, None, ReasoningLevel::default())
 }
 
 fn make_config_manager() -> ConfigManager {

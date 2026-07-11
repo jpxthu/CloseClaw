@@ -19,7 +19,6 @@ use closeclaw_gateway::{DmScope, GatewayConfig, Message};
 use closeclaw_llm::fake::FakeProvider;
 use closeclaw_llm::provider::Provider;
 use closeclaw_llm::LLMRegistry;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::PersistenceService;
 use closeclaw_session::persistence::ReasoningLevel;
@@ -71,7 +70,6 @@ async fn setup_session_manager_with_storage() -> (Arc<SessionManager>, FakeProvi
         &test_config(),
         Some(storage),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
 
@@ -347,7 +345,6 @@ async fn test_full_shutdown_restore_cycle() {
         &test_config(),
         Some(storage2),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
 

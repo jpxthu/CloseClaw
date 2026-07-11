@@ -14,7 +14,7 @@ use super::communication::{
 use super::spawn::{ChildSessionInfo, SpawnMode};
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
-use closeclaw_session::bootstrap::BootstrapMode;
+use closeclaw_common::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
 use serial_test::serial;
 use std::path::PathBuf;

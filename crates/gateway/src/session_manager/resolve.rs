@@ -5,10 +5,10 @@
 //! 3. key_registry miss → create new session → register → return
 
 use super::session_helpers;
-use super::session_helpers::AgentToolSkillConfig;
 use super::SessionManager;
 use crate::Message;
 use closeclaw_common::processor::ProcessError;
+use closeclaw_session::bootstrap::loader::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{SessionCheckpoint, SessionStatus};
 use closeclaw_session::workspace;
@@ -18,14 +18,6 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 impl SessionManager {
-    /// Extract tool/skill filter configuration from the agent registry.
-    ///
-    /// Queries [`AgentSkillsQuery`] and [`AgentToolsConfigQuery`] on the
-    /// agent registry instead of reading from `ConfigManager`.
-    async fn extract_agent_filters(&self, agent_id: &str) -> AgentToolSkillConfig {
-        self.query_agent_tools_skills_config(agent_id).await
-    }
-
     /// Resolve a session_key to a session_id.
     ///
     /// Lookup flow:
@@ -89,9 +81,6 @@ impl SessionManager {
                             )
                             .await?;
 
-                            let _tool_registry = self.tool_registry.read().await;
-                            let _skill_registry = self.skill_registry.read().await.clone();
-                            let _filters = self.extract_agent_filters(&agent_id).await;
                             let mut conv_session = ConversationSession::new(
                                 session_id.clone(),
                                 "default".to_string(),
@@ -111,9 +100,15 @@ impl SessionManager {
                                 conv_session.set_system_prompt_builder(builder);
                             }
                             conv_session.set_prompt_overrides(self.get_prompt_overrides().await);
+                            // Query bootstrap mode from AgentRegistry and cache.
+                            let bootstrap_mode = self
+                                .query_agent_bootstrap_mode(&agent_id)
+                                .await
+                                .unwrap_or(BootstrapMode::Full);
+                            conv_session = conv_session.with_bootstrap_mode(bootstrap_mode);
                             // Build initial system prompt via session's own builder.
                             conv_session
-                                .rebuild_system_prompt(&session_id, &agent_id, None)
+                                .rebuild_system_prompt(&session_id, &agent_id, Some(bootstrap_mode))
                                 .await;
                             {
                                 let mut cs = self.conversation_sessions.write().await;
@@ -253,10 +248,7 @@ impl SessionManager {
         }
 
         // Build system prompt
-        let _tool_registry = self.tool_registry.read().await;
-        let _skill_registry = self.skill_registry.read().await.clone();
         let agent_id = message.to.clone();
-        let _filters = self.extract_agent_filters(&agent_id).await;
 
         // Compute workdir: prefer per-agent workspace from AgentRegistry,
         // fall back to global workspace_dir.
@@ -289,9 +281,15 @@ impl SessionManager {
             conv_session.set_system_prompt_builder(builder);
         }
         conv_session.set_prompt_overrides(self.get_prompt_overrides().await);
+        // Query bootstrap mode from AgentRegistry and cache.
+        let bootstrap_mode = self
+            .query_agent_bootstrap_mode(&agent_id)
+            .await
+            .unwrap_or(BootstrapMode::Full);
+        conv_session = conv_session.with_bootstrap_mode(bootstrap_mode);
         // Build initial system prompt via session's own builder.
         conv_session
-            .rebuild_system_prompt(&session_id, &agent_id, None)
+            .rebuild_system_prompt(&session_id, &agent_id, Some(bootstrap_mode))
             .await;
         {
             let mut conv_sessions = self.conversation_sessions.write().await;

@@ -54,9 +54,6 @@ pub struct SessionManager {
     pub conversation_sessions: RwLock<HashMap<String, Arc<RwLock<ConversationSession>>>>,
     /// Workspace directory for bootstrap file loading (None means no workspace)
     workspace_dir: Option<PathBuf>,
-    /// Bootstrap mode determining which files to load
-    #[allow(dead_code)]
-    bootstrap_mode: BootstrapMode,
     /// Tool registry for building system prompt ToolsSection
     tool_registry: RwLock<Option<Arc<dyn ToolRegistryQuery>>>,
     /// Skill registry for building system prompt SkillListingSection
@@ -124,7 +121,6 @@ impl SessionManager {
         config: &GatewayConfig,
         storage: Option<Arc<dyn PersistenceService>>,
         workspace_dir: Option<PathBuf>,
-        bootstrap_mode: BootstrapMode,
         default_reasoning_level: ReasoningLevel,
     ) -> Self {
         Self {
@@ -134,7 +130,6 @@ impl SessionManager {
             adapters: RwLock::new(HashMap::new()),
             conversation_sessions: RwLock::new(HashMap::new()),
             workspace_dir,
-            bootstrap_mode,
             tool_registry: RwLock::new(None),
             skill_registry: RwLock::new(None),
             default_reasoning_level,
@@ -202,27 +197,6 @@ impl SessionManager {
         agents.get(agent_id).cloned()
     }
 
-    /// Query agent tools/skills config via the agent registry.
-    pub(super) async fn query_agent_tools_skills_config(
-        &self,
-        agent_id: &str,
-    ) -> session_helpers::AgentToolSkillConfig {
-        let registry = self.agent_registry.read().await;
-        let Some(registry) = registry.as_ref() else {
-            return Default::default();
-        };
-        let skills = closeclaw_agent::skills_query::AgentSkillsQuery::get_agent_skills(
-            registry.as_ref(),
-            agent_id,
-        );
-        let tools_cfg = registry.get_agent_tools_config(agent_id).await;
-        session_helpers::AgentToolSkillConfig {
-            agent_tools: tools_cfg.as_ref().and_then(|c| c.tools.clone()),
-            agent_disallowed_tools: tools_cfg.as_ref().and_then(|c| c.disallowed_tools.clone()),
-            agent_skills: skills,
-        }
-    }
-
     /// Query per-agent workspace path via the agent registry.
     /// Falls back to the global workspace_dir if the agent has no
     /// per-agent workspace configured.
@@ -230,6 +204,17 @@ impl SessionManager {
         let registry = self.agent_registry.read().await;
         let registry = registry.as_ref()?;
         registry.get_agent_workspace(agent_id).await
+    }
+
+    /// Query per-agent bootstrap mode via the agent registry.
+    ///
+    /// Returns the agent's configured [`BootstrapMode`], or `None` if
+    /// the agent has no registry entry (caller should fall back to
+    /// a sensible default).
+    pub(super) async fn query_agent_bootstrap_mode(&self, agent_id: &str) -> Option<BootstrapMode> {
+        let registry = self.agent_registry.read().await;
+        let registry = registry.as_ref()?;
+        registry.query_bootstrap_mode(agent_id).await
     }
 
     /// Set priority prompt overrides.
@@ -860,7 +845,9 @@ impl SessionManager {
             }
         };
         let mut cs = cs.write().await;
-        cs.rebuild_system_prompt(session_id, &agent_id, None).await;
+        let cached_mode = cs.bootstrap_mode();
+        cs.rebuild_system_prompt(session_id, &agent_id, Some(cached_mode))
+            .await;
     }
 
     /// Notify all active sessions that a configuration section has been updated.

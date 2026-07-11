@@ -19,7 +19,6 @@ use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{Action, Effect, Rule, RuleSet, Subject};
 use closeclaw_permission::rules::RuleSetBuilder;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use tokio::sync::RwLock;
@@ -43,7 +42,6 @@ fn make_session_manager() -> Arc<SessionManager> {
         &test_gateway_config(),
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ))
 }

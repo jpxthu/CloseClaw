@@ -22,7 +22,6 @@ fn dummy_ctx() -> SlashContext {
 
 fn make_session_manager_with_storage() -> Arc<SessionManager> {
     use closeclaw_gateway::DmScope;
-    use closeclaw_session::bootstrap::loader::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
     use closeclaw_session::storage::memory::MemoryStorage;
 
@@ -34,19 +33,12 @@ fn make_session_manager_with_storage() -> Arc<SessionManager> {
         ..Default::default()
     };
     let storage = Arc::new(MemoryStorage::new());
-    let sm = SessionManager::new(
-        &gc,
-        Some(storage),
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    );
+    let sm = SessionManager::new(&gc, Some(storage), None, ReasoningLevel::default());
     Arc::new(sm)
 }
 
 fn make_session_manager() -> Arc<SessionManager> {
     use closeclaw_gateway::DmScope;
-    use closeclaw_session::bootstrap::loader::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
 
     let gc = closeclaw_gateway::GatewayConfig {
@@ -60,7 +52,6 @@ fn make_session_manager() -> Arc<SessionManager> {
         &gc,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ))
 }

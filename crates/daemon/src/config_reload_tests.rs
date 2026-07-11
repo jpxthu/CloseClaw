@@ -4,7 +4,6 @@ use super::*;
 use closeclaw_config::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 use closeclaw_config::manager::{ConfigManager, ConfigSection};
 use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -21,7 +20,6 @@ fn make_session_manager() -> Arc<SessionManager> {
         &GatewayConfig::default(),
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ))
 }

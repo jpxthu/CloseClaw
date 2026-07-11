@@ -3,8 +3,8 @@
 use super::spawn::SpawnMode;
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
+use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ModelSpec, ResolvedAgentConfig};
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::SessionMode;
 use serial_test::serial;

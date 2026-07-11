@@ -14,7 +14,6 @@ use closeclaw_common::processor::{
     MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
 };
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::{PersistenceError, ReasoningLevel, SessionCheckpoint};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -226,7 +225,6 @@ async fn setup_with_verbosity(
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
@@ -399,7 +397,6 @@ async fn test_gateway_delegates_llm_to_session_layer() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let registry = Arc::new(closeclaw_llm::LLMRegistry::new());
@@ -496,7 +493,6 @@ async fn test_permission_check_after_handler_before_execute() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = crate::Gateway::new(config, Arc::clone(&sm));
@@ -535,7 +531,6 @@ async fn test_permission_denied_handler_still_invoked() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = crate::Gateway::new(config, Arc::clone(&sm));
@@ -602,7 +597,6 @@ async fn test_restore_notification_mechanism_session_scoped() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
 
@@ -633,7 +627,6 @@ async fn test_non_archived_session_no_notification() {
         &config,
         Some(mock_storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
 
@@ -672,7 +665,6 @@ async fn test_take_restore_notification_idempotent() {
         &config,
         Some(mock_storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
 

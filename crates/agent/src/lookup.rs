@@ -4,6 +4,7 @@
 //! requiring a direct dependency on the concrete `AgentRegistry`.
 
 use async_trait::async_trait;
+use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::ModelSpec;
 use std::path::PathBuf;
 
@@ -44,6 +45,12 @@ pub trait AgentLookup: Send + Sync {
 
     /// Check if an agent ID is valid (exists in the registry).
     async fn agent_exists(&self, agent_id: &str) -> bool;
+
+    /// Look up an agent's bootstrap mode by agent ID.
+    ///
+    /// Returns `Some(bootstrap_mode)` if the agent has a configured
+    /// bootstrap mode, or `None` if not found.
+    async fn query_bootstrap_mode(&self, agent_id: &str) -> Option<BootstrapMode>;
 
     /// Look up an agent's per-agent workspace path by agent ID.
     ///

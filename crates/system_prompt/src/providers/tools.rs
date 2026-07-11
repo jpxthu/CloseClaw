@@ -160,7 +160,6 @@ mod tests {
             &cfg,
             None,
             None,
-            closeclaw_session::bootstrap::BootstrapMode::Minimal,
             closeclaw_session::persistence::ReasoningLevel::default(),
         ));
         let spawn_controller = Arc::new(closeclaw_gateway::SpawnController::new(

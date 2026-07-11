@@ -412,6 +412,7 @@ impl Daemon {
 
     /// Read BOOTSTRAP_MODE env var and convert to BootstrapMode.
     /// "minimal" → Minimal, anything else (including absent) → Full.
+    #[allow(dead_code)]
     pub(crate) fn read_bootstrap_mode() -> closeclaw_session::bootstrap::BootstrapMode {
         match std::env::var("BOOTSTRAP_MODE").as_deref() {
             Ok("minimal") => closeclaw_session::bootstrap::BootstrapMode::Minimal,

@@ -1,8 +1,7 @@
 use super::*;
 use crate::{GatewayConfig, Message};
-use closeclaw_common::{PromptOverrides, SystemPromptBuilder};
+use closeclaw_common::{BootstrapMode, PromptOverrides, SystemPromptBuilder};
 use closeclaw_config::manager::ConfigSnapshot;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::SessionCheckpoint;
 use serial_test::serial;
 use std::io::Write;
@@ -113,7 +112,6 @@ async fn test_archived_session_restoration() {
         &test_config(),
         Some(mock_storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
     let msg = test_message();
@@ -149,7 +147,6 @@ pub(super) fn make_test_mgr(workspace: Option<&std::path::Path>) -> SessionManag
         &test_config(),
         None,
         workspace.map(std::path::PathBuf::from),
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     )
 }
@@ -173,7 +170,6 @@ async fn test_bootstrap_full_injects_all_files() {
         &test_config(),
         None,
         workspace_dir.clone(),
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
     mgr.set_system_prompt_builder(Arc::new(TestPromptBuilder::new(
@@ -223,9 +219,12 @@ async fn test_bootstrap_minimal_injects_five_files() {
         &test_config(),
         None,
         workspace_dir.clone(),
-        BootstrapMode::Minimal,
         ReasoningLevel::default(),
     );
+    mgr.set_agent_registry(Arc::new(MockAgentRegistryQuery {
+        bootstrap_mode: BootstrapMode::Minimal,
+    }))
+    .await;
     mgr.set_system_prompt_builder(Arc::new(TestPromptBuilder::new(
         workspace_dir,
         BootstrapMode::Minimal,
@@ -289,7 +288,6 @@ async fn test_partial_bootstrap_files() {
         &test_config(),
         None,
         Some(workspace_path.clone()),
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
     mgr.set_system_prompt_builder(Arc::new(TestPromptBuilder::new(
@@ -337,6 +335,7 @@ async fn test_find_or_create_no_storage() {
     assert_eq!(parts[0].len(), 8, "hex part wrong: {}", parts[0]);
 }
 
+use super::test_helpers::MockAgentRegistryQuery;
 use super::test_helpers::MockPersistService;
 
 // ── Workspace creation tests ─────────────────────────────────────────────────
@@ -417,7 +416,6 @@ async fn test_find_or_create_creates_workspace_directory() {
         &test_config(),
         None,
         workspace_dir.clone(),
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
     let msg = test_message();
@@ -446,7 +444,6 @@ async fn test_find_or_create_workspace_invalid_ids() {
         &test_config(),
         None,
         Some(tmp.path().to_path_buf()),
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
     let mut msg = test_message();
@@ -458,7 +455,6 @@ async fn test_find_or_create_workspace_invalid_ids() {
         &test_config(),
         None,
         Some(tmp.path().to_path_buf()),
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
     let mut msg = test_message();

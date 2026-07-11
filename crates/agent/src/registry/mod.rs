@@ -100,6 +100,10 @@ impl crate::lookup::AgentLookup for AgentRegistry {
     async fn get_agent_workspace(&self, agent_id: &str) -> Option<PathBuf> {
         self.get(agent_id).and_then(|cfg| cfg.workspace.clone())
     }
+
+    async fn query_bootstrap_mode(&self, agent_id: &str) -> Option<BootstrapMode> {
+        self.configs.get(agent_id).map(|cfg| cfg.bootstrap_mode)
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

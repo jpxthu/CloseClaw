@@ -2,7 +2,6 @@ use super::*;
 use crate::{GatewayConfig, Message};
 use async_trait::async_trait;
 use closeclaw_common::shutdown::ShutdownMode;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::persistence::{
@@ -133,13 +132,7 @@ impl closeclaw_session::persistence::PersistenceService for FlushAllMockStorage 
 
 #[tokio::test]
 async fn test_flush_all_no_storage() {
-    let mgr = SessionManager::new(
-        &test_config(),
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    );
+    let mgr = SessionManager::new(&test_config(), None, None, ReasoningLevel::default());
     let result = mgr.flush_all(ShutdownMode::Graceful).await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 0);
@@ -152,7 +145,6 @@ async fn test_flush_all_empty_sessions() {
         &test_config(),
         Some(storage),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
     let result = mgr.flush_all(ShutdownMode::Graceful).await;
@@ -167,7 +159,6 @@ async fn test_flush_all_saves_checkpoints() {
         &test_config(),
         Some(storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 
@@ -204,7 +195,6 @@ async fn test_flush_all_partial_failure() {
         &test_config(),
         Some(storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 
@@ -226,13 +216,7 @@ async fn test_flush_all_partial_failure() {
 
 #[tokio::test]
 async fn test_session_manager_get_chat_id() {
-    let mgr = SessionManager::new(
-        &test_config(),
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    );
+    let mgr = SessionManager::new(&test_config(), None, None, ReasoningLevel::default());
     let msg = test_message();
     let sid = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     let chat_id = mgr.get_chat_id(&sid).await;
@@ -242,13 +226,7 @@ async fn test_session_manager_get_chat_id() {
 
 #[tokio::test]
 async fn test_session_manager_get_chat_id_missing() {
-    let mgr = SessionManager::new(
-        &test_config(),
-        None,
-        None,
-        BootstrapMode::Full,
-        ReasoningLevel::default(),
-    );
+    let mgr = SessionManager::new(&test_config(), None, None, ReasoningLevel::default());
     let chat_id = mgr.get_chat_id("nonexistent-session-id").await;
     assert!(chat_id.is_none());
 }
@@ -261,7 +239,6 @@ async fn test_flush_all_with_pending_messages() {
         &test_config(),
         Some(storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 
@@ -313,7 +290,6 @@ async fn test_flush_all_without_pending_messages() {
         &test_config(),
         Some(storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 
@@ -354,7 +330,6 @@ async fn test_flush_all_no_conversation_session() {
         &test_config(),
         Some(storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 
@@ -407,7 +382,6 @@ async fn test_flush_all_after_stop_preserves_sessions() {
         &test_config(),
         Some(storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 
@@ -483,7 +457,6 @@ async fn test_flush_all_clears_tracking_after_persist() {
         &test_config(),
         Some(storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 

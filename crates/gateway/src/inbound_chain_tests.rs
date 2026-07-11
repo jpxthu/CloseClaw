@@ -7,7 +7,6 @@
 
 use crate::{DmScope, GatewayConfig, InboundChainInput, SessionManager};
 use closeclaw_common::im_plugin::{MediaRef, MessageType};
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
 
@@ -29,7 +28,6 @@ fn make_gw() -> crate::Gateway {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     crate::Gateway::new(config, sm)

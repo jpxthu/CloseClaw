@@ -21,7 +21,6 @@ use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::RuleSet;
 use closeclaw_permission::rules::RuleSetBuilder;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use tempfile::TempDir;
 
@@ -76,7 +75,6 @@ fn test_session_manager() -> Arc<SessionManager> {
         },
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ))
 }

@@ -16,7 +16,6 @@ use closeclaw_common::processor::ProcessError;
 use closeclaw_common::processor::{
     MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
 };
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
@@ -78,7 +77,6 @@ fn make_gw(config: GatewayConfig) -> (crate::Gateway, Arc<SessionManager>) {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = crate::Gateway::new(config, Arc::clone(&sm));
@@ -172,7 +170,6 @@ async fn test_processor_chain_bypass_empty_registry() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let registry = ProcessorChainLoader::load(&ProcessorChainConfig {
@@ -210,7 +207,6 @@ async fn test_processor_chain_applies_processors() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let proc_config = ProcessorChainConfig {
@@ -244,7 +240,6 @@ async fn test_processor_chain_execution_order_by_priority() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
 
@@ -323,7 +318,6 @@ async fn test_processor_chain_metadata_merge() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
@@ -378,7 +372,6 @@ fn make_gw_with_registry(
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     crate::Gateway::with_processor_registry(config, sm, Arc::new(registry))
@@ -444,7 +437,6 @@ async fn test_process_inbound_chain_with_normalizer() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
@@ -482,7 +474,6 @@ async fn test_process_inbound_chain_with_session_router() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
@@ -527,7 +518,6 @@ async fn test_process_inbound_chain_uses_system_time() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
@@ -638,7 +628,6 @@ async fn test_process_inbound_chain_processor_error() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
