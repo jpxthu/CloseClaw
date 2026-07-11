@@ -240,7 +240,7 @@ async fn update_agents_json(name: &str, context: &AdminContext) -> Result<(), Ad
     })
 }
 
-/// Reload agent configs and repopulate the registry.
+/// Reload agent configs and replace the registry.
 fn reload_registry(context: &AdminContext) -> Result<(), AdminResponse> {
     context
         .config_manager
@@ -249,7 +249,7 @@ fn reload_registry(context: &AdminContext) -> Result<(), AdminResponse> {
             message: format!("failed to reload agent configs: {}", e),
         })?;
     let configs: Vec<_> = context.config_manager.agents().into_values().collect();
-    context.agent_registry.populate(configs);
+    context.agent_registry.reload(configs);
     Ok(())
 }
 
