@@ -198,6 +198,7 @@ impl Tool for SkillTool {
                         None, // model_override
                         None, // parent_subagents_model
                         1,    // max_spawn_depth (skill tool doesn't spawn)
+                        None, // spawn_timeout (skill tool doesn't set timeout)
                     )
                     .await
                     .map_err(|e| {
@@ -259,6 +260,7 @@ mod tests {
                     source: closeclaw_config::agents::ConfigSource::Merged,
                 },
                 effective_max_spawn_depth: 10,
+                spawn_timeout: None,
             })
         }
     }

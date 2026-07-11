@@ -100,7 +100,8 @@ async fn test_try_push_announce_run_mode() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -148,7 +149,8 @@ async fn test_try_push_announce_session_mode_noop() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -272,7 +274,8 @@ async fn test_thinking_blocks_excluded() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -396,7 +399,8 @@ async fn test_try_push_announce_sends_mining_notification() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -445,7 +449,8 @@ async fn test_try_push_announce_no_notification_without_tx() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -494,7 +499,8 @@ async fn test_session_mode_no_mining_notification() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");

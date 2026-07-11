@@ -91,7 +91,8 @@ async fn test_create_child_session_basic() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -148,7 +149,8 @@ async fn test_create_child_session_workspace_fallback() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -171,7 +173,8 @@ async fn test_create_child_session_workspace_fallback() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session with explicit workspace should succeed");
@@ -210,7 +213,8 @@ async fn test_create_child_session_registers_child_info() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -251,7 +255,8 @@ async fn test_steer_child_injects_pending_message() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -305,7 +310,8 @@ async fn test_kill_child_removes_from_all_tables() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -371,6 +377,7 @@ async fn test_validate_child_ownership_by_mode() {
                 None,
                 None,
                 3,
+                None, // spawn_timeout
             )
             .await
             .expect("create_child_session should succeed");
@@ -406,6 +413,7 @@ async fn test_validate_child_ownership_by_mode() {
                 None,
                 None,
                 3,
+                None, // spawn_timeout
             )
             .await
             .expect("create_child_session should succeed");
@@ -464,6 +472,7 @@ async fn test_create_child_session_allowed_tools_override() {
             None,
             None,
             3,
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session with allowed_tools should succeed");
@@ -486,6 +495,7 @@ async fn test_create_child_session_allowed_tools_override() {
             None,
             None,
             3,
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session without allowed_tools should succeed");
@@ -528,7 +538,8 @@ async fn test_create_child_session_workspace_fallback_to_parent() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -606,7 +617,8 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
             None,
             None,
             None,
-            3, // max_spawn_depth
+            3,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -701,8 +713,6 @@ fn test_build_spawn_context_behavioral_constraints() {
     assert!(ctx.contains("**fork**: true"), "should reflect fork=true");
 }
 
-// ── Step 1.4: child session spawn-context integration test ───────────────
-
 /// Integration test: `create_child_session` appends spawn context to
 /// the system prompt so the child agent knows its role and limits.
 #[tokio::test]
@@ -729,7 +739,8 @@ async fn test_child_session_system_prompt_contains_spawn_context() {
             None,
             None,
             None,
-            4, // max_spawn_depth
+            4,    // max_spawn_depth
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -754,8 +765,7 @@ async fn test_child_session_system_prompt_contains_spawn_context() {
         "system prompt should describe push-based communication"
     );
 }
-
-// ── Step 1.2: structured output guidance tests ─────────────────────────────
+// ── Step 1.2: structured output guidance tests ───────────────────────────
 
 /// Verify `build_spawn_context` includes the structured output guidance
 /// section (per design doc §结构化输出) when remaining_depth > 0.
@@ -818,8 +828,6 @@ fn test_build_spawn_context_structured_output_at_depth_limit() {
     );
 }
 
-// ── Step 1.4: communication config tests ─────────────────────────────────
-
 /// Verify the child session's communication config restricts
 /// communication to the parent agent only.
 #[tokio::test]
@@ -847,6 +855,7 @@ async fn test_child_session_communication_config_has_parent() {
             None,
             None,
             3,
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -918,8 +927,7 @@ fn test_communication_config_construction_and_permissions() {
     assert!(config.can_receive_from("parent-1"));
     assert!(!config.can_receive_from("other-agent"));
 }
-
-// ── Step 1.3: spawn checkpoint parent_session_id + depth persistence ────
+// ── Step 1.3: spawn checkpoint parent_session_id + depth persistence ──
 
 /// Verify that `create_child_session` persists a checkpoint with the
 /// correct `parent_session_id` and `depth` values.
@@ -929,7 +937,6 @@ async fn test_spawn_checkpoint_persists_parent_session_id_and_depth() {
     clear_global_prompt_state();
 
     let tmp = tempfile::TempDir::new().unwrap();
-
     // Use MemoryStorage so we can read back the checkpoint.
     let storage = Arc::new(closeclaw_session::storage::memory::MemoryStorage::new());
 
@@ -964,6 +971,7 @@ async fn test_spawn_checkpoint_persists_parent_session_id_and_depth() {
             None,
             None,
             4,
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
