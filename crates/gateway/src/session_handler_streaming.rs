@@ -24,6 +24,7 @@ use closeclaw_llm::streaming::StreamDone;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::LLMError;
 use closeclaw_session::llm_session::ConversationSession;
+use closeclaw_session::llm_session::SessionStream;
 
 impl SessionMessageHandler {
     /// Make a streaming LLM call and dispatch it through Gateway's
@@ -47,7 +48,10 @@ impl SessionMessageHandler {
         plugin: &Arc<dyn IMPlugin>,
     ) -> Result<StreamResult, LLMError> {
         // ── Open LLM stream via ConversationSession ──
-        let raw_stream = cs.read().await.invoke_llm_streaming(content).await?;
+        // `invoke_llm_streaming` returns a SessionStream that wraps the raw
+        // LLM event stream and accumulates ContentBlock[] as events pass
+        // through. The session layer is the source of truth for assembly.
+        let session_stream: SessionStream = cs.read().await.invoke_llm_streaming(content).await?;
 
         // Retrieve the session's streaming sink (if any) for delta notifications.
         let sink: Option<Arc<dyn closeclaw_llm::streaming::StreamingSink>> =
@@ -66,11 +70,10 @@ impl SessionMessageHandler {
                 CancellationToken::new()
             };
 
-        // Wrap the raw LLM stream with SinkUpdater so the session's
+        // Wrap the SessionStream with SinkUpdater so the session's
         // StreamingSink (CLI/websocket) still receives per-delta text
-        // notifications in parallel with the IM plugin dispatch in
-        // `send_outbound_streaming`.
-        let wrapped = closeclaw_llm::SinkUpdater::new(raw_stream, sink.clone());
+        // notifications in parallel with the IM plugin dispatch.
+        let wrapped = closeclaw_llm::SinkUpdater::new(session_stream, sink.clone());
 
         // Race the streaming outbound dispatch against the cancel token.
         let dispatch_result: Result<StreamResult, GatewayError> = tokio::select! {
