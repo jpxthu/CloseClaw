@@ -113,6 +113,20 @@ fn hash_headers(headers: &[(&str, &str)]) -> u64 {
     hash_str(&joined)
 }
 
+/// Compares two fingerprints and returns the detected pending changes.
+fn compute_pending(prev: &PromptFingerprint, new: &PromptFingerprint) -> PendingChanges {
+    let time_since_last = prev
+        .request_timestamp
+        .and_then(|t| new.request_timestamp.map(|now| now.duration_since(t)));
+
+    PendingChanges {
+        system_prompt_changed: prev.system_static_hash != new.system_static_hash,
+        tools_changed: prev.tools_hash != new.tools_hash,
+        headers_changed: prev.headers_hash != new.headers_hash,
+        time_since_last,
+    }
+}
+
 // ── Cache break info ─────────────────────────────────────────────
 
 /// Information about a detected cache break between two consecutive calls.
@@ -173,7 +187,10 @@ pub fn detect_cache_break(previous: Option<u32>, current: Option<u32>) -> Option
 ///
 /// All fields use `u64` to avoid overflow in long sessions that may
 /// exceed 4 billion tokens.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `PartialEq` compares all fields **except** `last_fingerprint`
+/// (which contains `Instant`, not `Eq`).
+#[derive(Debug, Clone)]
 pub struct RunningStats {
     /// Cumulative prompt tokens across all calls.
     pub total_prompt_tokens: u64,
@@ -191,7 +208,29 @@ pub struct RunningStats {
     ///
     /// `None` before any calls have been accumulated.
     pub last_cache_read_tokens: Option<u32>,
+    /// The most recent pre-call fingerprint, or `None` if none
+    /// recorded yet.
+    pub last_fingerprint: Option<PromptFingerprint>,
+    /// Pending component changes detected by comparing the latest
+    /// fingerprint against `last_fingerprint`.
+    pub pending_changes: Option<PendingChanges>,
 }
+
+impl PartialEq for RunningStats {
+    fn eq(&self, other: &Self) -> bool {
+        self.total_prompt_tokens == other.total_prompt_tokens
+            && self.total_completion_tokens == other.total_completion_tokens
+            && self.total_tokens == other.total_tokens
+            && self.total_cache_read_tokens == other.total_cache_read_tokens
+            && self.total_cache_write_tokens == other.total_cache_write_tokens
+            && self.request_count == other.request_count
+            && self.last_cache_read_tokens == other.last_cache_read_tokens
+            && self.pending_changes == other.pending_changes
+        // last_fingerprint excluded: Instant does not implement Eq
+    }
+}
+
+impl Eq for RunningStats {}
 
 impl RunningStats {
     /// Creates a new `RunningStats` with all counters zeroed.
@@ -204,6 +243,8 @@ impl RunningStats {
             total_cache_write_tokens: 0,
             request_count: 0,
             last_cache_read_tokens: None,
+            last_fingerprint: None,
+            pending_changes: None,
         }
     }
 
@@ -277,6 +318,36 @@ impl RunningStats {
     /// or `None` if no calls have been accumulated yet.
     pub fn last_cache_read_tokens(&self) -> Option<u32> {
         self.last_cache_read_tokens
+    }
+
+    /// Records a pre-call fingerprint of prompt components and
+    /// computes the changes since the last fingerprint.
+    ///
+    /// The resulting `PendingChanges` are stored in
+    /// `self.pending_changes` and can be retrieved (and cleared)
+    /// via [`take_pending_changes`](Self::take_pending_changes).
+    pub fn record_fingerprint(
+        &mut self,
+        system_static: Option<&str>,
+        tools: Option<&[String]>,
+        headers: Option<&[(&str, &str)]>,
+    ) {
+        let new_fp = PromptFingerprint::compute(system_static, tools, headers);
+        let pending = self
+            .last_fingerprint
+            .as_ref()
+            .map(|prev| compute_pending(prev, &new_fp));
+        self.pending_changes = pending;
+        self.last_fingerprint = Some(new_fp);
+    }
+
+    /// Takes the pending changes (clearing the stored value).
+    ///
+    /// Returns `None` if [`record_fingerprint`](Self::record_fingerprint)
+    /// has not yet been called, or if the pending changes were
+    /// already consumed.
+    pub fn take_pending_changes(&mut self) -> Option<PendingChanges> {
+        self.pending_changes.take()
     }
 }
 
@@ -450,6 +521,145 @@ mod tests {
         let info = detect_cache_break(Some(50000), Some(30000)).unwrap();
         assert_eq!(info.drop_tokens, 20000);
         assert!((info.drop_ratio - 0.40).abs() < 1e-10);
+    }
+
+    // ── record_fingerprint tests ──────────────────────────────────
+
+    #[test]
+    fn record_fingerprint_first_call_no_changes() {
+        let mut stats = RunningStats::new();
+        let tools = vec!["tool_a".to_string(), "tool_b".to_string()];
+        let headers = vec![("content-type", "application/json")];
+
+        // First call: no previous fingerprint → pending_changes is None
+        stats.record_fingerprint(Some("You are helpful"), Some(&tools), Some(&headers));
+        assert!(stats.pending_changes.is_none());
+
+        // Second call with same fingerprint → all changed flags false
+        stats.record_fingerprint(Some("You are helpful"), Some(&tools), Some(&headers));
+        let pc = stats.take_pending_changes().unwrap();
+        assert!(!pc.system_prompt_changed);
+        assert!(!pc.tools_changed);
+        assert!(!pc.headers_changed);
+        assert!(pc.time_since_last.is_some());
+    }
+
+    #[test]
+    fn record_fingerprint_detects_system_prompt_change() {
+        let mut stats = RunningStats::new();
+        let tools = vec!["tool_a".to_string()];
+
+        stats.record_fingerprint(Some("old prompt"), Some(&tools), None);
+        assert!(stats.pending_changes.is_none()); // first call
+
+        stats.record_fingerprint(Some("new prompt"), Some(&tools), None);
+        let pc = stats.pending_changes.as_ref().unwrap();
+        assert!(pc.system_prompt_changed);
+        assert!(!pc.tools_changed);
+    }
+
+    #[test]
+    fn record_fingerprint_detects_tools_change() {
+        let mut stats = RunningStats::new();
+        let tools_v1 = vec!["tool_a".to_string()];
+        let tools_v2 = vec!["tool_a".to_string(), "tool_b".to_string()];
+
+        stats.record_fingerprint(Some("prompt"), Some(&tools_v1), None);
+        stats.record_fingerprint(Some("prompt"), Some(&tools_v2), None);
+
+        let pc = stats.pending_changes.as_ref().unwrap();
+        assert!(!pc.system_prompt_changed);
+        assert!(pc.tools_changed);
+    }
+
+    #[test]
+    fn record_fingerprint_detects_headers_change() {
+        let mut stats = RunningStats::new();
+        let tools = vec!["tool_a".to_string()];
+        let h1 = vec![("x-api-key", "abc")];
+        let h2 = vec![("x-api-key", "xyz")];
+
+        stats.record_fingerprint(Some("prompt"), Some(&tools), Some(&h1));
+        stats.record_fingerprint(Some("prompt"), Some(&tools), Some(&h2));
+
+        let pc = stats.pending_changes.as_ref().unwrap();
+        assert!(pc.headers_changed);
+        assert!(!pc.system_prompt_changed);
+    }
+
+    #[test]
+    fn record_fingerprint_none_inputs_no_panic() {
+        let mut stats = RunningStats::new();
+        stats.record_fingerprint(None, None, None);
+        assert!(stats.pending_changes.is_none()); // first call
+
+        stats.record_fingerprint(None, None, None);
+        let pc = stats.take_pending_changes().unwrap();
+        assert!(!pc.system_prompt_changed);
+        assert!(!pc.tools_changed);
+        assert!(!pc.headers_changed);
+    }
+
+    #[test]
+    fn record_fingerprint_empty_tools_no_panic() {
+        let mut stats = RunningStats::new();
+        let empty: Vec<String> = vec![];
+        stats.record_fingerprint(None, Some(&empty), None);
+        assert!(stats.pending_changes.is_none()); // first call
+
+        stats.record_fingerprint(None, Some(&empty), None);
+        let pc = stats.take_pending_changes().unwrap();
+        assert!(!pc.tools_changed);
+    }
+
+    #[test]
+    fn record_fingerprint_empty_headers_no_panic() {
+        let mut stats = RunningStats::new();
+        let empty_headers: [(&str, &str); 0] = [];
+        stats.record_fingerprint(None, None, Some(&empty_headers));
+        assert!(stats.pending_changes.is_none()); // first call
+
+        stats.record_fingerprint(None, None, Some(&empty_headers));
+        let pc = stats.take_pending_changes().unwrap();
+        assert!(!pc.headers_changed);
+    }
+
+    #[test]
+    fn record_fingerprint_three_calls_mixed_changes() {
+        let mut stats = RunningStats::new();
+        let tools = vec!["tool_a".to_string()];
+
+        // call 1: baseline
+        stats.record_fingerprint(Some("prompt_v1"), Some(&tools), None);
+        assert!(stats.pending_changes.is_none()); // first call
+
+        // call 2: system_prompt changed
+        stats.record_fingerprint(Some("prompt_v2"), Some(&tools), None);
+        let pc = stats.pending_changes.as_ref().unwrap();
+        assert!(pc.system_prompt_changed);
+        assert!(!pc.tools_changed);
+
+        // call 3: tools changed, system_prompt reverted
+        let tools2 = vec!["tool_a".to_string(), "tool_b".to_string()];
+        stats.record_fingerprint(Some("prompt_v1"), Some(&tools2), None);
+        let pc = stats.pending_changes.as_ref().unwrap();
+        assert!(pc.system_prompt_changed); // reverted = changed
+        assert!(pc.tools_changed);
+    }
+
+    #[test]
+    fn take_pending_changes_clears_field() {
+        let mut stats = RunningStats::new();
+        let tools = vec!["tool_a".to_string()];
+        stats.record_fingerprint(Some("p1"), Some(&tools), None);
+        stats.record_fingerprint(Some("p2"), Some(&tools), None);
+
+        let pc1 = stats.take_pending_changes();
+        assert!(pc1.is_some());
+        assert!(pc1.unwrap().system_prompt_changed);
+
+        let pc2 = stats.take_pending_changes();
+        assert!(pc2.is_none());
     }
 
     // ── RunningStats.last_cache_read_tokens integration tests ───────
