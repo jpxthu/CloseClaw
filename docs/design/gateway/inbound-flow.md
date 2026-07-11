@@ -18,30 +18,30 @@ webhook → webhook → webhook → ...（高并发）
 [Processor Chain 入站]
   RawLog(10)        → 日志记录 → 透传
     ↓
-  SessionRouter(20) → session_key = {timestamp}-{hash}（算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session-key-算法)）
+  SessionRouter(20) → session_key = {timestamp}-{hash}（算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session_key-算法)）
                     → 写入 metadata，不创建 session
     ↓
   ContentNormalizer(30) → 文本标准化（去除控制字符和 ANSI 转义序列、压缩连续空行、去尾空格）
   ↓
-[ProcessedMessage](../common/shared-types.md#processedmessage)（content_blocks + metadata { session_key }）
+[ProcessedMessage](../common/shared-types.md#processedmessage)（content_blocks + metadata { session_key, message_type }）
   ↓
 [Gateway]
-  → SessionManager 执行 resolve（传入 session_key 和消息路由字段；SessionManager 内部提取稳定路由键做查找）→ 获得 session_id
   → message_type 非 text（image/file/audio）？
     ├─ 是 → 构造错误回复 ContentBlock[] → 简化出站（跳过 Verbosity/DslParser/中间件，经日志→渲染→发送）
-    └─ 否（text）→ content 以 / 开头？
-                    ├─ 是 → 先拦截 /approve、/deny（不进 SlashDispatcher）
-                    │       其余斜杠 → SlashDispatcher（不进入 LLM）
-                    └─ 否 → Session → LLM
-                                       ↓
-                                  ContentBlock[]（进入出站）
+    └─ 否（text）→ SessionManager 执行 resolve（传入 session_key 和消息路由字段；SessionManager 内部提取稳定路由键做查找）→ 获得 session_id
+                    → content 以 / 开头？
+                        ├─ 是 → 先拦截 /approve、/deny（不进 SlashDispatcher）
+                        │       其余斜杠 → SlashDispatcher（不进入 LLM）
+                        └─ 否 → Session → LLM
+                                           ↓
+                                      ContentBlock[]（进入出站）
 ```
 
 ### 关键设计
 
 - **斜杠指令在 Gateway 层统一拦截**，不进入 LLM 对话循环。斜杠指令走完整的入站链（保证日志记录和 session_id 获取），在 Gateway 层被识别后先拦截 `/approve`、`/deny`（owner 专用，走审批流程验证），其余斜杠分派给 SlashDispatcher。斜杠指令消息不追加到对话历史。
 - **SessionRouter 不区分私聊和群聊**。会话粒度由插件控制——插件决定什么构成一个 `peer_id`。
-- **SessionRouter 是纯变换**。只计算 session_key，不创建 session、不查数据库。session_key 算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session-key-算法)。Session 的创建和查找由 Gateway 调用 SessionManager 完成。
+- **SessionRouter 是纯变换**。只计算 session_key，不创建 session、不查数据库。session_key 算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session_key-算法)。Session 的创建和查找由 Gateway 调用 SessionManager 完成。
 - **Processor Chain 是纯变换**。每个处理器输入消息、输出消息，不做副作用（除了 RawLog 写日志）。链的设计遵循"变换和决策分离"原则——变换归链，决策归 Gateway。
 
 ## 数据流
@@ -65,7 +65,7 @@ NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执
 **SessionRouter（priority 20）**：计算 session 路由键。
 
 - 输入：NormalizedMessage 的 `platform`、`sender_id`、`peer_id`、`account_id`，以及 SessionRouter 取的当前系统时间 `timestamp_ms`（毫秒）
-- 计算：session_key 算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session-key-算法)
+- 计算：session_key 算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session_key-算法)
 - 输出：将 `session_key` 写入 metadata
 - SessionRouter 不创建 session、不查 SessionManager——仅计算 session key
 
@@ -75,13 +75,13 @@ NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执
 
 ### 第三步：Gateway 路由
 
-Gateway 从 metadata 取出 `session_key`。若 session_key 为空（SessionRouter 计算失败），Gateway 回复"会话路由失败，请重试"，消息不进入 LLM。
+Gateway 先检查消息的 message_type——若为非文本（image/file/audio），直接构造"暂不支持该消息类型"的错误回复（ContentBlock[]），经简化出站路径发送（跳过 Verbosity/DslParser/中间件，经出站日志后渲染发送），不过 Session 和 LLM。流程到此结束。
 
-非空时，Gateway 将 session_key 和消息路由字段（platform, sender_id, peer_id, account_id）传给 SessionManager，由 SessionManager 内部提取稳定路由键做 session 查找/创建，获得 `session_id`。
+若 message_type 为 text，Gateway 从 metadata 取出 `session_key`。若 session_key 为空（SessionRouter 计算失败），Gateway 回复"会话路由失败，请重试"，消息不进入 LLM。
 
-获得 session_id 后，Gateway 先检查消息的 message_type——若为非文本（image/file/audio），直接构造"暂不支持该消息类型"的错误回复（ContentBlock[]），经简化出站路径发送（跳过 Verbosity/DslParser/中间件，经出站日志后渲染发送），不过 Session 和 LLM。流程到此结束。
+session_key 非空时，Gateway 将 session_key 和消息路由字段（platform, sender_id, peer_id, account_id）传给 SessionManager，由 SessionManager 内部提取稳定路由键做 session 查找/创建，获得 `session_id`。
 
-若 message_type 为 text，Gateway 检查 content 第一个字符：
+Gateway 检查 content 第一个字符：
 
 **以 `/` 开头 → 斜杠指令**：消息不进入 LLM，不追加到对话历史。Gateway 将 session_id 传给 SlashDispatcher 作为执行上下文（权限校验依赖）。先拦截 `/approve`、`/deny`（owner 专用，走审批流程验证），其余斜杠指令分派给 SlashDispatcher。SlashDispatcher 匹配指令 → 执行对应 Handler → 返回 SlashResult → Gateway 执行副作用。
 
@@ -91,4 +91,4 @@ Gateway 从 metadata 取出 `session_key`。若 session_key 为空（SessionRout
 
 - **上游**：IM 插件（各平台 Adapter，产 NormalizedMessage）
 - **下游**：Processor Chain 入站（调度链执行）、SessionManager（session 查找/创建/恢复）、SlashDispatcher（斜杠指令分派）
-- **间接关联**：Session（通过 SessionManager 获取和操作）、LLM Provider（通过 Session 间接调用，入站流程不直接接触）、System Prompt（由 Session 构建，入站流程不参与）、Permission（斜杠指令高危操作执行前校验）、Tools（由 Session 注册和调用，入站流程不直接接触）
+- **无关**：Session（通过 SessionManager 获取和操作，入站流程不直接接触）、LLM Provider（通过 Session 间接调用）、System Prompt（由 Session 构建，入站流程不参与）、Permission（斜杠指令高危操作执行前校验）、Tools（由 Session 注册和调用）

@@ -85,7 +85,7 @@ Gateway 维护以下运行时注册表：
 
 Gateway 收到入站 webhook 后，消息先进入入站消息队列（有界缓冲，详见下方「消息队列与排队语义」），再由 IM Adapter 解析后进入 Processor Chain。Processor Chain 入站产出 [ProcessedMessage](../common/shared-types.md#processedmessage) 后，Gateway 按以下路径处理：
 
-- **非文本消息处理**：若消息的 message_type 非 text（image/file/audio），Gateway 直接构造"暂不支持该消息类型"的错误回复（ContentBlock[]），经简化出站路径发送（错误回复为纯文本不含 DSL 指令且无需按 Session 过滤，跳过 Processor Chain 出站和中间件链），经出站日志记录后由 IM Adapter 渲染发送。流程到此结束。
+- **非文本消息处理**：若消息的 message_type 非 text（image/file/audio），Gateway 直接构造"暂不支持该消息类型"的错误回复（ContentBlock[]），经简化出站路径发送（错误回复为纯文本不含 DSL 指令且无需按 Session 过滤，跳过 Verbosity/DslParser/中间件），经出站日志记录后由 IM Adapter 渲染发送。流程到此结束。
 
 - **Session 解析**：Gateway 从 metadata 取出 session_key。若 session_key 为空（SessionRouter 计算失败），Gateway 回复"会话路由失败，请重试"。非空时 Gateway 将 session_key 和消息路由信息（platform, sender_id, peer_id, account_id）传给 SessionManager，由 SessionManager 内部提取稳定路由键进行 session 查找/创建。
 
@@ -112,7 +112,7 @@ Gateway 涉及两层排队：
 - 位置：IM 平台 webhook 到达后、进入 Processor Chain 之前
 - 性质：有界缓冲队列，不持久化
 - 满行为：拒绝新消息，Gateway 通过 IM Adapter 回复"服务繁忙，请稍后重试"
-- 重启行为：队列清空。Gateway 重启期间 IM 平台 webhook 不可达，恢复后由 IM 平台重试未送达的 webhook
+- 重启行为：队列清空。非持久化队列中已入队但未处理的消息在重启时丢失。已到达 Gateway 但未返回响应的 webhook 由 IM 平台自动重试补偿。优雅关闭时 Gateway 应先停收新消息、排空已有队列后再退出，减少丢失范围
 - 消费：IM Adapter 按 FIFO 从队列取消息解析，送入 Processor Chain 串行处理
 
 **第 2 层：Session 忙碌队列**
@@ -152,7 +152,7 @@ SlashResult 的执行通过上下文的回复通道产出回复内容，Gateway 
 Gateway 在以下场景调用 Permission 模块：
 
 1. **`/approve`、`/deny`**：消息路由阶段硬拦截——不进 SlashDispatcher，直接在 Gateway 层审批校验（owner 专用）。
-2. **其他斜杠指令高危操作**（`/exec`、`/git` 写操作）：在 SlashDispatcher 分派到 Handler、Handler 返回 SlashResult 后、执行前校验。Non-owner 高危指令默认 Deny。
+2. **其他斜杠指令高危操作**（`/exec`、`/git` 写操作）：在 SlashDispatcher 分派到 Handler、Handler 返回 SlashResult 后、执行前校验。Handler 仅做指令解析（无副作用），权限引擎拿到完整操作信息后评估——非 Owner 默认 Deny，但可通过白名单规则授予特定 Agent-User 组合的执行权（详见 [Permission 模块](../permission/README.md)）。
 
 Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不经过权限检查。工具调用的权限检查由 tools 模块触发，Gateway 不参与。
 
@@ -164,7 +164,6 @@ Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不
 |------|------|
 | IM Adapter | 入站消息通过插件进入 Gateway 入站处理 |
 | Session | LLM 响应以 ContentBlock[] 形式传入 Gateway 出站发送 |
-| SlashDispatcher | SlashResult 由 Gateway 触发执行副作用，回复经出站链发送 |
 
 ### 下游（Gateway 调用谁）
 
