@@ -6,11 +6,13 @@
 
 pub mod controller;
 pub mod error;
+pub mod tree;
 pub mod types;
 
 pub use controller::SpawnContext;
 pub use controller::SpawnController;
 pub use error::SpawnError;
+pub use tree::SpawnTree;
 pub use types::ChildSessionInfo;
 pub use types::SpawnMode;
 pub use types::SpawnValidationResult;
