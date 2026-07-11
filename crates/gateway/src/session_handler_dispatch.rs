@@ -436,13 +436,17 @@ impl SessionMessageHandler {
             }
 
             // Record pre-call fingerprint for cache-break attribution.
-            // Uses the session's system prompt; tools/headers are not
-            // currently passed through the InternalRequest so they are
-            // None here. This tracks system-prompt changes between calls.
+            // Pass actual registered tool names so fingerprint includes
+            // the tools dimension (not just the system prompt).
             if let Some(cs) = sm.get_conversation_session(&session_id).await {
                 let mut cs_write = cs.write().await;
                 let sys = cs_write.system_prompt().map(|s| s.to_string());
-                cs_write.record_prompt_fingerprint(sys.as_deref(), None, None);
+                let tool_names: Option<Vec<String>> = match sm.get_tool_registry().await {
+                    Some(tr) => Some(tr.list_tool_names().await),
+                    None => None,
+                };
+                let tools_ref: Option<&[String]> = tool_names.as_deref();
+                cs_write.record_prompt_fingerprint(sys.as_deref(), tools_ref, None);
             }
 
             // Check if streaming is enabled for this session

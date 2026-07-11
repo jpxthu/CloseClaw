@@ -238,6 +238,7 @@ impl PartialEq for RunningStats {
 
 impl Eq for RunningStats {}
 
+/// Core accumulation and detection methods.
 impl RunningStats {
     /// Creates a new `RunningStats` with all counters zeroed.
     pub fn new() -> Self {
@@ -280,51 +281,6 @@ impl RunningStats {
         }
 
         info
-    }
-
-    /// Derives cache break causes from `pending_changes` recorded
-    /// during the pre-call fingerprint phase.
-    ///
-    /// Attribution rules:
-    /// - `system_prompt_changed` → `SystemPromptChanged`
-    /// - `tools_changed` → `ToolsChanged`
-    /// - `headers_changed` → `HeadersChanged`
-    /// - `time_since_last` > `DEFAULT_CACHE_TTL_SECS` → `TtlExpired`
-    /// - `request_count == 0` or `last_cache_read_tokens` was
-    ///   previously `None` → `SessionResumed`
-    /// - No match → `Unknown`
-    fn attribute_cache_break_causes(&mut self) -> Vec<CacheBreakCause> {
-        let mut causes = Vec::new();
-
-        if let Some(ref pc) = self.pending_changes {
-            if pc.system_prompt_changed {
-                causes.push(CacheBreakCause::SystemPromptChanged);
-            }
-            if pc.tools_changed {
-                causes.push(CacheBreakCause::ToolsChanged);
-            }
-            if pc.headers_changed {
-                causes.push(CacheBreakCause::HeadersChanged);
-            }
-            if let Some(dur) = pc.time_since_last {
-                if dur.as_secs() > DEFAULT_CACHE_TTL_SECS {
-                    causes.push(CacheBreakCause::TtlExpired);
-                }
-            }
-        }
-
-        // Session resumed: first cache_read with no prior value.
-        // `request_count == 0` covers the case where `last_cache_read_tokens`
-        // was already set but no previous accumulate occurred.
-        if self.request_count == 0 && self.last_cache_read_tokens.is_some() {
-            causes.push(CacheBreakCause::SessionResumed);
-        }
-
-        if causes.is_empty() {
-            causes.push(CacheBreakCause::Unknown);
-        }
-
-        causes
     }
 
     /// Accumulates a single API call's usage into the running totals.
@@ -374,6 +330,54 @@ impl RunningStats {
     /// or `None` if no calls have been accumulated yet.
     pub fn last_cache_read_tokens(&self) -> Option<u32> {
         self.last_cache_read_tokens
+    }
+}
+
+/// Fingerprint recording and cache-break attribution.
+impl RunningStats {
+    /// Derives cache break causes from `pending_changes` recorded
+    /// during the pre-call fingerprint phase.
+    ///
+    /// Attribution rules:
+    /// - `system_prompt_changed` → `SystemPromptChanged`
+    /// - `tools_changed` → `ToolsChanged`
+    /// - `headers_changed` → `HeadersChanged`
+    /// - `time_since_last` > `DEFAULT_CACHE_TTL_SECS` → `TtlExpired`
+    /// - `request_count == 0` or `last_cache_read_tokens` was
+    ///   previously `None` → `SessionResumed`
+    /// - No match → `Unknown`
+    fn attribute_cache_break_causes(&self) -> Vec<CacheBreakCause> {
+        let mut causes = Vec::new();
+
+        if let Some(ref pc) = self.pending_changes {
+            if pc.system_prompt_changed {
+                causes.push(CacheBreakCause::SystemPromptChanged);
+            }
+            if pc.tools_changed {
+                causes.push(CacheBreakCause::ToolsChanged);
+            }
+            if pc.headers_changed {
+                causes.push(CacheBreakCause::HeadersChanged);
+            }
+            if let Some(dur) = pc.time_since_last {
+                if dur.as_secs() > DEFAULT_CACHE_TTL_SECS {
+                    causes.push(CacheBreakCause::TtlExpired);
+                }
+            }
+        }
+
+        // Session resumed: first cache_read with no prior value.
+        // `request_count == 0` covers the case where `last_cache_read_tokens`
+        // was already set but no previous accumulate occurred.
+        if self.request_count == 0 && self.last_cache_read_tokens.is_some() {
+            causes.push(CacheBreakCause::SessionResumed);
+        }
+
+        if causes.is_empty() {
+            causes.push(CacheBreakCause::Unknown);
+        }
+
+        causes
     }
 
     /// Records a pre-call fingerprint of prompt components and
