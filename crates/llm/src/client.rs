@@ -24,8 +24,9 @@ use crate::cache_adapter::CacheAdapter;
 use crate::interpreter::InterpreterRegistry;
 use crate::plugin::PluginPipeline;
 use crate::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStream, ProtocolError};
-use crate::provider::{Provider, SseStream};
-use crate::types::{InternalRequest, RawSseChunk, StreamEvent, UnifiedResponse};
+use crate::provider::Provider;
+use crate::stream_utils::ReceiverStream;
+use crate::types::{InternalRequest, StreamEvent, UnifiedResponse};
 
 /// Unified client error — covers all failures in the call pipeline.
 #[derive(Debug, thiserror::Error)]
@@ -38,39 +39,6 @@ pub enum ClientError {
 
 /// Result type alias for client operations.
 pub type Result<T> = std::result::Result<T, ClientError>;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ReceiverStream — bridges tokio mpsc::Receiver → futures::Stream
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// A lightweight [`futures::Stream`] adapter over
-/// [`tokio::sync::mpsc::Receiver`].
-///
-/// `tokio::sync::mpsc::Receiver` does not implement `futures::Stream` directly.
-/// This wrapper bridges the gap by delegating [`StreamExt::poll_next`] to
-/// [`Receiver::poll_recv`].
-struct ReceiverStream {
-    rx: Option<SseStream>,
-}
-
-impl ReceiverStream {
-    fn new(rx: SseStream) -> Self {
-        Self { rx: Some(rx) }
-    }
-}
-
-impl futures::Stream for ReceiverStream {
-    type Item = RawSseChunk;
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        match self.rx.as_mut() {
-            Some(rx) => rx.poll_recv(cx),
-            None => std::task::Poll::Ready(None),
-        }
-    }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UnifiedChatClient
@@ -204,7 +172,7 @@ impl UnifiedChatClient {
             .protocol
             .build_request(&request)
             .map_err(ClientError::Protocol)?;
-        let sse_stream: SseStream = self
+        let sse_stream = self
             .provider
             .send_streaming(request, body)
             .await
