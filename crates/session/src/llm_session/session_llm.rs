@@ -9,7 +9,6 @@ use std::pin::Pin;
 
 use futures::Stream;
 
-use crate::persistence::ReasoningLevel;
 use closeclaw_common::processor::StreamEvent;
 use closeclaw_common::LLMError;
 use closeclaw_common::{InternalMessage, InternalRequest, UnifiedResponse};
@@ -97,7 +96,7 @@ impl ConversationSession {
             system_blocks: None,
             tools: None,
             session_id: None,
-            reasoning_level: ReasoningLevel::default(),
+            reasoning_level: self.reasoning_level,
             turn_count: None,
         }
     }
