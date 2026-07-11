@@ -71,6 +71,8 @@ pub struct CompletionNotification {
     pub output_path: PathBuf,
     /// Delivery priority.
     pub priority: NotificationPriority,
+    /// Human-readable summary for the notification.
+    pub summary: String,
 }
 
 /// Internal handle for per-task bookkeeping.
@@ -482,12 +484,14 @@ async fn finalize_state(
         } else {
             TaskState::Failed { exit_code }
         };
+        let summary = format!("Background command '{}' completed", h.command);
         let notif = CompletionNotification {
             task_id: h.id.clone(),
             command: h.command.clone(),
             state: new_state.clone(),
             output_path: h.output_path.clone(),
             priority: NotificationPriority::Later,
+            summary,
         };
         h.state = new_state;
         notifications.lock().await.push(notif);
