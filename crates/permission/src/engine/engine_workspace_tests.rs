@@ -329,3 +329,149 @@ fn test_config_file_path_normal_file() {
         "/tmp/regular/file.txt"
     ));
 }
+
+// ---- is_workspace_path nested path tests ----
+
+fn nested_ws_path(
+    root: &std::path::Path,
+    ancestors: &[(&str, &str)],
+    agent: &str,
+    user: &str,
+    file: &str,
+) -> String {
+    let mut p = root.join("workspaces");
+    for (a, u) in ancestors {
+        p = p.join(a).join(u);
+    }
+    p.join(agent)
+        .join(user)
+        .join(file)
+        .to_string_lossy()
+        .into_owned()
+}
+
+#[test]
+fn test_nested_one_level_matches() {
+    let tmp = TempDir::new().unwrap();
+    let path = nested_ws_path(
+        tmp.path(),
+        &[("parent-agent", "parent-user")],
+        "test-agent",
+        "test-user",
+        "file.txt",
+    );
+    assert!(super::engine_workspace::is_workspace_path(
+        tmp.path(),
+        "test-agent",
+        "test-user",
+        &path,
+    ));
+}
+
+#[test]
+fn test_nested_multi_level_matches() {
+    let tmp = TempDir::new().unwrap();
+    let path = nested_ws_path(
+        tmp.path(),
+        &[("a", "u1"), ("b", "u2")],
+        "test-agent",
+        "test-user",
+        "file.txt",
+    );
+    assert!(super::engine_workspace::is_workspace_path(
+        tmp.path(),
+        "test-agent",
+        "test-user",
+        &path,
+    ));
+}
+
+#[test]
+fn test_nested_agent_id_mismatch() {
+    let tmp = TempDir::new().unwrap();
+    let path = nested_ws_path(
+        tmp.path(),
+        &[("parent-agent", "parent-user")],
+        "wrong-agent",
+        "test-user",
+        "file.txt",
+    );
+    assert!(!super::engine_workspace::is_workspace_path(
+        tmp.path(),
+        "test-agent",
+        "test-user",
+        &path,
+    ));
+}
+
+#[test]
+fn test_nested_user_id_mismatch() {
+    let tmp = TempDir::new().unwrap();
+    let path = nested_ws_path(
+        tmp.path(),
+        &[("parent-agent", "parent-user")],
+        "test-agent",
+        "wrong-user",
+        "file.txt",
+    );
+    assert!(!super::engine_workspace::is_workspace_path(
+        tmp.path(),
+        "test-agent",
+        "test-user",
+        &path,
+    ));
+}
+
+#[test]
+fn test_nested_non_workspace_path() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp
+        .path()
+        .join("agents/some/other/path")
+        .to_string_lossy()
+        .into_owned();
+    assert!(!super::engine_workspace::is_workspace_path(
+        tmp.path(),
+        "test-agent",
+        "test-user",
+        &path,
+    ));
+}
+
+#[test]
+fn test_nested_exact_workspace_dir() {
+    // Workspace path equals {data_root}/workspaces/{agent_id}/{user_id} (no trailing file)
+    let tmp = TempDir::new().unwrap();
+    let path = tmp
+        .path()
+        .join("workspaces")
+        .join("test-agent")
+        .join("test-user")
+        .to_string_lossy()
+        .into_owned();
+    assert!(super::engine_workspace::is_workspace_path(
+        tmp.path(),
+        "test-agent",
+        "test-user",
+        &path,
+    ));
+}
+
+#[test]
+fn test_nested_user_prefix_boundary() {
+    // Security: test-user must NOT match test-user2 even in nested paths
+    let tmp = TempDir::new().unwrap();
+    let path = nested_ws_path(
+        tmp.path(),
+        &[("parent-agent", "parent-user")],
+        "test-agent",
+        "test-user2",
+        "file.txt",
+    );
+    assert!(!super::engine_workspace::is_workspace_path(
+        tmp.path(),
+        "test-agent",
+        "test-user",
+        &path,
+    ));
+}

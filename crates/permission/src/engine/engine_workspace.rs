@@ -16,7 +16,32 @@ pub(super) fn is_workspace_path(
     let prefix = data_root.join("workspaces").join(agent_id).join(user_id);
     let norm_prefix = normalize_path(prefix.to_str().unwrap_or(""));
     let norm_path = normalize_path(path);
-    norm_path == norm_prefix || norm_path.starts_with(&format!("{}/", norm_prefix))
+    if norm_path == norm_prefix || norm_path.starts_with(&format!("{}/", norm_prefix)) {
+        return true;
+    }
+    is_nested_workspace_path(data_root, agent_id, user_id, &norm_path)
+}
+
+/// Check if a normalized path is a nested workspace path for the given agent-user.
+///
+/// A nested workspace path satisfies:
+/// - Starts with `{data_root}/workspaces/`
+/// - Ends with `/{agent_id}/{user_id}` or `/{agent_id}/{user_id}/...`
+fn is_nested_workspace_path(
+    data_root: &Path,
+    agent_id: &str,
+    user_id: &str,
+    norm_path: &str,
+) -> bool {
+    let ws_prefix = normalize_path(&data_root.join("workspaces").to_string_lossy());
+    if norm_path != ws_prefix && !norm_path.starts_with(&format!("{}/", ws_prefix)) {
+        return false;
+    }
+    // The path is under data_root/workspaces/. Check if the last two components
+    // match agent_id/user_id, using boundary-aware matching.
+    let suffix = format!("/{}/{}", agent_id, user_id);
+    let suffix_with_slash = format!("{}/", suffix);
+    norm_path.ends_with(&suffix) || norm_path.contains(&suffix_with_slash)
 }
 
 /// Check if a path is inside the config directory but not in any workspace.
