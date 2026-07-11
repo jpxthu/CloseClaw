@@ -261,7 +261,10 @@ impl SessionManager {
         model_override: Option<&str>,
         parent_subagents_model: Option<&str>,
         max_spawn_depth: u32,
+        spawn_timeout: Option<u64>,
     ) -> Result<String, String> {
+        // Step 1.2: spawn_timeout is threaded through for Step 1.3 to apply.
+        let _ = spawn_timeout;
         // ── Increment busy count for drain tracking ────────────────────
         if let Some(sh) = self.get_shutdown_handle().await {
             sh.increment_busy();

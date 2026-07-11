@@ -129,7 +129,8 @@ async fn test_create_child_session_removes_spawn_tool_when_budget_zero() {
             None,
             None,
             None,
-            0, // max_spawn_depth == 0
+            0,    // max_spawn_depth == 0
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -180,7 +181,8 @@ async fn test_create_child_session_keeps_spawn_tool_when_budget_positive() {
             None,
             None,
             None,
-            3, // max_spawn_depth > 0
+            3,    // max_spawn_depth > 0
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -268,6 +270,7 @@ async fn test_count_active_children_excludes_completed() {
             None,
             None,
             3,
+            None, // spawn_timeout
         )
         .await
         .expect("create_child_session should succeed");
@@ -313,6 +316,7 @@ async fn test_count_active_children_includes_active() {
             None,
             None,
             3,
+            None, // spawn_timeout
         )
         .await
         .unwrap();
@@ -330,6 +334,7 @@ async fn test_count_active_children_includes_active() {
             None,
             None,
             3,
+            None, // spawn_timeout
         )
         .await
         .unwrap();
@@ -382,6 +387,7 @@ async fn test_kill_completed_child_succeeds() {
             None,
             None,
             3,
+            None, // spawn_timeout
         )
         .await
         .unwrap();
@@ -434,6 +440,7 @@ async fn test_kill_active_child_cascades() {
             None,
             None,
             3,
+            None, // spawn_timeout
         )
         .await
         .unwrap();
@@ -453,6 +460,7 @@ async fn test_kill_active_child_cascades() {
             None,
             None,
             3,
+            None, // spawn_timeout
         )
         .await
         .unwrap();
@@ -501,6 +509,7 @@ async fn test_cascade_kill_mixed_active_completed() {
             None,
             None,
             3,
+            None, // spawn_timeout
         )
         .await
         .unwrap();
@@ -520,6 +529,7 @@ async fn test_cascade_kill_mixed_active_completed() {
             None,
             None,
             3,
+            None, // spawn_timeout
         )
         .await
         .unwrap();
@@ -539,6 +549,7 @@ async fn test_cascade_kill_mixed_active_completed() {
             None,
             None,
             3,
+            None, // spawn_timeout
         )
         .await
         .unwrap();

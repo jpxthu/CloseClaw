@@ -49,6 +49,7 @@ mod tests {
                     source: ConfigSource::Merged,
                 },
                 effective_max_spawn_depth: 10,
+                spawn_timeout: None,
             })
         }
     }
