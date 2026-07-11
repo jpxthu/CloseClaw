@@ -113,6 +113,12 @@ fn hash_headers(headers: &[(&str, &str)]) -> u64 {
     hash_str(&joined)
 }
 
+/// Default cache TTL in seconds.
+///
+/// If the time between consecutive LLM calls exceeds this value,
+/// the cache break is attributed to TTL expiry.
+const DEFAULT_CACHE_TTL_SECS: u64 = 300;
+
 /// Compares two fingerprints and returns the detected pending changes.
 fn compute_pending(prev: &PromptFingerprint, new: &PromptFingerprint) -> PendingChanges {
     let time_since_last = prev
@@ -257,18 +263,68 @@ impl RunningStats {
         &mut self,
         current_cache_read: Option<u32>,
     ) -> Option<CacheBreakInfo> {
-        let info = detect_cache_break(self.last_cache_read_tokens, current_cache_read);
+        let mut info = detect_cache_break(self.last_cache_read_tokens, current_cache_read);
         self.last_cache_read_tokens = current_cache_read;
-        if let Some(ref break_info) = info {
+
+        // Attribute causes when a cache break is detected.
+        if let Some(ref mut break_info) = info {
+            break_info.causes = self.attribute_cache_break_causes();
             tracing::warn!(
                 previous = break_info.previous_cache_read,
                 current = break_info.current_cache_read,
                 drop_tokens = break_info.drop_tokens,
                 drop_ratio = break_info.drop_ratio,
+                causes = ?break_info.causes,
                 "KV cache break: prefix invalidated between consecutive calls"
             );
         }
+
         info
+    }
+
+    /// Derives cache break causes from `pending_changes` recorded
+    /// during the pre-call fingerprint phase.
+    ///
+    /// Attribution rules:
+    /// - `system_prompt_changed` → `SystemPromptChanged`
+    /// - `tools_changed` → `ToolsChanged`
+    /// - `headers_changed` → `HeadersChanged`
+    /// - `time_since_last` > `DEFAULT_CACHE_TTL_SECS` → `TtlExpired`
+    /// - `request_count == 0` or `last_cache_read_tokens` was
+    ///   previously `None` → `SessionResumed`
+    /// - No match → `Unknown`
+    fn attribute_cache_break_causes(&mut self) -> Vec<CacheBreakCause> {
+        let mut causes = Vec::new();
+
+        if let Some(ref pc) = self.pending_changes {
+            if pc.system_prompt_changed {
+                causes.push(CacheBreakCause::SystemPromptChanged);
+            }
+            if pc.tools_changed {
+                causes.push(CacheBreakCause::ToolsChanged);
+            }
+            if pc.headers_changed {
+                causes.push(CacheBreakCause::HeadersChanged);
+            }
+            if let Some(dur) = pc.time_since_last {
+                if dur.as_secs() > DEFAULT_CACHE_TTL_SECS {
+                    causes.push(CacheBreakCause::TtlExpired);
+                }
+            }
+        }
+
+        // Session resumed: first cache_read with no prior value.
+        // `request_count == 0` covers the case where `last_cache_read_tokens`
+        // was already set but no previous accumulate occurred.
+        if self.request_count == 0 && self.last_cache_read_tokens.is_some() {
+            causes.push(CacheBreakCause::SessionResumed);
+        }
+
+        if causes.is_empty() {
+            causes.push(CacheBreakCause::Unknown);
+        }
+
+        causes
     }
 
     /// Accumulates a single API call's usage into the running totals.
