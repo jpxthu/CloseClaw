@@ -515,7 +515,18 @@ impl Gateway {
                 self.handle_message_end(ctx, usage, state).await?;
             }
             StreamEvent::Error { message } => {
-                return Err(GatewayError::OutboundError(message));
+                let partial_content = std::mem::take(&mut state.content_blocks);
+                let partial_len = partial_content.len();
+                tracing::warn!(
+                    session_id = ctx.chat_id,
+                    error = %message,
+                    partial_content_blocks = partial_len,
+                    "streaming error with partial content preserved"
+                );
+                return Err(GatewayError::StreamError {
+                    message,
+                    partial_content,
+                });
             }
             StreamEvent::BlockStart { .. } => {
                 ctx.plugin.handle_stream_event(event);

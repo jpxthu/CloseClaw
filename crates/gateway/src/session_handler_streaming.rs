@@ -97,6 +97,15 @@ impl SessionMessageHandler {
             if let Some(ref s) = sink {
                 s.send_error(msg.clone());
             }
+            if let GatewayError::StreamError {
+                partial_content, ..
+            } = e
+            {
+                tracing::warn!(
+                    partial_content_blocks = partial_content.len(),
+                    "streaming error: partial content blocks preserved"
+                );
+            }
             LLMError::ApiError(msg)
         })?;
 
