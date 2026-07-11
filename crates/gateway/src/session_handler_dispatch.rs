@@ -435,6 +435,20 @@ impl SessionMessageHandler {
                 cs.write().await.append_user_message(&content_for_task);
             }
 
+            // Record pre-call fingerprint for cache-break attribution.
+            // Pass actual registered tool names so fingerprint includes
+            // the tools dimension (not just the system prompt).
+            if let Some(cs) = sm.get_conversation_session(&session_id).await {
+                let mut cs_write = cs.write().await;
+                let sys = cs_write.system_prompt().map(|s| s.to_string());
+                let tool_names: Option<Vec<String>> = match sm.get_tool_registry().await {
+                    Some(tr) => Some(tr.list_tool_names().await),
+                    None => None,
+                };
+                let tools_ref: Option<&[String]> = tool_names.as_deref();
+                cs_write.record_prompt_fingerprint(sys.as_deref(), tools_ref, None);
+            }
+
             // Check if streaming is enabled for this session
             let stream_enabled = if let Some(cs) = sm.get_conversation_session(&session_id).await {
                 cs.read().await.stream_enabled()
