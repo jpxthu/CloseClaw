@@ -10,11 +10,12 @@
 //! wraps the response as a character-by-character stream.
 
 use crate::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStream};
-use crate::provider::{Provider, SseStream};
+use crate::provider::Provider;
 use crate::retry::{
     backoff_delay, CooldownManager, MAX_TRANSIENT_RETRIES, MAX_UNKNOWN_RETRIES,
     TRANSIENT_BASE_DELAY, TRANSIENT_MAX_DELAY,
 };
+use crate::stream_utils::ReceiverStream;
 use crate::types::{InternalMessage, InternalRequest, InternalResponse};
 use crate::{ChatRequest, ChatResponse, ErrorKind, LLMError};
 use std::sync::Arc;
@@ -419,12 +420,25 @@ impl FallbackClient {
             .map_err(|e| LLMError::InvalidRequest(e.to_string()))
             .map_err(|_| ())?;
 
-        match tokio::time::timeout(
+        let result = tokio::time::timeout(
             self.call_timeout,
             provider.send_streaming(request.clone(), body),
         )
-        .await
-        {
+        .await;
+
+        self.handle_streaming_result(entry, result).await
+    }
+
+    /// Handle the outcome of a streaming call (success, provider error, timeout).
+    async fn handle_streaming_result(
+        &self,
+        entry: &ModelEntry,
+        result: Result<
+            Result<crate::provider::SseStream, crate::provider::ProviderError>,
+            tokio::time::error::Elapsed,
+        >,
+    ) -> Result<OutgoingEventStream, ()> {
+        match result {
             Ok(Ok(sse_stream)) => {
                 self.cooldown
                     .record_success(&entry.provider, &entry.model)
@@ -555,36 +569,6 @@ impl FallbackClient {
                     return Err(err);
                 }
             }
-        }
-    }
-}
-
-// --- SSE stream bridge ---
-
-/// Bridges [`tokio::sync::mpsc::Receiver`] → [`futures::Stream`].
-///
-/// [`tokio::sync::mpsc::Receiver`] does not implement [`futures::Stream`]
-/// directly.  This wrapper allows an [`SseStream`] to be used as an
-/// [`IncomingSseStream`].
-struct ReceiverStream {
-    rx: Option<SseStream>,
-}
-
-impl ReceiverStream {
-    fn new(rx: SseStream) -> Self {
-        Self { rx: Some(rx) }
-    }
-}
-
-impl futures::Stream for ReceiverStream {
-    type Item = crate::types::RawSseChunk;
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        match self.rx.as_mut() {
-            Some(rx) => rx.poll_recv(cx),
-            None => std::task::Poll::Ready(None),
         }
     }
 }
