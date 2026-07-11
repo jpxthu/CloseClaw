@@ -13,8 +13,9 @@ pub mod skill_reload;
 pub mod startup;
 use crate::startup::{all_component_entries, topo_sort_layers, StartupError};
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
-use closeclaw_config::providers::ConfigProvider;
-use closeclaw_config::ConfigManager;
+use closeclaw_common::NoopMetricsEmitter;
+use closeclaw_config::providers::{ConfigProvider, SystemConfigData};
+use closeclaw_config::{ConfigManager, ConfigSection};
 
 /// Resolved startup plan: topo-sort layers plus validated phase components.
 /// Each outer element is a layer/phase; each inner element is a [`ComponentId`].
@@ -31,7 +32,6 @@ use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::{PermissionEngine, RuleSet};
 use closeclaw_processor_chain as processor_chain;
 use closeclaw_session::persistence::PersistenceService;
-use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::storage::SqliteStorage;
 use closeclaw_skills::builtin::builtin_skills_with_engine_and_approval_flow;
 use closeclaw_skills::{DiskSkillRegistry, SkillWatcherHandle};
@@ -211,6 +211,7 @@ impl Daemon {
         config_dir: &str,
         storage: &Arc<SqliteStorage>,
         permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
+        config_manager: &ConfigManager,
     ) -> anyhow::Result<(Arc<Gateway>, Arc<SessionManager>, shutdown::ShutdownHandle)> {
         let gateway_config = GatewayConfig {
             name: "closeclaw".to_string(),
@@ -219,12 +220,18 @@ impl Daemon {
             dm_scope: DmScope::default(),
             ..Default::default()
         };
+        let reasoning_level = config_manager
+            .section(ConfigSection::System)
+            .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
+            .and_then(|sys| sys.llm)
+            .map(|llm| llm.reasoning_level)
+            .unwrap_or_default();
         let session_manager = Arc::new(SessionManager::new(
             &gateway_config,
             None,
             Some(PathBuf::from(config_dir)),
             Self::read_bootstrap_mode(),
-            ReasoningLevel::default(),
+            reasoning_level,
         ));
         let processor_registry =
             Arc::new(processor_chain::build_processor_registry(&gateway_config));
@@ -281,6 +288,9 @@ impl Daemon {
         gateway.set_self_ref(Arc::clone(&gateway));
         gateway
             .set_config_dir(std::path::PathBuf::from(config_dir))
+            .await;
+        gateway
+            .set_metrics_emitter(Arc::new(NoopMetricsEmitter))
             .await;
         closeclaw_im_adapter::platforms::register_platform_plugins(&gateway, config_dir).await;
         Self::init_terminal_plugin(&gateway).await;

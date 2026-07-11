@@ -12,7 +12,9 @@ use std::sync::Arc;
 use crate::terminal::TerminalPlugin;
 use closeclaw_common::IMPlugin;
 use closeclaw_common::LlmCaller;
-use closeclaw_config::providers::{ConfigProvider, CredentialsProvider};
+use closeclaw_common::NoopMetricsEmitter;
+use closeclaw_config::providers::{ConfigProvider, CredentialsProvider, SystemConfigData};
+use closeclaw_config::{ConfigManager, ConfigSection};
 use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
 use closeclaw_llm::anthropic::AnthropicProvider;
 use closeclaw_llm::fallback::{FallbackClient, ModelEntry};
@@ -23,7 +25,6 @@ use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
 use closeclaw_llm::LLMRegistry;
 use closeclaw_processor_chain as processor_chain;
 use closeclaw_session::bootstrap::BootstrapMode;
-use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_slash::dispatcher::SlashDispatcher;
 use closeclaw_slash::registry::HandlerRegistry;
 use closeclaw_slash::{ClearHandler, HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
@@ -67,12 +68,27 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
         ..Default::default()
     };
 
+    let reasoning_level = {
+        let config_dir = dirs::home_dir()
+            .map(|h| h.join(".closeclaw"))
+            .unwrap_or_else(|| PathBuf::from(".closeclaw"));
+        let config_subdir = config_dir.join("config");
+        ConfigManager::new(config_subdir)
+            .ok()
+            .and_then(|cm| {
+                cm.section(ConfigSection::System)
+                    .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
+                    .and_then(|sys| sys.llm)
+                    .map(|llm| llm.reasoning_level)
+            })
+            .unwrap_or_default()
+    };
     let session_manager = Arc::new(SessionManager::new(
         &gateway_config,
         None,
         None,
         BootstrapMode::Full,
-        ReasoningLevel::default(),
+        reasoning_level,
     ));
 
     let processor_registry = Arc::new(processor_chain::build_processor_registry(&gateway_config))
@@ -85,7 +101,9 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
 
     let slash_dispatcher = build_slash_dispatcher(Arc::clone(&session_manager));
 
-    let gateway = attach_session_handler(gateway, Arc::clone(&session_manager)).await;
+    let metrics_emitter: Arc<dyn closeclaw_common::MetricsEmitter> = Arc::new(NoopMetricsEmitter);
+    let gateway =
+        attach_session_handler(gateway, Arc::clone(&session_manager), metrics_emitter).await;
     let gateway = Arc::new(gateway);
     gateway.set_self_ref(Arc::clone(&gateway));
     gateway
@@ -151,8 +169,12 @@ fn build_slash_dispatcher(
 }
 
 /// Attach a [`SessionMessageHandler`] to the gateway if LLM providers are available.
-async fn attach_session_handler(gateway: Gateway, session_manager: Arc<SessionManager>) -> Gateway {
-    match build_session_handler(session_manager).await {
+async fn attach_session_handler(
+    gateway: Gateway,
+    session_manager: Arc<SessionManager>,
+    metrics_emitter: Arc<dyn closeclaw_common::MetricsEmitter>,
+) -> Gateway {
+    match build_session_handler(session_manager, metrics_emitter).await {
         Some(handler) => gateway.with_session_handler(Arc::new(handler)),
         None => gateway,
     }
@@ -300,6 +322,7 @@ async fn build_unified_chain(
 /// Returns `None` if no LLM providers are configured.
 async fn build_session_handler(
     session_manager: Arc<SessionManager>,
+    metrics_emitter: Arc<dyn closeclaw_common::MetricsEmitter>,
 ) -> Option<closeclaw_gateway::session_handler::SessionMessageHandler> {
     let llm_registry = init_llm_registry().await;
     let fallback_chain = build_fallback_chain();
@@ -335,7 +358,8 @@ async fn build_session_handler(
             fallback_client,
             output_tx,
             fallback_llm_caller,
-        ),
+        )
+        .with_metrics_emitter(metrics_emitter),
     )
 }
 /// Run the read-eval-print loop.

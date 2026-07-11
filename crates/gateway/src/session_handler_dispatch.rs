@@ -421,6 +421,7 @@ impl SessionMessageHandler {
         // the spawned task. The handle is optional (tests may not
         // set one).
         let shutdown_handle = self.shutdown_handle.clone();
+        let metrics_emitter = self.metrics_emitter.clone();
         let searcher_deps = searcher_deps;
 
         tokio::spawn(async move {
@@ -504,7 +505,7 @@ impl SessionMessageHandler {
                 Err(_) => String::new(),
             };
 
-            Self::finish_llm(&sm, &session_id, result, &output_tx).await;
+            Self::finish_llm(&sm, &session_id, result, &output_tx, &metrics_emitter).await;
 
             // ── Trigger active-searcher for assistant message ───
             // After the assistant response is stored in the session,

@@ -192,7 +192,7 @@ async fn test_outbound_chain_verbosity_filter_normal() {
 
 /// Verify that VerbosityFilter preserves all blocks at Full verbosity.
 #[tokio::test]
-async fn test_outbound_chain_verbosity_filter_full() {
+async fn test_outbound_chain_verbosity_default_normal() {
     let tmp = tempfile::tempdir().unwrap();
     let config = make_config(Some(tmp.path().to_path_buf()), DmScope::default());
     let registry = build_processor_registry(&config);
@@ -209,14 +209,10 @@ async fn test_outbound_chain_verbosity_filter_full() {
     };
     let result = registry.process_outbound(llm_output).await.unwrap();
 
-    // Full verbosity (default) preserves all blocks
-    assert_eq!(result.content_blocks.len(), 2);
+    // Normal verbosity (default) filters Thinking blocks
+    assert_eq!(result.content_blocks.len(), 1);
     assert!(matches!(
         &result.content_blocks[0],
-        closeclaw_llm::types::ContentBlock::Thinking { .. }
-    ));
-    assert!(matches!(
-        &result.content_blocks[1],
         closeclaw_llm::types::ContentBlock::Text(_)
     ));
 }
