@@ -535,7 +535,7 @@ async fn insert_handle(
 }
 
 /// Verify cleanup_finished removes output directories and handles for
-/// tasks in a terminal state (Completed, Failed, Killed).
+/// Completed and Failed tasks, but preserves output for Killed tasks.
 #[tokio::test]
 async fn test_cleanup_finished_removes_terminal_tasks() {
     let (mgr, _tmp) = test_manager();
@@ -558,17 +558,81 @@ async fn test_cleanup_finished_removes_terminal_tasks() {
 
     mgr.cleanup_finished().await;
 
-    // Terminal tasks: output dir and handle should be gone.
+    // Completed/Failed: output dir and handle should be gone.
     assert!(!completed_path.exists());
     assert!(mgr.get_task("t-completed").await.is_none());
     assert!(!failed_path.exists());
     assert!(mgr.get_task("t-failed").await.is_none());
-    assert!(!killed_path.exists());
+
+    // Killed: handle removed but output directory preserved.
     assert!(mgr.get_task("t-killed").await.is_none());
+    assert!(killed_path.exists());
 
     // Running task: output file and handle still present.
     assert!(running_path.exists());
     assert!(mgr.get_task("t-run").await.is_some());
+}
+
+// ---------------------------------------------------------------------------
+// Gap 1 tests — cleanup_finished must preserve Killed output
+// ---------------------------------------------------------------------------
+
+/// Cleanup of a Killed task removes the handle from the map.
+#[tokio::test]
+async fn test_cleanup_finished_killed_handle_removed() {
+    let (mgr, _tmp) = test_manager();
+    insert_handle(&mgr, "k1", "sleep 1", TaskState::Killed).await;
+
+    mgr.cleanup_finished().await;
+
+    assert!(
+        mgr.get_task("k1").await.is_none(),
+        "Killed task handle must be evicted from the map"
+    );
+}
+
+/// Cleanup of a Killed task must NOT delete the output directory.
+#[tokio::test]
+async fn test_cleanup_finished_killed_output_preserved() {
+    let (mgr, _tmp) = test_manager();
+    let output_path = insert_handle(&mgr, "k2", "sleep 2", TaskState::Killed).await;
+
+    mgr.cleanup_finished().await;
+
+    assert!(
+        output_path.exists(),
+        "Killed task output file must survive cleanup"
+    );
+    let parent = output_path.parent().unwrap();
+    assert!(
+        parent.exists(),
+        "Killed task output directory must survive cleanup"
+    );
+}
+
+/// Cleanup of a Completed task deletes both handle and output directory.
+#[tokio::test]
+async fn test_cleanup_finished_completed_removes_output() {
+    let (mgr, _tmp) = test_manager();
+    let output_path =
+        insert_handle(&mgr, "c1", "true", TaskState::Completed { exit_code: 0 }).await;
+
+    mgr.cleanup_finished().await;
+
+    assert!(!output_path.exists());
+    assert!(mgr.get_task("c1").await.is_none());
+}
+
+/// Cleanup of a Failed task deletes both handle and output directory.
+#[tokio::test]
+async fn test_cleanup_finished_failed_removes_output() {
+    let (mgr, _tmp) = test_manager();
+    let output_path = insert_handle(&mgr, "f1", "false", TaskState::Failed { exit_code: 1 }).await;
+
+    mgr.cleanup_finished().await;
+
+    assert!(!output_path.exists());
+    assert!(mgr.get_task("f1").await.is_none());
 }
 
 /// Verify that Running tasks are not touched by cleanup_finished.

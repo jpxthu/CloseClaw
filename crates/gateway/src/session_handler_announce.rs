@@ -26,6 +26,7 @@ use crate::session_manager::SessionManager;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::llm_session::ChatSession;
+use closeclaw_tasks::NotificationPriority;
 
 impl SessionMessageHandler {
     /// Clear busy flag, send output, and drain pending messages.
@@ -207,8 +208,13 @@ impl SessionMessageHandler {
                 closeclaw_tasks::TaskState::Killed => "Killed".to_string(),
                 closeclaw_tasks::TaskState::Running => "Running".to_string(),
             };
+            let prefix = match notif.priority {
+                NotificationPriority::Next => "[⚠️ 需立即处理] 后台任务",
+                NotificationPriority::Later => "[后台任务]",
+            };
             let text = format!(
-                "[后台任务] 任务 {}（命令 '{}'）已完成（状态：{}）。输出文件：{}",
+                "{} 任务 {}（命令 '{}'）已完成（状态：{}）。输出文件：{}",
+                prefix,
                 notif.task_id,
                 notif.command,
                 state_text,
@@ -217,8 +223,5 @@ impl SessionMessageHandler {
             cs_write.inject_system_message(text);
         }
         drop(cs_write);
-
-        // Clean up output files for tasks that have reached a terminal state.
-        tm.cleanup_finished().await;
     }
 }
