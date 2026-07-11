@@ -128,12 +128,17 @@ async fn emit_stuck_alert(
             return;
         }
         h.notified = true;
+        let summary = format!(
+            "Background command '{}' appears stuck at an interactive prompt",
+            command
+        );
         let notif = CompletionNotification {
             task_id: h.id.clone(),
             command: command.to_owned(),
             state: h.state.clone(),
             output_path: output_path.to_path_buf(),
             priority: NotificationPriority::Next,
+            summary,
         };
         notifications.lock().await.push(notif);
         tracing::warn!(
