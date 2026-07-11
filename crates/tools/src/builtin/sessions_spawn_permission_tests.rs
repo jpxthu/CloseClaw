@@ -12,8 +12,10 @@
 //! crate test suite.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use closeclaw_config::agents::{ActionPermission, AgentPermissions, PermissionLimits};
+use closeclaw_gateway::SessionManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_spawn::SpawnPermissionError;
 use closeclaw_permission::rules::RuleSetBuilder;
@@ -340,4 +342,114 @@ fn test_recursive_permission_intersection_three_layers() {
 #[ignore = "requires SpawnController from main crate"]
 async fn test_fully_denied_silent_return_no_session_created() {
     // Requires SpawnController which lives in the main crate.
+}
+
+// ===========================================================================
+// is_sub_agent behavior in spawn denial path
+// ===========================================================================
+
+use crate::permission_check::is_session_sub_agent;
+
+/// Helper: create a SessionManager with a given session at the specified depth.
+async fn make_sm_with_session(session_id: &str, depth: u32) -> Arc<SessionManager> {
+    use closeclaw_gateway::GatewayConfig;
+    use closeclaw_session::bootstrap::BootstrapMode;
+    use closeclaw_session::llm_session::ConversationSession;
+    use closeclaw_session::persistence::ReasoningLevel;
+    use std::path::PathBuf;
+    use tokio::sync::RwLock;
+
+    let sm = Arc::new(SessionManager::new(
+        &GatewayConfig {
+            name: "test".to_string(),
+            rate_limit_per_minute: 100,
+            max_message_size: 1024,
+            dm_scope: closeclaw_gateway::DmScope::default(),
+            ..Default::default()
+        },
+        None,
+        None,
+        BootstrapMode::Full,
+        ReasoningLevel::default(),
+    ));
+
+    sm.sessions.write().await.insert(
+        session_id.to_string(),
+        closeclaw_gateway::Session {
+            id: session_id.to_string(),
+            agent_id: "agent-a".to_string(),
+            channel: "test".to_string(),
+            created_at: 0,
+            depth,
+        },
+    );
+    let cs = ConversationSession::new(
+        session_id.to_string(),
+        "test-model".to_string(),
+        PathBuf::from("/tmp"),
+    );
+    sm.conversation_sessions
+        .write()
+        .await
+        .insert(session_id.to_string(), Arc::new(RwLock::new(cs)));
+
+    sm
+}
+
+/// is_session_sub_agent returns false for root session (depth=0).
+#[tokio::test]
+async fn test_spawn_is_sub_agent_root_session() {
+    let sm = make_sm_with_session("root-session", 0).await;
+    assert!(!is_session_sub_agent(&sm, "root-session").await);
+}
+
+/// is_session_sub_agent returns true for child session (depth=1).
+#[tokio::test]
+async fn test_spawn_is_sub_agent_child_session() {
+    let sm = make_sm_with_session("child-session", 1).await;
+    assert!(is_session_sub_agent(&sm, "child-session").await);
+}
+
+/// is_session_sub_agent returns true for deep nested session (depth=2).
+#[tokio::test]
+async fn test_spawn_is_sub_agent_deep_session() {
+    let sm = make_sm_with_session("deep-session", 2).await;
+    assert!(is_session_sub_agent(&sm, "deep-session").await);
+}
+
+/// is_session_sub_agent returns false for empty session_id.
+#[tokio::test]
+async fn test_spawn_is_sub_agent_empty_session_id() {
+    let sm = make_sm_with_session("any-session", 1).await;
+    assert!(!is_session_sub_agent(&sm, "").await);
+}
+
+/// is_session_sub_agent returns false for non-existent session_id.
+#[tokio::test]
+async fn test_spawn_is_sub_agent_nonexistent_session() {
+    let sm = make_sm_with_session("existing-session", 1).await;
+    assert!(!is_session_sub_agent(&sm, "does-not-exist").await);
+}
+
+/// Child session (depth > 0) spawn denial goes through submit_denial which
+/// returns None for sub-agents → direct PermissionDenied (no approval queue).
+/// Root session (depth = 0) spawn denial goes through submit_denial which
+/// returns Some → enters approval flow (behavior unchanged).
+///
+/// These are integration-level tests requiring SpawnController from main crate.
+#[tokio::test]
+#[ignore = "requires SpawnController and AgentRegistry from main crate"]
+async fn test_spawn_child_denial_no_approval_flow() {
+    // When is_session_sub_agent returns true (depth > 0):
+    // submit_denial returns None → PermissionDenied error returned directly.
+    // This matches the design doc: "子 agent 的权限被 Deny 时返回
+    // PermissionDenied 错误给调用方，不进入用户审批流程".
+}
+
+#[tokio::test]
+#[ignore = "requires SpawnController and AgentRegistry from main crate"]
+async fn test_spawn_root_denial_goes_through_approval() {
+    // When is_session_sub_agent returns false (depth = 0):
+    // submit_denial returns Some → approval flow enqueues.
+    // Existing behavior preserved.
 }

@@ -134,7 +134,10 @@ async fn evaluate_permission(
 ///
 /// Returns `false` when the session id is empty or the depth cannot be
 /// resolved (e.g. session not found), which is the safe default.
-async fn is_session_sub_agent(session_manager: &Arc<SessionManager>, session_id: &str) -> bool {
+pub(crate) async fn is_session_sub_agent(
+    session_manager: &Arc<SessionManager>,
+    session_id: &str,
+) -> bool {
     if session_id.is_empty() {
         return false;
     }

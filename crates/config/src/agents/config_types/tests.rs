@@ -9,6 +9,7 @@ fn make_perms(agent_id: &str, allowed_dims: &[&str]) -> AgentPermissions {
         "spawn",
         "tool_call",
         "config_write",
+        "message",
     ];
     let permissions = dimensions
         .iter()
@@ -316,14 +317,14 @@ fn intersect_result_has_correct_ids() {
     assert_eq!(result.inherited_from, Some("parent".into()));
 }
 
-// --- intersect: all seven dimensions ---
+// --- intersect: all eight dimensions ---
 
 #[test]
-fn intersect_all_seven_dimensions_checked() {
+fn intersect_all_eight_dimensions_checked() {
     let child = make_perms("child", &["command"]);
     let parent = make_perms("parent", &["command"]);
     let result = child.intersect(&parent);
-    assert_eq!(result.permissions.len(), 7);
+    assert_eq!(result.permissions.len(), 8);
     for dim in [
         "command",
         "file_read",
@@ -332,12 +333,102 @@ fn intersect_all_seven_dimensions_checked() {
         "spawn",
         "tool_call",
         "config_write",
+        "message",
     ] {
         assert!(
             result.permissions.contains_key(dim),
             "missing dimension: {dim}"
         );
     }
+}
+
+// --- intersect: message dimension ---
+
+#[test]
+fn intersect_parent_deny_child_allow_message_is_deny() {
+    let child = make_perms("child", &["command", "file_read", "message"]);
+    let parent = make_perms("parent", &["command", "file_read"]); // message absent = deny
+    let result = child.intersect(&parent);
+    assert!(!result.permissions["message"].allowed);
+}
+
+#[test]
+fn intersect_both_allow_message_is_allow() {
+    let child = make_perms("child", &["command", "message"]);
+    let parent = make_perms("parent", &["command", "message"]);
+    let result = child.intersect(&parent);
+    assert!(result.permissions["message"].allowed);
+}
+
+#[test]
+fn intersect_child_allow_parent_absent_message_is_deny() {
+    let child = make_perms("child", &["command", "message"]);
+    // parent has no message dimension → absent treated as deny
+    let parent = AgentPermissions {
+        agent_id: "parent".to_string(),
+        permissions: HashMap::from([(
+            "command".to_string(),
+            ActionPermission {
+                allowed: true,
+                limits: PermissionLimits::default(),
+            },
+        )]),
+        inherited_from: None,
+    };
+    let result = child.intersect(&parent);
+    assert!(!result.permissions["message"].allowed);
+}
+
+// --- is_fully_denied: message dimension ---
+
+#[test]
+fn is_fully_denied_seven_deny_message_allow_is_false() {
+    // All 7 non-message dimensions deny, message allow → not fully denied
+    let perms = make_perms("a", &["message"]);
+    assert!(!perms.is_fully_denied());
+}
+
+#[test]
+fn is_fully_denied_all_eight_deny_is_true() {
+    let perms = make_perms("a", &[]);
+    assert!(perms.is_fully_denied());
+}
+
+// --- intersect: message dimension limits ---
+
+#[test]
+fn intersect_message_limits_commands_set_intersection() {
+    let child = AgentPermissions {
+        agent_id: "child".to_string(),
+        permissions: HashMap::from([(
+            "message".to_string(),
+            ActionPermission {
+                allowed: true,
+                limits: PermissionLimits {
+                    commands: vec!["send".into(), "edit".into()],
+                    ..Default::default()
+                },
+            },
+        )]),
+        inherited_from: None,
+    };
+    let parent = AgentPermissions {
+        agent_id: "parent".to_string(),
+        permissions: HashMap::from([(
+            "message".to_string(),
+            ActionPermission {
+                allowed: true,
+                limits: PermissionLimits {
+                    commands: vec!["send".into(), "delete".into()],
+                    ..Default::default()
+                },
+            },
+        )]),
+        inherited_from: None,
+    };
+    let result = child.intersect(&parent);
+    assert!(result.permissions["message"].allowed);
+    assert_eq!(result.permissions["message"].limits.commands, vec!["send"]);
 }
 
 // ── MiningConfig tests ──────────────────────────────────────────────
