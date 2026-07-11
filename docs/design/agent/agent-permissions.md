@@ -85,7 +85,7 @@ Owner（User ID 固定为 `"owner"`，系统的最高权限身份）在权限评
 
 ### Workspace 路径
 
-Workspace 路径授权是独立于操作权限的强制机制：每个 Agent-User 组合自动获得其 workspace 路径（`{数据目录}/workspaces/{agent_id}/{user_id}/`）的读写权限。此授权在操作权限评估之前生效——即使 Agent 和 User 的权限规则都未覆盖该路径，workspace 内的文件仍可读写。
+Workspace 路径授权是独立于操作权限的强制机制：每个 Agent-User 组合自动获得其 workspace 路径（`{数据根目录}/workspaces/{agent_id}/{user_id}/`）的读写权限。此授权在操作权限评估之前生效——即使 Agent 和 User 的权限规则都未覆盖该路径，workspace 内的文件仍可读写。
 
 ### 继承链路示例
 
