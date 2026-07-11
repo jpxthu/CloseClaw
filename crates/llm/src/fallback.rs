@@ -1,8 +1,16 @@
 //! LLM Fallback Chain Client
 //!
 //! Wraps LLM calls with retry, cooldown tracking, and model-level fallback.
+//!
+//! [`FallbackClient`] supports both non-streaming ([`chat`](Self::chat),
+//! [`chat_unified`](Self::chat_unified)) and streaming
+//! ([`chat_streaming`](Self::chat_streaming)) requests.  Streaming walks the
+//! provider chain calling [`Provider::send_streaming`] on each entry; when no
+//! streaming provider is available it degrades to a non-streaming call and
+//! wraps the response as a character-by-character stream.
 
-use crate::provider::Provider;
+use crate::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStream};
+use crate::provider::{Provider, SseStream};
 use crate::retry::{
     backoff_delay, CooldownManager, MAX_TRANSIENT_RETRIES, MAX_UNKNOWN_RETRIES,
     TRANSIENT_BASE_DELAY, TRANSIENT_MAX_DELAY,
@@ -22,6 +30,8 @@ pub struct FallbackClient {
     pub(crate) fallback_chain: Vec<ModelEntry>,
     cooldown: Arc<CooldownManager>,
     pub(crate) call_timeout: Duration,
+    /// Protocol used to parse SSE streams into [`StreamEvent`] values.
+    protocol: Arc<dyn ChatProtocol>,
 }
 
 /// A model entry with provider name and model name
@@ -36,6 +46,19 @@ pub struct ModelEntry {
 impl FallbackClient {
     /// Create a new FallbackClient with the given registry and fallback chain.
     pub fn new(registry: Arc<crate::LLMRegistry>, fallback_chain: Vec<ModelEntry>) -> Self {
+        Self::new_with_protocol(
+            registry,
+            fallback_chain,
+            Arc::new(crate::protocol::OpenAiProtocol::default()),
+        )
+    }
+
+    /// Create a new FallbackClient with an explicit [`ChatProtocol`].
+    pub fn new_with_protocol(
+        registry: Arc<crate::LLMRegistry>,
+        fallback_chain: Vec<ModelEntry>,
+        protocol: Arc<dyn ChatProtocol>,
+    ) -> Self {
         let cooldown = Arc::new(CooldownManager::new());
         cooldown.load_sync();
         Self {
@@ -43,6 +66,7 @@ impl FallbackClient {
             fallback_chain,
             cooldown,
             call_timeout: Duration::from_secs(DEFAULT_CALL_TIMEOUT_SECS),
+            protocol,
         }
     }
 
@@ -51,6 +75,20 @@ impl FallbackClient {
         registry: Arc<crate::LLMRegistry>,
         fallback_chain: Vec<ModelEntry>,
     ) -> Self {
+        Self::new_async_with_protocol(
+            registry,
+            fallback_chain,
+            Arc::new(crate::protocol::OpenAiProtocol::default()),
+        )
+        .await
+    }
+
+    /// Async constructor with an explicit [`ChatProtocol`].
+    pub async fn new_async_with_protocol(
+        registry: Arc<crate::LLMRegistry>,
+        fallback_chain: Vec<ModelEntry>,
+        protocol: Arc<dyn ChatProtocol>,
+    ) -> Self {
         let cooldown = Arc::new(CooldownManager::new());
         cooldown.load().await;
         Self {
@@ -58,11 +96,25 @@ impl FallbackClient {
             fallback_chain,
             cooldown,
             call_timeout: Duration::from_secs(DEFAULT_CALL_TIMEOUT_SECS),
+            protocol,
         }
     }
 
     /// Create from config-style strings like "minimax/MiniMax-M2.7"
     pub fn from_strings(registry: Arc<crate::LLMRegistry>, chain: Vec<String>) -> Self {
+        Self::from_strings_with_protocol(
+            registry,
+            chain,
+            Arc::new(crate::protocol::OpenAiProtocol::default()),
+        )
+    }
+
+    /// Create from config-style strings with an explicit [`ChatProtocol`].
+    pub fn from_strings_with_protocol(
+        registry: Arc<crate::LLMRegistry>,
+        chain: Vec<String>,
+        protocol: Arc<dyn ChatProtocol>,
+    ) -> Self {
         let fallback_chain: Vec<ModelEntry> = chain
             .into_iter()
             .filter_map(|s| {
@@ -73,7 +125,7 @@ impl FallbackClient {
                 })
             })
             .collect();
-        Self::new(registry, fallback_chain)
+        Self::new_with_protocol(registry, fallback_chain, protocol)
     }
 
     /// Set call timeout
@@ -293,6 +345,158 @@ impl FallbackClient {
     }
 }
 
+// --- Streaming chat with fallback ---
+
+impl FallbackClient {
+    /// Send a streaming chat request through the fallback chain.
+    ///
+    /// Walks the chain trying [`Provider::send_streaming`] on each entry,
+    /// skipping cooldown entries.  On success the raw SSE stream is parsed
+    /// into [`StreamEvent`] values via the configured [`ChatProtocol`].
+    /// On failure the cooldown is recorded and the next entry is tried.
+    ///
+    /// If every entry's streaming call fails, degrades to a non-streaming
+    /// [`call_provider_unified`] and wraps the complete response as a
+    /// character-by-character stream.
+    pub async fn chat_streaming(
+        &self,
+        mut request: InternalRequest,
+    ) -> Result<OutgoingEventStream, LLMError> {
+        let mut idx = 0;
+        loop {
+            match self.fallback_chain.get(idx) {
+                None => {
+                    // All streaming entries exhausted — degrade to non-streaming.
+                    return self.degraded_stream(request).await;
+                }
+                Some(entry) => {
+                    if self
+                        .cooldown
+                        .is_in_cooldown(&entry.provider, &entry.model)
+                        .await
+                    {
+                        tracing::debug!(
+                            provider = %entry.provider,
+                            model = %entry.model,
+                            "model in cooldown, skipping"
+                        );
+                        idx += 1;
+                        continue;
+                    }
+
+                    let provider = match self.registry.get(&entry.provider).await {
+                        Some(p) => p,
+                        None => {
+                            tracing::warn!(
+                                provider = %entry.provider,
+                                "provider not found, trying next"
+                            );
+                            idx += 1;
+                            continue;
+                        }
+                    };
+
+                    request.model = entry.model.clone();
+                    let body = serde_json::to_value(&request)
+                        .map_err(|e| LLMError::InvalidRequest(e.to_string()))?;
+
+                    match tokio::time::timeout(
+                        self.call_timeout,
+                        provider.send_streaming(request.clone(), body),
+                    )
+                    .await
+                    {
+                        Ok(Ok(sse_stream)) => {
+                            self.cooldown
+                                .record_success(&entry.provider, &entry.model)
+                                .await;
+                            let incoming: IncomingSseStream =
+                                Box::pin(ReceiverStream::new(sse_stream));
+                            let machine = self.protocol.create_sse_machine();
+                            let stream = self.protocol.parse_sse_stream(incoming, machine).await;
+                            return Ok(stream);
+                        }
+                        Ok(Err(provider_err)) => {
+                            let llm_err = LLMError::ApiError(provider_err.to_string());
+                            let kind = llm_err.kind();
+                            tracing::warn!(
+                                provider = %entry.provider,
+                                model = %entry.model,
+                                error = %llm_err,
+                                kind = ?kind,
+                                "fallback streaming call failed"
+                            );
+                            self.cooldown
+                                .record_failure(&entry.provider, &entry.model, kind)
+                                .await;
+                            idx += 1;
+                        }
+                        Err(_elapsed) => {
+                            tracing::warn!(
+                                provider = %entry.provider,
+                                model = %entry.model,
+                                "fallback streaming call timed out"
+                            );
+                            self.cooldown
+                                .record_failure(&entry.provider, &entry.model, ErrorKind::Transient)
+                                .await;
+                            idx += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// All streaming entries failed — degrade to non-streaming.
+    ///
+    /// Walks the chain without cooldown checks (the streaming cooldown
+    /// should not block a non-streaming attempt) and wraps the first
+    /// successful response as a character-by-character stream.
+    async fn degraded_stream(
+        &self,
+        mut request: InternalRequest,
+    ) -> Result<OutgoingEventStream, LLMError> {
+        tracing::warn!("all streaming entries failed, degrading to non-streaming");
+        for entry in &self.fallback_chain {
+            let provider = match self.registry.get(&entry.provider).await {
+                Some(p) => p,
+                None => continue,
+            };
+            request.model = entry.model.clone();
+            let chat_request = ChatRequest {
+                model: request.model.clone(),
+                messages: request
+                    .messages
+                    .iter()
+                    .map(|m| crate::Message {
+                        role: m.role.clone(),
+                        content: m.content.clone(),
+                    })
+                    .collect(),
+                temperature: request.temperature,
+                max_tokens: request.max_tokens,
+            };
+            match self.call_provider_unified(&provider, chat_request).await {
+                Ok(response) => {
+                    return Ok(crate::unified_fallback::response_to_stream(response));
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        provider = %entry.provider,
+                        model = %entry.model,
+                        error = %err,
+                        "degraded non-streaming call also failed"
+                    );
+                }
+            }
+        }
+        Err(LLMError::ApiError(
+            "all models in fallback chain exhausted".to_string(),
+        ))
+    }
+}
+
 // --- Retry logic ---
 
 impl FallbackClient {
@@ -332,6 +536,36 @@ impl FallbackClient {
                     return Err(err);
                 }
             }
+        }
+    }
+}
+
+// --- SSE stream bridge ---
+
+/// Bridges [`tokio::sync::mpsc::Receiver`] → [`futures::Stream`].
+///
+/// [`tokio::sync::mpsc::Receiver`] does not implement [`futures::Stream`]
+/// directly.  This wrapper allows an [`SseStream`] to be used as an
+/// [`IncomingSseStream`].
+struct ReceiverStream {
+    rx: Option<SseStream>,
+}
+
+impl ReceiverStream {
+    fn new(rx: SseStream) -> Self {
+        Self { rx: Some(rx) }
+    }
+}
+
+impl futures::Stream for ReceiverStream {
+    type Item = crate::types::RawSseChunk;
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        match self.rx.as_mut() {
+            Some(rx) => rx.poll_recv(cx),
+            None => std::task::Poll::Ready(None),
         }
     }
 }
