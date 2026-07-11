@@ -379,34 +379,6 @@ async fn test_agent_lookup_agent_exists() {
     assert!(!registry.agent_exists("missing").await);
 }
 
-#[tokio::test]
-async fn test_agent_lookup_get_parent_id() {
-    let registry = AgentRegistry::new();
-    let mut cfg = make_config("child");
-    cfg.parent_id = Some("parent".to_string());
-    registry.populate(vec![cfg]);
-
-    let parent = registry.get_parent_id("child").await;
-    assert_eq!(parent, Some("parent".to_string()));
-}
-
-#[tokio::test]
-async fn test_agent_lookup_get_parent_id_none() {
-    let registry = AgentRegistry::new();
-    registry.populate(vec![make_config("root")]);
-
-    let parent = registry.get_parent_id("root").await;
-    assert_eq!(parent, None);
-}
-
-#[tokio::test]
-async fn test_agent_lookup_get_parent_id_not_found() {
-    let registry = AgentRegistry::new();
-
-    let parent = registry.get_parent_id("missing").await;
-    assert_eq!(parent, None);
-}
-
 // ---- AgentSkillsQuery trait tests ----
 
 #[test]

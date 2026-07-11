@@ -43,7 +43,4 @@ pub trait AgentLookup: Send + Sync {
 
     /// Check if an agent ID is valid (exists in the registry).
     async fn agent_exists(&self, agent_id: &str) -> bool;
-
-    /// Get the parent agent ID for a given agent, if any.
-    async fn get_parent_id(&self, agent_id: &str) -> Option<String>;
 }
