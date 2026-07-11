@@ -18,14 +18,14 @@ LLM 调用 sessions_spawn(agentId, task, ...)
 Session 模块读取父 agent 配置中的 subagents 参数（注意：下文「父 agent」指配置来源，「父 session」指发出 spawn 调用的运行时会话）：
   ① depth 检查：父 agent 有效预算 ≤ 0 → 拒绝（预算见 Depth 追踪节）
   ② 并发检查：活跃子 session 数 >= 父 agent.subagents.maxChildren → 拒绝
-  ③ agentId 解析：spawn 未传 agentId 时自动回退到父 agent 配置的 `defaultChildAgent`
-  ④ 白名单检查：agentId 不在父 agent.subagents.allowAgents 中 → 拒绝
-  ⑤ requireAgentId 检查：回退值也为空 → 拒绝
+  ③ requireAgentId 检查：spawn 未传 agentId 且 requireAgentId=true → 拒绝
+  ④ agentId 解析：spawn 未传 agentId 时默认使用当前 Agent 的 ID（spawn 自身分身）
+  ⑤ 白名单检查：agentId 不在父 agent.subagents.allowAgents 中 → 拒绝
   ⑥ 权限检查：子 agent 经权限继承计算后无任何执行权限 → 拒绝（见 agent-permissions.md）
   ↓
 全部检查通过 → 创建 child session：
   - 加载目标 agent 的配置档案（config.json + permissions.json）
-  - workspace：spawn 参数指定 → 目标 agent.workspace → 父 workspace 子目录
+  - workspace：spawn 参数指定 → 目标 agent.workspace → 父 Agent 工作目录
   - bootstrap 模式：lightContext=true → minimal；否则 → 目标 agent.bootstrapMode
   - 注入 task 作为首条用户消息
   - tools：`allowedTools` 参数提供时完全替换子 agent 的 config.tools，否则使用 agent 配置的工具白名单；有效预算 ≤ 0 时从白名单中移除 sessions_spawn
@@ -277,7 +277,7 @@ spawn_tree 重建：
 ```
 父 session 调用 sessions_spawn(mode="run", agentId, task, ...)
   ↓
-前置检查：depth / 并发 / 白名单 / requireAgentId / 权限
+前置检查：depth / 并发 / requireAgentId / agentId 解析 / 白名单 / 权限
   ↓ （全部通过）
 创建 child session：
   agent_id = 目标 agent
