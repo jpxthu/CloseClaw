@@ -130,6 +130,10 @@ pub struct ConversationSession {
     /// Communication configuration for spawned child sessions.
     /// When set, restricts which agents the child may communicate with.
     communication_config: Option<CommunicationConfig>,
+    /// Bootstrap mode cached from AgentRegistry at session creation.
+    /// Determines which bootstrap files are loaded when rebuilding
+    /// the system prompt. Defaults to [`BootstrapMode::Full`].
+    bootstrap_mode: crate::bootstrap::loader::BootstrapMode,
     /// Per-session memory-injection slot.
     /// Written by the active-searcher async task, consumed and cleared
     /// by the session owner when assembling the next message list.
@@ -201,6 +205,7 @@ impl ConversationSession {
             cancel_token: CancellationToken::new(),
             stopped: Arc::new(AtomicBool::new(false)),
             communication_config: None,
+            bootstrap_mode: crate::bootstrap::loader::BootstrapMode::Full,
             memory_injection: Arc::new(Mutex::new(None)),
             last_activity_at: Utc::now().timestamp(),
             shutdown_handle: None,
@@ -273,6 +278,17 @@ impl ConversationSession {
     pub fn with_communication_config(mut self, config: CommunicationConfig) -> Self {
         self.communication_config = Some(config);
         self
+    }
+
+    /// Sets the bootstrap mode for this session.
+    pub fn with_bootstrap_mode(mut self, mode: crate::bootstrap::loader::BootstrapMode) -> Self {
+        self.bootstrap_mode = mode;
+        self
+    }
+
+    /// Returns the cached bootstrap mode for this session.
+    pub fn bootstrap_mode(&self) -> crate::bootstrap::loader::BootstrapMode {
+        self.bootstrap_mode
     }
 
     /// Returns the communication configuration, if set.
@@ -877,6 +893,7 @@ impl std::fmt::Debug for ConversationSession {
             .field("cancel_token", &"<CancelToken>")
             .field("stopped", &self.stopped.load(Ordering::SeqCst))
             .field("communication_config", &self.communication_config)
+            .field("bootstrap_mode", &self.bootstrap_mode)
             .field("verbosity_level", &self.verbosity_level)
             .field(
                 "session_mode",

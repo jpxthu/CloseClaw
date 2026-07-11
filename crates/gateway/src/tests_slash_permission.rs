@@ -20,7 +20,6 @@ use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
     Action, Defaults, Effect, Rule, RuleSet, Subject,
 };
-use closeclaw_session::bootstrap::loader::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 
 // ---------------------------------------------------------------------------
@@ -147,7 +146,6 @@ fn make_gateway() -> Arc<Gateway> {
         &config,
         None,
         None,
-        BootstrapMode::Minimal,
         ReasoningLevel::default(),
     ));
     Arc::new(Gateway::new(config, sm))

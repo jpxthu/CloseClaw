@@ -9,7 +9,7 @@ use async_trait::async_trait;
 ///
 /// Returned by [`AgentToolsConfigQuery::get_agent_tools_config`].
 /// Contains the effective tool whitelist and blacklist for an agent.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct AgentToolsConfig {
     /// Agent-level tool whitelist. `None` or `Some(["*"])` means all tools.
     pub tools: Option<Vec<String>>,

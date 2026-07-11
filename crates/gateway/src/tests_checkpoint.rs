@@ -1,7 +1,6 @@
 //! Tests for `SessionManager::save_checkpoint_after_compact`.
 
 use crate::{GatewayConfig, SessionManager};
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::persistence::{PendingMessage, PersistenceService, SessionCheckpoint};
@@ -118,7 +117,6 @@ async fn make_sm_with_storage(persistence: Arc<MockPersistence>) -> SessionManag
         &make_config(),
         Some(persistence as Arc<dyn PersistenceService>),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     )
 }
@@ -241,7 +239,6 @@ async fn test_save_checkpoint_after_compact_no_storage_returns_silently() {
         &make_config(),
         None, // no storage
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 

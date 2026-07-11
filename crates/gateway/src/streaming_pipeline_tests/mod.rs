@@ -19,7 +19,6 @@ use closeclaw_common::processor::ProcessedMessage;
 use closeclaw_llm::types::{
     ContentBlock, ContentBlockType, ContentDelta, StreamEvent, UnifiedUsage,
 };
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::{PersistenceError, ReasoningLevel, SessionCheckpoint};
 use futures::stream;
 use serde_json::json;
@@ -305,7 +304,6 @@ pub(super) async fn setup_streaming(
         &config,
         Some(Arc::new(MockPersistService)),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), processor_chain);

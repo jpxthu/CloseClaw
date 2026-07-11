@@ -7,7 +7,6 @@ use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::LLMRegistry;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_tasks::{
@@ -64,7 +63,6 @@ fn make_sm() -> Arc<SessionManager> {
         &make_config(),
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ))
 }
@@ -547,7 +545,6 @@ async fn setup_for_compact_test(
         &config,
         Some(persistence as Arc<dyn closeclaw_session::persistence::PersistenceService>),
         None,
-        closeclaw_session::bootstrap::BootstrapMode::Full,
         closeclaw_session::persistence::ReasoningLevel::default(),
     ));
 
@@ -685,7 +682,6 @@ async fn test_apply_compact_result_no_session() {
         &config,
         Some(persistence as Arc<dyn closeclaw_session::persistence::PersistenceService>),
         None,
-        closeclaw_session::bootstrap::BootstrapMode::Full,
         closeclaw_session::persistence::ReasoningLevel::default(),
     ));
 

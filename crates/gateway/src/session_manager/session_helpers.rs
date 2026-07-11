@@ -1,8 +1,6 @@
 //! Helper functions extracted from SessionManager::find_or_create
 //! to keep the main file under the 500-line limit.
 
-#![allow(dead_code)]
-
 use crate::Message;
 use closeclaw_session::persistence::{PersistenceService, SessionStatus};
 use closeclaw_session::workspace;
@@ -10,18 +8,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
-
-/// Encapsulates agent-level tool and skill filter configuration.
-#[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
-pub(super) struct AgentToolSkillConfig {
-    #[allow(dead_code)]
-    pub agent_tools: Option<Vec<String>>,
-    #[allow(dead_code)]
-    pub agent_disallowed_tools: Option<Vec<String>>,
-    #[allow(dead_code)]
-    pub agent_skills: Option<Vec<String>>,
-}
 
 /// Generate a unique session ID.
 ///
@@ -31,21 +17,6 @@ pub(super) fn generate_session_id(agent_id: &str) -> String {
     let uuid = Uuid::new_v4();
     let hex_part = format!("{:08x}", uuid.as_fields().0);
     format!("{}_{}_{}", agent_id, ts, hex_part)
-}
-
-/// Build the system prompt for a new session.
-///
-/// Uses the `SystemPromptBuilder` trait object to build the prompt,
-/// delegating all system-prompt construction to the main crate's implementation.
-pub(super) async fn build_session_system_prompt(
-    builder: &dyn closeclaw_common::SystemPromptBuilder,
-    session_id: &str,
-    agent_id: &str,
-    overrides: Option<&closeclaw_common::PromptOverrides>,
-) -> String {
-    builder
-        .build_prompt(session_id, agent_id, overrides, None)
-        .await
 }
 
 /// Compute the workdir path for a new session.

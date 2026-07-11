@@ -19,7 +19,6 @@ use closeclaw_permission::engine::engine_types::{
     Action, Caller, Effect, PermissionRequestBody, Rule, RuleSet, Subject,
 };
 use closeclaw_permission::rules::RuleSetBuilder;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use tokio::sync::RwLock;
@@ -97,7 +96,6 @@ fn make_session_manager() -> Arc<SessionManager> {
         },
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ))
 }

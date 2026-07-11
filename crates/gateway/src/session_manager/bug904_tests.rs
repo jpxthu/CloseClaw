@@ -2,7 +2,6 @@ use super::*;
 use crate::GatewayConfig;
 use async_trait::async_trait;
 use closeclaw_common::shutdown::ShutdownMode;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::{AgentRole, PersistenceError, SessionCheckpoint};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -130,7 +129,6 @@ async fn test_find_or_create_writes_thread_id_to_checkpoint() {
         &test_config(),
         Some(storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 
@@ -174,7 +172,6 @@ async fn test_flush_all_preserves_existing_thread_id() {
         &test_config(),
         Some(storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 
@@ -213,7 +210,6 @@ async fn test_active_session_fast_path_updates_thread_id() {
         &test_config(),
         Some(storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 
@@ -284,7 +280,6 @@ async fn test_channel_override_fast_path_updates_thread_id() {
         &test_config(),
         Some(storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 
@@ -347,7 +342,6 @@ async fn test_fast_path_thread_id_none_overwrites_old_value() {
         &test_config(),
         Some(storage.clone()),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 

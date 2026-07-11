@@ -353,7 +353,6 @@ use crate::permission_check::is_session_sub_agent;
 /// Helper: create a SessionManager with a given session at the specified depth.
 async fn make_sm_with_session(session_id: &str, depth: u32) -> Arc<SessionManager> {
     use closeclaw_gateway::GatewayConfig;
-    use closeclaw_session::bootstrap::BootstrapMode;
     use closeclaw_session::llm_session::ConversationSession;
     use closeclaw_session::persistence::ReasoningLevel;
     use std::path::PathBuf;
@@ -369,7 +368,6 @@ async fn make_sm_with_session(session_id: &str, depth: u32) -> Arc<SessionManage
         },
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
 

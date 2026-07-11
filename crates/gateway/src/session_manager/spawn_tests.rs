@@ -8,9 +8,9 @@
 use super::spawn::SpawnMode;
 use super::tests::{clear_global_prompt_state, make_test_mgr, test_config};
 use super::SessionManager;
+use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::SubagentsConfig;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ModelSpec, ResolvedAgentConfig};
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
 use serial_test::serial;
@@ -577,7 +577,6 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
         &test_config(),
         Some(storage),
         Some(tmp.path().to_path_buf()),
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 
@@ -945,7 +944,6 @@ async fn test_spawn_checkpoint_persists_parent_session_id_and_depth() {
         &test_config(),
         Some(storage.clone()),
         Some(tmp.path().to_path_buf()),
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     );
 

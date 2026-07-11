@@ -363,7 +363,8 @@ impl SessionManager {
             workdir_path.clone(),
             child_token,
         )
-        .with_reasoning_level(self.default_reasoning_level);
+        .with_reasoning_level(self.default_reasoning_level)
+        .with_bootstrap_mode(bootstrap_mode);
 
         // Wire shutdown handle for busy-count tracking.
         if let Some(sh) = self.get_shutdown_handle().await {

@@ -16,7 +16,6 @@ use closeclaw_gateway::{DmScope, GatewayConfig, Message, SessionManager};
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_risk::RiskLevel;
 use closeclaw_permission::engine::engine_types::{Caller, RuleSet};
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 
 // ---------------------------------------------------------------------------
@@ -82,7 +81,6 @@ fn make_session_manager() -> Arc<SessionManager> {
         },
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ))
 }

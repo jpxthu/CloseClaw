@@ -8,6 +8,7 @@ use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::ModelSpec;
 use closeclaw_config::agents::ResolvedAgentConfig;
 use dashmap::DashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Thread-safe agent configuration registry.
@@ -95,6 +96,14 @@ impl crate::lookup::AgentLookup for AgentRegistry {
     async fn agent_exists(&self, agent_id: &str) -> bool {
         self.get(agent_id).is_some()
     }
+
+    async fn get_agent_workspace(&self, agent_id: &str) -> Option<PathBuf> {
+        self.get(agent_id).and_then(|cfg| cfg.workspace.clone())
+    }
+
+    async fn query_bootstrap_mode(&self, agent_id: &str) -> Option<BootstrapMode> {
+        self.configs.get(agent_id).map(|cfg| cfg.bootstrap_mode)
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -137,6 +146,12 @@ impl crate::tools_config_query::AgentToolsConfigQuery for AgentRegistry {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// AgentRegistryQuery — combined supertrait
+// ═══════════════════════════════════════════════════════════════════════════
+
+impl crate::lookup::AgentRegistryQuery for AgentRegistry {}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // AgentConfigLookup — bridge to closeclaw_common trait
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -152,3 +167,5 @@ impl crate::lookup::AgentConfigLookup for AgentRegistry {
 
 #[cfg(test)]
 mod config_tests;
+#[cfg(test)]
+mod registry_query_tests;

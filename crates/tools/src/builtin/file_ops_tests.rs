@@ -31,7 +31,6 @@ fn make_engine(rules: Vec<Rule>) -> PermEngine {
 
 fn make_sm() -> SessionMgr {
     use closeclaw_gateway::GatewayConfig;
-    use closeclaw_session::bootstrap::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
     Arc::new(SessionManager::new(
         &GatewayConfig {
@@ -43,7 +42,6 @@ fn make_sm() -> SessionMgr {
         },
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ))
 }

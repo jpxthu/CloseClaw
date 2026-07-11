@@ -108,7 +108,6 @@ mod tests {
     use closeclaw_permission::engine::engine_eval::PermissionEngine;
     use closeclaw_permission::engine::engine_types::RuleSet;
     use closeclaw_permission::rules::RuleSetBuilder;
-    use closeclaw_session::bootstrap::BootstrapMode;
     use closeclaw_session::persistence::ReasoningLevel;
     use closeclaw_skills::DiskSkillRegistry;
     use closeclaw_tasks::BackgroundTaskManager;
@@ -162,7 +161,6 @@ mod tests {
             &cfg,
             None,
             None,
-            BootstrapMode::Minimal,
             ReasoningLevel::default(),
         ));
         let spawn_controller = Arc::new(SpawnController::new(

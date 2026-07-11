@@ -10,7 +10,6 @@ use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::LLMRegistry;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 
 fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
@@ -237,7 +236,6 @@ async fn test_handle_message_backward_compat() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();

@@ -54,9 +54,6 @@ pub struct SessionManager {
     pub conversation_sessions: RwLock<HashMap<String, Arc<RwLock<ConversationSession>>>>,
     /// Workspace directory for bootstrap file loading (None means no workspace)
     workspace_dir: Option<PathBuf>,
-    /// Bootstrap mode determining which files to load
-    #[allow(dead_code)]
-    bootstrap_mode: BootstrapMode,
     /// Tool registry for building system prompt ToolsSection
     tool_registry: RwLock<Option<Arc<dyn ToolRegistryQuery>>>,
     /// Skill registry for building system prompt SkillListingSection
@@ -83,7 +80,7 @@ pub struct SessionManager {
     /// Config manager for looking up agent-level tool/skill filtering.
     config_manager: RwLock<Option<Arc<ConfigManager>>>,
     /// Agent registry for looking up resolved agent configs (design-doc query layer).
-    agent_registry: RwLock<Option<Arc<dyn closeclaw_agent::AgentLookup>>>,
+    agent_registry: RwLock<Option<Arc<dyn closeclaw_agent::AgentRegistryQuery>>>,
     /// Latest config snapshot; swapped atomically on each hot-reload.
     /// The old snapshot is released when all Arc references are dropped.
     config_snapshot: RwLock<Option<ConfigSnapshot>>,
@@ -124,7 +121,6 @@ impl SessionManager {
         config: &GatewayConfig,
         storage: Option<Arc<dyn PersistenceService>>,
         workspace_dir: Option<PathBuf>,
-        bootstrap_mode: BootstrapMode,
         default_reasoning_level: ReasoningLevel,
     ) -> Self {
         Self {
@@ -134,7 +130,6 @@ impl SessionManager {
             adapters: RwLock::new(HashMap::new()),
             conversation_sessions: RwLock::new(HashMap::new()),
             workspace_dir,
-            bootstrap_mode,
             tool_registry: RwLock::new(None),
             skill_registry: RwLock::new(None),
             default_reasoning_level,
@@ -184,7 +179,10 @@ impl SessionManager {
     }
 
     /// Set the agent registry for resolved config lookups.
-    pub async fn set_agent_registry(&self, agent_registry: Arc<dyn closeclaw_agent::AgentLookup>) {
+    pub async fn set_agent_registry(
+        &self,
+        agent_registry: Arc<dyn closeclaw_agent::AgentRegistryQuery>,
+    ) {
         *self.agent_registry.write().await = Some(agent_registry);
     }
 
@@ -197,6 +195,26 @@ impl SessionManager {
         let cm = config_manager.as_ref()?;
         let agents = cm.agents.read().unwrap();
         agents.get(agent_id).cloned()
+    }
+
+    /// Query per-agent workspace path via the agent registry.
+    /// Falls back to the global workspace_dir if the agent has no
+    /// per-agent workspace configured.
+    pub(super) async fn query_agent_workspace(&self, agent_id: &str) -> Option<PathBuf> {
+        let registry = self.agent_registry.read().await;
+        let registry = registry.as_ref()?;
+        registry.get_agent_workspace(agent_id).await
+    }
+
+    /// Query per-agent bootstrap mode via the agent registry.
+    ///
+    /// Returns the agent's configured [`BootstrapMode`], or `None` if
+    /// the agent has no registry entry (caller should fall back to
+    /// a sensible default).
+    pub(super) async fn query_agent_bootstrap_mode(&self, agent_id: &str) -> Option<BootstrapMode> {
+        let registry = self.agent_registry.read().await;
+        let registry = registry.as_ref()?;
+        registry.query_bootstrap_mode(agent_id).await
     }
 
     /// Set priority prompt overrides.
@@ -827,7 +845,9 @@ impl SessionManager {
             }
         };
         let mut cs = cs.write().await;
-        cs.rebuild_system_prompt(session_id, &agent_id, None).await;
+        let cached_mode = cs.bootstrap_mode();
+        cs.rebuild_system_prompt(session_id, &agent_id, Some(cached_mode))
+            .await;
     }
 
     /// Notify all active sessions that a configuration section has been updated.
@@ -917,6 +937,8 @@ mod bug904_tests;
 mod flush_tests;
 #[cfg(test)]
 mod graceful_stop_tests;
+#[cfg(test)]
+mod resolve_registry_tests;
 #[cfg(test)]
 mod resolve_tests;
 #[cfg(test)]

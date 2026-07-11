@@ -109,7 +109,9 @@ async fn wire_session_manager(ctx: &RegistryContext<'_>) {
         .set_config_manager(Arc::clone(ctx.config_manager))
         .await;
     ctx.session_manager
-        .set_agent_registry(Arc::clone(ctx.agent_registry) as Arc<dyn closeclaw_agent::AgentLookup>)
+        .set_agent_registry(
+            Arc::clone(ctx.agent_registry) as Arc<dyn closeclaw_agent::AgentRegistryQuery>
+        )
         .await;
 }
 

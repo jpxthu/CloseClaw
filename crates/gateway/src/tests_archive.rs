@@ -8,7 +8,6 @@
 use crate::{GatewayConfig, Message, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::IMAdapter;
-use closeclaw_session::bootstrap::BootstrapMode;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::persistence::{
     AgentRole, PersistenceService, SessionCheckpoint, SessionStatus,
@@ -267,7 +266,6 @@ async fn make_gateway_with_storage(
         &config,
         Some(storage),
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gateway = crate::Gateway::new(config, Arc::clone(&session_manager));
@@ -471,7 +469,6 @@ async fn test_no_storage_no_restore() {
         &config,
         None,
         None,
-        BootstrapMode::Full,
         ReasoningLevel::default(),
     ));
     let gateway = crate::Gateway::new(config, Arc::clone(&session_manager));

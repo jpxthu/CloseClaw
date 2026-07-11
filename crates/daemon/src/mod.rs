@@ -230,7 +230,6 @@ impl Daemon {
             &gateway_config,
             None,
             Some(PathBuf::from(config_dir)),
-            Self::read_bootstrap_mode(),
             reasoning_level,
         ));
         let processor_registry =
