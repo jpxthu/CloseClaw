@@ -83,7 +83,7 @@ Gateway / SessionManager  ← session 生命周期协调者
 - **生命周期**是持久化骨架：SessionCheckpoint 数据模型和 SqliteStorage 是其他持久化功能的底层依赖。SessionStatus（Active / Archived）描述持久化状态，与执行状态无关。
 - **执行状态**是运行时骨架：LLM、Tool、子 Session 三维状态跟踪贯穿每次会话交互，级联停止依赖执行状态做决策，后台结果注入依赖消息队列调度。
 - **注入**是 session 生命周期事件——决定何时构建 system prompt。触发时机（详见 session-injection.md）包括：session 创建、archive 恢复、compaction 完成。注入链路不关心 system prompt 的 Section 组装细节，只负责在正确时机调用 builder 并存储结果。
-- **压缩**在 session 运行时发生：对过长的对话历史做 summarization。支持手动触发（`/compact`）和自动触发（token 用量阈值），内含熔断保护和分级告警。system prompt 独立于对话消息流，不参与压缩，确保角色定义在任意次压缩后完整无损。
+- **压缩**在 session 运行时发生：对过长的对话历史做 summarization。支持手动触发（`/compact`）和自动触发（token 用量阈值），内含熔断保护和分级告警。system prompt 独立于对话消息流，不参与压缩（详见 [compact-process.md](compact-process.md#概述)），确保角色定义在任意次压缩后完整无损。
 - **LLM 增强**贯穿每次 API 调用：流式推送、reasoning level 控制、cache hit 统计在每次会话交互中生效。
 
 ## 数据流
