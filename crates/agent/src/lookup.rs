@@ -5,6 +5,7 @@
 
 use async_trait::async_trait;
 use closeclaw_config::agents::ModelSpec;
+use std::path::PathBuf;
 
 /// Minimal agent config info needed by tools.
 ///
@@ -43,4 +44,22 @@ pub trait AgentLookup: Send + Sync {
 
     /// Check if an agent ID is valid (exists in the registry).
     async fn agent_exists(&self, agent_id: &str) -> bool;
+
+    /// Look up an agent's per-agent workspace path by agent ID.
+    ///
+    /// Returns `Some(path)` if the agent has a configured workspace,
+    /// or `None` if not found or no workspace configured.
+    async fn get_agent_workspace(&self, agent_id: &str) -> Option<PathBuf>;
+}
+
+/// Combined query trait for agent registry lookups.
+///
+/// Inherits [`AgentLookup`], [`AgentSkillsQuery`], and
+/// [`AgentToolsConfigQuery`] so that a single `Arc<dyn AgentRegistryQuery>`
+/// can satisfy all downstream query needs without multiple trait objects.
+pub trait AgentRegistryQuery:
+    AgentLookup
+    + crate::skills_query::AgentSkillsQuery
+    + crate::tools_config_query::AgentToolsConfigQuery
+{
 }

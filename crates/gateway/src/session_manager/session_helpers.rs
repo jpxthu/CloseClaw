@@ -14,7 +14,7 @@ use uuid::Uuid;
 /// Encapsulates agent-level tool and skill filter configuration.
 #[derive(Debug, Clone, Default)]
 #[allow(dead_code)]
-pub(super) struct AgentToolSkillConfig {
+pub(crate) struct AgentToolSkillConfig {
     #[allow(dead_code)]
     pub agent_tools: Option<Vec<String>>,
     #[allow(dead_code)]

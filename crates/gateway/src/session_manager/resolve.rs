@@ -9,7 +9,6 @@ use super::session_helpers::AgentToolSkillConfig;
 use super::SessionManager;
 use crate::Message;
 use closeclaw_common::processor::ProcessError;
-use closeclaw_config::agents::ResolvedAgentConfig;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{SessionCheckpoint, SessionStatus};
 use closeclaw_session::workspace;
@@ -19,13 +18,12 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 impl SessionManager {
-    /// Extract tool/skill filter configuration from an agent config.
-    pub(super) fn extract_agent_filters(config: &ResolvedAgentConfig) -> AgentToolSkillConfig {
-        AgentToolSkillConfig {
-            agent_tools: config.effective_tools(),
-            agent_disallowed_tools: config.effective_disallowed_tools(),
-            agent_skills: config.effective_skills(),
-        }
+    /// Extract tool/skill filter configuration from the agent registry.
+    ///
+    /// Queries [`AgentSkillsQuery`] and [`AgentToolsConfigQuery`] on the
+    /// agent registry instead of reading from `ConfigManager`.
+    async fn extract_agent_filters(&self, agent_id: &str) -> AgentToolSkillConfig {
+        self.query_agent_tools_skills_config(agent_id).await
     }
 
     /// Resolve a session_key to a session_id.
@@ -93,11 +91,7 @@ impl SessionManager {
 
                             let _tool_registry = self.tool_registry.read().await;
                             let _skill_registry = self.skill_registry.read().await.clone();
-                            let agent_cfg = self.get_agent_config(&agent_id).await;
-                            let _filters = agent_cfg
-                                .as_ref()
-                                .map(Self::extract_agent_filters)
-                                .unwrap_or_default();
+                            let _filters = self.extract_agent_filters(&agent_id).await;
                             let mut conv_session = ConversationSession::new(
                                 session_id.clone(),
                                 "default".to_string(),
@@ -262,14 +256,15 @@ impl SessionManager {
         let _tool_registry = self.tool_registry.read().await;
         let _skill_registry = self.skill_registry.read().await.clone();
         let agent_id = message.to.clone();
-        let agent_cfg = self.get_agent_config(&agent_id).await;
-        let _filters = agent_cfg
-            .as_ref()
-            .map(Self::extract_agent_filters)
-            .unwrap_or_default();
+        let _filters = self.extract_agent_filters(&agent_id).await;
 
-        // Compute workdir
-        let workdir_path = if let Some(ref workspace_dir) = self.workspace_dir {
+        // Compute workdir: prefer per-agent workspace from AgentRegistry,
+        // fall back to global workspace_dir.
+        let workdir_path = if let Some(per_agent_ws) = self.query_agent_workspace(&agent_id).await {
+            workspace::ensure_workspace_dir(&per_agent_ws, &message.to, &message.from).map_err(
+                |e| ProcessError::ChainFailed(format!("workspace creation failed: {}", e)),
+            )?
+        } else if let Some(ref workspace_dir) = self.workspace_dir {
             workspace::ensure_workspace_dir(workspace_dir, &message.to, &message.from).map_err(
                 |e| ProcessError::ChainFailed(format!("workspace creation failed: {}", e)),
             )?

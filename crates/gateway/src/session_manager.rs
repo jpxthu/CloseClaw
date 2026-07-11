@@ -83,7 +83,7 @@ pub struct SessionManager {
     /// Config manager for looking up agent-level tool/skill filtering.
     config_manager: RwLock<Option<Arc<ConfigManager>>>,
     /// Agent registry for looking up resolved agent configs (design-doc query layer).
-    agent_registry: RwLock<Option<Arc<dyn closeclaw_agent::AgentLookup>>>,
+    agent_registry: RwLock<Option<Arc<dyn closeclaw_agent::AgentRegistryQuery>>>,
     /// Latest config snapshot; swapped atomically on each hot-reload.
     /// The old snapshot is released when all Arc references are dropped.
     config_snapshot: RwLock<Option<ConfigSnapshot>>,
@@ -184,7 +184,10 @@ impl SessionManager {
     }
 
     /// Set the agent registry for resolved config lookups.
-    pub async fn set_agent_registry(&self, agent_registry: Arc<dyn closeclaw_agent::AgentLookup>) {
+    pub async fn set_agent_registry(
+        &self,
+        agent_registry: Arc<dyn closeclaw_agent::AgentRegistryQuery>,
+    ) {
         *self.agent_registry.write().await = Some(agent_registry);
     }
 
@@ -197,6 +200,36 @@ impl SessionManager {
         let cm = config_manager.as_ref()?;
         let agents = cm.agents.read().unwrap();
         agents.get(agent_id).cloned()
+    }
+
+    /// Query agent tools/skills config via the agent registry.
+    pub(super) async fn query_agent_tools_skills_config(
+        &self,
+        agent_id: &str,
+    ) -> session_helpers::AgentToolSkillConfig {
+        let registry = self.agent_registry.read().await;
+        let Some(registry) = registry.as_ref() else {
+            return Default::default();
+        };
+        let skills = closeclaw_agent::skills_query::AgentSkillsQuery::get_agent_skills(
+            registry.as_ref(),
+            agent_id,
+        );
+        let tools_cfg = registry.get_agent_tools_config(agent_id).await;
+        session_helpers::AgentToolSkillConfig {
+            agent_tools: tools_cfg.as_ref().and_then(|c| c.tools.clone()),
+            agent_disallowed_tools: tools_cfg.as_ref().and_then(|c| c.disallowed_tools.clone()),
+            agent_skills: skills,
+        }
+    }
+
+    /// Query per-agent workspace path via the agent registry.
+    /// Falls back to the global workspace_dir if the agent has no
+    /// per-agent workspace configured.
+    pub(super) async fn query_agent_workspace(&self, agent_id: &str) -> Option<PathBuf> {
+        let registry = self.agent_registry.read().await;
+        let registry = registry.as_ref()?;
+        registry.get_agent_workspace(agent_id).await
     }
 
     /// Set priority prompt overrides.
