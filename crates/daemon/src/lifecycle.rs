@@ -207,8 +207,14 @@ impl Daemon {
 
         // Spawn session stop as a background task
         let sm = self.gateway.session_manager().clone();
-        let mut stop_handle =
-            tokio::spawn(async move { sm.stop_all_sessions(mode, Some(&progress_tx)).await });
+        let mut stop_handle = tokio::spawn(async move {
+            sm.stop_all_sessions(
+                mode,
+                Some(&progress_tx),
+                closeclaw_gateway::session_manager::stop::DEFAULT_GRACEFUL_TIMEOUT,
+            )
+            .await
+        });
 
         // Spawn fresh signal handlers for escalation monitoring during Phase 2.
         // Phase 1's handlers are consumed by its tokio::select! loop.

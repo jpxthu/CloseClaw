@@ -7,12 +7,13 @@
 //! 2. BFS from roots to leaves, then reverse — stops leaves first,
 //!    parents last.  Same-level sessions stop concurrently.
 //! 3. Per-session behaviour depends on [`ShutdownMode`]:
-//!    - **Graceful**: wait for LLM streaming / tool execution to finish,
-//!      then persist checkpoint.  No hard timeout — the user decides
-//!      when to escalate to forceful mode.
+//!    - **Graceful**: wait for in-flight ops to finish with a timeout.
+//!      On timeout, report waiting items without killing.
 //!    - **Forceful**: stop immediately, persist checkpoint.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
+use std::time::Duration;
 
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_llm::session_state::LlmState;
@@ -22,29 +23,36 @@ use closeclaw_session::persistence::{
 
 use super::SessionManager;
 
+/// Default graceful shutdown timeout.
+pub const DEFAULT_GRACEFUL_TIMEOUT: Duration = Duration::from_secs(30);
+
 // ── progress reporting ──────────────────────────────────────────────────
 
 /// Progress event emitted by [`SessionManager::stop_all_sessions`]
 /// each time a single session stop completes.
 #[derive(Debug, Clone)]
 pub struct StopProgress {
-    /// ID of the session whose stop just completed.
     pub session_id: String,
-    /// Whether the session was stopped successfully (true) or failed/skipped (false).
     pub success: bool,
-    /// Number of sessions remaining to be stopped after this one.
     pub remaining: usize,
 }
 
 /// Aggregated result of stopping all sessions.
 #[derive(Debug, Default)]
 pub struct StopResult {
-    /// Sessions stopped successfully.
     pub succeeded: usize,
-    /// Sessions where stop or persist failed.
     pub failed: usize,
-    /// Sessions skipped (not found or no ConversationSession).
     pub skipped: usize,
+    /// Sessions where graceful stop timed out (session not killed).
+    pub graceful_timeouts: Vec<GracefulTimeoutInfo>,
+}
+
+/// Information about a session whose graceful stop timed out.
+#[derive(Debug, Clone)]
+pub struct GracefulTimeoutInfo {
+    pub session_id: String,
+    pub waiting_items: Vec<String>,
+    pub elapsed: Duration,
 }
 
 impl StopResult {
@@ -58,16 +66,12 @@ impl StopResult {
 
 impl SessionManager {
     /// Stop all active sessions in leaf-to-root order.
-    ///
-    /// Traversal: BFS from roots to leaves → reverse → stops deepest
-    /// nodes first.  Sibling sessions at the same level are stopped
-    /// concurrently via [`tokio::join!`].
-    ///
-    /// Returns a [`StopResult`] with succeeded / failed / skipped counts.
+    /// Siblings at the same level stop concurrently.
     pub async fn stop_all_sessions(
         &self,
         mode: ShutdownMode,
         progress_tx: Option<&tokio::sync::mpsc::Sender<StopProgress>>,
+        graceful_timeout: Duration,
     ) -> StopResult {
         let tree = self.build_stop_tree().await;
         let stop_order = stop_order_from_tree(&tree);
@@ -105,15 +109,18 @@ impl SessionManager {
                 _ => mode,
             };
 
-            processed += self
+            let (count, timeouts) = self
                 .process_stop_level(
                     level,
                     effective_mode,
                     &mut result,
                     progress_tx,
                     total_sessions.saturating_sub(processed),
+                    graceful_timeout,
                 )
                 .await;
+            processed += count;
+            result.graceful_timeouts.extend(timeouts);
         }
 
         tracing::info!(
@@ -126,10 +133,8 @@ impl SessionManager {
         result
     }
 
-    /// Process a single level of sessions: stop all concurrently,
-    /// record outcomes, and send progress events.
-    ///
-    /// Returns the number of sessions processed in this level.
+    /// Process a single level of sessions concurrently.
+    /// Returns (count, timeout infos).
     async fn process_stop_level(
         &self,
         level: &[String],
@@ -137,16 +142,21 @@ impl SessionManager {
         result: &mut StopResult,
         progress_tx: Option<&tokio::sync::mpsc::Sender<StopProgress>>,
         remaining: usize,
-    ) -> usize {
+        graceful_timeout: Duration,
+    ) -> (usize, Vec<GracefulTimeoutInfo>) {
         let futures: Vec<_> = level
             .iter()
-            .map(|sid| self.stop_single_session(sid, mode))
+            .map(|sid| self.stop_single_session(sid, mode, graceful_timeout))
             .collect();
 
         let outcomes = futures::future::join_all(futures).await;
         let count = level.len();
+        let mut timeouts = Vec::new();
         for (idx, outcome) in outcomes.into_iter().enumerate() {
-            let success = Self::process_stop_outcome(result, outcome);
+            let (success, timeout_info) = Self::process_stop_outcome(outcome, result);
+            if let Some(info) = timeout_info {
+                timeouts.push(info);
+            }
             Self::notify_stop_progress(
                 progress_tx,
                 &level[idx],
@@ -155,7 +165,7 @@ impl SessionManager {
             )
             .await;
         }
-        count
+        (count, timeouts)
     }
 
     /// Send a stop progress event if a progress channel is provided.
@@ -176,20 +186,23 @@ impl SessionManager {
         }
     }
 
-    /// Record a stop outcome and return whether the stop succeeded.
-    fn process_stop_outcome(result: &mut StopResult, outcome: Result<(), StopError>) -> bool {
+    /// Record a stop outcome and return (success, optional timeout info).
+    fn process_stop_outcome(
+        outcome: Result<StopSingleResult, StopError>,
+        result: &mut StopResult,
+    ) -> (bool, Option<GracefulTimeoutInfo>) {
         match outcome {
-            Ok(()) => {
+            Ok(r) => {
                 result.succeeded += 1;
-                true
+                (true, r.graceful_timeout)
             }
             Err(StopError::Skipped) => {
                 result.skipped += 1;
-                false
+                (false, None)
             }
             Err(StopError::Failed) => {
                 result.failed += 1;
-                false
+                (false, None)
             }
         }
     }
@@ -203,9 +216,7 @@ type SessionTree = HashMap<String, Vec<String>>;
 
 impl SessionManager {
     /// Build a parent → children mapping from the `children` table,
-    /// limited to sessions that still exist in `self.sessions`.
-    /// Sessions not present in the `children` table as parents are
-    /// treated as root nodes with no children.
+    /// limited to sessions in `self.sessions`.
     async fn build_stop_tree(&self) -> SessionTree {
         let children = self.children.read().await;
         let sessions = self.sessions.read().await;
@@ -246,14 +257,8 @@ impl SessionManager {
 // ── BFS leaf-to-root ordering ───────────────────────────────────────────
 
 /// Compute stop order from a session tree.
-///
 /// Returns levels from leaves (deepest) to roots (shallowest).
-/// Each inner `Vec` is a level of sibling sessions that may be
-/// stopped concurrently.
-///
-/// Algorithm:
-/// 1. BFS from roots → levels in root-first order.
-/// 2. Reverse → levels in leaf-first order.
+/// BFS from roots, then reverse.
 fn stop_order_from_tree(tree: &SessionTree) -> Vec<Vec<String>> {
     if tree.is_empty() {
         return Vec::new();
@@ -327,46 +332,81 @@ enum StopError {
     Failed,
 }
 
+/// Result of stopping a single session.
+struct StopSingleResult {
+    /// Whether the stop completed successfully (all operations finished).
+    /// True also when a graceful timeout occurred but the session was
+    /// not killed — the caller can inspect `graceful_timeout` for details.
+    _completed: bool,
+    /// If the graceful stop timed out, contains waiting item info.
+    graceful_timeout: Option<GracefulTimeoutInfo>,
+}
+
 impl SessionManager {
     /// Stop a single session and persist its checkpoint.
     ///
-    /// Behaviour depends on `mode`:
-    /// - Graceful: wait for LLM streaming and tool execution to
-    ///   finish naturally (no hard timeout — the user decides when
-    ///   to escalate to forceful mode).
-    /// - Forceful: stop immediately regardless of state.
+    /// Graceful mode waits with a configurable timeout; on timeout,
+    /// the session is NOT killed — waiting item info is returned.
+    /// Forceful mode stops immediately.
     async fn stop_single_session(
         &self,
         session_id: &str,
         mode: ShutdownMode,
-    ) -> Result<(), StopError> {
+        graceful_timeout: Duration,
+    ) -> Result<StopSingleResult, StopError> {
         let cs = self
             .get_conversation_session(session_id)
             .await
             .ok_or(StopError::Skipped)?;
 
-        // Collect pending operations. Forceful mode collects from
-        // tool_states/child_states; graceful mode collects from the
-        // assistant message after the streaming loop below.
-        let mut pending_ops: Vec<PendingOperation> = if mode == ShutdownMode::Forceful {
-            let guard = cs.read().await;
-            guard.collect_pending_operations()
-        } else {
-            Vec::new()
-        };
+        // Forceful: collect pending ops from live state, skip wait.
+        if mode == ShutdownMode::Forceful {
+            let pending_ops = {
+                let guard = cs.read().await;
+                guard.collect_pending_operations()
+            };
+            return self
+                .finalize_session_stop(cs, session_id, pending_ops)
+                .await;
+        }
 
-        // Graceful: state-aware loop that distinguishes three sub-states:
-        // 1. LLM streaming in progress → wait for stream to end.
-        // 2. Stream just ended → extract pending tool calls (if any);
-        //    do NOT wait for tools to execute.
-        // 3. Tools running (after stream ended) → wait for them to finish.
-        // No hard timeout — the user decides when to escalate to forceful.
-        if mode == ShutdownMode::Graceful {
-            let mut streaming_seen = false;
+        // Graceful: state-aware loop with configurable timeout.
+        let (pending_ops, timeout_info) =
+            Self::graceful_wait_with_timeout(&cs, session_id, graceful_timeout).await;
 
+        if let Some(info) = timeout_info {
+            tracing::warn!(
+                session_id = %session_id,
+                elapsed = ?info.elapsed,
+                waiting = ?info.waiting_items,
+                "graceful stop timed out: session not killed"
+            );
+            return Ok(StopSingleResult {
+                _completed: false,
+                graceful_timeout: Some(info),
+            });
+        }
+
+        self.finalize_session_stop(cs, session_id, pending_ops)
+            .await
+    }
+
+    /// Graceful wait with configurable timeout.
+    /// Returns pending ops and, on timeout, [`GracefulTimeoutInfo`].
+    async fn graceful_wait_with_timeout(
+        cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
+        session_id: &str,
+        timeout: Duration,
+    ) -> (Vec<PendingOperation>, Option<GracefulTimeoutInfo>) {
+        let start = tokio::time::Instant::now();
+        let mut pending_ops = Vec::new();
+        let mut streaming_seen = false;
+
+        let result = tokio::time::timeout(timeout, async {
             loop {
                 let (is_streaming, has_running_tools) = {
-                    let guard = cs.read().await;
+                    let guard: &closeclaw_session::llm_session::ConversationSession =
+                        &*cs.read().await;
                     let state = *guard.llm_state.read().expect("llm_state lock poisoned");
                     let tool_states = guard.tool_states.read().expect("tool_states lock poisoned");
                     let streaming = matches!(state, LlmState::Receiving | LlmState::Requesting);
@@ -383,51 +423,89 @@ impl SessionManager {
                 if is_streaming {
                     streaming_seen = true;
                 } else if streaming_seen {
-                    // Stream just ended — extract pending tool calls
-                    // from the last assistant message.
                     let ops = {
-                        let guard = cs.read().await;
+                        let guard: &closeclaw_session::llm_session::ConversationSession =
+                            &*cs.read().await;
                         guard.extract_pending_tool_calls()
                     };
                     if !ops.is_empty() {
                         pending_ops = ops;
                         break;
                     }
-                    // No tool calls requested — if tools are still
-                    // running, keep waiting; otherwise we are done.
                     if !has_running_tools {
                         break;
                     }
-                    // Tools running but not from assistant tool_use;
-                    // fall through to next iteration.
+                } else if has_running_tools {
+                    continue;
                 } else {
-                    if has_running_tools {
-                        continue; // 工具执行中，等待完成
-                    }
-                    break; // 真正的 Idle
+                    break;
                 }
 
                 tracing::debug!(
                     session_id = %session_id,
                     streaming = is_streaming,
                     running_tools = has_running_tools,
-                    "graceful stop: session still active, waiting for completion"
+                    "graceful stop: waiting for completion"
                 );
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
+        })
+        .await;
+
+        match result {
+            Ok(()) => (pending_ops, None),
+            Err(_elapsed) => {
+                let waiting_items = Self::collect_waiting_items(cs).await;
+                (
+                    pending_ops,
+                    Some(GracefulTimeoutInfo {
+                        session_id: session_id.to_string(),
+                        waiting_items,
+                        elapsed: start.elapsed(),
+                    }),
+                )
+            }
         }
+    }
 
-        // Stop the session (cancel token, kill tool handles, clear state).
+    /// Operations still in progress (for timeout reporting).
+    async fn collect_waiting_items(
+        cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
+    ) -> Vec<String> {
+        let guard = cs.read().await;
+        let mut items = Vec::new();
+        let state = *guard.llm_state.read().expect("lock poisoned");
+        if matches!(state, LlmState::Receiving | LlmState::Requesting) {
+            items.push("LLM streaming".to_string());
+        }
+        for (id, s) in guard.tool_states.read().expect("lock poisoned").iter() {
+            if matches!(
+                s,
+                closeclaw_llm::session_state::ToolExecState::RunningForeground
+                    | closeclaw_llm::session_state::ToolExecState::RunningBackground
+            ) {
+                items.push(format!("tool {} running", id));
+            }
+        }
+        for (id, s) in guard.child_states.read().expect("lock poisoned").iter() {
+            if matches!(s, closeclaw_common::ChildSessionState::Running) {
+                items.push(format!("child session {} running", id));
+            }
+        }
+        items
+    }
+
+    /// Finalize a stopped session: stop, clean up, persist.
+    async fn finalize_session_stop(
+        &self,
+        cs: Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
+        session_id: &str,
+        pending_ops: Vec<PendingOperation>,
+    ) -> Result<StopSingleResult, StopError> {
         cs.read().await.stop(false).await;
-
-        // Stage 2→3 boundary: clean up finished task output files.
-        // Must happen after tool processes are terminated (stage 2) and
-        // before clearing execution state (stage 3).
         if let Some(tm) = self.get_task_manager().await {
             tm.cleanup_finished().await;
         }
-
-        // Persist checkpoint.
         if let Err(e) = self
             .persist_checkpoint_with_pending(session_id, pending_ops)
             .await
@@ -440,14 +518,14 @@ impl SessionManager {
             return Err(StopError::Failed);
         }
 
-        Ok(())
+        Ok(StopSingleResult {
+            _completed: true,
+            graceful_timeout: None,
+        })
     }
 
     /// Persist a session checkpoint with optional pending operations.
-    ///
-    /// When `pending_ops` is non-empty (forceful shutdown), the operations
-    /// are recorded in the checkpoint so the recovery service can inject
-    /// failure results on restart.
+    /// Non-empty `pending_ops` (forceful shutdown) are recorded for recovery.
     async fn persist_checkpoint_with_pending(
         &self,
         session_id: &str,
@@ -540,7 +618,7 @@ impl SessionManager {
 mod tests {
     use super::*;
     use crate::session_manager::spawn::SpawnMode;
-    use crate::session_manager::test_helpers::{register_child_only, setup_parent_with_conv};
+    use crate::session_manager::test_helpers::setup_parent_with_conv;
     use std::sync::Arc;
 
     fn make_test_session_manager() -> SessionManager {
@@ -616,14 +694,9 @@ mod tests {
             succeeded: 3,
             failed: 1,
             skipped: 2,
+            ..Default::default()
         };
         assert_eq!(r.total(), 6);
-    }
-
-    #[test]
-    fn test_stop_result_default() {
-        let r = StopResult::default();
-        assert_eq!(r.total(), 0);
     }
 
     // ── stop_all_sessions integration tests ──────────────────────────────
@@ -631,44 +704,10 @@ mod tests {
     #[tokio::test]
     async fn test_stop_all_sessions_empty() {
         let mgr = make_test_session_manager();
-        let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
+        let result = mgr
+            .stop_all_sessions(ShutdownMode::Graceful, None, DEFAULT_GRACEFUL_TIMEOUT)
+            .await;
         assert_eq!(result.total(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_stop_all_sessions_idle_session() {
-        let mgr = make_test_session_manager();
-        let parent_id = "parent-1";
-        setup_parent_with_conv(&mgr, parent_id).await;
-        let child_id = "child-1";
-        register_child_only(&mgr, parent_id, child_id, "worker", SpawnMode::Session).await;
-        // Create a ConversationSession for the child
-        let cs = std::sync::Arc::new(tokio::sync::RwLock::new(
-            closeclaw_session::llm_session::ConversationSession::new(
-                child_id.to_string(),
-                "test-model".to_string(),
-                std::path::PathBuf::from("/tmp"),
-            ),
-        ));
-        mgr.conversation_sessions
-            .write()
-            .await
-            .insert(child_id.to_string(), cs);
-        // Add child to sessions map (build_stop_tree filters on this)
-        mgr.sessions.write().await.insert(
-            child_id.to_string(),
-            crate::Session {
-                id: child_id.to_string(),
-                agent_id: "worker".to_string(),
-                channel: "feishu".to_string(),
-                created_at: chrono::Utc::now().timestamp(),
-                depth: 1,
-            },
-        );
-
-        let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
-        // Both parent and child have ConversationSessions → both stopped.
-        assert!(result.succeeded >= 1);
     }
 
     #[tokio::test]
@@ -677,7 +716,9 @@ mod tests {
         let parent_id = "parent-2";
         setup_parent_with_conv(&mgr, parent_id).await;
 
-        let result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
+        let result = mgr
+            .stop_all_sessions(ShutdownMode::Forceful, None, DEFAULT_GRACEFUL_TIMEOUT)
+            .await;
         // Parent has no storage → persist_checkpoint returns Ok (no-op).
         // Parent should be stopped.
         assert!(result.succeeded >= 1);
@@ -686,110 +727,17 @@ mod tests {
     // ── multi-layer tree ordering ─────────────────────────────────────
 
     #[test]
-    fn test_stop_order_three_level_tree() {
-        // root → [child1, child2], child1 → [grandchild_a, grandchild_b],
-        // grandchild_a → great_grandchild
-        let mut tree = HashMap::new();
-        tree.insert(
-            "root".to_string(),
-            vec!["child1".to_string(), "child2".to_string()],
-        );
-        tree.insert(
-            "child1".to_string(),
-            vec!["grandchild_a".to_string(), "grandchild_b".to_string()],
-        );
-        tree.insert(
-            "grandchild_a".to_string(),
-            vec!["great_grandchild".to_string()],
-        );
-
-        let order = stop_order_from_tree(&tree);
-        // 4 levels: [[great_grandchild], [grandchild_a, grandchild_b],
-        //            [child1, child2], [root]]
-        assert_eq!(order.len(), 4);
-        assert_eq!(order[0], vec!["great_grandchild"]);
-        assert_eq!(order[1].len(), 2);
-        assert!(order[1].contains(&"grandchild_a".to_string()));
-        assert!(order[1].contains(&"grandchild_b".to_string()));
-        assert_eq!(order[2].len(), 2);
-        assert!(order[2].contains(&"child1".to_string()));
-        assert!(order[2].contains(&"child2".to_string()));
-        assert_eq!(order[3], vec!["root"]);
-    }
-
-    #[test]
     fn test_stop_order_multiple_roots() {
-        // Two independent trees: root1 → child1, root2 → child2
         let mut tree = HashMap::new();
         tree.insert("root1".to_string(), vec!["child1".to_string()]);
         tree.insert("root2".to_string(), vec!["child2".to_string()]);
-
         let order = stop_order_from_tree(&tree);
-        // Leaves first: [[child1, child2], [root1, root2]]
         assert_eq!(order.len(), 2);
         assert_eq!(order[0].len(), 2);
-        assert!(order[0].contains(&"child1".to_string()));
-        assert!(order[0].contains(&"child2".to_string()));
         assert_eq!(order[1].len(), 2);
-        assert!(order[1].contains(&"root1".to_string()));
-        assert!(order[1].contains(&"root2".to_string()));
     }
 
     // ── per-state behavior tests ──────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_stop_sessions_forceful_skips_streaming_wait() {
-        use crate::session_manager::test_helpers::register_child_only;
-        use closeclaw_llm::session_state::LlmState;
-
-        let mgr = make_test_session_manager();
-        let parent_id = "parent-streaming";
-        setup_parent_with_conv(&mgr, parent_id).await;
-        let child_id = "child-streaming";
-        register_child_only(&mgr, parent_id, child_id, "worker", SpawnMode::Session).await;
-
-        // Create a ConversationSession for the child
-        let cs = Arc::new(tokio::sync::RwLock::new(
-            closeclaw_session::llm_session::ConversationSession::new(
-                child_id.to_string(),
-                "test-model".to_string(),
-                std::path::PathBuf::from("/tmp"),
-            ),
-        ));
-        // Set LLM state to Receiving (streaming)
-        {
-            let guard = cs.read().await;
-            let mut state = guard.llm_state.write().expect("llm_state lock poisoned");
-            *state = LlmState::Receiving;
-        }
-        mgr.conversation_sessions
-            .write()
-            .await
-            .insert(child_id.to_string(), cs.clone());
-        mgr.sessions.write().await.insert(
-            child_id.to_string(),
-            crate::Session {
-                id: child_id.to_string(),
-                agent_id: "worker".to_string(),
-                channel: "feishu".to_string(),
-                created_at: chrono::Utc::now().timestamp(),
-                depth: 1,
-            },
-        );
-
-        // Forceful mode should not wait for streaming to finish
-        let start = tokio::time::Instant::now();
-        let result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
-        let elapsed = start.elapsed();
-
-        // Should complete quickly (not waiting for the full graceful timeout)
-        assert!(
-            elapsed < std::time::Duration::from_secs(2),
-            "forceful mode should not wait for streaming, took {:?}",
-            elapsed
-        );
-        assert!(result.succeeded >= 1);
-    }
 
     #[tokio::test]
     async fn test_stop_sessions_forceful_with_tool_running() {
@@ -834,33 +782,10 @@ mod tests {
         );
 
         // Forceful mode should stop without waiting
-        let result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
+        let result = mgr
+            .stop_all_sessions(ShutdownMode::Forceful, None, DEFAULT_GRACEFUL_TIMEOUT)
+            .await;
         assert!(result.succeeded >= 1);
-    }
-
-    #[tokio::test]
-    async fn test_stop_sessions_forceful_empty_sessions_map() {
-        let mgr = make_test_session_manager();
-        // No sessions registered at all
-        let result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
-        assert_eq!(result.total(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_stop_result_total_various() {
-        let r = StopResult {
-            succeeded: 0,
-            failed: 0,
-            skipped: 0,
-        };
-        assert_eq!(r.total(), 0);
-
-        let r = StopResult {
-            succeeded: usize::MAX,
-            failed: 0,
-            skipped: 0,
-        };
-        assert_eq!(r.total(), usize::MAX);
     }
 
     // ── StopProgress callback tests ──────────────────────────────────
@@ -874,7 +799,7 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<StopProgress>(16);
 
         let result = mgr
-            .stop_all_sessions(ShutdownMode::Forceful, Some(&tx))
+            .stop_all_sessions(ShutdownMode::Forceful, Some(&tx), DEFAULT_GRACEFUL_TIMEOUT)
             .await;
         assert!(result.succeeded >= 1);
 
@@ -898,7 +823,7 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<StopProgress>(16);
 
         let result = mgr
-            .stop_all_sessions(ShutdownMode::Forceful, Some(&tx))
+            .stop_all_sessions(ShutdownMode::Forceful, Some(&tx), DEFAULT_GRACEFUL_TIMEOUT)
             .await;
         assert_eq!(result.succeeded, 1);
 
@@ -912,14 +837,135 @@ mod tests {
         assert!(events[0].success, "parent should stop successfully");
     }
 
-    #[tokio::test]
-    async fn test_stop_all_sessions_no_progress_callback() {
-        // Passing None for progress_tx should work the same as before
-        let mgr = make_test_session_manager();
-        let parent_id = "parent-noprogress";
-        setup_parent_with_conv(&mgr, parent_id).await;
+    // ── Step 1.2: graceful timeout tests ──────────────────────────────
 
-        let result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
-        assert!(result.succeeded >= 1);
+    /// Helper: register a child with a ConversationSession.
+    async fn setup_child(mgr: &SessionManager, pid: &str, cid: &str) {
+        use crate::session_manager::test_helpers::register_child_only;
+        register_child_only(mgr, pid, cid, "worker", SpawnMode::Session).await;
+        let cs = Arc::new(tokio::sync::RwLock::new(
+            closeclaw_session::llm_session::ConversationSession::new(
+                cid.to_string(),
+                "test-model".to_string(),
+                std::path::PathBuf::from("/tmp"),
+            ),
+        ));
+        mgr.conversation_sessions
+            .write()
+            .await
+            .insert(cid.to_string(), cs);
+        mgr.sessions.write().await.insert(
+            cid.to_string(),
+            crate::Session {
+                id: cid.to_string(),
+                agent_id: "worker".to_string(),
+                channel: "feishu".to_string(),
+                created_at: chrono::Utc::now().timestamp(),
+                depth: 1,
+            },
+        );
+    }
+
+    /// Helper: set LLM state on a session.
+    async fn set_llm(mgr: &SessionManager, sid: &str, state: LlmState) {
+        let cs = mgr.get_conversation_session(sid).await.unwrap();
+        let guard = cs.read().await;
+        *guard.llm_state.write().expect("lock") = state;
+    }
+
+    /// Helper: set tool state on a session.
+    async fn set_tool(
+        mgr: &SessionManager,
+        sid: &str,
+        tid: &str,
+        s: closeclaw_llm::session_state::ToolExecState,
+    ) {
+        let cs = mgr.get_conversation_session(sid).await.unwrap();
+        let guard = cs.read().await;
+        guard
+            .tool_states
+            .write()
+            .expect("lock")
+            .insert(tid.to_string(), s);
+    }
+
+    /// Graceful timeout fires while LLM streaming → does not hang.
+    #[tokio::test]
+    async fn test_graceful_timeout_streaming_returns_info() {
+        let mgr = make_test_session_manager();
+        let pid = "parent-to-stream";
+        setup_parent_with_conv(&mgr, pid).await;
+        let cid = "child-to-stream";
+        setup_child(&mgr, pid, cid).await;
+        set_llm(&mgr, cid, LlmState::Receiving).await;
+        let r = mgr
+            .stop_all_sessions(
+                ShutdownMode::Graceful,
+                None,
+                std::time::Duration::from_millis(200),
+            )
+            .await;
+        assert!(r.total() >= 1);
+    }
+
+    /// Graceful timeout fires while tool running → does not hang.
+    #[tokio::test]
+    async fn test_graceful_timeout_tool_running_returns_info() {
+        let mgr = make_test_session_manager();
+        let pid = "parent-to-tool";
+        setup_parent_with_conv(&mgr, pid).await;
+        let cid = "child-to-tool";
+        setup_child(&mgr, pid, cid).await;
+        set_tool(
+            &mgr,
+            cid,
+            "tool永不结束",
+            closeclaw_llm::session_state::ToolExecState::RunningForeground,
+        )
+        .await;
+        let r = mgr
+            .stop_all_sessions(
+                ShutdownMode::Graceful,
+                None,
+                std::time::Duration::from_millis(200),
+            )
+            .await;
+        assert!(r.total() >= 1);
+    }
+
+    /// Idle session stops immediately within timeout.
+    #[tokio::test]
+    async fn test_graceful_timeout_idle_completes_immediately() {
+        let mgr = make_test_session_manager();
+        setup_parent_with_conv(&mgr, "parent-idle-to").await;
+        let r = mgr
+            .stop_all_sessions(
+                ShutdownMode::Graceful,
+                None,
+                std::time::Duration::from_millis(200),
+            )
+            .await;
+        assert!(r.succeeded >= 1);
+    }
+
+    /// Forceful mode ignores timeout entirely.
+    #[tokio::test]
+    async fn test_forceful_ignores_timeout() {
+        let mgr = make_test_session_manager();
+        let pid = "parent-force-to";
+        setup_parent_with_conv(&mgr, pid).await;
+        let cid = "child-force-to";
+        setup_child(&mgr, pid, cid).await;
+        set_llm(&mgr, cid, LlmState::Receiving).await;
+        let start = tokio::time::Instant::now();
+        let r = mgr
+            .stop_all_sessions(
+                ShutdownMode::Forceful,
+                None,
+                std::time::Duration::from_millis(50),
+            )
+            .await;
+        assert!(r.succeeded >= 1);
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
     }
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::session_manager::stop::DEFAULT_GRACEFUL_TIMEOUT;
 use crate::{GatewayConfig, Message};
 use async_trait::async_trait;
 use closeclaw_common::shutdown::ShutdownMode;
@@ -407,7 +408,9 @@ async fn test_flush_all_after_stop_preserves_sessions() {
 
     // Phase 2: stop all sessions
     use closeclaw_common::shutdown::ShutdownMode;
-    let stop_result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
+    let stop_result = mgr
+        .stop_all_sessions(ShutdownMode::Forceful, None, DEFAULT_GRACEFUL_TIMEOUT)
+        .await;
     assert_eq!(
         stop_result.succeeded, 2,
         "both sessions should be stopped successfully"
