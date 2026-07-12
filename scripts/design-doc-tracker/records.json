@@ -416,6 +416,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/session/llm-session-enhancements.md",
+    "commit": "6251bfa0507a3bc504d29a4b07640e2ac3a0201c",
+    "commit_time": "2026-07-13T01:29:11+08:00",
+    "confirmed_time": "2026-07-13T01:37:48.543200+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/system_prompt/appends.md",
     "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
     "commit_time": "2026-07-07T01:07:02+08:00",
