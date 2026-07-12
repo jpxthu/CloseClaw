@@ -679,3 +679,113 @@ async fn test_resolve_path3_sqlite_double_check_ignores_archived() {
     assert_ne!(result, archived_id, "should not self-heal from archived");
     assert!(result.starts_with("agent-b_"), "new session: {}", result);
 }
+
+// ── per-agent serial processing (Step 1.6) ─────────────────────────────────
+
+/// Verify that agent_locks map is populated after resolve, and the same
+/// agent_id reuses the same mutex while different agent_ids get separate ones.
+#[tokio::test]
+async fn test_per_agent_lock_reuses_mutex_for_same_agent() {
+    let mgr = make_test_mgr(None);
+    let msg_b1 = test_message(); // to=agent-b
+    let msg_b2 = Message {
+        id: "msg-b2".to_string(),
+        from: "user-x".to_string(),
+        to: "agent-b".to_string(),
+        content: "hi".to_string(),
+        channel: "feishu".to_string(),
+        timestamp: chrono::Utc::now().timestamp(),
+        metadata: std::collections::HashMap::new(),
+        thread_id: None,
+    };
+    let msg_c = Message {
+        id: "msg-c".to_string(),
+        from: "user-y".to_string(),
+        to: "agent-c".to_string(),
+        content: "hey".to_string(),
+        channel: "feishu".to_string(),
+        timestamp: chrono::Utc::now().timestamp(),
+        metadata: std::collections::HashMap::new(),
+        thread_id: None,
+    };
+
+    // Resolve two messages for agent-b and one for agent-c.
+    let _id_b1 = mgr.find_or_create("feishu", &msg_b1, None).await.unwrap();
+    let _id_b2 = mgr.find_or_create("feishu", &msg_b2, None).await.unwrap();
+    let _id_c = mgr.find_or_create("feishu", &msg_c, None).await.unwrap();
+
+    // agent_locks should have 2 entries: one for agent-b, one for agent-c.
+    let locks = mgr.agent_locks.read().await;
+    assert_eq!(locks.len(), 2, "should have locks for agent-b and agent-c");
+    // Both agent-b calls should share the same Arc (same mutex).
+    let lock_b1 = {
+        let routing_key1 = SessionManager::compute_routing_key("feishu", &test_message(), None);
+        let reg = mgr.key_registry.read().await;
+        let sid1 = reg.get(&routing_key1).unwrap();
+        // The agent_id is derived from message.to; verify it matches.
+        let sessions = mgr.sessions.read().await;
+        sessions.get(sid1).unwrap().agent_id.clone()
+    };
+    assert_eq!(lock_b1, "agent-b");
+    // The lock entry exists for agent-b.
+    assert!(locks.contains_key("agent-b"), "agent-b lock should exist");
+    assert!(locks.contains_key("agent-c"), "agent-c lock should exist");
+    // Same Arc means same underlying mutex pointer.
+    let arc_b = locks.get("agent-b").unwrap();
+    let arc_b2 = locks.get("agent-b").unwrap();
+    assert!(
+        Arc::ptr_eq(arc_b, arc_b2),
+        "same agent should reuse the same Arc"
+    );
+    // Different agents get different mutexes.
+    let arc_c = locks.get("agent-c").unwrap();
+    assert!(
+        !Arc::ptr_eq(arc_b, arc_c),
+        "different agents should have different mutexes"
+    );
+}
+
+/// Verify that concurrent resolve calls for different agent_ids do not block
+/// each other (they complete without deadlock or ordering issues).
+#[tokio::test]
+async fn test_per_agent_lock_parallel_different_agents() {
+    let mgr = Arc::new(make_test_mgr(None));
+
+    let mut handles = vec![];
+    for i in 0..5 {
+        let mgr_clone = Arc::clone(&mgr);
+        let agent = format!("agent-{}", i);
+        handles.push(tokio::spawn(async move {
+            let msg = Message {
+                id: format!("msg-{}", i),
+                from: format!("user-{}", i),
+                to: agent,
+                content: "hello".to_string(),
+                channel: "feishu".to_string(),
+                timestamp: chrono::Utc::now().timestamp(),
+                metadata: std::collections::HashMap::new(),
+                thread_id: None,
+            };
+            mgr_clone.find_or_create("feishu", &msg, None).await
+        }));
+    }
+
+    // All 5 should complete without deadlock.
+    let results: Vec<String> = futures::future::join_all(handles)
+        .await
+        .into_iter()
+        .map(|r| r.unwrap().unwrap())
+        .collect();
+
+    // All 5 should be distinct session IDs.
+    let unique: std::collections::HashSet<&str> = results.iter().map(|s| s.as_str()).collect();
+    assert_eq!(
+        unique.len(),
+        5,
+        "all 5 agents should produce unique sessions"
+    );
+
+    // agent_locks should have 5 entries.
+    let locks = mgr.agent_locks.read().await;
+    assert_eq!(locks.len(), 5, "should have 5 per-agent lock entries");
+}

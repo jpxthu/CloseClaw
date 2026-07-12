@@ -105,6 +105,10 @@ pub struct SessionManager {
     /// Keyed by session_id. Created on demand when a snapshot is first
     /// needed; lazily cleaned up when the session is removed.
     snapshot_managers: RwLock<HashMap<String, Arc<RwLock<RuntimeSnapshotManager>>>>,
+    /// Per-agent mutexes for serializing resolve() requests.
+    /// Keyed by agent_id. Ensures the same agent's lookup/restore/create
+    /// operations are serialized while different agents run in parallel.
+    agent_locks: Arc<RwLock<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -146,6 +150,7 @@ impl SessionManager {
             mining_notify_tx: std::sync::RwLock::new(None),
             task_manager: RwLock::new(None),
             snapshot_managers: RwLock::new(HashMap::new()),
+            agent_locks: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 

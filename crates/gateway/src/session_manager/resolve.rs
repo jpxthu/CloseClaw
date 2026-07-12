@@ -31,6 +31,18 @@ impl SessionManager {
         message: &Message,
         account_id: Option<&str>,
     ) -> Result<String, ProcessError> {
+        // Acquire per-agent lock to serialize resolve for the same agent_id.
+        // Different agent_ids run in parallel; the same agent_id is serialized.
+        let agent_id = message.to.clone();
+        let agent_lock = {
+            let mut locks = self.agent_locks.write().await;
+            locks
+                .entry(agent_id.clone())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+        let _agent_guard = agent_lock.lock().await;
+
         // Compute stable routing_key from message fields (no timestamp).
         // Format: sha256("{account_id}:{channel}:{from}:{to}")
         let routing_key = Self::compute_routing_key(channel, message, account_id);
