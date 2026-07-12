@@ -952,11 +952,9 @@ mod tests {
     #[tokio::test]
     async fn test_forceful_ignores_timeout() {
         let mgr = make_test_session_manager();
-        let pid = "parent-force-to";
-        setup_parent_with_conv(&mgr, pid).await;
-        let cid = "child-force-to";
-        setup_child(&mgr, pid, cid).await;
-        set_llm(&mgr, cid, LlmState::Receiving).await;
+        setup_parent_with_conv(&mgr, "parent-force-to").await;
+        setup_child(&mgr, "parent-force-to", "child-force-to").await;
+        set_llm(&mgr, "child-force-to", LlmState::Receiving).await;
         let start = tokio::time::Instant::now();
         let r = mgr
             .stop_all_sessions(

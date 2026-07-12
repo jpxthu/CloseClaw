@@ -218,6 +218,111 @@ async fn test_rebuild_key_registry() {
     assert_eq!(reg.get(&key).unwrap(), "sid_new");
 }
 
+// ── Step 1.3: rebuild excludes archived sessions ─────────────────────────
+
+/// Verify that `rebuild_key_registry()` does NOT load archived sessions.
+/// Only active sessions should appear in the key_registry after rebuild.
+#[tokio::test]
+async fn test_rebuild_key_registry_excludes_archived() {
+    use closeclaw_session::persistence::SessionCheckpoint;
+
+    // Active session: should be loaded
+    let mut cp_active = SessionCheckpoint::new("sid_active".to_string())
+        .with_platform("feishu".to_string())
+        .with_peer_id("agent-x".to_string())
+        .with_agent_id("agent-x".to_string());
+    cp_active.created_at = chrono::Utc::now();
+
+    // Archived session: should NOT be loaded
+    let mut cp_archived = SessionCheckpoint::new("sid_archived".to_string())
+        .with_platform("feishu".to_string())
+        .with_peer_id("agent-x".to_string())
+        .with_agent_id("agent-x".to_string());
+    cp_archived.created_at = chrono::Utc::now();
+
+    struct RebuildExclusionMock {
+        active: Vec<String>,
+        archived: Vec<String>,
+        checkpoints: std::collections::HashMap<String, SessionCheckpoint>,
+    }
+    #[async_trait::async_trait]
+    impl closeclaw_session::persistence::PersistenceService for RebuildExclusionMock {
+        async fn save_checkpoint(
+            &self,
+            _: &SessionCheckpoint,
+        ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
+            Ok(())
+        }
+        async fn load_checkpoint(
+            &self,
+            id: &str,
+        ) -> Result<Option<SessionCheckpoint>, closeclaw_session::persistence::PersistenceError>
+        {
+            Ok(self.checkpoints.get(id).cloned())
+        }
+        async fn delete_checkpoint(
+            &self,
+            _: &str,
+        ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
+            Ok(())
+        }
+        async fn list_active_sessions(
+            &self,
+        ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
+            Ok(self.active.clone())
+        }
+        async fn list_archived_sessions(
+            &self,
+        ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
+            Ok(self.archived.clone())
+        }
+        async fn restore_checkpoint(
+            &self,
+            _: &str,
+        ) -> Result<Option<SessionCheckpoint>, closeclaw_session::persistence::PersistenceError>
+        {
+            Ok(None)
+        }
+    }
+
+    let mut checkpoints = std::collections::HashMap::new();
+    checkpoints.insert("sid_active".to_string(), cp_active.clone());
+    checkpoints.insert("sid_archived".to_string(), cp_archived.clone());
+
+    let mock = Arc::new(RebuildExclusionMock {
+        active: vec!["sid_active".to_string()],
+        archived: vec!["sid_archived".to_string()],
+        checkpoints,
+    });
+    let mgr = SessionManager::new(&test_config(), Some(mock), None, ReasoningLevel::default());
+
+    mgr.rebuild_key_registry().await.unwrap();
+
+    let reg = mgr.key_registry.read().await;
+    use sha2::{Digest, Sha256};
+    // Active session key should be present
+    let routing_fields_active = "default:feishu:agent-x:agent-x";
+    let hash_active = Sha256::digest(routing_fields_active.as_bytes());
+    let key_active = format!("{:x}", hash_active);
+    assert!(
+        reg.contains_key(&key_active),
+        "active session should be in key_registry after rebuild"
+    );
+    assert_eq!(reg.get(&key_active).unwrap(), "sid_active");
+
+    // Archived session key should NOT be present (both have same routing fields,
+    // but only the active one is loaded)
+    let routing_fields_archived = "default:feishu:agent-x:agent-x";
+    let hash_archived = Sha256::digest(routing_fields_archived.as_bytes());
+    let key_archived = format!("{:x}", hash_archived);
+    assert_eq!(
+        key_active, key_archived,
+        "both sessions have same routing fields — same key"
+    );
+    // The key maps to sid_active (not sid_archived)
+    assert_eq!(reg.get(&key_active).unwrap(), "sid_active");
+}
+
 // ── daemon restart: rebuild then resolve hits registry ───────────────────────
 
 #[tokio::test]
@@ -788,4 +893,59 @@ async fn test_per_agent_lock_parallel_different_agents() {
     // agent_locks should have 5 entries.
     let locks = mgr.agent_locks.read().await;
     assert_eq!(locks.len(), 5, "should have 5 per-agent lock entries");
+}
+
+// ── Step 1.6: concurrent serialization for same agent ──────────────────────
+
+/// Verify that concurrent resolve calls for the SAME agent_id are serialized.
+///
+/// Uses a barrier-like pattern: two concurrent tasks for the same agent
+/// interleave their key_registry reads/writes. The per-agent mutex ensures
+/// they don't corrupt the registry. We verify both tasks produce the same
+/// session_id (since the second one hits the registry after the first writes).
+#[tokio::test]
+async fn test_per_agent_lock_serializes_same_agent() {
+    let mgr = Arc::new(make_test_mgr(None));
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+
+    let mut handles = vec![];
+    for i in 0..2 {
+        let mgr_clone = Arc::clone(&mgr);
+        let barrier_clone = Arc::clone(&barrier);
+        handles.push(tokio::spawn(async move {
+            let msg = Message {
+                id: format!("msg-serial-{}", i),
+                from: "user-a".to_string(),
+                to: "agent-serial".to_string(),
+                content: "hello".to_string(),
+                channel: "feishu".to_string(),
+                timestamp: chrono::Utc::now().timestamp(),
+                metadata: std::collections::HashMap::new(),
+                thread_id: None,
+            };
+            // Wait for both tasks to be ready
+            barrier_clone.wait().await;
+            mgr_clone.find_or_create("feishu", &msg, None).await
+        }));
+    }
+
+    let results: Vec<String> = futures::future::join_all(handles)
+        .await
+        .into_iter()
+        .map(|r| r.unwrap().unwrap())
+        .collect();
+
+    // Both tasks should resolve to the same session (same agent_id + routing fields)
+    assert_eq!(
+        results[0], results[1],
+        "same agent_id with same routing fields must produce the same session_id"
+    );
+    // Only one lock entry for agent-serial
+    let locks = mgr.agent_locks.read().await;
+    assert_eq!(
+        locks.len(),
+        1,
+        "should have exactly 1 lock entry for agent-serial"
+    );
+    assert!(locks.contains_key("agent-serial"));
 }

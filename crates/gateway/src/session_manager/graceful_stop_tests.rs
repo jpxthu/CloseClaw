@@ -437,3 +437,73 @@ async fn test_escalation_propagation_across_levels() {
     assert!(mgr.has_session(&parent_id).await);
     assert!(mgr.has_session(&child_id).await);
 }
+
+// ── Step 1.2: GracefulTimeoutInfo field verification ─────────────────
+
+#[tokio::test]
+async fn test_graceful_timeout_populates_info_fields() {
+    let mgr = make_test_session_manager();
+    let parent_id = "parent-timeout-fields";
+    setup_parent_with_conv(&mgr, parent_id).await;
+    let child_id = "child-timeout-fields";
+    setup_child_with_conv(&mgr, parent_id, child_id).await;
+    set_llm_state(&mgr, child_id, LlmState::Receiving).await;
+    let result = mgr
+        .stop_all_sessions(
+            ShutdownMode::Graceful,
+            None,
+            std::time::Duration::from_millis(100),
+        )
+        .await;
+    assert!(!result.graceful_timeouts.is_empty());
+    let info = &result.graceful_timeouts[0];
+    assert_eq!(info.session_id, child_id);
+    assert!(!info.waiting_items.is_empty());
+    assert!(info
+        .waiting_items
+        .iter()
+        .any(|s| s.contains("LLM streaming")));
+    assert!(info.elapsed >= std::time::Duration::from_millis(50));
+}
+
+#[tokio::test]
+async fn test_graceful_timeout_tool_listed_in_waiting_items() {
+    let mgr = make_test_session_manager();
+    let parent_id = "parent-timeout-tool";
+    setup_parent_with_conv(&mgr, parent_id).await;
+    let child_id = "child-timeout-tool";
+    setup_child_with_conv(&mgr, parent_id, child_id).await;
+    set_tool_state(
+        &mgr,
+        child_id,
+        "long_tool",
+        ToolExecState::RunningForeground,
+    )
+    .await;
+    let result = mgr
+        .stop_all_sessions(
+            ShutdownMode::Graceful,
+            None,
+            std::time::Duration::from_millis(100),
+        )
+        .await;
+    assert!(!result.graceful_timeouts.is_empty());
+    assert!(result.graceful_timeouts[0]
+        .waiting_items
+        .iter()
+        .any(|s| s.contains("long_tool")));
+}
+
+#[tokio::test]
+async fn test_graceful_idle_no_timeout_info() {
+    let mgr = make_test_session_manager();
+    setup_parent_with_conv(&mgr, "parent-idle-no-timeout").await;
+    let result = mgr
+        .stop_all_sessions(
+            ShutdownMode::Graceful,
+            None,
+            std::time::Duration::from_millis(200),
+        )
+        .await;
+    assert!(result.graceful_timeouts.is_empty());
+}
