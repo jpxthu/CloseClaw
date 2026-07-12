@@ -250,6 +250,45 @@ impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
         self.outbound_len()
     }
 
+    async fn process_outbound_raw_log_only(
+        &self,
+        msg: closeclaw_common::processor::ProcessedMessage,
+    ) -> Result<
+        closeclaw_common::processor::ProcessedMessage,
+        closeclaw_common::processor::ProcessError,
+    > {
+        // Find the OutboundRawLog processor (name == "outbound_raw_log").
+        let raw_log = self
+            .outbound
+            .iter()
+            .find(|p| p.name() == "outbound_raw_log")
+            .cloned();
+        let Some(processor) = raw_log else {
+            // No OutboundRawLog registered — return input unchanged.
+            return Ok(msg);
+        };
+        let mut ctx = super::context::MessageContext::from_normalized(
+            closeclaw_common::im_plugin::NormalizedMessage {
+                platform: String::new(),
+                sender_id: String::new(),
+                peer_id: String::new(),
+                content: msg.text_content().unwrap_or("").to_string(),
+                timestamp: chrono::Utc::now().timestamp_millis(),
+                message_type: Default::default(),
+                media_refs: Vec::new(),
+                thread_id: None,
+                account_id: String::new(),
+            },
+        );
+        ctx.metadata = msg.metadata.clone();
+        ctx.content_blocks = msg.content_blocks.clone();
+        match processor.process(&ctx).await {
+            Ok(Some(out)) => Ok(convert_processed_message(out)),
+            Ok(None) => Ok(msg),
+            Err(e) => Err(convert_process_error(e)),
+        }
+    }
+
     fn parse_line_for_dsl(
         &self,
         line: &str,

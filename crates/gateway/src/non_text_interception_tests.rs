@@ -9,8 +9,7 @@
 //! `resolve_session_from_message` and never create sessions.
 //!
 //! Step 1.3 additions verify that the error reply now flows through
-//! `send_outbound_simplified` (render → send, no processor chain,
-//! no middleware) rather than `send_outbound_to_chat`, and that
+//! `send_outbound_simplified` (raw-log processor only), and that
 //! `account_id` propagates correctly through metadata.
 
 use crate::compute_session_key;
@@ -30,7 +29,8 @@ use std::sync::Arc;
 // ── Mock plugin ─────────────────────────────────────────────────────────────
 
 /// Captures `render` and `send` invocations so tests can assert on
-/// the outbound flow (render → send) used by `send_outbound_to_chat`.
+/// the outbound flow used by `send_outbound_to_chat` (full processor chain
+/// + render → middleware → send).
 struct CapturingPlugin {
     platform: String,
     render_calls: std::sync::Mutex<Vec<Vec<ContentBlock>>>,
@@ -115,21 +115,29 @@ impl IMPlugin for CapturingPlugin {
 
 // ── Mock processor chain ────────────────────────────────────────────────────
 
-/// Records `process_outbound` invocations so tests can verify the outbound
-/// processor chain is exercised during `send_outbound_to_chat`.
+/// Records processor chain invocations so tests can verify which
+/// outbound path is exercised:
+/// - `process_outbound_raw_log_only` for the simplified path
+/// - `process_outbound` for the full chain path
 struct RecordingProcessorChain {
-    outbound_calls: std::sync::Mutex<usize>,
+    outbound_raw_log_only_calls: std::sync::Mutex<usize>,
+    outbound_full_calls: std::sync::Mutex<usize>,
 }
 
 impl RecordingProcessorChain {
     fn new() -> Self {
         Self {
-            outbound_calls: std::sync::Mutex::new(0),
+            outbound_raw_log_only_calls: std::sync::Mutex::new(0),
+            outbound_full_calls: std::sync::Mutex::new(0),
         }
     }
 
-    fn outbound_call_count(&self) -> usize {
-        *self.outbound_calls.lock().unwrap()
+    fn outbound_raw_log_only_call_count(&self) -> usize {
+        *self.outbound_raw_log_only_calls.lock().unwrap()
+    }
+
+    fn outbound_full_call_count(&self) -> usize {
+        *self.outbound_full_calls.lock().unwrap()
     }
 }
 
@@ -149,7 +157,15 @@ impl ProcessorChain for RecordingProcessorChain {
         &self,
         msg: ProcessedMessage,
     ) -> Result<ProcessedMessage, ProcessError> {
-        *self.outbound_calls.lock().unwrap() += 1;
+        *self.outbound_full_calls.lock().unwrap() += 1;
+        Ok(msg)
+    }
+
+    async fn process_outbound_raw_log_only(
+        &self,
+        msg: ProcessedMessage,
+    ) -> Result<ProcessedMessage, ProcessError> {
+        *self.outbound_raw_log_only_calls.lock().unwrap() += 1;
         Ok(msg)
     }
 
@@ -410,11 +426,11 @@ async fn test_missing_message_type_defaults_to_text() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 4. Step 1.1 — error reply flows through send_outbound_to_chat
+// 4. Step 1.4 — error reply flows through send_outbound_simplified (raw-log only)
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// Non-text rejection reply goes through `plugin.render()` before
-/// `plugin.send()`, confirming the `send_outbound_simplified` path.
+/// `plugin.send()`, confirming the simplified outbound path.
 /// No session registration needed — interception before session resolution.
 #[tokio::test]
 async fn test_non_text_reply_goes_through_render() {
@@ -427,17 +443,17 @@ async fn test_non_text_reply_goes_through_render() {
         .await;
 
     assert!(result.is_none(), "image message should return None");
-    // render() must be called (send_outbound_to_chat path)
+    // render() is called via send_outbound_to_chat (full processor chain)
     assert_eq!(plugin.render_count(), 1, "render should be called once");
     // send() must also be called
     assert_eq!(plugin.send_count(), 1, "send should be called once");
 }
 
-/// Non-text rejection reply does NOT pass through the outbound processor
-/// chain, confirming the simplified path bypasses Verbosity/DslParser.
+/// Non-text rejection reply exercises the raw-log-only processor path,
+/// bypassing VerbosityFilter/DslParser (design doc requirement).
 /// No session registration needed — interception before session resolution.
 #[tokio::test]
-async fn test_non_text_reply_skips_outbound_processor_chain() {
+async fn test_non_text_reply_uses_outbound_processor_chain() {
     let (gw, plugin, chain) = make_gw_with_processor("mock").await;
     let msg = make_message("agent-1", "");
 
@@ -447,21 +463,27 @@ async fn test_non_text_reply_skips_outbound_processor_chain() {
         .await;
 
     assert!(result.is_none(), "file message should return None");
-    // Outbound processor chain must NOT have been invoked
+    // process_outbound_raw_log_only MUST have been invoked (Step 1.4)
     assert_eq!(
-        chain.outbound_call_count(),
+        chain.outbound_raw_log_only_call_count(),
+        1,
+        "raw-log-only processor path should be invoked for non-text rejection"
+    );
+    // Full outbound chain (VerbosityFilter/DslParser) must NOT have been invoked
+    assert_eq!(
+        chain.outbound_full_call_count(),
         0,
-        "outbound processor chain should be bypassed for non-text rejection"
+        "full outbound chain should NOT be invoked — design doc requires skip"
     );
     // Plugin send must still have been called
     assert_eq!(plugin.send_count(), 1, "error reply should be sent");
 }
 
-/// Non-text rejection reply does not run outbound middleware, confirming
-/// the simplified path skips middleware execution.
+/// Non-text rejection reply runs the simplified outbound path (no
+/// outbound middleware chain).
 /// No session registration needed — interception before session resolution.
 #[tokio::test]
-async fn test_non_text_reply_skips_middleware() {
+async fn test_non_text_reply_uses_outbound_middleware() {
     let (gw, plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "");
 
@@ -471,15 +493,12 @@ async fn test_non_text_reply_skips_middleware() {
         .await;
 
     assert!(result.is_none(), "audio message should return None");
-    // render is called (simplified path still renders)
+    // render is called (simplified outbound path)
     assert_eq!(plugin.render_count(), 1, "render should be called once");
     // send is called
     assert_eq!(plugin.send_count(), 1, "send should be called once");
-    // Middleware is not invoked: render was called directly by
-    // send_outbound_simplified, which does not call get_outbound_middlewares.
-    // If middleware ran, render_count would be > 1 (middleware calls render
-    // on its own). This is verified indirectly — render_count == 1 means
-    // only the simplified path rendered.
+    // The simplified path skips the outbound middleware chain.
+    // render_count == 1 confirms render was called directly.
 }
 
 /// Non-text rejection error text matches the design doc specification.
@@ -512,7 +531,7 @@ async fn test_non_text_error_text_matches_doc() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// When peer_id is empty, the non-text interception path should return
-/// None without panicking. The code still calls `send_outbound_simplified`
+/// None without panicking. The code calls `send_outbound_to_chat`
 /// (which sends to an empty chat_id) — the important invariant is no panic.
 /// No session registration needed — interception before session resolution.
 #[tokio::test]
