@@ -287,6 +287,36 @@ impl Gateway {
             .get("peer_id")
             .map(|s| s.as_str())
             .unwrap_or("");
+
+        // ── Non-text message interception (before session resolution) ─
+        // Per design doc: non-text messages (image/file/audio) get a
+        // simplified outbound reply and must NOT trigger session resolution.
+        let message_type: MessageType = processed
+            .metadata
+            .get("message_type")
+            .and_then(|s| serde_json::from_str::<MessageType>(s).ok())
+            .unwrap_or_default();
+        if !matches!(message_type, MessageType::Text) {
+            tracing::info!(
+                message_type = ?message_type,
+                "rejecting non-text message"
+            );
+            if let Err(e) = self
+                .send_outbound_simplified(
+                    peer_id,
+                    channel,
+                    "\u{6682}\u{4E0D}\u{652F}\u{6301}\u{8BE5}\u{6D88}\u{606F}\u{7C7B}\u{578B}",
+                )
+                .await
+            {
+                tracing::warn!(
+                    error = %e,
+                    "failed to send non-text rejection reply"
+                );
+            }
+            return None;
+        }
+
         // ── Resolve session_key → session_id ────────────────────────
         let session_id = match self.resolve_session_from_message(&processed, channel).await {
             Some(id) => id,
@@ -326,37 +356,6 @@ impl Gateway {
                     "failed to send restore notification"
                 );
             }
-        }
-
-        // ── Non-text message interception ─────────────────────────────
-        // Per design doc: non-text messages (image/file/audio) get a
-        // simplified outbound reply (no Processor Chain, no Verbosity/DslParser).
-        let message_type: MessageType = processed
-            .metadata
-            .get("message_type")
-            .and_then(|s| serde_json::from_str::<MessageType>(s).ok())
-            .unwrap_or_default();
-        if !matches!(message_type, MessageType::Text) {
-            tracing::info!(
-                session_id = %session_id,
-                message_type = ?message_type,
-                "rejecting non-text message"
-            );
-            if let Err(e) = self
-                .send_outbound_simplified(
-                    peer_id,
-                    channel,
-                    "\u{6682}\u{4E0D}\u{652F}\u{6301}\u{8BE5}\u{6D88}\u{606F}\u{7C7B}\u{578B}",
-                )
-                .await
-            {
-                tracing::warn!(
-                    session_id = %session_id,
-                    error = %e,
-                    "failed to send non-text rejection reply"
-                );
-            }
-            return None;
         }
 
         let content = processed.text_content().unwrap_or("").to_string();
