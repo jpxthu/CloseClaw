@@ -12,14 +12,9 @@
 //!    - **Forceful**: stop immediately, persist checkpoint.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
 use std::time::Duration;
 
 use closeclaw_common::shutdown::ShutdownMode;
-use closeclaw_llm::session_state::LlmState;
-use closeclaw_session::persistence::{
-    PendingOperation, PersistenceError, SessionCheckpoint, SessionStatus,
-};
 
 use super::SessionManager;
 
@@ -325,7 +320,7 @@ fn stop_order_from_tree(tree: &SessionTree) -> Vec<Vec<String>> {
 // ── per-session stop ────────────────────────────────────────────────────
 
 /// Errors during single-session stop.
-enum StopError {
+pub(crate) enum StopError {
     /// Session or ConversationSession not found — skipped.
     Skipped,
     /// Stop or persist failed.
@@ -333,13 +328,13 @@ enum StopError {
 }
 
 /// Result of stopping a single session.
-struct StopSingleResult {
+pub(crate) struct StopSingleResult {
     /// Whether the stop completed successfully (all operations finished).
     /// True also when a graceful timeout occurred but the session was
     /// not killed — the caller can inspect `graceful_timeout` for details.
-    _completed: bool,
+    pub(crate) _completed: bool,
     /// If the graceful stop timed out, contains waiting item info.
-    graceful_timeout: Option<GracefulTimeoutInfo>,
+    pub(crate) graceful_timeout: Option<GracefulTimeoutInfo>,
 }
 
 impl SessionManager {
@@ -391,216 +386,6 @@ impl SessionManager {
             .await
     }
 
-    /// Graceful wait with configurable timeout.
-    /// Returns pending ops and, on timeout, [`GracefulTimeoutInfo`].
-    async fn graceful_wait_with_timeout(
-        cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
-        session_id: &str,
-        timeout: Duration,
-    ) -> (Vec<PendingOperation>, Option<GracefulTimeoutInfo>) {
-        let start = tokio::time::Instant::now();
-        let mut pending_ops = Vec::new();
-        let mut streaming_seen = false;
-
-        let result = tokio::time::timeout(timeout, async {
-            loop {
-                let (is_streaming, has_running_tools) = {
-                    let guard: &closeclaw_session::llm_session::ConversationSession =
-                        &*cs.read().await;
-                    let state = *guard.llm_state.read().expect("llm_state lock poisoned");
-                    let tool_states = guard.tool_states.read().expect("tool_states lock poisoned");
-                    let streaming = matches!(state, LlmState::Receiving | LlmState::Requesting);
-                    let tools = tool_states.values().any(|s| {
-                        matches!(
-                            s,
-                            closeclaw_llm::session_state::ToolExecState::RunningForeground
-                                | closeclaw_llm::session_state::ToolExecState::RunningBackground
-                        )
-                    });
-                    (streaming, tools)
-                };
-
-                if is_streaming {
-                    streaming_seen = true;
-                } else if streaming_seen {
-                    let ops = {
-                        let guard: &closeclaw_session::llm_session::ConversationSession =
-                            &*cs.read().await;
-                        guard.extract_pending_tool_calls()
-                    };
-                    if !ops.is_empty() {
-                        pending_ops = ops;
-                        break;
-                    }
-                    if !has_running_tools {
-                        break;
-                    }
-                } else if has_running_tools {
-                    continue;
-                } else {
-                    break;
-                }
-
-                tracing::debug!(
-                    session_id = %session_id,
-                    streaming = is_streaming,
-                    running_tools = has_running_tools,
-                    "graceful stop: waiting for completion"
-                );
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
-        })
-        .await;
-
-        match result {
-            Ok(()) => (pending_ops, None),
-            Err(_elapsed) => {
-                let waiting_items = Self::collect_waiting_items(cs).await;
-                (
-                    pending_ops,
-                    Some(GracefulTimeoutInfo {
-                        session_id: session_id.to_string(),
-                        waiting_items,
-                        elapsed: start.elapsed(),
-                    }),
-                )
-            }
-        }
-    }
-
-    /// Operations still in progress (for timeout reporting).
-    async fn collect_waiting_items(
-        cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
-    ) -> Vec<String> {
-        let guard = cs.read().await;
-        let mut items = Vec::new();
-        let state = *guard.llm_state.read().expect("lock poisoned");
-        if matches!(state, LlmState::Receiving | LlmState::Requesting) {
-            items.push("LLM streaming".to_string());
-        }
-        for (id, s) in guard.tool_states.read().expect("lock poisoned").iter() {
-            if matches!(
-                s,
-                closeclaw_llm::session_state::ToolExecState::RunningForeground
-                    | closeclaw_llm::session_state::ToolExecState::RunningBackground
-            ) {
-                items.push(format!("tool {} running", id));
-            }
-        }
-        for (id, s) in guard.child_states.read().expect("lock poisoned").iter() {
-            if matches!(s, closeclaw_common::ChildSessionState::Running) {
-                items.push(format!("child session {} running", id));
-            }
-        }
-        items
-    }
-
-    /// Finalize a stopped session: stop, clean up, persist.
-    async fn finalize_session_stop(
-        &self,
-        cs: Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
-        session_id: &str,
-        pending_ops: Vec<PendingOperation>,
-    ) -> Result<StopSingleResult, StopError> {
-        cs.read().await.stop(false).await;
-        if let Some(tm) = self.get_task_manager().await {
-            tm.cleanup_finished().await;
-        }
-        if let Err(e) = self
-            .persist_checkpoint_with_pending(session_id, pending_ops)
-            .await
-        {
-            tracing::warn!(
-                session_id = %session_id,
-                error = %e,
-                "stop_all_sessions: checkpoint persist failed"
-            );
-            return Err(StopError::Failed);
-        }
-
-        Ok(StopSingleResult {
-            _completed: true,
-            graceful_timeout: None,
-        })
-    }
-
-    /// Persist a session checkpoint with optional pending operations.
-    /// Non-empty `pending_ops` (forceful shutdown) are recorded for recovery.
-    async fn persist_checkpoint_with_pending(
-        &self,
-        session_id: &str,
-        pending_ops: Vec<PendingOperation>,
-    ) -> Result<(), PersistenceError> {
-        let storage = {
-            let guard = self.storage.read().await;
-            match guard.as_ref() {
-                Some(s) => std::sync::Arc::clone(s),
-                None => return Ok(()),
-            }
-        };
-
-        let (agent_id, channel) = {
-            let sessions = self.sessions.read().await;
-            match sessions.get(session_id) {
-                Some(s) => (Some(s.agent_id.clone()), Some(s.channel.clone())),
-                None => (None, None),
-            }
-        };
-
-        let pending = {
-            let conv = self.conversation_sessions.read().await;
-            match conv.get(session_id) {
-                Some(cs) => {
-                    let guard = cs.read().await;
-                    guard.get_pending_messages()
-                }
-                None => Vec::new(),
-            }
-        };
-
-        let mut cp = match storage.load_checkpoint(session_id).await? {
-            Some(mut cp) => {
-                cp.status = SessionStatus::Active;
-                if let Some(ch) = channel {
-                    cp.platform = Some(ch);
-                }
-                if let Some(aid) = agent_id {
-                    cp.agent_id = Some(aid);
-                }
-                cp.pending_messages = pending;
-                cp
-            }
-            None => {
-                let mut cp = SessionCheckpoint::new(session_id.to_string())
-                    .with_status(SessionStatus::Active);
-                if let Some(ch) = channel {
-                    cp = cp.with_platform(ch);
-                }
-                if let Some(aid) = agent_id {
-                    cp = cp.with_agent_id(aid);
-                }
-                cp.with_pending_messages(pending)
-            }
-        };
-
-        // Sync system_appends and verbosity_level from ConversationSession.
-        {
-            let conv = self.conversation_sessions.read().await;
-            if let Some(cs) = conv.get(session_id) {
-                let guard = cs.read().await;
-                cp.system_appends = guard.user_system_appends().to_vec();
-                cp.verbosity_level = guard.verbosity_level();
-            }
-        }
-
-        // Record pending operations from forceful shutdown.
-        if !pending_ops.is_empty() {
-            cp.pending_operations = pending_ops;
-        }
-
-        storage.save_checkpoint(&cp).await
-    }
-
     /// Remove a session from all active-tracking tables.
     pub(crate) async fn remove_session(&self, session_id: &str) {
         self.sessions.write().await.remove(session_id);
@@ -619,6 +404,7 @@ mod tests {
     use super::*;
     use crate::session_manager::spawn::SpawnMode;
     use crate::session_manager::test_helpers::setup_parent_with_conv;
+    use closeclaw_llm::session_state::LlmState;
     use std::sync::Arc;
 
     fn make_test_session_manager() -> SessionManager {

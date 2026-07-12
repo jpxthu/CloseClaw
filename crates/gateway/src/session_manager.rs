@@ -39,6 +39,7 @@ mod spawn;
 pub mod spawn_adapter;
 pub mod spawn_controller;
 pub mod stop;
+mod stop_graceful;
 use closeclaw_session::spawn::SpawnTree;
 pub use spawn::{ChildSessionInfo, SpawnMode};
 pub use spawn_controller::SpawnController;
