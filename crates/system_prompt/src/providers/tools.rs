@@ -55,6 +55,10 @@ impl ToolsFragmentProvider {
             manual_background_signal: None,
         }
     }
+
+    fn effective_spawn_budget(ctx: &FragmentContext) -> Option<u32> {
+        ctx.effective_spawn_budget
+    }
 }
 
 #[async_trait]
@@ -69,12 +73,14 @@ impl PromptFragmentProvider for ToolsFragmentProvider {
 
     async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
         let tool_ctx = Self::tool_context(ctx, self.session_mode);
+        let budget = Self::effective_spawn_budget(ctx);
         let section = crate::tools_section::build_tools_section(
             &self.registry,
             &tool_ctx,
             self.agent_tools.clone(),
             self.agent_disallowed_tools.clone(),
             self.session_mode,
+            budget,
         )
         .await;
 

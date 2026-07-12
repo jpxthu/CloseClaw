@@ -592,6 +592,7 @@ async fn test_build_tools_section_index_generation() {
         tools: None,
         disallowed_tools: None,
         session_mode: None,
+        effective_spawn_budget: None,
     };
     let section = registry.build_tools_section(&ctx).await;
 

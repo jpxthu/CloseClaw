@@ -177,6 +177,7 @@ fn test_tool_generate_prompt_defaults_to_detail() {
         tools: None,
         disallowed_tools: None,
         session_mode: None,
+        effective_spawn_budget: None,
     };
     assert_eq!(tool.generate_prompt(&ctx), tool.detail());
 }
@@ -368,6 +369,7 @@ fn test_prompt_generation_context_fields() {
         tools: Some(vec!["Tool1".into()]),
         disallowed_tools: Some(vec!["Tool3".into()]),
         session_mode: None,
+        effective_spawn_budget: None,
     };
     assert_eq!(ctx.agent_id, "pg_agent");
     assert!(ctx.workdir.is_none());
@@ -385,6 +387,7 @@ fn test_prompt_generation_context_clone() {
         tools: None,
         disallowed_tools: None,
         session_mode: None,
+        effective_spawn_budget: None,
     };
     let cloned = ctx.clone();
     assert_eq!(cloned.agent_id, "pg");
@@ -400,6 +403,7 @@ fn test_prompt_generation_context_debug() {
         tools: None,
         disallowed_tools: None,
         session_mode: None,
+        effective_spawn_budget: None,
     };
     let debug = format!("{:?}", ctx);
     assert!(debug.contains("PromptGenerationContext"));

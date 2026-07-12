@@ -45,6 +45,7 @@ pub async fn build_tools_section(
     agent_tools: Option<Vec<String>>,
     agent_disallowed_tools: Option<Vec<String>>,
     session_mode: Option<SessionMode>,
+    effective_spawn_budget: Option<u32>,
 ) -> Section {
     // 1. Independent lock: get available tool names, then drop the lock.
     let descriptors = registry.list_descriptors(ctx).await;
@@ -68,6 +69,7 @@ pub async fn build_tools_section(
         tools,
         disallowed_tools,
         session_mode,
+        effective_spawn_budget,
     };
 
     // 4. Acquire the registry lock again and render the section.
@@ -236,7 +238,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
         match section {
             Section::ToolsSection(_) => {}
             _ => panic!("expected ToolsSection, got {:?}", section),
@@ -269,7 +271,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -308,7 +310,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -357,7 +359,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -381,7 +383,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -419,7 +421,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -452,7 +454,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -498,7 +500,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -535,7 +537,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None).await;
+        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -548,6 +550,89 @@ mod tests {
         assert!(
             !content.contains("do not need to poll"),
             "background guidance text should NOT appear without Bash"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_budget_zero_filters_sessions_spawn() {
+        let registry = ToolRegistry::new();
+        let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
+        let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
+        registry
+            .register_all(make_registrars(
+                disk_registry,
+                test_permission_engine(),
+                spawn_controller,
+                session_manager.clone(),
+                config_manager,
+                agent_registry,
+                test_approval_flow(&session_manager),
+            ))
+            .await
+            .unwrap();
+        let ctx = closeclaw_tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+        };
+        // Budget = 0 → sessions_spawn should be filtered out.
+        let section = build_tools_section(&registry, &ctx, None, None, None, Some(0)).await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        assert!(
+            !content.contains("sessions_spawn"),
+            "sessions_spawn should be filtered when budget = 0, got: {}",
+            content
+        );
+        // Other tools should still be present.
+        assert!(
+            content.contains("file_ops"),
+            "file_ops should still be present"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_budget_one_keeps_sessions_spawn() {
+        let registry = ToolRegistry::new();
+        let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
+        let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
+        registry
+            .register_all(make_registrars(
+                disk_registry,
+                test_permission_engine(),
+                spawn_controller,
+                session_manager.clone(),
+                config_manager,
+                agent_registry,
+                test_approval_flow(&session_manager),
+            ))
+            .await
+            .unwrap();
+        let ctx = closeclaw_tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+        };
+        // Budget = 1 → sessions_spawn should be present.
+        let section = build_tools_section(&registry, &ctx, None, None, None, Some(1)).await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        assert!(
+            content.contains("sessions_spawn"),
+            "sessions_spawn should be present when budget = 1, got: {}",
+            content
         );
     }
 }

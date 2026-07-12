@@ -266,6 +266,7 @@ impl ToolRegistryImpl {
                         tools: None,
                         disallowed_tools: None,
                         session_mode: None,
+                        effective_spawn_budget: None,
                     },
                 )
             })
@@ -386,6 +387,7 @@ impl ToolRegistryImpl {
 
         // Collect ToolInfo from registered tools, filtered by
         // the agent's tools / disallowed_tools config and session mode.
+        let spawn_budget = ctx.effective_spawn_budget;
         let tool_infos: Vec<ToolInfo> = guard
             .values()
             .filter(|t| {
@@ -396,6 +398,11 @@ impl ToolRegistryImpl {
                     }
                 }
                 if disallowed.iter().any(|n| n == name) {
+                    return false;
+                }
+                // Budget-level spawn filter: when effective budget ≤ 0,
+                // filter out sessions_spawn (design doc §Depth 追踪).
+                if name == "sessions_spawn" && spawn_budget.is_some_and(|b| b == 0) {
                     return false;
                 }
                 // Plan Mode: filter out non-read-only tools

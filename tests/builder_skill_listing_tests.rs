@@ -55,6 +55,7 @@ async fn test_build_from_workspace_skill_listing_injected() {
             append_section: None,
             bootstrap_mode_override: None,
             session_mode: None,
+            effective_spawn_budget: None,
         },
     )
     .await;
@@ -98,6 +99,7 @@ async fn test_build_from_workspace_no_skill_info_no_section() {
             append_section: None,
             bootstrap_mode_override: None,
             session_mode: None,
+            effective_spawn_budget: None,
         },
     )
     .await;
@@ -130,6 +132,7 @@ async fn test_build_from_workspace_empty_listing_no_section() {
             append_section: None,
             bootstrap_mode_override: None,
             session_mode: None,
+            effective_spawn_budget: None,
         },
     )
     .await;
@@ -163,6 +166,7 @@ async fn test_build_from_workspace_skill_section_not_duplicated() {
             append_section: None,
             bootstrap_mode_override: None,
             session_mode: None,
+            effective_spawn_budget: None,
         },
     )
     .await;
