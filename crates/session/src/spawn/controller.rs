@@ -92,7 +92,7 @@ impl SpawnController {
         parent_session_id: &str,
         target_agent_id: Option<&str>,
     ) -> Result<SpawnValidationResult, SpawnError> {
-        // ① Depth check: reject if effective budget ≤ 0.
+        // ① Depth check: reject if effective budget ≤ 0 (design doc §Spawn 控制流程 ①).
         let parent_agent_id = self
             .context
             .chat_id(parent_session_id)
@@ -102,27 +102,31 @@ impl SpawnController {
             .resolve_parent_depth(parent_session_id, &parent_agent_id)
             .await?;
 
-        // ② Concurrency check: reject if active children ≥ maxChildren.
+        // ② Concurrency check: reject if active children ≥ maxChildren (design doc §Spawn 控制流程 ②).
         let parent_cfg = self.read_parent_config(&parent_agent_id);
         self.check_concurrency(parent_session_id, parent_cfg.max_children)
             .await?;
 
-        // ③ requireAgentId check: must come before agentId resolution.
-        //    When requireAgentId=true and no agentId provided, reject
-        //    immediately without fallback or whitelist checks.
+        // ③ requireAgentId check (design doc §Spawn 控制流程 ③):
+        //    Must come before agentId resolution. When requireAgentId=true
+        //    and no agentId provided, reject immediately without fallback
+        //    or whitelist checks.
         if parent_cfg.require_agent_id && target_agent_id.is_none() {
             return Err(SpawnError::AgentIdRequired);
         }
 
-        // ④ AgentId resolution: default to parent agent ID when not provided.
+        // ④ AgentId resolution (design doc §Spawn 控制流程 ④):
+        //    Default to parent agent ID when not provided.
         let resolved = self.resolve_target_config(&parent_agent_id, target_agent_id)?;
         let target_id = resolved.target_id.ok_or(SpawnError::AgentIdRequired)?;
 
-        // ⑤ Whitelist check: reject if target agent not in allowAgents.
+        // ⑤ Whitelist check (design doc §Spawn 控制流程 ⑤):
+        //    Reject if target agent not in allowAgents.
         self.check_whitelist(&target_id, &parent_cfg.allow_agents)?;
 
-        // ⑥ Permission check: validate child permissions via intersection
-        //    with parent effective permissions (design doc §⑥).
+        // ⑥ Permission check (design doc §Spawn 控制流程 ⑥):
+        //    Validate child permissions via intersection with parent
+        //    effective permissions.
         let config = resolved
             .target_config
             .ok_or(SpawnError::ConfigNotFound(target_id))?
@@ -201,7 +205,7 @@ impl SpawnController {
     }
 
     /// Resolve the target agent configuration under a single lock block.
-    /// Handles the agentId fallback chain (design doc §Spawn 控制流程 ④):
+    /// Handles the agentId fallback chain (design doc §Spawn 控制流程 ④)：
     ///   1. Explicit `target_agent_id` (caller-provided)
     ///   2. Parent agent ID itself (spawn self-copy)
     fn resolve_target_config(
