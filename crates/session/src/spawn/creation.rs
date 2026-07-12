@@ -107,16 +107,13 @@ pub async fn create_child_conversation_session(
         &params.mode,
         params.fork,
     );
-    cs = configure_spawn_behavior(
-        ctx,
-        cs,
-        params,
-        &child_session_id,
-        &config.id,
+    let behavior = SpawnBehaviorConfig {
+        child_session_id: &child_session_id,
+        agent_id: &config.id,
         bootstrap_mode,
         spawn_context,
-    )
-    .await;
+    };
+    cs = configure_spawn_behavior(ctx, cs, params, &behavior).await;
 
     let conversation_session = Arc::new(tokio::sync::RwLock::new(cs));
 
@@ -185,22 +182,35 @@ fn wire_session_dependencies(ctx: &dyn SpawnCreationContext, cs: &mut Conversati
     cs.set_prompt_overrides(ctx.prompt_overrides());
 }
 
+/// Per-call configuration for [`configure_spawn_behavior`].
+///
+/// Groups the arguments that vary per spawn invocation but are not part of
+/// [`ChildSessionCreationParams`], keeping the function signature under
+/// the 6-parameter limit.
+struct SpawnBehaviorConfig<'a> {
+    child_session_id: &'a str,
+    agent_id: &'a str,
+    bootstrap_mode: BootstrapMode,
+    spawn_context: String,
+}
+
 /// Apply spawn-specific behavior to the session: system prompt, communication
 /// config, fork history, task injection, and mode inheritance.
 async fn configure_spawn_behavior(
     ctx: &dyn SpawnCreationContext,
     mut cs: ConversationSession,
     params: &ChildSessionCreationParams<'_>,
-    child_session_id: &str,
-    agent_id: &str,
-    bootstrap_mode: BootstrapMode,
-    spawn_context: String,
+    behavior: &SpawnBehaviorConfig<'_>,
 ) -> ConversationSession {
     // Build initial system prompt, then append spawn context.
     let base_prompt = cs
-        .rebuild_system_prompt(child_session_id, agent_id, Some(bootstrap_mode))
+        .rebuild_system_prompt(
+            behavior.child_session_id,
+            behavior.agent_id,
+            Some(behavior.bootstrap_mode),
+        )
         .await;
-    cs.replace_system_prompt(format!("{}\n{}", base_prompt, spawn_context));
+    cs.replace_system_prompt(format!("{}\n{}", base_prompt, behavior.spawn_context));
 
     // Generate communication config: child may only communicate with parent.
     let comm_config = CommunicationConfig::default_with_parent(Some(params.parent_agent_id));
@@ -219,7 +229,7 @@ async fn configure_spawn_behavior(
 
     // Inject task as pending message.
     let pending_msg = PendingMessage::with_role(
-        format!("{}-task", child_session_id),
+        format!("{}-task", behavior.child_session_id),
         params.task.to_string(),
         "assistant".to_string(),
     );
@@ -324,22 +334,25 @@ pub fn build_spawn_context(
         ));
     }
 
-    // Structured output guidance (optional, per design doc §结构化输出).
-    ctx.push_str(
-        "\n\
-         **Structured output (optional):** \
-         When you complete your task, consider structuring your \
-         response with the following sections:\n\
-         - **Task scope**: one-sentence confirmation of what you \
-           understood\n\
-         - **Execution results**: key findings or answers\n\
-         - **Files involved**: relevant file paths\n\
-         - **File changes**: modified files and what changed\n\
-         - **Issues found**: problems or risks encountered\n\
-         Structured output is a suggestion — you may reply freely — \
-         but it helps the parent agent process your results.",
-    );
+    ctx.push_str(&structured_output_guidance());
 
     ctx.push('\n');
     ctx
+}
+
+/// Structured output guidance paragraph (optional, per design doc).
+fn structured_output_guidance() -> String {
+    "\n\
+     **Structured output (optional):** \
+     When you complete your task, consider structuring your \
+     response with the following sections:\n\
+     - **Task scope**: one-sentence confirmation of what you \
+       understood\n\
+     - **Execution results**: key findings or answers\n\
+     - **Files involved**: relevant file paths\n\
+     - **File changes**: modified files and what changed\n\
+     - **Issues found**: problems or risks encountered\n\
+     Structured output is a suggestion — you may reply freely — \
+     but it helps the parent agent process your results."
+        .to_string()
 }

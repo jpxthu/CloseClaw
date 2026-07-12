@@ -122,7 +122,6 @@ impl SpawnController {
             return Err(SpawnError::AgentIdRequired);
         }
         let target_id = resolved.target_id.ok_or(SpawnError::AgentIdRequired)?;
-
         // ⑦ Permission check: validate child permissions via intersection
         //    with parent effective permissions (design doc §⑥).
         let config = resolved
@@ -135,9 +134,7 @@ impl SpawnController {
         // ⑧ Compute effective_max_spawn_depth and validate child depth.
         let effective_max =
             self.compute_effective_max_depth(parent.parent_effective_budget, Some(&config))?;
-
-        // ⑨ Read parent subagents.timeout.
-        let spawn_timeout = self.read_parent_config(&parent_agent_id).timeout;
+        let spawn_timeout = self.read_spawn_timeout(&parent_agent_id);
 
         Ok(SpawnValidationResult {
             config,
@@ -285,5 +282,10 @@ impl SpawnController {
             });
         }
         Ok(())
+    }
+
+    /// Read the parent agent's `subagents.timeout` value.
+    fn read_spawn_timeout(&self, parent_agent_id: &str) -> Option<u64> {
+        self.read_parent_config(parent_agent_id).timeout
     }
 }

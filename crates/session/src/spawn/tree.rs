@@ -106,7 +106,9 @@ impl SpawnTree {
             }
         }
     }
+}
 
+impl SpawnTree {
     /// Remove entries for descendant sessions from the tree.
     /// For each descendant, removes it from its parent's list and
     /// removes any sub-entries where it is itself a parent.
