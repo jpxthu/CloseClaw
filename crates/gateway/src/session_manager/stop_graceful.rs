@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_session::persistence::{
-    PendingOperation, PersistenceError, SessionCheckpoint, SessionStatus,
+    PendingOperation, PersistenceError, PersistenceService, SessionCheckpoint, SessionStatus,
 };
 
 use super::stop::{GracefulTimeoutInfo, StopError, StopSingleResult};
@@ -103,7 +103,11 @@ impl SessionManager {
         }
         !has_running_tools
     }
+}
 
+// ── graceful result handling ──────────────────────────────────────────
+
+impl SessionManager {
     /// Map timeout result to return type.
     async fn handle_graceful_result(
         result: Result<(), tokio::time::error::Elapsed>,
@@ -224,59 +228,7 @@ impl SessionManager {
             }
         };
 
-        let (agent_id, channel) = {
-            let sessions = self.sessions.read().await;
-            match sessions.get(session_id) {
-                Some(s) => (Some(s.agent_id.clone()), Some(s.channel.clone())),
-                None => (None, None),
-            }
-        };
-
-        let pending = {
-            let conv = self.conversation_sessions.read().await;
-            match conv.get(session_id) {
-                Some(cs) => {
-                    let guard = cs.read().await;
-                    guard.get_pending_messages()
-                }
-                None => Vec::new(),
-            }
-        };
-
-        let mut cp = match storage.load_checkpoint(session_id).await? {
-            Some(mut cp) => {
-                cp.status = SessionStatus::Active;
-                if let Some(ch) = channel {
-                    cp.platform = Some(ch);
-                }
-                if let Some(aid) = agent_id {
-                    cp.agent_id = Some(aid);
-                }
-                cp.pending_messages = pending;
-                cp
-            }
-            None => {
-                let mut cp = SessionCheckpoint::new(session_id.to_string())
-                    .with_status(SessionStatus::Active);
-                if let Some(ch) = channel {
-                    cp = cp.with_platform(ch);
-                }
-                if let Some(aid) = agent_id {
-                    cp = cp.with_agent_id(aid);
-                }
-                cp.with_pending_messages(pending)
-            }
-        };
-
-        // Sync system_appends and verbosity_level from ConversationSession.
-        {
-            let conv = self.conversation_sessions.read().await;
-            if let Some(cs) = conv.get(session_id) {
-                let guard = cs.read().await;
-                cp.system_appends = guard.user_system_appends().to_vec();
-                cp.verbosity_level = guard.verbosity_level();
-            }
-        }
+        let mut cp = self.build_checkpoint(session_id, &storage).await?;
 
         // Record pending operations from forceful shutdown.
         if !pending_ops.is_empty() {
@@ -284,5 +236,98 @@ impl SessionManager {
         }
 
         storage.save_checkpoint(&cp).await
+    }
+
+    /// Build a `SessionCheckpoint` for the given session, loading or creating
+    /// as needed and syncing metadata from `ConversationSession`.
+    async fn build_checkpoint(
+        &self,
+        session_id: &str,
+        storage: &Arc<dyn PersistenceService>,
+    ) -> Result<SessionCheckpoint, PersistenceError> {
+        let (agent_id, channel) = self.session_routing_info(session_id).await;
+        let pending = self.pending_messages_for(session_id).await;
+
+        let mut cp =
+            load_or_create_checkpoint(storage, session_id, agent_id, channel, pending).await?;
+
+        sync_conversation_metadata(&self.conversation_sessions, session_id, &mut cp).await;
+        Ok(cp)
+    }
+
+    /// Look up routing info (agent_id, channel) for a session.
+    async fn session_routing_info(&self, session_id: &str) -> (Option<String>, Option<String>) {
+        let sessions = self.sessions.read().await;
+        match sessions.get(session_id) {
+            Some(s) => (Some(s.agent_id.clone()), Some(s.channel.clone())),
+            None => (None, None),
+        }
+    }
+
+    /// Collect pending messages from the conversation session.
+    async fn pending_messages_for(
+        &self,
+        session_id: &str,
+    ) -> Vec<closeclaw_session::persistence::PendingMessage> {
+        let conv = self.conversation_sessions.read().await;
+        match conv.get(session_id) {
+            Some(cs) => {
+                let guard = cs.read().await;
+                guard.get_pending_messages()
+            }
+            None => Vec::new(),
+        }
+    }
+}
+
+// ── checkpoint helpers ────────────────────────────────────────────────
+
+/// Load an existing checkpoint or create a new one, applying the given
+/// routing info and pending messages.
+async fn load_or_create_checkpoint(
+    storage: &Arc<dyn PersistenceService>,
+    session_id: &str,
+    agent_id: Option<String>,
+    channel: Option<String>,
+    pending: Vec<closeclaw_session::persistence::PendingMessage>,
+) -> Result<SessionCheckpoint, PersistenceError> {
+    match storage.load_checkpoint(session_id).await? {
+        Some(mut cp) => {
+            cp.status = SessionStatus::Active;
+            cp.platform = channel;
+            cp.agent_id = agent_id;
+            cp.pending_messages = pending;
+            Ok(cp)
+        }
+        None => {
+            let mut cp =
+                SessionCheckpoint::new(session_id.to_string()).with_status(SessionStatus::Active);
+            if let Some(ch) = channel {
+                cp = cp.with_platform(ch);
+            }
+            if let Some(aid) = agent_id {
+                cp = cp.with_agent_id(aid);
+            }
+            Ok(cp.with_pending_messages(pending))
+        }
+    }
+}
+
+/// Sync `system_appends` and `verbosity_level` from the conversation session.
+async fn sync_conversation_metadata(
+    conv: &tokio::sync::RwLock<
+        std::collections::HashMap<
+            String,
+            Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
+        >,
+    >,
+    session_id: &str,
+    cp: &mut SessionCheckpoint,
+) {
+    let conv_guard = conv.read().await;
+    if let Some(cs) = conv_guard.get(session_id) {
+        let guard = cs.read().await;
+        cp.system_appends = guard.user_system_appends().to_vec();
+        cp.verbosity_level = guard.verbosity_level();
     }
 }

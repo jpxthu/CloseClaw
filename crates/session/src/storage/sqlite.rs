@@ -315,6 +315,48 @@ impl SqliteStorage {
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
         archive_support::load_checkpoint_inner(conn, data_dir, session_id)
     }
+
+    /// Find an active session by routing fields on an open connection.
+    fn find_active_session_inner(
+        conn: &Connection,
+        channel: &str,
+        sender_id: &str,
+        peer_id: &str,
+        account_id: Option<&str>,
+    ) -> Result<Option<String>, PersistenceError> {
+        let result = if let Some(acc) = account_id {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id FROM sessions
+                     WHERE status = 'active'
+                       AND platform = ?1
+                       AND sender_id = ?2
+                       AND peer_id = ?3
+                       AND account_id = ?4",
+                )
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            stmt.query_row(params![channel, sender_id, peer_id, acc], |row| {
+                row.get::<_, String>(0)
+            })
+            .ok()
+        } else {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id FROM sessions
+                     WHERE status = 'active'
+                       AND platform = ?1
+                       AND sender_id = ?2
+                       AND peer_id = ?3
+                       AND account_id IS NULL",
+                )
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            stmt.query_row(params![channel, sender_id, peer_id], |row| {
+                row.get::<_, String>(0)
+            })
+            .ok()
+        };
+        Ok(result)
+    }
 }
 
 #[async_trait]
@@ -534,43 +576,16 @@ impl PersistenceService for SqliteStorage {
         let peer_id = peer_id.to_string();
         let account_id = account_id.map(String::from);
 
-        spawn_blocking(move || {
+        spawn_blocking(move || -> Result<Option<String>, PersistenceError> {
             let conn = Connection::open(data_dir.join("sessions.sqlite"))
                 .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
-
-            let result = if let Some(ref acc) = account_id {
-                let mut stmt = conn
-                    .prepare(
-                        "SELECT id FROM sessions
-                         WHERE status = 'active'
-                           AND platform = ?1
-                           AND sender_id = ?2
-                           AND peer_id = ?3
-                           AND account_id = ?4",
-                    )
-                    .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
-                stmt.query_row(params![channel, sender_id, peer_id, acc], |row| {
-                    row.get::<_, String>(0)
-                })
-                .ok()
-            } else {
-                let mut stmt = conn
-                    .prepare(
-                        "SELECT id FROM sessions
-                         WHERE status = 'active'
-                           AND platform = ?1
-                           AND sender_id = ?2
-                           AND peer_id = ?3
-                           AND account_id IS NULL",
-                    )
-                    .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
-                stmt.query_row(params![channel, sender_id, peer_id], |row| {
-                    row.get::<_, String>(0)
-                })
-                .ok()
-            };
-
-            Ok(result)
+            Self::find_active_session_inner(
+                &conn,
+                &channel,
+                &sender_id,
+                &peer_id,
+                account_id.as_deref(),
+            )
         })
         .await
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
