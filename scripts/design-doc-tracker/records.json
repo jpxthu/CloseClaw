@@ -107,9 +107,9 @@
     "path": "docs/design/common/shared-types.md",
     "commit": "869a9646eaaf0c161fe10ddc4ab222343a77ee77",
     "commit_time": "2026-07-05T08:48:07+08:00",
-    "confirmed_time": "2026-07-05T08:54:07.663880+08:00",
+    "confirmed_time": "2026-07-12T11:41:31.051390+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "SlashResult doc claims 10 variants and Gateway-unaware model but code has 13 variants with Gateway hardcoding interception for PermissionOp UserApprove UserReject in slash_permission.rs"
   },
   {
     "path": "docs/design/config/README.md",
