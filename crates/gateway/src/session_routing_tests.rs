@@ -145,6 +145,14 @@ impl ProcessorChain for RecordingProcessorChain {
         Ok(msg)
     }
 
+    async fn process_outbound_raw_log_only(
+        &self,
+        msg: ProcessedMessage,
+    ) -> Result<ProcessedMessage, ProcessError> {
+        // No-op: the simplified path should not invoke the full chain.
+        Ok(msg)
+    }
+
     fn inbound_len(&self) -> usize {
         0
     }

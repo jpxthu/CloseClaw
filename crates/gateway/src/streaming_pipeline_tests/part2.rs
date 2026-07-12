@@ -345,40 +345,61 @@ async fn test_streaming_message_end_flushes_remaining_text() {
 // Verbosity filtering interaction with streaming pipeline
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Thinking blocks at VerbosityLevel::Off are filtered (not sent,
-/// not accumulated) while Text blocks pass through the full pipeline.
-#[tokio::test]
-async fn test_streaming_verbosity_off_filters_thinking_sends_text() {
-    let chain = Arc::new(MockProcessorChain::new());
-    let plugin = Arc::new(CapturingPlugin::new("mock"));
-    let (gw, _sm, sid) = setup_streaming(chain.clone(), plugin.clone()).await;
+/// Build a real outbound processor chain with VerbosityFilter + DslParser.
+/// Used to verify the post-stream pipeline correctly filters blocks.
+fn build_outbound_chain() -> closeclaw_processor_chain::ProcessorRegistry {
+    let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
+    registry.register(Arc::new(
+        closeclaw_processor_chain::verbosity_filter::VerbosityFilter,
+    ));
+    registry.register(Arc::new(closeclaw_processor_chain::DslParser));
+    registry
+}
 
+/// Setup gateway with a real processor chain and a session at the given
+/// verbosity level. Returns (gateway, session_id).
+async fn setup_verbosity_session(
+    verbosity: closeclaw_common::VerbosityLevel,
+    plugin: Arc<dyn IMPlugin>,
+) -> (crate::Gateway, String) {
+    let chain: Arc<dyn closeclaw_common::processor::ProcessorChain> =
+        Arc::new(build_outbound_chain());
+    let config = make_config();
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        Some(Arc::new(MockPersistService)),
+        None,
+        ReasoningLevel::default(),
+    ));
+    let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
+    gw.register_plugin(plugin).await;
+    let msg = make_message("agent-1", "hello");
+    let sid = sm.find_or_create("mock", &msg, None).await.unwrap();
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         sid.clone(),
         "test-model".to_string(),
         std::path::PathBuf::from("/tmp"),
     );
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
-    {
-        cs_arc
-            .write()
-            .await
-            .set_verbosity_level(closeclaw_common::VerbosityLevel::Off);
-    }
-    {
-        let mut conv = _sm.conversation_sessions.write().await;
-        conv.insert(sid.clone(), cs_arc);
-    }
+    cs_arc.write().await.set_verbosity_level(verbosity);
+    sm.conversation_sessions
+        .write()
+        .await
+        .insert(sid.clone(), cs_arc);
+    (gw, sid)
+}
 
-    let events = vec![
-        Ok::<_, String>(StreamEvent::BlockStart {
+/// Streaming events with a Thinking block followed by a Text block.
+fn thinking_then_text_events() -> Vec<Result<StreamEvent, String>> {
+    vec![
+        Ok(StreamEvent::BlockStart {
             index: 0,
             block_type: ContentBlockType::Thinking,
         }),
         Ok(StreamEvent::BlockDelta {
             index: 0,
             delta: ContentDelta::Thinking {
-                thinking: "hidden reasoning".to_string(),
+                thinking: "internal reasoning".to_string(),
                 signature: None,
             },
         }),
@@ -404,30 +425,86 @@ async fn test_streaming_verbosity_off_filters_thinking_sends_text() {
             usage: Some(default_usage()),
             finish_reason: Some("stop".to_string()),
         }),
-    ];
-    let stream = stream::iter(events);
+    ]
+}
+
+/// At VerbosityLevel::Off, Thinking blocks are sent during streaming
+/// (no inline filtering) but filtered from the final content_blocks
+/// by the post-stream VerbosityFilter in the processor chain.
+#[tokio::test]
+async fn test_streaming_verbosity_off_filters_thinking_sends_text() {
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    let (gw, sid) =
+        setup_verbosity_session(closeclaw_common::VerbosityLevel::Off, plugin.clone()).await;
+
+    let stream = stream::iter(thinking_then_text_events());
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
         .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
         .await
         .unwrap();
 
+    // After Step 1.1: both Thinking and Text blocks are sent during streaming
+    // via send_render_block (no inline Verbosity filtering).
     let sent = plugin.drain_sent();
-    assert_eq!(sent.len(), 1, "only text should be sent");
-    assert_eq!(extract_text(&sent[0]), "Visible answer.");
+    assert_eq!(
+        sent.len(),
+        2,
+        "both Thinking render and Text should be sent during streaming"
+    );
 
+    // Post-stream pipeline: VerbosityFilter filters Thinking from final result.
     let has_thinking = result
         .content_blocks
         .iter()
         .any(|b| matches!(b, ContentBlock::Thinking { .. }));
-    assert!(
-        !has_thinking,
-        "Thinking block should be filtered at Off level"
-    );
-
     let has_text = result
         .content_blocks
         .iter()
         .any(|b| matches!(b, ContentBlock::Text(_)));
+    assert!(
+        !has_thinking,
+        "Thinking block should be filtered from result at Off level"
+    );
     assert!(has_text, "Text block should pass through at Off level");
+}
+
+/// At VerbosityLevel::Normal, Thinking blocks are sent during streaming
+/// (no inline filtering) but filtered from the final content_blocks
+/// by the post-stream VerbosityFilter in the processor chain.
+#[tokio::test]
+async fn test_streaming_verbosity_normal_filters_thinking_post_stream() {
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    let (gw, sid) =
+        setup_verbosity_session(closeclaw_common::VerbosityLevel::Normal, plugin.clone()).await;
+
+    let stream = stream::iter(thinking_then_text_events());
+    let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
+    let result = gw
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .await
+        .unwrap();
+
+    // After Step 1.1: both Thinking and Text blocks are sent during streaming.
+    let sent = plugin.drain_sent();
+    assert_eq!(
+        sent.len(),
+        2,
+        "both Thinking render and Text should be sent during streaming"
+    );
+
+    // Post-stream pipeline: VerbosityFilter removes Thinking at Normal level.
+    let has_thinking = result
+        .content_blocks
+        .iter()
+        .any(|b| matches!(b, ContentBlock::Thinking { .. }));
+    let has_text = result
+        .content_blocks
+        .iter()
+        .any(|b| matches!(b, ContentBlock::Text(_)));
+    assert!(
+        !has_thinking,
+        "Thinking block should be filtered from result at Normal level"
+    );
+    assert!(has_text, "Text block should pass through at Normal level");
 }

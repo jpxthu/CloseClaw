@@ -324,4 +324,19 @@ pub trait ProcessorChain: Send + Sync {
     fn outbound_len(&self) -> usize {
         0
     }
+
+    /// Process only the outbound raw-log processor, skipping all other
+    /// processors (VerbosityFilter, DslParser, etc.).
+    ///
+    /// Used by the simplified outbound path for non-text message rejection
+    /// replies where the design doc requires: log → render → send, without
+    /// VerbosityFilter / DslParser / middleware.
+    ///
+    /// Default implementation falls back to the full outbound chain.
+    async fn process_outbound_raw_log_only(
+        &self,
+        msg: ProcessedMessage,
+    ) -> Result<ProcessedMessage, ProcessError> {
+        self.process_outbound(msg).await
+    }
 }
