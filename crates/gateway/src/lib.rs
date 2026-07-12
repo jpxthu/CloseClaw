@@ -302,7 +302,7 @@ impl Gateway {
                 "rejecting non-text message"
             );
             if let Err(e) = self
-                .send_outbound_to_chat(
+                .send_outbound_simplified(
                     peer_id,
                     channel,
                     "\u{6682}\u{4E0D}\u{652F}\u{6301}\u{8BE5}\u{6D88}\u{606F}\u{7C7B}\u{578B}",

@@ -223,6 +223,41 @@ impl Gateway {
         }
     }
 
+    /// Run only the outbound raw-log processor, bypassing the full chain.
+    ///
+    /// Used by [`send_outbound_simplified`] for non-text message rejection
+    /// replies where the design doc requires log → render → send without
+    /// VerbosityFilter / DslParser / middleware.
+    async fn process_outbound_raw_log_only(
+        &self,
+        raw_output: &str,
+        content_blocks: Vec<ContentBlock>,
+        channel: &str,
+    ) -> Result<ProcessedMessage, GatewayError> {
+        let registry = self.processor_registry.read().unwrap().clone();
+        let Some(registry) = registry else {
+            let blocks = if content_blocks.is_empty() {
+                vec![ContentBlock::Text(raw_output.to_string())]
+            } else {
+                content_blocks
+            };
+            return Ok(ProcessedMessage {
+                content_blocks: blocks,
+                metadata: std::collections::HashMap::new(),
+            });
+        };
+        let mut meta = std::collections::HashMap::new();
+        meta.insert("channel".to_string(), channel.to_string());
+        let input = ProcessedMessage {
+            content_blocks,
+            metadata: meta,
+        };
+        registry
+            .process_outbound_raw_log_only(input)
+            .await
+            .map_err(|e| GatewayError::OutboundError(e.to_string()))
+    }
+
     /// Run the outbound processor chain if configured, otherwise bypass with
     /// a synthetic [`ProcessedMessage`] wrapping the raw input.
     async fn process_or_bypass(
@@ -380,16 +415,16 @@ impl Gateway {
             .ok_or_else(|| GatewayError::UnknownChannel(channel.to_string()))?;
         let blocks = vec![ContentBlock::Text(raw_output.to_string())];
 
-        // Log before render (design doc: 经日志→渲染→发送).
-        tracing::info!(
-            chat_id,
-            channel,
-            content = %raw_output,
-            "simplified outbound"
-        );
+        // Run only the outbound raw-log processor (skip Verbosity/DslParser).
+        let processed = self
+            .process_outbound_raw_log_only(raw_output, blocks.clone(), channel)
+            .await?;
+        if processed.content_blocks.is_empty() {
+            return Ok(());
+        }
 
         // Render without DSL result — skips Verbosity/DslParser.
-        let rendered = plugin.render(&blocks, None);
+        let rendered = plugin.render(&processed.content_blocks, None);
 
         // Send directly — no outbound middleware chain.
         plugin.send(&rendered, chat_id, None).await?;
@@ -824,6 +859,16 @@ impl closeclaw_common::processor::ProcessorChain for NoopProcessorChain {
     }
 
     async fn process_outbound(
+        &self,
+        msg: closeclaw_common::processor::ProcessedMessage,
+    ) -> Result<
+        closeclaw_common::processor::ProcessedMessage,
+        closeclaw_common::processor::ProcessError,
+    > {
+        Ok(msg)
+    }
+
+    async fn process_outbound_raw_log_only(
         &self,
         msg: closeclaw_common::processor::ProcessedMessage,
     ) -> Result<
