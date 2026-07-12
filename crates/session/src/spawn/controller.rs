@@ -205,7 +205,7 @@ impl SpawnController {
     }
 
     /// Resolve the target agent configuration under a single lock block.
-    /// Handles the agentId fallback chain (design doc §Spawn 控制流程 ④)：
+    /// Handles the agentId fallback chain (design doc §Spawn 控制流程 ④):
     ///   1. Explicit `target_agent_id` (caller-provided)
     ///   2. Parent agent ID itself (spawn self-copy)
     fn resolve_target_config(
