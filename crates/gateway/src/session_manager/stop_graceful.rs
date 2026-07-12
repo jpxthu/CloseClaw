@@ -30,43 +30,17 @@ impl SessionManager {
 
         let result = tokio::time::timeout(timeout, async {
             loop {
-                let (is_streaming, has_running_tools) = {
-                    let guard: &closeclaw_session::llm_session::ConversationSession =
-                        &*cs.read().await;
-                    let state = *guard.llm_state.read().expect("llm_state lock poisoned");
-                    let tool_states = guard.tool_states.read().expect("tool_states lock poisoned");
-                    let streaming = matches!(state, LlmState::Receiving | LlmState::Requesting);
-                    let tools = tool_states.values().any(|s| {
-                        matches!(
-                            s,
-                            closeclaw_llm::session_state::ToolExecState::RunningForeground
-                                | closeclaw_llm::session_state::ToolExecState::RunningBackground
-                        )
-                    });
-                    (streaming, tools)
-                };
-
-                if is_streaming {
-                    streaming_seen = true;
-                } else if streaming_seen {
-                    let ops = {
-                        let guard: &closeclaw_session::llm_session::ConversationSession =
-                            &*cs.read().await;
-                        guard.extract_pending_tool_calls()
-                    };
-                    if !ops.is_empty() {
-                        pending_ops = ops;
-                        break;
-                    }
-                    if !has_running_tools {
-                        break;
-                    }
-                } else if has_running_tools {
-                    continue;
-                } else {
+                let (is_streaming, has_running_tools) = Self::check_session_active_state(cs).await;
+                let should_break = Self::eval_graceful_iteration(
+                    cs,
+                    &mut pending_ops,
+                    &mut streaming_seen,
+                    is_streaming,
+                    has_running_tools,
+                );
+                if should_break {
                     break;
                 }
-
                 tracing::debug!(
                     session_id = %session_id,
                     streaming = is_streaming,
@@ -78,6 +52,66 @@ impl SessionManager {
         })
         .await;
 
+        Self::handle_graceful_result(result, pending_ops, cs, session_id, start).await
+    }
+
+    /// Check whether the session is actively streaming or running tools.
+    async fn check_session_active_state(
+        cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
+    ) -> (bool, bool) {
+        let guard = &*cs.read().await;
+        let state = *guard.llm_state.read().expect("llm_state lock poisoned");
+        let tool_states = guard.tool_states.read().expect("tool_states lock poisoned");
+        let streaming = matches!(state, LlmState::Receiving | LlmState::Requesting);
+        let tools = tool_states.values().any(|s| {
+            matches!(
+                s,
+                closeclaw_llm::session_state::ToolExecState::RunningForeground
+                    | closeclaw_llm::session_state::ToolExecState::RunningBackground
+            )
+        });
+        (streaming, tools)
+    }
+
+    /// Evaluate one graceful-loop iteration; returns true to break.
+    fn eval_graceful_iteration(
+        cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
+        pending_ops: &mut Vec<PendingOperation>,
+        streaming_seen: &mut bool,
+        is_streaming: bool,
+        has_running_tools: bool,
+    ) -> bool {
+        if is_streaming {
+            *streaming_seen = true;
+            return false;
+        }
+        if *streaming_seen {
+            let ops = {
+                (*cs)
+                    .try_read()
+                    .map(|g| g.extract_pending_tool_calls())
+                    .unwrap_or_default()
+            };
+            if !ops.is_empty() {
+                *pending_ops = ops;
+                return true;
+            }
+            if !has_running_tools {
+                return true;
+            }
+            return false;
+        }
+        !has_running_tools
+    }
+
+    /// Map timeout result to return type.
+    async fn handle_graceful_result(
+        result: Result<(), tokio::time::error::Elapsed>,
+        pending_ops: Vec<PendingOperation>,
+        cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
+        session_id: &str,
+        start: tokio::time::Instant,
+    ) -> (Vec<PendingOperation>, Option<GracefulTimeoutInfo>) {
         match result {
             Ok(()) => (pending_ops, None),
             Err(_elapsed) => {
@@ -130,13 +164,30 @@ impl SessionManager {
 
 impl SessionManager {
     /// Finalize a stopped session: stop, clean up, persist.
+    ///
+    /// When `cascade` is true the session's own stop cascades to
+    /// children (used by `/stop --cascade`).
     pub(super) async fn finalize_session_stop(
         &self,
         cs: Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
         session_id: &str,
         pending_ops: Vec<PendingOperation>,
+        cascade: bool,
     ) -> Result<StopSingleResult, StopError> {
-        cs.read().await.stop(false).await;
+        cs.read().await.stop(cascade).await;
+        self.cleanup_and_persist(session_id, pending_ops).await?;
+        Ok(StopSingleResult {
+            _completed: true,
+            graceful_timeout: None,
+        })
+    }
+
+    /// Cleanup task manager and persist checkpoint.
+    async fn cleanup_and_persist(
+        &self,
+        session_id: &str,
+        pending_ops: Vec<PendingOperation>,
+    ) -> Result<(), StopError> {
         if let Some(tm) = self.get_task_manager().await {
             tm.cleanup_finished().await;
         }
@@ -151,11 +202,7 @@ impl SessionManager {
             );
             return Err(StopError::Failed);
         }
-
-        Ok(StopSingleResult {
-            _completed: true,
-            graceful_timeout: None,
-        })
+        Ok(())
     }
 }
 

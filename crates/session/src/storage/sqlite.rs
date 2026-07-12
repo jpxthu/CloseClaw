@@ -809,56 +809,75 @@ impl PersistenceService for SqliteStorage {
             let conn = Connection::open(data_dir.join("sessions.sqlite"))
                 .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
-            // SQLite → File system: active records without transcript files.
-            let active_ids: Vec<String> = {
-                let mut stmt = conn
-                    .prepare("SELECT id FROM sessions WHERE status = 'active'")
-                    .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
-                let ids: Vec<String> = stmt
-                    .query_map([], |row| row.get(0))
-                    .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
-                    .filter_map(|r| r.ok())
-                    .collect();
-                ids
-            };
-
-            for id in &active_ids {
-                let transcript_path = data_dir.join("sessions").join(format!("{id}.jsonl"));
-                if !transcript_path.exists() {
-                    conn.execute("DELETE FROM sessions WHERE id = ?1", rusqlite::params![id])
-                        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
-                    result.deleted_orphaned_records += 1;
-                }
-            }
-
-            // File system → SQLite: orphan transcript files.
-            let sessions_dir = data_dir.join("sessions");
-            if sessions_dir.exists() {
-                for entry in std::fs::read_dir(&sessions_dir)
-                    .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
-                {
-                    let entry = entry.map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
-                    let path = entry.path();
-                    if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-                        let file_stem = path.file_stem().and_then(|e| e.to_str()).unwrap_or("");
-                        let exists: bool = conn
-                            .query_row(
-                                "SELECT COUNT(*) > 0 FROM sessions WHERE id = ?1",
-                                rusqlite::params![file_stem],
-                                |row| row.get(0),
-                            )
-                            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
-                        if !exists {
-                            std::fs::remove_file(&path).map_err(|e| PersistenceError::Io(e))?;
-                            result.deleted_orphaned_files += 1;
-                        }
-                    }
-                }
-            }
+            check_sqlite_to_filesystem(&conn, &data_dir, &mut result)?;
+            check_filesystem_to_sqlite(&conn, &data_dir, &mut result)?;
 
             Ok(result)
         })
         .await
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
     }
+}
+
+/// SQLite → File system: remove active records whose transcript is missing.
+fn check_sqlite_to_filesystem(
+    conn: &Connection,
+    data_dir: &std::path::Path,
+    result: &mut ConsistencyCheckResult,
+) -> Result<(), PersistenceError> {
+    let active_ids: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT id FROM sessions WHERE status = 'active'")
+            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+        let ids: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+            .filter_map(|r| r.ok())
+            .collect();
+        ids
+    };
+
+    for id in &active_ids {
+        let transcript_path = data_dir.join("sessions").join(format!("{id}.jsonl"));
+        if !transcript_path.exists() {
+            conn.execute("DELETE FROM sessions WHERE id = ?1", rusqlite::params![id])
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            result.deleted_orphaned_records += 1;
+        }
+    }
+    Ok(())
+}
+
+/// File system → SQLite: remove orphan transcript files not in SQLite.
+fn check_filesystem_to_sqlite(
+    conn: &Connection,
+    data_dir: &std::path::Path,
+    result: &mut ConsistencyCheckResult,
+) -> Result<(), PersistenceError> {
+    let sessions_dir = data_dir.join("sessions");
+    if !sessions_dir.exists() {
+        return Ok(());
+    }
+    for entry in
+        std::fs::read_dir(&sessions_dir).map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    {
+        let entry = entry.map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let file_stem = path.file_stem().and_then(|e| e.to_str()).unwrap_or("");
+        let exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sessions WHERE id = ?1",
+                rusqlite::params![file_stem],
+                |row| row.get(0),
+            )
+            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+        if !exists {
+            std::fs::remove_file(&path).map_err(PersistenceError::Io)?;
+            result.deleted_orphaned_files += 1;
+        }
+    }
+    Ok(())
 }

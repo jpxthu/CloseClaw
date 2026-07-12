@@ -6,10 +6,12 @@
 
 use std::sync::Arc;
 
+use crate::session_manager::stop::DEFAULT_GRACEFUL_TIMEOUT;
 use crate::slash_executor::{
     ReplyAction, SideEffectContext, SlashEffectExecutor, SlashResultExecutor,
 };
 use closeclaw_common::processor::ContentBlock;
+use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_common::slash_router::{
     SlashContext, SlashHandler, SlashResult, SlashRouter, SystemAppendAction,
 };
@@ -635,15 +637,43 @@ struct GatewaySlashExecutor {
 
 #[async_trait::async_trait]
 impl SlashEffectExecutor for GatewaySlashExecutor {
-    async fn execute_stop(&self, session_id: &str, cascade: bool, _force: bool) {
-        let cs: Option<Arc<RwLock<ConversationSession>>> = self
+    async fn execute_stop(&self, session_id: &str, cascade: bool, force: bool) {
+        let mode = if force {
+            ShutdownMode::Forceful
+        } else {
+            ShutdownMode::Graceful
+        };
+        let result = self
             .session_manager
-            .get_conversation_session(session_id)
+            .stop_single_session(session_id, mode, DEFAULT_GRACEFUL_TIMEOUT, cascade)
             .await;
-        if let Some(cs) = cs {
-            cs.read().await.stop(cascade).await;
-        } else if let Some(sh) = self.session_handler.as_ref() {
-            sh.send_reply("session 不存在，无法停止".to_owned()).await;
+        match result {
+            Ok(r) if r._completed => {
+                tracing::info!(
+                    session_id = %session_id,
+                    force = force,
+                    cascade = cascade,
+                    "session stopped successfully"
+                );
+            }
+            Ok(r) => {
+                // Graceful timeout — session not killed, report waiting items.
+                if let Some(ref info) = r.graceful_timeout {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        elapsed = ?info.elapsed,
+                        waiting = ?info.waiting_items,
+                        "graceful stop timed out"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = ?e,
+                    "stop failed"
+                );
+            }
         }
     }
 

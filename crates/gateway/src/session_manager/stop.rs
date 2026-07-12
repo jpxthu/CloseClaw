@@ -70,40 +70,20 @@ impl SessionManager {
     ) -> StopResult {
         let tree = self.build_stop_tree().await;
         let stop_order = stop_order_from_tree(&tree);
-
         if stop_order.is_empty() {
             tracing::info!("stop_all_sessions: no active sessions");
             return StopResult::default();
         }
-
         let total_sessions: usize = stop_order.iter().map(|l| l.len()).sum();
-
         tracing::info!(
             count = total_sessions,
             mode = ?mode,
             "stop_all_sessions: starting leaf-to-root shutdown"
         );
-
         let mut result = StopResult::default();
         let mut processed = 0usize;
-
         for level in &stop_order {
-            // Dynamically query the shutdown handle for the current mode.
-            // After escalation (e.g. graceful → forceful), the next level
-            // will use the escalated mode instead of the original `mode`.
-            let effective_mode = match self.get_shutdown_handle().await {
-                Some(sh) if sh.is_forceful() => {
-                    if mode != ShutdownMode::Forceful {
-                        tracing::info!(
-                            original_mode = ?mode,
-                            "escalation detected: switching to forceful mode"
-                        );
-                    }
-                    ShutdownMode::Forceful
-                }
-                _ => mode,
-            };
-
+            let effective_mode = self.resolve_effective_mode(mode).await;
             let (count, timeouts) = self
                 .process_stop_level(
                     level,
@@ -117,14 +97,12 @@ impl SessionManager {
             processed += count;
             result.graceful_timeouts.extend(timeouts);
         }
-
         tracing::info!(
             succeeded = result.succeeded,
             failed = result.failed,
             skipped = result.skipped,
             "stop_all_sessions: complete"
         );
-
         result
     }
 
@@ -141,7 +119,7 @@ impl SessionManager {
     ) -> (usize, Vec<GracefulTimeoutInfo>) {
         let futures: Vec<_> = level
             .iter()
-            .map(|sid| self.stop_single_session(sid, mode, graceful_timeout))
+            .map(|sid| self.stop_single_session(sid, mode, graceful_timeout, false))
             .collect();
 
         let outcomes = futures::future::join_all(futures).await;
@@ -320,6 +298,7 @@ fn stop_order_from_tree(tree: &SessionTree) -> Vec<Vec<String>> {
 // ── per-session stop ────────────────────────────────────────────────────
 
 /// Errors during single-session stop.
+#[derive(Debug)]
 pub(crate) enum StopError {
     /// Session or ConversationSession not found — skipped.
     Skipped,
@@ -343,11 +322,12 @@ impl SessionManager {
     /// Graceful mode waits with a configurable timeout; on timeout,
     /// the session is NOT killed — waiting item info is returned.
     /// Forceful mode stops immediately.
-    async fn stop_single_session(
+    pub(crate) async fn stop_single_session(
         &self,
         session_id: &str,
         mode: ShutdownMode,
         graceful_timeout: Duration,
+        cascade: bool,
     ) -> Result<StopSingleResult, StopError> {
         let cs = self
             .get_conversation_session(session_id)
@@ -361,7 +341,7 @@ impl SessionManager {
                 guard.collect_pending_operations()
             };
             return self
-                .finalize_session_stop(cs, session_id, pending_ops)
+                .finalize_session_stop(cs, session_id, pending_ops, cascade)
                 .await;
         }
 
@@ -382,8 +362,24 @@ impl SessionManager {
             });
         }
 
-        self.finalize_session_stop(cs, session_id, pending_ops)
+        self.finalize_session_stop(cs, session_id, pending_ops, cascade)
             .await
+    }
+
+    /// Resolve the effective shutdown mode, checking for escalation.
+    async fn resolve_effective_mode(&self, mode: ShutdownMode) -> ShutdownMode {
+        match self.get_shutdown_handle().await {
+            Some(sh) if sh.is_forceful() => {
+                if mode != ShutdownMode::Forceful {
+                    tracing::info!(
+                        original_mode = ?mode,
+                        "escalation detected: switching to forceful mode"
+                    );
+                }
+                ShutdownMode::Forceful
+            }
+            _ => mode,
+        }
     }
 
     /// Remove a session from all active-tracking tables.
