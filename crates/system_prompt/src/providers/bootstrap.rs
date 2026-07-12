@@ -9,7 +9,7 @@ use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, S
 /// Provider that contributes bootstrap file content (agent profile, workspace
 /// rules, etc.) to the system prompt.
 ///
-/// Bootstrap files are loaded from `workdir` using `ctx.bootstrap_mode`.
+/// Bootstrap files are loaded from `bootstrap_dir` using `ctx.bootstrap_mode`.
 ///
 /// MEMORY.md is excluded — it is handled separately by
 /// [`MemoryFragmentProvider`](super::memory::MemoryFragmentProvider).
@@ -33,7 +33,7 @@ impl BootstrapFragmentProvider {
 
     /// Resolve the directory to load bootstrap files from.
     fn resolve_bootstrap_dir(&self, ctx: &FragmentContext) -> PathBuf {
-        ctx.workdir.clone()
+        ctx.bootstrap_dir.clone()
     }
 }
 
@@ -150,7 +150,7 @@ mod tests {
         let ctx = FragmentContext {
             agent_id: "test-agent".into(),
             bootstrap_mode: BootstrapMode::Minimal,
-            workdir: std::env::temp_dir(),
+            bootstrap_dir: std::env::temp_dir(),
             effective_spawn_budget: None,
         };
         assert_eq!(provider.resolve_mode(&ctx), BootstrapMode::Minimal);
@@ -159,7 +159,7 @@ mod tests {
         let ctx = FragmentContext {
             agent_id: "unknown".into(),
             bootstrap_mode: BootstrapMode::Minimal,
-            workdir: std::env::temp_dir(),
+            bootstrap_dir: std::env::temp_dir(),
             effective_spawn_budget: None,
         };
         assert_eq!(provider.resolve_mode(&ctx), BootstrapMode::Minimal);
@@ -171,7 +171,7 @@ mod tests {
         let provider = BootstrapFragmentProvider::new();
 
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             bootstrap_mode: BootstrapMode::Full,
             ..FragmentContext::test_default()
         };
@@ -185,7 +185,7 @@ mod tests {
         let provider = BootstrapFragmentProvider::new();
 
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             bootstrap_mode: BootstrapMode::Minimal,
             ..FragmentContext::test_default()
         };
@@ -201,7 +201,7 @@ mod tests {
         let provider = BootstrapFragmentProvider::new();
 
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             bootstrap_mode: BootstrapMode::Minimal,
             ..FragmentContext::test_default()
         };
@@ -222,7 +222,7 @@ mod tests {
         let provider = BootstrapFragmentProvider::new();
 
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             bootstrap_mode: BootstrapMode::Minimal,
             ..FragmentContext::test_default()
         };
@@ -246,7 +246,7 @@ mod tests {
         let provider = BootstrapFragmentProvider::new();
 
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             bootstrap_mode: BootstrapMode::Full,
             ..FragmentContext::test_default()
         };
@@ -261,7 +261,7 @@ mod tests {
         fs::write(tmp.path().join("AGENTS.md"), "content").unwrap();
         let provider = BootstrapFragmentProvider::new();
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             bootstrap_mode: BootstrapMode::Minimal,
             ..FragmentContext::test_default()
         };
@@ -276,7 +276,7 @@ mod tests {
         let provider = BootstrapFragmentProvider::new();
 
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             bootstrap_mode: BootstrapMode::Minimal,
             ..FragmentContext::test_default()
         };
@@ -292,7 +292,7 @@ mod tests {
     fn test_resolve_bootstrap_dir_uses_workdir() {
         let provider = BootstrapFragmentProvider::new();
         let ctx = FragmentContext {
-            workdir: PathBuf::from("/work/path"),
+            bootstrap_dir: PathBuf::from("/work/path"),
             ..FragmentContext::test_default()
         };
         assert_eq!(
@@ -306,7 +306,7 @@ mod tests {
         let provider = BootstrapFragmentProvider::new();
 
         let ctx = FragmentContext {
-            workdir: PathBuf::from("/definitely/does/not/exist"),
+            bootstrap_dir: PathBuf::from("/definitely/does/not/exist"),
             bootstrap_mode: BootstrapMode::Minimal,
             ..FragmentContext::test_default()
         };
@@ -317,7 +317,7 @@ mod tests {
     fn test_cache_key_nonexistent_workdir_returns_none() {
         let provider = BootstrapFragmentProvider::new();
         let ctx = FragmentContext {
-            workdir: PathBuf::from("/definitely/does/not/exist"),
+            bootstrap_dir: PathBuf::from("/definitely/does/not/exist"),
             bootstrap_mode: BootstrapMode::Minimal,
             ..FragmentContext::test_default()
         };
@@ -333,7 +333,7 @@ mod tests {
         let provider = BootstrapFragmentProvider::new();
 
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             bootstrap_mode: BootstrapMode::Full,
             ..FragmentContext::test_default()
         };
@@ -353,7 +353,7 @@ mod tests {
         let ctx = FragmentContext {
             agent_id: "test-agent".into(),
             bootstrap_mode: BootstrapMode::Minimal,
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             effective_spawn_budget: None,
         };
         let fragment = provider.generate(&ctx).await.unwrap();
@@ -368,7 +368,7 @@ mod tests {
         let provider = BootstrapFragmentProvider::new();
 
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             bootstrap_mode: BootstrapMode::Minimal,
             ..FragmentContext::test_default()
         };
@@ -397,7 +397,7 @@ mod tests {
         let ctx = FragmentContext {
             agent_id: "test-agent".into(),
             bootstrap_mode: BootstrapMode::Full,
-            workdir: std::env::temp_dir(),
+            bootstrap_dir: std::env::temp_dir(),
             effective_spawn_budget: None,
         };
         assert_eq!(provider.resolve_mode(&ctx), BootstrapMode::Full);
@@ -414,7 +414,7 @@ mod tests {
         let ctx = FragmentContext {
             agent_id: "test-agent".into(),
             bootstrap_mode: BootstrapMode::Minimal,
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             effective_spawn_budget: None,
         };
 

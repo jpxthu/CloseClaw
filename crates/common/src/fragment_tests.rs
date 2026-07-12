@@ -12,7 +12,7 @@ fn test_fragment_context_test_default() {
     let ctx = FragmentContext::test_default();
     assert_eq!(ctx.agent_id, "");
     assert_eq!(ctx.bootstrap_mode, BootstrapMode::Full);
-    assert!(ctx.workdir.is_dir());
+    assert!(ctx.bootstrap_dir.is_dir());
 }
 
 #[test]
@@ -36,10 +36,13 @@ fn test_fragment_context_bootstrap_mode() {
 #[test]
 fn test_fragment_context_workdir() {
     let ctx = FragmentContext {
-        workdir: std::path::PathBuf::from("/tmp/workspace"),
+        bootstrap_dir: std::path::PathBuf::from("/tmp/workspace"),
         ..FragmentContext::test_default()
     };
-    assert_eq!(ctx.workdir, std::path::PathBuf::from("/tmp/workspace"));
+    assert_eq!(
+        ctx.bootstrap_dir,
+        std::path::PathBuf::from("/tmp/workspace")
+    );
 }
 
 #[test]
@@ -47,12 +50,15 @@ fn test_fragment_context_all_fields() {
     let ctx = FragmentContext {
         agent_id: "my-agent".to_string(),
         bootstrap_mode: BootstrapMode::Minimal,
-        workdir: std::path::PathBuf::from("/home/user/project"),
+        bootstrap_dir: std::path::PathBuf::from("/home/user/project"),
         effective_spawn_budget: None,
     };
     assert_eq!(ctx.agent_id, "my-agent");
     assert_eq!(ctx.bootstrap_mode, BootstrapMode::Minimal);
-    assert_eq!(ctx.workdir, std::path::PathBuf::from("/home/user/project"));
+    assert_eq!(
+        ctx.bootstrap_dir,
+        std::path::PathBuf::from("/home/user/project")
+    );
 }
 
 #[test]
@@ -60,13 +66,13 @@ fn test_fragment_context_clone() {
     let ctx = FragmentContext {
         agent_id: "clone-test".to_string(),
         bootstrap_mode: BootstrapMode::Minimal,
-        workdir: std::path::PathBuf::from("/clone"),
+        bootstrap_dir: std::path::PathBuf::from("/clone"),
         effective_spawn_budget: None,
     };
     let cloned = ctx.clone();
     assert_eq!(ctx.agent_id, cloned.agent_id);
     assert_eq!(ctx.bootstrap_mode, cloned.bootstrap_mode);
-    assert_eq!(ctx.workdir, cloned.workdir);
+    assert_eq!(ctx.bootstrap_dir, cloned.bootstrap_dir);
 }
 
 #[test]
@@ -133,7 +139,7 @@ impl PromptFragmentProvider for MockFragmentProvider {
             content: format!(
                 "mode={:?} dir={}",
                 ctx.bootstrap_mode,
-                ctx.workdir.display()
+                ctx.bootstrap_dir.display()
             ),
         })
     }
@@ -156,7 +162,7 @@ async fn test_mock_provider_generates_with_valid_fields() {
     let ctx = FragmentContext {
         agent_id: "test-agent".into(),
         bootstrap_mode: BootstrapMode::Minimal,
-        workdir: std::path::PathBuf::from("/workspace"),
+        bootstrap_dir: std::path::PathBuf::from("/workspace"),
         effective_spawn_budget: None,
     };
     let frag = provider.generate(&ctx).await.unwrap();
