@@ -4,6 +4,10 @@
 //! not `Text`, the gateway sends an error reply via the plugin and returns
 //! `None`, bypassing slash/LLM routing.
 //!
+//! Step 1.2 additions verify that non-text interception happens before
+//! session resolution — non-text messages never reach
+//! `resolve_session_from_message` and never create sessions.
+//!
 //! Step 1.3 additions verify that the error reply now flows through
 //! `send_outbound_simplified` (render → send, no processor chain,
 //! no middleware) rather than `send_outbound_to_chat`, and that
@@ -303,11 +307,12 @@ async fn test_text_message_not_intercepted() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// Image message is intercepted: returns None and sends error reply.
+/// No session registration is needed — interception happens before
+/// session resolution.
 #[tokio::test]
 async fn test_image_message_intercepted() {
     let (gw, plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "");
-    register_session(gw.session_manager(), "mock", &msg).await;
 
     let processed = make_processed(&msg, "mock", "", Some(&MessageType::Image));
     let result: Option<HandleResult> = gw
@@ -329,11 +334,11 @@ async fn test_image_message_intercepted() {
 }
 
 /// File message is intercepted.
+/// No session registration needed — interception before session resolution.
 #[tokio::test]
 async fn test_file_message_intercepted() {
     let (gw, plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "check this");
-    register_session(gw.session_manager(), "mock", &msg).await;
 
     let processed = make_processed(&msg, "mock", "check this", Some(&MessageType::File));
     let result: Option<HandleResult> = gw
@@ -345,11 +350,11 @@ async fn test_file_message_intercepted() {
 }
 
 /// Audio message is intercepted.
+/// No session registration needed — interception before session resolution.
 #[tokio::test]
 async fn test_audio_message_intercepted() {
     let (gw, plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "");
-    register_session(gw.session_manager(), "mock", &msg).await;
 
     let processed = make_processed(&msg, "mock", "", Some(&MessageType::Audio));
     let result: Option<HandleResult> = gw
@@ -361,11 +366,11 @@ async fn test_audio_message_intercepted() {
 }
 
 /// Unknown type `Other("video")` is also intercepted.
+/// No session registration needed — interception before session resolution.
 #[tokio::test]
 async fn test_other_message_type_intercepted() {
     let (gw, plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "");
-    register_session(gw.session_manager(), "mock", &msg).await;
 
     let other_type = MessageType::Other("video".to_string());
     let processed = make_processed(&msg, "mock", "", Some(&other_type));
@@ -410,11 +415,11 @@ async fn test_missing_message_type_defaults_to_text() {
 
 /// Non-text rejection reply goes through `plugin.render()` before
 /// `plugin.send()`, confirming the `send_outbound_simplified` path.
+/// No session registration needed — interception before session resolution.
 #[tokio::test]
 async fn test_non_text_reply_goes_through_render() {
     let (gw, plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "");
-    register_session(gw.session_manager(), "mock", &msg).await;
 
     let processed = make_processed(&msg, "mock", "", Some(&MessageType::Image));
     let result: Option<HandleResult> = gw
@@ -430,11 +435,11 @@ async fn test_non_text_reply_goes_through_render() {
 
 /// Non-text rejection reply does NOT pass through the outbound processor
 /// chain, confirming the simplified path bypasses Verbosity/DslParser.
+/// No session registration needed — interception before session resolution.
 #[tokio::test]
 async fn test_non_text_reply_skips_outbound_processor_chain() {
     let (gw, plugin, chain) = make_gw_with_processor("mock").await;
     let msg = make_message("agent-1", "");
-    register_session(gw.session_manager(), "mock", &msg).await;
 
     let processed = make_processed(&msg, "mock", "", Some(&MessageType::File));
     let result: Option<HandleResult> = gw
@@ -454,11 +459,11 @@ async fn test_non_text_reply_skips_outbound_processor_chain() {
 
 /// Non-text rejection reply does not run outbound middleware, confirming
 /// the simplified path skips middleware execution.
+/// No session registration needed — interception before session resolution.
 #[tokio::test]
 async fn test_non_text_reply_skips_middleware() {
     let (gw, plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "");
-    register_session(gw.session_manager(), "mock", &msg).await;
 
     let processed = make_processed(&msg, "mock", "", Some(&MessageType::Audio));
     let result: Option<HandleResult> = gw
@@ -478,11 +483,11 @@ async fn test_non_text_reply_skips_middleware() {
 }
 
 /// Non-text rejection error text matches the design doc specification.
+/// No session registration needed — interception before session resolution.
 #[tokio::test]
 async fn test_non_text_error_text_matches_doc() {
     let (gw, plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "");
-    register_session(gw.session_manager(), "mock", &msg).await;
 
     let processed = make_processed(&msg, "mock", "", Some(&MessageType::Image));
     let result: Option<HandleResult> = gw
@@ -507,18 +512,16 @@ async fn test_non_text_error_text_matches_doc() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// When peer_id is empty, the non-text interception path should return
-/// None without panicking. The code still calls `send_outbound_to_chat`
+/// None without panicking. The code still calls `send_outbound_simplified`
 /// (which sends to an empty chat_id) — the important invariant is no panic.
+/// No session registration needed — interception before session resolution.
 #[tokio::test]
 async fn test_non_text_empty_peer_id_no_panic() {
     let (gw, plugin) = make_gw("mock").await;
-    // Register a session using a real peer_id so resolve succeeds.
-    let real_msg = make_message("agent-real", "");
-    register_session(gw.session_manager(), "mock", &real_msg).await;
 
     // Build a processed message with empty peer_id.
-    let session_key =
-        DmScope::default().compute_session_key("mock", &real_msg, None, real_msg.timestamp);
+    let msg = make_message("agent-1", "");
+    let session_key = DmScope::default().compute_session_key("mock", &msg, None, msg.timestamp);
     let mut metadata = HashMap::new();
     metadata.insert("session_key".to_string(), session_key);
     metadata.insert("peer_id".to_string(), String::new()); // empty
@@ -547,7 +550,41 @@ async fn test_non_text_empty_peer_id_no_panic() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 6. Step 1.2 — account_id propagation in metadata
+// 6. Step 1.2 — non-text interception before session resolution
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// Non-text messages must not trigger session creation.
+/// Verifies that `resolve_session_from_message` is never called for
+/// non-text messages — the interception path returns before session
+/// resolution, so the SessionManager's internal map stays empty.
+#[tokio::test]
+async fn test_non_text_message_does_not_create_session() {
+    let (gw, _plugin) = make_gw("mock").await;
+    let msg = make_message("agent-1", "");
+
+    // Confirm no sessions exist initially.
+    let initial_sessions = gw.session_manager().get_all_sessions().await;
+    assert!(initial_sessions.is_empty(), "should start with no sessions");
+
+    // Process an image message — interception should fire before session
+    // resolution, so no session is created.
+    let processed = make_processed(&msg, "mock", "", Some(&MessageType::Image));
+    let result: Option<HandleResult> = gw
+        .handle_inbound_message(processed, Some("ou_sender"), "mock")
+        .await;
+
+    assert!(result.is_none(), "image message should return None");
+
+    // Verify no session was created by the non-text interception path.
+    let sessions_after = gw.session_manager().get_all_sessions().await;
+    assert!(
+        sessions_after.is_empty(),
+        "non-text message must not create a session"
+    );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 7. account_id propagation in metadata
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// When `account_id` is present in the processed message metadata, it
