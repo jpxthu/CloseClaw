@@ -16,6 +16,7 @@ use super::SessionManager;
 use crate::session_manager::communication::CommunicationError;
 use chrono::Utc;
 use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSession};
+use closeclaw_tasks::NotificationPriority;
 use tracing::warn;
 
 // ── Queue accessors (push / drain) ─────────────────────────────────────────
@@ -174,7 +175,12 @@ impl SessionManager {
             return;
         };
 
-        let event = build_announce_event(child_session_id, child_agent_id, result_text);
+        let event = build_announce_event(
+            child_session_id,
+            child_agent_id,
+            result_text,
+            NotificationPriority::Next,
+        );
         if let Err(e) = self.push_announce(&parent_session_id, event).await {
             warn!(
                 parent_session_id = %parent_session_id,
@@ -258,11 +264,13 @@ fn build_announce_event(
     child_session_id: &str,
     child_agent_id: String,
     result_text: String,
+    priority: NotificationPriority,
 ) -> AnnounceEvent {
     AnnounceEvent {
         child_session_id: child_session_id.to_string(),
         child_agent_id,
         result_text,
         completed_at: Utc::now(),
+        priority,
     }
 }
