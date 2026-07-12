@@ -153,9 +153,9 @@
   },
   {
     "path": "docs/design/gateway/inbound-flow.md",
-    "commit": "150e29915aff933ea6c459574c773689860c63fe",
-    "commit_time": "2026-07-05T12:55:31+08:00",
-    "confirmed_time": "2026-07-05T13:02:53.142387+08:00",
+    "commit": "6fe7cfec9034d64893e73e529854b0c6d5fa20be",
+    "commit_time": "2026-07-12T21:39:06+08:00",
+    "confirmed_time": "2026-07-12T21:47:41.316303+08:00",
     "comment": "",
     "blocked_reason": ""
   },
