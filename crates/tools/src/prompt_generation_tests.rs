@@ -134,6 +134,7 @@ fn test_generate_prompt_with_workdir() {
         tools: None,
         disallowed_tools: None,
         session_mode: None,
+        effective_spawn_budget: None,
     };
 
     let prompt = tool.generate_prompt(&ctx);
@@ -164,6 +165,7 @@ fn test_generate_prompt_without_workdir() {
         tools: None,
         disallowed_tools: None,
         session_mode: None,
+        effective_spawn_budget: None,
     };
 
     let prompt = tool.generate_prompt(&ctx);
@@ -193,6 +195,7 @@ fn test_bash_prompt_includes_git_info() {
         tools: None,
         disallowed_tools: None,
         session_mode: None,
+        effective_spawn_budget: None,
     };
 
     let prompt = tool.generate_prompt(&ctx);
