@@ -124,19 +124,11 @@ impl Default for SessionMaintenanceConfig {
 }
 
 /// Session configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionConfig {
     #[serde(default)]
     pub maintenance: SessionMaintenanceConfig,
-}
-
-impl Default for SessionConfig {
-    fn default() -> Self {
-        Self {
-            maintenance: SessionMaintenanceConfig::default(),
-        }
-    }
 }
 
 /// Cron / scheduled task toggle.

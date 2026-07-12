@@ -29,6 +29,12 @@ use closeclaw_llm::types::ContentBlock;
 #[derive(Debug, Clone)]
 pub struct SessionRouter;
 
+impl Default for SessionRouter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SessionRouter {
     /// Create a new `SessionRouter`.
     pub fn new() -> Self {
