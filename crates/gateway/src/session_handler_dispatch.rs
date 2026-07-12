@@ -430,11 +430,9 @@ impl SessionMessageHandler {
                 h.increment_busy();
             }
 
-            // Persist user message to session history so compaction
-            // can extract complete user/assistant conversation context.
-            if let Some(cs) = sm.get_conversation_session(&session_id).await {
-                cs.write().await.append_user_message(&content_for_task);
-            }
+            // NOTE: User message is already persisted by handle_message_with_meta
+            // before check_and_run_auto_compact (design-doc data-flow requirement).
+            // Do NOT duplicate the append here.
 
             // Record pre-call fingerprint for cache-break attribution.
             // Pass actual registered tool names so fingerprint includes

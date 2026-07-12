@@ -233,6 +233,15 @@ impl SessionMessageHandler {
             .await;
             return HandleResult::MessageQueued;
         }
+        // Persist user message before auto-compact so threshold estimation
+        // includes the current message (design-doc data-flow: write → truncate → estimate).
+        if let Some(cs) = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await
+        {
+            cs.write().await.append_user_message(&content);
+        }
         self.check_and_run_auto_compact(session_id).await;
         self.dispatch_llm_call(session_id, content, meta, None, None)
             .await
