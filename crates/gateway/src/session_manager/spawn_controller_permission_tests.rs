@@ -17,7 +17,7 @@ use closeclaw_config::ConfigManager;
 use closeclaw_session::persistence::ReasoningLevel;
 
 use crate::session_manager::spawn_controller::{SpawnController, SpawnError};
-use crate::{DmScope, GatewayConfig, Message, SessionManager};
+use crate::{GatewayConfig, Message, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
 
@@ -30,7 +30,6 @@ fn test_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: DmScope::default(),
         ..Default::default()
     }
 }

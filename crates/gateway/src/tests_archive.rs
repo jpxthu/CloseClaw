@@ -240,7 +240,6 @@ fn make_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 10000,
-        dm_scope: crate::DmScope::PerChannelPeer,
         ..Default::default()
     }
 }

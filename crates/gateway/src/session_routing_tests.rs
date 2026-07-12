@@ -5,7 +5,8 @@
 //! gateway replies with "会话路由失败，请重试" via the simplified outbound path
 //! (render → send), consistent with non-text message interception.
 
-use crate::{DmScope, GatewayConfig, HandleResult, Message, SessionManager};
+use crate::compute_session_key;
+use crate::{GatewayConfig, HandleResult, Message, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_common::im_plugin::RenderedOutput;
@@ -160,7 +161,6 @@ fn make_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: DmScope::default(),
         ..Default::default()
     }
 }
@@ -255,7 +255,7 @@ fn make_processed_no_session_key(msg: &Message, _channel: &str) -> ProcessedMess
 /// Build a `ProcessedMessage` with a non-empty session_key (for resolve
 /// failure test).
 fn make_processed_with_session_key(msg: &Message, channel: &str) -> ProcessedMessage {
-    let session_key = DmScope::default().compute_session_key(channel, msg, None, msg.timestamp);
+    let session_key = compute_session_key(channel, &msg.from, &msg.to, None, msg.timestamp);
     let mut metadata = HashMap::new();
     metadata.insert("session_key".to_string(), session_key);
     metadata.insert("peer_id".to_string(), msg.to.clone());
@@ -400,7 +400,7 @@ async fn test_resolve_failure_empty_peer_id_skips_send() {
     let msg = make_message("agent-1", "hello");
 
     // Build processed message with non-empty session_key but empty peer_id.
-    let session_key = DmScope::default().compute_session_key("mock", &msg, None, msg.timestamp);
+    let session_key = compute_session_key("mock", &msg.from, &msg.to, None, msg.timestamp);
     let mut metadata = HashMap::new();
     metadata.insert("session_key".to_string(), session_key);
     metadata.insert("peer_id".to_string(), String::new()); // empty

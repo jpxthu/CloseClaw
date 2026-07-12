@@ -88,7 +88,7 @@ pub fn build_processor_registry(config: &GatewayConfig) -> ProcessorRegistry {
     }
 
     // Inbound: SessionRouter (priority 20 — computes session_key)
-    registry.register(Arc::new(SessionRouter::new(config.dm_scope)));
+    registry.register(Arc::new(SessionRouter::new()));
 
     // Inbound: ContentNormalizer (priority 30)
     registry.register(Arc::new(ContentNormalizer::new()));

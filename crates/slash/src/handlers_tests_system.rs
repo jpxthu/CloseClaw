@@ -11,14 +11,12 @@ use closeclaw_gateway::session_manager::SessionManager;
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn make_sm() -> Arc<SessionManager> {
-    use closeclaw_gateway::DmScope;
     use closeclaw_session::persistence::ReasoningLevel;
 
     let gc = closeclaw_gateway::GatewayConfig {
         name: String::new(),
         rate_limit_per_minute: 0,
         max_message_size: 0,
-        dm_scope: DmScope::default(),
         ..Default::default()
     };
     Arc::new(SessionManager::new(

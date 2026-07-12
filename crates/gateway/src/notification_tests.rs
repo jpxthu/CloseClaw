@@ -6,7 +6,8 @@
 //! 3. Error path: notification send fails → message processing not blocked
 //! 4. Boundary: peer_id empty → no queuing notification
 
-use crate::{DmScope, GatewayConfig, HandleResult, Message, SessionManager};
+use crate::compute_session_key;
+use crate::{GatewayConfig, HandleResult, Message, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_common::im_plugin::RenderedOutput;
@@ -212,7 +213,6 @@ fn make_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: DmScope::default(),
         ..Default::default()
     }
 }
@@ -231,7 +231,7 @@ fn make_message(to: &str, content: &str) -> Message {
 }
 
 fn make_processed(msg: &Message, channel: &str, content: &str) -> ProcessedMessage {
-    let session_key = DmScope::default().compute_session_key(channel, msg, None, msg.timestamp);
+    let session_key = compute_session_key(channel, &msg.from, &msg.to, None, msg.timestamp);
     let mut metadata = HashMap::new();
     metadata.insert("session_key".to_string(), session_key);
     metadata.insert("peer_id".to_string(), msg.to.clone());

@@ -1,6 +1,6 @@
-//! Tests for DmScope Feishu isolation variants.
+//! Tests for the standalone `compute_session_key` function.
 
-use crate::{DmScope, GatewayConfig, SessionManager};
+use crate::{compute_session_key, GatewayConfig, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage};
@@ -13,12 +13,8 @@ use std::sync::Arc;
 
 // ── Mock plugin ─────────────────────────────────────────────────────────────
 
-/// Mock IM plugin used by DmScope isolation tests. `platform` is configurable
-/// so the same struct can be registered under different keys per test.
 struct MockPlugin {
     platform: String,
-    #[allow(dead_code)]
-    should_fail: bool,
     renderer: std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>,
 }
 
@@ -26,7 +22,6 @@ impl MockPlugin {
     fn new(platform: &str) -> Self {
         Self {
             platform: platform.to_string(),
-            should_fail: false,
             renderer: std::sync::Mutex::new(
                 crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
             ),
@@ -98,7 +93,6 @@ fn make_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: DmScope::default(),
         ..Default::default()
     }
 }
@@ -114,14 +108,12 @@ fn make_gw(config: GatewayConfig) -> (crate::Gateway, Arc<SessionManager>) {
     (gw, sm)
 }
 
-/// Setup: gateway + session_manager + registered mock plugin under `channel`.
 async fn setup(config: GatewayConfig, channel: &str) -> (crate::Gateway, Arc<SessionManager>) {
     let (gw, sm) = make_gw(config);
     gw.register_plugin(Arc::new(MockPlugin::new(channel))).await;
     (gw, sm)
 }
 
-/// Add session_id to an existing message.
 async fn add_session(
     sm: &SessionManager,
     channel: &str,
@@ -145,91 +137,73 @@ fn feishu_msg(from: &str, to: &str) -> crate::Message {
     }
 }
 
-// ── DmScope Feishu isolation variants ───────────────────────────────────────
+// ── compute_session_key unit tests ─────────────────────────────────────────
 
-#[tokio::test]
-async fn test_feishu_dm_scope_isolation_variants() {
-    // V1: PerChannelPeer — different open_ids → different sessions
-    {
-        let (gw, sm) = setup(
-            GatewayConfig {
-                dm_scope: DmScope::PerChannelPeer,
-                ..make_config()
-            },
-            "feishu",
-        )
-        .await;
-        let mut m1 = feishu_msg("ou_u1", "ag");
-        let mut m2 = feishu_msg("ou_u2", "ag");
-        add_session(&sm, "feishu", &mut m1, None).await;
-        add_session(&sm, "feishu", &mut m2, None).await;
-        gw.route_message("feishu", m1, None).await.unwrap();
-        gw.route_message("feishu", m2, None).await.unwrap();
-        let sessions = gw.get_agent_sessions("ag").await;
-        assert_eq!(sessions.len(), 2);
-        assert_ne!(sessions[0].id, sessions[1].id);
-    }
-    // V2: Main — all users share one session
-    {
-        let (gw, sm) = setup(
-            GatewayConfig {
-                dm_scope: DmScope::Main,
-                ..make_config()
-            },
-            "feishu",
-        )
-        .await;
-        let mut m1 = feishu_msg("ou_u1", "ag");
-        let mut m2 = feishu_msg("ou_u2", "ag");
-        add_session(&sm, "feishu", &mut m1, None).await;
-        add_session(&sm, "feishu", &mut m2, None).await;
-        assert_eq!(m1.metadata["session_id"], m2.metadata["session_id"],);
-        assert!(
-            m1.metadata["session_id"].starts_with("ag_"),
-            "session_id: {}",
-            m1.metadata["session_id"]
-        );
-        gw.route_message("feishu", m1, None).await.unwrap();
-        gw.route_message("feishu", m2, None).await.unwrap();
-        let sessions = gw.get_agent_sessions("ag").await;
-        assert_eq!(sessions.len(), 1);
-        assert!(
-            sessions[0].id.starts_with("ag_"),
-            "session id: {}",
-            sessions[0].id
-        );
-    }
-    // V3: PerAccountChannelPeer — different tenants → different sessions
-    {
-        let (gw, sm) = setup(
-            GatewayConfig {
-                dm_scope: DmScope::PerAccountChannelPeer,
-                ..make_config()
-            },
-            "feishu",
-        )
-        .await;
-        let mut m1 = feishu_msg("ou_u1", "ag");
-        m1.metadata.insert("account_id".into(), "ta".into());
-        let mut m2 = feishu_msg("ou_u1", "ag");
-        m2.metadata.insert("account_id".into(), "tb".into());
-        let a1 = m1.metadata.get("account_id").cloned();
-        let a2 = m2.metadata.get("account_id").cloned();
-        add_session(&sm, "feishu", &mut m1, a1.as_deref()).await;
-        add_session(&sm, "feishu", &mut m2, a2.as_deref()).await;
-        assert!(
-            m1.metadata["session_id"].starts_with("ag_"),
-            "session_id: {}",
-            m1.metadata["session_id"]
-        );
-        assert!(
-            m2.metadata["session_id"].starts_with("ag_"),
-            "session_id: {}",
-            m2.metadata["session_id"]
-        );
-        gw.route_message("feishu", m1, None).await.unwrap();
-        gw.route_message("feishu", m2, None).await.unwrap();
-        let sessions = gw.get_agent_sessions("ag").await;
-        assert_eq!(sessions.len(), 2);
-    }
+#[test]
+fn test_compute_session_key_format() {
+    let key = compute_session_key("feishu", "ou_u1", "ag", Some("acc1"), 1_700_000_000_000);
+    let parts: Vec<&str> = key.splitn(2, '-').collect();
+    assert_eq!(parts.len(), 2, "key must have exactly one '-' separator");
+    assert_eq!(parts[0], "1700000000000", "timestamp prefix mismatch");
+    assert_eq!(parts[1].len(), 64, "hash must be 64 hex chars");
+    assert!(
+        parts[1].chars().all(|c| c.is_ascii_hexdigit()),
+        "hash must be valid hex"
+    );
+}
+
+#[test]
+fn test_compute_session_key_deterministic() {
+    let key1 = compute_session_key("feishu", "ou_u1", "ag", Some("acc1"), 100);
+    let key2 = compute_session_key("feishu", "ou_u1", "ag", Some("acc1"), 100);
+    assert_eq!(key1, key2, "same inputs must produce identical key");
+}
+
+#[test]
+fn test_compute_session_key_different_senders() {
+    let key1 = compute_session_key("feishu", "ou_u1", "ag", None, 100);
+    let key2 = compute_session_key("feishu", "ou_u2", "ag", None, 100);
+    assert_ne!(key1, key2, "different senders must produce different keys");
+}
+
+#[test]
+fn test_compute_session_key_different_accounts() {
+    let key1 = compute_session_key("feishu", "ou_u1", "ag", Some("ta"), 100);
+    let key2 = compute_session_key("feishu", "ou_u1", "ag", Some("tb"), 100);
+    assert_ne!(
+        key1, key2,
+        "different account_ids must produce different keys"
+    );
+}
+
+#[test]
+fn test_compute_session_key_none_vs_default_account() {
+    let key_none = compute_session_key("feishu", "ou_u1", "ag", None, 100);
+    let key_default = compute_session_key("feishu", "ou_u1", "ag", Some("default"), 100);
+    assert_eq!(
+        key_none, key_default,
+        "None and Some('default') should produce the same key"
+    );
+}
+
+#[test]
+fn test_compute_session_key_account_none_uses_default_string() {
+    // Verify that account_id=None uses literal "default" in hash input
+    let key_with_none = compute_session_key("ch", "a", "b", None, 0);
+    let key_with_explicit = compute_session_key("ch", "a", "b", Some("default"), 0);
+    assert_eq!(key_with_none, key_with_explicit);
+}
+
+#[test]
+fn test_compute_session_key_different_channels() {
+    let key1 = compute_session_key("feishu", "a", "b", None, 100);
+    let key2 = compute_session_key("discord", "a", "b", None, 100);
+    assert_ne!(key1, key2, "different channels must produce different keys");
+}
+
+#[test]
+fn test_compute_session_key_timestamp_sensitivity() {
+    let k1 = compute_session_key("feishu", "a", "b", None, 100);
+    let k2 = compute_session_key("feishu", "a", "b", None, 200);
+    assert_ne!(k1, k2, "different timestamps must produce different keys");
 }

@@ -363,7 +363,6 @@ async fn make_sm_with_session(session_id: &str, depth: u32) -> Arc<SessionManage
             name: "test".to_string(),
             rate_limit_per_minute: 100,
             max_message_size: 1024,
-            dm_scope: closeclaw_gateway::DmScope::default(),
             ..Default::default()
         },
         None,

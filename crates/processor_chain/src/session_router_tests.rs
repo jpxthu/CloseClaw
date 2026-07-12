@@ -1,8 +1,8 @@
 use super::*;
 use closeclaw_common::im_plugin::NormalizedMessage;
 
-fn make_router(dm_scope: DmScope) -> SessionRouter {
-    SessionRouter::new(dm_scope)
+fn make_router() -> SessionRouter {
+    SessionRouter::new()
 }
 
 fn make_ctx(msg: NormalizedMessage) -> MessageContext {
@@ -11,7 +11,7 @@ fn make_ctx(msg: NormalizedMessage) -> MessageContext {
 
 #[tokio::test]
 async fn test_terminal_session_key_computed() {
-    let router = make_router(DmScope::PerChannelPeer);
+    let router = make_router();
     let before_ms = chrono::Utc::now().timestamp_millis();
     let msg = NormalizedMessage {
         platform: "terminal".to_string(),
@@ -51,7 +51,7 @@ async fn test_terminal_session_key_computed() {
 
 #[tokio::test]
 async fn test_deterministic_key() {
-    let router = make_router(DmScope::PerAccountChannelPeer);
+    let router = make_router();
     let msg = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "ou_abc".to_string(),
@@ -69,9 +69,6 @@ async fn test_deterministic_key() {
     let k1 = r1.metadata.get("session_key").map(|s| s.as_str()).unwrap();
     let k2 = r2.metadata.get("session_key").map(|s| s.as_str()).unwrap();
 
-    // Key format: {timestamp_ms}-{sha256_hex}
-    // Timestamp prefix uses system time so it may differ between calls.
-    // Compare only the hash part to verify routing determinism.
     assert!(!k1.is_empty(), "session_key must not be empty");
     assert!(!k2.is_empty(), "session_key must not be empty");
     assert!(k1.contains('-'), "key must contain '-' separator: {k1}");
@@ -89,7 +86,7 @@ async fn test_deterministic_key() {
 
 #[tokio::test]
 async fn test_missing_peer_id_yields_empty_key() {
-    let router = make_router(DmScope::PerChannelPeer);
+    let router = make_router();
     let msg = NormalizedMessage {
         platform: "terminal".to_string(),
         sender_id: "u1".to_string(),
@@ -112,45 +109,8 @@ async fn test_missing_peer_id_yields_empty_key() {
 }
 
 #[tokio::test]
-async fn test_dm_scope_affects_key() {
-    let r1 = make_router(DmScope::PerPeer);
-    let r2 = make_router(DmScope::PerChannelPeer);
-    let msg = NormalizedMessage {
-        platform: "discord".to_string(),
-        sender_id: "user_1".to_string(),
-        peer_id: "dm_42".to_string(),
-        content: "test".to_string(),
-        timestamp: chrono::Utc::now().timestamp_millis(),
-        message_type: Default::default(),
-        media_refs: Vec::new(),
-        thread_id: None,
-        account_id: String::new(),
-    };
-    let ctx = make_ctx(msg);
-    let k1 = r1
-        .process(&ctx)
-        .await
-        .unwrap()
-        .unwrap()
-        .metadata
-        .get("session_key")
-        .unwrap()
-        .clone();
-    let k2 = r2
-        .process(&ctx)
-        .await
-        .unwrap()
-        .unwrap()
-        .metadata
-        .get("session_key")
-        .unwrap()
-        .clone();
-    assert_ne!(k1, k2, "different DmScope should produce different keys");
-}
-
-#[tokio::test]
 async fn test_metadata_preserves_upstream() {
-    let router = make_router(DmScope::PerChannelPeer);
+    let router = make_router();
     let msg = NormalizedMessage {
         platform: "terminal".to_string(),
         sender_id: "1000".to_string(),
@@ -178,7 +138,7 @@ async fn test_metadata_preserves_upstream() {
 
 #[tokio::test]
 async fn test_fallback_when_no_initial_normalized() {
-    let router = make_router(DmScope::PerChannelPeer);
+    let router = make_router();
     let msg = NormalizedMessage {
         platform: String::new(),
         sender_id: String::new(),
@@ -201,8 +161,7 @@ async fn test_fallback_when_no_initial_normalized() {
 
 #[tokio::test]
 async fn test_system_time_used_for_session_key() {
-    // SessionRouter uses system time, not message timestamp
-    let router = make_router(DmScope::PerChannelPeer);
+    let router = make_router();
     let before_ms = chrono::Utc::now().timestamp_millis();
 
     let msg = NormalizedMessage {
@@ -231,7 +190,6 @@ async fn test_system_time_used_for_session_key() {
         .unwrap()
         .to_string();
 
-    // Key prefix must be between before_ms and after_ms, not 2020
     let ts_prefix: i64 = key[..key.find('-').unwrap()]
         .parse()
         .expect("key prefix should be parseable as i64");
@@ -249,8 +207,7 @@ async fn test_system_time_used_for_session_key() {
 
 #[tokio::test]
 async fn test_per_account_channel_peer_uses_system_time() {
-    // Verifies that PerAccountChannelPeer also uses system time
-    let router = make_router(DmScope::PerAccountChannelPeer);
+    let router = make_router();
     let before_ms = chrono::Utc::now().timestamp_millis();
 
     let msg = NormalizedMessage {
@@ -300,8 +257,7 @@ async fn test_per_account_channel_peer_uses_system_time() {
 
 #[tokio::test]
 async fn test_different_account_ids_produce_different_session_keys() {
-    // Different account_id values must produce different session_key hashes
-    let router = make_router(DmScope::PerAccountChannelPeer);
+    let router = make_router();
 
     let msg_a = NormalizedMessage {
         platform: "feishu".to_string(),
@@ -354,7 +310,6 @@ async fn test_different_account_ids_produce_different_session_keys() {
         key_a, key_b,
         "different account_id must produce different session_key"
     );
-    // Both must have valid format
     assert!(
         key_a.contains('-'),
         "key_a should contain timestamp separator: {key_a}"
@@ -367,8 +322,7 @@ async fn test_different_account_ids_produce_different_session_keys() {
 
 #[tokio::test]
 async fn test_account_id_none_vs_some_produce_different_keys() {
-    // account_id=None vs account_id=Some(...) must produce different keys
-    let router = make_router(DmScope::PerAccountChannelPeer);
+    let router = make_router();
 
     let msg_none = NormalizedMessage {
         platform: "feishu".to_string(),
@@ -425,8 +379,7 @@ async fn test_account_id_none_vs_some_produce_different_keys() {
 
 #[tokio::test]
 async fn test_account_id_read_from_raw_message() {
-    // Verify account_id is read from RawMessage, not from ctx.metadata
-    let router = make_router(DmScope::PerAccountChannelPeer);
+    let router = make_router();
     let msg = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "ou_user".to_string(),
@@ -439,7 +392,6 @@ async fn test_account_id_read_from_raw_message() {
         account_id: "tenant_42".to_string(),
     };
     let mut ctx = make_ctx(msg);
-    // Even if metadata has a different account_id, NormalizedMessage should win
     ctx.metadata
         .insert("account_id".to_string(), "metadata_account".to_string());
     let result = router.process(&ctx).await.unwrap().unwrap();
@@ -449,7 +401,6 @@ async fn test_account_id_read_from_raw_message() {
         .map(|s| s.as_str())
         .unwrap();
     assert!(!key.is_empty(), "session_key should be set");
-    // Verify key hash differs from one computed with "metadata_account"
     let msg_meta = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "ou_user".to_string(),
@@ -468,7 +419,6 @@ async fn test_account_id_read_from_raw_message() {
         .get("session_key")
         .map(|s| s.as_str())
         .unwrap();
-    // They should differ because account_id comes from NormalizedMessage
     assert_ne!(
         key, key_meta,
         "account_id should be read from NormalizedMessage, not metadata"
@@ -483,7 +433,6 @@ use std::sync::{Arc, Mutex};
 use tracing::field::Field;
 use tracing::Subscriber;
 
-/// A subscriber that captures warn-level events for test assertions.
 struct WarnCapture {
     events: Arc<Mutex<Vec<String>>>,
 }
@@ -537,7 +486,7 @@ impl Subscriber for WarnCapture {
 
 #[tokio::test]
 async fn test_warn_log_when_from_empty() {
-    let router = make_router(DmScope::PerChannelPeer);
+    let router = make_router();
     let msg = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: String::new(), // from is empty
@@ -565,7 +514,6 @@ async fn test_warn_log_when_from_empty() {
         "session_key should be empty when from is empty"
     );
 
-    // Verify warn log was emitted
     let captured = events.lock().unwrap();
     assert!(
         !captured.is_empty(),
@@ -580,7 +528,7 @@ async fn test_warn_log_when_from_empty() {
 
 #[tokio::test]
 async fn test_warn_log_when_to_empty() {
-    let router = make_router(DmScope::PerChannelPeer);
+    let router = make_router();
     let msg = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "ou_user".to_string(),
@@ -622,7 +570,7 @@ async fn test_warn_log_when_to_empty() {
 
 #[tokio::test]
 async fn test_no_warn_log_when_both_present() {
-    let router = make_router(DmScope::PerChannelPeer);
+    let router = make_router();
     let msg = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "ou_user".to_string(),

@@ -89,7 +89,6 @@ pub(super) fn test_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 65536,
-        dm_scope: DmScope::PerChannelPeer,
         ..Default::default()
     }
 }

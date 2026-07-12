@@ -11,73 +11,28 @@ use tokio::sync::{mpsc, RwLock};
 /// Type alias for the output channel sender used across session handler modules.
 pub(crate) type OutputTx = Arc<RwLock<Option<mpsc::Sender<(String, Vec<ContentBlock>)>>>>;
 
-/// DM session scope - controls how session keys are partitioned.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum DmScope {
-    /// Single shared session for all peers on a channel (backward compatible)
-    Main,
-    /// One session per peer pair (from → to)
-    PerPeer,
-    /// One session per channel + peer pair
-    PerChannelPeer,
-    /// One session per account + channel + peer pair
-    PerAccountChannelPeer,
-    /// One session per channel + sender (excludes `to` field).
-    ///
-    /// Used when agent-level isolation is provided by a per-agent
-    /// [`SessionManager`] — the session key is `{channel}:{from}`, so
-    /// different agents sharing the same channel naturally stay isolated
-    /// without embedding `agent_id` in the key.
-    PerChannelSender,
-}
-
-#[allow(clippy::derivable_impls)]
-impl Default for DmScope {
-    fn default() -> Self {
-        DmScope::PerAccountChannelPeer
-    }
-}
-
-impl DmScope {
-    /// Compute a session key for the given context.
-    ///
-    /// Format: `{timestamp_ms}-{sha256_hex(routing_fields)}`
-    /// where `routing_fields` varies by scope variant.
-    pub fn compute_session_key(
-        &self,
-        channel: &str,
-        message: &Message,
-        account_id: Option<&str>,
-        timestamp_ms: i64,
-    ) -> String {
-        let routing_fields = match self {
-            DmScope::Main => {
-                format!("{}:{}:{}", channel, message.to, timestamp_ms)
-            }
-            DmScope::PerPeer => {
-                format!("{}:{}:{}", message.from, message.to, timestamp_ms)
-            }
-            DmScope::PerChannelPeer => {
-                format!(
-                    "{}:{}:{}:{}",
-                    channel, message.from, message.to, timestamp_ms
-                )
-            }
-            DmScope::PerAccountChannelPeer => {
-                let acc = account_id.unwrap_or("default");
-                format!(
-                    "{}:{}:{}:{}:{}",
-                    channel, message.from, message.to, acc, timestamp_ms
-                )
-            }
-            DmScope::PerChannelSender => {
-                format!("{}:{}:{}", channel, message.from, timestamp_ms)
-            }
-        };
-        let hash = Sha256::digest(routing_fields.as_bytes());
-        format!("{}-{:x}", timestamp_ms, hash)
-    }
+/// Compute a session key for the given context.
+///
+/// Algorithm (from design doc `inbound-chain.md`):
+///
+/// ```text
+/// routing_fields = "{channel}:{from}:{to}:{account_id}:{timestamp_ms}"
+/// hash           = sha256(routing_fields)
+/// session_key    = "{timestamp_ms}-{hash_hex}"
+/// ```
+///
+/// When `account_id` is `None`, the literal string `"default"` is used.
+pub fn compute_session_key(
+    channel: &str,
+    from: &str,
+    to: &str,
+    account_id: Option<&str>,
+    timestamp_ms: i64,
+) -> String {
+    let acc = account_id.unwrap_or("default");
+    let routing_fields = format!("{}:{}:{}:{}:{}", channel, from, to, acc, timestamp_ms);
+    let hash = Sha256::digest(routing_fields.as_bytes());
+    format!("{}-{:x}", timestamp_ms, hash)
 }
 
 /// Internal message representation - all IM messages are converted to this
@@ -103,8 +58,6 @@ pub struct GatewayConfig {
     pub rate_limit_per_minute: u32,
     #[serde(default)]
     pub max_message_size: usize,
-    #[serde(default)]
-    pub dm_scope: DmScope,
     /// Directory for raw inbound log files.
     /// When `None` (default), raw logging is disabled.
     #[serde(default)]
@@ -126,7 +79,6 @@ impl Default for GatewayConfig {
             name: String::new(),
             rate_limit_per_minute: 0,
             max_message_size: 0,
-            dm_scope: DmScope::default(),
             raw_log_dir: None,
             inbound_queue_capacity: default_inbound_queue_capacity(),
         }

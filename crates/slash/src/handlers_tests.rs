@@ -87,14 +87,12 @@ fn test_compact_handler_commands_and_description() {
 #[tokio::test]
 async fn test_clear_handler_handle_returns_reply() {
     use closeclaw_gateway::session_manager::SessionManager;
-    use closeclaw_gateway::DmScope;
     use closeclaw_session::persistence::ReasoningLevel;
 
     let gc = closeclaw_gateway::GatewayConfig {
         name: String::new(),
         rate_limit_per_minute: 0,
         max_message_size: 0,
-        dm_scope: DmScope::default(),
         ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(
@@ -249,14 +247,12 @@ fn test_dispatcher_is_immediate_false() {
 /// does. Returns just the manager — tests that need a session call
 /// `create_test_session` to obtain a `session_id`.
 fn make_workdir_session_manager() -> std::sync::Arc<SessionManager> {
-    use closeclaw_gateway::DmScope;
     use closeclaw_session::persistence::ReasoningLevel;
 
     let gc = closeclaw_gateway::GatewayConfig {
         name: String::new(),
         rate_limit_per_minute: 0,
         max_message_size: 0,
-        dm_scope: DmScope::default(),
         ..Default::default()
     };
     Arc::new(SessionManager::new(

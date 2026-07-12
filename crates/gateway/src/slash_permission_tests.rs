@@ -82,7 +82,6 @@ fn make_gateway() -> Arc<Gateway> {
         name: "test".to_owned(),
         rate_limit_per_minute: 0,
         max_message_size: 0,
-        dm_scope: Default::default(),
         ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(
@@ -234,7 +233,6 @@ async fn test_clear_without_callback_no_panic() {
         name: "test".to_owned(),
         rate_limit_per_minute: 0,
         max_message_size: 0,
-        dm_scope: Default::default(),
         ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(
@@ -279,7 +277,6 @@ async fn test_callback_called_on_clear() {
         name: "test".to_owned(),
         rate_limit_per_minute: 0,
         max_message_size: 0,
-        dm_scope: Default::default(),
         ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(

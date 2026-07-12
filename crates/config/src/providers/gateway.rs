@@ -18,9 +18,6 @@ pub const DEFAULT_TIMEOUT: u64 = 30000;
 pub const DEFAULT_RATE_LIMIT_PER_MINUTE: u32 = 60;
 /// Default max message size in bytes
 pub const DEFAULT_MAX_MESSAGE_SIZE: usize = 16384;
-/// Default DM session scope
-pub const DEFAULT_DM_SCOPE: &str = "per-channel-peer";
-
 /// Gateway configuration data structure
 ///
 /// Maps to the `gateway` field in `openclaw.json`.
@@ -43,9 +40,6 @@ pub struct GatewayConfigData {
 
     #[serde(default = "default_max_message_size")]
     pub max_message_size: usize,
-
-    #[serde(default = "default_dm_scope")]
-    pub dm_scope: String,
 }
 
 fn default_version() -> String {
@@ -63,9 +57,6 @@ fn default_rate_limit_per_minute() -> u32 {
 fn default_max_message_size() -> usize {
     DEFAULT_MAX_MESSAGE_SIZE
 }
-fn default_dm_scope() -> String {
-    DEFAULT_DM_SCOPE.to_string()
-}
 
 impl Default for GatewayConfigData {
     fn default() -> Self {
@@ -76,7 +67,6 @@ impl Default for GatewayConfigData {
             timeout: default_timeout(),
             rate_limit_per_minute: default_rate_limit_per_minute(),
             max_message_size: default_max_message_size(),
-            dm_scope: default_dm_scope(),
         }
     }
 }
@@ -125,7 +115,6 @@ impl ConfigProvider for GatewayConfigData {
             && self.timeout == default_timeout()
             && self.rate_limit_per_minute == default_rate_limit_per_minute()
             && self.max_message_size == default_max_message_size()
-            && self.dm_scope == default_dm_scope()
     }
 }
 
@@ -213,8 +202,7 @@ mod tests {
             "port": 3001,
             "timeout": 5000,
             "rateLimitPerMinute": 120,
-            "maxMessageSize": 32768,
-            "dmScope": "per-peer"
+            "maxMessageSize": 32768
         }"#;
         let config = GatewayConfigData::from_json_str(json).expect("valid JSON should parse");
         assert_eq!(config.name, "my-gateway");
@@ -222,7 +210,6 @@ mod tests {
         assert_eq!(config.timeout, 5000);
         assert_eq!(config.rate_limit_per_minute, 120);
         assert_eq!(config.max_message_size, 32768);
-        assert_eq!(config.dm_scope, "per-peer");
     }
 
     #[test]
@@ -237,7 +224,6 @@ mod tests {
         assert_eq!(config.timeout, DEFAULT_TIMEOUT);
         assert_eq!(config.rate_limit_per_minute, DEFAULT_RATE_LIMIT_PER_MINUTE);
         assert_eq!(config.max_message_size, DEFAULT_MAX_MESSAGE_SIZE);
-        assert_eq!(config.dm_scope, DEFAULT_DM_SCOPE);
     }
 
     #[test]
@@ -289,13 +275,6 @@ mod tests {
     fn test_is_default_max_message_size_changed() {
         let mut config = default_config();
         config.max_message_size = 1;
-        assert!(!config.is_default());
-    }
-
-    #[test]
-    fn test_is_default_dm_scope_changed() {
-        let mut config = default_config();
-        config.dm_scope = "main".to_string();
         assert!(!config.is_default());
     }
 

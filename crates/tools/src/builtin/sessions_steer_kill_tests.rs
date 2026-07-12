@@ -14,7 +14,7 @@ use crate::builtin::sessions_kill::SessionsKillTool;
 use crate::builtin::sessions_steer::SessionsSteerTool;
 use crate::{Tool, ToolCallError, ToolContext};
 use closeclaw_gateway::session_manager::{ChildSessionInfo, SpawnMode};
-use closeclaw_gateway::{DmScope, GatewayConfig, Message, Session, SessionManager};
+use closeclaw_gateway::{GatewayConfig, Message, Session, SessionManager};
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{Action, Effect, Rule, RuleSet, Subject};
@@ -32,7 +32,6 @@ fn test_gateway_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: DmScope::default(),
         ..Default::default()
     }
 }
