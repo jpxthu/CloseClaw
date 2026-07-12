@@ -19,7 +19,10 @@ pub use communication::{
 pub use context::SpawnCreationContext;
 pub use controller::SpawnContext;
 pub use controller::SpawnController;
-pub use creation::{build_spawn_context, create_child_conversation_session, ChildSessionCreated};
+pub use creation::{
+    build_spawn_context, create_child_conversation_session, ChildSessionCreated,
+    ChildSessionCreationParams,
+};
 pub use error::SpawnError;
 pub use tree::SpawnTree;
 pub use types::ChildSessionInfo;

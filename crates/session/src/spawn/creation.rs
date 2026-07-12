@@ -17,6 +17,7 @@ use crate::llm_session::ChatSession;
 use crate::llm_session::ConversationSession;
 use crate::persistence::{PendingMessage, SessionMode};
 use closeclaw_config::agents::ResolvedAgentConfig;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::communication::CommunicationConfig;
@@ -36,6 +37,35 @@ pub struct ChildSessionCreated {
     pub workspace_path: PathBuf,
 }
 
+/// Parameters for creating a child `ConversationSession`.
+///
+/// Groups the per-call arguments that vary between spawn invocations,
+/// keeping the function signature under the 6-parameter limit.
+pub struct ChildSessionCreationParams<'a> {
+    /// Parent session ID (the session that initiated the spawn).
+    pub parent_session_id: &'a str,
+    /// Parent agent ID (chat_id) for communication config.
+    pub parent_agent_id: &'a str,
+    /// Current spawn depth (0 = root).
+    pub depth: u32,
+    /// Task description to inject as the child's first message.
+    pub task: &'a str,
+    /// Whether to use minimal bootstrap mode.
+    pub light_context: bool,
+    /// Explicit workspace override (None = auto-resolve).
+    pub workspace: Option<&'a str>,
+    /// Spawn mode: Run (one-shot) or Session (persistent).
+    pub mode: SpawnMode,
+    /// Whether to fork (inherit parent conversation history).
+    pub fork: bool,
+    /// Explicit model override (highest priority).
+    pub model_override: Option<&'a str>,
+    /// Parent's subagents.model (second priority).
+    pub parent_subagents_model: Option<&'a str>,
+    /// Effective maximum spawn depth for the child.
+    pub max_spawn_depth: u32,
+}
+
 /// Create a child `ConversationSession` for a spawned sub-agent.
 ///
 /// Handles: workspace resolution, bootstrap mode, system prompt construction,
@@ -50,57 +80,15 @@ pub struct ChildSessionCreated {
 pub async fn create_child_conversation_session(
     ctx: &dyn SpawnCreationContext,
     config: &ResolvedAgentConfig,
-    parent_session_id: &str,
-    parent_agent_id: &str,
-    depth: u32,
-    task: &str,
-    light_context: bool,
-    workspace: Option<&str>,
-    mode: SpawnMode,
-    fork: bool,
-    model_override: Option<&str>,
-    parent_subagents_model: Option<&str>,
-    max_spawn_depth: u32,
+    params: &ChildSessionCreationParams<'_>,
 ) -> Result<ChildSessionCreated, String> {
-    // 1. Generate child session_id.
     let child_session_id = Uuid::new_v4().to_string();
+    let workdir_path =
+        resolve_child_workspace(ctx, config, params.workspace, params.parent_session_id).await?;
+    let model = resolve_model(params.model_override, params.parent_subagents_model, config);
+    let bootstrap_mode = resolve_bootstrap_mode(params.light_context, config);
+    let child_token = derive_child_token(ctx, params.parent_session_id).await?;
 
-    // 2. Determine workspace path (3-level fallback).
-    let workdir_path = resolve_child_workspace(ctx, config, workspace, parent_session_id).await?;
-
-    // 3. Determine bootstrap_mode.
-    let bootstrap_mode = if light_context {
-        BootstrapMode::Minimal
-    } else {
-        config.bootstrap_mode
-    };
-
-    // 4. Model priority: explicit > parent subagents.model > agent.model > default.
-    let model = model_override
-        .map(String::from)
-        .or(parent_subagents_model.map(String::from))
-        .or(config.model.as_ref().map(|m| m.primary.clone()))
-        .unwrap_or_else(|| "default".to_string());
-
-    // 5. Derive child cancel token from parent's token tree.
-    let child_token = {
-        let parent_cs = ctx
-            .get_parent_conversation_session(parent_session_id)
-            .await
-            .ok_or_else(|| {
-                format!(
-                    "parent session not found in conversation_sessions: {}",
-                    parent_session_id
-                )
-            })?;
-        let parent_guard = parent_cs.read().await;
-        let token = parent_guard.child_cancel_token();
-        drop(parent_guard);
-        token
-    };
-
-    // 6. Construct ConversationSession.
-    let agent_id = config.id.clone();
     let mut cs = ConversationSession::with_cancel_token(
         child_session_id.clone(),
         model,
@@ -110,56 +98,25 @@ pub async fn create_child_conversation_session(
     .with_reasoning_level(ctx.default_reasoning_level())
     .with_bootstrap_mode(bootstrap_mode);
 
-    // 7. Wire shutdown handle for busy-count tracking.
-    if let Some(signal) = ctx.shutdown_signal() {
-        cs.set_shutdown_handle(signal);
-    }
+    wire_session_dependencies(ctx, &mut cs);
 
-    // 8. Inject LLM caller and system prompt builder.
-    if let Some(caller) = ctx.llm_caller() {
-        cs.set_llm_caller(caller);
-    }
-    if let Some(builder) = ctx.system_prompt_builder() {
-        cs.set_system_prompt_builder(builder);
-    }
-    cs.set_prompt_overrides(ctx.prompt_overrides());
-
-    // 9. Build initial system prompt, then append spawn context.
-    let base_prompt = cs
-        .rebuild_system_prompt(&child_session_id, &agent_id, Some(bootstrap_mode))
-        .await;
-    let spawn_context = build_spawn_context(depth, max_spawn_depth, parent_session_id, &mode, fork);
-    cs.replace_system_prompt(format!("{}\n{}", base_prompt, spawn_context));
-
-    // 10. Generate communication config: child may only communicate with parent.
-    let comm_config = CommunicationConfig::default_with_parent(Some(parent_agent_id));
-    cs = cs.with_communication_config(comm_config);
-
-    // 11. Fork mode: inherit parent session's conversation history.
-    if fork {
-        if let Some(parent_cs) = ctx.get_parent_conversation_session(parent_session_id).await {
-            let parent_msgs = parent_cs.read().await.messages().to_vec();
-            cs.clone_messages_from(&parent_msgs);
-        }
-    }
-
-    // 12. Inject task as pending message.
-    let pending_msg = PendingMessage::with_role(
-        format!("{}-task", child_session_id),
-        task.to_string(),
-        "assistant".to_string(),
+    let spawn_context = build_spawn_context(
+        params.depth,
+        params.max_spawn_depth,
+        params.parent_session_id,
+        &params.mode,
+        params.fork,
     );
-    cs.push_pending(pending_msg);
-
-    // 13. Inherit parent session mode (Plan Mode).
-    {
-        if let Some(parent_cs) = ctx.get_parent_conversation_session(parent_session_id).await {
-            let parent_mode = parent_cs.read().await.session_mode();
-            if parent_mode == SessionMode::Plan {
-                cs.set_session_mode(SessionMode::Plan);
-            }
-        }
-    }
+    cs = configure_spawn_behavior(
+        ctx,
+        cs,
+        params,
+        &child_session_id,
+        &config.id,
+        bootstrap_mode,
+        spawn_context,
+    )
+    .await;
 
     let conversation_session = Arc::new(tokio::sync::RwLock::new(cs));
 
@@ -168,6 +125,118 @@ pub async fn create_child_conversation_session(
         session_id: child_session_id,
         workspace_path: workdir_path,
     })
+}
+
+/// Determine bootstrap mode from the `light_context` flag and agent config.
+fn resolve_bootstrap_mode(light_context: bool, config: &ResolvedAgentConfig) -> BootstrapMode {
+    if light_context {
+        BootstrapMode::Minimal
+    } else {
+        config.bootstrap_mode
+    }
+}
+
+/// Resolve the model to use via the priority chain:
+/// explicit override > parent subagents.model > agent model > default.
+fn resolve_model(
+    model_override: Option<&str>,
+    parent_subagents_model: Option<&str>,
+    config: &ResolvedAgentConfig,
+) -> String {
+    model_override
+        .map(String::from)
+        .or(parent_subagents_model.map(String::from))
+        .or(config.model.as_ref().map(|m| m.primary.clone()))
+        .unwrap_or_else(|| "default".to_string())
+}
+
+/// Derive a child cancel token from the parent session's token tree.
+async fn derive_child_token(
+    ctx: &dyn SpawnCreationContext,
+    parent_session_id: &str,
+) -> Result<CancellationToken, String> {
+    let parent_cs = ctx
+        .get_parent_conversation_session(parent_session_id)
+        .await
+        .ok_or_else(|| {
+            format!(
+                "parent session not found in conversation_sessions: {}",
+                parent_session_id
+            )
+        })?;
+    let parent_guard = parent_cs.read().await;
+    let token = parent_guard.child_cancel_token();
+    drop(parent_guard);
+    Ok(token)
+}
+
+/// Wire cross-cutting dependencies onto the session: shutdown handle,
+/// LLM caller, system prompt builder, and prompt overrides.
+fn wire_session_dependencies(ctx: &dyn SpawnCreationContext, cs: &mut ConversationSession) {
+    if let Some(signal) = ctx.shutdown_signal() {
+        cs.set_shutdown_handle(signal);
+    }
+    if let Some(caller) = ctx.llm_caller() {
+        cs.set_llm_caller(caller);
+    }
+    if let Some(builder) = ctx.system_prompt_builder() {
+        cs.set_system_prompt_builder(builder);
+    }
+    cs.set_prompt_overrides(ctx.prompt_overrides());
+}
+
+/// Apply spawn-specific behavior to the session: system prompt, communication
+/// config, fork history, task injection, and mode inheritance.
+async fn configure_spawn_behavior(
+    ctx: &dyn SpawnCreationContext,
+    mut cs: ConversationSession,
+    params: &ChildSessionCreationParams<'_>,
+    child_session_id: &str,
+    agent_id: &str,
+    bootstrap_mode: BootstrapMode,
+    spawn_context: String,
+) -> ConversationSession {
+    // Build initial system prompt, then append spawn context.
+    let base_prompt = cs
+        .rebuild_system_prompt(child_session_id, agent_id, Some(bootstrap_mode))
+        .await;
+    cs.replace_system_prompt(format!("{}\n{}", base_prompt, spawn_context));
+
+    // Generate communication config: child may only communicate with parent.
+    let comm_config = CommunicationConfig::default_with_parent(Some(params.parent_agent_id));
+    cs = cs.with_communication_config(comm_config);
+
+    // Fork mode: inherit parent session's conversation history.
+    if params.fork {
+        if let Some(parent_cs) = ctx
+            .get_parent_conversation_session(params.parent_session_id)
+            .await
+        {
+            let parent_msgs = parent_cs.read().await.messages().to_vec();
+            cs.clone_messages_from(&parent_msgs);
+        }
+    }
+
+    // Inject task as pending message.
+    let pending_msg = PendingMessage::with_role(
+        format!("{}-task", child_session_id),
+        params.task.to_string(),
+        "assistant".to_string(),
+    );
+    cs.push_pending(pending_msg);
+
+    // Inherit parent session mode (Plan Mode).
+    if let Some(parent_cs) = ctx
+        .get_parent_conversation_session(params.parent_session_id)
+        .await
+    {
+        let parent_mode = parent_cs.read().await.session_mode();
+        if parent_mode == SessionMode::Plan {
+            cs.set_session_mode(SessionMode::Plan);
+        }
+    }
+
+    cs
 }
 
 /// Resolve the workspace path for a child session.

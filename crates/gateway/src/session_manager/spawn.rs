@@ -157,20 +157,22 @@ impl SessionManager {
             .unwrap_or_default();
 
         // ── Delegate core creation to session crate ──────────────────
-        let created = session_spawn::create_child_conversation_session(
-            self, // SpawnCreationContext impl
-            &config,
+        let params = session_spawn::ChildSessionCreationParams {
             parent_session_id,
-            &parent_agent_id,
+            parent_agent_id: &parent_agent_id,
             depth,
             task,
             light_context,
             workspace,
-            mode.clone(),
+            mode: mode.clone(),
             fork,
             model_override,
             parent_subagents_model,
             max_spawn_depth,
+        };
+        let created = session_spawn::create_child_conversation_session(
+            self, // SpawnCreationContext impl
+            &config, &params,
         )
         .await?;
 

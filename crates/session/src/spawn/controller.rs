@@ -67,6 +67,8 @@ pub struct SpawnController {
     permission_checker: Arc<dyn PermissionChecker>,
 }
 
+// ── Constructor + Validation API ──────────────────────────────────────
+
 impl SpawnController {
     pub fn new(
         config_manager: Arc<closeclaw_config::ConfigManager>,
@@ -116,9 +118,6 @@ impl SpawnController {
         }
 
         // ⑥ require_agent_id check — must come after concurrency/whitelist.
-        // Check the original caller-provided agent_id, not the resolved fallback.
-        // Parent-agent-id fallback does not satisfy require_agent_id —
-        // only an explicit caller argument does.
         if parent_cfg.require_agent_id && target_agent_id.is_none() {
             return Err(SpawnError::AgentIdRequired);
         }
@@ -146,43 +145,11 @@ impl SpawnController {
             spawn_timeout,
         })
     }
+}
 
-    /// Compute the effective maximum spawn depth for a child session.
-    fn compute_effective_max_depth(
-        &self,
-        parent_effective_budget: u32,
-        target_config: Option<&ResolvedAgentConfig>,
-    ) -> Result<u32, SpawnError> {
-        let child_max_depth = target_config
-            .and_then(|c| c.subagents.max_spawn_depth)
-            .unwrap_or(1);
-        let effective_max = child_max_depth.min(parent_effective_budget.saturating_sub(1));
-        Ok(effective_max)
-    }
+// ── Config Resolution ─────────────────────────────────────────────────
 
-    /// Validate spawn permissions via the injected `PermissionChecker`.
-    ///
-    /// Delegates the full permission validation (chain evaluation, user
-    /// dimension, deny subjects) to the gateway-side implementation.
-    async fn validate_permissions(
-        &self,
-        config: &ResolvedAgentConfig,
-        parent_session_id: &str,
-    ) -> Result<(), SpawnError> {
-        self.permission_checker
-            .validate_spawn_permission(&config.id, parent_session_id)
-            .await
-            .map_err(|e| match e {
-                SpawnPermissionError::Denied { agent_id, reason } => {
-                    SpawnError::PermissionDenied { agent_id, reason }
-                }
-            })
-    }
-
-    // ------------------------------------------------------------------
-    // Private helpers
-    // ------------------------------------------------------------------
-
+impl SpawnController {
     /// Resolve the parent session's depth and maximum spawn budget.
     async fn resolve_parent_depth(
         &self,
@@ -241,9 +208,6 @@ impl SpawnController {
     /// Handles the agentId fallback chain (design doc §Spawn 控制流程 ④):
     ///   1. Explicit `target_agent_id` (caller-provided)
     ///   2. Parent agent ID itself (spawn self-copy)
-    ///
-    /// `SubagentsConfig.default_child_agent` is deprecated and ignored —
-    /// when no agentId is provided, the parent agent's own ID is always used.
     fn resolve_target_config(
         &self,
         parent_agent_id: &str,
@@ -262,6 +226,39 @@ impl SpawnController {
             target_id,
             target_config,
         })
+    }
+}
+
+// ── Validation Helpers ────────────────────────────────────────────────
+
+impl SpawnController {
+    /// Compute the effective maximum spawn depth for a child session.
+    fn compute_effective_max_depth(
+        &self,
+        parent_effective_budget: u32,
+        target_config: Option<&ResolvedAgentConfig>,
+    ) -> Result<u32, SpawnError> {
+        let child_max_depth = target_config
+            .and_then(|c| c.subagents.max_spawn_depth)
+            .unwrap_or(1);
+        let effective_max = child_max_depth.min(parent_effective_budget.saturating_sub(1));
+        Ok(effective_max)
+    }
+
+    /// Validate spawn permissions via the injected `PermissionChecker`.
+    async fn validate_permissions(
+        &self,
+        config: &ResolvedAgentConfig,
+        parent_session_id: &str,
+    ) -> Result<(), SpawnError> {
+        self.permission_checker
+            .validate_spawn_permission(&config.id, parent_session_id)
+            .await
+            .map_err(|e| match e {
+                SpawnPermissionError::Denied { agent_id, reason } => {
+                    SpawnError::PermissionDenied { agent_id, reason }
+                }
+            })
     }
 
     /// Check that the parent has not reached its maximum concurrent children.

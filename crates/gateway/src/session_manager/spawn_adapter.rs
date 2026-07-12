@@ -11,12 +11,13 @@
 use std::sync::Arc;
 
 use closeclaw_common::{PermissionChecker, SpawnPermissionError};
-use closeclaw_config::agents::AgentPermissionProvider;
+use closeclaw_config::agents::{AgentPermissionProvider, AgentPermissions};
 use closeclaw_config::ConfigManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_helpers::{
     collect_chain_deny_subjects, collect_chain_effective_permissions,
 };
+use closeclaw_permission::engine::engine_types::Subject;
 use closeclaw_session::spawn::context::SpawnCreationContext;
 use closeclaw_session::spawn::controller::SpawnContext;
 
@@ -154,74 +155,79 @@ impl PermissionChecker for GatewayPermissionChecker {
         child_agent_id: &str,
         parent_session_id: &str,
     ) -> Result<(), SpawnPermissionError> {
-        let child_perms = self.config_manager.agent_permissions().get(child_agent_id);
+        // Resolve child permissions — early return if none configured.
+        let child_perms = match self.config_manager.agent_permissions().get(child_agent_id) {
+            Some(p) => p,
+            None => return Ok(()),
+        };
+
+        // Resolve parent agent and effective permissions.
+        let parent_agent_id = match self.session_manager.get_chat_id(parent_session_id).await {
+            Some(id) => id,
+            None => return Ok(()),
+        };
         let agent_perms = self.config_manager.agent_permissions();
-        let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
-
-        let Some(child_perms) = child_perms else {
-            // No permissions configured for child — no restriction.
-            return Ok(());
-        };
-
-        let Some(parent_agent_id) = parent_agent_id else {
-            // No parent agent — skip permission check.
-            return Ok(());
-        };
-
-        let parent_perms = collect_chain_effective_permissions(
+        let parent_perms = match collect_chain_effective_permissions(
             &*self.session_manager,
             agent_perms.as_ref(),
             parent_session_id,
             &parent_agent_id,
         )
-        .await;
-
-        let Some(parent_perms) = parent_perms else {
-            // Parent has no configured permissions — no restriction.
-            return Ok(());
+        .await
+        {
+            Some(p) => p,
+            None => return Ok(()),
         };
 
+        // Evaluate user dimension and collect chain denials.
         let user_id = self.session_manager.get_sender_id(parent_session_id).await;
-
-        // Owner skips User dimension — design doc:
-        // "Owner(User ID = 'owner') → skip User dim, only Agent"
-        let user_perms = if user_id.as_deref() == Some("owner") {
+        let user_perms = self
+            .evaluate_user_permissions(&user_id, child_agent_id)
+            .await;
+        let extra_deny = self
+            .collect_chain_denials(parent_session_id, child_agent_id)
+            .await;
+        let extra_deny_ref = if extra_deny.is_empty() {
             None
-        } else if let Some(ref uid) = user_id {
-            Some(
-                self.permission_engine
-                    .read()
-                    .await
-                    .evaluate_user_permissions(uid, child_agent_id),
-            )
         } else {
-            None
+            Some(extra_deny.as_slice())
         };
 
-        // Collect full-chain deny subjects from all ancestors.
-        let rules = self.permission_engine.read().await.rules().clone();
-        let chain_deny_subjects = collect_chain_deny_subjects(
-            &*self.session_manager,
-            &rules,
-            parent_session_id,
+        // Final intersection check.
+        self.perform_inject_spawn_check(
             child_agent_id,
+            &child_perms,
+            &parent_perms,
+            user_perms.as_ref(),
+            user_id.as_deref(),
+            extra_deny_ref,
         )
-        .await;
-        let extra_deny = if chain_deny_subjects.is_empty() {
-            None
-        } else {
-            Some(chain_deny_subjects.as_slice())
-        };
+        .await
+    }
+}
 
+// ── Permission evaluation helpers ─────────────────────────────────────
+
+impl GatewayPermissionChecker {
+    /// Perform the final permission intersection check via the engine.
+    async fn perform_inject_spawn_check(
+        &self,
+        child_agent_id: &str,
+        child_perms: &AgentPermissions,
+        parent_perms: &AgentPermissions,
+        user_perms: Option<&AgentPermissions>,
+        user_id: Option<&str>,
+        extra_deny: Option<&[Subject]>,
+    ) -> Result<(), SpawnPermissionError> {
         self.permission_engine
             .read()
             .await
             .validate_and_inject_spawn(
                 child_agent_id,
-                &child_perms,
-                &parent_perms,
-                user_perms.as_ref(),
-                user_id.as_deref(),
+                child_perms,
+                parent_perms,
+                user_perms,
+                user_id,
                 extra_deny,
             )
             .map_err(|e| {
@@ -230,8 +236,43 @@ impl PermissionChecker for GatewayPermissionChecker {
                     agent_id: child_agent_id.to_string(),
                     reason: e.to_string(),
                 }
-            })?;
+            })
+    }
 
-        Ok(())
+    /// Evaluate user-level permissions for the child agent.
+    ///
+    /// Owner (user_id = "owner") skips the User dimension per design doc:
+    /// "Owner(User ID = 'owner') → skip User dim, only Agent".
+    async fn evaluate_user_permissions(
+        &self,
+        user_id: &Option<String>,
+        child_agent_id: &str,
+    ) -> Option<AgentPermissions> {
+        if user_id.as_deref() == Some("owner") {
+            return None;
+        }
+        let uid = user_id.as_ref()?;
+        Some(
+            self.permission_engine
+                .read()
+                .await
+                .evaluate_user_permissions(uid, child_agent_id),
+        )
+    }
+
+    /// Collect deny subjects from the ancestor chain.
+    async fn collect_chain_denials(
+        &self,
+        parent_session_id: &str,
+        child_agent_id: &str,
+    ) -> Vec<Subject> {
+        let rules = self.permission_engine.read().await.rules().clone();
+        collect_chain_deny_subjects(
+            &*self.session_manager,
+            &rules,
+            parent_session_id,
+            child_agent_id,
+        )
+        .await
     }
 }
