@@ -53,6 +53,7 @@ async fn test_push_and_drain_announce() {
             child_agent_id: format!("agent-{}", i),
             result_text: format!("result-{}", i),
             completed_at: Utc::now(),
+            priority: NotificationPriority::Next,
         };
         mgr.push_announce(&parent_id, event)
             .await
@@ -216,6 +217,7 @@ async fn test_announce_inject_as_system_message() {
         child_agent_id: "sub-agent-42".to_string(),
         result_text: "computed answer".to_string(),
         completed_at: Utc::now(),
+        priority: NotificationPriority::Next,
     };
     mgr.push_announce(&parent_id, event)
         .await
@@ -560,6 +562,7 @@ async fn test_next_priority_notification_has_urgency_marker() {
         let mut cs_write = cs.write().await;
         for notif in drained {
             let prefix = match notif.priority {
+                NotificationPriority::Now => "[🚨 紧急] 后台任务",
                 NotificationPriority::Next => "[⚠️ 需立即处理] 后台任务",
                 NotificationPriority::Later => "[后台任务]",
             };
@@ -619,6 +622,7 @@ async fn test_later_priority_notification_normal_format() {
         let mut cs_write = cs.write().await;
         for notif in drained {
             let prefix = match notif.priority {
+                NotificationPriority::Now => "[🚨 紧急] 后台任务",
                 NotificationPriority::Next => "[⚠️ 需立即处理] 后台任务",
                 NotificationPriority::Later => "[后台任务]",
             };
@@ -750,6 +754,7 @@ async fn test_next_vs_later_prefix_comparison() {
         let mut cs_write = cs.write().await;
         for notif in drained {
             let prefix = match notif.priority {
+                NotificationPriority::Now => "[🚨 紧急] 后台任务",
                 NotificationPriority::Next => "[⚠️ 需立即处理] 后台任务",
                 NotificationPriority::Later => "[后台任务]",
             };

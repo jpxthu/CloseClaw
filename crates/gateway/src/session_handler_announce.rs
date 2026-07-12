@@ -244,6 +244,7 @@ impl SessionMessageHandler {
         let mut cs_write = cs.write().await;
         for notif in notifications {
             let prefix = match notif.priority {
+                NotificationPriority::Now => "[🚨 紧急] 后台任务",
                 NotificationPriority::Next => "[⚠️ 需立即处理] 后台任务",
                 NotificationPriority::Later => "[后台任务]",
             };
