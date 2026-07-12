@@ -635,9 +635,8 @@ async fn run_manual_compact(
             tracing::warn!(session_id = %sid, error = %e, "manual compact failed");
             // Rollback to the pre-compaction snapshot.
             sm.rollback_compaction(&sid).await;
-            svc.lock()
-                .expect("compaction_service poisoned")
-                .record_failure();
+            // Manual compact failure does NOT increment the circuit breaker counter
+            // (design doc: "手动压缩的失败不递增熔断计数器").
             send_output(&output_tx, &format!("Compact failed: {}", e)).await;
         }
     }
