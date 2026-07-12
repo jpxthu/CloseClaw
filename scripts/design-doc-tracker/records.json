@@ -147,9 +147,9 @@
     "path": "docs/design/gateway/README.md",
     "commit": "503196cfa5b43c50a180c9a5b0b1201fc7769487",
     "commit_time": "2026-07-05T18:50:07+08:00",
-    "confirmed_time": "2026-07-05T18:52:44.872003+08:00",
+    "confirmed_time": "2026-07-12T21:56:40.568125+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "F2b deep comparison: doc claims streaming and non-streaming share same outbound path, but code has two separate paths (send_outbound/send_outbound_streaming) with Gateway managing StreamState/StreamContext explicitly"
   },
   {
     "path": "docs/design/gateway/inbound-flow.md",
