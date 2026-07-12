@@ -53,6 +53,7 @@ async fn test_push_and_drain_announce() {
             child_agent_id: format!("agent-{}", i),
             result_text: format!("result-{}", i),
             completed_at: Utc::now(),
+            priority: NotificationPriority::Next,
         };
         mgr.push_announce(&parent_id, event)
             .await
@@ -216,6 +217,7 @@ async fn test_announce_inject_as_system_message() {
         child_agent_id: "sub-agent-42".to_string(),
         result_text: "computed answer".to_string(),
         completed_at: Utc::now(),
+        priority: NotificationPriority::Next,
     };
     mgr.push_announce(&parent_id, event)
         .await
@@ -560,6 +562,7 @@ async fn test_next_priority_notification_has_urgency_marker() {
         let mut cs_write = cs.write().await;
         for notif in drained {
             let prefix = match notif.priority {
+                NotificationPriority::Now => "[🚨 紧急] 后台任务",
                 NotificationPriority::Next => "[⚠️ 需立即处理] 后台任务",
                 NotificationPriority::Later => "[后台任务]",
             };
@@ -619,6 +622,7 @@ async fn test_later_priority_notification_normal_format() {
         let mut cs_write = cs.write().await;
         for notif in drained {
             let prefix = match notif.priority {
+                NotificationPriority::Now => "[🚨 紧急] 后台任务",
                 NotificationPriority::Next => "[⚠️ 需立即处理] 后台任务",
                 NotificationPriority::Later => "[后台任务]",
             };
@@ -750,6 +754,7 @@ async fn test_next_vs_later_prefix_comparison() {
         let mut cs_write = cs.write().await;
         for notif in drained {
             let prefix = match notif.priority {
+                NotificationPriority::Now => "[🚨 紧急] 后台任务",
                 NotificationPriority::Next => "[⚠️ 需立即处理] 后台任务",
                 NotificationPriority::Later => "[后台任务]",
             };
@@ -795,7 +800,73 @@ async fn test_next_vs_later_prefix_comparison() {
     assert!(later_msg.starts_with("[后台任务]"));
 }
 
-// ── 15. test_mock_task_manager_dedup ────────────────────────────────────────
+// ── 15. test_now_priority_notification_has_urgent_prefix ────────────────────
+
+/// When `drain_announce_events` processes a notification with
+/// `NotificationPriority::Now`, the injected system message must
+/// contain the `[🚨 紧急]` urgent prefix for system-level emergency
+/// notifications.
+#[tokio::test]
+#[serial]
+async fn test_now_priority_notification_has_urgent_prefix() {
+    clear_global_prompt_state();
+
+    let mgr = make_test_mgr(None);
+    let parent_id = setup_parent_with_conv(&mgr, "parent-now").await;
+
+    let notifications = vec![CompletionNotification {
+        task_id: "task-now-1".to_string(),
+        command: "critical_cmd".to_string(),
+        state: TaskState::Completed { exit_code: 0 },
+        output_path: PathBuf::from("/tmp/test/output-now"),
+        priority: NotificationPriority::Now,
+        summary: "Background command 'critical_cmd' completed".to_string(),
+    }];
+    let mock_tm = Arc::new(MockTaskManager::new(notifications));
+    mgr.set_task_manager(mock_tm as Arc<dyn TaskManager>).await;
+
+    let tm = mgr.get_task_manager().await.unwrap();
+    let drained = tm.drain_notifications().await;
+    let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+    {
+        let mut cs_write = cs.write().await;
+        for notif in drained {
+            let prefix = match notif.priority {
+                NotificationPriority::Now => "[🚨 紧急] 后台任务",
+                NotificationPriority::Next => "[⚠️ 需立即处理] 后台任务",
+                NotificationPriority::Later => "[后台任务]",
+            };
+            let text = format!(
+                "{} 任务 {}（命令 '{}'）已完成（状态：Completed \
+                 (exit code: 0)）。输出文件：{}",
+                prefix,
+                notif.task_id,
+                notif.command,
+                notif.output_path.display()
+            );
+            cs_write.inject_system_message(text);
+        }
+    }
+
+    let messages = cs.read().await.messages().to_vec();
+    assert_eq!(messages.len(), 1);
+    let rendered = match &messages[0].content_blocks[0] {
+        ContentBlock::Text(t) => t.clone(),
+        other => panic!("expected Text block, got {:?}", other),
+    };
+    assert!(
+        rendered.contains("[🚨 紧急] 后台任务"),
+        "Now priority notification must contain urgent prefix, got: {}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("⚠️"),
+        "Now priority notification must NOT contain Next's urgency marker, got: {}",
+        rendered
+    );
+}
+
+// ── 16. test_mock_task_manager_dedup ────────────────────────────────────────
 
 /// Verify that MockTaskManager's drain_notifications respects dedup:
 /// first drain returns all notifications, second returns empty.

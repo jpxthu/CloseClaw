@@ -804,3 +804,87 @@ async fn test_killed_task_with_notified_produces_no_notification() {
         "killed task with notified=true must not produce a notification"
     );
 }
+
+// =========================================================================
+// NotificationPriority — ordering and derive tests
+// =========================================================================
+
+/// Verify that `NotificationPriority` derives `Ord` with
+/// `Now > Next > Later` ordering.
+#[test]
+fn test_notification_priority_ordering() {
+    assert!(NotificationPriority::Now > NotificationPriority::Next);
+    assert!(NotificationPriority::Next > NotificationPriority::Later);
+    assert!(NotificationPriority::Now > NotificationPriority::Later);
+}
+
+/// Verify that `NotificationPriority` partial ordering is consistent.
+#[test]
+fn test_notification_priority_partial_ord_consistency() {
+    assert!(
+        NotificationPriority::Now.partial_cmp(&NotificationPriority::Next)
+            == Some(std::cmp::Ordering::Greater)
+    );
+    assert!(
+        NotificationPriority::Next.partial_cmp(&NotificationPriority::Later)
+            == Some(std::cmp::Ordering::Greater)
+    );
+}
+
+/// Verify that `NotificationPriority` variants are ordered correctly
+/// when used in a `Vec::sort_by` with `Ord` derive.
+#[test]
+fn test_notification_priority_vec_sort() {
+    let mut priorities = vec![
+        NotificationPriority::Later,
+        NotificationPriority::Now,
+        NotificationPriority::Next,
+        NotificationPriority::Later,
+        NotificationPriority::Now,
+    ];
+    priorities.sort();
+    // Ord derive: Later(0) < Next(1) < Now(2) → ascending sort
+    assert_eq!(
+        priorities,
+        vec![
+            NotificationPriority::Later,
+            NotificationPriority::Later,
+            NotificationPriority::Next,
+            NotificationPriority::Now,
+            NotificationPriority::Now,
+        ]
+    );
+}
+
+/// Verify `NotificationPriority` derives `Clone` and `Copy`.
+#[test]
+fn test_notification_priority_clone_copy() {
+    let p = NotificationPriority::Now;
+    let cloned = p.clone();
+    let copied = p;
+    assert_eq!(p, cloned);
+    assert_eq!(p, copied);
+}
+
+/// Verify `NotificationPriority` derives `Serialize` / `Deserialize`.
+#[test]
+fn test_notification_priority_serde_roundtrip() {
+    let variants = [
+        NotificationPriority::Now,
+        NotificationPriority::Next,
+        NotificationPriority::Later,
+    ];
+    for v in variants {
+        let json = serde_json::to_string(&v).unwrap();
+        let parsed: NotificationPriority = serde_json::from_str(&json).unwrap();
+        assert_eq!(v, parsed);
+    }
+}
+
+/// Verify `NotificationPriority` derives `Debug`.
+#[test]
+fn test_notification_priority_debug() {
+    assert_eq!(format!("{:?}", NotificationPriority::Now), "Now");
+    assert_eq!(format!("{:?}", NotificationPriority::Next), "Next");
+    assert_eq!(format!("{:?}", NotificationPriority::Later), "Later");
+}

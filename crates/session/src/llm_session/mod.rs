@@ -23,6 +23,7 @@ use closeclaw_common::VerbosityLevel;
 use closeclaw_common::{ChildSessionState, LlmState, ToolExecState};
 use closeclaw_common::{ContentBlock, UnifiedUsage};
 use closeclaw_common::{LlmCaller, PromptOverrides, SystemPromptBuilder};
+use closeclaw_tasks::NotificationPriority;
 
 /// Maximum length of an individual append-section item (in characters).
 ///
@@ -82,6 +83,9 @@ pub struct AnnounceEvent {
     pub result_text: String,
     /// When the child session finished. Used for logging / debug.
     pub completed_at: DateTime<Utc>,
+    /// Delivery priority. Controls insertion order in the announce queue
+    /// so higher-priority events are drained first.
+    pub priority: NotificationPriority,
 }
 
 /// A simple in-memory implementation of `ChatSession`.
@@ -629,11 +633,20 @@ impl ConversationSession {
     }
 
     /// Push an announce event onto the in-memory announce queue.
+    ///
+    /// Events are inserted in priority order (`Now` > `Next` > `Later`).
+    /// Within the same priority level, FIFO insertion order is preserved
+    /// (stable sort).
     pub fn push_announce_to_queue(&mut self, event: AnnounceEvent) {
-        self.announce_queue.push(event);
+        let pos = self
+            .announce_queue
+            .iter()
+            .position(|e| e.priority < event.priority)
+            .unwrap_or(self.announce_queue.len());
+        self.announce_queue.insert(pos, event);
     }
 
-    /// Drain all queued announce events, returning them in FIFO order.
+    /// Drain all queued announce events, returning them in priority order.
     pub fn drain_announce_queue(&mut self) -> Vec<AnnounceEvent> {
         std::mem::take(&mut self.announce_queue)
     }
