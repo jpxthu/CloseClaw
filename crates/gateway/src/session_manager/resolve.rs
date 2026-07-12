@@ -31,6 +31,18 @@ impl SessionManager {
         message: &Message,
         account_id: Option<&str>,
     ) -> Result<String, ProcessError> {
+        // Acquire per-agent lock to serialize resolve for the same agent_id.
+        // Different agent_ids run in parallel; the same agent_id is serialized.
+        let agent_id = message.to.clone();
+        let agent_lock = {
+            let mut locks = self.agent_locks.write().await;
+            locks
+                .entry(agent_id.clone())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+        let _agent_guard = agent_lock.lock().await;
+
         // Compute stable routing_key from message fields (no timestamp).
         // Format: sha256("{account_id}:{channel}:{from}:{to}")
         let routing_key = Self::compute_routing_key(channel, message, account_id);
@@ -237,6 +249,49 @@ impl SessionManager {
                     }
                 }
             }
+        }
+
+        // SQLite double-check: query storage for an existing active session
+        // with the same routing fields. This covers the edge case where the
+        // key_registry was not yet written but SQLite already has a record
+        // (e.g., concurrent creation, or key_registry lost on restart).
+        let sqlite_check = {
+            let storage_guard = self.storage.read().await;
+            match storage_guard.as_ref() {
+                Some(s) => s
+                    .find_active_session_by_routing(account_id, channel, &message.from, &message.to)
+                    .await
+                    .ok()
+                    .flatten(),
+                None => None,
+            }
+        };
+        if let Some(existing_id) = sqlite_check {
+            // Self-heal: register the existing session in key_registry.
+            {
+                let mut registry = self.key_registry.write().await;
+                registry.insert(routing_key.clone(), existing_id.clone());
+            }
+            // Also ensure it's visible in the in-memory sessions map.
+            let session_exists = {
+                let sessions = self.sessions.read().await;
+                sessions.contains_key(&existing_id)
+            };
+            if !session_exists {
+                let mut sessions = self.sessions.write().await;
+                sessions.insert(
+                    existing_id.clone(),
+                    super::session_helpers::create_new_session(&existing_id, message, channel),
+                );
+            }
+            self.update_checkpoint_thread_id(&existing_id, &message.thread_id)
+                .await;
+            info!(
+                session_id = %existing_id,
+                routing_key = %routing_key,
+                "SQLite double-check: found existing active session, self-healed"
+            );
+            return Ok(existing_id);
         }
 
         let session_id = session_helpers::generate_session_id(&message.to);

@@ -40,7 +40,7 @@ pub enum ReplyAction {
 #[async_trait]
 pub trait SlashEffectExecutor: Send + Sync {
     /// Stop the current LLM turn for the session.
-    async fn execute_stop(&self, session_id: &str);
+    async fn execute_stop(&self, session_id: &str, cascade: bool, force: bool);
 
     /// Create a new session for the given channel.
     async fn execute_new_session(&self, session_id: &str, channel: &str);
@@ -140,8 +140,10 @@ impl SlashResultExecutor for SlashResult {
                     )]))
                     .await;
             }
-            SlashResult::Stop => {
-                ctx.executor.execute_stop(&ctx.session_id).await;
+            SlashResult::Stop { cascade, force } => {
+                ctx.executor
+                    .execute_stop(&ctx.session_id, cascade, force)
+                    .await;
                 let _ = ctx
                     .reply_tx
                     .send(ReplyAction::Reply(vec![ContentBlock::Text(

@@ -482,7 +482,10 @@ impl SlashHandler for ResultHandler {
             SlashResult::SetVerbosity { level } => SlashResult::SetVerbosity { level: *level },
             SlashResult::Unknown(t) => SlashResult::Unknown(t.clone()),
             SlashResult::NewSession => SlashResult::NewSession,
-            SlashResult::Stop => SlashResult::Stop,
+            SlashResult::Stop { cascade, force } => SlashResult::Stop {
+                cascade: *cascade,
+                force: *force,
+            },
             SlashResult::SetMode {
                 mode,
                 plan_file_path,
@@ -618,8 +621,14 @@ async fn test_execute_route_new_session_variant() {
 #[tokio::test]
 async fn test_execute_route_stop_variant() {
     let gw = make_gateway();
-    gw.set_slash_dispatcher(result_dispatcher("stop", SlashResult::Stop))
-        .await;
+    gw.set_slash_dispatcher(result_dispatcher(
+        "stop",
+        SlashResult::Stop {
+            cascade: false,
+            force: false,
+        },
+    ))
+    .await;
     let result = gw.dispatch_slash("s1", "/stop", Some("u1"), "feishu").await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
 }
@@ -669,7 +678,13 @@ async fn test_execute_route_all_variants_return_slash_handled() {
         ),
         ("f", SlashResult::Unknown("?".to_owned())),
         ("g", SlashResult::NewSession),
-        ("h", SlashResult::Stop),
+        (
+            "h",
+            SlashResult::Stop {
+                cascade: false,
+                force: false,
+            },
+        ),
         (
             "i",
             SlashResult::SetMode {

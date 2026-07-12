@@ -279,6 +279,10 @@ impl Daemon {
         if let Err(e) = session_manager.rebuild_key_registry().await {
             tracing::warn!(error = %e, "failed to rebuild key_registry — continuing");
         }
+        // Startup consistency check: SQLite ↔ file system bidirectional scan.
+        if let Err(e) = session_manager.run_consistency_check().await {
+            tracing::warn!(error = %e, "consistency check failed — continuing");
+        }
         if let Err(e) = session_manager.rebuild_spawn_tree().await {
             tracing::warn!(error = %e, "failed to rebuild spawn_tree — continuing");
         }
@@ -531,6 +535,15 @@ impl Daemon {
             sweeper_for_task.run(sweeper_rx).await;
         });
         info!("ArchiveSweeper spawned");
+        // Spawn periodic consistency check (low-priority, non-blocking).
+        {
+            let check_interval_secs = config_manager
+                .session_config_provider()
+                .map(|p| p.consistency_check_interval_secs())
+                .unwrap_or(closeclaw_config::session::DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS);
+            let check_interval = std::time::Duration::from_secs(check_interval_secs);
+            session_manager.spawn_periodic_consistency_check(check_interval);
+        }
         // Load memory config from ConfigManager (replaces hardcoded defaults).
         let memory_config = config_manager
             .section(closeclaw_config::ConfigSection::Memory)

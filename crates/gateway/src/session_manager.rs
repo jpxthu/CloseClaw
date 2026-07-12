@@ -31,6 +31,7 @@ use tracing::warn;
 mod announce;
 mod channel;
 pub mod communication;
+mod consistency_check;
 mod key_registry;
 mod resolve;
 mod session_helpers;
@@ -38,6 +39,7 @@ mod spawn;
 pub mod spawn_adapter;
 pub mod spawn_controller;
 pub mod stop;
+mod stop_graceful;
 use closeclaw_session::spawn::SpawnTree;
 pub use spawn::{ChildSessionInfo, SpawnMode};
 pub use spawn_controller::SpawnController;
@@ -104,6 +106,10 @@ pub struct SessionManager {
     /// Keyed by session_id. Created on demand when a snapshot is first
     /// needed; lazily cleaned up when the session is removed.
     snapshot_managers: RwLock<HashMap<String, Arc<RwLock<RuntimeSnapshotManager>>>>,
+    /// Per-agent mutexes for serializing resolve() requests.
+    /// Keyed by agent_id. Ensures the same agent's lookup/restore/create
+    /// operations are serialized while different agents run in parallel.
+    agent_locks: Arc<RwLock<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -145,6 +151,7 @@ impl SessionManager {
             mining_notify_tx: std::sync::RwLock::new(None),
             task_manager: RwLock::new(None),
             snapshot_managers: RwLock::new(HashMap::new()),
+            agent_locks: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -936,6 +943,8 @@ impl SessionLookup for SessionManager {
 mod announce_tests;
 #[cfg(test)]
 mod bug904_tests;
+#[cfg(test)]
+mod consistency_check_tests;
 #[cfg(test)]
 mod flush_tests;
 #[cfg(test)]

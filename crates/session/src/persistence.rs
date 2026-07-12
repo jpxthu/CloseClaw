@@ -622,6 +622,15 @@ pub struct PendingOperation {
 }
 
 /// Persistence errors
+/// Result of a data consistency check between SQLite and the file system.
+#[derive(Debug, Default, Clone)]
+pub struct ConsistencyCheckResult {
+    /// Number of SQLite records deleted because their transcript files were missing.
+    pub deleted_orphaned_records: u64,
+    /// Number of orphan transcript files deleted because they had no SQLite record.
+    pub deleted_orphaned_files: u64,
+}
+
 #[derive(Error, Debug)]
 pub enum PersistenceError {
     #[error("Redis error: {0}")]
@@ -666,6 +675,22 @@ pub trait PersistenceService: Send + Sync {
 
     /// 列出所有活跃 Session 的 Checkpoint
     async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError>;
+
+    /// 查找与给定 routing fields 匹配的 active session。
+    ///
+    /// 用于创建新 session 前的防御性双重确认（SQLite 双重确认）。
+    /// 当 `account_id` 为 `None` 时，匹配数据库中 `account_id IS NULL` 的记录。
+    ///
+    /// 返回匹配的 session_id，若无匹配返回 `Ok(None)`。
+    async fn find_active_session_by_routing(
+        &self,
+        _account_id: Option<&str>,
+        _channel: &str,
+        _sender_id: &str,
+        _peer_id: &str,
+    ) -> Result<Option<String>, PersistenceError> {
+        Ok(None)
+    }
 
     /// 归档 Checkpoint
     async fn archive_checkpoint(
@@ -768,6 +793,17 @@ pub trait PersistenceService: Send + Sync {
     /// override this to close persistent connections or file handles.
     async fn close(&self) -> Result<(), PersistenceError> {
         Ok(())
+    }
+
+    /// Run a bidirectional consistency check between SQLite and the file system.
+    ///
+    /// - SQLite → File system: records whose transcript files are missing → deleted.
+    /// - File system → SQLite: orphan transcript files with no SQLite record → deleted.
+    ///
+    /// The default implementation is a no-op. Concrete storage backends
+    /// (e.g. `SqliteStorage`) should override this to perform the actual check.
+    async fn run_consistency_check(&self) -> Result<ConsistencyCheckResult, PersistenceError> {
+        Ok(ConsistencyCheckResult::default())
     }
 }
 
