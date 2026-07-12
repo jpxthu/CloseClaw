@@ -109,6 +109,16 @@ impl UnifiedChatClient {
         self.provider.id()
     }
 
+    /// Returns the provider's default header key-value pairs.
+    ///
+    /// Converts the [`Provider::default_headers`] `HeaderMap` into a
+    /// sorted `Vec<(String, String)>`. Sensitive headers have their
+    /// values replaced with a stable placeholder (`"<redacted>"`)
+    /// to avoid leaking credentials into fingerprint hashes.
+    pub fn default_header_pairs(&self) -> Vec<(String, String)> {
+        convert_headers_for_fingerprint(self.provider.default_headers())
+    }
+
     // ── Non-streaming chat ──────────────────────────────────────────────────
 
     /// Sends a single, non-streaming chat request through the full pipeline.
@@ -190,6 +200,38 @@ impl UnifiedChatClient {
             pipeline,
         ))
     }
+}
+
+/// Converts an HTTP [`HeaderMap`] into a sorted vector of `(key, value)`
+/// pairs suitable for fingerprinting.
+///
+/// Sensitive headers (`authorization`, `api-key`, `x-api-key`, `cookie`,
+/// `set-cookie`) have their values replaced with `"<redacted>"` to
+/// prevent leaking credentials into fingerprint hashes.
+///
+/// The result is sorted by key name for deterministic hashing.
+fn convert_headers_for_fingerprint(headers: &reqwest::header::HeaderMap) -> Vec<(String, String)> {
+    let sensitive_keys: &[&str] = &[
+        "authorization",
+        "api-key",
+        "x-api-key",
+        "cookie",
+        "set-cookie",
+    ];
+    let mut pairs: Vec<(String, String)> = headers
+        .iter()
+        .map(|(k, v)| {
+            let key = k.as_str().to_string();
+            let val = if sensitive_keys.contains(&key.as_str()) {
+                "<redacted>".to_string()
+            } else {
+                v.to_str().unwrap_or("<binary>").to_string()
+            };
+            (key, val)
+        })
+        .collect();
+    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+    pairs
 }
 
 /// Applies interpreter normalisation and plugin pipeline hooks to each event.

@@ -444,13 +444,13 @@ async fn test_streaming_verbosity_off_filters_thinking_sends_text() {
         .await
         .unwrap();
 
-    // After Step 1.1: both Thinking and Text blocks are sent during streaming
-    // via send_render_block (no inline Verbosity filtering).
+    // Step 1.1: In Off mode, Thinking blocks are not sent via
+    // send_render_block during streaming. Only Text block is sent.
     let sent = plugin.drain_sent();
     assert_eq!(
         sent.len(),
-        2,
-        "both Thinking render and Text should be sent during streaming"
+        1,
+        "only Text should be sent during streaming in Off mode"
     );
 
     // Post-stream pipeline: VerbosityFilter filters Thinking from final result.
@@ -485,12 +485,13 @@ async fn test_streaming_verbosity_normal_filters_thinking_post_stream() {
         .await
         .unwrap();
 
-    // After Step 1.1: both Thinking and Text blocks are sent during streaming.
+    // Step 1.1: In Normal mode, Thinking blocks are not sent via
+    // send_render_block during streaming. Only Text block is sent.
     let sent = plugin.drain_sent();
     assert_eq!(
         sent.len(),
-        2,
-        "both Thinking render and Text should be sent during streaming"
+        1,
+        "only Text should be sent during streaming in Normal mode"
     );
 
     // Post-stream pipeline: VerbosityFilter removes Thinking at Normal level.
@@ -507,4 +508,44 @@ async fn test_streaming_verbosity_normal_filters_thinking_post_stream() {
         "Thinking block should be filtered from result at Normal level"
     );
     assert!(has_text, "Text block should pass through at Normal level");
+}
+
+/// At VerbosityLevel::Full, Thinking blocks ARE sent via send_render_block
+/// during streaming. Both Thinking and Text blocks appear in sent messages.
+#[tokio::test]
+async fn test_streaming_verbosity_full_sends_thinking_block() {
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    let (gw, sid) =
+        setup_verbosity_session(closeclaw_common::VerbosityLevel::Full, plugin.clone()).await;
+
+    let stream = stream::iter(thinking_then_text_events());
+    let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
+    let result = gw
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .await
+        .unwrap();
+
+    // Step 1.1: In Full mode, Thinking blocks ARE sent via send_render_block
+    // during streaming. Both Thinking and Text blocks should be sent.
+    let sent = plugin.drain_sent();
+    assert_eq!(
+        sent.len(),
+        2,
+        "both Thinking and Text should be sent during streaming in Full mode"
+    );
+
+    // Post-stream pipeline: VerbosityFilter keeps all blocks at Full level.
+    let has_thinking = result
+        .content_blocks
+        .iter()
+        .any(|b| matches!(b, ContentBlock::Thinking { .. }));
+    let has_text = result
+        .content_blocks
+        .iter()
+        .any(|b| matches!(b, ContentBlock::Text(_)));
+    assert!(
+        has_thinking,
+        "Thinking block should be in result at Full level"
+    );
+    assert!(has_text, "Text block should pass through at Full level");
 }

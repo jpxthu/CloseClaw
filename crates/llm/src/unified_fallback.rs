@@ -87,6 +87,18 @@ impl UnifiedFallbackClient {
         &self.chain.first().expect("chain must not be empty").client
     }
 
+    /// Returns the primary provider's default header key-value pairs.
+    ///
+    /// Delegates to [`UnifiedChatClient::default_header_pairs`] on the
+    /// primary (first) chain entry. Returns an empty `Vec` when the
+    /// chain is empty (e.g. in test fixtures).
+    pub fn default_header_pairs(&self) -> Vec<(String, String)> {
+        self.chain
+            .first()
+            .map(|entry| entry.client.default_header_pairs())
+            .unwrap_or_default()
+    }
+
     /// Send a streaming chat request through the fallback chain.
     ///
     /// Walks the chain trying `chat_streaming` on each entry, skipping

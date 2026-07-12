@@ -437,6 +437,8 @@ impl SessionMessageHandler {
             // Record pre-call fingerprint for cache-break attribution.
             // Pass actual registered tool names so fingerprint includes
             // the tools dimension (not just the system prompt).
+            // Pass provider default headers to activate the HeadersChanged
+            // cache break dimension.
             if let Some(cs) = sm.get_conversation_session(&session_id).await {
                 let mut cs_write = cs.write().await;
                 let sys = cs_write.system_prompt().map(|s| s.to_string());
@@ -445,7 +447,15 @@ impl SessionMessageHandler {
                     None => None,
                 };
                 let tools_ref: Option<&[String]> = tool_names.as_deref();
-                cs_write.record_prompt_fingerprint(sys.as_deref(), tools_ref, None);
+                let headers_pairs: Vec<(String, String)> = cs_write
+                    .llm_caller()
+                    .map(|c| c.default_header_pairs())
+                    .unwrap_or_default();
+                let headers_refs: Vec<(&str, &str)> = headers_pairs
+                    .iter()
+                    .map(|(k, v)| (k.as_str(), v.as_str()))
+                    .collect();
+                cs_write.record_prompt_fingerprint(sys.as_deref(), tools_ref, Some(&headers_refs));
             }
 
             // Check if streaming is enabled for this session

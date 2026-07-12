@@ -673,16 +673,17 @@ async fn test_streaming_non_text_block_rendered_and_sent() {
         .await
         .unwrap();
 
-    // After Step 1.1: no inline Verbosity filtering in handle_block_end.
-    // Both Thinking and Text blocks are rendered and sent during streaming.
+    // Step 1.1: Thinking blocks are not sent via send_render_block in Normal
+    // mode (default). Only Text block is sent during streaming.
     let sent = plugin.drain_sent();
     assert_eq!(
         sent.len(),
-        2,
-        "both Thinking render and Text should be sent during streaming"
+        1,
+        "only Text should be sent during streaming in Normal mode"
     );
 
-    // Mock is passthrough, so both blocks appear in the result.
+    // Mock is passthrough, so Thinking block is still in content_blocks
+    // (pushed during streaming) and NOT filtered by the mock processor chain.
     let has_thinking = result
         .content_blocks
         .iter()
@@ -693,7 +694,7 @@ async fn test_streaming_non_text_block_rendered_and_sent() {
         .any(|b| matches!(b, ContentBlock::Text(_)));
     assert!(
         has_thinking,
-        "result should contain Thinking block (passthrough chain)"
+        "Thinking block should be in content_blocks (passthrough chain)"
     );
     assert!(has_text, "result should contain Text block");
 }

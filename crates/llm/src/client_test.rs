@@ -323,3 +323,201 @@ async fn test_chat_streaming_empty_pipeline() {
     let result = client.chat_streaming(make_request()).await;
     assert!(result.is_ok());
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Gap 2: default_header_pairs tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Provider with non-empty default headers for testing.
+struct HeadersProvider {
+    headers: reqwest::header::HeaderMap,
+}
+
+impl HeadersProvider {
+    fn new(headers: reqwest::header::HeaderMap) -> Self {
+        Self { headers }
+    }
+}
+
+#[async_trait]
+impl Provider for HeadersProvider {
+    fn id(&self) -> &str {
+        "headers-test"
+    }
+    fn base_url(&self) -> &str {
+        ""
+    }
+    fn api_key(&self) -> &str {
+        ""
+    }
+    fn supported_protocols(&self) -> &[ProtocolId] {
+        &[]
+    }
+    fn http_client(&self) -> &reqwest::Client {
+        unreachable!()
+    }
+    fn default_headers(&self) -> &reqwest::header::HeaderMap {
+        &self.headers
+    }
+    async fn send(
+        &self,
+        _request: InternalRequest,
+        _body: serde_json::Value,
+    ) -> crate::provider::Result<InternalResponse> {
+        Ok(InternalResponse {
+            content_blocks: vec![],
+            usage: RawUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: Some(0),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
+            finish_reason: None,
+        })
+    }
+    async fn send_streaming(
+        &self,
+        _request: InternalRequest,
+        _body: serde_json::Value,
+    ) -> crate::provider::Result<SseStream> {
+        let (tx, rx) = mpsc::channel(1);
+        drop(tx);
+        Ok(rx)
+    }
+}
+
+/// Verify that `default_header_pairs` returns the provider's headers
+/// as sorted key-value pairs.
+#[test]
+fn test_default_header_pairs_returns_provider_headers() {
+    use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        HeaderName::from_static("x-custom"),
+        HeaderValue::from_static("value1"),
+    );
+    headers.insert(
+        HeaderName::from_static("accept"),
+        HeaderValue::from_static("application/json"),
+    );
+
+    let provider = HeadersProvider::new(headers);
+    let client = UnifiedChatClient::with_noop_cache_adapter(
+        Arc::new(provider),
+        Arc::new(StubProtocol::new()),
+        InterpreterRegistry::default(),
+        PluginPipeline::new(),
+    );
+
+    let pairs = client.default_header_pairs();
+    assert_eq!(pairs.len(), 2, "should have 2 header pairs");
+
+    // Pairs are sorted by key.
+    assert_eq!(pairs[0].0, "accept");
+    assert_eq!(pairs[0].1, "application/json");
+    assert_eq!(pairs[1].0, "x-custom");
+    assert_eq!(pairs[1].1, "value1");
+}
+
+/// Verify that sensitive headers (Authorization, api-key, etc.) have
+/// their values replaced with `<redacted>` to avoid leaking credentials.
+#[test]
+fn test_default_header_pairs_redacts_sensitive_values() {
+    use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        HeaderName::from_static("authorization"),
+        HeaderValue::from_static("Bearer sk-secret-token"),
+    );
+    headers.insert(
+        HeaderName::from_static("x-api-key"),
+        HeaderValue::from_static("my-api-key-123"),
+    );
+    headers.insert(
+        HeaderName::from_static("content-type"),
+        HeaderValue::from_static("application/json"),
+    );
+    headers.insert(
+        HeaderName::from_static("api-key"),
+        HeaderValue::from_static("another-secret"),
+    );
+
+    let provider = HeadersProvider::new(headers);
+    let client = UnifiedChatClient::with_noop_cache_adapter(
+        Arc::new(provider),
+        Arc::new(StubProtocol::new()),
+        InterpreterRegistry::default(),
+        PluginPipeline::new(),
+    );
+
+    let pairs = client.default_header_pairs();
+    assert_eq!(pairs.len(), 4, "should have 4 header pairs");
+
+    // Sensitive values are redacted.
+    for (key, val) in &pairs {
+        match key.as_str() {
+            "authorization" | "api-key" | "x-api-key" => {
+                assert_eq!(val, "<redacted>", "{} should be redacted", key);
+            }
+            "content-type" => {
+                assert_eq!(val, "application/json");
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Verify that header pairs are sorted stably — same input always
+/// produces the same order, ensuring fingerprint hash consistency.
+#[test]
+fn test_default_header_pairs_sorted_stably() {
+    use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        HeaderName::from_static("z-last"),
+        HeaderValue::from_static("z"),
+    );
+    headers.insert(
+        HeaderName::from_static("a-first"),
+        HeaderValue::from_static("a"),
+    );
+    headers.insert(
+        HeaderName::from_static("m-middle"),
+        HeaderValue::from_static("m"),
+    );
+
+    let provider = HeadersProvider::new(headers);
+    let client = UnifiedChatClient::with_noop_cache_adapter(
+        Arc::new(provider),
+        Arc::new(StubProtocol::new()),
+        InterpreterRegistry::default(),
+        PluginPipeline::new(),
+    );
+
+    let pairs1 = client.default_header_pairs();
+    let pairs2 = client.default_header_pairs();
+
+    assert_eq!(pairs1, pairs2, "consecutive calls should return same order");
+    assert_eq!(pairs1[0].0, "a-first");
+    assert_eq!(pairs1[1].0, "m-middle");
+    assert_eq!(pairs1[2].0, "z-last");
+}
+
+/// Verify that an empty HeaderMap produces an empty Vec.
+#[test]
+fn test_default_header_pairs_empty_headers() {
+    let provider = HeadersProvider::new(reqwest::header::HeaderMap::new());
+    let client = UnifiedChatClient::with_noop_cache_adapter(
+        Arc::new(provider),
+        Arc::new(StubProtocol::new()),
+        InterpreterRegistry::default(),
+        PluginPipeline::new(),
+    );
+
+    let pairs = client.default_header_pairs();
+    assert!(pairs.is_empty(), "empty headers should return empty Vec");
+}

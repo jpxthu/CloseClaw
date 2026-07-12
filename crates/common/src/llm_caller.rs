@@ -32,4 +32,15 @@ pub trait LlmCaller: Send + Sync {
         &self,
         request: InternalRequest,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>>, LLMError>;
+
+    /// Returns the provider's default header key-value pairs.
+    ///
+    /// Used for fingerprinting prompt components to detect cache breaks.
+    /// Sensitive headers (e.g. `Authorization`, `api-key`) have their values
+    /// replaced with a stable placeholder to avoid leaking credentials.
+    ///
+    /// Default implementation returns an empty `Vec`.
+    fn default_header_pairs(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
 }
