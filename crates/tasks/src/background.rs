@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::process::Command;
 use tokio::sync::{oneshot, Mutex};
@@ -53,7 +54,7 @@ pub struct BackgroundTask {
 ///
 /// Variant declaration order determines the derived `Ord` ordering:
 /// `Now > Next > Later`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum NotificationPriority {
     /// Highest priority — inject immediately (before user input).
     /// Used for system-level urgent notifications.
