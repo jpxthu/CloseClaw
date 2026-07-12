@@ -57,6 +57,7 @@ fn make_prompt_ctx(names: &[&str]) -> PromptGenerationContext {
         tools: None,
         disallowed_tools: None,
         session_mode: None,
+        effective_spawn_budget: None,
     }
 }
 
@@ -652,6 +653,7 @@ fn make_plan_mode_ctx() -> PromptGenerationContext {
         tools: None,
         disallowed_tools: None,
         session_mode: Some(SessionMode::Plan),
+        effective_spawn_budget: None,
     }
 }
 
@@ -767,6 +769,7 @@ async fn test_normal_mode_does_not_filter_write_tools() {
         tools: None,
         disallowed_tools: None,
         session_mode: Some(SessionMode::Normal),
+        effective_spawn_budget: None,
     };
     let section = reg.build_tools_section(&ctx).await;
 
@@ -797,11 +800,119 @@ async fn test_no_session_mode_does_not_filter() {
         tools: None,
         disallowed_tools: None,
         session_mode: None,
+        effective_spawn_budget: None,
     };
     let section = reg.build_tools_section(&ctx).await;
 
     assert!(
         section.contains("Write"),
         "Write should be visible without session_mode"
+    );
+}
+
+// ── Budget-level spawn filter tests ────────────────────────────────────
+
+#[tokio::test]
+async fn test_budget_zero_filters_sessions_spawn() {
+    let reg = ToolRegistry::new();
+    // Register sessions_spawn (always available by default).
+    reg.register(DummyTool {
+        name: "sessions_spawn".to_string(),
+        group: "sessions".to_string(),
+        summary_text: "spawn sub-agent".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
+    reg.register(DummyTool {
+        name: "Read".to_string(),
+        group: "file_ops".to_string(),
+        summary_text: "Read file".to_string(),
+        is_deferred: false,
+        is_read_only: true,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
+
+    let ctx = PromptGenerationContext {
+        agent_id: "test-agent".to_string(),
+        workdir: None,
+        available_tool_names: vec!["sessions_spawn".into(), "Read".into()],
+        tools: None,
+        disallowed_tools: None,
+        session_mode: None,
+        effective_spawn_budget: Some(0),
+    };
+    let section = reg.build_tools_section(&ctx).await;
+
+    assert!(
+        !section.contains("sessions_spawn"),
+        "sessions_spawn should be filtered when budget = 0"
+    );
+    assert!(section.contains("Read"), "Read should still be visible");
+}
+
+#[tokio::test]
+async fn test_budget_one_keeps_sessions_spawn() {
+    let reg = ToolRegistry::new();
+    reg.register(DummyTool {
+        name: "sessions_spawn".to_string(),
+        group: "sessions".to_string(),
+        summary_text: "spawn sub-agent".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
+
+    let ctx = PromptGenerationContext {
+        agent_id: "test-agent".to_string(),
+        workdir: None,
+        available_tool_names: vec!["sessions_spawn".into()],
+        tools: None,
+        disallowed_tools: None,
+        session_mode: None,
+        effective_spawn_budget: Some(1),
+    };
+    let section = reg.build_tools_section(&ctx).await;
+
+    assert!(
+        section.contains("sessions_spawn"),
+        "sessions_spawn should be visible when budget = 1"
+    );
+}
+
+#[tokio::test]
+async fn test_budget_none_keeps_sessions_spawn() {
+    let reg = ToolRegistry::new();
+    reg.register(DummyTool {
+        name: "sessions_spawn".to_string(),
+        group: "sessions".to_string(),
+        summary_text: "spawn sub-agent".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
+
+    let ctx = PromptGenerationContext {
+        agent_id: "test-agent".to_string(),
+        workdir: None,
+        available_tool_names: vec!["sessions_spawn".into()],
+        tools: None,
+        disallowed_tools: None,
+        session_mode: None,
+        effective_spawn_budget: None,
+    };
+    let section = reg.build_tools_section(&ctx).await;
+
+    assert!(
+        section.contains("sessions_spawn"),
+        "sessions_spawn should be visible when budget is unknown"
     );
 }
