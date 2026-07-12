@@ -11,9 +11,9 @@
     "path": "docs/design/agent/README.md",
     "commit": "866e28c8ae85e758b68812c99ee8278d7b85a173",
     "commit_time": "2026-07-04T04:26:27+08:00",
-    "confirmed_time": "2026-07-12T09:22:11.727761+08:00",
+    "confirmed_time": "2026-07-12T09:29:51.285841+08:00",
     "comment": "",
-    "blocked_reason": "workspace fallback contradiction"
+    "blocked_reason": "F2b found doc_problem: spawn control flow attributed to Session module but actual code is SkillTool->SpawnValidator->SpawnController"
   },
   {
     "path": "docs/design/agent/agent-config.md",
