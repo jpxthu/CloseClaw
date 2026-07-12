@@ -50,8 +50,14 @@ pub struct BackgroundTask {
 }
 
 /// Notification delivery priority.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Variant declaration order determines the derived `Ord` ordering:
+/// `Now > Next > Later`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NotificationPriority {
+    /// Highest priority — inject immediately (before user input).
+    /// Used for system-level urgent notifications.
+    Now,
     /// Inject into the next dialogue turn immediately.
     Next,
     /// Inject at a convenient later point.
