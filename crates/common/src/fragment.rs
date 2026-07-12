@@ -12,9 +12,9 @@ pub struct FragmentContext {
     /// Bootstrap mode (Minimal / Full) — used by [`BootstrapFragmentProvider`]
     /// to select the file set.
     pub bootstrap_mode: BootstrapMode,
-    /// Working directory of the agent — used by [`BootstrapFragmentProvider`]
+    /// Directory containing bootstrap files, used by [`BootstrapFragmentProvider`]
     /// to locate bootstrap files.
-    pub workdir: PathBuf,
+    pub bootstrap_dir: PathBuf,
     /// Effective spawn depth budget for the current session.
     ///
     /// When `Some(budget)` where `budget ≤ 0`, the `sessions_spawn`
@@ -37,7 +37,7 @@ impl FragmentContext {
         Self {
             agent_id: String::new(),
             bootstrap_mode: BootstrapMode::Full,
-            workdir: std::env::temp_dir(),
+            bootstrap_dir: std::env::temp_dir(),
             effective_spawn_budget: None,
         }
     }
