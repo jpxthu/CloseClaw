@@ -28,9 +28,15 @@ fn test_generate_session_id_format() {
     let parts: Vec<&str> = id.split('_').collect();
     assert_eq!(parts.len(), 3, "expected 3 parts: {}", id);
     assert_eq!(parts[0], "agent-1");
+    assert_eq!(
+        parts[1].len(),
+        14,
+        "timestamp part should be 14 chars: {}",
+        parts[1]
+    );
     assert!(
-        parts[1].parse::<i64>().is_ok(),
-        "timestamp not numeric: {}",
+        parts[1].chars().all(|c| c.is_ascii_digit()),
+        "timestamp part should be all digits: {}",
         parts[1]
     );
     assert_eq!(parts[2].len(), 8, "hex part not 8 chars: {}", parts[2]);
