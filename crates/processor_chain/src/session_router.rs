@@ -1,21 +1,19 @@
 //! Platform-agnostic session router for the unified processor chain.
 //!
-//! Computes a deterministic [`session_key`](DmScope::compute_session_key)
-//! from [`MessageContext::initial_raw()`] fields (`platform`, `sender_id`,
-//! `peer_id`) and writes it to the message metadata so that upstream
-//! consumers (e.g. [`Gateway::route_message`]) can resolve sessions via
-//! [`SessionManager::resolve`].
+//! Computes a deterministic [`session_key`] from [`MessageContext::initial_raw()`]
+//! fields (`platform`, `sender_id`, `peer_id`) and writes it to the message
+//! metadata so that upstream consumers (e.g. [`Gateway::route_message`]) can
+//! resolve sessions via [`SessionManager::resolve`].
 //!
-//! By default uses [`DmScope::PerAccountChannelPeer`] mode, producing
-//! keys in the format `{platform}:{sender_id}:{peer_id}:{account_id}`.
-//! The scope can be overridden via the [`DmScope`] configuration.
+//! The session key algorithm follows the design doc spec:
+//! `session_key = {timestamp_ms}-{sha256(channel:from:to:account_id:timestamp_ms)}`
 //!
 //! This processor is channel-agnostic — it works for any platform that
 //! populates `NormalizedMessage` correctly (terminal, feishu, discord, …).
 
 use async_trait::async_trait;
 
-use closeclaw_gateway::{DmScope, Message};
+use closeclaw_gateway::compute_session_key;
 
 use super::context::MessageContext;
 use super::error::ProcessError;
@@ -29,21 +27,18 @@ use closeclaw_llm::types::ContentBlock;
 /// Runs at priority 20 — after [`RawLogProcessor`](super::raw_log_processor)
 /// (10) and before [`ContentNormalizer`](super::content_normalizer) (30).
 #[derive(Debug, Clone)]
-pub struct SessionRouter {
-    dm_scope: DmScope,
-}
+pub struct SessionRouter;
 
 impl SessionRouter {
-    /// Create a new `SessionRouter` with the given [`DmScope`].
-    pub fn new(dm_scope: DmScope) -> Self {
-        Self { dm_scope }
+    /// Create a new `SessionRouter`.
+    pub fn new() -> Self {
+        Self
     }
 
     /// Compute a deterministic session key from routing fields.
     ///
     /// Returns an empty string when `from` or `to` is missing.
     fn compute_key(
-        &self,
         from: &str,
         to: &str,
         channel: &str,
@@ -53,18 +48,7 @@ impl SessionRouter {
         if from.is_empty() || to.is_empty() {
             return String::new();
         }
-        let msg = Message {
-            id: String::new(),
-            from: from.to_string(),
-            to: to.to_string(),
-            content: String::new(),
-            channel: channel.to_string(),
-            timestamp: 0,
-            metadata: std::collections::HashMap::new(),
-            thread_id: None,
-        };
-        self.dm_scope
-            .compute_session_key(channel, &msg, account_id, timestamp_ms)
+        compute_session_key(channel, from, to, account_id, timestamp_ms)
     }
 }
 
@@ -112,7 +96,7 @@ impl MessageProcessor for SessionRouter {
         // Use system time instead of message timestamp to align with design doc:
         // "timestamp_ms 为当前系统时间的毫秒级时间戳"
         let timestamp_ms = chrono::Utc::now().timestamp_millis();
-        let session_key = self.compute_key(
+        let session_key = Self::compute_key(
             &sender_id,
             &peer_id,
             &platform,
