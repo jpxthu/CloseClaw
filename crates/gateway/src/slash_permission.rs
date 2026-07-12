@@ -635,13 +635,13 @@ struct GatewaySlashExecutor {
 
 #[async_trait::async_trait]
 impl SlashEffectExecutor for GatewaySlashExecutor {
-    async fn execute_stop(&self, session_id: &str) {
+    async fn execute_stop(&self, session_id: &str, cascade: bool, _force: bool) {
         let cs: Option<Arc<RwLock<ConversationSession>>> = self
             .session_manager
             .get_conversation_session(session_id)
             .await;
         if let Some(cs) = cs {
-            cs.read().await.stop(false).await;
+            cs.read().await.stop(cascade).await;
         } else if let Some(sh) = self.session_handler.as_ref() {
             sh.send_reply("session 不存在，无法停止".to_owned()).await;
         }

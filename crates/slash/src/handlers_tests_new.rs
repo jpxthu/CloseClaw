@@ -92,7 +92,13 @@ fn test_stop_handler_immediate() {
 #[tokio::test]
 async fn test_stop_handler_handle() {
     let result = StopHandler.handle("", &dummy_ctx()).await;
-    assert!(matches!(result, SlashResult::Stop));
+    assert!(matches!(
+        result,
+        SlashResult::Stop {
+            cascade: false,
+            force: false
+        }
+    ));
 }
 
 // ── StatusHandler tests ────────────────────────────────────────────────────

@@ -87,7 +87,7 @@ impl MockExecutor {
 
 #[async_trait]
 impl SlashEffectExecutor for MockExecutor {
-    async fn execute_stop(&self, _session_id: &str) {
+    async fn execute_stop(&self, _session_id: &str, _cascade: bool, _force: bool) {
         *self.stop_called.lock().unwrap() = true;
     }
 
@@ -238,7 +238,12 @@ async fn test_new_session_calls_executor_and_sends_reply() {
 #[tokio::test]
 async fn test_stop_calls_executor_and_sends_reply() {
     let (ctx, mut rx, exec) = make_ctx();
-    SlashResult::Stop.execute(&ctx).await;
+    SlashResult::Stop {
+        cascade: false,
+        force: false,
+    }
+    .execute(&ctx)
+    .await;
     drop(ctx);
 
     assert!(*exec.stop_called.lock().unwrap());
