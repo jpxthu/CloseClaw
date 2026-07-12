@@ -18,12 +18,12 @@ use crate::sections::load_cached_file_section;
 /// [`generate`](Self::generate) returns `None`.
 pub struct MemoryFragmentProvider {
     /// Configured path to the MEMORY.md file.
-    /// When `None`, falls back to `workdir.join("MEMORY.md")`.
+    /// When `None`, falls back to `bootstrap_dir.join("MEMORY.md")`.
     memory_md_path: Option<PathBuf>,
 }
 
 impl MemoryFragmentProvider {
-    /// Create a new provider with no custom path (uses `workdir/MEMORY.md`).
+    /// Create a new provider with no custom path (uses `bootstrap_dir/MEMORY.md`).
     pub fn new() -> Self {
         Self {
             memory_md_path: None,
@@ -44,8 +44,8 @@ impl MemoryFragmentProvider {
     fn resolve_path(&self, ctx: &FragmentContext) -> PathBuf {
         match &self.memory_md_path {
             Some(p) if p.is_absolute() => p.clone(),
-            Some(p) => ctx.workdir.join(p),
-            None => ctx.workdir.join("MEMORY.md"),
+            Some(p) => ctx.bootstrap_dir.join(p),
+            None => ctx.bootstrap_dir.join("MEMORY.md"),
         }
     }
 }
@@ -112,7 +112,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             ..FragmentContext::test_default()
         };
         assert!(provider.generate(&ctx).await.is_none());
@@ -126,7 +126,7 @@ mod tests {
         fs::write(tmp.path().join("MEMORY.md"), "").unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             ..FragmentContext::test_default()
         };
         assert!(provider.generate(&ctx).await.is_none());
@@ -140,7 +140,7 @@ mod tests {
         fs::write(tmp.path().join("MEMORY.md"), "Remember X and Y").unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             ..FragmentContext::test_default()
         };
         let fragment = provider.generate(&ctx).await;
@@ -156,7 +156,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             ..FragmentContext::test_default()
         };
         assert!(provider.cache_key(&ctx).is_none());
@@ -168,7 +168,7 @@ mod tests {
         fs::write(tmp.path().join("MEMORY.md"), "content").unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             ..FragmentContext::test_default()
         };
         let key = provider.cache_key(&ctx);
@@ -194,7 +194,7 @@ mod tests {
         fs::write(custom_dir.join("MEMORY.md"), "Custom path content").unwrap();
         let provider = MemoryFragmentProvider::with_path("memory/MEMORY.md");
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             ..FragmentContext::test_default()
         };
         let fragment = provider.generate(&ctx).await;
@@ -211,7 +211,7 @@ mod tests {
         fs::write(&abs_path, "Absolute path content").unwrap();
         let provider = MemoryFragmentProvider::with_path(&abs_path);
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             ..FragmentContext::test_default()
         };
         let fragment = provider.generate(&ctx).await;
@@ -227,7 +227,7 @@ mod tests {
         fs::write(custom_dir.join("MEMORY.md"), "content").unwrap();
         let provider = MemoryFragmentProvider::with_path("memory/MEMORY.md");
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             ..FragmentContext::test_default()
         };
         let key = provider.cache_key(&ctx);
@@ -240,7 +240,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let provider = MemoryFragmentProvider::with_path("memory/MEMORY.md");
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             ..FragmentContext::test_default()
         };
         assert!(provider.cache_key(&ctx).is_none());
