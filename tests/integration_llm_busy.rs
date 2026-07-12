@@ -15,7 +15,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use closeclaw_gateway::session_handler::{HandleResult, SessionMessageHandler};
 use closeclaw_gateway::session_manager::SessionManager;
-use closeclaw_gateway::{DmScope, GatewayConfig, Message};
+use closeclaw_gateway::{GatewayConfig, Message};
 use closeclaw_llm::client::UnifiedChatClient;
 use closeclaw_llm::fake::{FakeProvider, Scenario};
 use closeclaw_llm::fallback::{FallbackClient, ModelEntry};
@@ -93,7 +93,6 @@ fn test_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: DmScope::default(),
         ..Default::default()
     }
 }

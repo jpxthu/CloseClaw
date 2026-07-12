@@ -229,7 +229,6 @@ async fn test_handle_message_backward_compat() {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: crate::DmScope::default(),
         ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(

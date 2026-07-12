@@ -2,7 +2,8 @@
 //!
 //! All tests live here so that src/gateway/mod.rs stays under 500 lines.
 
-use crate::{DmScope, GatewayConfig, GatewayError, Message, SessionManager};
+use crate::compute_session_key;
+use crate::{GatewayConfig, GatewayError, Message, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::{AdapterError, CardActionEvent, IMPlugin, NormalizedMessage};
@@ -113,7 +114,7 @@ impl IMPlugin for MockPlugin {
 /// Computes the same session_key that `SessionManager::find_or_create` would use,
 /// ensuring `resolve_session_from_message` can match the existing session.
 fn make_processed_msg(msg: &Message, channel: &str) -> ProcessedMessage {
-    let session_key = DmScope::default().compute_session_key(channel, msg, None, msg.timestamp);
+    let session_key = compute_session_key(channel, &msg.from, &msg.to, None, msg.timestamp);
     let mut metadata = std::collections::HashMap::new();
     metadata.insert("session_key".to_string(), session_key);
     metadata.insert("peer_id".to_string(), msg.to.clone());
@@ -131,7 +132,6 @@ fn make_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: DmScope::default(),
         ..Default::default()
     }
 }
@@ -206,204 +206,6 @@ fn test_message_serialization() {
     assert_eq!(parsed.id, "msg_1");
     assert_eq!(parsed.content, "hello");
 }
-
-// ── DmScope + compute_session_key ───────────────────────────────────────────
-
-fn msg(from: &str, to: &str) -> Message {
-    Message {
-        id: "m".into(),
-        from: from.into(),
-        to: to.into(),
-        content: "hi".into(),
-        channel: "ch".into(),
-        timestamp: 0,
-        metadata: HashMap::new(),
-        thread_id: None,
-    }
-}
-
-#[test]
-fn test_dm_scope_main_session_key() {
-    let key = DmScope::Main.compute_session_key("ch_x", &msg("a", "b"), None, 0);
-    assert!(
-        key.starts_with("0-"),
-        "key should start with timestamp prefix: {key}"
-    );
-    let hash_part = &key[2..];
-    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
-    assert!(
-        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
-        "hash should be hex: {key}"
-    );
-    // Deterministic: same input → same key
-    let key2 = DmScope::Main.compute_session_key("ch_x", &msg("a", "b"), None, 0);
-    assert_eq!(key, key2, "same input should produce same key");
-}
-
-#[test]
-fn test_dm_scope_session_key_varies_across_timestamps() {
-    // timestamp_ms participates in hash input, so different timestamps
-    // produce different hash values (documented algorithm alignment).
-    let key_early = DmScope::PerChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None, 1000);
-    let key_late =
-        DmScope::PerChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None, 999999);
-    // Hash part (after timestamp prefix) must differ
-    let hash_early = &key_early[key_early.find('-').unwrap() + 1..];
-    let hash_late = &key_late[key_late.find('-').unwrap() + 1..];
-    assert_ne!(
-        hash_early, hash_late,
-        "routing hash must differ when timestamp_ms changes"
-    );
-    // Prefix should still reflect the provided timestamp
-    assert!(key_early.starts_with("1000-"));
-    assert!(key_late.starts_with("999999-"));
-}
-
-#[test]
-fn test_dm_scope_per_peer_session_key() {
-    let key = DmScope::PerPeer.compute_session_key("ch_x", &msg("a", "b"), None, 0);
-    assert!(
-        key.starts_with("0-"),
-        "key should start with timestamp prefix: {key}"
-    );
-    let hash_part = &key[2..];
-    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
-    assert!(
-        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
-        "hash should be hex: {key}"
-    );
-}
-
-#[test]
-fn test_dm_scope_per_channel_peer_session_key() {
-    let key = DmScope::PerChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None, 0);
-    assert!(
-        key.starts_with("0-"),
-        "key should start with timestamp prefix: {key}"
-    );
-    let hash_part = &key[2..];
-    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
-    assert!(
-        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
-        "hash should be hex: {key}"
-    );
-}
-
-#[test]
-fn test_dm_scope_per_account_channel_peer_with_account() {
-    let key =
-        DmScope::PerAccountChannelPeer.compute_session_key("ch_x", &msg("a", "b"), Some("acc1"), 0);
-    assert!(
-        key.starts_with("0-"),
-        "key should start with timestamp prefix: {key}"
-    );
-    let hash_part = &key[2..];
-    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
-    assert!(
-        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
-        "hash should be hex: {key}"
-    );
-}
-
-#[test]
-fn test_dm_scope_per_account_channel_peer_without_account() {
-    let key = DmScope::PerAccountChannelPeer.compute_session_key("ch_x", &msg("a", "b"), None, 0);
-    assert!(
-        key.starts_with("0-"),
-        "key should start with timestamp prefix: {key}"
-    );
-    let hash_part = &key[2..];
-    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
-    assert!(
-        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
-        "hash should be hex: {key}"
-    );
-}
-
-#[test]
-fn test_dm_scope_per_channel_sender_session_key() {
-    let key = DmScope::PerChannelSender.compute_session_key("ch_x", &msg("a", "b"), None, 0);
-    assert!(
-        key.starts_with("0-"),
-        "key should start with timestamp prefix: {key}"
-    );
-    let hash_part = &key[2..];
-    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
-    assert!(
-        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
-        "hash should be hex: {key}"
-    );
-}
-
-#[test]
-fn test_dm_scope_per_channel_sender_serde_roundtrip() {
-    let json = serde_json::to_string(&DmScope::PerChannelSender).unwrap();
-    assert_eq!(json, "\"per-channel-sender\"");
-    let parsed: DmScope = serde_json::from_str(&json).unwrap();
-    assert_eq!(parsed, DmScope::PerChannelSender);
-}
-
-#[test]
-fn test_dm_scope_default_is_per_account_channel_peer() {
-    assert_eq!(DmScope::default(), DmScope::PerAccountChannelPeer);
-}
-
-#[test]
-fn test_dm_scope_default_session_key_contains_four_fields() {
-    // Verify default DmScope session_key = hash(platform, sender_id, peer_id, account_id)
-    let key = DmScope::default().compute_session_key(
-        "feishu",
-        &msg("ou_sender", "oc_peer"),
-        Some("t_account"),
-        0,
-    );
-    // PerAccountChannelPeer format: {timestamp_ms}-{sha256_hex}
-    assert!(
-        key.starts_with("0-"),
-        "key should start with timestamp prefix: {key}"
-    );
-    let hash_part = &key[2..];
-    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
-    assert!(
-        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
-        "hash should be hex: {key}"
-    );
-    // Deterministic: same input → same key
-    let key2 = DmScope::default().compute_session_key(
-        "feishu",
-        &msg("ou_sender", "oc_peer"),
-        Some("t_account"),
-        0,
-    );
-    assert_eq!(key, key2, "same input should produce same key");
-}
-
-// ── GatewayConfig serde: dm_scope values ─────────────────────────────────────
-
-#[test]
-fn test_gateway_config_dm_scope_values() {
-    let cases = [
-        ("\"main\"", DmScope::Main),
-        ("\"per-peer\"", DmScope::PerPeer),
-        ("\"per-channel-peer\"", DmScope::PerChannelPeer),
-        (
-            "\"per-account-channel-peer\"",
-            DmScope::PerAccountChannelPeer,
-        ),
-        ("\"per-channel-sender\"", DmScope::PerChannelSender),
-    ];
-    for (json_val, expected) in cases {
-        let json = format!("{{\"name\":\"g\",\"dm_scope\":{}}}", json_val);
-        let cfg: GatewayConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(cfg.dm_scope, expected);
-    }
-    let cfg: GatewayConfig = serde_json::from_str("{\"name\":\"g\"}").unwrap();
-    assert_eq!(cfg.dm_scope, DmScope::PerAccountChannelPeer);
-    assert_eq!(cfg.rate_limit_per_minute, 0);
-    assert_eq!(cfg.max_message_size, 0);
-}
-
-// ── Gateway integration tests ───────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_register_and_route() {
@@ -521,7 +323,6 @@ fn test_gateway_error_display() {
 #[tokio::test]
 async fn test_per_channel_peer_different_senders() {
     let mut cfg = make_config();
-    cfg.dm_scope = DmScope::PerChannelPeer;
     let (gw, sm) = setup(cfg, "ch").await;
     let mut m1 = Message {
         id: "1".into(),
@@ -553,7 +354,6 @@ async fn test_per_channel_peer_different_senders() {
 #[tokio::test]
 async fn test_main_scope_all_share_one_session() {
     let mut cfg = make_config();
-    cfg.dm_scope = DmScope::Main;
     let (gw, sm) = setup(cfg, "ch").await;
     let mut m1 = make_message("bob", "hi");
     let mut m2 = make_message("bob", "hi");
@@ -574,7 +374,6 @@ async fn test_main_scope_all_share_one_session() {
 #[tokio::test]
 async fn test_per_account_peer_different_accounts() {
     let mut cfg = make_config();
-    cfg.dm_scope = DmScope::PerAccountChannelPeer;
     let (gw, sm) = setup(cfg, "ch").await;
     let mut m1 = make_message("bob", "hi");
     let mut m2 = make_message("bob", "hi");
@@ -588,7 +387,6 @@ async fn test_per_account_peer_different_accounts() {
 #[tokio::test]
 async fn test_account_id_from_metadata() {
     let mut cfg = make_config();
-    cfg.dm_scope = DmScope::PerAccountChannelPeer;
     let (gw, sm) = setup(cfg, "feishu").await;
     let mut msg = make_message("agent-1", "hello");
     msg.metadata.insert("account_id".into(), "t_abc".into());
@@ -603,7 +401,6 @@ async fn test_account_id_from_metadata() {
 #[tokio::test]
 async fn test_explicit_account_id_overrides_metadata() {
     let mut cfg = make_config();
-    cfg.dm_scope = DmScope::PerAccountChannelPeer;
     let (gw, sm) = setup(cfg, "feishu").await;
     let mut msg = make_message("agent-1", "hello");
     msg.metadata.insert("account_id".into(), "meta_t".into());
@@ -619,7 +416,6 @@ async fn test_explicit_account_id_overrides_metadata() {
 #[tokio::test]
 async fn test_feishu_session_isolation() {
     let mut cfg = make_config();
-    cfg.dm_scope = DmScope::PerChannelPeer;
     let (gw, sm) = setup(cfg, "feishu").await;
     let mut m_a = make_message("agent-1", "hi");
     m_a.from = "ou_alice".into();

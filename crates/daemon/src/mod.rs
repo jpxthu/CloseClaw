@@ -25,7 +25,7 @@ type StartupPlan = (
 );
 use closeclaw_common::SessionLookup;
 use closeclaw_gateway::sweeper::ArchiveSweeper;
-use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
+use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
 use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
@@ -217,7 +217,6 @@ impl Daemon {
             name: "closeclaw".to_string(),
             rate_limit_per_minute: 60,
             max_message_size: 16_384,
-            dm_scope: DmScope::default(),
             ..Default::default()
         };
         let reasoning_level = config_manager

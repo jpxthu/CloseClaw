@@ -55,7 +55,6 @@ fn full_config() -> SystemConfigData {
             owner_display: Some("raw".to_string()),
         }),
         session: Some(SessionConfig {
-            dm_scope: "per-account-channel-peer".to_string(),
             maintenance: SessionMaintenanceConfig {
                 mode: "enforce".to_string(),
                 prune_after: "7d".to_string(),
@@ -110,22 +109,11 @@ fn test_full_config_is_valid() {
 fn test_invalid_maintenance_mode_fails() {
     let mut cfg = minimal_config();
     cfg.session = Some(SessionConfig {
-        dm_scope: "per-account-channel-peer".to_string(),
         maintenance: SessionMaintenanceConfig {
             mode: "bad".to_string(),
             prune_after: "7d".to_string(),
             max_entries: 500,
         },
-    });
-    assert!(cfg.validate().is_err());
-}
-
-#[test]
-fn test_invalid_dm_scope_fails() {
-    let mut cfg = minimal_config();
-    cfg.session = Some(SessionConfig {
-        dm_scope: "bad".to_string(),
-        ..Default::default()
     });
     assert!(cfg.validate().is_err());
 }
@@ -280,7 +268,6 @@ fn test_session_maintenance_config_default() {
 #[test]
 fn test_session_config_default() {
     let s = SessionConfig::default();
-    assert_eq!(s.dm_scope, "per-account-channel-peer");
     assert_eq!(s.maintenance.mode, "enforce");
 }
 
@@ -396,7 +383,6 @@ fn test_validate_maintenance_modes_valid() {
     for mode in ["warn", "off"] {
         let cfg = SystemConfigData {
             session: Some(SessionConfig {
-                dm_scope: "per-account-channel-peer".to_string(),
                 maintenance: SessionMaintenanceConfig {
                     mode: mode.to_string(),
                     ..Default::default()
@@ -406,21 +392,6 @@ fn test_validate_maintenance_modes_valid() {
         };
         cfg.validate()
             .unwrap_or_else(|e| panic!("mode={mode} should be valid: {e}"));
-    }
-}
-
-#[test]
-fn test_validate_dm_scope_valid() {
-    for scope in ["per-channel-peer", "per-peer", "main"] {
-        let cfg = SystemConfigData {
-            session: Some(SessionConfig {
-                dm_scope: scope.to_string(),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        cfg.validate()
-            .unwrap_or_else(|e| panic!("dmScope={scope} should be valid: {e}"));
     }
 }
 

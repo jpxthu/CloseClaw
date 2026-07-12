@@ -419,7 +419,7 @@ fn test_three_step_mixed_blocks_with_dsl() {
 // Streaming error chunks preservation tests (Step 1.3)
 // ===========================================================================
 
-use crate::{DmScope, GatewayConfig, SessionManager};
+use crate::{GatewayConfig, SessionManager};
 use closeclaw_common::processor::{StreamEvent, UnifiedUsage};
 use closeclaw_common::StreamingRenderer;
 use closeclaw_session::persistence::ReasoningLevel;
@@ -510,7 +510,6 @@ fn streaming_config() -> GatewayConfig {
         name: "test-streaming".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: DmScope::default(),
         ..Default::default()
     }
 }

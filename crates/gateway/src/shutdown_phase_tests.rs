@@ -5,7 +5,7 @@
 //! - `sync_storage()`: delegates to PersistenceService::sync()
 //! - `close_storage()`: delegates to PersistenceService::close()
 
-use crate::{DmScope, GatewayConfig, SessionManager};
+use crate::{GatewayConfig, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::shutdown::{DrainStatus, ShutdownSignal, ShutdownState};
@@ -22,7 +22,6 @@ fn make_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: DmScope::default(),
         ..Default::default()
     }
 }

@@ -15,7 +15,7 @@ use closeclaw_common::LlmCaller;
 use closeclaw_common::NoopMetricsEmitter;
 use closeclaw_config::providers::{ConfigProvider, CredentialsProvider, SystemConfigData};
 use closeclaw_config::{ConfigManager, ConfigSection};
-use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, SessionManager};
+use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
 use closeclaw_llm::anthropic::AnthropicProvider;
 use closeclaw_llm::fallback::{FallbackClient, ModelEntry};
 use closeclaw_llm::mimo::MimoProvider;
@@ -63,7 +63,6 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
         name: format!("closeclaw-chat-{}", agent_id),
         rate_limit_per_minute: 0,
         max_message_size: 16_384,
-        dm_scope: DmScope::PerChannelSender,
         ..Default::default()
     };
 

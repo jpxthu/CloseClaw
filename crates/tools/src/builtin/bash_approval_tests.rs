@@ -125,7 +125,6 @@ fn make_session_manager() -> Arc<SessionManager> {
             name: "test".to_string(),
             rate_limit_per_minute: 100,
             max_message_size: 1024,
-            dm_scope: closeclaw_gateway::DmScope::default(),
             ..Default::default()
         },
         None,

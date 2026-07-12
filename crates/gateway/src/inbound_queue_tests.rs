@@ -66,7 +66,6 @@ fn make_gateway() -> Arc<Gateway> {
         name: "test".to_owned(),
         rate_limit_per_minute: 0,
         max_message_size: 0,
-        dm_scope: Default::default(),
         inbound_queue_capacity: 4,
         ..Default::default()
     };

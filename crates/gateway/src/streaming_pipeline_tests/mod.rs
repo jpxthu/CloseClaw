@@ -10,7 +10,7 @@
 //! - State transition: DslParseResult accumulates correctly, merges post-stream
 
 use crate::im_adapter::streaming::StreamingRenderer;
-use crate::{DmScope, GatewayConfig, Message, SessionManager};
+use crate::{GatewayConfig, Message, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage};
@@ -221,7 +221,6 @@ pub(super) fn make_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 65536,
-        dm_scope: DmScope::PerAccountChannelPeer,
         ..Default::default()
     }
 }
