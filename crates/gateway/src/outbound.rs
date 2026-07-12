@@ -628,8 +628,9 @@ impl Gateway {
         Ok(())
     }
 
-    /// Handle a [`StreamEvent::BlockEnd`]: apply per-block verbosity
-    /// filtering, send non-text render blocks, and dispatch remaining text.
+    /// Handle a [`StreamEvent::BlockEnd`]: send non-text render blocks
+    /// and dispatch remaining text. Verbosity filtering is delegated to
+    /// the post-stream Processor Chain in [`finish_streaming_pipeline`].
     async fn handle_block_end(
         &self,
         ctx: &StreamContext<'_>,
@@ -637,21 +638,6 @@ impl Gateway {
         block_type: ContentBlockType,
         state: &mut StreamState,
     ) -> Result<(), GatewayError> {
-        // Per-block verbosity filtering for non-Text blocks.
-        let should_filter = block_type != ContentBlockType::Text
-            && match state.verbosity_level {
-                VerbosityLevel::Normal => {
-                    matches!(block_type, ContentBlockType::Thinking)
-                }
-                VerbosityLevel::Off => true,
-                VerbosityLevel::Full => false,
-            };
-        if should_filter {
-            // Still delegate to plugin so internal state is updated,
-            // but discard output (no render, no send, no accumulate).
-            ctx.plugin.handle_stream_event(event);
-            return Ok(());
-        }
         let mut out = ctx.plugin.handle_stream_event(event);
         if block_type != ContentBlockType::Text {
             let render_blocks = std::mem::take(&mut out.render_blocks);
