@@ -1,7 +1,9 @@
+#![allow(deprecated)] // default_child_agent is deprecated; tests verify backward-compatible config parsing
+
 //! Step 1.4 unit tests — agentId fallback and spawn timeout.
 //!
 //! Covers the two gap-fixes defined in the plan:
-//!   - Gap 1: agentId fallback chain (explicit → default_child_agent → parent ID)
+//!   - Gap 1: agentId fallback chain (explicit → parent ID)
 //!   - Gap 2: SubagentsConfig.timeout passthrough to SpawnValidationResult
 //!
 //! Helpers are duplicated from spawn_controller_tests.rs to keep this
@@ -100,8 +102,9 @@ fn inject_agents(cm: &ConfigManager, agents: Vec<(&str, ResolvedAgentConfig)>) {
 // Gap 1: agentId fallback to parent ID
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// No target_agent_id + no default_child_agent + requireAgentId=false
+/// No target_agent_id + requireAgentId=false
 /// → fallback chain resolves to parent agent ID, spawn succeeds.
+/// (default_child_agent is deprecated and ignored.)
 #[tokio::test]
 async fn test_validate_agent_id_fallback_to_parent() {
     let cm = Arc::new(make_config_manager());
@@ -117,10 +120,10 @@ async fn test_validate_agent_id_fallback_to_parent() {
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
-    let result =
-        controller.validate(&parent_id, None).await.expect(
-            "should succeed: no agentId + no default_child_agent + requireAgentId=false → fallback to parent",
-        );
+    let result = controller
+        .validate(&parent_id, None)
+        .await
+        .expect("should succeed: no agentId + requireAgentId=false → fallback to parent");
 
     assert_eq!(result.config.id, "parent");
     assert_eq!(result.effective_max_spawn_depth, 1);
@@ -128,6 +131,7 @@ async fn test_validate_agent_id_fallback_to_parent() {
 
 /// Whitelist does not contain the parent agent ID → fallback resolves to
 /// parent ID, but whitelist check rejects it.
+/// (default_child_agent is deprecated and ignored.)
 #[tokio::test]
 async fn test_validate_agent_id_fallback_rejected_by_whitelist() {
     let cm = Arc::new(make_config_manager());
@@ -182,17 +186,18 @@ async fn test_validate_explicit_agent_id_no_fallback() {
     assert_eq!(result.config.id, "explicit-child");
 }
 
-/// When default_child_agent is configured and no explicit agentId is given,
-/// the fallback resolves to default_child_agent (not the parent agent ID).
+/// When default_child_agent is configured but no explicit agentId is given,
+/// the fallback resolves to the parent agent ID (not default_child_agent).
+/// default_child_agent is deprecated and ignored per design doc §④.
 #[tokio::test]
-async fn test_validate_default_child_agent_precedes_parent_fallback() {
+async fn test_validate_default_child_agent_ignored_falls_back_to_parent() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm);
 
     let mut sub = SubagentsConfig::default();
     sub.max_spawn_depth = Some(2);
-    sub.default_child_agent = Some("my-default".to_string());
+    sub.default_child_agent = Some("my-default".to_string()); // deprecated, ignored
     sub.allow_agents = vec!["*".to_string()];
     let parent = make_agent("parent", sub);
     let default_child = make_agent("my-default", SubagentsConfig::default());
@@ -200,12 +205,14 @@ async fn test_validate_default_child_agent_precedes_parent_fallback() {
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
+    // No target_agent_id → falls back to parent agent ID ("parent"),
+    // NOT to default_child_agent ("my-default").
     let result = controller
         .validate(&parent_id, None)
         .await
-        .expect("should succeed using default_child_agent");
+        .expect("should succeed using parent agent ID as default");
 
-    assert_eq!(result.config.id, "my-default");
+    assert_eq!(result.config.id, "parent");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
