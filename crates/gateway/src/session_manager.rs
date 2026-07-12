@@ -3,7 +3,7 @@
 //! Responsible for session lifecycle: lookup, creation, restoration.
 //! On daemon shutdown, `flush_all()` serializes all active sessions to the persistence backend.
 
-use crate::{DmScope, GatewayConfig, Message, Session};
+use crate::{compute_session_key, GatewayConfig, Message, Session};
 use closeclaw_common::processor::ProcessError;
 use closeclaw_common::shutdown::ShutdownMode;
 
@@ -48,8 +48,6 @@ pub struct SessionManager {
     pub sessions: RwLock<HashMap<String, Session>>,
     /// Persistence backend (for archived session restoration)
     storage: RwLock<Option<Arc<dyn PersistenceService>>>,
-    /// DM scope policy (determines how session keys are computed)
-    dm_scope: DmScope,
     /// IM adapters for sending notifications during restoration
     adapters: RwLock<HashMap<String, Arc<dyn IMPlugin>>>,
     /// Per-session ConversationSession for llm_busy and pending_messages management
@@ -110,9 +108,7 @@ pub struct SessionManager {
 
 impl std::fmt::Debug for SessionManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SessionManager")
-            .field("dm_scope", &self.dm_scope)
-            .finish_non_exhaustive()
+        f.debug_struct("SessionManager").finish_non_exhaustive()
     }
 }
 
@@ -120,7 +116,7 @@ impl SessionManager {
     /// Create a new SessionManager with the given config, optional storage,
     /// workspace directory and bootstrap mode.
     pub fn new(
-        config: &GatewayConfig,
+        _config: &GatewayConfig,
         storage: Option<Arc<dyn PersistenceService>>,
         workspace_dir: Option<PathBuf>,
         default_reasoning_level: ReasoningLevel,
@@ -128,7 +124,6 @@ impl SessionManager {
         Self {
             sessions: RwLock::new(HashMap::new()),
             storage: RwLock::new(storage),
-            dm_scope: config.dm_scope,
             adapters: RwLock::new(HashMap::new()),
             conversation_sessions: RwLock::new(HashMap::new()),
             workspace_dir,
@@ -327,15 +322,20 @@ impl SessionManager {
     }
 
     /// Compute session key from channel, message and optional account_id.
-    fn compute_session_key(
+    fn compute_session_key_local(
         &self,
         channel: &str,
         message: &Message,
         account_id: Option<&str>,
         timestamp_ms: i64,
     ) -> String {
-        self.dm_scope
-            .compute_session_key(channel, message, account_id, timestamp_ms)
+        compute_session_key(
+            channel,
+            &message.from,
+            &message.to,
+            account_id,
+            timestamp_ms,
+        )
     }
 
     /// Strip the `{timestamp_ms}-` prefix from a session key, returning
@@ -447,7 +447,8 @@ impl SessionManager {
             return Ok(active_id.clone());
         }
 
-        let session_key = self.compute_session_key(channel, message, account_id, message.timestamp);
+        let session_key =
+            self.compute_session_key_local(channel, message, account_id, message.timestamp);
         let session_id = self
             .resolve(&session_key, channel, message, account_id)
             .await?;
