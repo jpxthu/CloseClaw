@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::persistence::{ReasoningLevel, SessionMode};
-use closeclaw_agent::communication::CommunicationConfig;
+use crate::spawn::CommunicationConfig;
 use closeclaw_common::RunningStats;
 use closeclaw_common::StreamingSink;
 use closeclaw_common::TurnCounter;

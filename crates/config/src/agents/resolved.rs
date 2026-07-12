@@ -294,6 +294,7 @@ fn apply_subagent_defaults(mut config: SubagentsConfig) -> SubagentsConfig {
 ///
 /// For `Option<T>` fields: project's `Some` wins, otherwise user's `Some`,
 /// otherwise the field's default value.
+#[allow(deprecated)] // default_child_agent is deprecated; merge preserved for config compatibility
 fn merge_subagents(project: SubagentsConfig, user: SubagentsConfig) -> SubagentsConfig {
     let merged = SubagentsConfig {
         allow_agents: override_if_non_empty(project.allow_agents, user.allow_agents),

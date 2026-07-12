@@ -5,7 +5,7 @@
 //! - `list_descendants`: multi-level nesting / single level / no descendants
 //! - `get_parent`: has parent / root node (no parent)
 
-use super::spawn::{ChildSessionInfo, SpawnMode, SpawnTree};
+use closeclaw_session::spawn::{ChildSessionInfo, SpawnMode, SpawnTree};
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 

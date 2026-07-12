@@ -1,6 +1,9 @@
 //! Agent communication permission checks.
+//!
+//! Re-exports from `closeclaw_session::spawn::communication` and provides
+//! gateway-side session pair resolution and evaluation helpers.
 
-pub use closeclaw_agent::communication::{
+pub use closeclaw_session::spawn::{
     check_communication_allowed, CommunicationCheckResult, CommunicationConfig, CommunicationError,
 };
 

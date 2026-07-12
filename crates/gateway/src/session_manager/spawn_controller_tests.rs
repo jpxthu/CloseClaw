@@ -1,3 +1,5 @@
+#![allow(deprecated)] // default_child_agent is deprecated; tests verify backward-compatible config parsing
+
 //! Unit tests for SpawnController::validate.
 //!
 //! Covers the 4 rejection scenarios + 2 success scenarios defined in
@@ -783,71 +785,68 @@ async fn test_kill_child_no_descendants_clean_removal() {
 
 // ── Step 1.3: children survive across parent turns ────────────────────
 
-/// When no target_agent_id is provided and default_child_agent resolves
-/// to an agent not in the allowlist, the whitelist check should reject it.
+/// When no target_agent_id is provided and parent agent is NOT in the
+/// allowlist, the whitelist check should reject it (parent agent ID is
+/// the default per design doc §Spawn 控制流程 ④).
 #[tokio::test]
-async fn test_validate_default_child_agent_blocked_by_whitelist() {
+async fn test_validate_no_target_parent_not_in_allowlist() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm);
 
-    // Parent has default_child_agent="fallback-child" but allowlist
-    // only allows "allowed-agent" — fallback should be blocked.
+    // Allowlist only allows "allowed-agent", parent "parent" is not in it.
+    // default_child_agent is deprecated and ignored.
     let mut sub = SubagentsConfig::default();
-    sub.default_child_agent = Some("fallback-child".to_string());
+    sub.default_child_agent = Some("fallback-child".to_string()); // deprecated, ignored
     sub.allow_agents = vec!["allowed-agent".to_string()];
     sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
-    let fallback_child = make_agent("fallback-child", SubagentsConfig::default());
-    inject_agents(
-        &cm,
-        vec![("parent", parent), ("fallback-child", fallback_child)],
-    );
+    inject_agents(&cm, vec![("parent", parent)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
+    // No target_agent_id → falls back to parent agent ID ("parent")
+    // "parent" not in allowlist → AgentNotAllowed
     let err = controller
         .validate(&parent_id, None)
         .await
-        .expect_err("should reject when default_child_agent not in allowlist");
+        .expect_err("should reject when parent not in allowlist");
 
     match err {
         SpawnError::AgentNotAllowed { agent_id } => {
-            assert_eq!(agent_id, "fallback-child");
+            assert_eq!(agent_id, "parent");
         }
         other => panic!("expected AgentNotAllowed, got {:?}", other),
     }
 }
 
-/// When no target_agent_id is provided and default_child_agent resolves
-/// to an agent in the allowlist, the whitelist check should pass.
+/// When no target_agent_id is provided and parent agent IS in the
+/// allowlist, the whitelist check should pass (parent agent ID is the
+/// default per design doc §Spawn 控制流程 ④).
 #[tokio::test]
-async fn test_validate_default_child_agent_allowed_by_whitelist() {
+async fn test_validate_no_target_parent_in_allowlist() {
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm);
 
-    // Parent has default_child_agent="allowed-child" and allowlist
-    // contains "allowed-child" — should pass.
+    // default_child_agent is deprecated and ignored — parent agent ID is used.
     let mut sub = SubagentsConfig::default();
-    sub.default_child_agent = Some("allowed-child".to_string());
-    sub.allow_agents = vec!["allowed-child".to_string()];
+    sub.default_child_agent = Some("allowed-child".to_string()); // deprecated, ignored
+    sub.allow_agents = vec!["parent".to_string()];
     sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
-    let allowed_child = make_agent("allowed-child", SubagentsConfig::default());
-    inject_agents(
-        &cm,
-        vec![("parent", parent), ("allowed-child", allowed_child)],
-    );
+    inject_agents(&cm, vec![("parent", parent)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
+    // No target_agent_id → falls back to parent agent ID ("parent")
+    // "parent" IS in allowlist → whitelist passes
     let result = controller
         .validate(&parent_id, None)
         .await
-        .expect("validate should succeed for allowed default_child_agent");
+        .expect("validate should succeed: parent agent is in its own allowlist");
 
-    assert_eq!(result.config.id, "allowed-child");
+    assert_eq!(result.config.id, "parent");
 }
 
 /// Verify that session-mode children registered under a parent are NOT
