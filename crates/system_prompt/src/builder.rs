@@ -250,7 +250,7 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
     let ctx = FragmentContext {
         agent_id: config.agent_id.clone().unwrap_or_default(),
         bootstrap_mode: bootstrap_mode.unwrap_or(BootstrapMode::Full),
-        workdir: root.to_path_buf(),
+        bootstrap_dir: root.to_path_buf(),
         effective_spawn_budget: config.effective_spawn_budget,
     };
 
@@ -431,10 +431,10 @@ mod tests {
         let skill_reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(vec![]))));
         let builder = PromptBuilder::new(tool_reg, skill_reg, None, None, None, None);
 
-        // No workdir → BootstrapFragmentProvider returns None
+        // No bootstrap_dir → BootstrapFragmentProvider returns None
         // Empty tool registry → ToolsFragmentProvider returns None
         // Empty skill registry → SkillsFragmentProvider returns None
-        // No workdir → MemoryFragmentProvider returns None
+        // No bootstrap_dir → MemoryFragmentProvider returns None
         // → fallback DEFAULT_PROMPT
         let ctx = FragmentContext::test_default();
         let result = builder.build(&ctx).await;
@@ -452,7 +452,7 @@ mod tests {
         let builder = PromptBuilder::new(tool_reg, skill_reg, None, None, None, None);
 
         let ctx = FragmentContext {
-            workdir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_path_buf(),
             ..FragmentContext::test_default()
         };
         let result = builder.build(&ctx).await;
