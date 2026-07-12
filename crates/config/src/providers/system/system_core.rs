@@ -127,20 +127,13 @@ impl Default for SessionMaintenanceConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionConfig {
-    #[serde(default = "def_dm_scope")]
-    pub dm_scope: String,
     #[serde(default)]
     pub maintenance: SessionMaintenanceConfig,
-}
-
-fn def_dm_scope() -> String {
-    "per-account-channel-peer".to_string()
 }
 
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
-            dm_scope: def_dm_scope(),
             maintenance: SessionMaintenanceConfig::default(),
         }
     }
@@ -317,23 +310,6 @@ impl ConfigProvider for SystemConfigData {
                     message: format!(
                         "mode must be one of {:?}, got '{}'",
                         valid_modes, session.maintenance.mode
-                    ),
-                });
-            }
-        }
-        if let Some(ref session) = self.session {
-            let valid_scopes = [
-                "per-account-channel-peer",
-                "per-channel-peer",
-                "per-peer",
-                "main",
-            ];
-            if !valid_scopes.contains(&session.dm_scope.as_str()) {
-                return Err(ConfigError::ValueError {
-                    field: "session.dmScope".to_string(),
-                    message: format!(
-                        "dmScope must be one of {:?}, got '{}'",
-                        valid_scopes, session.dm_scope
                     ),
                 });
             }

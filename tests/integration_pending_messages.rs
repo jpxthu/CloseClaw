@@ -16,7 +16,7 @@ use std::sync::Arc;
 use tempfile::TempDir;
 
 use closeclaw_gateway::session_manager::SessionManager;
-use closeclaw_gateway::{DmScope, GatewayConfig, Message};
+use closeclaw_gateway::{GatewayConfig, Message};
 use closeclaw_llm::fake::FakeProvider;
 use closeclaw_llm::provider::Provider;
 use closeclaw_llm::LLMRegistry;
@@ -29,7 +29,6 @@ fn test_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: DmScope::default(),
         ..Default::default()
     }
 }

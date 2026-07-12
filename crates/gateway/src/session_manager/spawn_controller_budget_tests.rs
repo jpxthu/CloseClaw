@@ -13,7 +13,7 @@ use closeclaw_session::storage::memory::MemoryStorage;
 
 use crate::session_manager::spawn_controller::{SpawnController, SpawnError};
 use crate::session_manager::{ChildSessionInfo, SpawnMode};
-use crate::{DmScope, GatewayConfig, SessionManager};
+use crate::{GatewayConfig, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
 
@@ -26,7 +26,6 @@ fn test_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: DmScope::default(),
         ..Default::default()
     }
 }

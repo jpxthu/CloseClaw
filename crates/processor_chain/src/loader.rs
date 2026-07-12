@@ -6,7 +6,6 @@
 
 use std::path::PathBuf;
 
-use closeclaw_gateway::DmScope;
 use serde::Deserialize;
 
 use super::content_normalizer::ContentNormalizer;
@@ -60,11 +59,7 @@ pub enum ProcessorConfig {
     DslParser,
     /// [`SessionRouter`](super::session_router::SessionRouter) — computes a
     /// deterministic `session_key` from routing fields.
-    SessionRouter {
-        /// DM scope controlling session key partitioning.
-        #[serde(default)]
-        dm_scope: DmScope,
-    },
+    SessionRouter,
     /// [`OutboundRawLogProcessor`](super::outbound_raw_log::OutboundRawLogProcessor)
     /// — logs outbound messages to a JSON file.
     OutboundRawLog {
@@ -135,9 +130,7 @@ impl ProcessorChainLoader {
                 Ok(std::sync::Arc::new(processor))
             }
             ProcessorConfig::ContentNormalizer => Ok(std::sync::Arc::new(ContentNormalizer::new())),
-            ProcessorConfig::SessionRouter { dm_scope } => {
-                Ok(std::sync::Arc::new(SessionRouter::new(*dm_scope)))
-            }
+            ProcessorConfig::SessionRouter => Ok(std::sync::Arc::new(SessionRouter::new())),
             ProcessorConfig::DslParser => Ok(std::sync::Arc::new(DslParser)),
             ProcessorConfig::OutboundRawLog {
                 enabled,

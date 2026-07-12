@@ -3,7 +3,7 @@
 //! These tests live in a separate file so that src/gateway/tests.rs stays
 //! under the 500-line limit.
 
-use crate::{DmScope, GatewayConfig, InboundChainInput, Message, SessionManager};
+use crate::{GatewayConfig, InboundChainInput, Message, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::IMPlugin;
 use std::collections::HashMap;
@@ -67,7 +67,6 @@ fn make_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: DmScope::default(),
         ..Default::default()
     }
 }
@@ -477,9 +476,7 @@ async fn test_process_inbound_chain_with_session_router() {
         ReasoningLevel::default(),
     ));
     let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
-    registry.register(Arc::new(closeclaw_common::processor::SessionRouter::new(
-        DmScope::default(),
-    )));
+    registry.register(Arc::new(closeclaw_common::processor::SessionRouter::new()));
     let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(registry));
 
     let result = gw
@@ -521,9 +518,7 @@ async fn test_process_inbound_chain_uses_system_time() {
         ReasoningLevel::default(),
     ));
     let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
-    registry.register(Arc::new(closeclaw_common::processor::SessionRouter::new(
-        DmScope::default(),
-    )));
+    registry.register(Arc::new(closeclaw_common::processor::SessionRouter::new()));
     let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(registry));
 
     let before_ms = chrono::Utc::now().timestamp_millis();
@@ -662,9 +657,7 @@ async fn test_process_inbound_chain_processor_error() {
 #[tokio::test]
 async fn test_e2e_inbound_full_stack_strips_ansi_and_injects_session_key() {
     let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
-    registry.register(Arc::new(closeclaw_common::processor::SessionRouter::new(
-        DmScope::default(),
-    )));
+    registry.register(Arc::new(closeclaw_common::processor::SessionRouter::new()));
     registry.register(Arc::new(
         closeclaw_common::processor::content_normalizer::ContentNormalizer::new(),
     ));
@@ -706,9 +699,7 @@ async fn test_e2e_inbound_full_stack_strips_ansi_and_injects_session_key() {
 #[tokio::test]
 async fn test_e2e_processed_content_feeds_into_handle_inbound() {
     let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
-    registry.register(Arc::new(closeclaw_common::processor::SessionRouter::new(
-        DmScope::default(),
-    )));
+    registry.register(Arc::new(closeclaw_common::processor::SessionRouter::new()));
     registry.register(Arc::new(
         closeclaw_common::processor::content_normalizer::ContentNormalizer::new(),
     ));

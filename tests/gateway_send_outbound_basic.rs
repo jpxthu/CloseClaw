@@ -8,7 +8,7 @@ use closeclaw_common::im_plugin::{
     AdapterError, IMPlugin, MessageType, NormalizedMessage, RenderedOutput,
 };
 use closeclaw_common::processor::DslParseResult;
-use closeclaw_gateway::{DmScope, Gateway, GatewayConfig, GatewayError, Message, SessionManager};
+use closeclaw_gateway::{Gateway, GatewayConfig, GatewayError, Message, SessionManager};
 use closeclaw_im_adapter::AdapterError as LocalAdapterError;
 use closeclaw_im_adapter::IMAdapter;
 use closeclaw_llm::types::ContentBlock;
@@ -157,7 +157,6 @@ pub(crate) fn make_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: DmScope::default(),
         ..Default::default()
     }
 }

@@ -6,7 +6,7 @@
 //! 3. Slash permission check timing: Handler → Permission → execute()
 //! 4. Restore notification routed through Gateway outbound chain
 
-use crate::{DmScope, GatewayConfig, Message, SessionManager};
+use crate::{GatewayConfig, Message, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::processor::ProcessError;
@@ -150,7 +150,6 @@ fn make_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: DmScope::default(),
         ..Default::default()
     }
 }

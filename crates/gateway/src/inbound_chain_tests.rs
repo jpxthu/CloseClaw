@@ -5,7 +5,7 @@
 //! process_inbound_chain → ProcessedMessage pipeline and are accessible
 //! in Gateway metadata.
 
-use crate::{DmScope, GatewayConfig, InboundChainInput, SessionManager};
+use crate::{GatewayConfig, InboundChainInput, SessionManager};
 use closeclaw_common::im_plugin::{MediaRef, MessageType};
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
@@ -17,7 +17,6 @@ fn make_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        dm_scope: DmScope::default(),
         ..Default::default()
     }
 }
