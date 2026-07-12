@@ -117,8 +117,8 @@ impl SpawnController {
 
         // ⑥ require_agent_id check — must come after concurrency/whitelist.
         // Check the original caller-provided agent_id, not the resolved fallback.
-        // Config-level defaults (default_child_agent, parent fallback) do not
-        // satisfy require_agent_id — only an explicit caller argument does.
+        // Parent-agent-id fallback does not satisfy require_agent_id —
+        // only an explicit caller argument does.
         if parent_cfg.require_agent_id && target_agent_id.is_none() {
             return Err(SpawnError::AgentIdRequired);
         }
@@ -238,25 +238,22 @@ impl SpawnController {
     }
 
     /// Resolve the target agent configuration under a single lock block.
-    /// Handles the agentId fallback chain:
+    /// Handles the agentId fallback chain (design doc §Spawn 控制流程 ④):
     ///   1. Explicit `target_agent_id` (caller-provided)
-    ///   2. `default_child_agent` from parent config
-    ///   3. Parent agent ID itself (design doc §Spawn 控制流程 ④)
+    ///   2. Parent agent ID itself (spawn self-copy)
     ///
-    /// The third fallback only applies when `require_agent_id` is false
-    /// (checked separately in `validate`).
+    /// `SubagentsConfig.default_child_agent` is deprecated and ignored —
+    /// when no agentId is provided, the parent agent's own ID is always used.
     fn resolve_target_config(
         &self,
         parent_agent_id: &str,
         target_agent_id: Option<&str>,
     ) -> Result<ResolvedTarget, SpawnError> {
         let agents = self.config_manager.agents();
-        let parent_config = agents.get(parent_agent_id);
 
-        // Full fallback chain: explicit → default_child_agent → parent agent ID
+        // Fallback chain: explicit → parent agent ID
         let target_id = target_agent_id
             .map(|s| s.to_string())
-            .or_else(|| parent_config.and_then(|pc| pc.subagents.default_child_agent.clone()))
             .or_else(|| Some(parent_agent_id.to_string()));
 
         let target_config = target_id.as_ref().and_then(|id| agents.get(id).cloned());

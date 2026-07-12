@@ -1,5 +1,6 @@
 pub mod bootstrap;
 pub mod code_block;
+pub mod communication;
 pub mod compaction;
 pub mod fragment;
 pub mod identity;
@@ -98,6 +99,9 @@ pub use slash_router::{
 pub use streaming::{DefaultStreamingRenderer, LineBuffer, StreamingRenderer};
 pub use turn::TurnCounter;
 
+pub use communication::{
+    check_communication_allowed, CommunicationCheckResult, CommunicationConfig, CommunicationError,
+};
 pub use session_mode::SessionMode;
 pub use session_mode_query::SessionModeQuery;
 pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, StorageProvider};

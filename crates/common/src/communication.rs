@@ -1,4 +1,9 @@
-//! Agent communication permission checks.
+//! Agent communication permission types.
+//!
+//! Defines `CommunicationConfig` for whitelist-based agent-to-agent
+//! messaging and the `check_communication_allowed` function for
+//! permission evaluation. Used by both the session spawn module and the
+//! agent crate's configuration layer.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

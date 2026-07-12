@@ -1,3 +1,5 @@
+#![allow(deprecated)] // default_child_agent is deprecated; tests verify backward-compatible config parsing
+
 use std::collections::HashMap;
 
 use super::*;

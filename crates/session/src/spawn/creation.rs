@@ -1,0 +1,276 @@
+//! Child session creation logic.
+//!
+//! Contains the core logic for creating a child `ConversationSession`
+//! during a spawn operation. Handles workspace resolution, bootstrap mode
+//! selection, system prompt construction, communication config setup,
+//! task injection, and mode inheritance.
+//!
+//! This module is called by the gateway's `SessionManager::create_child_session`
+//! wrapper, which handles the remaining registration steps (conversation_sessions
+//! map, sessions map, children table, checkpoint persistence, timeout).
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use crate::bootstrap::loader::BootstrapMode;
+use crate::llm_session::ChatSession;
+use crate::llm_session::ConversationSession;
+use crate::persistence::{PendingMessage, SessionMode};
+use closeclaw_config::agents::ResolvedAgentConfig;
+use uuid::Uuid;
+
+use super::communication::CommunicationConfig;
+use super::context::SpawnCreationContext;
+use super::types::SpawnMode;
+
+/// Result of creating a child session's `ConversationSession`.
+///
+/// The gateway receives this result and performs the remaining registration
+/// steps (inserting into maps, persisting checkpoint, tracking in spawn tree).
+pub struct ChildSessionCreated {
+    /// The newly created conversation session, ready for insertion.
+    pub conversation_session: Arc<tokio::sync::RwLock<ConversationSession>>,
+    /// The generated child session ID.
+    pub session_id: String,
+    /// Resolved workspace path for the child.
+    pub workspace_path: PathBuf,
+}
+
+/// Create a child `ConversationSession` for a spawned sub-agent.
+///
+/// Handles: workspace resolution, bootstrap mode, system prompt construction,
+/// communication config, task injection, mode inheritance.
+///
+/// The caller (gateway) is responsible for:
+/// - Registering in `conversation_sessions` and `sessions` maps
+/// - Parent handle registration for cascade stop
+/// - Checkpoint persistence
+/// - Spawn tree registration
+/// - Spawn timeout setup
+pub async fn create_child_conversation_session(
+    ctx: &dyn SpawnCreationContext,
+    config: &ResolvedAgentConfig,
+    parent_session_id: &str,
+    parent_agent_id: &str,
+    depth: u32,
+    task: &str,
+    light_context: bool,
+    workspace: Option<&str>,
+    mode: SpawnMode,
+    fork: bool,
+    model_override: Option<&str>,
+    parent_subagents_model: Option<&str>,
+    max_spawn_depth: u32,
+) -> Result<ChildSessionCreated, String> {
+    // 1. Generate child session_id.
+    let child_session_id = Uuid::new_v4().to_string();
+
+    // 2. Determine workspace path (3-level fallback).
+    let workdir_path = resolve_child_workspace(ctx, config, workspace, parent_session_id).await?;
+
+    // 3. Determine bootstrap_mode.
+    let bootstrap_mode = if light_context {
+        BootstrapMode::Minimal
+    } else {
+        config.bootstrap_mode
+    };
+
+    // 4. Model priority: explicit > parent subagents.model > agent.model > default.
+    let model = model_override
+        .map(String::from)
+        .or(parent_subagents_model.map(String::from))
+        .or(config.model.as_ref().map(|m| m.primary.clone()))
+        .unwrap_or_else(|| "default".to_string());
+
+    // 5. Derive child cancel token from parent's token tree.
+    let child_token = {
+        let parent_cs = ctx
+            .get_parent_conversation_session(parent_session_id)
+            .await
+            .ok_or_else(|| {
+                format!(
+                    "parent session not found in conversation_sessions: {}",
+                    parent_session_id
+                )
+            })?;
+        let parent_guard = parent_cs.read().await;
+        let token = parent_guard.child_cancel_token();
+        drop(parent_guard);
+        token
+    };
+
+    // 6. Construct ConversationSession.
+    let agent_id = config.id.clone();
+    let mut cs = ConversationSession::with_cancel_token(
+        child_session_id.clone(),
+        model,
+        workdir_path.clone(),
+        child_token,
+    )
+    .with_reasoning_level(ctx.default_reasoning_level())
+    .with_bootstrap_mode(bootstrap_mode);
+
+    // 7. Wire shutdown handle for busy-count tracking.
+    if let Some(signal) = ctx.shutdown_signal() {
+        cs.set_shutdown_handle(signal);
+    }
+
+    // 8. Inject LLM caller and system prompt builder.
+    if let Some(caller) = ctx.llm_caller() {
+        cs.set_llm_caller(caller);
+    }
+    if let Some(builder) = ctx.system_prompt_builder() {
+        cs.set_system_prompt_builder(builder);
+    }
+    cs.set_prompt_overrides(ctx.prompt_overrides());
+
+    // 9. Build initial system prompt, then append spawn context.
+    let base_prompt = cs
+        .rebuild_system_prompt(&child_session_id, &agent_id, Some(bootstrap_mode))
+        .await;
+    let spawn_context = build_spawn_context(depth, max_spawn_depth, parent_session_id, &mode, fork);
+    cs.replace_system_prompt(format!("{}\n{}", base_prompt, spawn_context));
+
+    // 10. Generate communication config: child may only communicate with parent.
+    let comm_config = CommunicationConfig::default_with_parent(Some(parent_agent_id));
+    cs = cs.with_communication_config(comm_config);
+
+    // 11. Fork mode: inherit parent session's conversation history.
+    if fork {
+        if let Some(parent_cs) = ctx.get_parent_conversation_session(parent_session_id).await {
+            let parent_msgs = parent_cs.read().await.messages().to_vec();
+            cs.clone_messages_from(&parent_msgs);
+        }
+    }
+
+    // 12. Inject task as pending message.
+    let pending_msg = PendingMessage::with_role(
+        format!("{}-task", child_session_id),
+        task.to_string(),
+        "assistant".to_string(),
+    );
+    cs.push_pending(pending_msg);
+
+    // 13. Inherit parent session mode (Plan Mode).
+    {
+        if let Some(parent_cs) = ctx.get_parent_conversation_session(parent_session_id).await {
+            let parent_mode = parent_cs.read().await.session_mode();
+            if parent_mode == SessionMode::Plan {
+                cs.set_session_mode(SessionMode::Plan);
+            }
+        }
+    }
+
+    let conversation_session = Arc::new(tokio::sync::RwLock::new(cs));
+
+    Ok(ChildSessionCreated {
+        conversation_session,
+        session_id: child_session_id,
+        workspace_path: workdir_path,
+    })
+}
+
+/// Resolve the workspace path for a child session.
+///
+/// Fallback order:
+/// 1. Explicit `workspace` arg (if provided).
+/// 2. `config.workspace` (if set).
+/// 3. `<parent_workspace>/<child_agent_id>/<user_id>/` — subdirectory under the
+///    parent session's workspace.
+/// 4. `/tmp` (last resort).
+async fn resolve_child_workspace(
+    ctx: &dyn SpawnCreationContext,
+    config: &ResolvedAgentConfig,
+    workspace: Option<&str>,
+    parent_session_id: &str,
+) -> Result<PathBuf, String> {
+    if let Some(ws) = workspace {
+        return Ok(PathBuf::from(ws));
+    }
+    if let Some(ref ws) = config.workspace {
+        return Ok(ws.clone());
+    }
+    // Level 3: create subdirectory under parent session's workspace.
+    if let Some(parent_cs) = ctx.get_parent_conversation_session(parent_session_id).await {
+        let parent_ws = {
+            let guard = parent_cs.read().await;
+            guard.workdir().to_path_buf()
+        };
+        let user_id = ctx
+            .sender_id(parent_session_id)
+            .await
+            .unwrap_or_else(|| "default".to_string());
+        let child_ws = parent_ws.join(&config.id).join(&user_id);
+        std::fs::create_dir_all(&child_ws)
+            .map_err(|e| format!("workspace creation failed: {}", e))?;
+        return Ok(child_ws);
+    }
+    Ok(PathBuf::from("/tmp"))
+}
+
+/// Build the spawn context paragraph appended to child system prompts.
+///
+/// The paragraph tells the child agent:
+/// - Its role (sub-agent)
+/// - Current depth / maximum depth
+/// - Communication behavior (push-based, no polling)
+/// - Behavioral constraints (direct execution, no back-and-forth)
+/// - Spawn guidance when depth allows further spawning
+pub fn build_spawn_context(
+    depth: u32,
+    max_spawn_depth: u32,
+    parent_session_id: &str,
+    spawn_mode: &SpawnMode,
+    fork: bool,
+) -> String {
+    let mode_str = match spawn_mode {
+        SpawnMode::Run => "run",
+        SpawnMode::Session => "session",
+    };
+    let mut ctx = format!(
+        "## Spawn Context\n\
+         You are running as a sub-agent.\n\
+         - **parent_session_id**: {parent_session_id}\n\
+         - **depth**: {depth} / **max_spawn_depth**: {max_spawn_depth}\n\
+         - **spawn_mode**: {mode_str}\n\
+         - **fork**: {fork}\n\
+         **Communication behavior:** Your results are automatically \
+         pushed back to the parent agent when you finish. \
+         Do not poll for status. \
+         If you need to wait for sub-agent results, use the yield \
+         mechanism to end your current turn.\n\
+         **Behavioral constraints:**\n\
+         - Trust push-based completion
+           notifications\n             - Do not call session query tools
+           to check child agent status\n             - Execute the task directly;
+           do not ask for confirmation \
+           or suggest next steps — the parent agent handles that"
+    );
+    if depth < max_spawn_depth {
+        let upper = max_spawn_depth - depth;
+        ctx.push_str(&format!(
+            "\n\
+             - You may spawn child agents for sub-tasks. \
+               Your effective maximum depth for children is {upper}."
+        ));
+    }
+
+    // Structured output guidance (optional, per design doc §结构化输出).
+    ctx.push_str(
+        "\n\
+         **Structured output (optional):** \
+         When you complete your task, consider structuring your \
+         response with the following sections:\n\
+         - **Task scope**: one-sentence confirmation of what you \
+           understood\n\
+         - **Execution results**: key findings or answers\n\
+         - **Files involved**: relevant file paths\n\
+         - **File changes**: modified files and what changed\n\
+         - **Issues found**: problems or risks encountered\n\
+         Structured output is a suggestion — you may reply freely — \
+         but it helps the parent agent process your results.",
+    );
+
+    ctx.push('\n');
+    ctx
+}

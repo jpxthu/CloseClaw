@@ -17,6 +17,7 @@ use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_helpers::{
     collect_chain_deny_subjects, collect_chain_effective_permissions,
 };
+use closeclaw_session::spawn::context::SpawnCreationContext;
 use closeclaw_session::spawn::controller::SpawnContext;
 
 use super::SessionManager;
@@ -39,6 +40,82 @@ impl SpawnContext for SessionManager {
 
     async fn effective_max_spawn_depth(&self, session_id: &str) -> Option<u32> {
         self.get_effective_max_spawn_depth(session_id).await
+    }
+}
+
+// ── SpawnCreationContext impl ────────────────────────────────────────────
+
+#[async_trait::async_trait]
+impl SpawnCreationContext for SessionManager {
+    async fn get_parent_conversation_session(
+        &self,
+        parent_session_id: &str,
+    ) -> Option<Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>> {
+        self.get_conversation_session(parent_session_id).await
+    }
+
+    async fn load_checkpoint(
+        &self,
+        session_id: &str,
+    ) -> Option<closeclaw_session::persistence::SessionCheckpoint> {
+        let storage = self.storage.read().await;
+        let storage = storage.as_ref()?;
+        storage.load_checkpoint(session_id).await.ok().flatten()
+    }
+
+    async fn save_checkpoint(&self, cp: &closeclaw_session::persistence::SessionCheckpoint) {
+        let storage = self.storage.read().await;
+        if let Some(storage) = storage.as_ref() {
+            if let Err(e) = storage.save_checkpoint(cp).await {
+                tracing::warn!(
+                    session_id = %cp.session_id,
+                    error = %e,
+                    "failed to save child session checkpoint"
+                );
+            }
+        }
+    }
+
+    fn get_agent_config(
+        &self,
+        agent_id: &str,
+    ) -> Option<closeclaw_config::agents::ResolvedAgentConfig> {
+        // Synchronous lookup from the config manager's in-memory agents map.
+        let guard = self.config_manager.try_read().ok()?;
+        let cm = (*guard).as_ref()?;
+        let agents = cm.agents();
+        agents.get(agent_id).cloned()
+    }
+
+    fn shutdown_signal(&self) -> Option<Arc<dyn closeclaw_common::ShutdownSignal>> {
+        // Return the shutdown handle as a ShutdownSignal trait object.
+        // Use try_read to avoid blocking; if unavailable, return None.
+        let guard = self.shutdown_handle.try_read().ok()?;
+        let handle = (*guard).clone()?;
+        Some(handle)
+    }
+
+    fn default_reasoning_level(&self) -> closeclaw_session::persistence::ReasoningLevel {
+        self.default_reasoning_level
+    }
+
+    fn llm_caller(&self) -> Option<Arc<dyn closeclaw_common::LlmCaller>> {
+        let guard = self.llm_caller.try_read().ok()?;
+        guard.clone()
+    }
+
+    fn system_prompt_builder(&self) -> Option<Arc<dyn closeclaw_common::SystemPromptBuilder>> {
+        let guard = self.system_prompt_builder.try_read().ok()?;
+        guard.clone()
+    }
+
+    fn prompt_overrides(&self) -> Option<closeclaw_common::PromptOverrides> {
+        let guard = self.prompt_overrides.try_read().ok()?;
+        guard.clone()
+    }
+
+    async fn sender_id(&self, session_id: &str) -> Option<String> {
+        self.get_sender_id(session_id).await
     }
 }
 

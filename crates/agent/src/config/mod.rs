@@ -2,7 +2,7 @@
 //!
 //! Design: `docs/agent/MULTI_AGENT_ARCHITECTURE.md`
 
-pub use crate::communication::{
+pub use closeclaw_common::communication::{
     check_communication_allowed, CommunicationCheckResult, CommunicationConfig,
 };
 pub use closeclaw_common::BootstrapMode;

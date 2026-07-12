@@ -1,3 +1,5 @@
+#![allow(deprecated)] // default_child_agent is deprecated; tests verify backward-compatible config parsing
+
 //! Boundary and edge-case tests for SpawnController::validate (Step 1.6).
 //!
 //! Covers scenarios not in the main test file:
@@ -152,9 +154,10 @@ async fn test_validate_empty_allow_agents_blocks_target() {
     }
 }
 
-/// Empty `allow_agents` array with no target (and no default_child_agent)
-/// should fail with AgentNotAllowed — the new parent-agent-id fallback
-/// resolves to "parent", which is then rejected by the empty allowlist.
+/// Empty `allow_agents` array with no target should fail with
+/// AgentNotAllowed — when no target_agent_id is provided, the parent
+/// agent ID ("parent") is used as default, which is rejected by the
+/// empty allowlist.
 #[tokio::test]
 async fn test_validate_empty_allow_agents_no_target_requires_id() {
     let cm = Arc::new(make_config_manager());
@@ -175,8 +178,8 @@ async fn test_validate_empty_allow_agents_no_target_requires_id() {
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
-    // No target_agent_id + no default_child_agent -> falls back to parent_agent_id
-    // ("parent"). Empty allowlist rejects "parent" -> AgentNotAllowed.
+    // No target_agent_id -> falls back to parent_agent_id ("parent").
+    // Empty allowlist rejects "parent" -> AgentNotAllowed.
     let err = controller
         .validate(&parent_id, None)
         .await
@@ -221,9 +224,9 @@ async fn test_validate_unparent_config_uses_defaults() {
     assert_eq!(result.effective_max_spawn_depth, 0);
 }
 
-/// requireAgentId=false, no default_child_agent, no target_agent_id ->
-/// the new parent-agent-id fallback resolves to the parent agent itself.
-/// Validation succeeds because the parent agent is in its own allowlist.
+/// requireAgentId=false, no target_agent_id -> parent-agent-id fallback
+/// resolves to the parent agent itself. Validation succeeds because the
+/// parent agent is in its own allowlist.
 #[tokio::test]
 async fn test_validate_require_agent_id_false_no_target_no_default() {
     let cm = Arc::new(make_config_manager());
@@ -243,8 +246,8 @@ async fn test_validate_require_agent_id_false_no_target_no_default() {
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
-    // No target_agent_id + no default_child_agent -> falls back to parent_agent_id
-    // ("parent"). Default allow_agents=["*"] -> whitelist passes.
+    // No target_agent_id -> falls back to parent_agent_id ("parent").
+    // Default allow_agents=["*"] -> whitelist passes.
     let result = controller
         .validate(&parent_id, None)
         .await

@@ -81,7 +81,13 @@ pub struct SubagentsConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
     /// Default child agent ID (used when spawn omits agentId).
+    ///
+    /// **Deprecated**: This field is no longer used in agentId resolution.
+    /// When spawn omits agentId, the parent agent's own ID is always used
+    /// (design doc §Spawn 控制流程 ④). Kept for config file compatibility;
+    /// ignored by SpawnController.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[deprecated(note = "Ignored: spawn now always uses parent agent ID as default")]
     pub default_child_agent: Option<String>,
     /// Model override for child agents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -89,6 +95,7 @@ pub struct SubagentsConfig {
 }
 
 impl Default for SubagentsConfig {
+    #[allow(deprecated)] // default_child_agent is deprecated; included for config backward compat
     fn default() -> Self {
         Self {
             allow_agents: default_all(),

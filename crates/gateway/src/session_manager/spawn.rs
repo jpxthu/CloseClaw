@@ -1,25 +1,23 @@
 //! Child session creation and tracking for `SessionManager`.
 //!
-//! Implements session-based spawn: `create_child_session` builds a
-//! `ConversationSession` for the spawned sub-agent, registers it in
-//! `sessions` / `conversation_sessions`, and tracks it in the `children`
-//! table so `SpawnController` can enforce depth and concurrency limits.
+//! `create_child_session` delegates the core ConversationSession creation
+//! to `closeclaw_session::spawn::create_child_conversation_session` and
+//! handles the gateway-specific registration steps (conversation_sessions
+//! map, sessions map, children table, checkpoint persistence, timeout).
 
 use super::SessionManager;
-use crate::session_manager::communication::{CommunicationConfig, CommunicationError};
+use crate::session_manager::communication::CommunicationError;
 use crate::Session;
 use closeclaw_config::agents::ResolvedAgentConfig;
-use closeclaw_session::bootstrap::loader::BootstrapMode;
-use closeclaw_session::llm_session::ChatSession;
-use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{
-    PendingMessage, PersistenceError, SessionCheckpoint, SessionMode, SessionStatus,
+    PendingMessage, PersistenceError, SessionCheckpoint, SessionStatus,
 };
+use closeclaw_session::spawn as session_spawn;
 use std::collections::HashSet;
-use std::path::PathBuf;
 use tracing::warn;
-use uuid::Uuid;
 
+#[cfg(test)]
+use closeclaw_session::spawn::creation::build_spawn_context as build_spawn_context_inner;
 pub use closeclaw_session::spawn::{ChildSessionInfo, SpawnMode};
 
 impl SessionManager {
@@ -30,10 +28,6 @@ impl SessionManager {
     }
 
     /// Get the effective max spawn depth budget for a session.
-    ///
-    /// Reads from the session's checkpoint (persisted by `create_child_session`).
-    /// Returns `None` if the session has no stored effective budget (e.g. root
-    /// sessions created before Step 1.1, or when storage is unavailable).
     pub async fn get_effective_max_spawn_depth(&self, session_id: &str) -> Option<u32> {
         let storage = self.storage.read().await;
         let storage = storage.as_ref()?;
@@ -44,23 +38,12 @@ impl SessionManager {
     }
 
     /// Get the parent session ID of a given child session.
-    ///
-    /// Returns `None` if the child is unknown or has no registered parent.
     pub async fn get_parent_of(&self, child_id: &str) -> Option<String> {
         let children = self.children.read().await;
         children.get_parent(child_id)
     }
 
     /// Count active (non-completed) child sessions for a parent.
-    ///
-    /// A child is considered "active" if its session still exists in
-    /// `conversation_sessions`. Run-mode sessions that have completed
-    /// and been cleaned up are excluded from the count, so the
-    /// concurrency limit is not consumed by finished children.
-    ///
-    /// Lock order: `children` read lock (collect IDs) then
-    /// `conversation_sessions` read lock (check existence), held
-    /// separately to avoid deadlocks.
     pub async fn count_active_children(&self, parent_id: &str) -> usize {
         let child_ids: Vec<String> = {
             let children = self.children.read().await;
@@ -81,10 +64,7 @@ impl SessionManager {
     }
 
     /// List all active child session IDs for a parent.
-    ///
-    /// Returns a cloned snapshot so the caller does not hold the
-    /// `children` lock across await points.
-    #[allow(dead_code)] // Used in spawn_budget_tests.rs for cascade simulation
+    #[allow(dead_code)]
     pub async fn list_active_child_ids(&self, parent_id: &str) -> Vec<String> {
         let children = self.children.read().await;
         children
@@ -94,27 +74,30 @@ impl SessionManager {
             .collect()
     }
 
-    /// Register a child session under its parent. Called after child session creation.
+    /// Register a child session under its parent.
     pub async fn register_child(&self, parent_id: &str, info: ChildSessionInfo) {
         let mut children = self.children.write().await;
         children.register_child(parent_id, info);
     }
 
+    /// Build the spawn context paragraph appended to child system prompts.
+    /// Delegates to the session crate's implementation.
+    #[cfg(test)]
+    pub(crate) fn build_spawn_context(
+        depth: u32,
+        max_spawn_depth: u32,
+        parent_session_id: &str,
+        spawn_mode: &SpawnMode,
+        fork: bool,
+    ) -> String {
+        build_spawn_context_inner(depth, max_spawn_depth, parent_session_id, spawn_mode, fork)
+    }
+
     /// Create a child session for a spawned sub-agent.
     ///
-    /// Returns the new child session_id on success.
-    ///
-    /// Workflow:
-    /// 1. Generate a new UUID-based session id.
-    /// 2. Resolve workspace path (3-level fallback: explicit
-    ///    arg → config → ensure subdir under parent workspace).
-    /// 3. Pick bootstrap mode (Minimal if light_context, else config's mode).
-    /// 4. Build system prompt (mirrors `find_or_create` —
-    ///    load bootstrap files, build ToolContext, call
-    ///    `build_from_workspace`).
-    /// 5. Construct `ConversationSession` (with system prompt + default reasoning level).
-    /// 6. Push `task` as the first pending message so the child picks it up.
-    /// 7. Register the new child in `conversation_sessions` + `sessions` + `children` tables.
+    /// Delegates core ConversationSession creation to the session crate,
+    /// then handles gateway-specific registration (maps, checkpoint,
+    /// spawn tree, timeout).
     #[allow(clippy::too_many_arguments)]
     pub async fn create_child_session(
         &self,
@@ -149,9 +132,7 @@ impl SessionManager {
             }
         }
 
-        // Apply tool whitelist override: when allowed_tools is provided,
-        // replace the config's tools list so the child session only has
-        // access to the specified tools.
+        // Apply tool whitelist override.
         let config = if let Some(ref tools) = allowed_tools {
             let mut overridden = config.clone();
             overridden.tools = tools.clone();
@@ -159,161 +140,58 @@ impl SessionManager {
         } else {
             config.clone()
         };
-        let config = &config;
 
-        // Tool-level spawn prevention (design doc §两层防护):
-        // When the effective max_spawn_depth budget is 0, strip
-        // sessions_spawn from the child's tool whitelist so the LLM
-        // cannot even see the tool.
+        // Tool-level spawn prevention (design doc §两层防护).
         let config = if max_spawn_depth == 0 {
             let mut filtered = config.clone();
             filtered.tools.retain(|t| t != "sessions_spawn");
             filtered
         } else {
-            config.clone()
-        };
-        let config = &config;
-
-        // 1. Generate child session_id
-        let child_session_id = Uuid::new_v4().to_string();
-
-        // 2. Determine workspace path (3-level fallback)
-        let workdir_path = self
-            .resolve_child_workspace(config, workspace, parent_session_id)
-            .await?;
-
-        // 3. Determine bootstrap_mode
-        let bootstrap_mode = if light_context {
-            BootstrapMode::Minimal
-        } else {
-            config.bootstrap_mode
+            config
         };
 
-        // 4. Build system prompt (mirror find_or_create)
-        let agent_id = config.id.clone();
+        // Resolve parent agent ID for communication config.
+        let parent_agent_id = self
+            .get_chat_id(parent_session_id)
+            .await
+            .unwrap_or_default();
 
-        // 5. Create ConversationSession
-        // Model priority: explicit model param > parent agent.subagents.model
-        // > target agent.model > system default
-        let model = model_override
-            .map(String::from)
-            .or(parent_subagents_model.map(String::from))
-            .or(config.model.as_ref().map(|m| m.primary.clone()))
-            .unwrap_or_else(|| "default".to_string());
-
-        // 5a. Wire child into parent's cancel-token tree (Step 1.5).
-        // Look up the parent session's ConversationSession so we can
-        // derive a child token from its cancellation source. The
-        // token tree is one-way: parent.cancel() cascades to this
-        // child automatically; a child cancel() never affects the
-        // parent.
-        let child_token = {
-            let conv_sessions = self.conversation_sessions.read().await;
-            let parent_cs = conv_sessions.get(parent_session_id).ok_or_else(|| {
-                format!(
-                    "parent session not found in conversation_sessions: {}",
-                    parent_session_id
-                )
-            })?;
-            // Bind the read guard to a local so it is dropped before
-            // `conv_sessions` goes out of scope at the end of this
-            // block. The CancellationToken returned by
-            // `child_cancel_token` is owned (it's a fresh child of
-            // the parent's token tree), so once the guard is dropped
-            // we can still use it.
-            let parent_guard = parent_cs.read().await;
-            let token = parent_guard.child_cancel_token();
-            drop(parent_guard);
-            token
-        };
-
-        // Clone the token before consuming it — the original is
-        // passed to ConversationSession, the clone is retained for
-        // the optional spawn-timeout task (Step 1.3).
-        let timeout_token = child_token.clone();
-
-        let mut cs = ConversationSession::with_cancel_token(
-            child_session_id.clone(),
-            model,
-            workdir_path.clone(),
-            child_token,
+        // ── Delegate core creation to session crate ──────────────────
+        let created = session_spawn::create_child_conversation_session(
+            self, // SpawnCreationContext impl
+            &config,
+            parent_session_id,
+            &parent_agent_id,
+            depth,
+            task,
+            light_context,
+            workspace,
+            mode.clone(),
+            fork,
+            model_override,
+            parent_subagents_model,
+            max_spawn_depth,
         )
-        .with_reasoning_level(self.default_reasoning_level)
-        .with_bootstrap_mode(bootstrap_mode);
+        .await?;
 
-        // Wire shutdown handle for busy-count tracking.
-        if let Some(sh) = self.get_shutdown_handle().await {
-            cs.set_shutdown_handle(sh);
-        }
-        // Inject LLM caller and system prompt builder for delegation.
-        if let Some(caller) = self.get_llm_caller().await {
-            cs.set_llm_caller(caller);
-        }
-        if let Some(builder) = self.get_system_prompt_builder().await {
-            cs.set_system_prompt_builder(builder);
-        }
-        cs.set_prompt_overrides(self.get_prompt_overrides().await);
-        // Build initial system prompt via session's own builder,
-        // then append spawn context for the child agent.
-        let base_prompt = cs
-            .rebuild_system_prompt(&child_session_id, &agent_id, Some(bootstrap_mode))
-            .await;
-        // 4a. Append spawn context to the system prompt so the child
-        //     agent knows its role, depth limits, and communication
-        //     behavior.  Non-spawn sessions never reach this path.
-        let spawn_context =
-            Self::build_spawn_context(depth, max_spawn_depth, parent_session_id, &mode, fork);
-        cs.replace_system_prompt(format!("{}\n{}", base_prompt, spawn_context));
+        let child_session_id = created.session_id.clone();
+        let child_cs_arc = created.conversation_session;
 
-        // 5b. Generate communication config: child may only
-        //     communicate with its parent agent.
-        let parent_agent_id = self.get_chat_id(parent_session_id).await;
-        let comm_config = CommunicationConfig::default_with_parent(parent_agent_id.as_deref());
-        cs = cs.with_communication_config(comm_config);
+        // Retain the cancel token for the optional spawn timeout.
+        let timeout_token = {
+            let guard = child_cs_arc.read().await;
+            guard.cancel_token.clone()
+        };
 
-        // 6a. Fork mode: inject parent session's conversation history
-        //     before the task so the child inherits the parent's context.
-        if fork {
-            if let Some(parent_cs) = self.get_conversation_session(parent_session_id).await {
-                let parent_msgs = parent_cs.read().await.messages().to_vec();
-                cs.clone_messages_from(&parent_msgs);
-            }
-        }
+        // ── Gateway-specific registration ────────────────────────────
 
-        // 6. Inject task as pending message
-        let pending_msg = PendingMessage::with_role(
-            format!("{}-task", child_session_id),
-            task.to_string(),
-            "assistant".to_string(),
-        );
-        cs.push_pending(pending_msg);
-
-        // Step 1.2: Inherit parent session mode.
-        // When the parent is in Plan Mode, the child inherits
-        // the same constraint so its write tools are filtered
-        // by the permission layer.
-        {
-            let conv_sessions = self.conversation_sessions.read().await;
-            if let Some(parent_cs) = conv_sessions.get(parent_session_id) {
-                let parent_mode = parent_cs.read().await.session_mode();
-                if parent_mode == SessionMode::Plan {
-                    cs.set_session_mode(SessionMode::Plan);
-                }
-            }
-        }
-
-        // 7. Register to conversation_sessions and sessions mappings
-        let child_cs_arc = std::sync::Arc::new(tokio::sync::RwLock::new(cs));
+        // Register in conversation_sessions.
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
             conv_sessions.insert(child_session_id.clone(), child_cs_arc.clone());
         }
 
-        // 7a. Register the child session handle with the parent so
-        // stop(cascade=true) can recursively stop this child (Step 1.5).
-        // We re-borrow `conversation_sessions` rather than holding the
-        // parent's Arc here to avoid aliasing the same write lock
-        // through both arms; a fresh read is sufficient and cheap.
+        // Register child handle with parent for cascade stop.
         {
             let conv_sessions = self.conversation_sessions.read().await;
             if let Some(parent_cs) = conv_sessions.get(parent_session_id) {
@@ -322,12 +200,9 @@ impl SessionManager {
                     std::sync::Arc::downgrade(&child_cs_arc),
                 );
             }
-            // If the parent is missing we already inserted the child
-            // into conversation_sessions; the announce path will
-            // surface the orphan via cleanup. We deliberately do not
-            // roll back here to keep the error path simple — the
-            // child is still reachable and completable.
         }
+
+        // Register in sessions map.
         {
             let mut sessions = self.sessions.write().await;
             sessions.insert(
@@ -342,8 +217,7 @@ impl SessionManager {
             );
         }
 
-        // 7b. Persist checkpoint with parent_session_id and depth so
-        //     flush_all / recovery can reconstruct the spawn tree.
+        // Persist checkpoint.
         let cp = SessionCheckpoint::new(child_session_id.clone())
             .with_status(SessionStatus::Active)
             .with_platform("spawn".to_string())
@@ -361,7 +235,7 @@ impl SessionManager {
             }
         }
 
-        // 8. Register to children tracking table
+        // Register in children tracking table.
         self.register_child(
             parent_session_id,
             ChildSessionInfo {
@@ -374,11 +248,7 @@ impl SessionManager {
         )
         .await;
 
-        // 9. Apply spawn timeout (Step 1.3)
-        // If the parent agent's subagents.timeout is configured,
-        // spawn a background task that cancels the child session
-        // after the deadline. Uses the existing CancellationToken
-        // — no new termination path introduced.
+        // Apply spawn timeout.
         if let Some(timeout_secs) = spawn_timeout {
             let token = timeout_token;
             let child_id = child_session_id.clone();
@@ -393,134 +263,10 @@ impl SessionManager {
             });
         }
 
-        // 10. Return child session id
         Ok(child_session_id)
     }
 
-    /// Build the spawn context paragraph appended to child system prompts.
-    ///
-    /// The paragraph tells the child agent:
-    /// - Its role (sub-agent)
-    /// - Current depth / maximum depth
-    /// - Communication behavior (push-based, no polling)
-    /// - Behavioral constraints (direct execution, no back-and-forth)
-    /// - Spawn guidance when depth allows further spawning
-    pub(crate) fn build_spawn_context(
-        depth: u32,
-        max_spawn_depth: u32,
-        parent_session_id: &str,
-        spawn_mode: &SpawnMode,
-        fork: bool,
-    ) -> String {
-        let mode_str = match spawn_mode {
-            SpawnMode::Run => "run",
-            SpawnMode::Session => "session",
-        };
-        let mut ctx = format!(
-            "## Spawn Context\n\
-             You are running as a sub-agent.\n\
-             - **parent_session_id**: {parent_session_id}\n\
-             - **depth**: {depth} / **max_spawn_depth**: {max_spawn_depth}\n\
-             - **spawn_mode**: {mode_str}\n\
-             - **fork**: {fork}\n\
-             **Communication behavior:** Your results are automatically \
-             pushed back to the parent agent when you finish. \
-             Do not poll for status. \
-             If you need to wait for sub-agent results, use the yield \
-             mechanism to end your current turn.\n\
-             **Behavioral constraints:**\n\
-             - Trust push-based completion
-               notifications\n             - Do not call session query tools
-               to check child agent status\n             - Execute the task directly;
-               do not ask for confirmation \
-               or suggest next steps — the parent agent handles that"
-        );
-        if depth < max_spawn_depth {
-            let upper = max_spawn_depth - depth;
-            ctx.push_str(&format!(
-                "\n\
-             - You may spawn child agents for sub-tasks. \
-               Your effective maximum depth for children is {upper}."
-            ));
-        }
-
-        // Structured output guidance (optional, per design doc §结构化输出).
-        // Helps the parent agent parse and act on the child's results.
-        ctx.push_str(
-            "\n\
-             **Structured output (optional):** \
-             When you complete your task, consider structuring your \
-             response with the following sections:\n\
-             - **Task scope**: one-sentence confirmation of what you \
-               understood\n\
-             - **Execution results**: key findings or answers\n\
-             - **Files involved**: relevant file paths\n\
-             - **File changes**: modified files and what changed\n\
-             - **Issues found**: problems or risks encountered\n\
-             Structured output is a suggestion — you may reply freely — \
-             but it helps the parent agent process your results.",
-        );
-
-        ctx.push('\n');
-        ctx
-    }
-
-    /// Resolve the workspace path for a child session.
-    ///
-    /// Fallback order:
-    /// 1. Explicit `workspace` arg (if provided) — used as-is.
-    /// 2. `config.workspace` (if set).
-    /// 3. `<parent_workspace>/<child_agent_id>/<user_id>/` — subdirectory under the
-    ///    parent session's workspace, using the actual user_id from the parent's
-    ///    session context (fallback to "default" if unavailable).
-    /// 4. `/tmp` (last resort).
-    async fn resolve_child_workspace(
-        &self,
-        config: &ResolvedAgentConfig,
-        workspace: Option<&str>,
-        parent_session_id: &str,
-    ) -> Result<PathBuf, String> {
-        if let Some(ws) = workspace {
-            return Ok(PathBuf::from(ws));
-        }
-        if let Some(ref ws) = config.workspace {
-            return Ok(ws.clone());
-        }
-        // Level 3: create subdirectory under parent session's workspace.
-        let parent_workspace = {
-            let conv_sessions = self.conversation_sessions.read().await;
-            conv_sessions.get(parent_session_id).map(|cs| {
-                // Clone the path while holding a short-lived read lock;
-                // the guard is dropped when the closure returns.
-                let cs_clone = cs.clone();
-                async move {
-                    let guard = cs_clone.read().await;
-                    guard.workdir().to_path_buf()
-                }
-            })
-        };
-        if let Some(make_parent_ws) = parent_workspace {
-            let parent_ws = make_parent_ws.await;
-            // Use actual user_id from parent session context instead of
-            // hardcoding "default", per design doc: workspace path =
-            // <parent_workspace>/<child_agent_id>/<user_id>/.
-            let user_id = self
-                .get_sender_id(parent_session_id)
-                .await
-                .unwrap_or_else(|| "default".to_string());
-            let child_ws = parent_ws.join(&config.id).join(&user_id);
-            std::fs::create_dir_all(&child_ws)
-                .map_err(|e| format!("workspace creation failed: {}", e))?;
-            return Ok(child_ws);
-        }
-        Ok(PathBuf::from("/tmp"))
-    }
-
     /// Validate that a child session is owned by the given parent.
-    /// Returns the child info on success, `None` otherwise.
-    ///
-    /// Pure read operation — does not hold the children lock across
-    /// any await point.
     #[allow(dead_code)]
     pub async fn validate_child_ownership(
         &self,
@@ -536,8 +282,7 @@ impl SessionManager {
     }
 
     /// Inject a new task into a persistent child session's pending
-    /// message queue. The task is enqueued (FIFO) and will be
-    /// consumed after the child's current turn completes.
+    /// message queue.
     #[allow(dead_code)]
     pub async fn steer_child(&self, child_id: &str, task: &str) -> Result<(), String> {
         let parent_session_id = self
@@ -571,11 +316,6 @@ impl SessionManager {
     }
 
     /// Force-terminate a child session and all its descendants.
-    ///
-    /// Per design doc §级联 Kill: processes deepest descendants
-    /// first, then the target child itself. For each session:
-    /// stop → clean conversation_sessions → unregister handle →
-    /// clean sessions → clean children table.
     pub async fn kill_child(&self, parent_id: &str, child_id: &str) -> Result<(), String> {
         let descendant_ids = {
             let children = self.children.read().await;
@@ -616,13 +356,7 @@ impl SessionManager {
     }
 
     /// Cascade-kill all active children of a session.
-    ///
-    /// Called when a parent session ends (via `/new`) or is archived
-    /// by the sweeper, per design doc §生命周期联动.
-    /// Iterates direct children and calls `kill_child` for each,
-    /// which recursively handles deeper descendants.
     pub async fn cascade_kill_all_children(&self, parent_id: &str) {
-        // Snapshot child IDs to avoid holding the lock across kill calls.
         let child_ids: Vec<String> = {
             let children = self.children.read().await;
             children
@@ -644,11 +378,6 @@ impl SessionManager {
     }
 
     /// Rebuild the spawn tree (children table) from persisted checkpoints.
-    ///
-    /// Called at startup after all sessions are restored. Iterates all
-    /// active + archived checkpoints and registers parent-child
-    /// relationships. Sessions whose parent has been swept are
-    /// silently skipped (degraded to root).
     pub async fn rebuild_spawn_tree(&self) -> Result<(), PersistenceError> {
         let storage_arc = {
             let guard = self.storage.read().await;
@@ -658,7 +387,6 @@ impl SessionManager {
             }
         };
 
-        // Collect all session_ids from active + archived.
         let mut all_ids: Vec<String> = {
             let active = storage_arc.list_active_sessions().await?;
             let archived = storage_arc.list_archived_sessions().await?;
@@ -694,12 +422,9 @@ impl SessionManager {
             };
             let parent_id = match cp.parent_session_id.as_deref() {
                 Some(p) => p,
-                None => continue, // root node
+                None => continue,
             };
             if !known_ids.contains(parent_id) {
-                // Parent missing — orphan session. Collect for batch
-                // depth reset after the loop to avoid acquiring the
-                // write lock per iteration.
                 orphan_ids.push(session_id.clone());
                 continue;
             }
@@ -710,10 +435,6 @@ impl SessionManager {
                     parent_session_id: parent_id.to_string(),
                     agent_id: cp.agent_id.unwrap_or_default(),
                     depth: cp.depth,
-                    // All restored child sessions are treated as
-                    // persistent (Session) because run-mode sessions
-                    // that completed before shutdown are not expected
-                    // to appear in the checkpoint list.
                     mode: SpawnMode::Session,
                 },
             )
@@ -721,8 +442,6 @@ impl SessionManager {
             rebuilt += 1;
         }
 
-        // Batch-reset orphan session depths to 0 (degrade to root).
-        // Single write lock acquisition instead of per-orphan lock.
         if !orphan_ids.is_empty() {
             let mut sessions = self.sessions.write().await;
             for orphan_id in &orphan_ids {
