@@ -96,6 +96,13 @@ pub struct SessionMessageHandler {
     pub(super) model_knowledge: Option<ProviderModelKnowledge>,
     /// Metrics emitter for operational metrics (cache breaks, etc.).
     pub(super) metrics_emitter: Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
+    /// Dedup flag for token warning notifications.
+    ///
+    /// Set to `true` after the first warning message is sent in a
+    /// warning interval, reset to `false` when the state returns to
+    /// Normal. Prevents duplicate warning messages within the same
+    /// threshold interval.
+    pub(super) has_warned: Arc<std::sync::Mutex<bool>>,
 }
 
 // ── Construction ──
@@ -120,6 +127,7 @@ impl SessionMessageHandler {
             memory_db_path: None,
             model_knowledge: None,
             metrics_emitter: None,
+            has_warned: Arc::new(std::sync::Mutex::new(false)),
         }
     }
     /// Create a new handler without an output channel (used in tests).
@@ -141,6 +149,7 @@ impl SessionMessageHandler {
             memory_db_path: None,
             model_knowledge: None,
             metrics_emitter: None,
+            has_warned: Arc::new(std::sync::Mutex::new(false)),
         }
     }
     /// Attach a back-reference (weak) to the owning [`Gateway`].
@@ -223,6 +232,15 @@ impl SessionMessageHandler {
             )
             .await;
             return HandleResult::MessageQueued;
+        }
+        // Persist user message before auto-compact so threshold estimation
+        // includes the current message (design-doc data-flow: write → truncate → estimate).
+        if let Some(cs) = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await
+        {
+            cs.write().await.append_user_message(&content);
         }
         self.check_and_run_auto_compact(session_id).await;
         self.dispatch_llm_call(session_id, content, meta, None, None)
@@ -312,7 +330,11 @@ impl SessionMessageHandler {
             svc.token_warning_state(tokens, &model, kb_window)
         };
         match warning {
-            TokenWarningState::Normal => (),
+            TokenWarningState::Normal => {
+                // Reset dedup flag when leaving the warning state so
+                // the next warning interval triggers a fresh notification.
+                *self.has_warned.lock().expect("has_warned poisoned") = false;
+            }
             TokenWarningState::Warning => {
                 tracing::warn!(
                     session_id,
@@ -320,6 +342,16 @@ impl SessionMessageHandler {
                     model = %model,
                     "token warning: approaching context limit"
                 );
+                // Send warning notification only once per interval.
+                // Scope the guard to avoid holding it across .await.
+                let should_warn = {
+                    let warned = self.has_warned.lock().expect("has_warned poisoned");
+                    !*warned
+                };
+                if should_warn {
+                    send_output(&self.output_tx, "⚠️ 对话即将压缩，可输入 /compact 手动管理").await;
+                    *self.has_warned.lock().expect("has_warned poisoned") = true;
+                }
             }
             TokenWarningState::AutoCompactTriggered => {
                 self.run_auto_compact(session_id, &llm_messages, &model, &stats)
@@ -635,9 +667,8 @@ async fn run_manual_compact(
             tracing::warn!(session_id = %sid, error = %e, "manual compact failed");
             // Rollback to the pre-compaction snapshot.
             sm.rollback_compaction(&sid).await;
-            svc.lock()
-                .expect("compaction_service poisoned")
-                .record_failure();
+            // Manual compact failure does NOT increment the circuit breaker counter
+            // (design doc: "手动压缩的失败不递增熔断计数器").
             send_output(&output_tx, &format!("Compact failed: {}", e)).await;
         }
     }

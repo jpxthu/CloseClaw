@@ -1,10 +1,12 @@
 use super::*;
 use crate::session_handler::apply_compact_result;
 use crate::session_handler::ActiveSearcherLlmCaller;
+use crate::session_handler::MessageMetadata;
 use closeclaw_common::LlmCaller;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::session_state::LlmState;
+use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::LLMRegistry;
 use closeclaw_session::llm_session::ChatSession;
@@ -702,4 +704,198 @@ async fn test_apply_compact_result_no_session() {
 
     // No checkpoint should be saved
     assert!(persistence_clone.checkpoints.lock().await.is_empty());
+}
+
+// =========================================================================
+// Step 1.5: Warning notification dedup (Step 1.3)
+// =========================================================================
+
+/// Populate a session so check_and_run_auto_compact enters Warning state.
+/// Uses accumulate_usage to set high token counts (avoids needing millions
+/// of characters in messages).
+async fn populate_session_for_warning(sm: &SessionManager, sid: &str) {
+    let cs = sm.get_conversation_session(sid).await.expect("session");
+    {
+        let mut cs_write = cs.write().await;
+        // Add a few messages (needed for token estimation to run)
+        let mut msgs = Vec::new();
+        for i in 0..4 {
+            let role = if i % 2 == 0 { "user" } else { "assistant" };
+            msgs.push(closeclaw_session::llm_session::SessionMessage {
+                role: role.to_string(),
+                content_blocks: vec![ContentBlock::Text(format!(
+                    "Message {} for warning test",
+                    i
+                ))],
+                timestamp: chrono::Utc::now(),
+            });
+        }
+        cs_write.replace_messages(msgs);
+        // Set high token usage via accumulate_usage so token_warning_state
+        // returns Warning on the default model (128K context, buffer=13K).
+        // Warning threshold: remaining ≤ buffer * 3/2 = 19,500 tokens.
+        // With 109K used on 128K: remaining = 19K ≤ 19.5K → Warning.
+        cs_write.accumulate_usage(&closeclaw_common::processor::UnifiedUsage {
+            prompt_tokens: 109_000,
+            completion_tokens: 0,
+            total_tokens: Some(109_000),
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        });
+    }
+}
+
+/// Helper: create a handler with an output channel for testing dedup.
+fn handler_with_channel(
+    sm: &Arc<SessionManager>,
+) -> (
+    SessionMessageHandler,
+    tokio::sync::mpsc::Receiver<(String, Vec<ContentBlock>)>,
+) {
+    let (tx, rx) = tokio::sync::mpsc::channel(10);
+    let handler = SessionMessageHandler::new(
+        Arc::clone(sm),
+        Arc::new(FallbackClient::from_strings(
+            Arc::new(LLMRegistry::new()),
+            vec![],
+        )),
+        tx,
+        Arc::new(ActiveSearcherLlmCaller {
+            client: Arc::new(closeclaw_llm::unified_fallback::UnifiedFallbackClient::new(
+                vec![],
+                Arc::new(CooldownManager::new()),
+            )),
+            model: String::new(),
+        }),
+    );
+    (handler, rx)
+}
+
+/// Warning state must send notification on first trigger.
+#[tokio::test]
+async fn test_warning_dedup_sends_first_time() {
+    let sm = make_sm();
+    let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
+    populate_session_for_warning(&sm, &sid).await;
+    let (handler, mut rx) = handler_with_channel(&sm);
+
+    handler.check_and_run_auto_compact(&sid).await;
+
+    let msg = rx.try_recv().expect("should receive warning message");
+    assert!(
+        msg.0.contains("对话即将压缩"),
+        "warning should contain dedup text"
+    );
+    assert!(
+        *handler.has_warned.lock().expect("lock poisoned"),
+        "has_warned should be true after warning"
+    );
+}
+
+/// Same threshold interval: second Warning must NOT send another notification.
+#[tokio::test]
+async fn test_warning_dedup_no_second_message() {
+    let sm = make_sm();
+    let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
+    populate_session_for_warning(&sm, &sid).await;
+    let (handler, mut rx) = handler_with_channel(&sm);
+
+    // First Warning → sends notification
+    handler.check_and_run_auto_compact(&sid).await;
+    let _ = rx.try_recv(); // drain first warning
+
+    // Second Warning → must NOT send another notification
+    handler.check_and_run_auto_compact(&sid).await;
+    assert!(
+        rx.try_recv().is_err(),
+        "should NOT send second warning in same interval"
+    );
+}
+
+/// After Normal resets has_warned, next Warning sends again.
+#[tokio::test]
+async fn test_warning_dedup_resets_after_normal() {
+    let sm = make_sm();
+    let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
+    populate_session_for_warning(&sm, &sid).await;
+    let (handler, mut rx) = handler_with_channel(&sm);
+
+    // Warning → sends notification, sets has_warned = true
+    handler.check_and_run_auto_compact(&sid).await;
+    let _ = rx.try_recv(); // drain first warning
+    assert!(*handler.has_warned.lock().expect("lock poisoned"));
+
+    // Use a different channel for a fresh session (Normal state, no messages)
+    let normal_msg = crate::Message {
+        id: "msg_normal".into(),
+        from: "alice".into(),
+        to: "bob".into(),
+        content: "hello".into(),
+        channel: "ch-normal".into(),
+        timestamp: chrono::Utc::now().timestamp(),
+        metadata: std::collections::HashMap::new(),
+        thread_id: None,
+    };
+    let sid_normal = sm
+        .find_or_create("ch-normal", &normal_msg, None)
+        .await
+        .unwrap();
+    handler.check_and_run_auto_compact(&sid_normal).await;
+    assert!(
+        !*handler.has_warned.lock().expect("lock poisoned"),
+        "has_warned should reset to false on Normal"
+    );
+
+    // Warning again → should send (dedup reset)
+    handler.check_and_run_auto_compact(&sid).await;
+    let msg = rx
+        .try_recv()
+        .expect("should send warning again after Normal reset");
+    assert!(msg.0.contains("对话即将压缩"));
+    assert!(*handler.has_warned.lock().expect("lock poisoned"));
+}
+
+// =========================================================================
+// Step 1.5: Auto-compact order — user message before threshold check
+// =========================================================================
+
+/// Verify the call order: user message is persisted before
+/// check_and_run_auto_compact runs. After handle_message_with_meta,
+/// the session's messages list must include the user message.
+#[tokio::test]
+async fn test_user_message_persisted_before_compact_check() {
+    let sm = make_sm();
+    let handler = handler_with_sm(Arc::clone(&sm)).await;
+    let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
+
+    handler
+        .handle_message_with_meta(
+            &sid,
+            "verify ordering".to_string(),
+            MessageMetadata::default_meta(),
+        )
+        .await;
+
+    // Wait briefly for the spawned LLM task to write the user message.
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+    // The session messages list must contain the user message,
+    // proving it was written before the threshold check ran.
+    let cs = sm
+        .get_conversation_session(&sid)
+        .await
+        .expect("session should exist");
+    let msgs = cs.read().await.messages().to_vec();
+    assert!(
+        msgs.iter().any(|m| m.role == "user"),
+        "user message must be in session messages after handle_message_with_meta"
+    );
+    let user_msg = msgs.iter().find(|m| m.role == "user").unwrap();
+    match &user_msg.content_blocks[0] {
+        closeclaw_llm::types::ContentBlock::Text(t) => {
+            assert_eq!(t, "verify ordering");
+        }
+        other => panic!("expected Text block, got {:?}", other),
+    }
 }

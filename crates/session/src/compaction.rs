@@ -64,8 +64,8 @@ pub enum CompactionError {
 /// No-tools preamble constant.
 pub const NO_TOOLS_PREAMBLE: &str = "You are a session summarizer. You must not call any tools or functions. You are analyzing a conversation session to create a summary. Output ONLY the <summary> tag with required content.";
 
-/// Base compact prompt with 9-item summary structure.
-pub const BASE_COMPACT_PROMPT: &str = "\n## Summary Structure\nYour summary must cover: 1) User Identity & Preferences, 2) Current Project & Context, 3) Key Decisions & Conclusions, 4) Open Questions & Unresolved Issues, 5) Technical State, 6) Conversation Flow, 7) Important Facts & References, 8) Agent Memory & Self-Knowledge, 9) Next Steps & Action Items.\n\n## Output Format\nWrite in English using bullet points. Be specific and concrete. Output ONLY: <summary>your summary here</summary>";
+/// Base compact prompt with 6-dimension summary structure.
+pub const BASE_COMPACT_PROMPT: &str = "\n## Summary Structure\nYour summary must cover these 6 dimensions:\n1. Goal — the user's objective and what they are trying to achieve\n2. Constraints & Preferences — any constraints, preferences, or requirements the user has mentioned\n3. Progress — what has been done, what is in progress, and what is blocked\n4. Key Decisions — important decisions and their rationale\n5. Next Steps — planned follow-up actions\n6. Critical Context — any other context critical to continuing the conversation\n\n## Output Format\nWrite in English using bullet points. Be specific and concrete.\nFor Progress, label items as Done / In Progress / Blocked.\nOutput ONLY: <summary>your summary here</summary>";
 
 pub const NO_TOOLS_TRAILER: &str =
     "\n## Important\n- Do NOT call any tools. Output ONLY the <summary> tag.";
