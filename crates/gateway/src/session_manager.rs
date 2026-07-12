@@ -31,6 +31,7 @@ use tracing::warn;
 mod announce;
 mod channel;
 pub mod communication;
+mod consistency_check;
 mod key_registry;
 mod resolve;
 mod session_helpers;
@@ -936,6 +937,8 @@ impl SessionLookup for SessionManager {
 mod announce_tests;
 #[cfg(test)]
 mod bug904_tests;
+#[cfg(test)]
+mod consistency_check_tests;
 #[cfg(test)]
 mod flush_tests;
 #[cfg(test)]

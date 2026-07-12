@@ -10,7 +10,9 @@ mod bug904_tests;
 #[cfg(test)]
 mod tests;
 
-use crate::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
+use crate::persistence::{
+    ConsistencyCheckResult, PersistenceError, PersistenceService, SessionCheckpoint,
+};
 use async_trait::async_trait;
 use rusqlite::{params, Connection};
 use serde_json::json;
@@ -516,6 +518,64 @@ impl PersistenceService for SqliteStorage {
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
     }
 
+    /// Find an active session matching the given routing fields.
+    ///
+    /// When `account_id` is `None`, matches rows where `account_id IS NULL`.
+    async fn find_active_session_by_routing(
+        &self,
+        account_id: Option<&str>,
+        channel: &str,
+        sender_id: &str,
+        peer_id: &str,
+    ) -> Result<Option<String>, PersistenceError> {
+        let data_dir = self.data_dir.clone();
+        let channel = channel.to_string();
+        let sender_id = sender_id.to_string();
+        let peer_id = peer_id.to_string();
+        let account_id = account_id.map(String::from);
+
+        spawn_blocking(move || {
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
+            let result = if let Some(ref acc) = account_id {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT id FROM sessions
+                         WHERE status = 'active'
+                           AND platform = ?1
+                           AND sender_id = ?2
+                           AND peer_id = ?3
+                           AND account_id = ?4",
+                    )
+                    .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+                stmt.query_row(params![channel, sender_id, peer_id, acc], |row| {
+                    row.get::<_, String>(0)
+                })
+                .ok()
+            } else {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT id FROM sessions
+                         WHERE status = 'active'
+                           AND platform = ?1
+                           AND sender_id = ?2
+                           AND peer_id = ?3
+                           AND account_id IS NULL",
+                    )
+                    .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+                stmt.query_row(params![channel, sender_id, peer_id], |row| {
+                    row.get::<_, String>(0)
+                })
+                .ok()
+            };
+
+            Ok(result)
+        })
+        .await
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    }
+
     /// Archive a session: move its transcript to archived_sessions/ and mark
     /// the DB record as archived. Idempotent if the session is not active.
     async fn archive_checkpoint(
@@ -736,6 +796,67 @@ impl PersistenceService for SqliteStorage {
             .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
             Ok(())
+        })
+        .await
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    }
+
+    async fn run_consistency_check(&self) -> Result<ConsistencyCheckResult, PersistenceError> {
+        let data_dir = self.data_dir.clone();
+
+        spawn_blocking(move || {
+            let mut result = ConsistencyCheckResult::default();
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
+            // SQLite → File system: active records without transcript files.
+            let active_ids: Vec<String> = {
+                let mut stmt = conn
+                    .prepare("SELECT id FROM sessions WHERE status = 'active'")
+                    .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+                let ids: Vec<String> = stmt
+                    .query_map([], |row| row.get(0))
+                    .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                ids
+            };
+
+            for id in &active_ids {
+                let transcript_path = data_dir.join("sessions").join(format!("{id}.jsonl"));
+                if !transcript_path.exists() {
+                    conn.execute("DELETE FROM sessions WHERE id = ?1", rusqlite::params![id])
+                        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+                    result.deleted_orphaned_records += 1;
+                }
+            }
+
+            // File system → SQLite: orphan transcript files.
+            let sessions_dir = data_dir.join("sessions");
+            if sessions_dir.exists() {
+                for entry in std::fs::read_dir(&sessions_dir)
+                    .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+                {
+                    let entry = entry.map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+                    let path = entry.path();
+                    if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+                        let file_stem = path.file_stem().and_then(|e| e.to_str()).unwrap_or("");
+                        let exists: bool = conn
+                            .query_row(
+                                "SELECT COUNT(*) > 0 FROM sessions WHERE id = ?1",
+                                rusqlite::params![file_stem],
+                                |row| row.get(0),
+                            )
+                            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+                        if !exists {
+                            std::fs::remove_file(&path).map_err(|e| PersistenceError::Io(e))?;
+                            result.deleted_orphaned_files += 1;
+                        }
+                    }
+                }
+            }
+
+            Ok(result)
         })
         .await
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?

@@ -22,6 +22,8 @@ pub const DEFAULT_PURGE_AFTER_MINUTES: i64 = 10080; // 7 days
 pub const DEFAULT_SWEEPER_INTERVAL_SECS: u64 = 300; // 5 minutes
 /// Default dreaming interval in seconds
 pub const DEFAULT_DREAMING_INTERVAL_SECS: u64 = 600; // 10 minutes
+/// Default consistency check interval in seconds (every hour)
+pub const DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS: u64 = 3600;
 
 /// Per-agent per-role session configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +75,10 @@ pub struct SessionConfig {
     /// Dreaming interval in seconds (default: 10 minutes)
     #[serde(default = "default_dreaming_interval")]
     pub dreaming_interval_secs: u64,
+    /// Consistency check interval in seconds (default: 3600 = every hour)
+    #[serde(default = "default_consistency_check_interval")]
+    #[serde(rename = "consistencyCheckIntervalSeconds")]
+    pub consistency_check_interval_secs: u64,
     /// Compaction configuration (optional, falls back to CompactConfig::default())
     #[serde(default)]
     pub compact: Option<CompactConfig>,
@@ -86,6 +92,10 @@ fn default_dreaming_interval() -> u64 {
     DEFAULT_DREAMING_INTERVAL_SECS
 }
 
+fn default_consistency_check_interval() -> u64 {
+    DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS
+}
+
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
@@ -93,6 +103,7 @@ impl Default for SessionConfig {
             agents: BTreeMap::new(),
             sweeper_interval_secs: DEFAULT_SWEEPER_INTERVAL_SECS,
             dreaming_interval_secs: DEFAULT_DREAMING_INTERVAL_SECS,
+            consistency_check_interval_secs: DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS,
             compact: None,
         }
     }
@@ -108,6 +119,9 @@ pub trait SessionConfigProvider: Send + Sync {
 
     /// Get dreaming interval in seconds
     fn dreaming_interval_secs(&self) -> u64;
+
+    /// Get consistency check interval in seconds
+    fn consistency_check_interval_secs(&self) -> u64;
 
     /// List all agent IDs that have per-agent overrides
     fn list_agents(&self) -> Vec<String>;
@@ -253,6 +267,13 @@ impl SessionConfigProvider for JsonSessionConfigProvider {
             .as_ref()
             .map(|c| c.dreaming_interval_secs)
             .unwrap_or(DEFAULT_DREAMING_INTERVAL_SECS)
+    }
+
+    fn consistency_check_interval_secs(&self) -> u64 {
+        self.config
+            .as_ref()
+            .map(|c| c.consistency_check_interval_secs)
+            .unwrap_or(DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS)
     }
 
     fn compact_config(&self) -> CompactConfig {

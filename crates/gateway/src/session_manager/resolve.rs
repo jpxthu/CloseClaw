@@ -239,6 +239,49 @@ impl SessionManager {
             }
         }
 
+        // SQLite double-check: query storage for an existing active session
+        // with the same routing fields. This covers the edge case where the
+        // key_registry was not yet written but SQLite already has a record
+        // (e.g., concurrent creation, or key_registry lost on restart).
+        let sqlite_check = {
+            let storage_guard = self.storage.read().await;
+            match storage_guard.as_ref() {
+                Some(s) => s
+                    .find_active_session_by_routing(account_id, channel, &message.from, &message.to)
+                    .await
+                    .ok()
+                    .flatten(),
+                None => None,
+            }
+        };
+        if let Some(existing_id) = sqlite_check {
+            // Self-heal: register the existing session in key_registry.
+            {
+                let mut registry = self.key_registry.write().await;
+                registry.insert(routing_key.clone(), existing_id.clone());
+            }
+            // Also ensure it's visible in the in-memory sessions map.
+            let session_exists = {
+                let sessions = self.sessions.read().await;
+                sessions.contains_key(&existing_id)
+            };
+            if !session_exists {
+                let mut sessions = self.sessions.write().await;
+                sessions.insert(
+                    existing_id.clone(),
+                    super::session_helpers::create_new_session(&existing_id, message, channel),
+                );
+            }
+            self.update_checkpoint_thread_id(&existing_id, &message.thread_id)
+                .await;
+            info!(
+                session_id = %existing_id,
+                routing_key = %routing_key,
+                "SQLite double-check: found existing active session, self-healed"
+            );
+            return Ok(existing_id);
+        }
+
         let session_id = session_helpers::generate_session_id(&message.to);
 
         // Write to key_registry using routing_key (no timestamps)

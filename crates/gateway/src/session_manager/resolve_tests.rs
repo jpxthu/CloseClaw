@@ -570,3 +570,112 @@ async fn test_resolve_restores_transcript_from_checkpoint() {
         )]
     );
 }
+
+// ── SQLite double-check self-healing (Step 1.4) ────────────────────────────
+
+/// Verify that when key_registry misses but SQLite already has an active
+/// session with the same routing fields, resolve() self-heals by registering
+/// the existing session instead of creating a duplicate.
+#[tokio::test]
+async fn test_resolve_path3_sqlite_double_check_self_heals() {
+    use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint, SessionStatus};
+    use closeclaw_session::storage::memory::MemoryStorage;
+    use std::sync::Arc;
+
+    let storage: Arc<MemoryStorage> = Arc::new(MemoryStorage::new());
+    let mgr = Arc::new(SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        None,
+        ReasoningLevel::default(),
+    ));
+
+    // Pre-populate SQLite with an active session for the same routing fields.
+    let existing_id = "existing_sqlite_session";
+    let mut cp = SessionCheckpoint::new(existing_id.to_string())
+        .with_status(SessionStatus::Active)
+        .with_platform("feishu".to_string())
+        .with_peer_id("agent-b".to_string())
+        .with_agent_id("agent-b".to_string());
+    cp.sender_id = Some("user-a".to_string());
+    cp.account_id = None; // maps to "default" in routing_key
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    // key_registry is empty — simulates a restart where registry was lost.
+    let msg = test_message();
+    let routing_key = SessionManager::compute_routing_key("feishu", &msg, None);
+    {
+        let reg = mgr.key_registry.read().await;
+        assert!(!reg.contains_key(&routing_key), "registry should be empty");
+    }
+
+    // resolve() should detect the existing session in SQLite and self-heal.
+    let resolved_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    assert_eq!(resolved_id, existing_id);
+
+    // Verify key_registry was updated (self-healed).
+    {
+        let reg = mgr.key_registry.read().await;
+        assert_eq!(reg.get(&routing_key).unwrap(), existing_id);
+    }
+
+    // Verify session is in the in-memory map.
+    assert!(mgr.has_session(existing_id).await);
+}
+
+/// Verify that when key_registry misses and SQLite also has no matching
+/// session, resolve() creates a new session normally.
+#[tokio::test]
+async fn test_resolve_path3_sqlite_double_check_no_match_creates_new() {
+    use closeclaw_session::storage::memory::MemoryStorage;
+    use std::sync::Arc;
+
+    let storage: Arc<MemoryStorage> = Arc::new(MemoryStorage::new());
+    let mgr = Arc::new(SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        None,
+        ReasoningLevel::default(),
+    ));
+
+    // No pre-existing sessions in SQLite.
+    let msg = test_message();
+    let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    // Should create a new session (not self-heal).
+    assert!(result.starts_with("agent-b_"), "new session: {}", result);
+    assert!(mgr.has_session(&result).await);
+}
+
+/// Verify that SQLite double-check only matches active sessions,
+/// not archived ones.
+#[tokio::test]
+async fn test_resolve_path3_sqlite_double_check_ignores_archived() {
+    use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint, SessionStatus};
+    use closeclaw_session::storage::memory::MemoryStorage;
+    use std::sync::Arc;
+
+    let storage: Arc<MemoryStorage> = Arc::new(MemoryStorage::new());
+    let mgr = Arc::new(SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        None,
+        ReasoningLevel::default(),
+    ));
+
+    // Pre-populate SQLite with an archived session for the same routing fields.
+    let archived_id = "archived_sqlite_session";
+    let mut cp = SessionCheckpoint::new(archived_id.to_string())
+        .with_status(SessionStatus::Archived)
+        .with_platform("feishu".to_string())
+        .with_peer_id("agent-b".to_string())
+        .with_agent_id("agent-b".to_string());
+    cp.sender_id = Some("user-a".to_string());
+    cp.account_id = None;
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    // resolve() should NOT find the archived session; create a new one.
+    let msg = test_message();
+    let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    assert_ne!(result, archived_id, "should not self-heal from archived");
+    assert!(result.starts_with("agent-b_"), "new session: {}", result);
+}
