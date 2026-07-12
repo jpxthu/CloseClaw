@@ -28,3 +28,7 @@ pub use tree::SpawnTree;
 pub use types::ChildSessionInfo;
 pub use types::SpawnMode;
 pub use types::SpawnValidationResult;
+
+#[cfg(test)]
+#[path = "controller_tests.rs"]
+mod controller_tests;
