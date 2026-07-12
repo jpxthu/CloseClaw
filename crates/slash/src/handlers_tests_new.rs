@@ -92,7 +92,61 @@ fn test_stop_handler_immediate() {
 #[tokio::test]
 async fn test_stop_handler_handle() {
     let result = StopHandler.handle("", &dummy_ctx()).await;
-    assert!(matches!(result, SlashResult::Stop));
+    assert!(matches!(
+        result,
+        SlashResult::Stop {
+            cascade: false,
+            force: false
+        }
+    ));
+}
+
+#[tokio::test]
+async fn test_stop_handler_cascade() {
+    let result = StopHandler.handle("--cascade", &dummy_ctx()).await;
+    assert!(matches!(
+        result,
+        SlashResult::Stop {
+            cascade: true,
+            force: false
+        }
+    ));
+}
+
+#[tokio::test]
+async fn test_stop_handler_force() {
+    let result = StopHandler.handle("--force", &dummy_ctx()).await;
+    assert!(matches!(
+        result,
+        SlashResult::Stop {
+            cascade: false,
+            force: true
+        }
+    ));
+}
+
+#[tokio::test]
+async fn test_stop_handler_cascade_and_force() {
+    let result = StopHandler.handle("--cascade --force", &dummy_ctx()).await;
+    assert!(matches!(
+        result,
+        SlashResult::Stop {
+            cascade: true,
+            force: true
+        }
+    ));
+}
+
+#[tokio::test]
+async fn test_stop_handler_unknown_args_ignored() {
+    let result = StopHandler.handle("--unknown", &dummy_ctx()).await;
+    assert!(matches!(
+        result,
+        SlashResult::Stop {
+            cascade: false,
+            force: false
+        }
+    ));
 }
 
 // ── StatusHandler tests ────────────────────────────────────────────────────

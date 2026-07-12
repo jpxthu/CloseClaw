@@ -575,3 +575,90 @@ async fn test_auto_mode_slash_permitted_handler_executes() {
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
     assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
+
+// ── Step 1.1: /stop cascade/force execute path tests ─────────────────────
+
+/// Handler that returns a configurable SlashResult for Stop.
+struct StopResultHandler {
+    cascade: bool,
+    force: bool,
+}
+
+#[async_trait]
+impl SlashHandler for StopResultHandler {
+    fn commands(&self) -> &[&str] {
+        &["stop"]
+    }
+    fn description(&self) -> &str {
+        "stop handler"
+    }
+    fn immediate(&self, _cmd: &str) -> bool {
+        true
+    }
+    async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
+        SlashResult::Stop {
+            cascade: self.cascade,
+            force: self.force,
+        }
+    }
+}
+
+struct StopRouter {
+    cascade: bool,
+    force: bool,
+}
+
+#[async_trait]
+impl SlashRouter for StopRouter {
+    async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
+        None
+    }
+    fn is_immediate(&self, _command: &str) -> bool {
+        true
+    }
+    fn get_handler(&self, _command: &str) -> Option<Box<dyn SlashHandler>> {
+        Some(Box::new(StopResultHandler {
+            cascade: self.cascade,
+            force: self.force,
+        }))
+    }
+}
+
+/// Verify that Stop with cascade=true goes through execute path without panic.
+#[tokio::test]
+async fn test_execute_route_stop_cascade() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(Arc::new(StopRouter {
+        cascade: true,
+        force: false,
+    }))
+    .await;
+    let result = gw.dispatch_slash("s1", "/stop", Some("u1"), "feishu").await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+}
+
+/// Verify that Stop with force=true goes through execute path without panic.
+#[tokio::test]
+async fn test_execute_route_stop_force() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(Arc::new(StopRouter {
+        cascade: false,
+        force: true,
+    }))
+    .await;
+    let result = gw.dispatch_slash("s1", "/stop", Some("u1"), "feishu").await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+}
+
+/// Verify that Stop with cascade+force goes through execute path without panic.
+#[tokio::test]
+async fn test_execute_route_stop_cascade_and_force() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(Arc::new(StopRouter {
+        cascade: true,
+        force: true,
+    }))
+    .await;
+    let result = gw.dispatch_slash("s1", "/stop", Some("u1"), "feishu").await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+}

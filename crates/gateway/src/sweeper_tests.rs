@@ -170,6 +170,10 @@ mod tests {
             600
         }
 
+        fn consistency_check_interval_secs(&self) -> u64 {
+            3600
+        }
+
         fn list_agents(&self) -> Vec<String> {
             self.agents.lock().unwrap().clone()
         }

@@ -114,6 +114,36 @@ impl PersistenceService for MemoryStorage {
         Ok(checkpoints.keys().cloned().collect())
     }
 
+    async fn find_active_session_by_routing(
+        &self,
+        account_id: Option<&str>,
+        channel: &str,
+        sender_id: &str,
+        peer_id: &str,
+    ) -> Result<Option<String>, PersistenceError> {
+        let checkpoints = self
+            .checkpoints
+            .read()
+            .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
+        for (id, cp) in checkpoints.iter() {
+            if cp.status != crate::persistence::SessionStatus::Active {
+                continue;
+            }
+            let cp_channel = cp.platform.as_deref().unwrap_or("");
+            let cp_sender = cp.sender_id.as_deref().unwrap_or("");
+            let cp_peer = cp.peer_id.as_deref().unwrap_or("");
+            let cp_account = cp.account_id.as_deref();
+            if cp_channel == channel
+                && cp_sender == sender_id
+                && cp_peer == peer_id
+                && cp_account == account_id
+            {
+                return Ok(Some(id.clone()));
+            }
+        }
+        Ok(None)
+    }
+
     async fn archive_checkpoint(
         &self,
         checkpoint: &SessionCheckpoint,

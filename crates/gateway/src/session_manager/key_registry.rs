@@ -34,18 +34,10 @@ impl SessionManager {
             }
         };
 
-        // Collect all session_ids from active + archived.
-        let mut all_session_ids: Vec<String> = {
-            let active = storage_arc.list_active_sessions().await?;
-            let archived = storage_arc.list_archived_sessions().await?;
-            let mut ids = active;
-            ids.extend(archived);
-            ids
-        };
-
-        // Deduplicate in case a session appears in both lists.
-        all_session_ids.sort();
-        all_session_ids.dedup();
+        // Collect session_ids from active sessions only.
+        // Archived sessions are not loaded into the registry; they will be
+        // restored on-demand via the SQLite fallback path in `resolve()`.
+        let all_session_ids = storage_arc.list_active_sessions().await?;
 
         // Accumulate: reconstructed key → (created_at, session_id)
         // Keep only the latest created_at per key.
