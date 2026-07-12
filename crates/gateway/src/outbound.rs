@@ -677,7 +677,15 @@ impl Gateway {
         if block_type != ContentBlockType::Text {
             let render_blocks = std::mem::take(&mut out.render_blocks);
             for block in render_blocks {
-                send_render_block(ctx, &block).await?;
+                // Thinking blocks bypass VerbosityFilter when sent via
+                // send_render_block during streaming. Only send them in
+                // Full mode; otherwise skip the real-time send but still
+                // push to content_blocks for the post-stream pipeline.
+                let should_send = block_type != ContentBlockType::Thinking
+                    || state.verbosity_level == VerbosityLevel::Full;
+                if should_send {
+                    send_render_block(ctx, &block).await?;
+                }
                 state.content_blocks.push(block);
             }
         }
