@@ -57,6 +57,10 @@ impl LlmCaller for FallbackLlmCaller {
         });
         Ok(Box::pin(mapped))
     }
+
+    fn default_header_pairs(&self) -> Vec<(String, String)> {
+        self.0.default_header_pairs()
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
