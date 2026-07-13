@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 
-use closeclaw_common::BootstrapMode;
+use closeclaw_common::{BootstrapMode, HookConfig};
 
 /// Agent's own configuration (stored as config.json in the agent's directory).
 ///
@@ -54,6 +54,9 @@ pub struct AgentConfig {
     /// Memory subsystem configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory: Option<MemoryConfig>,
+    /// Run-health hook review configuration.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hooks: Vec<HookConfig>,
 }
 
 fn default_all() -> Vec<String> {
@@ -230,6 +233,7 @@ impl Default for AgentConfig {
             disallowed_tools: Vec::new(),
             subagents: SubagentsConfig::default(),
             memory: None,
+            hooks: Vec::new(),
         }
     }
 }

@@ -465,6 +465,20 @@ impl SessionMessageHandler {
                 cs_write.record_prompt_fingerprint(sys.as_deref(), tools_ref, Some(&headers_refs));
             }
 
+            // ── Spawn guard: first-layer defense ───────────────────
+            // If the parent has active children but has not yielded,
+            // inject a reminder so the LLM is prompted to yield.
+            if let Some(cs) = sm.get_conversation_session(&session_id).await {
+                let mut cs_write = cs.write().await;
+                if let Some(reminder) = cs_write.spawn_guard_reminder() {
+                    tracing::info!(
+                        session_id = %session_id,
+                        "spawn_guard: injecting reminder"
+                    );
+                    cs_write.inject_system_message(reminder);
+                }
+            }
+
             // Check if streaming is enabled for this session
             let stream_enabled = if let Some(cs) = sm.get_conversation_session(&session_id).await {
                 cs.read().await.stream_enabled()

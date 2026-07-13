@@ -177,3 +177,40 @@ impl ConversationSession {
         }
     }
 }
+
+// ── Spawn guard (first-layer defense) ─────────────────────────────
+
+impl ConversationSession {
+    /// Returns the number of child sessions currently in `Running` state.
+    pub(crate) fn count_active_children(&self) -> usize {
+        let states = self
+            .child_states
+            .read()
+            .expect("child_states lock poisoned");
+        states
+            .values()
+            .filter(|s| matches!(s, ChildSessionState::Running))
+            .count()
+    }
+
+    /// Returns a spawn-guard reminder if the parent should yield.
+    ///
+    /// First-layer defense against silent spawn failures: when a parent
+    /// agent has spawned child sessions but has not called
+    /// `sessions_yield`, the system injects a reminder message so the
+    /// LLM is prompted to yield and wait for results.
+    ///
+    /// Returns `Some(reminder)` when `has_active_children() && !is_waiting()`;
+    /// `None` otherwise. The returned text is meant to be injected as a
+    /// temporary system message (not persisted to checkpoint).
+    pub fn spawn_guard_reminder(&self) -> Option<String> {
+        if !self.has_active_children() || self.is_waiting() {
+            return None;
+        }
+        let n = self.count_active_children();
+        Some(format!(
+            "你有 {} 个子 agent 仍在运行，建议 yield 等待结果",
+            n
+        ))
+    }
+}

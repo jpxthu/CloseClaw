@@ -30,6 +30,77 @@ fn make_perms(agent_id: &str, allowed_dims: &[&str]) -> AgentPermissions {
     }
 }
 
+// ── HookConfig / AgentConfig.hooks tests ───────────────────────
+
+#[test]
+fn test_agent_config_hooks_default_empty() {
+    let config = AgentConfig::default();
+    assert!(config.hooks.is_empty());
+}
+
+#[test]
+fn test_agent_config_deserialize_old_config_without_hooks() {
+    let json = r#"{"id": "test-agent", "name": "Test"}"#;
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert!(config.hooks.is_empty());
+}
+
+#[test]
+fn test_agent_config_deserialize_with_hooks() {
+    let json = r#"{
+        "id": "test-agent",
+        "hooks": [
+            {"hookType": "planCheck", "enabled": true},
+            {"hookType": "loopCheck", "enabled": false}
+        ]
+    }"#;
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.hooks.len(), 2);
+    assert_eq!(
+        config.hooks[0].hook_type,
+        closeclaw_common::HookType::PlanCheck
+    );
+    assert!(config.hooks[0].enabled);
+    assert_eq!(
+        config.hooks[1].hook_type,
+        closeclaw_common::HookType::LoopCheck
+    );
+    assert!(!config.hooks[1].enabled);
+}
+
+#[test]
+fn test_agent_config_serialize_empty_hooks_skipped() {
+    let config = AgentConfig {
+        id: "test".to_string(),
+        hooks: Vec::new(),
+        ..Default::default()
+    };
+    let json = serde_json::to_string(&config).unwrap();
+    assert!(!json.contains("hooks"));
+}
+
+#[test]
+fn test_agent_config_serialize_nonempty_hooks() {
+    let config = AgentConfig {
+        id: "test".to_string(),
+        hooks: vec![closeclaw_common::HookConfig {
+            hook_type: closeclaw_common::HookType::PlanCheck,
+            enabled: true,
+        }],
+        ..Default::default()
+    };
+    let json = serde_json::to_string(&config).unwrap();
+    assert!(json.contains("hooks"));
+    assert!(json.contains("planCheck"));
+}
+
+#[test]
+fn test_hook_config_default_enabled() {
+    let config = closeclaw_common::HookConfig::default();
+    assert!(config.enabled);
+    assert_eq!(config.hook_type, closeclaw_common::HookType::PlanCheck);
+}
+
 // --- intersect: normal path ---
 
 #[test]

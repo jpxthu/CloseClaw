@@ -127,6 +127,31 @@ impl From<&HardRuleViolation> for FailureCategory {
     }
 }
 
+/// Context passed to the hook reviewer for turn-level quality gate
+/// evaluation.  Carries the same turn snapshot data that the
+/// hard-rule engine sees, plus recent tool-call history needed by
+/// `LoopCheck` and `ProgressCheck`.
+#[derive(Debug, Clone, Default)]
+pub struct HookContext {
+    /// The assistant's text output for this turn.
+    pub text: String,
+    /// Tool calls made in this turn.
+    pub tool_calls: Vec<HookToolCallInfo>,
+    /// Tool results returned in this turn.
+    pub tool_results: Vec<String>,
+    /// Tool calls from the last N turns (for loop detection).
+    pub recent_tool_calls: Vec<HookToolCallInfo>,
+}
+
+/// Summary of a single tool call for hook review.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HookToolCallInfo {
+    /// Name of the tool being called.
+    pub name: String,
+    /// Serialized input/arguments.
+    pub input: String,
+}
+
 /// Action the unhealthy handler prescribes in response to a failure
 /// category and current backoff state.
 #[derive(Debug, Clone, PartialEq, Eq)]

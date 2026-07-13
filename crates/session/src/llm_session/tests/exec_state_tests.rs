@@ -309,3 +309,81 @@ fn test_concurrent_child_register_deregister_no_panic() {
     }
     assert_eq!(session.exec_status(), SessionExecStatus::Idle);
 }
+
+// ── spawn_guard_reminder (first-layer defense) ────────────────────────────
+
+#[test]
+fn test_spawn_guard_reminder_active_children_not_yielded() {
+    let session = ConversationSession::new("s_sg1".into(), "gpt-4o".into(), tmp_path());
+    // Register two running children.
+    session.register_child("child_1");
+    session.register_child("child_2");
+    // Not in Waiting state (not yielded).
+    assert!(!session.is_waiting());
+    // Should return a reminder with count = 2.
+    let reminder = session.spawn_guard_reminder();
+    assert!(reminder.is_some());
+    let msg = reminder.unwrap();
+    assert!(
+        msg.contains("2"),
+        "reminder should mention 2 active children"
+    );
+    assert!(msg.contains("yield"), "reminder should suggest yielding");
+}
+
+#[test]
+fn test_spawn_guard_reminder_active_children_yielded() {
+    let session = ConversationSession::new("s_sg2".into(), "gpt-4o".into(), tmp_path());
+    session.register_child("child_1");
+    // Enter Waiting state (yielded).
+    session.enter_waiting();
+    assert!(session.is_waiting());
+    // Should return None because session already yielded.
+    assert!(session.spawn_guard_reminder().is_none());
+}
+
+#[test]
+fn test_spawn_guard_reminder_no_children() {
+    let session = ConversationSession::new("s_sg3".into(), "gpt-4o".into(), tmp_path());
+    // No children registered.
+    assert!(!session.has_active_children());
+    // Should return None.
+    assert!(session.spawn_guard_reminder().is_none());
+}
+
+#[test]
+fn test_spawn_guard_reminder_all_children_completed() {
+    let session = ConversationSession::new("s_sg4".into(), "gpt-4o".into(), tmp_path());
+    session.register_child("child_1");
+    session.update_child_state("child_1", ChildSessionState::Completed);
+    assert!(!session.has_active_children());
+    // No active children → no reminder.
+    assert!(session.spawn_guard_reminder().is_none());
+}
+
+#[test]
+fn test_spawn_guard_reminder_message_content_format() {
+    let session = ConversationSession::new("s_sg5".into(), "gpt-4o".into(), tmp_path());
+    // Register 3 running children.
+    session.register_child("c1");
+    session.register_child("c2");
+    session.register_child("c3");
+    let reminder = session.spawn_guard_reminder().unwrap();
+    assert!(
+        reminder.contains("3"),
+        "reminder should contain the count of active children"
+    );
+    // Verify the Chinese message format matches the design doc.
+    assert!(
+        reminder.starts_with("你有"),
+        "reminder should start with the expected prefix"
+    );
+    assert!(
+        reminder.contains("子 agent 仍在运行"),
+        "reminder should mention sub-agents running"
+    );
+    assert!(
+        reminder.contains("建议 yield 等待结果"),
+        "reminder should suggest yield"
+    );
+}
