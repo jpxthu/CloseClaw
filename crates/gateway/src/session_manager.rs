@@ -880,5 +880,9 @@ mod spawn_tree_tests;
 pub(crate) mod test_helpers;
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod yield_recovery_tests;
+#[cfg(test)]
+mod yield_timeout_tests;
 // #[cfg(test)]
 // mod tests_get_thread_id;  // DISABLED: imports from full-tests only modules

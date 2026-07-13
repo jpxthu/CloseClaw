@@ -307,6 +307,16 @@ impl SessionManager {
         self.drain_pending_for_session(parent_id).await;
     }
 
+    /// Trigger recovery check for a yielded session.
+    ///
+    /// Public (within crate) wrapper around `maybe_recover_yielded_session`
+    /// so tests can directly trigger the recovery path without relying
+    /// on `try_push_announce` (which requires the child to be in the tree).
+    #[allow(dead_code)] // used by tests in yield_recovery_tests
+    pub(crate) async fn trigger_yield_recovery(&self, parent_id: &str) {
+        self.maybe_recover_yielded_session(parent_id).await;
+    }
+
     /// Drain pending messages for a session after recovery from Waiting.
     ///
     /// Mirrors the drain loop in `SessionMessageHandler::drain_pending_loop`
