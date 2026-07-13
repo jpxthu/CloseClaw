@@ -662,3 +662,69 @@ async fn test_execute_route_stop_cascade_and_force() {
     let result = gw.dispatch_slash("s1", "/stop", Some("u1"), "feishu").await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
 }
+
+// ── Step 1.5: /system PartialRewrite snapshot trigger tests ───────────────
+
+/// Helper: set up gateway with conversation session for snapshot tests.
+async fn setup_snapshot_test() -> Arc<Gateway> {
+    let gw = make_gateway();
+    {
+        let cs = closeclaw_session::llm_session::ConversationSession::new(
+            "sess-snap".to_owned(),
+            "test-model".to_owned(),
+            std::path::PathBuf::from("/tmp"),
+        );
+        let mut conv = gw.session_manager.conversation_sessions.write().await;
+        conv.insert(
+            "sess-snap".to_owned(),
+            Arc::new(tokio::sync::RwLock::new(cs)),
+        );
+    }
+    gw
+}
+
+/// Step 1.5 — `/system add` creates a PartialRewrite snapshot.
+#[tokio::test]
+async fn test_system_add_creates_partial_rewrite_snapshot() {
+    let gw = setup_snapshot_test().await;
+    gw.set_slash_dispatcher(Arc::new(ActionRouter {
+        action: SystemAppendAction::Add("new rule".to_owned()),
+    }))
+    .await;
+
+    let result = gw
+        .dispatch_slash("sess-snap", "/system", Some("owner"), "feishu")
+        .await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+
+    // Verify snapshot was created with PartialRewrite op type.
+    let snapshot_count = gw.session_manager.snapshot_count_for("sess-snap").await;
+    assert_eq!(
+        snapshot_count,
+        Some(1),
+        "/system add should create exactly one snapshot"
+    );
+}
+
+/// Step 1.5 — `/system clear` creates a PartialRewrite snapshot.
+#[tokio::test]
+async fn test_system_clear_creates_partial_rewrite_snapshot() {
+    let gw = setup_snapshot_test().await;
+    gw.set_slash_dispatcher(Arc::new(ActionRouter {
+        action: SystemAppendAction::Clear,
+    }))
+    .await;
+
+    let result = gw
+        .dispatch_slash("sess-snap", "/system", Some("owner"), "feishu")
+        .await;
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+
+    // Verify snapshot was created with PartialRewrite op type.
+    let snapshot_count = gw.session_manager.snapshot_count_for("sess-snap").await;
+    assert_eq!(
+        snapshot_count,
+        Some(1),
+        "/system clear should create exactly one snapshot"
+    );
+}

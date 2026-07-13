@@ -713,6 +713,11 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             }
             return;
         };
+        // Create a PartialRewrite snapshot before modifying the system prompt,
+        // per design doc: /system is a local rewrite that warrants a snapshot.
+        self.session_manager
+            .create_partial_rewrite_snapshot(session_id)
+            .await;
         let mut cs = cs.write().await;
         match action {
             SystemAppendAction::Add(text) => {

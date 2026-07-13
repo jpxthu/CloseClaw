@@ -14,6 +14,7 @@
 
 pub mod hard_rules;
 pub mod health_types;
+pub mod hook_reviewer;
 pub mod snapshot_manager;
 pub mod unhealthy_handler;
 
@@ -23,7 +24,10 @@ pub use hard_rules::{
 };
 pub use health_types::{
     FailureCategory, HardRuleViolation, HealthCheckInput, HealthCheckOutput, HealthStatus,
-    RecoverableAction, RetryPolicy,
+    HookContext, HookToolCallInfo, RecoverableAction, RetryPolicy,
+};
+pub use hook_reviewer::{
+    hook_prompt_template, HookConfig, HookLlmProvider, HookReviewer, HookType, HookVerdict,
 };
 pub use snapshot_manager::{RuntimeSnapshotManager, Snapshot, TranscriptOp};
 pub use unhealthy_handler::{BackoffCounter, UnhealthyHandler};
@@ -32,6 +36,8 @@ pub use unhealthy_handler::{BackoffCounter, UnhealthyHandler};
 mod hard_rules_tests;
 #[cfg(test)]
 mod health_types_tests;
+#[cfg(test)]
+mod hook_reviewer_tests;
 #[cfg(test)]
 mod snapshot_manager_tests;
 #[cfg(test)]
