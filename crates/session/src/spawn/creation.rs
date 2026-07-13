@@ -35,6 +35,11 @@ pub struct ChildSessionCreated {
     pub session_id: String,
     /// Resolved workspace path for the child.
     pub workspace_path: PathBuf,
+    /// Communication config applied to the child session.
+    ///
+    /// The gateway should use this value (not re-compute it) when persisting
+    /// the checkpoint, to avoid duplication drift.
+    pub communication_config: CommunicationConfig,
 }
 
 /// Parameters for creating a child `ConversationSession`.
@@ -64,8 +69,6 @@ pub struct ChildSessionCreationParams<'a> {
     pub parent_subagents_model: Option<&'a str>,
     /// Effective maximum spawn depth for the child.
     pub max_spawn_depth: u32,
-    /// Short label for the child session.
-    pub label: Option<&'a str>,
 }
 
 /// Create a child `ConversationSession` for a spawned sub-agent.
@@ -109,13 +112,18 @@ pub async fn create_child_conversation_session(
         &params.mode,
         params.fork,
     );
+    // Generate communication config: child may only communicate with parent.
+    // Created here (not inside configure_spawn_behavior) so it can be returned
+    // in ChildSessionCreated for checkpoint persistence by the gateway.
+    let comm_config = CommunicationConfig::default_with_parent(Some(params.parent_agent_id));
+
     let behavior = SpawnBehaviorConfig {
         child_session_id: &child_session_id,
         agent_id: &config.id,
         bootstrap_mode,
         spawn_context,
     };
-    cs = configure_spawn_behavior(ctx, cs, params, &behavior).await;
+    cs = configure_spawn_behavior(ctx, cs, params, &behavior, &comm_config).await;
 
     let conversation_session = Arc::new(tokio::sync::RwLock::new(cs));
 
@@ -123,6 +131,7 @@ pub async fn create_child_conversation_session(
         conversation_session,
         session_id: child_session_id,
         workspace_path: workdir_path,
+        communication_config: comm_config,
     })
 }
 
@@ -203,6 +212,7 @@ async fn configure_spawn_behavior(
     mut cs: ConversationSession,
     params: &ChildSessionCreationParams<'_>,
     behavior: &SpawnBehaviorConfig<'_>,
+    comm_config: &CommunicationConfig,
 ) -> ConversationSession {
     // Build initial system prompt, then append spawn context.
     let base_prompt = cs
@@ -214,9 +224,8 @@ async fn configure_spawn_behavior(
         .await;
     cs.replace_system_prompt(format!("{}\n{}", base_prompt, behavior.spawn_context));
 
-    // Generate communication config: child may only communicate with parent.
-    let comm_config = CommunicationConfig::default_with_parent(Some(params.parent_agent_id));
-    cs = cs.with_communication_config(comm_config);
+    // Apply communication config: child may only communicate with parent.
+    cs = cs.with_communication_config(comm_config.clone());
 
     // Fork mode: inherit parent session's conversation history.
     if params.fork {

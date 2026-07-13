@@ -298,6 +298,8 @@ impl SpawnController {
 
     /// Global default spawn timeout (seconds). Returns `None` when no
     /// global default is configured, meaning no timeout limit.
+    // TODO: implement global spawn timeout from config when a global
+    // `subagents.default_timeout` field is added to ResolvedAgentConfig.
     fn global_spawn_timeout(&self) -> Option<u64> {
         None
     }
