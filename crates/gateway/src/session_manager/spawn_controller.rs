@@ -102,7 +102,7 @@ impl SpawnController {
         parent_session_id: &str,
         target_agent_id: Option<&str>,
     ) -> Result<SpawnValidationResult, SpawnError> {
-        // ① Depth check.
+        // ① Depth check (design doc §①).
         let parent_agent_id = self
             .session_manager
             .get_chat_id(parent_session_id)
@@ -115,28 +115,31 @@ impl SpawnController {
         // ② Read parent config for concurrency/whitelist/requireAgentId.
         let parent_cfg = self.read_parent_config(&parent_agent_id).await?;
 
-        // ③ Concurrency check.
+        // ③ Concurrency check (design doc §②).
         self.check_concurrency(parent_session_id, parent_cfg.max_children)
             .await?;
 
-        // ④ AgentId fallback + target config resolution.
-        let resolved = self
-            .resolve_target_config(&parent_agent_id, target_agent_id)
-            .await?;
-
-        // ⑤ Whitelist check (on resolved target_id, after fallback).
-        if let Some(ref tid) = resolved.target_id {
-            self.check_whitelist(tid, &parent_cfg.allow_agents)?;
-        }
-
-        // ⑥ require_agent_id check — must come after concurrency/whitelist.
-        // Check the original caller-provided agent_id, not the resolved fallback.
-        // Parent-agent-id fallback does not satisfy require_agent_id —
-        // only an explicit caller argument does.
+        // ④ require_agent_id check (design doc §③).
+        //    Must run after concurrency check but before agentId resolution.
+        //    Check the original caller-provided agent_id, not the resolved fallback.
+        //    Parent-agent-id fallback does not satisfy require_agent_id —
+        //    only an explicit caller argument does.
         if parent_cfg.require_agent_id && target_agent_id.is_none() {
             return Err(SpawnError::AgentIdRequired);
         }
-        let target_id = resolved.target_id.ok_or(SpawnError::AgentIdRequired)?;
+
+        // ⑤ AgentId fallback + target config resolution (design doc §④).
+        let resolved = self
+            .resolve_target_config(&parent_agent_id, target_agent_id)
+            .await?;
+        let target_id = resolved
+            .target_id
+            .as_ref()
+            .ok_or(SpawnError::AgentIdRequired)?
+            .clone();
+
+        // ⑥ Whitelist check on resolved target_id (design doc §⑤).
+        self.check_whitelist(&target_id, &parent_cfg.allow_agents)?;
 
         // ⑦ Permission check: validate child permissions via intersection
         //    with parent effective permissions (design doc §⑥).
