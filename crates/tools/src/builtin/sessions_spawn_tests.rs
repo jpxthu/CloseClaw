@@ -146,6 +146,105 @@ fn test_sessions_spawn_label_param_empty_string() {
 }
 
 // ---------------------------------------------------------------------------
+// promptTemplate + allowedTools independence tests (Step 1.4)
+// ---------------------------------------------------------------------------
+
+/// promptTemplate and allowedTools are independent parameters.
+/// Specifying promptTemplate must NOT inject or override allowedTools.
+#[test]
+fn test_prompt_template_does_not_affect_allowed_tools() {
+    let args = json!({
+        "task": "analyze code",
+        "promptTemplate": "explore"
+    });
+    let spawn_args = SessionsSpawnTool::parse_args(&args).expect("parse_args should succeed");
+    assert!(
+        spawn_args.allowed_tools.is_none(),
+        "promptTemplate must not inject allowed_tools; got {:?}",
+        spawn_args.allowed_tools
+    );
+}
+
+/// Explicit allowedTools is parsed independently of promptTemplate.
+#[test]
+fn test_explicit_allowed_tools_with_prompt_template() {
+    let args = json!({
+        "task": "validate changes",
+        "promptTemplate": "validation",
+        "allowedTools": ["read", "exec"]
+    });
+    let spawn_args = SessionsSpawnTool::parse_args(&args).expect("parse_args should succeed");
+    assert_eq!(
+        spawn_args.allowed_tools,
+        Some(vec!["read".to_string(), "exec".to_string()]),
+        "explicit allowedTools must be preserved alongside promptTemplate"
+    );
+}
+
+/// Explicit allowedTools works without promptTemplate.
+#[test]
+fn test_explicit_allowed_tools_without_prompt_template() {
+    let args = json!({
+        "task": "run tests",
+        "allowedTools": ["bash", "read"]
+    });
+    let spawn_args = SessionsSpawnTool::parse_args(&args).expect("parse_args should succeed");
+    assert_eq!(
+        spawn_args.allowed_tools,
+        Some(vec!["bash".to_string(), "read".to_string()]),
+        "explicit allowedTools must work without promptTemplate"
+    );
+}
+
+/// Empty allowedTools array is treated as None (no override).
+#[test]
+fn test_empty_allowed_tools_treated_as_none() {
+    let args = json!({
+        "task": "do work",
+        "allowedTools": []
+    });
+    let spawn_args = SessionsSpawnTool::parse_args(&args).expect("parse_args should succeed");
+    assert!(
+        spawn_args.allowed_tools.is_none(),
+        "empty allowedTools array should be treated as None"
+    );
+}
+
+/// promptTemplate is parsed correctly as each valid variant.
+#[test]
+fn test_prompt_template_parsed_for_each_variant() {
+    let variants = ["explore", "validation", "plan", "executor"];
+    for variant in variants {
+        let args = json!({"task": "test", "promptTemplate": variant});
+        let spawn_args = SessionsSpawnTool::parse_args(&args).expect("parse_args should succeed");
+        assert!(
+            spawn_args.prompt_template.is_some(),
+            "promptTemplate={} should be parsed successfully",
+            variant
+        );
+    }
+}
+
+/// Invalid promptTemplate value is rejected.
+#[test]
+fn test_invalid_prompt_template_rejected() {
+    let args = json!({"task": "test", "promptTemplate": "invalid"});
+    let result = SessionsSpawnTool::parse_args(&args);
+    assert!(result.is_err(), "invalid promptTemplate should be rejected");
+}
+
+/// promptTemplate absent means None (no prefix prepended).
+#[test]
+fn test_prompt_template_absent_means_none() {
+    let args = json!({"task": "do work"});
+    let spawn_args = SessionsSpawnTool::parse_args(&args).expect("parse_args should succeed");
+    assert!(
+        spawn_args.prompt_template.is_none(),
+        "promptTemplate should be None when not provided"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Tests requiring SpawnController (main-crate type)
 // ---------------------------------------------------------------------------
 

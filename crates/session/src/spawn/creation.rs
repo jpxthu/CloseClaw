@@ -242,7 +242,7 @@ async fn configure_spawn_behavior(
     let pending_msg = PendingMessage::with_role(
         format!("{}-task", behavior.child_session_id),
         params.task.to_string(),
-        "assistant".to_string(),
+        "user".to_string(),
     );
     cs.push_pending(pending_msg);
 
