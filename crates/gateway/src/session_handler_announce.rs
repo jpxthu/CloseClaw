@@ -50,6 +50,18 @@ impl SessionMessageHandler {
             metrics_emitter,
         )
         .await;
+
+        // Step 1.5: Check if session is yielding (sessions_yield called).
+        // If yielding, skip draining pending messages — the turn ends here.
+        // Pending messages will be processed after the session resumes.
+        if Self::is_session_yielding(session_manager, session_id).await {
+            tracing::info!(
+                session_id = %session_id,
+                "finish_llm: session is yielding, skipping pending drain"
+            );
+            return;
+        }
+
         Self::drain_pending_loop(session_manager, session_id, output_tx, metrics_emitter).await;
 
         // NOTE: Decrement is handled by the caller (spawned task in
@@ -65,6 +77,18 @@ impl SessionMessageHandler {
         // - `sessions_kill` tool for explicit parent-initiated kills
         // - `ArchiveSweeper::cascade_archive_impl` for timeout cleanup
         // See design-doc §生命周期联动 for the two correct trigger points.
+    }
+
+    /// Check if a session is in active Waiting (yielding) state.
+    ///
+    /// Called by [`finish_llm`] to skip draining pending messages when
+    /// the session has entered yielding via `sessions_yield`.
+    async fn is_session_yielding(session_manager: &Arc<SessionManager>, session_id: &str) -> bool {
+        if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+            cs.read().await.is_waiting()
+        } else {
+            false
+        }
     }
 
     async fn clear_busy_and_send(

@@ -219,6 +219,10 @@ impl SessionManager {
                 .await
                 .unregister_child_handle(child_session_id);
         }
+
+        // Step 1.6: Auto-recovery — check if parent session should
+        // exit Waiting state after all run-mode children complete.
+        self.maybe_recover_yielded_session(&parent_session_id).await;
     }
 
     /// Find the (parent_session_id, child_agent_id) of a child whose
@@ -254,6 +258,91 @@ impl SessionManager {
             })?;
         let child_cs = child_cs.read().await;
         ConversationSession::collect_last_assistant_text(child_cs.messages())
+    }
+
+    /// Check if the parent session has any remaining running run-mode
+    /// children in the SpawnTree. Returns `true` if at least one
+    /// run-mode child is still registered (i.e. not yet completed).
+    async fn has_running_run_mode_children(&self, parent_id: &str) -> bool {
+        let children = self.children.read().await;
+        children
+            .list_children(parent_id)
+            .iter()
+            .any(|info| info.mode == SpawnMode::Run)
+    }
+
+    /// Step 1.6: Auto-recovery — exit Waiting and drain pending
+    /// messages when all run-mode children have completed.
+    ///
+    /// Called after each child announce push. If the parent session
+    /// is in active Waiting state AND no run-mode children remain,
+    /// the session resumes by:
+    /// 1. Exiting Waiting state
+    /// 2. Triggering the pending-message drain loop
+    ///
+    /// The drain loop will pick up the just-pushed announce event
+    /// (already in the announce queue) along with any queued user
+    /// messages, then initiate a new LLM turn.
+    async fn maybe_recover_yielded_session(&self, parent_id: &str) {
+        // Only recover if the session is actively yielding.
+        if !self.is_session_yielding(parent_id).await {
+            return;
+        }
+        // Check if there are still running run-mode children.
+        if self.has_running_run_mode_children(parent_id).await {
+            return;
+        }
+        tracing::info!(
+            parent_id = %parent_id,
+            "maybe_recover_yielded_session: all run-mode children done, recovering"
+        );
+        // Cancel the yield timeout (normal recovery path).
+        self.cancel_yield_timeout(parent_id).await;
+        // Exit Waiting state.
+        if let Some(cs) = self.get_conversation_session(parent_id).await {
+            cs.read().await.exit_waiting();
+        }
+        // Trigger the pending-message drain loop to process queued
+        // announces and user messages.
+        self.drain_pending_for_session(parent_id).await;
+    }
+
+    /// Drain pending messages for a session after recovery from Waiting.
+    ///
+    /// Mirrors the drain loop in `SessionMessageHandler::drain_pending_loop`
+    /// but runs directly on SessionManager. Processes queued announce
+    /// events first, then any pending user messages.
+    pub(crate) async fn drain_pending_for_session(&self, session_id: &str) {
+        // First drain announce events and inject them as system messages.
+        self.drain_and_inject_announces(session_id).await;
+
+        // Then process queued pending messages (user messages).
+        loop {
+            let Some(pending) = self.pop_pending_message(session_id).await else {
+                break;
+            };
+            // Set busy and dispatch LLM call for each queued message.
+            if let Some(cs) = self.get_conversation_session(session_id).await {
+                {
+                    let cs_write = cs.write().await;
+                    cs_write.set_llm_busy(true);
+                    cs_write.set_llm_state(closeclaw_llm::session_state::LlmState::Requesting);
+                }
+                // Invoke LLM for the queued message.
+                let result = cs.read().await.invoke_llm(&pending.content).await;
+                // Clear busy state.
+                {
+                    let cs_write = cs.write().await;
+                    cs_write.set_llm_busy(false);
+                    cs_write.set_llm_state(closeclaw_llm::session_state::LlmState::Idle);
+                }
+                // Append response to session history.
+                if let Ok(response) = result {
+                    let mut cs_write = cs.write().await;
+                    cs_write.append_response(response);
+                }
+            }
+        }
     }
 }
 
