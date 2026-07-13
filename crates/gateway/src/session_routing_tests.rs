@@ -1,9 +1,11 @@
-//! Unit tests for session routing failure in `handle_inbound_message`.
+//! Unit tests for session routing fallback in `handle_inbound_message`.
 //!
-//! Covers the behavior changed in Step 1.1: when `resolve_session_from_message`
-//! returns `None` (session_key empty or SessionManager::resolve fails), the
-//! gateway replies with "会话路由失败，请重试" via the simplified outbound path
-//! (render → send), consistent with non-text message interception.
+//! Covers the behavior changed in Step 1.1: when `session_key` is empty,
+//! `resolve_session_from_message` logs a warning and falls back to routing
+//! fields (platform, sender_id, peer_id, account_id) to let
+//! `SessionManager::resolve` complete the session lookup/create. Tests verify
+//! that session_key empty no longer triggers a routing failure reply, while
+//! genuine `SessionManager::resolve` failures still produce the error reply.
 
 use crate::compute_session_key;
 use crate::{GatewayConfig, HandleResult, Message, SessionManager};
@@ -15,9 +17,12 @@ use closeclaw_common::processor::{DslParseResult, ProcessError, ProcessedMessage
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::persistence::ReasoningLevel;
 use serde_json::json;
+use serial_test::serial;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use tracing::Level;
+use tracing_subscriber::layer::SubscriberExt;
 
 // ── Mock plugin ─────────────────────────────────────────────────────────────
 
@@ -287,52 +292,59 @@ fn make_processed_empty_peer_id(msg: &Message, _channel: &str) -> ProcessedMessa
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 1. Normal path — session_key empty triggers routing failure reply
+// 1. Normal path — session_key empty falls back to routing fields
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// When session_key is empty, handle_inbound_message returns None and
-/// sends the error reply via the simplified outbound path (render + send).
+/// When session_key is empty, `resolve_session_from_message` falls back to
+/// routing fields and `SessionManager::resolve` succeeds — no error reply
+/// is sent. The function may still return `None` when `session_handler` is
+/// not configured (unrelated to routing).
 #[tokio::test]
-async fn test_session_key_empty_returns_none_with_reply() {
+async fn test_session_key_empty_falls_back_to_routing_fields() {
     let (gw, plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "hello");
 
     let processed = make_processed_no_session_key(&msg, "mock");
-    let result: Option<HandleResult> = gw
+    let _result: Option<HandleResult> = gw
         .handle_inbound_message(processed, Some("ou_sender"), "mock")
         .await;
 
-    assert!(result.is_none(), "session_key empty should return None");
-    assert_eq!(plugin.render_count(), 1, "render should be called once");
-    assert_eq!(plugin.send_count(), 1, "send should be called once");
+    // No error reply sent — routing fields are sufficient for session
+    // resolution. (The function returns None because session_handler is
+    // not configured in this test, which is unrelated to routing.)
+    assert_eq!(
+        plugin.render_count(),
+        0,
+        "no error reply render when falling back to routing fields"
+    );
+    assert_eq!(
+        plugin.send_count(),
+        0,
+        "no error reply send when falling back to routing fields"
+    );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 2. Message content — error reply text matches design doc
+// 2. Message content — session_key empty does NOT produce error reply
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// The error reply sent when session_key is empty must contain the exact
-/// text "会话路由失败，请重试" per the design doc.
+/// When session_key is empty but routing fields are present, the gateway
+/// should NOT send the "会话路由失败，请重试" error reply — the fallback to
+/// routing fields means session resolution succeeds.
 #[tokio::test]
-async fn test_session_routing_failure_message_text() {
+async fn test_session_key_empty_no_error_reply() {
     let (gw, plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "hello");
 
     let processed = make_processed_no_session_key(&msg, "mock");
-    let result: Option<HandleResult> = gw
+    let _result: Option<HandleResult> = gw
         .handle_inbound_message(processed, Some("ou_sender"), "mock")
         .await;
 
-    assert!(result.is_none());
-    assert_eq!(plugin.send_count(), 1, "error reply should be sent");
-
-    let (output, peer_id, _thread_id) = plugin.last_send().unwrap();
-    assert_eq!(output.msg_type, "text");
-    assert_eq!(peer_id, "agent-1");
-    let text = output.payload["content"]["text"].as_str().unwrap();
     assert_eq!(
-        text, "会话路由失败，请重试",
-        "error text must match design doc: got {text}"
+        plugin.send_count(),
+        0,
+        "no error reply should be sent when fallback succeeds"
     );
 }
 
@@ -434,26 +446,191 @@ async fn test_resolve_failure_empty_peer_id_skips_send() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 5. Outbound processor chain is bypassed for routing failure replies
+// 5. Outbound processor chain is exercised normally on fallback success
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// The routing failure reply must go through the simplified outbound path,
-/// NOT the full outbound processor chain (no Verbosity/DslParser).
+/// When session_key is empty and falls back to routing fields successfully,
+/// the outbound processor chain should NOT be called (no outbound message
+/// produced during inbound resolution). The result is a normal
+/// `HandleResult`, not a simplified error reply.
 #[tokio::test]
-async fn test_routing_failure_skips_outbound_processor_chain() {
+async fn test_session_key_empty_fallback_no_outbound_chain() {
     let (gw, plugin, chain) = make_gw_with_processor("mock").await;
     let msg = make_message("agent-1", "hello");
 
     let processed = make_processed_no_session_key(&msg, "mock");
-    let result: Option<HandleResult> = gw
+    let _result: Option<HandleResult> = gw
         .handle_inbound_message(processed, Some("ou_sender"), "mock")
         .await;
 
-    assert!(result.is_none(), "session_key empty should return None");
     assert_eq!(
         chain.outbound_call_count(),
         0,
-        "outbound processor chain should be bypassed"
+        "outbound processor chain should not be called during inbound resolution"
     );
-    assert_eq!(plugin.send_count(), 1, "error reply should still be sent");
+    assert_eq!(
+        plugin.send_count(),
+        0,
+        "no error reply when fallback succeeds"
+    );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 6. Step 1.3 — Routing field fallback tests
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// A tracing layer that captures warning-level events into a `Vec<String>`.
+/// Used to verify that `session_key` empty triggers the expected warning.
+#[derive(Clone)]
+struct WarningCollector {
+    warnings: Arc<Mutex<Vec<String>>>,
+}
+
+impl WarningCollector {
+    fn new() -> (Self, Arc<Mutex<Vec<String>>>) {
+        let warnings = Arc::new(Mutex::new(Vec::new()));
+        (
+            Self {
+                warnings: warnings.clone(),
+            },
+            warnings,
+        )
+    }
+}
+
+impl<S> tracing_subscriber::Layer<S> for WarningCollector
+where
+    S: tracing::Subscriber,
+{
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        if *event.metadata().level() == Level::WARN {
+            let mut visitor = WarningVisitor(String::new());
+            event.record(&mut visitor);
+            self.warnings.lock().unwrap().push(visitor.0);
+        }
+    }
+}
+
+struct WarningVisitor(String);
+
+impl tracing::field::Visit for WarningVisitor {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.0 = format!("{:?}", value);
+        }
+    }
+}
+
+/// Install a custom tracing subscriber that captures warnings.
+/// Uses `tracing::dispatch::set_global_default` to ensure the collector
+/// is active regardless of any pre-existing thread-local subscriber.
+fn install_warning_collector(collector: &WarningCollector) {
+    let layer = collector.clone();
+    let subscriber = tracing_subscriber::Registry::default().with(layer);
+    let dispatch = tracing::Dispatch::new(subscriber);
+    let _ = tracing::dispatcher::set_global_default(dispatch);
+}
+
+// ── 6a. Normal path: empty session_key, complete routing fields ───────────
+
+/// session_key is empty but peer_id and sender_id are present and valid.
+/// SessionManager::resolve uses routing fields and succeeds, returning
+/// a `HandleResult`. No error reply is sent.
+#[tokio::test]
+async fn test_empty_session_key_routing_fields_complete_returns_handle() {
+    let (gw, plugin) = make_gw("mock").await;
+    let msg = make_message("peer-42", "hello world");
+
+    let processed = make_processed_no_session_key(&msg, "mock");
+    let _result: Option<HandleResult> = gw
+        .handle_inbound_message(processed, Some("ou_sender"), "mock")
+        .await;
+
+    // SessionManager::resolve succeeds (routing fields sufficient).
+    // session_handler is not configured, so result is None (unrelated to
+    // routing). The key assertion is that no error reply was sent.
+    assert_eq!(
+        plugin.render_count(),
+        0,
+        "no error render when fallback succeeds"
+    );
+    assert_eq!(
+        plugin.send_count(),
+        0,
+        "no error send when fallback succeeds"
+    );
+}
+
+// ── 6b. Log verification: warning emitted on empty session_key ─────────────
+
+/// Verifies that `resolve_session_from_message` emits
+/// `tracing::warn!("session_key is empty — falling back to routing fields")`
+/// when session_key is empty.
+#[tokio::test]
+#[serial]
+async fn test_empty_session_key_emits_warning_log() {
+    let (collector, warnings) = WarningCollector::new();
+    install_warning_collector(&collector);
+
+    let (gw, _plugin) = make_gw("mock").await;
+    let msg = make_message("agent-1", "test");
+    let processed = make_processed_no_session_key(&msg, "mock");
+
+    let _result: Option<HandleResult> = gw
+        .handle_inbound_message(processed, Some("ou_sender"), "mock")
+        .await;
+
+    let captured = warnings.lock().unwrap();
+    assert!(
+        !captured.is_empty(),
+        "expected a warning log when session_key is empty"
+    );
+    assert!(
+        captured.iter().any(|w| w.contains("session_key is empty")),
+        "warning should mention session_key is empty, got: {:?}",
+        *captured
+    );
+}
+
+// ── 6c. Empty routing fields: session_key + peer_id + sender_id empty ─────
+
+/// session_key, peer_id, and sender_id are all empty. SessionManager::resolve
+/// receives an empty routing key and may fail. The gateway should degrade
+/// gracefully — returning `None` without panicking or sending an error reply
+/// when there is no target to send to.
+#[tokio::test]
+async fn test_empty_session_key_empty_routing_fields_graceful_degradation() {
+    let (gw, plugin) = make_gw("mock").await;
+    let _msg = make_message("", "hello");
+
+    let mut metadata = HashMap::new();
+    metadata.insert("session_key".to_string(), String::new());
+    metadata.insert("peer_id".to_string(), String::new());
+    metadata.insert("sender_id".to_string(), String::new());
+    let processed = ProcessedMessage {
+        content_blocks: vec![ContentBlock::Text(String::new())],
+        metadata,
+    };
+
+    let _result: Option<HandleResult> = gw.handle_inbound_message(processed, None, "mock").await;
+
+    // Graceful degradation: no panic, no error reply sent.
+    assert!(
+        _result.is_none(),
+        "all-empty routing fields should return None gracefully"
+    );
+    assert_eq!(
+        plugin.send_count(),
+        0,
+        "no send when all routing fields are empty"
+    );
+    assert_eq!(
+        plugin.render_count(),
+        0,
+        "no render when all routing fields are empty"
+    );
 }

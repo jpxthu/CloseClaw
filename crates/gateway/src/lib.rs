@@ -476,8 +476,7 @@ impl Gateway {
             .unwrap_or("");
 
         if session_key.is_empty() {
-            tracing::warn!("session_key is empty — session routing failed");
-            return None;
+            tracing::warn!("session_key is empty — falling back to routing fields");
         }
 
         // Build a partial Message for SessionManager::resolve.
