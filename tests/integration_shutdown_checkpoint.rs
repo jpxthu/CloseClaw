@@ -124,15 +124,15 @@ async fn test_flush_all_writes_checkpoint_to_sqlite() {
     // The transcript .jsonl stores all entries with sent=true, so both loaded messages
     // will have sent=true. Verify the count and content instead.
     assert_eq!(
-        cp.pending_messages.len(),
+        cp.outbound_pending.len(),
         2,
         "checkpoint should contain 2 pending messages, got {}",
-        cp.pending_messages.len()
+        cp.outbound_pending.len()
     );
 
     // Verify message IDs match what was pushed
     let ids: Vec<&str> = cp
-        .pending_messages
+        .outbound_pending
         .iter()
         .map(|m| m.message_id.as_str())
         .collect();
@@ -148,7 +148,7 @@ async fn test_flush_all_writes_checkpoint_to_sqlite() {
     );
 
     // Verify both entries have sent=true (transcript always marks as sent)
-    for m in &cp.pending_messages {
+    for m in &cp.outbound_pending {
         assert!(
             m.sent,
             "transcript entries should always have sent=true, but {} had sent=false",
@@ -197,7 +197,7 @@ async fn test_restore_after_checkpoint_skips_all_messages() {
     let session_root = tempfile::TempDir::new().unwrap();
     let root = session_root.path().to_path_buf();
     let mut session = ConversationSession::new(sid.clone(), "fake-model".to_string(), root);
-    session.restore_pending_messages(cp.pending_messages);
+    session.restore_pending_messages(cp.outbound_pending);
 
     // All checkpoint messages have sent=true (transcript format limitation),
     // so restore_pending_messages should skip everything.

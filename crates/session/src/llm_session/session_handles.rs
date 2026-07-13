@@ -388,4 +388,16 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
     fn manual_background_notify(&self) -> Option<Arc<tokio::sync::Notify>> {
         Some(self.manual_background_notify())
     }
+
+    fn enter_waiting(&self) {
+        ConversationSession::enter_waiting(self);
+    }
+
+    fn exit_waiting(&self) {
+        ConversationSession::exit_waiting(self);
+    }
+
+    fn is_waiting(&self) -> bool {
+        ConversationSession::is_waiting(self)
+    }
 }

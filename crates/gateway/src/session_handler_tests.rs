@@ -635,7 +635,7 @@ async fn test_apply_compact_result_order_and_state() {
         other => panic!("expected Text block, got {:?}", other),
     }
 
-    // 2. Checkpoint should have been saved (pending_messages synced).
+    // 2. Checkpoint should have been saved (outbound_pending synced).
     let saved = persistence
         .checkpoints
         .lock()
@@ -644,13 +644,13 @@ async fn test_apply_compact_result_order_and_state() {
         .cloned()
         .expect("checkpoint should be saved");
     assert_eq!(
-        saved.pending_messages.len(),
+        saved.outbound_pending.len(),
         1,
         "checkpoint should have 1 pending message (the boundary)"
     );
-    assert_eq!(saved.pending_messages[0].message_id, "boundary");
+    assert_eq!(saved.outbound_pending[0].message_id, "boundary");
     assert!(
-        saved.pending_messages[0]
+        saved.outbound_pending[0]
             .content
             .contains("Summary of conversation."),
         "boundary content should be in pending message"

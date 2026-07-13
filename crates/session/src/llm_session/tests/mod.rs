@@ -13,6 +13,7 @@ mod session_llm_tests;
 mod stop_tests;
 mod streaming_tests;
 mod system_appends_tests;
+mod waiting_state_tests;
 
 // ── pending_messages queue ──────────────────────────────────────────────────
 

@@ -165,4 +165,100 @@ mod tests {
             "old checkpoint without communication_config should default to None"
         );
     }
+
+    #[test]
+    fn test_pending_operation_status_default_is_running() {
+        use crate::persistence::PendingOperationStatus;
+        let status = PendingOperationStatus::default();
+        assert_eq!(status, PendingOperationStatus::Running);
+    }
+
+    #[test]
+    fn test_pending_operation_status_display() {
+        use crate::persistence::PendingOperationStatus;
+        assert_eq!(PendingOperationStatus::Running.to_string(), "running");
+    }
+
+    #[test]
+    fn test_pending_operation_status_serde_roundtrip() {
+        use crate::persistence::PendingOperationStatus;
+        let json = serde_json::to_string(&PendingOperationStatus::Running).unwrap();
+        assert_eq!(json, "\"running\"");
+        let parsed: PendingOperationStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, PendingOperationStatus::Running);
+    }
+
+    #[test]
+    fn test_pending_operation_new_has_status_running() {
+        use crate::persistence::{PendingOperation, PendingOperationStatus, PendingOperationType};
+        let op = PendingOperation {
+            op_id: "op1".into(),
+            op_type: PendingOperationType::ToolCall,
+            status: PendingOperationStatus::Running,
+            name: "test".into(),
+            args: String::new(),
+            created_at: chrono::Utc::now(),
+        };
+        assert_eq!(op.status, PendingOperationStatus::Running);
+    }
+
+    #[test]
+    fn test_pending_operation_serde_roundtrip_with_status() {
+        use crate::persistence::{PendingOperation, PendingOperationStatus, PendingOperationType};
+        let op = PendingOperation {
+            op_id: "op1".into(),
+            op_type: PendingOperationType::ToolCall,
+            status: PendingOperationStatus::Running,
+            name: "test".into(),
+            args: String::new(),
+            created_at: chrono::Utc::now(),
+        };
+        let json = serde_json::to_string(&op).unwrap();
+        let parsed: PendingOperation = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.status, PendingOperationStatus::Running);
+        assert!(json.contains("\"status\":\"running\""));
+    }
+
+    #[test]
+    fn test_pending_operation_old_json_without_status_defaults_to_running() {
+        use crate::persistence::{PendingOperation, PendingOperationStatus};
+        // Simulate old checkpoint JSON without status field
+        let old_json = r#"{
+            "op_id": "op_old",
+            "op_type": "tool_call",
+            "name": "old_tool",
+            "args": "{}",
+            "created_at": "2026-01-01T00:00:00Z"
+        }"#;
+        let parsed: PendingOperation = serde_json::from_str(old_json).unwrap();
+        assert_eq!(
+            parsed.status,
+            PendingOperationStatus::Running,
+            "old PendingOperation JSON without status field should default to Running"
+        );
+    }
+
+    #[test]
+    fn test_pending_operation_in_checkpoint_old_json_without_status() {
+        // Verify that a checkpoint containing old PendingOperation without
+        // status field still deserializes correctly
+        let cp = SessionCheckpoint::new("s-old-pending".into());
+        let mut json_value: serde_json::Value = serde_json::to_value(&cp).unwrap();
+        // Insert a pending operation without status field
+        json_value["pending_operations"] = serde_json::json!([{
+            "op_id": "old_op",
+            "op_type": "tool_call",
+            "name": "old_tool",
+            "args": "{}",
+            "created_at": "2026-01-01T00:00:00Z"
+        }]);
+        let json_str = serde_json::to_string(&json_value).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed.pending_operations.len(), 1);
+        assert_eq!(
+            parsed.pending_operations[0].status,
+            crate::persistence::PendingOperationStatus::Running,
+            "old checkpoint PendingOperation without status should default to Running"
+        );
+    }
 }

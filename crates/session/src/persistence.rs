@@ -60,8 +60,13 @@ pub struct SessionCheckpoint {
     pub last_message_id: Option<String>,
     /// 当前推理模式状态
     pub mode_state: ReasoningModeState,
-    /// 中间状态消息（尚未最终确认）
-    pub pending_messages: Vec<PendingMessage>,
+    /// Outbound message tracking (messages queued for sending to the channel).
+    ///
+    /// Named `outbound_pending` to match its actual purpose (tracking pending
+    /// outbound messages), avoiding conflict with the design doc's use of
+    /// `pending_messages` to refer to the transcript.
+    #[serde(alias = "pending_messages")]
+    pub outbound_pending: Vec<PendingMessage>,
     /// 当前模式
     pub mode: ReasoningMode,
     /// 创建时间
@@ -251,7 +256,7 @@ impl SessionCheckpoint {
             session_id,
             last_message_id: None,
             mode_state: ReasoningModeState::default(),
-            pending_messages: Vec::new(),
+            outbound_pending: Vec::new(),
             mode: ReasoningMode::Direct,
             created_at: now,
             updated_at: now,
@@ -315,14 +320,14 @@ impl SessionCheckpoint {
         self.mode_state = state;
         self
     }
-    /// Add a pending message
-    pub fn add_pending_message(mut self, msg: PendingMessage) -> Self {
-        self.pending_messages.push(msg);
+    /// Add an outbound pending message
+    pub fn add_outbound_pending(mut self, msg: PendingMessage) -> Self {
+        self.outbound_pending.push(msg);
         self
     }
-    /// Set the pending messages list
-    pub fn with_pending_messages(mut self, msgs: Vec<PendingMessage>) -> Self {
-        self.pending_messages = msgs;
+    /// Set the outbound pending messages list
+    pub fn with_outbound_pending(mut self, msgs: Vec<PendingMessage>) -> Self {
+        self.outbound_pending = msgs;
         self
     }
     /// Set TTL in seconds
@@ -641,6 +646,27 @@ pub enum PendingOperationType {
     OutboundMessage,
 }
 
+/// Status of a pending operation.
+///
+/// Fixed to `Running` — completed operations are removed entirely
+/// rather than transitioning to a terminal state. This enum exists
+/// to match the session-lifecycle.md data model specification.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PendingOperationStatus {
+    /// Operation is currently in progress.
+    #[default]
+    Running,
+}
+
+impl std::fmt::Display for PendingOperationStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PendingOperationStatus::Running => write!(f, "running"),
+        }
+    }
+}
+
 /// A pending operation recorded in a checkpoint during forceful shutdown.
 ///
 /// When the daemon restarts, these entries allow the recovery service to
@@ -652,6 +678,9 @@ pub struct PendingOperation {
     pub op_id: String,
     /// Type of the pending operation.
     pub op_type: PendingOperationType,
+    /// Status of the operation (always Running; completed ops are deleted).
+    #[serde(default)]
+    pub status: PendingOperationStatus,
     /// Human-readable name (tool name, session id, channel name).
     pub name: String,
     /// Serialized arguments (tool args JSON, session config, message content).

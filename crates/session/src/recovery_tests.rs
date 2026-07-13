@@ -4,9 +4,9 @@ mod tests {
     use std::sync::Arc;
 
     use crate::persistence::{
-        DreamingStatus, PendingOperation, PendingOperationType, PersistenceError,
-        PersistenceService, ReasoningLevel, ReasoningMode, ReasoningModeState, SessionCheckpoint,
-        SessionMode, SessionStatus,
+        DreamingStatus, PendingOperation, PendingOperationStatus, PendingOperationType,
+        PersistenceError, PersistenceService, ReasoningLevel, ReasoningMode, ReasoningModeState,
+        SessionCheckpoint, SessionMode, SessionStatus,
     };
     use crate::recovery::{
         extract_tasks_from_content, RecoveryReport, SessionRecoveryService, SpawnTree,
@@ -24,7 +24,7 @@ mod tests {
                 step_messages: vec!["Step 1".to_string()],
                 is_complete: false,
             },
-            pending_messages: Vec::new(),
+            outbound_pending: Vec::new(),
             mode: ReasoningMode::Plan,
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -107,6 +107,7 @@ mod tests {
         // Dirty session with tool call
         let dirty = SessionCheckpoint::new("session2".into()).with_pending_operations(vec![
             PendingOperation {
+                status: PendingOperationStatus::Running,
                 op_id: "op_1".into(),
                 op_type: PendingOperationType::ToolCall,
                 name: "bash".into(),
@@ -350,6 +351,7 @@ mod tests {
         // Dirty session: tool call + sub-spawn
         let dirty = SessionCheckpoint::new("dirty_tools".into()).with_pending_operations(vec![
             PendingOperation {
+                status: PendingOperationStatus::Running,
                 op_id: "call_1".into(),
                 op_type: PendingOperationType::ToolCall,
                 name: "exec".into(),
@@ -357,6 +359,7 @@ mod tests {
                 created_at: now,
             },
             PendingOperation {
+                status: PendingOperationStatus::Running,
                 op_id: "child_1".into(),
                 op_type: PendingOperationType::SubSessionSpawn,
                 name: "sub-agent".into(),
@@ -440,6 +443,7 @@ mod tests {
         cp.pending_operations = vec![PendingOperation {
             op_id: "op_archived".into(),
             op_type: PendingOperationType::ToolCall,
+            status: PendingOperationStatus::Running,
             name: "exec".into(),
             args: r#"{"cmd":"echo hello"}"#.into(),
             created_at: now,

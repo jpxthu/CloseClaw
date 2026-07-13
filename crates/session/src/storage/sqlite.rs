@@ -377,7 +377,7 @@ impl PersistenceService for SqliteStorage {
             let status = status_to_db(&checkpoint.status);
             let mode_state_json = serde_json::to_string(&checkpoint.mode_state)
                 .map_err(PersistenceError::Serialization)?;
-            let pending_json = serde_json::to_string(&checkpoint.pending_messages)
+            let pending_json = serde_json::to_string(&checkpoint.outbound_pending)
                 .map_err(PersistenceError::Serialization)?;
             let system_appends_json = serde_json::to_string(&checkpoint.system_appends)
                 .map_err(PersistenceError::Serialization)?;
@@ -386,7 +386,7 @@ impl PersistenceService for SqliteStorage {
             let metadata_json = json!({
                 "mode": mode_to_db(&checkpoint.mode),
                 "mode_state": mode_state_json,
-                "pending_messages": pending_json,
+                "outbound_pending": pending_json,
                 "system_appends": system_appends_json,
                 "session_mode": checkpoint.session_mode.to_string(),
                 "transcript": transcript_json,
@@ -470,7 +470,7 @@ impl PersistenceService for SqliteStorage {
     }
 
     /// Load a session checkpoint from the database and reconstruct
-    /// pending_messages from the transcript file.
+    /// outbound_pending from the transcript file.
     async fn load_checkpoint(
         &self,
         session_id: &str,

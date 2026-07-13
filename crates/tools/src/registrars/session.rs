@@ -8,15 +8,15 @@ use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 
-use crate::builtin::{SessionsKillTool, SessionsSpawnTool, SessionsSteerTool};
+use crate::builtin::{SessionsKillTool, SessionsSpawnTool, SessionsSteerTool, SessionsYieldTool};
 use crate::try_register;
 use crate::{SpawnValidator, Tool};
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 
 /// Session tools registrar — registers all tools from the sessions domain.
 ///
-/// Covers `sessions` group (3 tools):
-/// `sessions_spawn`, `sessions_steer`, `sessions_kill`.
+/// Covers `sessions` group (4 tools):
+/// `sessions_spawn`, `sessions_steer`, `sessions_kill`, `sessions_yield`.
 pub struct SessionToolsRegistrar {
     spawn_validator: Arc<dyn SpawnValidator>,
     session_manager: Arc<SessionManager>,
@@ -91,9 +91,15 @@ impl ToolRegistrar for SessionToolsRegistrar {
             ),
             r
         );
+        try_register!(
+            registry,
+            registered,
+            SessionsYieldTool::new(self.session_manager.clone()),
+            r
+        );
         if registered == 0 {
             return Err(ToolRegistrarError::Internal(
-                "all 3 tools failed to register".to_string(),
+                "all 4 tools failed to register".to_string(),
             ));
         }
         Ok(())

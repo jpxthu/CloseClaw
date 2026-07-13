@@ -19,6 +19,7 @@ pub mod search;
 pub mod sessions_kill;
 pub mod sessions_spawn;
 pub mod sessions_steer;
+pub mod sessions_yield;
 pub mod skill_creator;
 pub mod skill_tool;
 
@@ -33,6 +34,7 @@ pub use search::ToolSearchTool;
 pub use sessions_kill::SessionsKillTool;
 pub use sessions_spawn::SessionsSpawnTool;
 pub use sessions_steer::SessionsSteerTool;
+pub use sessions_yield::SessionsYieldTool;
 pub use skill_creator::SkillCreatorTool;
 pub use skill_tool::SkillTool;
 

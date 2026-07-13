@@ -264,9 +264,9 @@ fn make_archived_checkpoint(
     cp.dreaming_status = DreamingStatus::Pending;
     cp.agent_id = Some("test-agent".into());
 
-    // Populate pending_messages with transcript lines.
+    // Populate outbound_pending with transcript lines.
     // PendingMessage.message_id stores the role.
-    cp.pending_messages = transcript_lines
+    cp.outbound_pending = transcript_lines
         .iter()
         .map(|(role, content)| {
             closeclaw_session::persistence::PendingMessage::new(
@@ -312,7 +312,7 @@ async fn test_full_pipeline_transcript_to_memory_md() {
         .await
         .unwrap()
         .unwrap();
-    let raw_transcript = format_transcript(&archived.pending_messages);
+    let raw_transcript = format_transcript(&archived.outbound_pending);
     let result = miner
         .mine_session_from_checkpoint(
             "sess-1",
@@ -392,7 +392,7 @@ async fn test_empty_transcript_no_events() {
     let mut cp = SessionCheckpoint::new("sess-empty".into());
     cp.mined = false;
     cp.agent_id = Some("test-agent".into());
-    cp.pending_messages = Vec::new();
+    cp.outbound_pending = Vec::new();
     storage.add_active(cp.clone());
     storage.add_archived(cp);
 
@@ -430,7 +430,7 @@ async fn test_llm_failure_during_mining() {
         .await
         .unwrap()
         .unwrap();
-    let raw_transcript = format_transcript(&archived.pending_messages);
+    let raw_transcript = format_transcript(&archived.outbound_pending);
     let result = miner
         .mine_session_from_checkpoint(
             "sess-fail",
@@ -493,7 +493,7 @@ async fn test_duplicate_events_deduplicated() {
         .await
         .unwrap()
         .unwrap();
-    let raw_transcript = format_transcript(&archived.pending_messages);
+    let raw_transcript = format_transcript(&archived.outbound_pending);
     let result = miner
         .mine_session_from_checkpoint(
             "sess-dup",
@@ -539,7 +539,7 @@ async fn test_already_mined_session_skipped() {
         .await
         .unwrap()
         .unwrap();
-    let raw_transcript = format_transcript(&archived.pending_messages);
+    let raw_transcript = format_transcript(&archived.outbound_pending);
     let result = miner
         .mine_session_from_checkpoint(
             "sess-mined",

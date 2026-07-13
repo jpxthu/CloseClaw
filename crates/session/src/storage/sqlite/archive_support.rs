@@ -52,7 +52,7 @@ pub fn write_transcript(
     }
     let file = std::fs::File::create(path).map_err(PersistenceError::Io)?;
     let mut writer = std::io::BufWriter::new(file);
-    for msg in &checkpoint.pending_messages {
+    for msg in &checkpoint.outbound_pending {
         let role = msg.role.clone().unwrap_or_else(|| msg.message_id.clone());
         let entry = TranscriptEntry {
             role,
@@ -266,7 +266,7 @@ pub fn load_checkpoint_inner(
             .join(format!("{session_id}.jsonl")),
     };
 
-    let pending_messages = if transcript_path.exists() {
+    let outbound_pending = if transcript_path.exists() {
         read_transcript(&transcript_path)?
     } else {
         return Err(PersistenceError::NotFound(session_id.to_string()));
@@ -318,7 +318,7 @@ pub fn load_checkpoint_inner(
         session_id: session_id.to_string(),
         last_message_id,
         mode_state: mode_state_val,
-        pending_messages,
+        outbound_pending,
         mode: match mode_val.as_str() {
             "plan" => crate::persistence::ReasoningMode::Plan,
             "stream" => crate::persistence::ReasoningMode::Stream,
