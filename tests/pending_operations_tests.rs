@@ -9,7 +9,8 @@
 use closeclaw_llm::session_state::{ChildSessionState, ToolExecState};
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{
-    PendingOperation, PendingOperationType, PersistenceService, SessionCheckpoint,
+    PendingOperation, PendingOperationStatus, PendingOperationType, PersistenceService,
+    SessionCheckpoint,
 };
 
 // ── Step 1.4: collect_pending_operations ────────────────────────────────
@@ -192,6 +193,7 @@ fn test_checkpoint_pending_operations_roundtrip_with_ops() {
     let now = chrono::Utc::now();
     let ops = vec![
         PendingOperation {
+            status: PendingOperationStatus::Running,
             op_id: "tool_call_1".into(),
             op_type: PendingOperationType::ToolCall,
             name: "bash".into(),
@@ -199,6 +201,7 @@ fn test_checkpoint_pending_operations_roundtrip_with_ops() {
             created_at: now,
         },
         PendingOperation {
+            status: PendingOperationStatus::Running,
             op_id: "child_1".into(),
             op_type: PendingOperationType::SubSessionSpawn,
             name: "sub-agent-1".into(),
@@ -206,6 +209,7 @@ fn test_checkpoint_pending_operations_roundtrip_with_ops() {
             created_at: now,
         },
         PendingOperation {
+            status: PendingOperationStatus::Running,
             op_id: "msg_1".into(),
             op_type: PendingOperationType::OutboundMessage,
             name: "outbound-chat".into(),
@@ -288,6 +292,7 @@ fn test_checkpoint_with_pending_operations_builder() {
     let ops = vec![PendingOperation {
         op_id: "op_1".into(),
         op_type: PendingOperationType::ToolCall,
+        status: PendingOperationStatus::Running,
         name: "test_tool".into(),
         args: String::new(),
         created_at: chrono::Utc::now(),
@@ -308,6 +313,7 @@ fn make_checkpoint_with_pending_ops(session_id: &str) -> SessionCheckpoint {
     let now = chrono::Utc::now();
     SessionCheckpoint::new(session_id.into()).with_pending_operations(vec![
         PendingOperation {
+            status: PendingOperationStatus::Running,
             op_id: "tool_1".into(),
             op_type: PendingOperationType::ToolCall,
             name: "bash".into(),
@@ -315,6 +321,7 @@ fn make_checkpoint_with_pending_ops(session_id: &str) -> SessionCheckpoint {
             created_at: now,
         },
         PendingOperation {
+            status: PendingOperationStatus::Running,
             op_id: "child_1".into(),
             op_type: PendingOperationType::SubSessionSpawn,
             name: "sub-agent".into(),
@@ -322,6 +329,7 @@ fn make_checkpoint_with_pending_ops(session_id: &str) -> SessionCheckpoint {
             created_at: now,
         },
         PendingOperation {
+            status: PendingOperationStatus::Running,
             op_id: "msg_1".into(),
             op_type: PendingOperationType::OutboundMessage,
             name: "chat-output".into(),
@@ -503,7 +511,8 @@ async fn test_recovery_report_dirty_sessions_count() {
 #[tokio::test]
 async fn test_recovery_callback_receives_notification_and_tool_failures() {
     use closeclaw_session::persistence::{
-        PendingOperation, PendingOperationType, PersistenceService, SessionCheckpoint,
+        PendingOperation, PendingOperationStatus, PendingOperationType, PersistenceService,
+        SessionCheckpoint,
     };
     use closeclaw_session::storage::memory::MemoryStorage;
     use std::sync::Arc;
@@ -512,6 +521,7 @@ async fn test_recovery_callback_receives_notification_and_tool_failures() {
     let now = chrono::Utc::now();
     let cp = SessionCheckpoint::new("notif_cb".into()).with_pending_operations(vec![
         PendingOperation {
+            status: PendingOperationStatus::Running,
             op_id: "tool_1".into(),
             op_type: PendingOperationType::ToolCall,
             name: "bash".into(),
@@ -519,6 +529,7 @@ async fn test_recovery_callback_receives_notification_and_tool_failures() {
             created_at: now,
         },
         PendingOperation {
+            status: PendingOperationStatus::Running,
             op_id: "child_1".into(),
             op_type: PendingOperationType::SubSessionSpawn,
             name: "sub-agent".into(),

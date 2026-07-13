@@ -695,7 +695,7 @@ impl ConversationSession {
     /// (which inspects tool_states / child_states), this method reads
     /// directly from the conversation history.
     pub fn extract_pending_tool_calls(&self) -> Vec<crate::persistence::PendingOperation> {
-        use crate::persistence::{PendingOperation, PendingOperationType};
+        use crate::persistence::{PendingOperation, PendingOperationStatus, PendingOperationType};
 
         let last_assistant = self.messages.iter().rev().find(|m| m.role == "assistant");
 
@@ -711,6 +711,7 @@ impl ConversationSession {
                     Some(PendingOperation {
                         op_id: id.clone(),
                         op_type: PendingOperationType::ToolCall,
+                        status: PendingOperationStatus::Running,
                         name: name.clone(),
                         args: input.clone(),
                         created_at: now,
@@ -728,7 +729,7 @@ impl ConversationSession {
     /// list of operations that were in progress when the session stopped.
     /// Used by the shutdown path to record what needs recovery on restart.
     pub fn collect_pending_operations(&self) -> Vec<crate::persistence::PendingOperation> {
-        use crate::persistence::{PendingOperation, PendingOperationType};
+        use crate::persistence::{PendingOperation, PendingOperationStatus, PendingOperationType};
         use chrono::Utc;
         use closeclaw_common::{ChildSessionState, ToolExecState};
 
@@ -748,6 +749,7 @@ impl ConversationSession {
                     ops.push(PendingOperation {
                         op_id: tool_id.clone(),
                         op_type: PendingOperationType::ToolCall,
+                        status: PendingOperationStatus::Running,
                         name: tool_id.clone(),
                         args: String::new(),
                         created_at: now,
@@ -767,6 +769,7 @@ impl ConversationSession {
                     ops.push(PendingOperation {
                         op_id: child_id.clone(),
                         op_type: PendingOperationType::SubSessionSpawn,
+                        status: PendingOperationStatus::Running,
                         name: child_id.clone(),
                         args: String::new(),
                         created_at: now,
@@ -781,6 +784,7 @@ impl ConversationSession {
                 ops.push(PendingOperation {
                     op_id: pm.message_id.clone(),
                     op_type: PendingOperationType::OutboundMessage,
+                    status: PendingOperationStatus::Running,
                     name: pm.message_id.clone(),
                     args: pm.content.clone(),
                     created_at: pm.created_at,

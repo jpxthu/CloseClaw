@@ -641,6 +641,27 @@ pub enum PendingOperationType {
     OutboundMessage,
 }
 
+/// Status of a pending operation.
+///
+/// Fixed to `Running` — completed operations are removed entirely
+/// rather than transitioning to a terminal state. This enum exists
+/// to match the session-lifecycle.md data model specification.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PendingOperationStatus {
+    /// Operation is currently in progress.
+    #[default]
+    Running,
+}
+
+impl std::fmt::Display for PendingOperationStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PendingOperationStatus::Running => write!(f, "running"),
+        }
+    }
+}
+
 /// A pending operation recorded in a checkpoint during forceful shutdown.
 ///
 /// When the daemon restarts, these entries allow the recovery service to
@@ -652,6 +673,9 @@ pub struct PendingOperation {
     pub op_id: String,
     /// Type of the pending operation.
     pub op_type: PendingOperationType,
+    /// Status of the operation (always Running; completed ops are deleted).
+    #[serde(default)]
+    pub status: PendingOperationStatus,
     /// Human-readable name (tool name, session id, channel name).
     pub name: String,
     /// Serialized arguments (tool args JSON, session config, message content).

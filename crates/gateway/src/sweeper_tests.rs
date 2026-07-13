@@ -753,7 +753,9 @@ mod tests {
     #[tokio::test]
     async fn test_idle_session_non_empty_pending_operations_skips() {
         use chrono::Utc;
-        use closeclaw_session::persistence::{PendingOperation, PendingOperationType};
+        use closeclaw_session::persistence::{
+            PendingOperation, PendingOperationStatus, PendingOperationType,
+        };
 
         let mem = Arc::new(MemStorage::default());
         mem.add_idle_session("session-pending-wait".into());
@@ -762,6 +764,7 @@ mod tests {
         cp = cp.with_pending_operations(vec![PendingOperation {
             op_id: "op-1".into(),
             op_type: PendingOperationType::ToolCall,
+            status: PendingOperationStatus::Running,
             name: "bash".into(),
             args: "{}".into(),
             created_at: Utc::now(),
