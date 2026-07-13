@@ -167,12 +167,13 @@ mod tests {
             None,
             closeclaw_session::persistence::ReasoningLevel::default(),
         ));
+        let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
         let spawn_controller = Arc::new(closeclaw_gateway::SpawnController::new(
+            Arc::clone(&agent_registry),
             Arc::clone(&cfg_mgr),
             Arc::clone(&session_manager),
             permission_engine.clone(),
         ));
-        let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
 
         let task_manager = Arc::new(closeclaw_tasks::BackgroundTaskManager::new());
         let approval_flow = Arc::new(tokio::sync::Mutex::new(

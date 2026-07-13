@@ -68,6 +68,11 @@ pub struct SpawnController {
 
 // ── Constructor + Validation API ──────────────────────────────────────
 
+/// Global default spawn timeout in seconds (5 minutes).
+/// This is the final fallback when neither spawn args nor target agent
+/// configuration specify a timeout.
+const DEFAULT_SPAWN_TIMEOUT_SECS: u64 = 300;
+
 impl SpawnController {
     pub fn new(
         config_manager: Arc<closeclaw_config::ConfigManager>,
@@ -296,11 +301,11 @@ impl SpawnController {
             .or_else(|| self.global_spawn_timeout())
     }
 
-    /// Global default spawn timeout (seconds). Returns `None` when no
-    /// global default is configured, meaning no timeout limit.
-    // TODO: implement global spawn timeout from config when a global
-    // `subagents.default_timeout` field is added to ResolvedAgentConfig.
+    /// Global default spawn timeout (seconds).
+    ///
+    /// This is the final fallback in the timeout priority chain:
+    /// spawn args → target agent config → **global default**.
     fn global_spawn_timeout(&self) -> Option<u64> {
-        None
+        Some(DEFAULT_SPAWN_TIMEOUT_SECS)
     }
 }

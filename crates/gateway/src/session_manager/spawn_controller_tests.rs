@@ -11,6 +11,7 @@
 
 use std::sync::Arc;
 
+use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
@@ -56,9 +57,15 @@ fn make_config_manager() -> ConfigManager {
 }
 
 /// Build a `SpawnController` with the given config/session managers and an
-/// empty permission engine.
-fn make_controller(cm: &Arc<ConfigManager>, sm: &Arc<SessionManager>) -> SpawnController {
+/// empty permission engine. The returned controller uses the agent registry
+/// for config lookups (tests must populate it via `inject_agents`).
+fn make_controller(
+    ar: &Arc<AgentRegistry>,
+    cm: &Arc<ConfigManager>,
+    sm: &Arc<SessionManager>,
+) -> SpawnController {
     SpawnController::new(
+        Arc::clone(ar),
         cm.clone(),
         sm.clone(),
         Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
@@ -109,11 +116,14 @@ async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
 /// Inject the given (agent_id, ResolvedAgentConfig) pairs into a
 /// ConfigManager's `agents` map. We do not go through `load_agents`
 /// because we want a deterministic, minimal fixture.
-fn inject_agents(cm: &ConfigManager, agents: Vec<(&str, ResolvedAgentConfig)>) {
+fn inject_agents(ar: &AgentRegistry, cm: &ConfigManager, agents: Vec<(&str, ResolvedAgentConfig)>) {
     let mut map = cm.agents.write().expect("agents RwLock poisoned");
+    let mut configs = Vec::new();
     for (id, cfg) in agents {
-        map.insert(id.to_string(), cfg);
+        map.insert(id.to_string(), cfg.clone());
+        configs.push(cfg);
     }
+    ar.populate(configs);
 }
 
 /// Register N child sessions under a given parent in the SessionManager
@@ -154,9 +164,10 @@ async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
 
 #[tokio::test]
 async fn test_validate_passes() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     // Parent uses max_spawn_depth=2 so child_depth=1 passes the depth check.
     let mut parent_sub = SubagentsConfig::default();
@@ -164,7 +175,7 @@ async fn test_validate_passes() {
     let parent = make_agent("parent", parent_sub);
     // Target agent exists in the agents map.
     let child = make_agent("child", SubagentsConfig::default());
-    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
 
     // Parent at depth 0 → child_depth=1, effective_max=min(1,2-1)=1 → OK.
     let parent_id = setup_parent_session(&sm, "parent").await;
@@ -187,16 +198,17 @@ async fn test_validate_passes() {
 
 #[tokio::test]
 async fn test_validate_depth_exceeded() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     // max_spawn_depth=0 forces the depth check to fail.
     let mut sub = SubagentsConfig::default();
     sub.max_spawn_depth = Some(0);
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
-    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
 
     // Parent at depth 0 → child_depth=1 > 0 → DepthExceeded.
     let parent_id = setup_parent_session(&sm, "parent").await;
@@ -221,9 +233,10 @@ async fn test_validate_depth_exceeded() {
 
 #[tokio::test]
 async fn test_validate_max_children() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     // max_children=1 with 1 already-registered child → at the limit.
     // max_spawn_depth=2 so depth check passes before concurrency check.
@@ -232,7 +245,7 @@ async fn test_validate_max_children() {
     sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
-    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
     fill_children(&sm, &parent_id, 1).await;
@@ -257,9 +270,10 @@ async fn test_validate_max_children() {
 
 #[tokio::test]
 async fn test_validate_agent_not_allowed() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     // Allowlist only contains "allowed-agent" — target "child" is denied.
     // max_spawn_depth=2 so depth check passes before whitelist check.
@@ -268,7 +282,7 @@ async fn test_validate_agent_not_allowed() {
     sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
-    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -291,16 +305,17 @@ async fn test_validate_agent_not_allowed() {
 
 #[tokio::test]
 async fn test_validate_require_agent_id() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     // require_agent_id=true and no default_child_agent → passing None must fail.
     let mut sub = SubagentsConfig::default();
     sub.require_agent_id = Some(true);
     sub.default_child_agent = None;
     let parent = make_agent("parent", sub);
-    inject_agents(&cm, vec![("parent", parent)]);
+    inject_agents(&ar, &cm, vec![("parent", parent)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -322,9 +337,10 @@ async fn test_validate_require_agent_id() {
 
 #[tokio::test]
 async fn test_validate_wildcard_allow() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     // Explicit "*" wildcard in allow_agents — any target should be permitted.
     let mut sub = SubagentsConfig::default();
@@ -334,6 +350,7 @@ async fn test_validate_wildcard_allow() {
     // Pick a non-default, otherwise-unrestricted target id.
     let target = make_agent("any-arbitrary-agent", SubagentsConfig::default());
     inject_agents(
+        &ar,
         &cm,
         vec![("parent", parent), ("any-arbitrary-agent", target)],
     );
@@ -360,9 +377,10 @@ async fn test_validate_wildcard_allow() {
 /// → child exists with effective_budget=0 (cannot spawn further).
 #[tokio::test]
 async fn test_validate_cascade_parent_depth1_child_depth2() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(1);
@@ -371,7 +389,7 @@ async fn test_validate_cascade_parent_depth1_child_depth2() {
     let mut child_sub = SubagentsConfig::default();
     child_sub.max_spawn_depth = Some(2);
     let child = make_agent("child", child_sub);
-    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -392,9 +410,10 @@ async fn test_validate_cascade_parent_depth1_child_depth2() {
 /// → child_depth=1 <= 1 → OK.
 #[tokio::test]
 async fn test_validate_cascade_parent_depth2_child_depth2() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(2);
@@ -403,7 +422,7 @@ async fn test_validate_cascade_parent_depth2_child_depth2() {
     let mut child_sub = SubagentsConfig::default();
     child_sub.max_spawn_depth = Some(2);
     let child = make_agent("child", child_sub);
-    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -425,9 +444,10 @@ async fn test_validate_cascade_parent_depth2_child_depth2() {
 /// → child_depth=1 <= 1 → OK.
 #[tokio::test]
 async fn test_validate_cascade_parent_depth3_child_depth1() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(3);
@@ -436,7 +456,7 @@ async fn test_validate_cascade_parent_depth3_child_depth1() {
     let mut child_sub = SubagentsConfig::default();
     child_sub.max_spawn_depth = Some(1);
     let child = make_agent("child", child_sub);
-    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -456,14 +476,15 @@ async fn test_validate_cascade_parent_depth3_child_depth1() {
 /// Target agent not in agents map → ConfigNotFound (existing behavior preserved).
 #[tokio::test]
 async fn test_validate_cascade_unknown_target_config_not_found() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", parent_sub);
-    inject_agents(&cm, vec![("parent", parent)]);
+    inject_agents(&ar, &cm, vec![("parent", parent)]);
     // NOTE: "unknown-child" is NOT injected → target_config = None
 
     let parent_id = setup_parent_session(&sm, "parent").await;
@@ -487,9 +508,10 @@ async fn test_validate_cascade_unknown_target_config_not_found() {
 /// → child_depth=1 <= 1 → OK.
 #[tokio::test]
 async fn test_validate_cascade_parent_depth5_child_depth1() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(5);
@@ -498,7 +520,7 @@ async fn test_validate_cascade_parent_depth5_child_depth1() {
     let mut child_sub = SubagentsConfig::default();
     child_sub.max_spawn_depth = Some(1);
     let child = make_agent("child", child_sub);
-    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -516,9 +538,10 @@ async fn test_validate_cascade_parent_depth5_child_depth1() {
 /// → child_depth=1 <= 3 → OK.
 #[tokio::test]
 async fn test_validate_cascade_parent_depth5_child_depth3() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(5);
@@ -527,7 +550,7 @@ async fn test_validate_cascade_parent_depth5_child_depth3() {
     let mut child_sub = SubagentsConfig::default();
     child_sub.max_spawn_depth = Some(3);
     let child = make_agent("child", child_sub);
-    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -545,9 +568,10 @@ async fn test_validate_cascade_parent_depth5_child_depth3() {
 /// → child_depth=1 > 0 → DepthExceeded.
 #[tokio::test]
 async fn test_validate_cascade_parent_depth0_child_depth5() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(0);
@@ -556,7 +580,7 @@ async fn test_validate_cascade_parent_depth0_child_depth5() {
     let mut child_sub = SubagentsConfig::default();
     child_sub.max_spawn_depth = Some(5);
     let child = make_agent("child", child_sub);
-    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -581,16 +605,17 @@ async fn test_validate_cascade_parent_depth0_child_depth5() {
 /// Verifies that unconfigured targets use the default max_spawn_depth=1.
 #[tokio::test]
 async fn test_validate_cascade_unconfigured_child_depth1_parent1() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(1);
     let parent = make_agent("parent", parent_sub);
     // "child" has default max_spawn_depth=1
     let child = make_agent("child", SubagentsConfig::default());
-    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -611,9 +636,10 @@ async fn test_validate_cascade_unconfigured_child_depth1_parent1() {
 /// the design doc requires depth check to execute before agentId resolution.
 #[tokio::test]
 async fn test_validate_depth_before_agent_id_required() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     // max_spawn_depth=0 (depth check will reject) AND require_agent_id=true
     // (would also reject if depth check didn't run first).
@@ -622,7 +648,7 @@ async fn test_validate_depth_before_agent_id_required() {
     sub.require_agent_id = Some(true);
     sub.default_child_agent = None;
     let parent = make_agent("parent", sub);
-    inject_agents(&cm, vec![("parent", parent)]);
+    inject_agents(&ar, &cm, vec![("parent", parent)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -789,9 +815,10 @@ async fn test_kill_child_no_descendants_clean_removal() {
 /// the default per design doc §Spawn 控制流程 ④).
 #[tokio::test]
 async fn test_validate_no_target_parent_not_in_allowlist() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     // Allowlist only allows "allowed-agent", parent "parent" is not in it.
     // default_child_agent is deprecated and ignored.
@@ -800,7 +827,7 @@ async fn test_validate_no_target_parent_not_in_allowlist() {
     sub.allow_agents = vec!["allowed-agent".to_string()];
     sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
-    inject_agents(&cm, vec![("parent", parent)]);
+    inject_agents(&ar, &cm, vec![("parent", parent)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -824,9 +851,10 @@ async fn test_validate_no_target_parent_not_in_allowlist() {
 /// default per design doc §Spawn 控制流程 ④).
 #[tokio::test]
 async fn test_validate_no_target_parent_in_allowlist() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     // default_child_agent is deprecated and ignored — parent agent ID is used.
     let mut sub = SubagentsConfig::default();
@@ -834,7 +862,7 @@ async fn test_validate_no_target_parent_in_allowlist() {
     sub.allow_agents = vec!["parent".to_string()];
     sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
-    inject_agents(&cm, vec![("parent", parent)]);
+    inject_agents(&ar, &cm, vec![("parent", parent)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
