@@ -382,6 +382,7 @@ pub fn load_checkpoint_inner(
         plan_references: Vec::new(),
         session_mode: session_mode_val,
         transcript: transcript_messages,
+        label: None,
     }))
 }
 

@@ -64,6 +64,8 @@ pub struct ChildSessionCreationParams<'a> {
     pub parent_subagents_model: Option<&'a str>,
     /// Effective maximum spawn depth for the child.
     pub max_spawn_depth: u32,
+    /// Short label for the child session.
+    pub label: Option<&'a str>,
 }
 
 /// Create a child `ConversationSession` for a spawned sub-agent.

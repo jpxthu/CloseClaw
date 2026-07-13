@@ -57,6 +57,7 @@ mod tests {
             plan_references: Vec::new(),
             session_mode: SessionMode::default(),
             transcript: Vec::new(),
+            label: None,
         }
     }
 

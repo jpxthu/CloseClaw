@@ -219,6 +219,11 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON。
     #[serde(default)]
     pub transcript: Vec<crate::llm_session::SessionMessage>,
+    /// 子 session 简短标签（spawn 时传入，用于 UI 展示和调试）
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 impl SessionCheckpoint {
@@ -262,6 +267,7 @@ impl SessionCheckpoint {
             plan_references: Vec::new(),
             session_mode: SessionMode::default(),
             transcript: Vec::new(),
+            label: None,
         }
     }
 
@@ -440,6 +446,11 @@ impl SessionCheckpoint {
     /// Add a plan reference extracted from session message history.
     pub fn add_plan_reference(&mut self, reference: String) {
         self.plan_references.push(reference);
+    }
+    /// Set the short label for the child session.
+    pub fn with_label(mut self, label: String) -> Self {
+        self.label = Some(label);
+        self
     }
     /// Touch the updated_at timestamp
     pub fn touch(&mut self) {
