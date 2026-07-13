@@ -59,9 +59,58 @@ impl SessionManager {
                 sessions.contains_key(&session_id)
             };
             if session_exists {
-                self.update_checkpoint_thread_id(&session_id, &message.thread_id)
-                    .await;
-                return Ok(session_id);
+                // Verify checkpoint status: if Sweeper archived this session,
+                // the stale registry entry must be removed so we fall through
+                // to Path 3 (create new session) instead of returning a dead
+                // in-memory reference.
+                let cm_arc = {
+                    let guard = self.checkpoint_manager.read().await;
+                    guard.as_ref().map(Arc::clone)
+                };
+                if let Some(ref cm) = cm_arc {
+                    match cm.load(&session_id).await {
+                        Ok(Some(cp)) => {
+                            if cp.status == SessionStatus::Archived {
+                                warn!(
+                                    session_id = %session_id,
+                                    routing_key = %routing_key,
+                                    "session in registry is archived, removing stale entry"
+                                );
+                                let mut registry = self.key_registry.write().await;
+                                registry.remove(&routing_key);
+                                // Clean up sessions map and conversation_sessions map
+                                // to prevent stale entries from lingering.
+                                self.remove_session(&session_id).await;
+                                // Fall through to Path 3
+                            } else {
+                                self.update_checkpoint_thread_id(&session_id, &message.thread_id)
+                                    .await;
+                                return Ok(session_id);
+                            }
+                        }
+                        Ok(None) => {
+                            // No checkpoint on disk — treat as active (defensive)
+                            self.update_checkpoint_thread_id(&session_id, &message.thread_id)
+                                .await;
+                            return Ok(session_id);
+                        }
+                        Err(e) => {
+                            warn!(
+                                session_id = %session_id,
+                                error = %e,
+                                "failed to load checkpoint status, falling back to existing session"
+                            );
+                            self.update_checkpoint_thread_id(&session_id, &message.thread_id)
+                                .await;
+                            return Ok(session_id);
+                        }
+                    }
+                } else {
+                    // No checkpoint manager — fall back to original behavior
+                    self.update_checkpoint_thread_id(&session_id, &message.thread_id)
+                        .await;
+                    return Ok(session_id);
+                }
             }
 
             // Path 2: key_registry hit but session not active — try restore
@@ -134,7 +183,7 @@ impl SessionManager {
                             let cs = self.conversation_sessions.read().await;
                             if let Some(cs) = cs.get(&session_id) {
                                 let mut cs = cs.write().await;
-                                cs.restore_pending_messages(cp.pending_messages.clone());
+                                cs.restore_pending_messages(cp.outbound_pending.clone());
                                 cs.restore_system_appends(cp.system_appends.clone());
                                 cs.set_verbosity_level(cp.verbosity_level);
                                 // Restore communication config for spawned sessions.
@@ -204,6 +253,13 @@ impl SessionManager {
                             );
                         }
                     }
+                }
+
+                // Re-register routing_key so subsequent lookups find
+                // the restored session instead of creating a duplicate.
+                {
+                    let mut registry = self.key_registry.write().await;
+                    registry.insert(routing_key.clone(), session_id.clone());
                 }
 
                 self.update_checkpoint_thread_id(&session_id, &message.thread_id)

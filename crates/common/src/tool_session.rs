@@ -66,4 +66,19 @@ pub trait ToolSession: Send + Sync {
     fn manual_background_notify(&self) -> Option<Arc<tokio::sync::Notify>> {
         None
     }
+
+    /// Enter active Waiting state (yielding).
+    ///
+    /// Called by `sessions_yield` tool to signal that the session
+    /// should enter Waiting state. The Gateway detects this state
+    /// after the LLM call completes and skips draining pending messages.
+    fn enter_waiting(&self) {}
+
+    /// Exit active Waiting state and resume normal processing.
+    fn exit_waiting(&self) {}
+
+    /// Returns `true` if the session is in active Waiting (yielding).
+    fn is_waiting(&self) -> bool {
+        false
+    }
 }

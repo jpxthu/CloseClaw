@@ -217,6 +217,13 @@ impl SessionMessageHandler {
             self.enqueue_pending(session_id, content).await;
             return HandleResult::MessageQueued;
         }
+        // Step 1.6: Queue user messages during active Waiting (yielding) state.
+        // Slash commands are intercepted in lib.rs before reaching here,
+        // so /stop and other immediate commands bypass this check.
+        if self.session_manager.is_session_yielding(session_id).await {
+            self.enqueue_pending(session_id, content).await;
+            return HandleResult::MessageQueued;
+        }
         // Reject new requests when context window is nearly full.
         if is_blocking_state(
             &self.compaction_service,

@@ -22,7 +22,7 @@ mod tests {
             .with_last_message_id(Some("msg123".to_string()))
             .with_mode(ReasoningMode::Plan)
             .with_mode_state(state)
-            .add_pending_message(PendingMessage::new(
+            .add_outbound_pending(PendingMessage::new(
                 "pending1".to_string(),
                 "Pending content".to_string(),
             ))

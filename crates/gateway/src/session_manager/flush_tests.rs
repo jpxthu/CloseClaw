@@ -230,7 +230,7 @@ async fn test_session_manager_get_chat_id_missing() {
     let chat_id = mgr.get_chat_id("nonexistent-session-id").await;
     assert!(chat_id.is_none());
 }
-// ── pending_messages flush scenarios ───────────────────────────────────────────
+// ── outbound_pending flush scenarios ───────────────────────────────────────────
 
 #[tokio::test]
 async fn test_flush_all_with_pending_messages() {
@@ -273,14 +273,14 @@ async fn test_flush_all_with_pending_messages() {
     let cp = &saved[0];
     assert_eq!(cp.session_id, session_id);
     assert_eq!(
-        cp.pending_messages.len(),
+        cp.outbound_pending.len(),
         2,
         "checkpoint should contain 2 pending messages"
     );
-    assert_eq!(cp.pending_messages[0].message_id, "msg_1");
-    assert_eq!(cp.pending_messages[1].message_id, "msg_2");
-    assert!(!cp.pending_messages[0].sent);
-    assert!(!cp.pending_messages[1].sent);
+    assert_eq!(cp.outbound_pending[0].message_id, "msg_1");
+    assert_eq!(cp.outbound_pending[1].message_id, "msg_2");
+    assert!(!cp.outbound_pending[0].sent);
+    assert!(!cp.outbound_pending[1].sent);
 }
 
 #[tokio::test]
@@ -318,8 +318,8 @@ async fn test_flush_all_without_pending_messages() {
     assert_eq!(saved.len(), 1);
     assert_eq!(saved[0].session_id, session_id);
     assert!(
-        saved[0].pending_messages.is_empty(),
-        "checkpoint pending_messages should be empty when ConversationSession has no pending"
+        saved[0].outbound_pending.is_empty(),
+        "checkpoint outbound_pending should be empty when ConversationSession has no pending"
     );
 }
 
@@ -347,24 +347,24 @@ async fn test_flush_all_no_conversation_session() {
     assert_eq!(saved.len(), 1);
     assert_eq!(saved[0].session_id, session_id);
     assert!(
-        saved[0].pending_messages.is_empty(),
-        "checkpoint pending_messages should be empty when no ConversationSession exists"
+        saved[0].outbound_pending.is_empty(),
+        "checkpoint outbound_pending should be empty when no ConversationSession exists"
     );
 }
 
 #[tokio::test]
-async fn test_with_pending_messages_bulk_set() {
+async fn test_with_outbound_pending_bulk_set() {
     let pm1 = PendingMessage::new("msg_1".into(), "first".into());
     let pm2 = PendingMessage::new("msg_2".into(), "second".into());
     let pm3 = PendingMessage::new("msg_3".into(), "third".into());
 
     let cp = SessionCheckpoint::new("sess-check".into())
-        .add_pending_message(pm1)
-        .with_pending_messages(vec![pm2, pm3]);
+        .add_outbound_pending(pm1)
+        .with_outbound_pending(vec![pm2, pm3]);
 
-    assert_eq!(cp.pending_messages.len(), 2);
-    assert_eq!(cp.pending_messages[0].message_id, "msg_2");
-    assert_eq!(cp.pending_messages[1].message_id, "msg_3");
+    assert_eq!(cp.outbound_pending.len(), 2);
+    assert_eq!(cp.outbound_pending[0].message_id, "msg_2");
+    assert_eq!(cp.outbound_pending[1].message_id, "msg_3");
 }
 
 // ── Phase 4 fallback persistence tests ─────────────────────────────────────

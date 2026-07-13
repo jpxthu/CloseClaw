@@ -273,7 +273,7 @@ async fn test_empty_checkpoint_save_load() {
 
     let loaded = cm.load("empty-session").await.unwrap().unwrap();
     assert_eq!(loaded.session_id, "empty-session");
-    assert!(loaded.pending_messages.is_empty());
+    assert!(loaded.outbound_pending.is_empty());
     assert!(loaded.system_appends.is_empty());
 }
 
