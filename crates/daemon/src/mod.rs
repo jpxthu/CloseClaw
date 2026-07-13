@@ -25,6 +25,10 @@ type StartupPlan = (
 );
 use closeclaw_common::SessionLookup;
 use closeclaw_gateway::sweeper::ArchiveSweeper;
+/// Re-export `SpawnController` from gateway so consumers can access it
+/// via `closeclaw_daemon::SpawnController`, aligning with the design doc
+/// which places SpawnController at the daemon layer.
+pub use closeclaw_gateway::SpawnController;
 use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
 use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
