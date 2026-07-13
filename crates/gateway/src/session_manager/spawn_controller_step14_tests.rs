@@ -266,7 +266,8 @@ async fn test_validate_spawn_timeout_configured() {
     assert_eq!(result.spawn_timeout, Some(60));
 }
 
-/// Parent config has no subagents.timeout → spawn_timeout must be None.
+/// Parent config has no subagents.timeout → spawn_timeout falls back
+/// to global default (300s) per Step 1.3 design doc alignment.
 #[tokio::test]
 async fn test_validate_spawn_timeout_not_configured() {
     let ar = Arc::new(AgentRegistry::new());
@@ -287,7 +288,8 @@ async fn test_validate_spawn_timeout_not_configured() {
         .await
         .expect("validate should succeed");
 
-    assert_eq!(result.spawn_timeout, None);
+    // After Step 1.3: global_spawn_timeout() returns Some(300)
+    assert_eq!(result.spawn_timeout, Some(300));
 }
 
 /// Target agent config has subagents.timeout=0 → passthrough as Some(0).

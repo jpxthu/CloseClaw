@@ -659,6 +659,9 @@ mod lifecycle_tests;
 #[cfg(test)]
 mod shutdown_alignment_tests;
 #[cfg(test)]
+#[path = "spawn_controller_crate_reexport_tests.rs"]
+mod spawn_controller_crate_reexport_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod unit_tests;
