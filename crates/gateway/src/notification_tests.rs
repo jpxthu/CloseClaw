@@ -483,16 +483,17 @@ async fn test_queuing_notification_failure_does_not_block() {
 // 4. Boundary — peer_id empty → no queuing notification
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// When peer_id metadata is empty, the session routing path fails early
-/// (no valid target), so no notification is sent. This tests the boundary
-/// condition where the notification guard `!peer_id.is_empty()` prevents
-/// notification attempts with no target.
+/// When peer_id metadata is empty, session routing falls back to routing
+/// fields and creates a session (session_key empty → fallback path), but
+/// no notification is sent because the guard `!peer_id.is_empty()` rejects
+/// sending to an empty target.
 #[tokio::test]
 async fn test_empty_peer_id_no_notification() {
     let (gw, plugin, _sm) = make_gw_with_handler("mock").await;
 
     // Build a processed message with empty session_key AND empty peer_id.
-    // Session routing fails early → no notification sent.
+    // session_key empty → fallback to routing fields → session created.
+    // peer_id empty → notification guard prevents send.
     let mut metadata = HashMap::new();
     metadata.insert("session_key".to_string(), String::new());
     metadata.insert("peer_id".to_string(), String::new());
@@ -510,8 +511,12 @@ async fn test_empty_peer_id_no_notification() {
         .handle_inbound_message(processed, Some("ou_sender"), "mock")
         .await;
 
-    // Routing failure returns None, no notification sent.
-    assert!(result.is_none(), "empty peer_id should return None");
+    // Routing fallback succeeds — session is created from routing fields.
+    assert!(
+        result.is_some(),
+        "routing field fallback should succeed and return a session"
+    );
+    // No notification sent — peer_id is empty, guard prevents send.
     assert_eq!(
         plugin.send_count(),
         0,
