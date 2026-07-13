@@ -35,6 +35,7 @@ use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::{PermissionEngine, RuleSet};
 use closeclaw_processor_chain as processor_chain;
+use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
 use closeclaw_session::storage::SqliteStorage;
 use closeclaw_skills::builtin::builtin_skills_with_engine_and_approval_flow;
@@ -238,6 +239,15 @@ impl Daemon {
             Some(PathBuf::from(config_dir)),
             reasoning_level,
         ));
+        // Create a shared CheckpointManager for SessionManager and Gateway.
+        // This unifies the persistence coordination layer (cache + storage)
+        // between the two components, matching the architecture diagram.
+        let storage_arc: Arc<dyn PersistenceService> =
+            Arc::clone(storage) as Arc<dyn PersistenceService>;
+        let checkpoint_manager = Arc::new(CheckpointManager::new(storage_arc));
+        session_manager
+            .set_checkpoint_manager(Arc::clone(&checkpoint_manager))
+            .await;
         let processor_registry =
             Arc::new(processor_chain::build_processor_registry(&gateway_config));
         info!(
@@ -249,10 +259,12 @@ impl Daemon {
             gateway_config,
             Arc::clone(&session_manager),
             processor_registry,
-        );
-        gateway
-            .set_storage(Arc::clone(storage) as Arc<dyn PersistenceService>)
-            .await;
+        )
+        .with_checkpoint_manager(Arc::clone(&checkpoint_manager));
+        // Storage injection is now handled via the shared CheckpointManager
+        // set on both SessionManager and Gateway above. The old
+        // gateway.set_storage() path still works as a backward-compatible
+        // wrapper that creates its own CheckpointManager internally.
 
         // Run session recovery scan: load all active checkpoints, detect
         // pending_operations, and persist recovery notifications/failure
@@ -545,7 +557,6 @@ impl Daemon {
 
         let sweeper = Arc::new(
             ArchiveSweeper::new(Arc::clone(&storage), session_config_provider)
-                .with_session_manager(Arc::clone(session_manager))
                 .with_mining_notify_tx(mining_notify_tx),
         );
         let sweeper_for_task = Arc::clone(&sweeper);
