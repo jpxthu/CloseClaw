@@ -309,7 +309,7 @@ impl Daemon {
         gateway.set_self_ref(Arc::clone(&gateway));
         // Wire Gateway back-reference into SessionManager so
         // drain_pending_for_session can send responses via outbound pipeline.
-        session_manager.set_gateway_ref(Arc::clone(&gateway));
+        session_manager.set_gateway_ref(Arc::clone(&gateway)).await;
         gateway
             .set_config_dir(std::path::PathBuf::from(config_dir))
             .await;

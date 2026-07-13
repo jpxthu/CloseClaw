@@ -191,8 +191,8 @@ impl SessionManager {
     /// When set, [`drain_pending_for_session`](super::announce::SessionManager::drain_pending_for_session)
     /// will send queued message responses through this channel so the
     /// user sees them after yield recovery.
-    pub fn set_output_tx(&self, tx: crate::OutputTx) {
-        *self.output_tx.blocking_write() = Some(tx);
+    pub async fn set_output_tx(&self, tx: crate::OutputTx) {
+        *self.output_tx.write().await = Some(tx);
     }
 
     /// Get a clone of the output channel, if set.
@@ -201,8 +201,8 @@ impl SessionManager {
     }
 
     /// Set the Gateway back-reference for outbound message dispatch.
-    pub fn set_gateway_ref(&self, gw: Arc<crate::Gateway>) {
-        *self.gateway_ref.blocking_write() = Some(Arc::downgrade(&gw));
+    pub async fn set_gateway_ref(&self, gw: Arc<crate::Gateway>) {
+        *self.gateway_ref.write().await = Some(Arc::downgrade(&gw));
     }
 
     /// Get a strong reference to the Gateway, if still alive.
@@ -898,6 +898,8 @@ mod resolve_registry_tests;
 mod resolve_tests;
 #[cfg(test)]
 mod self_heal_tests;
+#[cfg(test)]
+mod setter_tests;
 #[cfg(test)]
 mod spawn_cascade_tests;
 #[cfg(test)]
