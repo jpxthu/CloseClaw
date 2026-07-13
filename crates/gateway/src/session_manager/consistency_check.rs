@@ -15,14 +15,14 @@ impl SessionManager {
     /// - SQLite → File system: records with missing transcript files are deleted.
     /// - File system → SQLite: orphan transcript files are deleted.
     pub async fn run_consistency_check(&self) -> Result<ConsistencyCheckResult, PersistenceError> {
-        let storage = {
-            let guard = self.storage.read().await;
+        let cm = {
+            let guard = self.checkpoint_manager.read().await;
             match guard.as_ref() {
-                Some(s) => Arc::clone(s),
+                Some(cm) => std::sync::Arc::clone(cm),
                 None => return Ok(ConsistencyCheckResult::default()),
             }
         };
-        let result = storage.run_consistency_check().await?;
+        let result = cm.storage().run_consistency_check().await?;
         info!(
             deleted_orphaned_records = result.deleted_orphaned_records,
             deleted_orphaned_files = result.deleted_orphaned_files,

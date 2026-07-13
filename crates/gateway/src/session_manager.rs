@@ -15,6 +15,7 @@ use closeclaw_common::{
 use closeclaw_config::manager::{ConfigManager, ConfigSnapshot};
 use closeclaw_config::ConfigSection;
 use closeclaw_session::bootstrap::loader::BootstrapMode;
+use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::llm_session::{ChatSession, ConversationSession};
 use closeclaw_session::persistence::{
     PendingMessage, PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
@@ -48,8 +49,8 @@ pub use spawn_controller::SpawnController;
 pub struct SessionManager {
     /// Active sessions: session_id -> Session
     pub sessions: RwLock<HashMap<String, Session>>,
-    /// Persistence backend (for archived session restoration)
-    storage: RwLock<Option<Arc<dyn PersistenceService>>>,
+    /// Persistence coordination layer (cache + storage backend)
+    checkpoint_manager: RwLock<Option<Arc<CheckpointManager<dyn PersistenceService>>>>,
     /// IM adapters for sending notifications during restoration
     adapters: RwLock<HashMap<String, Arc<dyn IMPlugin>>>,
     /// Per-session ConversationSession for llm_busy and pending_messages management
@@ -127,9 +128,10 @@ impl SessionManager {
         workspace_dir: Option<PathBuf>,
         default_reasoning_level: ReasoningLevel,
     ) -> Self {
+        let cm = storage.map(|s| Arc::new(CheckpointManager::new(s)));
         Self {
             sessions: RwLock::new(HashMap::new()),
-            storage: RwLock::new(storage),
+            checkpoint_manager: RwLock::new(cm),
             adapters: RwLock::new(HashMap::new()),
             conversation_sessions: RwLock::new(HashMap::new()),
             workspace_dir,
@@ -323,9 +325,19 @@ impl SessionManager {
         adapters.insert(name, adapter);
     }
 
-    /// Set the persistence backend.
+    /// Set the persistence backend (backward-compatible wrapper).
+    ///
+    /// Internally creates a [`CheckpointManager`] wrapping the raw storage.
+    /// Prefer [`set_checkpoint_manager`](Self::set_checkpoint_manager) when
+    /// the caller already has a [`CheckpointManager`].
     pub async fn set_storage(&self, storage: Arc<dyn PersistenceService>) {
-        *self.storage.write().await = Some(storage);
+        let cm = Arc::new(CheckpointManager::new(storage));
+        *self.checkpoint_manager.write().await = Some(cm);
+    }
+
+    /// Set the persistence coordination layer directly.
+    pub async fn set_checkpoint_manager(&self, cm: Arc<CheckpointManager<dyn PersistenceService>>) {
+        *self.checkpoint_manager.write().await = Some(cm);
     }
 
     /// Compute session key from channel, message and optional account_id.
@@ -375,9 +387,9 @@ impl SessionManager {
     /// Returns true iff restoration was attempted and succeeded.
     async fn try_restore_archived_session(&self, session_id: &str, channel: &str) -> bool {
         let storage_arc = {
-            let storage_guard = self.storage.read().await;
-            match storage_guard.as_ref() {
-                Some(s) => Arc::clone(s),
+            let cm_guard = self.checkpoint_manager.read().await;
+            match cm_guard.as_ref() {
+                Some(cm) => Arc::clone(cm.storage_arc()),
                 None => return false,
             }
         };
@@ -402,20 +414,15 @@ impl SessionManager {
     /// Update the thread_id in a session's checkpoint.
     /// Delegates to `session_helpers::update_checkpoint_thread_id`.
     async fn update_checkpoint_thread_id(&self, session_id: &str, thread_id: &Option<String>) {
-        let storage_arc = {
-            let storage_guard = self.storage.read().await;
-            match storage_guard.as_ref() {
-                Some(s) => Arc::clone(s),
-                None => {
-                    warn!(
-                        session_id = %session_id,
-                        "storage not available, skipping thread_id update"
-                    );
-                    return;
-                }
-            }
+        let cm_guard = self.checkpoint_manager.read().await;
+        let Some(cm) = cm_guard.as_ref() else {
+            warn!(
+                session_id = %session_id,
+                "storage not available, skipping thread_id update"
+            );
+            return;
         };
-        session_helpers::update_checkpoint_thread_id(&storage_arc, session_id, thread_id).await;
+        session_helpers::update_checkpoint_thread_id(cm.as_ref(), session_id, thread_id).await;
     }
 
     /// Find or create a session for the given channel and message.
@@ -497,11 +504,11 @@ impl SessionManager {
     /// Should be called after `flush_all` in Phase 4 to ensure all
     /// session writes are durable on disk.
     pub async fn sync_storage(&self) -> Result<(), PersistenceError> {
-        let storage = self.storage.read().await;
-        let Some(storage) = storage.as_ref() else {
+        let cm = self.checkpoint_manager.read().await;
+        let Some(cm) = cm.as_ref() else {
             return Ok(());
         };
-        storage.sync().await
+        cm.storage().sync().await
     }
 
     /// Explicitly close the storage backend and release resources.
@@ -509,18 +516,18 @@ impl SessionManager {
     /// Called during Phase 6 of daemon shutdown. Releases persistent
     /// connections or file handles held by the storage backend.
     pub async fn close_storage(&self) -> Result<(), PersistenceError> {
-        let storage = self.storage.read().await;
-        let Some(storage) = storage.as_ref() else {
+        let cm = self.checkpoint_manager.read().await;
+        let Some(cm) = cm.as_ref() else {
             return Ok(());
         };
-        storage.close().await
+        cm.storage().close().await
     }
 
     /// Flush all active sessions to persistence.
     /// Returns the number of sessions successfully saved.
     pub async fn flush_all(&self, _mode: ShutdownMode) -> Result<usize, PersistenceError> {
-        let storage = self.storage.read().await;
-        let Some(storage) = storage.as_ref() else {
+        let cm = self.checkpoint_manager.read().await;
+        let Some(cm) = cm.as_ref() else {
             return Ok(0);
         };
         let sessions = self.sessions.read().await;
@@ -546,7 +553,7 @@ impl SessionManager {
         for (session_id, session) in sessions.iter() {
             let pending = pending_map.get(session_id).cloned().unwrap_or_default();
             // Load existing checkpoint to preserve fields like thread_id (Bug #904).
-            let mut cp = match storage.load_checkpoint(session_id).await {
+            let mut cp = match cm.load(session_id).await {
                 Ok(Some(mut cp)) => {
                     // Update fields from active session state
                     cp.status = SessionStatus::Active;
@@ -571,7 +578,7 @@ impl SessionManager {
             if let Some(appends) = appends_map.get(session_id) {
                 cp.system_appends = appends.clone();
             }
-            if storage.save_checkpoint(&cp).await.is_ok() {
+            if cm.save_raw(&cp).await.is_ok() {
                 saved += 1;
             } else {
                 warn!(session_id = %session_id, "failed to save session checkpoint");
@@ -601,14 +608,14 @@ impl SessionManager {
     /// checkpoint before compaction is applied (the caller is responsible
     /// for calling this after `apply_compact_result`).
     pub async fn save_checkpoint_after_compact(&self, session_id: &str) {
-        let storage = {
-            let guard = self.storage.read().await;
+        let cm = {
+            let guard = self.checkpoint_manager.read().await;
             match guard.as_ref() {
-                Some(s) => Arc::clone(s),
+                Some(cm) => Arc::clone(cm),
                 None => return,
             }
         };
-        let mut cp = match storage.load_checkpoint(session_id).await {
+        let mut cp = match cm.load(session_id).await {
             Ok(Some(cp)) => cp,
             _ => return,
         };
@@ -631,7 +638,7 @@ impl SessionManager {
             }
         }
         cp.touch();
-        if let Err(e) = storage.save_checkpoint(&cp).await {
+        if let Err(e) = cm.save_raw(&cp).await {
             warn!(
                 session_id = %session_id,
                 "failed to persist checkpoint after compaction: {}",
@@ -787,9 +794,9 @@ impl SessionManager {
     /// Get the thread_id for a session from its checkpoint.
     /// Returns None if the session has no thread_id or the storage is not available.
     pub async fn get_thread_id(&self, session_id: &str) -> Option<String> {
-        let storage = self.storage.read().await;
-        let storage = storage.as_ref()?;
-        match storage.load_checkpoint(session_id).await {
+        let cm = self.checkpoint_manager.read().await;
+        let cm = cm.as_ref()?;
+        match cm.load(session_id).await {
             Ok(Some(cp)) => cp.thread_id,
             _ => None,
         }
@@ -797,9 +804,9 @@ impl SessionManager {
 
     /// Get the sender_id (user ID) for a session from its checkpoint.
     pub async fn get_sender_id(&self, session_id: &str) -> Option<String> {
-        let storage = self.storage.read().await;
-        let storage = storage.as_ref()?;
-        match storage.load_checkpoint(session_id).await {
+        let cm = self.checkpoint_manager.read().await;
+        let cm = cm.as_ref()?;
+        match cm.load(session_id).await {
             Ok(Some(cp)) => cp.sender_id,
             _ => None,
         }
@@ -808,9 +815,9 @@ impl SessionManager {
     /// Get the plan_state from the session checkpoint.
     /// Returns None if the session has no plan_state or storage is unavailable.
     pub async fn get_plan_state(&self, session_id: &str) -> Option<closeclaw_common::PlanState> {
-        let storage = self.storage.read().await;
-        let storage = storage.as_ref()?;
-        match storage.load_checkpoint(session_id).await {
+        let cm = self.checkpoint_manager.read().await;
+        let cm = cm.as_ref()?;
+        match cm.load(session_id).await {
             Ok(Some(cp)) => cp.plan_state,
             _ => None,
         }
@@ -818,19 +825,19 @@ impl SessionManager {
 
     /// Set plan_state on the session checkpoint.
     pub async fn set_plan_state(&self, session_id: &str, plan_state: closeclaw_common::PlanState) {
-        let storage_guard = {
-            let guard = self.storage.read().await;
+        let cm_guard = {
+            let guard = self.checkpoint_manager.read().await;
             match guard.as_ref() {
-                Some(s) => Arc::clone(s),
+                Some(cm) => Arc::clone(cm),
                 None => return,
             }
         };
-        let mut cp = match storage_guard.load_checkpoint(session_id).await {
+        let mut cp = match cm_guard.load(session_id).await {
             Ok(Some(cp)) => cp,
             _ => return,
         };
         cp.plan_state = Some(plan_state);
-        if let Err(e) = storage_guard.save_checkpoint(&cp).await {
+        if let Err(e) = cm_guard.save_raw(&cp).await {
             tracing::warn!(
                 session_id = %session_id,
                 "failed to save plan_state: {}",
@@ -955,6 +962,8 @@ mod rebuild_spawn_tree_tests;
 mod resolve_registry_tests;
 #[cfg(test)]
 mod resolve_tests;
+#[cfg(test)]
+mod self_heal_tests;
 #[cfg(test)]
 mod spawn_cascade_tests;
 #[cfg(test)]

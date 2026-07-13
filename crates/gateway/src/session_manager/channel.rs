@@ -105,8 +105,8 @@ impl SessionManager {
             .with_peer_id(agent_id.to_string())
             .with_agent_id(agent_id.to_string());
         cp.sender_id = Some(agent_id.to_string());
-        if let Some(storage) = self.storage.read().await.as_ref() {
-            if let Err(e) = storage.save_checkpoint(&cp).await {
+        if let Some(cm) = self.checkpoint_manager.read().await.as_ref() {
+            if let Err(e) = cm.save_raw(&cp).await {
                 tracing::warn!(
                     session_id = %session_id,
                     error = %e,

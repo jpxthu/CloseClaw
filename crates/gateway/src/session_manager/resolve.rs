@@ -70,12 +70,12 @@ impl SessionManager {
                 .await
             {
                 // Load checkpoint and set up conversation session + Session entry
-                let storage_arc = {
-                    let guard = self.storage.read().await;
+                let cm_arc = {
+                    let guard = self.checkpoint_manager.read().await;
                     guard.as_ref().map(Arc::clone)
                 };
-                if let Some(storage) = storage_arc {
-                    if let Some(cp) = storage.load_checkpoint(&session_id).await.ok().flatten() {
+                if let Some(cm) = cm_arc {
+                    if let Some(cp) = cm.load(&session_id).await.ok().flatten() {
                         // Ensure ConversationSession exists
                         let needs_conv = {
                             let cs = self.conversation_sessions.read().await;
@@ -89,7 +89,7 @@ impl SessionManager {
                                 &session_id,
                                 message,
                                 &self.workspace_dir,
-                                &storage,
+                                cm.as_ref(),
                             )
                             .await?;
 
@@ -196,7 +196,7 @@ impl SessionManager {
                         // Save checkpoint with updated thread_id
                         let mut cp = cp;
                         cp.thread_id = message.thread_id.clone();
-                        if let Err(e) = storage.save_checkpoint(&cp).await {
+                        if let Err(e) = cm.save_raw(&cp).await {
                             warn!(
                                 session_id = %session_id,
                                 error = %e,
@@ -261,9 +261,10 @@ impl SessionManager {
         // key_registry was not yet written but SQLite already has a record
         // (e.g., concurrent creation, or key_registry lost on restart).
         let sqlite_check = {
-            let storage_guard = self.storage.read().await;
-            match storage_guard.as_ref() {
-                Some(s) => s
+            let cm_guard = self.checkpoint_manager.read().await;
+            match cm_guard.as_ref() {
+                Some(cm) => cm
+                    .storage()
                     .find_active_session_by_routing(account_id, channel, &message.from, &message.to)
                     .await
                     .ok()
@@ -378,8 +379,8 @@ impl SessionManager {
         // the correct routing_key format "{account_id}:{channel}:{from}:{to}".
         cp.sender_id = Some(message.from.clone());
         cp.account_id = account_id.map(String::from);
-        if let Some(storage) = self.storage.read().await.as_ref() {
-            if let Err(e) = storage.save_checkpoint(&cp).await {
+        if let Some(cm) = self.checkpoint_manager.read().await.as_ref() {
+            if let Err(e) = cm.save_raw(&cp).await {
                 warn!(
                     session_id = %session_id,
                     error = %e,
