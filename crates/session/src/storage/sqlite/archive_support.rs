@@ -384,6 +384,7 @@ pub fn load_checkpoint_inner(
         transcript: transcript_messages,
         label: None,
         communication_config: None,
+        spawn_mode: None,
     }))
 }
 
