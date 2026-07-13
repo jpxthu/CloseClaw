@@ -43,9 +43,9 @@
     "path": "docs/design/agent/agent-spawn.md",
     "commit": "e404bc6b532bb630f097905fba2a9c0f9b11987b",
     "commit_time": "2026-07-12T07:02:08+08:00",
-    "confirmed_time": "2026-07-12T07:08:50.900858+08:00",
+    "confirmed_time": "2026-07-13T21:54:49.124993+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "doc contradictions found"
   },
   {
     "path": "docs/design/cli/README.md",
