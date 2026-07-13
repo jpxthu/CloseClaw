@@ -91,11 +91,19 @@ impl ProcessorRegistry {
                     break;
                 }
                 Err(e) => {
-                    tracing::warn!(
-                        processor = %processor.name(),
-                        error = %e,
-                        "processor failed, continuing chain"
-                    );
+                    if processor.name() == "raw_log" {
+                        tracing::error!(
+                            processor = %processor.name(),
+                            error = %e,
+                            "processor failed, continuing chain"
+                        );
+                    } else {
+                        tracing::warn!(
+                            processor = %processor.name(),
+                            error = %e,
+                            "processor failed, continuing chain"
+                        );
+                    }
                     // Do not update ctx — skip this processor's result.
                 }
             }

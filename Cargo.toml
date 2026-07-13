@@ -97,6 +97,7 @@ hex = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 # Coverage reporting
 cargo-llvm-cov = "0.6"
+tracing-test = "0.2.6"
 
 [lib]
 name = "closeclaw"

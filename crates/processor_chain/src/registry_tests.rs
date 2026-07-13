@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use tracing_test::traced_test;
 
 use crate::processor_chain::context::MessageContext;
 use crate::processor_chain::error::ProcessError;
@@ -673,4 +674,109 @@ async fn test_outbound_error_preserves_successful_metadata() {
     assert_eq!(result.text_content(), Some("o3"));
     assert_eq!(result.metadata.get("k1").map(|s| s.as_str()), Some("v1"));
     assert_eq!(result.metadata.get("k3").map(|s| s.as_str()), Some("v3"));
+}
+
+// ── log level verification for fail-open handler ─────────────────────────────
+// The fail-open handler uses `error!` for `raw_log` processor and
+// `warn!` for all other processors. These tests use `tracing_test`
+// to capture tracing output per-test and verify the correct log level.
+
+#[tokio::test]
+#[traced_test]
+async fn test_raw_log_success_no_error_log() {
+    let (raw_log, _) = TestProc::inbound("raw_log", 1);
+    let (other, _) = TestProc::inbound("session_router", 2);
+
+    let mut registry = ProcessorRegistry::new();
+    registry.register(raw_log);
+    registry.register(other);
+
+    let result = registry
+        .process_inbound(make_normalized("hello"))
+        .await
+        .unwrap();
+    assert_eq!(result.text_content(), Some("session_router"));
+    assert!(
+        !logs_contain("ERROR"),
+        "no error log expected when raw_log succeeds"
+    );
+}
+
+#[tokio::test]
+#[traced_test]
+async fn test_raw_log_failure_produces_error_log() {
+    let fail_raw = FailingProc::inbound("raw_log");
+    let (ok_after, _) = TestProc::inbound("ok_after", 2);
+
+    let mut registry = ProcessorRegistry::new();
+    registry.register(fail_raw);
+    registry.register(ok_after);
+
+    let result = registry
+        .process_inbound(make_normalized("hello"))
+        .await
+        .unwrap();
+    assert_eq!(result.text_content(), Some("ok_after"));
+    assert!(logs_contain("ERROR"), "expected ERROR for raw_log failure");
+    assert!(!logs_contain("WARN"), "raw_log should use ERROR, not WARN");
+}
+
+#[tokio::test]
+#[traced_test]
+async fn test_non_raw_log_failure_produces_warn_log() {
+    let fail_router = FailingProc::inbound("session_router");
+    let (ok_after, _) = TestProc::inbound("ok_after", 2);
+
+    let mut registry = ProcessorRegistry::new();
+    registry.register(fail_router);
+    registry.register(ok_after);
+
+    let result = registry
+        .process_inbound(make_normalized("hello"))
+        .await
+        .unwrap();
+    assert_eq!(result.text_content(), Some("ok_after"));
+    assert!(
+        logs_contain("WARN"),
+        "expected WARN for session_router failure"
+    );
+    assert!(
+        !logs_contain("ERROR"),
+        "non raw_log should use WARN, not ERROR"
+    );
+}
+
+#[tokio::test]
+#[traced_test]
+async fn test_fail_open_continues_chain_regardless_of_processor() {
+    // raw_log fails (error!), session_router succeeds,
+    // content_normalizer fails (warn!), last processor runs.
+    let fail_raw = FailingProc::inbound("raw_log");
+    let (ok_mid, ok_counter) = TestProc::inbound("session_router", 2);
+    let fail_norm = FailingProc::inbound("content_normalizer");
+    let (ok_end, ok_end_counter) = TestProc::inbound("final_proc", 4);
+
+    let mut registry = ProcessorRegistry::new();
+    registry.register(fail_raw);
+    registry.register(ok_mid);
+    registry.register(fail_norm);
+    registry.register(ok_end);
+
+    let result = registry
+        .process_inbound(make_normalized("hello"))
+        .await
+        .unwrap();
+
+    // All non-failing processors ran.
+    assert_eq!(ok_counter.load(Ordering::SeqCst), 1);
+    assert_eq!(ok_end_counter.load(Ordering::SeqCst), 1);
+    assert_eq!(result.text_content(), Some("final_proc"));
+
+    // raw_log failure → ERROR
+    assert!(logs_contain("ERROR"), "expected ERROR for raw_log failure");
+    // content_normalizer failure → WARN
+    assert!(
+        logs_contain("WARN"),
+        "expected WARN for content_normalizer failure"
+    );
 }
