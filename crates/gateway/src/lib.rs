@@ -1,6 +1,9 @@
 //! Gateway - IM protocol adapters, message routing, authentication
 //!
 //! Central hub that connects IM platforms (Feishu, Discord, etc.) to agents.
+pub mod announce_sweeper;
+#[cfg(test)]
+mod announce_sweeper_tests;
 pub mod approval;
 pub mod card_action;
 #[cfg(test)]

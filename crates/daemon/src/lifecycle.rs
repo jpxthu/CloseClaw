@@ -46,7 +46,7 @@ impl Daemon {
             config_dir,
         )
         .await;
-        let (sweeper_tx, dreaming_tx, plan_archive_tx, config_watcher) =
+        let (sweeper_tx, announce_sweeper_tx, dreaming_tx, plan_archive_tx, config_watcher) =
             Self::init_phase_5_background(
                 Phase5Deps {
                     config_manager: &config_manager,
@@ -80,6 +80,7 @@ impl Daemon {
             session_manager,
             storage,
             sweeper_shutdown_tx: sweeper_tx,
+            announce_shutdown_tx: announce_sweeper_tx,
             dreaming_scheduler_shutdown_tx: dreaming_tx,
             plan_archive_shutdown_tx: plan_archive_tx,
             skill_registry,
@@ -328,6 +329,8 @@ impl Daemon {
 
         // Signal ArchiveSweeper to stop
         let _ = self.sweeper_shutdown_tx.send(());
+        // Signal AnnounceSweeper to stop
+        let _ = self.announce_shutdown_tx.send(());
         // Signal DreamingScheduler to stop
         let _ = self.dreaming_scheduler_shutdown_tx.send(());
         // Signal PlanArchiveTask to stop

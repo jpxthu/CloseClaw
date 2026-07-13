@@ -24,12 +24,19 @@ mod tests {
         expired_sessions: Mutex<Vec<String>>,
         /// Session IDs deleted via `delete_checkpoint`.
         deleted: Mutex<Vec<String>>,
+        /// Session IDs for which `load_checkpoint` should return an error.
+        fail_load_ids: Mutex<Vec<String>>,
     }
 
     impl MemStorage {
         /// Add a session ID to be returned as idle by `list_idle_sessions_for_agent`.
         fn add_idle_session(&self, session_id: String) {
             self.idle_sessions.lock().unwrap().push(session_id);
+        }
+
+        /// Mark a session ID so that `load_checkpoint` returns an error for it.
+        fn fail_load_for(&self, session_id: String) {
+            self.fail_load_ids.lock().unwrap().push(session_id);
         }
 
         /// Add a session ID to be returned as expired by
@@ -63,6 +70,14 @@ mod tests {
             &self,
             session_id: &str,
         ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+            if self
+                .fail_load_ids
+                .lock()
+                .unwrap()
+                .contains(&session_id.to_string())
+            {
+                return Err(PersistenceError::NotFound(session_id.to_string()));
+            }
             let checkpoints = self.checkpoints.lock().unwrap();
             Ok(checkpoints
                 .iter()
@@ -708,6 +723,96 @@ mod tests {
         assert!(
             pos_gc_b1 < pos_child_b,
             "gc_b1 must be deleted before child_b"
+        );
+    }
+
+    // ── pending_operations tests ────────────────────────────────────────────
+
+    /// Idle session with empty pending_operations → normal archive.
+    #[tokio::test]
+    async fn test_idle_session_empty_pending_operations_archives() {
+        let mem = Arc::new(MemStorage::default());
+        mem.add_idle_session("session-pending-ok".into());
+        mem.add_checkpoint(SessionCheckpoint::new("session-pending-ok".into()));
+
+        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+        let config: Arc<dyn SessionConfigProvider> =
+            Arc::new(MockConfig::with_agents(vec!["agent-x".into()]));
+
+        let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config));
+        sweeper.run_once().await.unwrap();
+
+        let archive_called = mem.archive_called.lock().unwrap();
+        assert!(
+            archive_called.contains(&"session-pending-ok".into()),
+            "session with empty pending_operations should be archived"
+        );
+    }
+
+    /// Idle session with non-empty pending_operations → skip archive.
+    #[tokio::test]
+    async fn test_idle_session_non_empty_pending_operations_skips() {
+        use chrono::Utc;
+        use closeclaw_session::persistence::{PendingOperation, PendingOperationType};
+
+        let mem = Arc::new(MemStorage::default());
+        mem.add_idle_session("session-pending-wait".into());
+
+        let mut cp = SessionCheckpoint::new("session-pending-wait".into());
+        cp = cp.with_pending_operations(vec![PendingOperation {
+            op_id: "op-1".into(),
+            op_type: PendingOperationType::ToolCall,
+            name: "bash".into(),
+            args: "{}".into(),
+            created_at: Utc::now(),
+        }]);
+        mem.add_checkpoint(cp);
+
+        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+        let config: Arc<dyn SessionConfigProvider> =
+            Arc::new(MockConfig::with_agents(vec!["agent-x".into()]));
+
+        let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config));
+        sweeper.run_once().await.unwrap();
+
+        let archive_called = mem.archive_called.lock().unwrap();
+        assert!(
+            !archive_called.contains(&"session-pending-wait".into()),
+            "session with pending_operations should NOT be archived"
+        );
+    }
+
+    /// Checkpoint load failure → skip and log, other sessions still archived.
+    #[tokio::test]
+    async fn test_checkpoint_load_failure_skips_and_does_not_affect_others() {
+        let mem = Arc::new(MemStorage::default());
+        // Two idle sessions: one will fail to load, one will succeed.
+        mem.add_idle_session("session-fail-load".into());
+        mem.add_idle_session("session-ok-load".into());
+
+        // Mark the first as failing to load.
+        mem.fail_load_for("session-fail-load".into());
+
+        // Only provide a checkpoint for the second session.
+        mem.add_checkpoint(SessionCheckpoint::new("session-ok-load".into()));
+
+        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+        let config: Arc<dyn SessionConfigProvider> =
+            Arc::new(MockConfig::with_agents(vec!["agent-x".into()]));
+
+        let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config));
+        sweeper.run_once().await.unwrap();
+
+        let archive_called = mem.archive_called.lock().unwrap();
+        // The failing session should NOT be archived.
+        assert!(
+            !archive_called.contains(&"session-fail-load".into()),
+            "session with checkpoint load failure should NOT be archived"
+        );
+        // The succeeding session should still be archived.
+        assert!(
+            archive_called.contains(&"session-ok-load".into()),
+            "other sessions should still be archived despite one failure"
         );
     }
 }
