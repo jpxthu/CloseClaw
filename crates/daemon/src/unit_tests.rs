@@ -313,6 +313,59 @@ async fn test_init_llm_registry_mimo_not_registered_when_absent() {
 }
 
 // ============================================================
+// Step 1.2 — validate_phase_components with AnnounceSweeper
+// ============================================================
+
+/// Normal path: complete startup layers (including AnnounceSweeper)
+/// pass validate_phase_components without error.
+#[test]
+fn test_validate_phase_components_with_announce_sweeper_succeeds() {
+    use crate::startup::{all_component_entries, topo_sort_layers};
+
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+
+    let result = Daemon::validate_phase_components(&layers);
+    assert!(
+        result.is_ok(),
+        "validate_phase_components should succeed with AnnounceSweeper: {:?}",
+        result.err()
+    );
+    let phases = result.unwrap();
+    assert_eq!(phases.len(), 6, "expected 6 phases");
+    // AnnounceSweeper must appear in Phase 3 (index 2)
+    use crate::startup::ComponentId;
+    assert!(
+        phases[2].contains(&ComponentId::AnnounceSweeper),
+        "Phase 3 must contain AnnounceSweeper"
+    );
+}
+
+/// Boundary: removing AnnounceSweeper from Layer 3 causes
+/// validate_phase_components to return CircularDependency.
+#[test]
+fn test_validate_phase_components_missing_announce_sweeper_fails() {
+    use crate::startup::{all_component_entries, topo_sort_layers, ComponentId};
+
+    let entries = all_component_entries();
+    let mut layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+
+    // Remove AnnounceSweeper from Layer 3 (index 2)
+    layers[2].retain(|id| *id != ComponentId::AnnounceSweeper);
+
+    let result = Daemon::validate_phase_components(&layers);
+    assert!(
+        result.is_err(),
+        "validate_phase_components should fail when AnnounceSweeper is missing"
+    );
+    let err = result.unwrap_err();
+    assert!(
+        matches!(err, crate::startup::StartupError::CircularDependency),
+        "expected CircularDependency error, got: {err:?}"
+    );
+}
+
+// ============================================================
 // Step 1.6: Memory config alignment — DreamingPipeline/MemoryMiner
 // built from ConfigManager (not hardcoded defaults)
 // ============================================================
