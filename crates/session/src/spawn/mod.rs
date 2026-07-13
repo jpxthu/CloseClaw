@@ -32,3 +32,7 @@ pub use types::SpawnValidationResult;
 #[cfg(test)]
 #[path = "controller_tests.rs"]
 mod controller_tests;
+
+#[cfg(test)]
+#[path = "creation_tests.rs"]
+mod creation_tests;
