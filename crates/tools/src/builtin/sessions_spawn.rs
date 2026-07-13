@@ -37,6 +37,7 @@ pub(crate) struct SpawnArgs {
     allowed_tools: Option<Vec<String>>,
     prompt_template: Option<PromptTemplate>,
     pub(crate) model: Option<String>,
+    pub(crate) timeout: Option<u64>,
 }
 
 impl SessionsSpawnTool {
@@ -95,6 +96,7 @@ impl SessionsSpawnTool {
             .transpose()
             .map_err(|e| ToolCallError::InvalidArgs(e.to_string()))?;
         let model = args.get("model").and_then(|v| v.as_str()).map(String::from);
+        let timeout = args.get("timeout").and_then(|v| v.as_u64());
         Ok(SpawnArgs {
             task: task.to_string(),
             agent_id,
@@ -106,6 +108,7 @@ impl SessionsSpawnTool {
             allowed_tools,
             prompt_template,
             model,
+            timeout,
         })
     }
 
@@ -216,6 +219,10 @@ impl Tool for SessionsSpawnTool {
                     "type": "string",
                     "description": "Override the target agent's default model"
                 },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Override the target agent's spawn timeout (seconds). Takes highest priority in the timeout resolution chain."
+                },
                 "fork": {
                     "type": "boolean",
                     "description": fork_desc,
@@ -302,7 +309,12 @@ impl Tool for SessionsSpawnTool {
         };
         let config = spawn_result.config;
         let effective_max_spawn_depth = spawn_result.effective_max_spawn_depth;
-        let spawn_timeout = spawn_result.spawn_timeout;
+        let mut spawn_timeout = spawn_result.spawn_timeout;
+        // Priority chain: spawn args timeout > target agent config > global default.
+        // (design doc §timeout: spawn 参数指定 → 目标 agent 配置 → 全局默认)
+        if let Some(arg_timeout) = spawn_args.timeout {
+            spawn_timeout = Some(arg_timeout);
+        }
         // Look up the parent agent's subagents.model config
         // (used as priority level 2 in the model priority chain).
         let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;

@@ -47,7 +47,6 @@ struct ParentSpawnConfig {
     max_children: u32,
     allow_agents: Vec<String>,
     require_agent_id: bool,
-    timeout: Option<u64>,
 }
 
 /// Result from resolving target agent configuration (agentId fallback).
@@ -137,7 +136,7 @@ impl SpawnController {
         // Compute effective_max_spawn_depth and validate child depth.
         let effective_max =
             self.compute_effective_max_depth(parent.parent_effective_budget, Some(&config))?;
-        let spawn_timeout = self.read_spawn_timeout(&parent_agent_id);
+        let spawn_timeout = self.resolve_spawn_timeout(&config);
 
         Ok(SpawnValidationResult {
             config,
@@ -192,14 +191,12 @@ impl SpawnController {
                     max_children: sc.max_children.unwrap_or(5),
                     allow_agents: sc.allow_agents.clone(),
                     require_agent_id: sc.require_agent_id.unwrap_or(false),
-                    timeout: sc.timeout,
                 }
             }
             None => ParentSpawnConfig {
                 max_children: 5u32,
                 allow_agents: vec!["*".to_string()],
                 require_agent_id: false,
-                timeout: None,
             },
         }
     }
@@ -287,8 +284,21 @@ impl SpawnController {
         Ok(())
     }
 
-    /// Read the parent agent's `subagents.timeout` value.
-    fn read_spawn_timeout(&self, parent_agent_id: &str) -> Option<u64> {
-        self.read_parent_config(parent_agent_id).timeout
+    /// Resolve the spawn timeout using the priority chain:
+    /// target agent's `subagents.timeout` → global default.
+    ///
+    /// Note: spawn args timeout is applied later in `SessionsSpawnTool::call()`
+    /// after validation, as it takes highest priority in the chain.
+    fn resolve_spawn_timeout(&self, target_config: &ResolvedAgentConfig) -> Option<u64> {
+        target_config
+            .subagents
+            .timeout
+            .or_else(|| self.global_spawn_timeout())
+    }
+
+    /// Global default spawn timeout (seconds). Returns `None` when no
+    /// global default is configured, meaning no timeout limit.
+    fn global_spawn_timeout(&self) -> Option<u64> {
+        None
     }
 }

@@ -59,6 +59,50 @@ fn test_sessions_spawn_model_param_empty_string() {
 }
 
 // ---------------------------------------------------------------------------
+// Timeout parameter parsing tests
+// ---------------------------------------------------------------------------
+
+/// When `timeout` is present in the JSON args, `parse_args` should extract
+/// it as `Some(u64)` in `SpawnArgs.timeout`.
+#[test]
+fn test_sessions_spawn_timeout_param_parsed() {
+    let args = json!({
+        "task": "do work",
+        "timeout": 120
+    });
+    let spawn_args = SessionsSpawnTool::parse_args(&args).expect("parse_args should succeed");
+    assert_eq!(
+        spawn_args.timeout,
+        Some(120),
+        "timeout should be parsed from args"
+    );
+}
+
+/// When `timeout` is absent from the JSON args, `parse_args` should set
+/// `SpawnArgs.timeout` to `None`.
+#[test]
+fn test_sessions_spawn_timeout_param_absent() {
+    let args = json!({"task": "do work"});
+    let spawn_args = SessionsSpawnTool::parse_args(&args).expect("parse_args should succeed");
+    assert!(
+        spawn_args.timeout.is_none(),
+        "timeout should be None when not provided"
+    );
+}
+
+/// When `timeout` is 0, `parse_args` should pass through as `Some(0)`.
+#[test]
+fn test_sessions_spawn_timeout_param_zero() {
+    let args = json!({"task": "do work", "timeout": 0});
+    let spawn_args = SessionsSpawnTool::parse_args(&args).expect("parse_args should succeed");
+    assert_eq!(
+        spawn_args.timeout,
+        Some(0),
+        "timeout=0 should be parsed as Some(0)"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Tests requiring SpawnController (main-crate type)
 // ---------------------------------------------------------------------------
 
