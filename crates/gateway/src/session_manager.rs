@@ -70,7 +70,7 @@ pub struct SessionManager {
     /// Set via [`set_llm_caller`](Self::set_llm_caller) after construction.
     llm_caller: RwLock<Option<Arc<dyn LlmCaller>>>,
     /// Children tracking table: parent_session_id → list of child sessions.
-    children: RwLock<SpawnTree>,
+    pub(crate) children: RwLock<SpawnTree>,
     /// Channel → active session_id mapping.
     /// Updated by `force_new_for_channel` so subsequent `find_or_create`
     /// calls route to the latest session for a channel.
@@ -972,8 +972,8 @@ mod spawn_tests;
 #[cfg(test)]
 mod spawn_tree_tests;
 #[cfg(test)]
-mod test_helpers;
+pub(crate) mod test_helpers;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 // #[cfg(test)]
 // mod tests_get_thread_id;  // DISABLED: imports from full-tests only modules
