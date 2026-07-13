@@ -16,7 +16,7 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
             step_messages: vec!["Step 1".to_string()],
             is_complete: false,
         },
-        pending_messages: Vec::new(),
+        outbound_pending: Vec::new(),
         mode: ReasoningMode::Plan,
         created_at: Utc::now(),
         updated_at: Utc::now(),
@@ -93,7 +93,7 @@ async fn test_load_system_appends_backward_compat() {
             "mode_state":
                 serde_json::to_string(&checkpoint.mode_state).unwrap(),
             "pending_messages":
-                serde_json::to_string(&checkpoint.pending_messages).unwrap(),
+                serde_json::to_string(&checkpoint.outbound_pending).unwrap(),
             // intentionally omit "system_appends"
         })
         .to_string();
@@ -500,7 +500,7 @@ async fn test_load_session_mode_backward_compat_missing_key() {
             "mode_state":
                 serde_json::to_string(&cp.mode_state).unwrap(),
             "pending_messages":
-                serde_json::to_string(&cp.pending_messages).unwrap(),
+                serde_json::to_string(&cp.outbound_pending).unwrap(),
             "system_appends":
                 serde_json::to_string(&cp.system_appends).unwrap(),
             // intentionally omit "session_mode"
@@ -575,7 +575,7 @@ async fn test_load_session_mode_invalid_value_fallback() {
             "mode_state":
                 serde_json::to_string(&cp.mode_state).unwrap(),
             "pending_messages":
-                serde_json::to_string(&cp.pending_messages).unwrap(),
+                serde_json::to_string(&cp.outbound_pending).unwrap(),
             "system_appends":
                 serde_json::to_string(&cp.system_appends).unwrap(),
             "session_mode": "nonexistent_mode",

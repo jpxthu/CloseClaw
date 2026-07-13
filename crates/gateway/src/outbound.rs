@@ -329,7 +329,7 @@ impl Gateway {
             "assistant".to_string(),
         );
         pending.mark_sent();
-        let mut cp = checkpoint.add_pending_message(pending);
+        let mut cp = checkpoint.add_outbound_pending(pending);
         // Sync per-session append-section list from ConversationSession
         // (issue #860: archived session restore preserves append content).
         if let Some(cs) = self

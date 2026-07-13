@@ -296,7 +296,7 @@ async fn load_or_create_checkpoint(
             cp.status = SessionStatus::Active;
             cp.platform = channel;
             cp.agent_id = agent_id;
-            cp.pending_messages = pending;
+            cp.outbound_pending = pending;
             Ok(cp)
         }
         None => {
@@ -308,7 +308,7 @@ async fn load_or_create_checkpoint(
             if let Some(aid) = agent_id {
                 cp = cp.with_agent_id(aid);
             }
-            Ok(cp.with_pending_messages(pending))
+            Ok(cp.with_outbound_pending(pending))
         }
     }
 }

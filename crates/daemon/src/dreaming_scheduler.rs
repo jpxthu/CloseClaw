@@ -367,7 +367,7 @@ impl DreamingScheduler {
             }
         }
 
-        let raw_transcript = format_transcript(&checkpoint.pending_messages);
+        let raw_transcript = format_transcript(&checkpoint.outbound_pending);
         let agent_id = checkpoint.agent_id.as_deref().unwrap_or("");
 
         if let Err(e) = self

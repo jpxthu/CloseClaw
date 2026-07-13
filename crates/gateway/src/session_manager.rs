@@ -53,7 +53,7 @@ pub struct SessionManager {
     checkpoint_manager: RwLock<Option<Arc<CheckpointManager<dyn PersistenceService>>>>,
     /// IM adapters for sending notifications during restoration
     adapters: RwLock<HashMap<String, Arc<dyn IMPlugin>>>,
-    /// Per-session ConversationSession for llm_busy and pending_messages management
+    /// Per-session ConversationSession for llm_busy and outbound_pending management
     pub conversation_sessions: RwLock<HashMap<String, Arc<RwLock<ConversationSession>>>>,
     /// Workspace directory for bootstrap file loading (None means no workspace)
     workspace_dir: Option<PathBuf>,
@@ -560,7 +560,7 @@ impl SessionManager {
                     cp.platform = Some(session.channel.clone());
                     cp.peer_id = Some(session.agent_id.clone());
                     cp.agent_id = Some(session.agent_id.clone());
-                    cp.pending_messages = pending;
+                    cp.outbound_pending = pending;
                     cp
                 }
                 _ => {
@@ -570,7 +570,7 @@ impl SessionManager {
                         .with_platform(session.channel.clone())
                         .with_peer_id(session.agent_id.clone())
                         .with_agent_id(session.agent_id.clone())
-                        .with_pending_messages(pending)
+                        .with_outbound_pending(pending)
                 }
             };
             // Sync per-session append-section list from ConversationSession
@@ -619,13 +619,13 @@ impl SessionManager {
             Ok(Some(cp)) => cp,
             _ => return,
         };
-        // Sync pending_messages from ConversationSession so checkpoint
+        // Sync outbound_pending from ConversationSession so checkpoint
         // reflects the post-compaction state (design doc §数据流).
         {
             let conv_sessions = self.conversation_sessions.read().await;
             if let Some(cs) = conv_sessions.get(session_id) {
                 let cs = cs.read().await;
-                cp.pending_messages = cs.get_pending_messages();
+                cp.outbound_pending = cs.get_pending_messages();
             }
         }
         // Sync transcript (boundary messages after compaction).

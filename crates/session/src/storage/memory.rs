@@ -310,7 +310,7 @@ mod tests {
                 step_messages: vec!["Step 1".to_string()],
                 is_complete: false,
             },
-            pending_messages: Vec::new(),
+            outbound_pending: Vec::new(),
             mode: ReasoningMode::Plan,
             created_at: Utc::now(),
             updated_at: Utc::now(),

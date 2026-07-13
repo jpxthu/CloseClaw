@@ -147,9 +147,9 @@ async fn push_pending(sm: &SessionManager, session_id: &str, msg: PendingMessage
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-/// Normal path: after compaction, pending_messages is synced to checkpoint.
+/// Normal path: after compaction, outbound_pending is synced to checkpoint.
 #[tokio::test]
-async fn test_save_checkpoint_after_compact_syncs_pending_messages() {
+async fn test_save_checkpoint_after_compact_syncs_outbound_pending() {
     let persistence = Arc::new(MockPersistence::default());
     let sm = make_sm_with_storage(persistence.clone()).await;
     let session_id = "test-session-1";
@@ -181,7 +181,7 @@ async fn test_save_checkpoint_after_compact_syncs_pending_messages() {
     // Act
     sm.save_checkpoint_after_compact(session_id).await;
 
-    // Assert: checkpoint's pending_messages matches ConversationSession
+    // Assert: checkpoint's outbound_pending matches ConversationSession
     let saved = persistence
         .checkpoints
         .read()
@@ -190,14 +190,14 @@ async fn test_save_checkpoint_after_compact_syncs_pending_messages() {
         .cloned()
         .expect("checkpoint should be saved");
     assert_eq!(
-        saved.pending_messages.len(),
+        saved.outbound_pending.len(),
         2,
         "checkpoint should have 2 pending messages after compaction"
     );
-    assert_eq!(saved.pending_messages[0].message_id, "boundary-1");
-    assert_eq!(saved.pending_messages[0].content, "summary after compact");
-    assert_eq!(saved.pending_messages[1].message_id, "boundary-2");
-    assert_eq!(saved.pending_messages[1].content, "second boundary");
+    assert_eq!(saved.outbound_pending[0].message_id, "boundary-1");
+    assert_eq!(saved.outbound_pending[0].content, "summary after compact");
+    assert_eq!(saved.outbound_pending[1].message_id, "boundary-2");
+    assert_eq!(saved.outbound_pending[1].content, "second boundary");
 }
 
 /// Boundary: ConversationSession does not exist — method returns silently.
@@ -218,7 +218,7 @@ async fn test_save_checkpoint_after_compact_no_session_returns_silently() {
     sm.save_checkpoint_after_compact("nonexistent-session")
         .await;
 
-    // Assert: checkpoint still saved (pending_messages unchanged from original)
+    // Assert: checkpoint still saved (outbound_pending unchanged from original)
     let saved = persistence
         .checkpoints
         .read()
@@ -227,8 +227,8 @@ async fn test_save_checkpoint_after_compact_no_session_returns_silently() {
         .cloned()
         .expect("checkpoint should still be saved");
     assert!(
-        saved.pending_messages.is_empty(),
-        "pending_messages should remain empty when no ConversationSession exists"
+        saved.outbound_pending.is_empty(),
+        "outbound_pending should remain empty when no ConversationSession exists"
     );
 }
 
