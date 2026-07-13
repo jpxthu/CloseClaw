@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{
     ActionPermission, AgentPermissions, ModelSpec, PermissionLimits, SubagentsConfig,
@@ -119,9 +120,11 @@ fn make_perms(agent_id: &str, allowed_dims: &[&str]) -> AgentPermissions {
 /// the parent's permissions produces a fully-denied result.
 #[tokio::test]
 async fn test_validate_permission_denied_child_fully_denied() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
     let controller = SpawnController::new(
+        Arc::clone(&ar),
         cm.clone(),
         sm.clone(),
         Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
@@ -137,6 +140,7 @@ async fn test_validate_permission_denied_child_fully_denied() {
     let mut agents = HashMap::new();
     agents.insert("parent".to_string(), parent);
     agents.insert("child".to_string(), child);
+    ar.populate(agents.values().cloned().collect());
     cm.restore_agents(agents);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
@@ -163,9 +167,11 @@ async fn test_validate_permission_denied_child_fully_denied() {
 /// `SpawnError::PermissionDenied`.
 #[tokio::test]
 async fn test_validate_permission_denied_parent_denies_all() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
     let controller = SpawnController::new(
+        Arc::clone(&ar),
         cm.clone(),
         sm.clone(),
         Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
@@ -182,6 +188,7 @@ async fn test_validate_permission_denied_parent_denies_all() {
     let mut agents = HashMap::new();
     agents.insert("parent".to_string(), parent);
     agents.insert("child".to_string(), child);
+    ar.populate(agents.values().cloned().collect());
     cm.restore_agents(agents);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
@@ -208,9 +215,11 @@ async fn test_validate_permission_denied_parent_denies_all() {
 /// `validate()` should proceed past the permission check.
 #[tokio::test]
 async fn test_validate_permission_allowed_partial_overlap() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
     let controller = SpawnController::new(
+        Arc::clone(&ar),
         cm.clone(),
         sm.clone(),
         Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
@@ -228,6 +237,7 @@ async fn test_validate_permission_allowed_partial_overlap() {
     let mut agents = HashMap::new();
     agents.insert("parent".to_string(), parent);
     agents.insert("child".to_string(), child);
+    ar.populate(agents.values().cloned().collect());
     cm.restore_agents(agents);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
@@ -245,9 +255,11 @@ async fn test_validate_permission_allowed_partial_overlap() {
 /// `validate()` should proceed without error (no permissions to check).
 #[tokio::test]
 async fn test_validate_no_permissions_configured() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
     let controller = SpawnController::new(
+        Arc::clone(&ar),
         cm.clone(),
         sm.clone(),
         Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
@@ -262,6 +274,7 @@ async fn test_validate_no_permissions_configured() {
     let mut agents = HashMap::new();
     agents.insert("parent".to_string(), parent);
     agents.insert("child".to_string(), child);
+    ar.populate(agents.values().cloned().collect());
     cm.restore_agents(agents);
 
     let parent_id = setup_parent_session(&sm, "parent").await;

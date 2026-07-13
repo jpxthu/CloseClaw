@@ -25,6 +25,10 @@ type StartupPlan = (
 );
 use closeclaw_common::SessionLookup;
 use closeclaw_gateway::sweeper::ArchiveSweeper;
+/// Re-export `SpawnController` from gateway so consumers can access it
+/// via `closeclaw_daemon::SpawnController`, aligning with the design doc
+/// which places SpawnController at the daemon layer.
+pub use closeclaw_gateway::SpawnController;
 use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
 use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
@@ -467,6 +471,7 @@ impl Daemon {
         );
         // Create SpawnController as an independent component (depends on AgentRegistry).
         let spawn_controller = Arc::new(closeclaw_gateway::SpawnController::new(
+            Arc::clone(agent_registry),
             Arc::clone(config_manager),
             Arc::clone(session_manager),
             Arc::clone(permission_engine),
@@ -653,6 +658,9 @@ mod dreaming_scheduler_tests;
 mod lifecycle_tests;
 #[cfg(test)]
 mod shutdown_alignment_tests;
+#[cfg(test)]
+#[path = "spawn_controller_crate_reexport_tests.rs"]
+mod spawn_controller_crate_reexport_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

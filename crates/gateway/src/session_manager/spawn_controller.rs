@@ -4,6 +4,7 @@
 //! architecture boundary: agent crate is pure configuration, SpawnController
 //! lives in the gateway (Session) crate.
 
+use closeclaw_agent::registry::SharedAgentRegistry;
 use closeclaw_config::agents::{AgentPermissionProvider, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
@@ -48,6 +49,11 @@ pub enum SpawnError {
 
 /// Validates spawn requests and delegates child session creation.
 pub struct SpawnController {
+    /// Agent configuration registry — used for all agent config lookups
+    /// (resolve_parent_depth, read_parent_config, resolve_target_config).
+    agent_registry: SharedAgentRegistry,
+    /// Config manager — retained only for permission queries
+    /// (`agent_permissions()`) which are not served by AgentRegistry.
     config_manager: Arc<ConfigManager>,
     session_manager: Arc<SessionManager>,
     permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
@@ -71,13 +77,20 @@ struct ResolvedTarget {
     target_config: Option<ResolvedAgentConfig>,
 }
 
+/// Global default spawn timeout in seconds (5 minutes).
+/// This is the final fallback when neither spawn args nor target agent
+/// configuration specify a timeout.
+const DEFAULT_SPAWN_TIMEOUT_SECS: u64 = 300;
+
 impl SpawnController {
     pub fn new(
+        agent_registry: SharedAgentRegistry,
         config_manager: Arc<ConfigManager>,
         session_manager: Arc<SessionManager>,
         permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     ) -> Self {
         Self {
+            agent_registry,
             config_manager,
             session_manager,
             permission_engine,
@@ -94,7 +107,7 @@ impl SpawnController {
         parent_session_id: &str,
         target_agent_id: Option<&str>,
     ) -> Result<SpawnValidationResult, SpawnError> {
-        // ① Depth check.
+        // ① Depth check (design doc §①).
         let parent_agent_id = self
             .session_manager
             .get_chat_id(parent_session_id)
@@ -107,28 +120,31 @@ impl SpawnController {
         // ② Read parent config for concurrency/whitelist/requireAgentId.
         let parent_cfg = self.read_parent_config(&parent_agent_id).await?;
 
-        // ③ Concurrency check.
+        // ③ Concurrency check (design doc §②).
         self.check_concurrency(parent_session_id, parent_cfg.max_children)
             .await?;
 
-        // ④ AgentId fallback + target config resolution.
-        let resolved = self
-            .resolve_target_config(&parent_agent_id, target_agent_id)
-            .await?;
-
-        // ⑤ Whitelist check (on resolved target_id, after fallback).
-        if let Some(ref tid) = resolved.target_id {
-            self.check_whitelist(tid, &parent_cfg.allow_agents)?;
-        }
-
-        // ⑥ require_agent_id check — must come after concurrency/whitelist.
-        // Check the original caller-provided agent_id, not the resolved fallback.
-        // Parent-agent-id fallback does not satisfy require_agent_id —
-        // only an explicit caller argument does.
+        // ④ require_agent_id check (design doc §③).
+        //    Must run after concurrency check but before agentId resolution.
+        //    Check the original caller-provided agent_id, not the resolved fallback.
+        //    Parent-agent-id fallback does not satisfy require_agent_id —
+        //    only an explicit caller argument does.
         if parent_cfg.require_agent_id && target_agent_id.is_none() {
             return Err(SpawnError::AgentIdRequired);
         }
-        let target_id = resolved.target_id.ok_or(SpawnError::AgentIdRequired)?;
+
+        // ⑤ AgentId fallback + target config resolution (design doc §④).
+        let resolved = self
+            .resolve_target_config(&parent_agent_id, target_agent_id)
+            .await?;
+        let target_id = resolved
+            .target_id
+            .as_ref()
+            .ok_or(SpawnError::AgentIdRequired)?
+            .clone();
+
+        // ⑥ Whitelist check on resolved target_id (design doc §⑤).
+        self.check_whitelist(&target_id, &parent_cfg.allow_agents)?;
 
         // ⑦ Permission check: validate child permissions via intersection
         //    with parent effective permissions (design doc §⑥).
@@ -256,13 +272,11 @@ impl SpawnController {
         parent_session_id: &str,
         parent_agent_id: &str,
     ) -> Result<ResolvedParentDepth, SpawnError> {
-        let parent_max_spawn_depth = {
-            let agents = self.config_manager.agents();
-            agents
-                .get(parent_agent_id)
-                .and_then(|pc| pc.subagents.max_spawn_depth)
-                .unwrap_or(1u32)
-        };
+        let parent_max_spawn_depth = self
+            .agent_registry
+            .get(parent_agent_id)
+            .and_then(|pc| pc.subagents.max_spawn_depth)
+            .unwrap_or(1u32);
 
         let parent_effective_budget = self
             .session_manager
@@ -286,26 +300,24 @@ impl SpawnController {
         &self,
         parent_agent_id: &str,
     ) -> Result<ParentSpawnConfig, SpawnError> {
-        let agents = self.config_manager.agents();
-
-        Ok(match agents.get(parent_agent_id) {
+        match self.agent_registry.get(parent_agent_id) {
             Some(pc) => {
                 let sc = &pc.subagents;
-                ParentSpawnConfig {
+                Ok(ParentSpawnConfig {
                     max_children: sc.max_children.unwrap_or(5),
                     allow_agents: sc.allow_agents.clone(),
                     require_agent_id: sc.require_agent_id.unwrap_or(false),
-                }
+                })
             }
-            None => ParentSpawnConfig {
+            None => Ok(ParentSpawnConfig {
                 max_children: 5u32,
                 allow_agents: vec!["*".to_string()],
                 require_agent_id: false,
-            },
-        })
+            }),
+        }
     }
 
-    /// Resolve the target agent configuration under a single lock block.
+    /// Resolve the target agent configuration.
     /// Handles the agentId fallback chain (design doc §Spawn 控制流程 ④):
     ///   1. Explicit `target_agent_id` (caller-provided)
     ///   2. Parent agent ID itself (spawn self-copy)
@@ -317,18 +329,15 @@ impl SpawnController {
         parent_agent_id: &str,
         target_agent_id: Option<&str>,
     ) -> Result<ResolvedTarget, SpawnError> {
-        let (target_id, target_config) = {
-            let agents = self.config_manager.agents();
+        // Fallback chain: explicit → parent agent ID
+        let target_id = target_agent_id
+            .map(|s| s.to_string())
+            .or_else(|| Some(parent_agent_id.to_string()));
 
-            // Fallback chain: explicit → parent agent ID
-            let target_id = target_agent_id
-                .map(|s| s.to_string())
-                .or_else(|| Some(parent_agent_id.to_string()));
-
-            let target_config = target_id.as_ref().and_then(|id| agents.get(id).cloned());
-
-            (target_id, target_config)
-        };
+        let target_config = target_id
+            .as_ref()
+            .and_then(|id| self.agent_registry.get(id))
+            .map(|cfg| cfg.clone());
 
         Ok(ResolvedTarget {
             target_id,
@@ -377,10 +386,12 @@ impl SpawnController {
             .or_else(|| self.global_spawn_timeout())
     }
 
-    /// Global default spawn timeout (seconds). Returns `None` when no
-    /// global default is configured, meaning no timeout limit.
+    /// Global default spawn timeout (seconds).
+    ///
+    /// This is the final fallback in the timeout priority chain:
+    /// spawn args → target agent config → **global default**.
     fn global_spawn_timeout(&self) -> Option<u64> {
-        None
+        Some(DEFAULT_SPAWN_TIMEOUT_SECS)
     }
 }
 
