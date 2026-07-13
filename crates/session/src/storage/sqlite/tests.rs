@@ -51,6 +51,7 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         transcript: Vec::new(),
         label: None,
         communication_config: None,
+        spawn_mode: None,
     }
 }
 
