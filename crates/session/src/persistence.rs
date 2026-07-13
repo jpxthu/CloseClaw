@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::warn;
 
+use closeclaw_common::communication::CommunicationConfig;
 pub use closeclaw_common::{AgentRole, PendingMessage, PlanState, ReasoningLevel, SessionMode};
 
 /// A single ProgressTool call record for recovery fallback.
@@ -224,6 +225,15 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
     #[serde(default)]
     pub label: Option<String>,
+    /// Communication configuration for spawned child sessions.
+    ///
+    /// Stores the outbound/inbound whitelist that controls which agents
+    /// the child session may communicate with. Persisted to checkpoint
+    /// so routing restrictions survive gateway restart.
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
+    #[serde(default)]
+    pub communication_config: Option<CommunicationConfig>,
 }
 
 impl SessionCheckpoint {
@@ -268,6 +278,7 @@ impl SessionCheckpoint {
             session_mode: SessionMode::default(),
             transcript: Vec::new(),
             label: None,
+            communication_config: None,
         }
     }
 
@@ -450,6 +461,11 @@ impl SessionCheckpoint {
     /// Set the short label for the child session.
     pub fn with_label(mut self, label: String) -> Self {
         self.label = Some(label);
+        self
+    }
+    /// Set the communication configuration.
+    pub fn with_communication_config(mut self, config: CommunicationConfig) -> Self {
+        self.communication_config = Some(config);
         self
     }
     /// Touch the updated_at timestamp
@@ -823,20 +839,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_reasoning_level_default_is_high() {
+    fn test_reasoning_level_basics() {
         assert_eq!(ReasoningLevel::default(), ReasoningLevel::High);
-    }
-
-    #[test]
-    fn test_reasoning_level_display() {
         assert_eq!(ReasoningLevel::Low.to_string(), "low");
         assert_eq!(ReasoningLevel::Medium.to_string(), "medium");
         assert_eq!(ReasoningLevel::High.to_string(), "high");
         assert_eq!(ReasoningLevel::Max.to_string(), "max");
-    }
-
-    #[test]
-    fn test_reasoning_level_serde_roundtrip() {
+        // serde roundtrip
         for level in [
             ReasoningLevel::Low,
             ReasoningLevel::Medium,
@@ -847,10 +856,7 @@ mod tests {
             let parsed: ReasoningLevel = serde_json::from_str(&json).unwrap();
             assert_eq!(level, parsed);
         }
-    }
-
-    #[test]
-    fn test_reasoning_level_deserialize_from_string() {
+        // deserialize from string
         assert_eq!(
             serde_json::from_str::<ReasoningLevel>("\"low\"").unwrap(),
             ReasoningLevel::Low
@@ -870,47 +876,28 @@ mod tests {
     }
 
     #[test]
-    fn test_reasoning_level_invalid_value_fails() {
-        let result = serde_json::from_str::<ReasoningLevel>("\"extreme\"");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_session_checkpoint_default_reasoning_level() {
+    fn test_session_checkpoint_reasoning_level() {
         let checkpoint = SessionCheckpoint::new("sess_1".into());
         assert_eq!(checkpoint.reasoning_level, ReasoningLevel::High);
-    }
-
-    #[test]
-    fn test_session_checkpoint_with_reasoning_level() {
         let checkpoint =
             SessionCheckpoint::new("sess_2".into()).with_reasoning_level(ReasoningLevel::Low);
         assert_eq!(checkpoint.reasoning_level, ReasoningLevel::Low);
+        assert!(serde_json::from_str::<ReasoningLevel>("\"extreme\"").is_err());
     }
 
     #[test]
-    fn test_dreaming_status_serde_default_is_completed() {
+    fn test_dreaming_status_defaults_display_and_serde() {
         // serde default stays Completed for backward compat with old JSON data
         assert_eq!(DreamingStatus::default(), DreamingStatus::Completed);
-    }
-
-    #[test]
-    fn test_session_checkpoint_new_dreaming_status_is_pending() {
+        // new checkpoint defaults to Pending
         let checkpoint = SessionCheckpoint::new("sess_pending".into());
         assert_eq!(checkpoint.dreaming_status, DreamingStatus::Pending);
-    }
-
-    #[test]
-    fn test_dreaming_status_display() {
         assert_eq!(DreamingStatus::Pending.to_string(), "pending");
         assert_eq!(DreamingStatus::InLight.to_string(), "in_light");
         assert_eq!(DreamingStatus::InRem.to_string(), "in_rem");
         assert_eq!(DreamingStatus::InDeep.to_string(), "in_deep");
         assert_eq!(DreamingStatus::Completed.to_string(), "completed");
-    }
-
-    #[test]
-    fn test_dreaming_status_serde_roundtrip() {
+        // serde roundtrip
         for status in [
             DreamingStatus::Pending,
             DreamingStatus::InLight,
@@ -922,10 +909,7 @@ mod tests {
             let parsed: DreamingStatus = serde_json::from_str(&json).unwrap();
             assert_eq!(status, parsed);
         }
-    }
-
-    #[test]
-    fn test_dreaming_status_deserialize_from_string() {
+        // deserialize from string
         assert_eq!(
             serde_json::from_str::<DreamingStatus>("\"pending\"").unwrap(),
             DreamingStatus::Pending
@@ -941,27 +925,18 @@ mod tests {
     }
 
     #[test]
-    fn test_session_checkpoint_new_mined_defaults_false() {
+    fn test_session_checkpoint_mined_dreaming_status() {
+        // defaults
         let checkpoint = SessionCheckpoint::new("sess_mined".into());
         assert!(!checkpoint.mined, "mined should default to false");
         assert_eq!(checkpoint.dreaming_status, DreamingStatus::Pending);
-    }
-
-    #[test]
-    fn test_session_checkpoint_with_mined() {
+        // setters
         let checkpoint = SessionCheckpoint::new("sess_mined".into()).with_mined(true);
         assert!(checkpoint.mined);
-    }
-
-    #[test]
-    fn test_session_checkpoint_with_dreaming_status() {
         let checkpoint =
             SessionCheckpoint::new("sess_dream".into()).with_dreaming_status(DreamingStatus::InRem);
         assert_eq!(checkpoint.dreaming_status, DreamingStatus::InRem);
-    }
-
-    #[test]
-    fn test_session_checkpoint_mined_dreaming_status_roundtrip() {
+        // serde roundtrip
         let cp = SessionCheckpoint::new("s-roundtrip-md".into())
             .with_mined(true)
             .with_dreaming_status(DreamingStatus::InLight);
@@ -969,13 +944,7 @@ mod tests {
         let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
         assert!(parsed.mined);
         assert_eq!(parsed.dreaming_status, DreamingStatus::InLight);
-    }
-
-    #[test]
-    fn test_session_checkpoint_mined_dreaming_status_missing_json_defaults() {
-        let cp = SessionCheckpoint::new("s-old-json-md".into())
-            .with_mined(true)
-            .with_dreaming_status(DreamingStatus::InDeep);
+        // missing fields default
         let mut json_value: serde_json::Value = serde_json::to_value(&cp).unwrap();
         json_value.as_object_mut().unwrap().remove("mined");
         json_value
@@ -988,10 +957,43 @@ mod tests {
             !parsed.mined,
             "old data without mined should default to false"
         );
-        assert_eq!(
-            parsed.dreaming_status,
-            DreamingStatus::Completed,
-            "old data without dreaming_status should default to Completed"
+        assert_eq!(parsed.dreaming_status, DreamingStatus::Completed);
+    }
+
+    #[test]
+    fn test_communication_config_serde_roundtrip_and_defaults() {
+        // Default is None
+        let cp = SessionCheckpoint::new("s-comm".into());
+        assert!(cp.communication_config.is_none());
+        // Set via builder
+        let config = closeclaw_common::communication::CommunicationConfig::default_with_parent(
+            Some("parent-agent"),
+        );
+        let cp = SessionCheckpoint::new("s-comm2".into()).with_communication_config(config.clone());
+        let stored = cp.communication_config.as_ref().unwrap();
+        assert_eq!(stored.outbound, vec!["parent-agent".to_string()]);
+        assert_eq!(stored.inbound, vec!["parent-agent".to_string()]);
+        // Serde roundtrip
+        let json = serde_json::to_string(&cp).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
+        let stored = parsed.communication_config.as_ref().unwrap();
+        assert_eq!(stored.outbound, vec!["parent-agent".to_string()]);
+        assert_eq!(stored.inbound, vec!["parent-agent".to_string()]);
+    }
+
+    #[test]
+    fn test_communication_config_missing_json_defaults_to_none() {
+        let cp = SessionCheckpoint::new("s-old".into());
+        let mut json_value: serde_json::Value = serde_json::to_value(&cp).unwrap();
+        json_value
+            .as_object_mut()
+            .unwrap()
+            .remove("communication_config");
+        let json_str = serde_json::to_string(&json_value).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json_str).unwrap();
+        assert!(
+            parsed.communication_config.is_none(),
+            "old checkpoint without communication_config should default to None"
         );
     }
 }

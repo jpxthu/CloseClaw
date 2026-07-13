@@ -344,6 +344,7 @@ mod tests {
             session_mode: SessionMode::default(),
             transcript: Vec::new(),
             label: None,
+            communication_config: None,
         }
     }
 

@@ -383,6 +383,7 @@ pub fn load_checkpoint_inner(
         session_mode: session_mode_val,
         transcript: transcript_messages,
         label: None,
+        communication_config: None,
     }))
 }
 

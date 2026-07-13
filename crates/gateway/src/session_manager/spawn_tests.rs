@@ -813,13 +813,19 @@ fn test_build_spawn_context_structured_output_at_depth_limit() {
 }
 
 /// Verify the child session's communication config restricts
-/// communication to the parent agent only.
+/// communication to the parent agent only, and persists to checkpoint.
 #[tokio::test]
 #[serial]
 async fn test_child_session_communication_config_has_parent() {
     clear_global_prompt_state();
     let tmp = tempfile::TempDir::new().unwrap();
-    let mgr = make_test_mgr(Some(tmp.path()));
+    let storage = Arc::new(closeclaw_session::storage::memory::MemoryStorage::new());
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        Some(tmp.path().to_path_buf()),
+        ReasoningLevel::default(),
+    );
     let config = test_resolved_config("comm-child", None);
     register_parent_session(&mgr, "parent-comm", tmp.path().to_path_buf()).await;
     let child_id = mgr
@@ -841,6 +847,7 @@ async fn test_child_session_communication_config_has_parent() {
         )
         .await
         .expect("create_child_session should succeed");
+    // Verify in-memory session has communication_config.
     let cs = mgr
         .get_conversation_session(&child_id)
         .await
@@ -849,26 +856,21 @@ async fn test_child_session_communication_config_has_parent() {
     let comm = guard
         .communication_config()
         .expect("communication_config should be set");
-
-    // Outbound should contain parent agent id
-    assert_eq!(comm.outbound.len(), 1);
-    // The parent agent id is looked up via get_chat_id which reads
-    // from sessions. The parent session was registered with
-    // agent_id="parent-agent" by the test setup, so the comm config
-    // should reference that.
-    assert!(
-        comm.outbound.contains(&"parent-agent".to_string()),
-        "outbound should contain parent agent id, got: {:?}",
-        comm.outbound
-    );
-
-    // Inbound should also contain parent agent id
-    assert_eq!(comm.inbound.len(), 1);
-    assert!(
-        comm.inbound.contains(&"parent-agent".to_string()),
-        "inbound should contain parent agent id, got: {:?}",
-        comm.inbound
-    );
+    assert_eq!(comm.outbound, vec!["parent-agent".to_string()]);
+    assert_eq!(comm.inbound, vec!["parent-agent".to_string()]);
+    drop(guard);
+    // Verify checkpoint also has communication_config.
+    let child_cp = storage
+        .load_checkpoint(&child_id)
+        .await
+        .expect("storage should be accessible")
+        .expect("child checkpoint should exist");
+    let cp_comm = child_cp
+        .communication_config
+        .as_ref()
+        .expect("checkpoint should have communication_config");
+    assert_eq!(cp_comm.outbound, vec!["parent-agent".to_string()]);
+    assert_eq!(cp_comm.inbound, vec!["parent-agent".to_string()]);
 }
 
 /// Verify a non-spawn session does NOT have communication config.

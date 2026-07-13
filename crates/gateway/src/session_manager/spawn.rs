@@ -8,6 +8,7 @@
 use super::SessionManager;
 use crate::session_manager::communication::CommunicationError;
 use crate::Session;
+use closeclaw_common::communication::CommunicationConfig;
 use closeclaw_config::agents::ResolvedAgentConfig;
 use closeclaw_session::persistence::{
     PendingMessage, PersistenceError, SessionCheckpoint, SessionStatus,
@@ -232,6 +233,9 @@ impl SessionManager {
         if let Some(label) = label {
             cp = cp.with_label(label.to_string());
         }
+        // Persist communication config so routing restrictions survive restart.
+        let comm_config = CommunicationConfig::default_with_parent(Some(&parent_agent_id));
+        cp = cp.with_communication_config(comm_config);
         if let Some(storage) = self.storage.read().await.as_ref() {
             if let Err(e) = storage.save_checkpoint(&cp).await {
                 warn!(
