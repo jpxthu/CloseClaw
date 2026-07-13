@@ -69,7 +69,6 @@ async fn register_parent_session(mgr: &SessionManager, parent_id: &str, workdir:
 #[serial]
 async fn test_create_child_session_basic() {
     clear_global_prompt_state();
-
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
     let config = test_resolved_config("child-agent", None);
@@ -77,7 +76,6 @@ async fn test_create_child_session_basic() {
     // Step 1.5 requires the parent to live in conversation_sessions
     // so the child can be wired into the parent's cancel token tree.
     register_parent_session(&mgr, "parent-session-1", tmp.path().to_path_buf()).await;
-
     let child_id = mgr
         .create_child_session(
             &config,
@@ -91,8 +89,9 @@ async fn test_create_child_session_basic() {
             None,
             None,
             None,
-            3,    // max_spawn_depth
-            None, // spawn_timeout
+            3,
+            None, // spawn_timeout,
+            None, // label
         )
         .await
         .expect("create_child_session should succeed");
@@ -135,7 +134,6 @@ async fn test_create_child_session_workspace_fallback() {
     // Step 1.5: pre-populate parent so child can inherit its cancel
     // token tree.
     register_parent_session(&mgr, "parent-x", explicit.path().to_path_buf()).await;
-
     let child_id = mgr
         .create_child_session(
             &config,
@@ -149,8 +147,9 @@ async fn test_create_child_session_workspace_fallback() {
             None,
             None,
             None,
-            3,    // max_spawn_depth
-            None, // spawn_timeout
+            3,
+            None, // spawn_timeout,
+            None, // label
         )
         .await
         .expect("create_child_session should succeed");
@@ -173,8 +172,9 @@ async fn test_create_child_session_workspace_fallback() {
             None,
             None,
             None,
-            3,    // max_spawn_depth
-            None, // spawn_timeout
+            3,
+            None, // spawn_timeout,
+            None, // label
         )
         .await
         .expect("create_child_session with explicit workspace should succeed");
@@ -190,7 +190,6 @@ async fn test_create_child_session_workspace_fallback() {
 #[serial]
 async fn test_create_child_session_registers_child_info() {
     clear_global_prompt_state();
-
     let mgr = make_test_mgr(None);
     let config = test_resolved_config("worker-1", None);
 
@@ -199,7 +198,6 @@ async fn test_create_child_session_registers_child_info() {
     // child_handles.
     let parent_workdir = std::env::temp_dir();
     register_parent_session(&mgr, "parent-7", parent_workdir).await;
-
     let child_id = mgr
         .create_child_session(
             &config,
@@ -213,8 +211,9 @@ async fn test_create_child_session_registers_child_info() {
             None,
             None,
             None,
-            3,    // max_spawn_depth
-            None, // spawn_timeout
+            3,
+            None, // spawn_timeout,
+            None, // label
         )
         .await
         .expect("create_child_session should succeed");
@@ -235,13 +234,10 @@ async fn test_create_child_session_registers_child_info() {
 #[serial]
 async fn test_steer_child_injects_pending_message() {
     clear_global_prompt_state();
-
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
     let config = test_resolved_config("steer-child", None);
-
     register_parent_session(&mgr, "parent-steer", tmp.path().to_path_buf()).await;
-
     let child_id = mgr
         .create_child_session(
             &config,
@@ -255,8 +251,9 @@ async fn test_steer_child_injects_pending_message() {
             None,
             None,
             None,
-            3,    // max_spawn_depth
-            None, // spawn_timeout
+            3,
+            None, // spawn_timeout,
+            None, // label
         )
         .await
         .expect("create_child_session should succeed");
@@ -290,13 +287,10 @@ async fn test_steer_child_injects_pending_message() {
 #[serial]
 async fn test_kill_child_removes_from_all_tables() {
     clear_global_prompt_state();
-
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
     let config = test_resolved_config("kill-child", None);
-
     register_parent_session(&mgr, "parent-kill", tmp.path().to_path_buf()).await;
-
     let child_id = mgr
         .create_child_session(
             &config,
@@ -310,8 +304,9 @@ async fn test_kill_child_removes_from_all_tables() {
             None,
             None,
             None,
-            3,    // max_spawn_depth
-            None, // spawn_timeout
+            3,
+            None, // spawn_timeout,
+            None, // label
         )
         .await
         .expect("create_child_session should succeed");
@@ -362,7 +357,6 @@ async fn test_validate_child_ownership_by_mode() {
         let mgr = make_test_mgr(Some(tmp.path()));
         let config = test_resolved_config("run-child", None);
         register_parent_session(&mgr, "parent-validate-run", tmp.path().to_path_buf()).await;
-
         let child_id = mgr
             .create_child_session(
                 &config,
@@ -377,11 +371,11 @@ async fn test_validate_child_ownership_by_mode() {
                 None,
                 None,
                 3,
-                None, // spawn_timeout
+                None, // spawn_timeout,
+                None, // label
             )
             .await
             .expect("create_child_session should succeed");
-
         let result = mgr
             .validate_child_ownership("parent-validate-run", &child_id)
             .await;
@@ -398,7 +392,6 @@ async fn test_validate_child_ownership_by_mode() {
         let mgr = make_test_mgr(Some(tmp.path()));
         let config = test_resolved_config("session-child", None);
         register_parent_session(&mgr, "parent-validate-session", tmp.path().to_path_buf()).await;
-
         let child_id = mgr
             .create_child_session(
                 &config,
@@ -413,11 +406,11 @@ async fn test_validate_child_ownership_by_mode() {
                 None,
                 None,
                 3,
-                None, // spawn_timeout
+                None, // spawn_timeout,
+                None, // label
             )
             .await
             .expect("create_child_session should succeed");
-
         let result = mgr
             .validate_child_ownership("parent-validate-session", &child_id)
             .await;
@@ -433,7 +426,6 @@ async fn test_validate_child_ownership_by_mode() {
 #[serial]
 async fn test_create_child_session_allowed_tools_override() {
     clear_global_prompt_state();
-
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
 
@@ -472,11 +464,11 @@ async fn test_create_child_session_allowed_tools_override() {
             None,
             None,
             3,
-            None, // spawn_timeout
+            None, // spawn_timeout,
+            None, // label
         )
         .await
         .expect("create_child_session with allowed_tools should succeed");
-
     assert!(mgr.has_session(&child_id).await);
     assert_eq!(mgr.get_session_depth(&child_id).await, Some(1));
 
@@ -495,11 +487,11 @@ async fn test_create_child_session_allowed_tools_override() {
             None,
             None,
             3,
-            None, // spawn_timeout
+            None, // spawn_timeout,
+            None, // label
         )
         .await
         .expect("create_child_session without allowed_tools should succeed");
-
     assert!(mgr.has_session(&child_id_2).await);
 }
 
@@ -519,12 +511,10 @@ async fn test_create_child_session_workspace_fallback_to_parent() {
         .join("parent-agent")
         .join("default");
     std::fs::create_dir_all(&parent_workspace).unwrap();
-
     let config = test_resolved_config("child-agent", None);
 
     // Register parent session with the parent workspace as its workdir.
     register_parent_session(&mgr, "parent-ws", parent_workspace.clone()).await;
-
     let child_id = mgr
         .create_child_session(
             &config,
@@ -538,8 +528,9 @@ async fn test_create_child_session_workspace_fallback_to_parent() {
             None,
             None,
             None,
-            3,    // max_spawn_depth
-            None, // spawn_timeout
+            3,
+            None, // spawn_timeout,
+            None, // label
         )
         .await
         .expect("create_child_session should succeed");
@@ -571,7 +562,6 @@ async fn test_create_child_session_workspace_fallback_to_parent() {
 #[serial]
 async fn test_create_child_session_workspace_uses_actual_user_id() {
     clear_global_prompt_state();
-
     let tmp = tempfile::TempDir::new().unwrap();
 
     // Set up MemoryStorage with a parent checkpoint that has a sender_id.
@@ -583,7 +573,6 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
     cp.sender_id = Some(actual_user_id.to_string());
     cp.agent_id = Some(parent_agent_id.to_string());
     storage.save_checkpoint(&cp).await.unwrap();
-
     let mgr = SessionManager::new(
         &test_config(),
         Some(storage),
@@ -598,12 +587,10 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
         .join(parent_agent_id)
         .join("default");
     std::fs::create_dir_all(&parent_workspace).unwrap();
-
     let config = test_resolved_config("child-agent", None);
 
     // Register parent session with the parent workspace as its workdir.
     register_parent_session(&mgr, parent_session_id, parent_workspace.clone()).await;
-
     let child_id = mgr
         .create_child_session(
             &config,
@@ -617,8 +604,9 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
             None,
             None,
             None,
-            3,    // max_spawn_depth
-            None, // spawn_timeout
+            3,
+            None, // spawn_timeout,
+            None, // label
         )
         .await
         .expect("create_child_session should succeed");
@@ -719,13 +707,10 @@ fn test_build_spawn_context_behavioral_constraints() {
 #[serial]
 async fn test_child_session_system_prompt_contains_spawn_context() {
     clear_global_prompt_state();
-
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
     let config = test_resolved_config("child-agent", None);
-
     register_parent_session(&mgr, "parent-prompt", tmp.path().to_path_buf()).await;
-
     let child_id = mgr
         .create_child_session(
             &config,
@@ -739,19 +724,18 @@ async fn test_child_session_system_prompt_contains_spawn_context() {
             None,
             None,
             None,
-            4,    // max_spawn_depth
-            None, // spawn_timeout
+            4,
+            None, // spawn_timeout,
+            None, // label
         )
         .await
         .expect("create_child_session should succeed");
-
     let cs = mgr
         .get_conversation_session(&child_id)
         .await
         .expect("child session should exist");
     let guard = cs.read().await;
     let prompt = guard.system_prompt().expect("system prompt should be set");
-
     assert!(
         prompt.contains("sub-agent"),
         "system prompt should contain sub-agent role declaration"
@@ -829,18 +813,21 @@ fn test_build_spawn_context_structured_output_at_depth_limit() {
 }
 
 /// Verify the child session's communication config restricts
-/// communication to the parent agent only.
+/// communication to the parent agent only, and persists to checkpoint.
 #[tokio::test]
 #[serial]
 async fn test_child_session_communication_config_has_parent() {
     clear_global_prompt_state();
-
     let tmp = tempfile::TempDir::new().unwrap();
-    let mgr = make_test_mgr(Some(tmp.path()));
+    let storage = Arc::new(closeclaw_session::storage::memory::MemoryStorage::new());
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(storage.clone()),
+        Some(tmp.path().to_path_buf()),
+        ReasoningLevel::default(),
+    );
     let config = test_resolved_config("comm-child", None);
-
     register_parent_session(&mgr, "parent-comm", tmp.path().to_path_buf()).await;
-
     let child_id = mgr
         .create_child_session(
             &config,
@@ -855,11 +842,12 @@ async fn test_child_session_communication_config_has_parent() {
             None,
             None,
             3,
-            None, // spawn_timeout
+            None, // spawn_timeout,
+            None, // label
         )
         .await
         .expect("create_child_session should succeed");
-
+    // Verify in-memory session has communication_config.
     let cs = mgr
         .get_conversation_session(&child_id)
         .await
@@ -868,26 +856,21 @@ async fn test_child_session_communication_config_has_parent() {
     let comm = guard
         .communication_config()
         .expect("communication_config should be set");
-
-    // Outbound should contain parent agent id
-    assert_eq!(comm.outbound.len(), 1);
-    // The parent agent id is looked up via get_chat_id which reads
-    // from sessions. The parent session was registered with
-    // agent_id="parent-agent" by the test setup, so the comm config
-    // should reference that.
-    assert!(
-        comm.outbound.contains(&"parent-agent".to_string()),
-        "outbound should contain parent agent id, got: {:?}",
-        comm.outbound
-    );
-
-    // Inbound should also contain parent agent id
-    assert_eq!(comm.inbound.len(), 1);
-    assert!(
-        comm.inbound.contains(&"parent-agent".to_string()),
-        "inbound should contain parent agent id, got: {:?}",
-        comm.inbound
-    );
+    assert_eq!(comm.outbound, vec!["parent-agent".to_string()]);
+    assert_eq!(comm.inbound, vec!["parent-agent".to_string()]);
+    drop(guard);
+    // Verify checkpoint also has communication_config.
+    let child_cp = storage
+        .load_checkpoint(&child_id)
+        .await
+        .expect("storage should be accessible")
+        .expect("child checkpoint should exist");
+    let cp_comm = child_cp
+        .communication_config
+        .as_ref()
+        .expect("checkpoint should have communication_config");
+    assert_eq!(cp_comm.outbound, vec!["parent-agent".to_string()]);
+    assert_eq!(cp_comm.inbound, vec!["parent-agent".to_string()]);
 }
 
 /// Verify a non-spawn session does NOT have communication config.
@@ -935,7 +918,6 @@ fn test_communication_config_construction_and_permissions() {
 #[serial]
 async fn test_spawn_checkpoint_persists_parent_session_id_and_depth() {
     clear_global_prompt_state();
-
     let tmp = tempfile::TempDir::new().unwrap();
     // Use MemoryStorage so we can read back the checkpoint.
     let storage = Arc::new(closeclaw_session::storage::memory::MemoryStorage::new());
@@ -946,17 +928,14 @@ async fn test_spawn_checkpoint_persists_parent_session_id_and_depth() {
     parent_cp.depth = 0;
     parent_cp.parent_session_id = None;
     storage.save_checkpoint(&parent_cp).await.unwrap();
-
     let mgr = SessionManager::new(
         &test_config(),
         Some(storage.clone()),
         Some(tmp.path().to_path_buf()),
         ReasoningLevel::default(),
     );
-
     let config = test_resolved_config("cp-check-agent", None);
     register_parent_session(&mgr, parent_session_id, tmp.path().to_path_buf()).await;
-
     let child_id = mgr
         .create_child_session(
             &config,
@@ -971,7 +950,8 @@ async fn test_spawn_checkpoint_persists_parent_session_id_and_depth() {
             None,
             None,
             4,
-            None, // spawn_timeout
+            None, // spawn_timeout,
+            None, // label
         )
         .await
         .expect("create_child_session should succeed");
@@ -982,7 +962,6 @@ async fn test_spawn_checkpoint_persists_parent_session_id_and_depth() {
         .await
         .expect("storage should be accessible")
         .expect("child checkpoint should exist in storage");
-
     assert_eq!(
         child_cp.parent_session_id.as_deref(),
         Some(parent_session_id),

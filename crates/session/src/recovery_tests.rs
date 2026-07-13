@@ -57,6 +57,8 @@ mod tests {
             plan_references: Vec::new(),
             session_mode: SessionMode::default(),
             transcript: Vec::new(),
+            label: None,
+            communication_config: None,
         }
     }
 
@@ -911,6 +913,50 @@ mod tests {
         assert!(
             pa2.is_none(),
             "layer 4 should not inject when plan_state exists"
+        );
+    }
+
+    /// Verify that communication_config is preserved through
+    /// checkpoint save/load cycle (serde roundtrip).
+    #[tokio::test]
+    async fn test_checkpoint_communication_config_persisted_through_save_load() {
+        let storage = Arc::new(MemoryStorage::new());
+        let mut cp = create_test_checkpoint("comm-persist");
+        cp.communication_config = Some(
+            closeclaw_common::communication::CommunicationConfig::default_with_parent(Some(
+                "parent-agent-1",
+            )),
+        );
+
+        storage.save_checkpoint(&cp).await.unwrap();
+        let loaded = storage
+            .load_checkpoint("comm-persist")
+            .await
+            .unwrap()
+            .unwrap();
+        let comm = loaded
+            .communication_config
+            .as_ref()
+            .expect("communication_config should survive save/load");
+        assert_eq!(comm.outbound, vec!["parent-agent-1".to_string()]);
+        assert_eq!(comm.inbound, vec!["parent-agent-1".to_string()]);
+    }
+
+    /// Verify that old checkpoints without communication_config
+    /// deserialize correctly (backward compatibility).
+    #[test]
+    fn test_old_checkpoint_without_communication_config_deserializes() {
+        let cp = create_test_checkpoint("old-cp");
+        let mut json_val = serde_json::to_value(&cp).unwrap();
+        json_val
+            .as_object_mut()
+            .unwrap()
+            .remove("communication_config");
+        let json_str = serde_json::to_string(&json_val).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json_str).unwrap();
+        assert!(
+            parsed.communication_config.is_none(),
+            "old checkpoint without communication_config should deserialize to None"
         );
     }
 }

@@ -59,6 +59,93 @@ fn test_sessions_spawn_model_param_empty_string() {
 }
 
 // ---------------------------------------------------------------------------
+// Timeout parameter parsing tests
+// ---------------------------------------------------------------------------
+
+/// When `timeout` is present in the JSON args, `parse_args` should extract
+/// it as `Some(u64)` in `SpawnArgs.timeout`.
+#[test]
+fn test_sessions_spawn_timeout_param_parsed() {
+    let args = json!({
+        "task": "do work",
+        "timeout": 120
+    });
+    let spawn_args = SessionsSpawnTool::parse_args(&args).expect("parse_args should succeed");
+    assert_eq!(
+        spawn_args.timeout,
+        Some(120),
+        "timeout should be parsed from args"
+    );
+}
+
+/// When `timeout` is absent from the JSON args, `parse_args` should set
+/// `SpawnArgs.timeout` to `None`.
+#[test]
+fn test_sessions_spawn_timeout_param_absent() {
+    let args = json!({"task": "do work"});
+    let spawn_args = SessionsSpawnTool::parse_args(&args).expect("parse_args should succeed");
+    assert!(
+        spawn_args.timeout.is_none(),
+        "timeout should be None when not provided"
+    );
+}
+
+/// When `timeout` is 0, `parse_args` should pass through as `Some(0)`.
+#[test]
+fn test_sessions_spawn_timeout_param_zero() {
+    let args = json!({"task": "do work", "timeout": 0});
+    let spawn_args = SessionsSpawnTool::parse_args(&args).expect("parse_args should succeed");
+    assert_eq!(
+        spawn_args.timeout,
+        Some(0),
+        "timeout=0 should be parsed as Some(0)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Label parameter parsing tests
+
+/// When `label` is present in the JSON args, `parse_args` should extract
+/// it as `Some(String)` in `SpawnArgs.label`.
+#[test]
+fn test_sessions_spawn_label_param_parsed() {
+    let args = json!({
+        "task": "do work",
+        "label": "my-subtask"
+    });
+    let spawn_args = SessionsSpawnTool::parse_args(&args).expect("parse_args should succeed");
+    assert_eq!(
+        spawn_args.label.as_deref(),
+        Some("my-subtask"),
+        "label should be parsed from args"
+    );
+}
+
+/// When `label` is absent from the JSON args, `parse_args` should set
+/// `SpawnArgs.label` to `None`.
+#[test]
+fn test_sessions_spawn_label_param_absent() {
+    let args = json!({"task": "do work"});
+    let spawn_args = SessionsSpawnTool::parse_args(&args).expect("parse_args should succeed");
+    assert!(
+        spawn_args.label.is_none(),
+        "label should be None when not provided"
+    );
+}
+
+/// When `label` is empty string, `parse_args` should set it to `Some("")`.
+#[test]
+fn test_sessions_spawn_label_param_empty_string() {
+    let args = json!({"task": "do work", "label": ""});
+    let spawn_args = SessionsSpawnTool::parse_args(&args).expect("parse_args should succeed");
+    assert_eq!(
+        spawn_args.label.as_deref(),
+        Some(""),
+        "label=\"\" should be parsed as Some(\"\")"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Tests requiring SpawnController (main-crate type)
 // ---------------------------------------------------------------------------
 
