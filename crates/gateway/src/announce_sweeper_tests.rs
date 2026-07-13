@@ -47,7 +47,8 @@ async fn test_run_once_idle_child_pushes_announce() {
             None,
             None,
             3,
-            None,
+            None, // spawn_timeout,
+            None, // label,
         )
         .await
         .expect("create_child_session should succeed");
@@ -98,7 +99,8 @@ async fn test_run_once_running_child_skips() {
             None,
             None,
             3,
-            None,
+            None, // spawn_timeout,
+            None, // label,
         )
         .await
         .expect("create_child_session should succeed");
@@ -152,7 +154,8 @@ async fn test_run_once_child_not_in_table_skips() {
             None,
             None,
             3,
-            None,
+            None, // spawn_timeout,
+            None, // label,
         )
         .await
         .expect("create_child_session should succeed");

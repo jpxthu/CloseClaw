@@ -271,3 +271,93 @@ async fn test_require_agent_id_true_with_explicit_agent_id() {
     let result = result.expect("validate should succeed with explicit agentId");
     assert_eq!(result.config.id, "child-agent");
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Timeout priority chain tests (design doc §timeout)
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Target agent has subagents.timeout=60 → spawn_timeout=Some(60).
+#[tokio::test]
+async fn test_timeout_from_target_agent_config() {
+    let parent_sub = SubagentsConfig {
+        require_agent_id: Some(false),
+        allow_agents: vec!["*".to_string()],
+        max_spawn_depth: Some(3),
+        max_children: Some(5),
+        ..Default::default()
+    };
+    let target_sub = SubagentsConfig {
+        require_agent_id: Some(false),
+        allow_agents: vec!["*".to_string()],
+        max_spawn_depth: Some(2),
+        max_children: Some(5),
+        timeout: Some(60),
+        ..Default::default()
+    };
+    let parent_config = make_agent_config("parent-agent", parent_sub);
+    let target_config = make_agent_config("child-agent", target_sub);
+    let config_manager = make_config_manager(vec![parent_config, target_config]);
+    let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
+
+    let controller = make_controller(config_manager, context);
+    let result = controller.validate("session-1", Some("child-agent")).await;
+    let result = result.expect("validate should succeed");
+    assert_eq!(result.spawn_timeout, Some(60));
+}
+
+/// Target agent has no timeout → spawn_timeout=None.
+#[tokio::test]
+async fn test_timeout_none_when_target_has_no_config() {
+    let parent_sub = SubagentsConfig {
+        require_agent_id: Some(false),
+        allow_agents: vec!["*".to_string()],
+        max_spawn_depth: Some(3),
+        max_children: Some(5),
+        ..Default::default()
+    };
+    let target_sub = SubagentsConfig {
+        require_agent_id: Some(false),
+        allow_agents: vec!["*".to_string()],
+        max_spawn_depth: Some(2),
+        max_children: Some(5),
+        ..Default::default()
+    };
+    let parent_config = make_agent_config("parent-agent", parent_sub);
+    let target_config = make_agent_config("child-agent", target_sub);
+    let config_manager = make_config_manager(vec![parent_config, target_config]);
+    let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
+
+    let controller = make_controller(config_manager, context);
+    let result = controller.validate("session-1", Some("child-agent")).await;
+    let result = result.expect("validate should succeed");
+    assert_eq!(result.spawn_timeout, None);
+}
+
+/// Target agent timeout=0 → passthrough as Some(0).
+#[tokio::test]
+async fn test_timeout_zero_passthrough() {
+    let parent_sub = SubagentsConfig {
+        require_agent_id: Some(false),
+        allow_agents: vec!["*".to_string()],
+        max_spawn_depth: Some(3),
+        max_children: Some(5),
+        ..Default::default()
+    };
+    let target_sub = SubagentsConfig {
+        require_agent_id: Some(false),
+        allow_agents: vec!["*".to_string()],
+        max_spawn_depth: Some(2),
+        max_children: Some(5),
+        timeout: Some(0),
+        ..Default::default()
+    };
+    let parent_config = make_agent_config("parent-agent", parent_sub);
+    let target_config = make_agent_config("child-agent", target_sub);
+    let config_manager = make_config_manager(vec![parent_config, target_config]);
+    let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
+
+    let controller = make_controller(config_manager, context);
+    let result = controller.validate("session-1", Some("child-agent")).await;
+    let result = result.expect("validate should succeed");
+    assert_eq!(result.spawn_timeout, Some(0));
+}

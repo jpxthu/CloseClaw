@@ -34,9 +34,9 @@ pub struct SpawnValidationResult {
     pub config: ResolvedAgentConfig,
     /// Effective max spawn depth the child may use.
     pub effective_max_spawn_depth: u32,
-    /// Sub-agent maximum execution duration (seconds), read from the
-    /// parent agent's `subagents.timeout` config. `None` means no
-    /// timeout override (child uses global default or no timeout).
+    /// Sub-agent maximum execution duration (seconds), resolved via
+    /// priority chain: spawn args → target agent config → global default.
+    /// Never `None` after resolution — always falls back to global default.
     pub spawn_timeout: Option<u64>,
 }
 

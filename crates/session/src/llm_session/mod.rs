@@ -284,6 +284,11 @@ impl ConversationSession {
         self
     }
 
+    /// Sets the communication configuration on an existing session.
+    pub fn set_communication_config(&mut self, config: CommunicationConfig) {
+        self.communication_config = Some(config);
+    }
+
     /// Sets the bootstrap mode for this session.
     pub fn with_bootstrap_mode(mut self, mode: crate::bootstrap::loader::BootstrapMode) -> Self {
         self.bootstrap_mode = mode;

@@ -23,9 +23,9 @@ pub struct SpawnValidationResult {
     /// Effective max spawn depth the child may use.
     /// Computed as `min(child.max_spawn_depth, parent.max_spawn_depth - 1)`.
     pub effective_max_spawn_depth: u32,
-    /// Sub-agent maximum execution duration (seconds), read from the
-    /// parent agent's `subagents.timeout` config. `None` means no
-    /// timeout override (child uses global default or no timeout).
+    /// Sub-agent maximum execution duration (seconds), resolved via
+    /// priority chain: spawn args → target agent config → global default.
+    /// Never `None` after resolution — always falls back to global default.
     pub spawn_timeout: Option<u64>,
 }
 
@@ -63,7 +63,6 @@ struct ParentSpawnConfig {
     max_children: u32,
     allow_agents: Vec<String>,
     require_agent_id: bool,
-    timeout: Option<u64>,
 }
 
 /// Result from resolving target agent configuration (agentId fallback).
@@ -144,8 +143,10 @@ impl SpawnController {
         let effective_max =
             self.compute_effective_max_depth(parent.parent_effective_budget, Some(&config))?;
 
-        // ⑨ Read parent subagents.timeout (Step 1.2).
-        let spawn_timeout = self.read_parent_config(&parent_agent_id).await?.timeout;
+        // ⑨ Resolve spawn timeout via priority chain (target agent config → global default).
+        //    Spawn args timeout is applied later in `SessionsSpawnTool::call()`
+        //    after validation, as it takes highest priority in the chain.
+        let spawn_timeout = self.resolve_spawn_timeout(&config);
 
         Ok(SpawnValidationResult {
             config,
@@ -294,14 +295,12 @@ impl SpawnController {
                     max_children: sc.max_children.unwrap_or(5),
                     allow_agents: sc.allow_agents.clone(),
                     require_agent_id: sc.require_agent_id.unwrap_or(false),
-                    timeout: sc.timeout,
                 }
             }
             None => ParentSpawnConfig {
                 max_children: 5u32,
                 allow_agents: vec!["*".to_string()],
                 require_agent_id: false,
-                timeout: None,
             },
         })
     }
@@ -364,6 +363,24 @@ impl SpawnController {
             });
         }
         Ok(())
+    }
+
+    /// Resolve the spawn timeout using the priority chain:
+    /// target agent's `subagents.timeout` → global default.
+    ///
+    /// Note: spawn args timeout is applied later in `SessionsSpawnTool::call()`
+    /// after validation, as it takes highest priority in the chain.
+    fn resolve_spawn_timeout(&self, target_config: &ResolvedAgentConfig) -> Option<u64> {
+        target_config
+            .subagents
+            .timeout
+            .or_else(|| self.global_spawn_timeout())
+    }
+
+    /// Global default spawn timeout (seconds). Returns `None` when no
+    /// global default is configured, meaning no timeout limit.
+    fn global_spawn_timeout(&self) -> Option<u64> {
+        None
     }
 }
 

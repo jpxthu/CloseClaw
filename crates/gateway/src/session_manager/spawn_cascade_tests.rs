@@ -208,7 +208,8 @@ async fn test_kill_child_completed_session_skips_stop() {
             None,
             None,
             3,
-            None, // spawn_timeout
+            None, // spawn_timeout,
+            None, // label
         )
         .await
         .expect("create_child_session should succeed");
@@ -295,7 +296,8 @@ async fn test_kill_child_single_child() {
             None,
             None,
             3,
-            None, // spawn_timeout
+            None, // spawn_timeout,
+            None, // label
         )
         .await
         .expect("create_child_session should succeed");

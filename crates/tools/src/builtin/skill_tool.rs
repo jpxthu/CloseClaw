@@ -199,6 +199,7 @@ impl Tool for SkillTool {
                         None, // parent_subagents_model
                         1,    // max_spawn_depth (skill tool doesn't spawn)
                         None, // spawn_timeout (skill tool doesn't set timeout)
+                        None, // label
                     )
                     .await
                     .map_err(|e| {

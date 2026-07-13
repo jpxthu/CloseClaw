@@ -218,8 +218,8 @@ async fn test_validate_default_child_agent_ignored_falls_back_to_parent() {
 // Gap 2: spawn timeout passthrough
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Parent config has subagents.timeout=60 → SpawnValidationResult must
-/// include spawn_timeout=Some(60).
+/// Target agent config has subagents.timeout=60 → SpawnValidationResult
+/// must include spawn_timeout=Some(60).
 #[tokio::test]
 async fn test_validate_spawn_timeout_configured() {
     let cm = Arc::new(make_config_manager());
@@ -228,9 +228,10 @@ async fn test_validate_spawn_timeout_configured() {
 
     let mut sub = SubagentsConfig::default();
     sub.max_spawn_depth = Some(2);
-    sub.timeout = Some(60);
     let parent = make_agent("parent", sub);
-    let child = make_agent("child", SubagentsConfig::default());
+    let mut child_sub = SubagentsConfig::default();
+    child_sub.timeout = Some(60);
+    let child = make_agent("child", child_sub);
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
@@ -266,7 +267,7 @@ async fn test_validate_spawn_timeout_not_configured() {
     assert_eq!(result.spawn_timeout, None);
 }
 
-/// Parent config has subagents.timeout=0 → passthrough as Some(0).
+/// Target agent config has subagents.timeout=0 → passthrough as Some(0).
 /// Value 0 is syntactically valid; the enforcement layer decides whether
 /// to treat it as immediate timeout or reject it at runtime.
 #[tokio::test]
@@ -277,9 +278,10 @@ async fn test_validate_spawn_timeout_zero_passthrough() {
 
     let mut sub = SubagentsConfig::default();
     sub.max_spawn_depth = Some(2);
-    sub.timeout = Some(0);
     let parent = make_agent("parent", sub);
-    let child = make_agent("child", SubagentsConfig::default());
+    let mut child_sub = SubagentsConfig::default();
+    child_sub.timeout = Some(0);
+    let child = make_agent("child", child_sub);
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;

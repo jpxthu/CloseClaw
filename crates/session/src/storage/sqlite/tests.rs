@@ -49,6 +49,8 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         plan_references: Vec::new(),
         session_mode: SessionMode::default(),
         transcript: Vec::new(),
+        label: None,
+        communication_config: None,
     }
 }
 

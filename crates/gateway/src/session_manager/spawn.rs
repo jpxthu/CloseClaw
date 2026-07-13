@@ -114,6 +114,7 @@ impl SessionManager {
         parent_subagents_model: Option<&str>,
         max_spawn_depth: u32,
         spawn_timeout: Option<u64>,
+        label: Option<&str>,
     ) -> Result<String, String> {
         // ── Increment busy count for drain tracking ────────────────────
         if let Some(sh) = self.get_shutdown_handle().await {
@@ -220,13 +221,19 @@ impl SessionManager {
         }
 
         // Persist checkpoint.
-        let cp = SessionCheckpoint::new(child_session_id.clone())
+        let mut cp = SessionCheckpoint::new(child_session_id.clone())
             .with_status(SessionStatus::Active)
             .with_platform("spawn".to_string())
             .with_agent_id(config.id.clone())
             .with_parent_session_id(parent_session_id.to_string())
             .with_depth(depth)
             .with_effective_max_spawn_depth(Some(max_spawn_depth));
+        if let Some(label) = label {
+            cp = cp.with_label(label.to_string());
+        }
+        // Persist communication config so routing restrictions survive restart.
+        // Use the config from creation (single source of truth, avoids drift).
+        cp = cp.with_communication_config(created.communication_config);
         if let Some(storage) = self.storage.read().await.as_ref() {
             if let Err(e) = storage.save_checkpoint(&cp).await {
                 warn!(
