@@ -2,7 +2,7 @@
 
 ## 概述
 
-Spawn 是父 session 创建子 session 执行子任务的机制。一次 spawn = 创建一个 child session，子 session 使用目标 agent 的配置档案运行。sessions_spawn 由 Session 模块注册到 ToolRegistry 并暴露给 LLM 调用，由 Session 模块负责协调控制——读取父 agent 配置中的 subagents 参数执行前置检查，并创建和管理子 session。
+Spawn 是父 session 创建子 session 执行子任务的机制。一次 spawn = 创建一个 child session，子 session 使用目标 agent 的配置档案运行。sessions_spawn 由 Session 模块注册到 ToolRegistry 并暴露给 LLM 调用。LLM 调用该工具时，SkillTool 触发 SpawnValidator（trait，定义在 config crate）执行前置检查（depth、并发、白名单等），通过后由 SpawnController（daemon crate）创建和管理子 session。
 
 ## 架构
 
@@ -15,22 +15,25 @@ Spawn 是父 session 创建子 session 执行子任务的机制。一次 spawn =
 ```
 LLM 调用 sessions_spawn(agentId, task, ...)
   ↓
-Session 模块读取父 agent 配置中的 subagents 参数（注意：下文「父 agent」指配置来源，「父 session」指发出 spawn 调用的运行时会话）：
+SkillTool 触发 SpawnValidator 执行前置检查（注意：下文「父 agent」指配置来源，「父 session」指发出 spawn 调用的运行时会话）：
   ① depth 检查：父 agent 有效预算 ≤ 0 → 拒绝（预算见 Depth 追踪节）
   ② 并发检查：活跃子 session 数 >= 父 agent.subagents.maxChildren → 拒绝
   ③ requireAgentId 检查：spawn 未传 agentId 且 requireAgentId=true → 拒绝
   ④ agentId 解析：spawn 未传 agentId 时默认使用当前 Agent 的 ID（spawn 自身分身）
   ⑤ 白名单检查：agentId 不在父 agent.subagents.allowAgents 中 → 拒绝
+  ↓
+SpawnValidator 前置检查通过 → sessions_spawn 经 tools 模块触发 PermissionEngine.evaluate() 执行权限检查：
   ⑥ 权限检查：子 agent 经权限继承计算后无任何执行权限 → 拒绝（见 agent-permissions.md）
   ↓
-全部检查通过 → 创建 child session：
+全部检查通过 → SpawnController 创建 child session：
   - 加载目标 agent 的配置档案（config.json + permissions.json）
-  - workspace：spawn 参数指定 → 目标 agent.workspace → 父 Agent 工作目录
+  - workspace：spawn 参数指定 → 目标 agent.workspace → 父 agent workspace 下的子目录（{agent_id}/{user_id}）
   - bootstrap 模式：lightContext=true → minimal；否则 → 目标 agent.bootstrapMode
   - 注入 task 作为首条用户消息
   - tools：`allowedTools` 参数提供时完全替换子 agent 的 config.tools，否则使用 agent 配置的工具白名单；有效预算 ≤ 0 时从白名单中移除 sessions_spawn
   - skills：按 agent 配置的 skills 白名单过滤
   - 注入 spawn 角色标记（parent_session_id, depth, spawn_mode, fork）
+  - timeout：spawn 参数指定 → 目标 agent 配置 → 全局默认，控制子 session 的最大执行时长
   ↓
 子 session 注册到父 session 的子 session 跟踪表
   ↓
@@ -234,7 +237,7 @@ kill session A
 
 #### 生命周期联动
 
-除显式 kill 外，以下场景自动触发级联清理：
+除显式 kill 外，以下场景自动触发级联清理（子 session 对话历史均保留供查阅）：
 
 - **父 session 正常结束**：父 session 完成时，所有仍活跃的子 session 被自动级联终止。否则子 session 失去父节点后无法被 steer
 - **父 session 超时清理**：父 session 被 sweeper 超时清理时，同上级联终止所有子 session
@@ -284,9 +287,10 @@ spawn_tree 重建：
   parent_session_id = 父 session
   depth = 父 depth + 1
   bootstrap = 按 lightContext 决定
-  tools = 目标 agent 配置白名单
+  tools = allowedTools 参数提供时完全替换，否则使用目标 agent 配置白名单
   permissions = 继承计算结果（见 agent-permissions.md）
   model = 按优先级链解析（显式 model > 父.subagents.model > 目标.model > 系统默认），不拒绝 spawn
+  promptTemplate = 按 spawn 参数注入行为约束模板（若无则不注入）
   first_message = task 内容
   ↓
 子 session 注册到父 session 的子 session 跟踪表
@@ -357,13 +361,26 @@ spawn_tree 查询父 session 的所有后代
 清理子 session 数据
 ```
 
+### 重启恢复流程
+
+```
+网关启动
+  ↓
+Session 模块逐个恢复活跃 session（从 checkpoint 重建）
+  ↓
+spawn_tree 重建：遍历所有已恢复 session 的 checkpoint
+  → 有 parent_session_id 且父 session 也已恢复 → 注册为父子关系
+  → 有 parent_session_id 但父 session 未恢复（已被 sweep）→ 子 session 降级为根节点，depth 重置为 0
+  → 无 parent_session_id → 确认为根节点
+```
+
 ## 模块关系
 
 ### 上游
 
 | 模块 | 调用关系 |
 |------|---------|
-| Session | 注册 sessions_spawn / sessions_steer / sessions_kill 工具到 ToolRegistry，LLM 调用后由 Session 模块执行 |
+| Session | 注册 sessions_spawn / sessions_steer / sessions_kill 工具到 ToolRegistry。LLM 调用时 SkillTool 触发 SpawnValidator 执行前置检查，通过后由 SpawnController 创建子 session |
 | Agent Config | 读取父 agent 的 subagents 配置（allowAgents、maxSpawnDepth 等），读取目标 agent 的完整配置 |
 
 ### 下游
@@ -377,7 +394,7 @@ spawn_tree 查询父 session 的所有后代
 
 | 模块 | 说明 |
 |------|------|
-| Permission | Agent 模块（纯配置层）不直接调用 Permission；spawn 流程中的权限检查：Session 执行前置检查后，sessions_spawn 工具经 tools 模块触发 PermissionEngine.evaluate()，由 Permission 模块完成继承计算 |
+| Permission | Agent 模块（纯配置层）不直接调用 Permission；spawn 流程中的权限检查：SpawnValidator 执行前置检查后，sessions_spawn 工具经 tools 模块触发 PermissionEngine.evaluate()，由 Permission 模块完成继承计算 |
 | LLM Provider | spawn 不直接调用 LLM，子 session 的 LLM 调用由 session 模块管理 |
 | Processor Chain / Renderer | announce 内容的渲染由 session 的消息渲染管线完成 |
 | IM Adapter | spawn 不涉及外部消息路由 |

@@ -24,15 +24,16 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
     │           Agent 模块（纯配置层）          │
     │                                         │
     │  AgentRegistry（运行时查询入口）          │
-    │       ├── populate(configs)：启动时填充    │
-    │       ├── get(id)：运行时只读查询          │
-    │       └── reload(configs)：热重载时替换     │
+    │       ├── 启动时填充全部 agent 配置       │
+    │       ├── 运行时只读查询                  │
+    │       └── 热重载时替换全部配置            │
     │                                         │
     │  Agent 配置档案（JSON）                  │
     │       ├── model / workspace / agentDir  │
     │       ├── bootstrapMode / skills        │
     │       ├── tools / disallowedTools       │
-    │       └── subagents（spawn 控制参数）    │
+    │       ├── subagents（spawn 控制参数）    │
+    │       └── memory（可选覆盖默认记忆配置） │
     │                                         │
     │  权限基线（permissions.json）            │
     └──────────────┬──────────────────────────┘
@@ -48,7 +49,7 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 - **AgentRegistry**：运行时配置查询入口，以 agent_id 为键提供 ResolvedAgentConfig 的只读查找。启动时由 Daemon 填充，运行时只读查询。详见 [agent-registry.md](agent-registry.md)。
 - **Agent 配置档案**：每个 agent 对应一个独立的配置目录（`agents/<id>/`），目录下存放 `config.json` 和 `permissions.json`。配置定义能力边界（模型、工具、workspace、spawn 控制、跨 agent 交互权限），权限独立存储。存储支持项目级和用户级两级优先级，字段级覆盖合并。详见 [agent-config.md](agent-config.md)。
 - **Agent 能力模型**：Agent 能力由配置字段组合决定（详见 agent-config.md → Agent 能力模型）。初始 Agent 由 CLI 配置向导在首次运行时创建（默认 ID `master`），其他 agent 由用户通过配置文件自定义。
-- **权限基线**：Agent 的 `permissions.json` 定义该 agent 的权限基线，由 Permission 模块在 spawn 时沿链路计算继承权限——子 agent 的实际权限只能收窄，不能放宽。详见 [agent-permissions.md](agent-permissions.md)。
+- **权限基线**：Agent 的 `permissions.json` 定义该 agent 的权限基线，由 Permission 模块在 spawn 时沿链路计算继承权限——子 agent 的实际权限只能收窄，不能放宽。权限热更新独立于 agent 核心配置：修改 permissions.json 不影响 config.json 加载，反之亦然。每次操作前重新评估权限，变更即时生效。权限文件缺失时 agent 正常加载，使用系统默认权限。详见 [agent-permissions.md](agent-permissions.md)。
 
 子功能文档：
 
@@ -76,20 +77,21 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
    - skills → 过滤 skill 注册表
    - tools/disallowedTools → 过滤 tool 注册表
    - subagents → 注入 session 的 spawn 控制上下文
-3. Permission 独立加载 permissions.json，获取 Agent 权限基线
+   - memory → 覆盖 MemoryMiner 配置（可选，未指定时用全局默认）
+3. Permission 独立加载 permissions.json，获取 Agent 权限基线（与步骤 2 的 config 字段加载路径并行，互不影响）
 4. 以上步骤完成后 Session 创建结束
 
 ### Spawn 控制流
 
 1. 父 session 调用 sessions_spawn 工具（由 Session 模块注册到 ToolRegistry）
-2. Session 模块读取父 agent 配置中的 subagents 参数，执行前置检查：
+2. SkillTool 触发 SpawnValidator 执行前置检查：
    - depth 检查
    - 并发检查
    - requireAgentId 检查
    - agentId 解析
    - 白名单检查
    - 权限检查
-3. 全部通过后，Session 模块创建 child session（加载目标 agent 配置、注入 task、过滤工具集）
+3. 全部通过后，SpawnController 创建 child session（加载目标 agent 配置、注入 task、过滤工具集）
 4. 子 session 执行 task
 5. 子 session 完成，结果通过 announce 机制入队到父 session
 6. 父 session 下一轮 turn 处理 announce
@@ -109,6 +111,7 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 |------|---------|
 | Session | 创建 session 时读取 agent 配置各字段并分发到对应子系统（模型选择、工作目录、bootstrap 模式、工具/技能过滤、spawn 控制参数） |
 | Permission | 读取权限基线配置，在 spawn 时与其他维度共同计算继承权限 |
+| System Prompt | 读取 agent 配置中的 bootstrapMode/agentDir 字段定位 bootstrap 文件路径，加载身份人格定义 |
 
 ### 无关（无调用关系、名称或功能易混淆）
 
