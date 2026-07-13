@@ -899,6 +899,8 @@ mod resolve_tests;
 #[cfg(test)]
 mod self_heal_tests;
 #[cfg(test)]
+mod setter_tests;
+#[cfg(test)]
 mod spawn_cascade_tests;
 #[cfg(test)]
 mod spawn_controller_boundary_tests;
