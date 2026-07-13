@@ -207,23 +207,23 @@ async fn test_yield_timeout_default_value_in_notification() {
         cs.read().await.enter_waiting();
     }
 
-    // Use a 1-second timeout for fast test, but verify the default constant.
+    // Use a 1-second timeout for fast test.
     mgr.start_yield_timeout(&parent_id, "agent-x", Some(1))
         .await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-    // Check notification mentions "600" (the DEFAULT_YIELD_TIMEOUT_SECS).
+    // Check notification mentions "1" (the actual timeout value used).
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
     let messages = cs.read().await.messages().to_vec();
-    let has_default_value = messages.iter().any(|m| {
+    let has_timeout_value = messages.iter().any(|m| {
         m.role == "system"
             && m.content_blocks.iter().any(
-                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("600")),
+                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("1 秒内未完成")),
             )
     });
     assert!(
-        has_default_value,
-        "timeout notification should mention default 600s value"
+        has_timeout_value,
+        "timeout notification should mention the actual timeout value (1s)"
     );
 }
 

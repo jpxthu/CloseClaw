@@ -61,7 +61,7 @@ impl Tool for SessionsYieldTool {
     fn flags(&self) -> ToolFlags {
         ToolFlags {
             is_concurrency_safe: true,
-            is_read_only: true,
+            is_read_only: false,
             ..Default::default()
         }
     }
@@ -123,7 +123,7 @@ mod tests {
         assert_eq!(tool.name(), "sessions_yield");
         assert_eq!(tool.group(), "sessions");
         assert!(tool.flags().is_concurrency_safe);
-        assert!(tool.flags().is_read_only);
+        assert!(!tool.flags().is_read_only);
     }
 
     #[test]

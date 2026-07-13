@@ -120,6 +120,18 @@ pub struct SessionManager {
     /// (all children completed) or on timeout (which terminates
     /// children and resumes the session).
     yield_timeout_handles: RwLock<HashMap<String, tokio::task::JoinHandle<()>>>,
+    /// Output channel for sending LLM responses to the user.
+    /// Set via [`set_output_tx`](Self::set_output_tx) after construction.
+    /// Used by [`drain_pending_for_session`](super::announce::SessionManager::drain_pending_for_session)
+    /// to send responses to the user during yield recovery.
+    output_tx: RwLock<Option<crate::OutputTx>>,
+    /// Back-reference to the owning Gateway for outbound message dispatch.
+    /// Set via [`set_gateway_ref`](Self::set_gateway_ref) after construction.
+    /// Used by [`drain_pending_for_session`](super::announce::SessionManager::drain_pending_for_session)
+    /// to send LLM responses to the user during yield recovery.
+    ///
+    /// Uses `Weak` to avoid a reference cycle with Gateway.
+    gateway_ref: RwLock<Option<std::sync::Weak<crate::Gateway>>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -164,12 +176,42 @@ impl SessionManager {
             snapshot_managers: RwLock::new(HashMap::new()),
             agent_locks: Arc::new(RwLock::new(HashMap::new())),
             yield_timeout_handles: RwLock::new(HashMap::new()),
+            output_tx: RwLock::new(None),
+            gateway_ref: RwLock::new(None),
         }
     }
 
     /// Set the background task manager for notification drain and cleanup.
     pub async fn set_task_manager(&self, tm: Arc<dyn closeclaw_tasks::TaskManager>) {
         *self.task_manager.write().await = Some(tm);
+    }
+
+    /// Set the output channel for sending LLM responses to the user.
+    ///
+    /// When set, [`drain_pending_for_session`](super::announce::SessionManager::drain_pending_for_session)
+    /// will send queued message responses through this channel so the
+    /// user sees them after yield recovery.
+    pub fn set_output_tx(&self, tx: crate::OutputTx) {
+        *self.output_tx.blocking_write() = Some(tx);
+    }
+
+    /// Get a clone of the output channel, if set.
+    pub async fn get_output_tx(&self) -> Option<crate::OutputTx> {
+        self.output_tx.read().await.clone()
+    }
+
+    /// Set the Gateway back-reference for outbound message dispatch.
+    pub fn set_gateway_ref(&self, gw: Arc<crate::Gateway>) {
+        *self.gateway_ref.blocking_write() = Some(Arc::downgrade(&gw));
+    }
+
+    /// Get a strong reference to the Gateway, if still alive.
+    pub async fn get_gateway_ref(&self) -> Option<Arc<crate::Gateway>> {
+        self.gateway_ref
+            .read()
+            .await
+            .as_ref()
+            .and_then(|w| w.upgrade())
     }
 
     /// Get a clone of the task manager, if set.

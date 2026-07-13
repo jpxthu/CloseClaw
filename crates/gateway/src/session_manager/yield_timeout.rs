@@ -55,7 +55,7 @@ impl SessionManager {
         let sm = Arc::clone(self);
         let handle = tokio::spawn(async move {
             tokio::time::sleep(duration).await;
-            sm.handle_yield_timeout(&session_id_owned, &agent_id_owned)
+            sm.handle_yield_timeout(&session_id_owned, &agent_id_owned, secs)
                 .await;
         });
 
@@ -88,7 +88,7 @@ impl SessionManager {
     ///
     /// Terminates all child sessions, injects a timeout notification,
     /// and resumes the parent session.
-    async fn handle_yield_timeout(&self, session_id: &str, _agent_id: &str) {
+    async fn handle_yield_timeout(&self, session_id: &str, _agent_id: &str, timeout_secs: u64) {
         tracing::warn!(
             session_id = %session_id,
             "yield timeout fired: terminating child sessions"
@@ -143,7 +143,7 @@ impl SessionManager {
                 let mut cs_write = cs.write().await;
                 let notification = format!(
                     "[超时] 子 agent 任务在 {} 秒内未完成，已自动终止所有子 session。",
-                    DEFAULT_YIELD_TIMEOUT_SECS
+                    timeout_secs
                 );
                 cs_write.inject_system_message(notification);
             }

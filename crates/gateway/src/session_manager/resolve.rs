@@ -78,6 +78,9 @@ impl SessionManager {
                                 );
                                 let mut registry = self.key_registry.write().await;
                                 registry.remove(&routing_key);
+                                // Clean up sessions map and conversation_sessions map
+                                // to prevent stale entries from lingering.
+                                self.remove_session(&session_id).await;
                                 // Fall through to Path 3
                             } else {
                                 self.update_checkpoint_thread_id(&session_id, &message.thread_id)

@@ -326,6 +326,15 @@ impl SessionManager {
         // First drain announce events and inject them as system messages.
         self.drain_and_inject_announces(session_id).await;
 
+        // Get gateway reference for outbound sends.
+        let gw = self.get_gateway_ref().await;
+
+        // Resolve channel from session for outbound dispatch.
+        let channel = {
+            let sessions = self.sessions.read().await;
+            sessions.get(session_id).map(|s| s.channel.clone())
+        };
+
         // Then process queued pending messages (user messages).
         loop {
             let Some(pending) = self.pop_pending_message(session_id).await else {
@@ -346,10 +355,31 @@ impl SessionManager {
                     cs_write.set_llm_busy(false);
                     cs_write.set_llm_state(closeclaw_llm::session_state::LlmState::Idle);
                 }
-                // Append response to session history.
+                // Append response to session history and send to user.
                 if let Ok(response) = result {
-                    let mut cs_write = cs.write().await;
-                    cs_write.append_response(response);
+                    let text = response
+                        .content_blocks
+                        .iter()
+                        .filter_map(|b| match b {
+                            closeclaw_llm::types::ContentBlock::Text(t) => Some(t.as_str()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join("");
+                    {
+                        let mut cs_write = cs.write().await;
+                        cs_write.append_response(response);
+                    }
+                    // Send response to user via Gateway outbound pipeline.
+                    if let (Some(ref gw), Some(ref ch)) = (&gw, &channel) {
+                        if let Err(e) = gw.send_outbound(session_id, ch, &text, vec![]).await {
+                            warn!(
+                                session_id = %session_id,
+                                error = %e,
+                                "drain_pending_for_session: failed to send response to user"
+                            );
+                        }
+                    }
                 }
             }
         }
