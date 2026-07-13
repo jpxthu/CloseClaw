@@ -342,15 +342,7 @@ impl Tool for SessionsSpawnTool {
             Some(tpl) => format!("{}\n\n{}", tpl.prefix(), spawn_args.task),
             None => spawn_args.task.clone(),
         };
-        // Apply template default tool whitelist when no explicit allowedTools
-        let effective_allowed_tools = match (&spawn_args.allowed_tools, &spawn_args.prompt_template)
-        {
-            (Some(tools), _) => Some(tools.clone()),
-            (None, Some(tpl)) => tpl
-                .default_allowed_tools()
-                .map(|t| t.into_iter().map(String::from).collect()),
-            (None, None) => None,
-        };
+
         let child_session_id = self
             .create_child(
                 &config,
@@ -361,7 +353,7 @@ impl Tool for SessionsSpawnTool {
                 spawn_args.workspace.as_deref(),
                 spawn_args.mode,
                 spawn_args.fork,
-                effective_allowed_tools,
+                spawn_args.allowed_tools.clone(),
                 spawn_args.model.as_deref(),
                 parent_subagents_model.as_deref(),
                 effective_max_spawn_depth,
