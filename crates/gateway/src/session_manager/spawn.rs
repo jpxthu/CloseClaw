@@ -221,13 +221,18 @@ impl SessionManager {
         }
 
         // Persist checkpoint.
+        let mode_str = match &mode {
+            SpawnMode::Run => "run".to_string(),
+            SpawnMode::Session => "session".to_string(),
+        };
         let mut cp = SessionCheckpoint::new(child_session_id.clone())
             .with_status(SessionStatus::Active)
             .with_platform("spawn".to_string())
             .with_agent_id(config.id.clone())
             .with_parent_session_id(parent_session_id.to_string())
             .with_depth(depth)
-            .with_effective_max_spawn_depth(Some(max_spawn_depth));
+            .with_effective_max_spawn_depth(Some(max_spawn_depth))
+            .with_spawn_mode(mode_str);
         if let Some(label) = label {
             cp = cp.with_label(label.to_string());
         }
