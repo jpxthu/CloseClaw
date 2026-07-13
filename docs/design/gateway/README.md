@@ -87,7 +87,7 @@ Gateway 收到入站 webhook 后，消息先进入入站消息队列（有界缓
 
 - **非文本消息处理**：若消息的 message_type 非 text（image/file/audio），Gateway 直接构造"暂不支持该消息类型"的错误回复（ContentBlock[]），经简化出站路径发送（错误回复为纯文本不含 DSL 指令且无需按 Session 过滤，跳过 Verbosity/DslParser/中间件），经出站日志记录后由 IM Adapter 渲染发送。流程到此结束。
 
-- **Session 解析**：Gateway 从 metadata 取出 session_key。若 session_key 为空（SessionRouter 计算失败），Gateway 回复"会话路由失败，请重试"。非空时 Gateway 将 session_key 和消息路由信息（platform, sender_id, peer_id, account_id）传给 SessionManager，由 SessionManager 内部提取稳定路由键进行 session 查找/创建。
+- **Session 解析**：Gateway 从 metadata 取出 session_key。若 session_key 为空（SessionRouter 计算失败），Gateway 记录 warning 日志，仍通过消息路由字段（platform, sender_id, peer_id, account_id）传给 SessionManager 正常完成 session 查找/创建（详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md)）。session_key 非空时连同路由信息一并传递。
 
 - **路由决策**：获得 session_id 后按消息内容路由：
   - **`/` 开头 → 斜杠指令**：先拦截 `/approve`、`/deny`（owner 专用，经 Permission 模块审批流程验证，异步等待 owner 决策），其余分派给 SlashDispatcher。Gateway 将 session_id 传给 SlashDispatcher 作为执行上下文（权限校验依赖）。消息不进入 LLM，不追加到对话历史。
