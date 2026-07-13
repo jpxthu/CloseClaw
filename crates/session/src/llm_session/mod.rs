@@ -131,6 +131,11 @@ pub struct ConversationSession {
     pub cancel_token: CancellationToken,
     /// `stop()` idempotency flag. See [`super::session_handles`].
     pub stopped: Arc<AtomicBool>,
+    /// Active-yield flag. When `true`, the session is in主动 Waiting
+    /// state (entered via `sessions_yield`). User messages are queued
+    /// until the session resumes. Passive Waiting (spawn without yield)
+    /// does not set this flag.
+    is_yielding: Arc<AtomicBool>,
     /// Communication configuration for spawned child sessions.
     /// When set, restricts which agents the child may communicate with.
     communication_config: Option<CommunicationConfig>,
@@ -208,6 +213,7 @@ impl ConversationSession {
             child_handles: Arc::new(RwLock::new(HashMap::new())),
             cancel_token: CancellationToken::new(),
             stopped: Arc::new(AtomicBool::new(false)),
+            is_yielding: Arc::new(AtomicBool::new(false)),
             communication_config: None,
             bootstrap_mode: crate::bootstrap::loader::BootstrapMode::Full,
             memory_injection: Arc::new(Mutex::new(None)),
@@ -861,6 +867,37 @@ impl ConversationSession {
     }
 }
 
+/// Active-yield (Waiting state) methods.
+///
+/// Provides the runtime basis for `sessions_yield` (Step 1.5).
+impl ConversationSession {
+    /// Enter active Waiting state (set yielding flag).
+    pub fn enter_waiting(&self) {
+        self.is_yielding.store(true, Ordering::SeqCst);
+        tracing::debug!(session_id = %self.session_id, "entered active Waiting");
+    }
+
+    /// Exit active Waiting state and resume normal processing.
+    pub fn exit_waiting(&self) {
+        self.is_yielding.store(false, Ordering::SeqCst);
+        tracing::debug!(session_id = %self.session_id, "exited active Waiting");
+    }
+
+    /// Returns `true` if the session is in active Waiting (yielding).
+    pub fn is_waiting(&self) -> bool {
+        self.is_yielding.load(Ordering::SeqCst)
+    }
+
+    /// Returns `true` if any child session is still running.
+    pub fn has_active_children(&self) -> bool {
+        let states = self
+            .child_states
+            .read()
+            .expect("child_states lock poisoned");
+        states.values().any(|s| *s == ChildSessionState::Running)
+    }
+}
+
 impl std::fmt::Debug for ConversationSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConversationSession")
@@ -914,6 +951,7 @@ impl std::fmt::Debug for ConversationSession {
             )
             .field("cancel_token", &"<CancelToken>")
             .field("stopped", &self.stopped.load(Ordering::SeqCst))
+            .field("is_yielding", &self.is_yielding.load(Ordering::SeqCst))
             .field("communication_config", &self.communication_config)
             .field("bootstrap_mode", &self.bootstrap_mode)
             .field("verbosity_level", &self.verbosity_level)
