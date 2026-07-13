@@ -137,7 +137,7 @@ impl ConversationSession {
     /// Computes the overall session execution status by combining the
     /// three dimensions. Lock acquisition order is **always**
     /// LLM → Tool → Child to avoid potential deadlocks.
-    pub(crate) fn exec_status(&self) -> SessionExecStatus {
+    pub fn exec_status(&self) -> SessionExecStatus {
         // 1. LLM dimension.
         let llm = self.llm_state.read().expect("llm_state lock poisoned");
         if matches!(*llm, LlmState::Requesting | LlmState::Receiving) {

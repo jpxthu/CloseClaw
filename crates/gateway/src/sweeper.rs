@@ -279,6 +279,29 @@ impl ArchiveSweeper {
         {
             for sid in idle_ids {
                 let sid_err = sid.clone();
+
+                // Skip archiving if the session has pending operations
+                // (design doc §Sweeper 机制: "pending_operations 为空").
+                match storage.load_checkpoint(&sid).await {
+                    Ok(Some(checkpoint)) if !checkpoint.pending_operations.is_empty() => {
+                        warn!(
+                            session_id = %sid_err,
+                            pending_count = checkpoint.pending_operations.len(),
+                            "skipping archive: session has pending operations"
+                        );
+                        continue;
+                    }
+                    Ok(_) => { /* pending_operations empty, proceed */ }
+                    Err(e) => {
+                        error!(
+                            session_id = %sid_err,
+                            %e,
+                            "failed to load checkpoint for pending_operations check, skipping"
+                        );
+                        continue;
+                    }
+                }
+
                 if let Err(e) =
                     Self::cascade_archive_impl(Arc::clone(&storage), sid.clone(), session_manager)
                         .await

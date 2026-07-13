@@ -60,7 +60,7 @@ impl closeclaw_agent::AgentRegistryQuery for MockAgentRegistryQuery {}
 /// Build a `ResolvedAgentConfig` for tests. Identical to the one in
 /// `spawn_tests` / `announce_tests` — kept local to avoid a
 /// cross-test-module import path.
-pub(super) fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> ResolvedAgentConfig {
+pub(crate) fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> ResolvedAgentConfig {
     ResolvedAgentConfig {
         id: id.to_string(),
         name: id.to_string(),
@@ -99,7 +99,7 @@ pub(super) fn make_response(blocks: Vec<ContentBlock>) -> UnifiedResponse {
 /// to a child session's `ConversationSession`. Used to simulate
 /// `append_response` after a child turn completes.
 #[allow(dead_code)]
-pub(super) async fn append_assistant_to_child(
+pub(crate) async fn append_assistant_to_child(
     mgr: &SessionManager,
     child_id: &str,
     blocks: Vec<ContentBlock>,
@@ -118,7 +118,7 @@ pub(super) async fn append_assistant_to_child(
 ///
 /// This mirrors the real flow in `find_or_create` but is direct, so
 /// tests don't depend on message routing logic.
-pub(super) async fn setup_parent_with_conv(mgr: &SessionManager, parent_id: &str) -> String {
+pub(crate) async fn setup_parent_with_conv(mgr: &SessionManager, parent_id: &str) -> String {
     use crate::Session;
     use std::sync::Arc;
     use tokio::sync::RwLock;

@@ -32,6 +32,8 @@ pub enum ComponentId {
     ToolsRegistry,
     /// Background idle session archiver.
     ArchiveSweeper,
+    /// Background announce delivery sweeper for spawn silent-failure protection.
+    AnnounceSweeper,
     /// Background skill file watcher.
     SkillWatcher,
     /// Background config file hot-reload watcher.
@@ -68,6 +70,7 @@ impl ComponentId {
             Self::PermissionEngine => "PermissionEngine",
             Self::ToolsRegistry => "ToolsRegistry",
             Self::ArchiveSweeper => "ArchiveSweeper",
+            Self::AnnounceSweeper => "AnnounceSweeper",
             Self::SkillWatcher => "SkillWatcher",
             Self::ConfigHotReload => "ConfigHotReload",
             Self::DreamingScheduler => "DreamingScheduler",
@@ -117,6 +120,7 @@ impl ComponentDeps for ComponentId {
             PermissionEngine => &[AgentRegistry],
             ToolsRegistry => &[SkillsRegistry],
             ArchiveSweeper => &[Storage, SessionConfigProvider],
+            AnnounceSweeper => &[Storage, SessionConfigProvider],
             SkillWatcher => &[SkillsRegistry],
             ConfigHotReload => &[ConfigManager],
             DreamingScheduler => &[Storage, SessionConfigProvider],
@@ -147,6 +151,7 @@ pub fn all_component_entries() -> Vec<ComponentEntry> {
         PermissionEngine,
         ToolsRegistry,
         ArchiveSweeper,
+        AnnounceSweeper,
         SkillWatcher,
         ConfigHotReload,
         DreamingScheduler,
@@ -311,6 +316,7 @@ impl StartupPhase {
             ],
             Self::CoreServices => &[
                 ArchiveSweeper,
+                AnnounceSweeper,
                 DreamingScheduler,
                 IMAdapters,
                 PermissionEngine,

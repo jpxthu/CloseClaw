@@ -84,6 +84,8 @@ pub struct Daemon {
     pub storage: Arc<SqliteStorage>,
     /// Shutdown sender for ArchiveSweeper
     pub sweeper_shutdown_tx: watch::Sender<()>,
+    /// Shutdown sender for AnnounceSweeper
+    pub announce_shutdown_tx: watch::Sender<()>,
     /// Shutdown sender for DreamingScheduler
     pub dreaming_scheduler_shutdown_tx: watch::Sender<()>,
     /// Shutdown sender for PlanArchiveTask
@@ -436,6 +438,7 @@ impl Daemon {
         watch::Sender<()>,
         watch::Sender<()>,
         watch::Sender<()>,
+        watch::Sender<()>,
         Option<config_watcher::ConfigWatcherHandle>,
     )> {
         let Phase5Deps {
@@ -449,6 +452,7 @@ impl Daemon {
             gateway,
         } = deps;
         let (sweeper_tx, sweeper_rx) = watch::channel(());
+        let (announce_sweeper_tx, announce_sweeper_rx) = watch::channel(());
         let (dreaming_tx, dreaming_rx) = watch::channel(());
         let (plan_archive_tx, plan_archive_rx) = watch::channel(());
         Self::spawn_background_services(
@@ -456,6 +460,7 @@ impl Daemon {
             session_manager,
             data_dir,
             sweeper_rx,
+            announce_sweeper_rx,
             dreaming_rx,
             plan_archive_rx,
         );
@@ -498,7 +503,13 @@ impl Daemon {
                 invalidate_all_sections();
             }))
             .await;
-        Ok((sweeper_tx, dreaming_tx, plan_archive_tx, config_watcher))
+        Ok((
+            sweeper_tx,
+            announce_sweeper_tx,
+            dreaming_tx,
+            plan_archive_tx,
+            config_watcher,
+        ))
     }
 
     /// Spawn ArchiveSweeper, DreamingScheduler, and PlanArchiveTask.
@@ -507,6 +518,7 @@ impl Daemon {
         session_manager: &Arc<SessionManager>,
         data_dir: &std::path::Path,
         sweeper_rx: watch::Receiver<()>,
+        announce_sweeper_rx: watch::Receiver<()>,
         dreaming_rx: watch::Receiver<()>,
         plan_archive_rx: watch::Receiver<()>,
     ) {
@@ -535,6 +547,13 @@ impl Daemon {
             sweeper_for_task.run(sweeper_rx).await;
         });
         info!("ArchiveSweeper spawned");
+        // Spawn AnnounceSweeper for spawn silent-failure protection.
+        let announce_sweeper =
+            closeclaw_gateway::announce_sweeper::AnnounceSweeper::new(Arc::clone(session_manager));
+        tokio::spawn(async move {
+            announce_sweeper.run(announce_sweeper_rx).await;
+        });
+        info!("AnnounceSweeper spawned");
         // Spawn periodic consistency check (low-priority, non-blocking).
         {
             let check_interval_secs = config_manager

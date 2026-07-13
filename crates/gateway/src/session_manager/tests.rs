@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 
 /// Clear section cache. No-op: the global SECTION_CACHE was removed during
 /// Step 1.5 refactor. Kept for call-site compatibility.
-pub(super) fn clear_global_prompt_state() {}
+pub(crate) fn clear_global_prompt_state() {}
 
 /// Mock SystemPromptBuilder that reads bootstrap files from a workspace directory.
 /// Used by tests that need to verify workspace file injection into system prompts.
@@ -141,7 +141,7 @@ fn make_temp_workspace(files: &[(&str, &str)]) -> TempDir {
 }
 
 /// Shorthand for `SessionManager::new` with test defaults (Full mode, no storage).
-pub(super) fn make_test_mgr(workspace: Option<&std::path::Path>) -> SessionManager {
+pub(crate) fn make_test_mgr(workspace: Option<&std::path::Path>) -> SessionManager {
     SessionManager::new(
         &test_config(),
         None,

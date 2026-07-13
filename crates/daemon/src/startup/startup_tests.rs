@@ -12,8 +12,8 @@ fn test_all_component_entries_count() {
     let entries = all_component_entries();
     assert_eq!(
         entries.len(),
-        19,
-        "expected 19 components (17 original + SpawnController + AdminRpcServer)"
+        20,
+        "expected 20 components (18 original + SpawnController + AdminRpcServer + AnnounceSweeper)"
     );
 }
 
@@ -43,6 +43,10 @@ fn test_all_component_entries_deps_match_design_doc() {
     assert_eq!(dep_map[&ToolsRegistry], vec![SkillsRegistry]);
     assert_eq!(
         dep_map[&ArchiveSweeper],
+        vec![Storage, SessionConfigProvider]
+    );
+    assert_eq!(
+        dep_map[&AnnounceSweeper],
         vec![Storage, SessionConfigProvider]
     );
     assert_eq!(dep_map[&SkillWatcher], vec![SkillsRegistry]);
@@ -101,12 +105,13 @@ fn test_topo_sort_six_layers_match_design_doc() {
         "Layer 2 mismatch"
     );
 
-    // Layer 3: ArchiveSweeper, DreamingScheduler, IMAdapters,
+    // Layer 3: ArchiveSweeper, AnnounceSweeper, DreamingScheduler, IMAdapters,
     //          PermissionEngine, SkillWatcher, SpawnController,
     //          SystemPromptBuilder, ToolsRegistry
     assert_eq!(
         layers[2],
         vec![
+            AnnounceSweeper,
             ArchiveSweeper,
             DreamingScheduler,
             IMAdapters,
@@ -377,6 +382,7 @@ fn test_validate_layers_catches_wrong_spawn_controller_layer() {
             SkillsRegistry,
         ],
         vec![
+            AnnounceSweeper,
             ArchiveSweeper,
             DreamingScheduler,
             IMAdapters,
@@ -410,6 +416,7 @@ fn test_validate_layers_catches_wrong_admin_rpc_server_layer() {
             SkillsRegistry,
         ],
         vec![
+            AnnounceSweeper,
             ArchiveSweeper,
             DreamingScheduler,
             IMAdapters,
