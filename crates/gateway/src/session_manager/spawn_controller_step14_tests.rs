@@ -11,6 +11,7 @@
 
 use std::sync::Arc;
 
+use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
@@ -48,8 +49,13 @@ fn make_config_manager() -> ConfigManager {
     ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed")
 }
 
-fn make_controller(cm: &Arc<ConfigManager>, sm: &Arc<SessionManager>) -> SpawnController {
+fn make_controller(
+    ar: &Arc<AgentRegistry>,
+    cm: &Arc<ConfigManager>,
+    sm: &Arc<SessionManager>,
+) -> SpawnController {
     SpawnController::new(
+        Arc::clone(ar),
         cm.clone(),
         sm.clone(),
         Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
@@ -90,11 +96,14 @@ async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
         .expect("find_or_create should succeed")
 }
 
-fn inject_agents(cm: &ConfigManager, agents: Vec<(&str, ResolvedAgentConfig)>) {
+fn inject_agents(ar: &AgentRegistry, cm: &ConfigManager, agents: Vec<(&str, ResolvedAgentConfig)>) {
     let mut map = cm.agents.write().expect("agents RwLock poisoned");
+    let mut configs = Vec::new();
     for (id, cfg) in agents {
-        map.insert(id.to_string(), cfg);
+        map.insert(id.to_string(), cfg.clone());
+        configs.push(cfg);
     }
+    ar.populate(configs);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -106,16 +115,17 @@ fn inject_agents(cm: &ConfigManager, agents: Vec<(&str, ResolvedAgentConfig)>) {
 /// (default_child_agent is deprecated and ignored.)
 #[tokio::test]
 async fn test_validate_agent_id_fallback_to_parent() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     let mut sub = SubagentsConfig::default();
     sub.max_spawn_depth = Some(2);
     sub.require_agent_id = Some(false);
     sub.default_child_agent = None;
     let parent = make_agent("parent", sub);
-    inject_agents(&cm, vec![("parent", parent)]);
+    inject_agents(&ar, &cm, vec![("parent", parent)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -133,9 +143,10 @@ async fn test_validate_agent_id_fallback_to_parent() {
 /// (default_child_agent is deprecated and ignored.)
 #[tokio::test]
 async fn test_validate_agent_id_fallback_rejected_by_whitelist() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     let mut sub = SubagentsConfig::default();
     sub.max_spawn_depth = Some(2);
@@ -143,7 +154,7 @@ async fn test_validate_agent_id_fallback_rejected_by_whitelist() {
     sub.default_child_agent = None;
     sub.allow_agents = vec!["allowed-agent".to_string()];
     let parent = make_agent("parent", sub);
-    inject_agents(&cm, vec![("parent", parent)]);
+    inject_agents(&ar, &cm, vec![("parent", parent)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -164,16 +175,21 @@ async fn test_validate_agent_id_fallback_rejected_by_whitelist() {
 /// the explicit target is used directly.
 #[tokio::test]
 async fn test_validate_explicit_agent_id_no_fallback() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(2);
     parent_sub.default_child_agent = Some("should-not-resolve".to_string());
     let parent = make_agent("parent", parent_sub);
     let child = make_agent("explicit-child", SubagentsConfig::default());
-    inject_agents(&cm, vec![("parent", parent), ("explicit-child", child)]);
+    inject_agents(
+        &ar,
+        &cm,
+        vec![("parent", parent), ("explicit-child", child)],
+    );
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -190,9 +206,10 @@ async fn test_validate_explicit_agent_id_no_fallback() {
 /// default_child_agent is deprecated and ignored per design doc §④.
 #[tokio::test]
 async fn test_validate_default_child_agent_ignored_falls_back_to_parent() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     let mut sub = SubagentsConfig::default();
     sub.max_spawn_depth = Some(2);
@@ -200,7 +217,11 @@ async fn test_validate_default_child_agent_ignored_falls_back_to_parent() {
     sub.allow_agents = vec!["*".to_string()];
     let parent = make_agent("parent", sub);
     let default_child = make_agent("my-default", SubagentsConfig::default());
-    inject_agents(&cm, vec![("parent", parent), ("my-default", default_child)]);
+    inject_agents(
+        &ar,
+        &cm,
+        vec![("parent", parent), ("my-default", default_child)],
+    );
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -222,9 +243,10 @@ async fn test_validate_default_child_agent_ignored_falls_back_to_parent() {
 /// must include spawn_timeout=Some(60).
 #[tokio::test]
 async fn test_validate_spawn_timeout_configured() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     let mut sub = SubagentsConfig::default();
     sub.max_spawn_depth = Some(2);
@@ -232,7 +254,7 @@ async fn test_validate_spawn_timeout_configured() {
     let mut child_sub = SubagentsConfig::default();
     child_sub.timeout = Some(60);
     let child = make_agent("child", child_sub);
-    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -247,15 +269,16 @@ async fn test_validate_spawn_timeout_configured() {
 /// Parent config has no subagents.timeout → spawn_timeout must be None.
 #[tokio::test]
 async fn test_validate_spawn_timeout_not_configured() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     let mut sub = SubagentsConfig::default();
     sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
-    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -272,9 +295,10 @@ async fn test_validate_spawn_timeout_not_configured() {
 /// to treat it as immediate timeout or reject it at runtime.
 #[tokio::test]
 async fn test_validate_spawn_timeout_zero_passthrough() {
+    let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = make_controller(&cm, &sm);
+    let controller = make_controller(&ar, &cm, &sm);
 
     let mut sub = SubagentsConfig::default();
     sub.max_spawn_depth = Some(2);
@@ -282,7 +306,7 @@ async fn test_validate_spawn_timeout_zero_passthrough() {
     let mut child_sub = SubagentsConfig::default();
     child_sub.timeout = Some(0);
     let child = make_agent("child", child_sub);
-    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 

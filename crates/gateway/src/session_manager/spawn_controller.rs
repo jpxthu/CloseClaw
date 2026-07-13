@@ -4,6 +4,7 @@
 //! architecture boundary: agent crate is pure configuration, SpawnController
 //! lives in the gateway (Session) crate.
 
+use closeclaw_agent::registry::SharedAgentRegistry;
 use closeclaw_config::agents::{AgentPermissionProvider, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
@@ -48,6 +49,11 @@ pub enum SpawnError {
 
 /// Validates spawn requests and delegates child session creation.
 pub struct SpawnController {
+    /// Agent configuration registry — used for all agent config lookups
+    /// (resolve_parent_depth, read_parent_config, resolve_target_config).
+    agent_registry: SharedAgentRegistry,
+    /// Config manager — retained only for permission queries
+    /// (`agent_permissions()`) which are not served by AgentRegistry.
     config_manager: Arc<ConfigManager>,
     session_manager: Arc<SessionManager>,
     permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
@@ -73,11 +79,13 @@ struct ResolvedTarget {
 
 impl SpawnController {
     pub fn new(
+        agent_registry: SharedAgentRegistry,
         config_manager: Arc<ConfigManager>,
         session_manager: Arc<SessionManager>,
         permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     ) -> Self {
         Self {
+            agent_registry,
             config_manager,
             session_manager,
             permission_engine,
@@ -256,13 +264,11 @@ impl SpawnController {
         parent_session_id: &str,
         parent_agent_id: &str,
     ) -> Result<ResolvedParentDepth, SpawnError> {
-        let parent_max_spawn_depth = {
-            let agents = self.config_manager.agents();
-            agents
-                .get(parent_agent_id)
-                .and_then(|pc| pc.subagents.max_spawn_depth)
-                .unwrap_or(1u32)
-        };
+        let parent_max_spawn_depth = self
+            .agent_registry
+            .get(parent_agent_id)
+            .and_then(|pc| pc.subagents.max_spawn_depth)
+            .unwrap_or(1u32);
 
         let parent_effective_budget = self
             .session_manager
@@ -286,26 +292,24 @@ impl SpawnController {
         &self,
         parent_agent_id: &str,
     ) -> Result<ParentSpawnConfig, SpawnError> {
-        let agents = self.config_manager.agents();
-
-        Ok(match agents.get(parent_agent_id) {
+        match self.agent_registry.get(parent_agent_id) {
             Some(pc) => {
                 let sc = &pc.subagents;
-                ParentSpawnConfig {
+                Ok(ParentSpawnConfig {
                     max_children: sc.max_children.unwrap_or(5),
                     allow_agents: sc.allow_agents.clone(),
                     require_agent_id: sc.require_agent_id.unwrap_or(false),
-                }
+                })
             }
-            None => ParentSpawnConfig {
+            None => Ok(ParentSpawnConfig {
                 max_children: 5u32,
                 allow_agents: vec!["*".to_string()],
                 require_agent_id: false,
-            },
-        })
+            }),
+        }
     }
 
-    /// Resolve the target agent configuration under a single lock block.
+    /// Resolve the target agent configuration.
     /// Handles the agentId fallback chain (design doc §Spawn 控制流程 ④):
     ///   1. Explicit `target_agent_id` (caller-provided)
     ///   2. Parent agent ID itself (spawn self-copy)
@@ -317,18 +321,15 @@ impl SpawnController {
         parent_agent_id: &str,
         target_agent_id: Option<&str>,
     ) -> Result<ResolvedTarget, SpawnError> {
-        let (target_id, target_config) = {
-            let agents = self.config_manager.agents();
+        // Fallback chain: explicit → parent agent ID
+        let target_id = target_agent_id
+            .map(|s| s.to_string())
+            .or_else(|| Some(parent_agent_id.to_string()));
 
-            // Fallback chain: explicit → parent agent ID
-            let target_id = target_agent_id
-                .map(|s| s.to_string())
-                .or_else(|| Some(parent_agent_id.to_string()));
-
-            let target_config = target_id.as_ref().and_then(|id| agents.get(id).cloned());
-
-            (target_id, target_config)
-        };
+        let target_config = target_id
+            .as_ref()
+            .and_then(|id| self.agent_registry.get(id))
+            .map(|cfg| cfg.clone());
 
         Ok(ResolvedTarget {
             target_id,
