@@ -131,6 +131,7 @@ impl Daemon {
                 SkillsRegistry,
             ],
             vec![
+                AnnounceSweeper,
                 ArchiveSweeper,
                 DreamingScheduler,
                 IMAdapters,
