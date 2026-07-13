@@ -408,6 +408,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/session/README.md",
+    "commit": "6fba51403eb99f946c6efec75230202025e6cb77",
+    "commit_time": "2026-07-14T04:56:30+08:00",
+    "confirmed_time": "2026-07-14T05:03:39.437502+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/session/compact-process.md",
     "commit": "a8436e4a307f8c5d90ef8143961b92536c71cdbd",
     "commit_time": "2026-07-13T00:15:02+08:00",
