@@ -59,6 +59,7 @@ mod tests {
             transcript: Vec::new(),
             label: None,
             communication_config: None,
+            spawn_mode: None,
         }
     }
 

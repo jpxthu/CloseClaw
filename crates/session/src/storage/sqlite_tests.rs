@@ -51,6 +51,7 @@ mod tests {
             transcript: Vec::new(),
             label: None,
             communication_config: None,
+            spawn_mode: None,
         }
     }
 
@@ -427,6 +428,7 @@ mod tests {
             transcript: Vec::new(),
             label: None,
             communication_config: None,
+            spawn_mode: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -485,6 +487,7 @@ mod tests {
             transcript: Vec::new(),
             label: None,
             communication_config: None,
+            spawn_mode: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -543,6 +546,7 @@ mod tests {
             transcript: Vec::new(),
             label: None,
             communication_config: None,
+            spawn_mode: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
