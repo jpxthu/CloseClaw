@@ -442,6 +442,10 @@ impl SessionManager {
                 orphan_ids.push(session_id.clone());
                 continue;
             }
+            let mode = match cp.spawn_mode.as_deref() {
+                Some("run") => SpawnMode::Run,
+                _ => SpawnMode::Session,
+            };
             self.register_child(
                 parent_id,
                 ChildSessionInfo {
@@ -449,7 +453,7 @@ impl SessionManager {
                     parent_session_id: parent_id.to_string(),
                     agent_id: cp.agent_id.unwrap_or_default(),
                     depth: cp.depth,
-                    mode: SpawnMode::Session,
+                    mode,
                 },
             )
             .await;
