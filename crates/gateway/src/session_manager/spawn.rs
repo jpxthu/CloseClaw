@@ -29,9 +29,9 @@ impl SessionManager {
 
     /// Get the effective max spawn depth budget for a session.
     pub async fn get_effective_max_spawn_depth(&self, session_id: &str) -> Option<u32> {
-        let storage = self.storage.read().await;
-        let storage = storage.as_ref()?;
-        match storage.load_checkpoint(session_id).await {
+        let cm = self.checkpoint_manager.read().await;
+        let cm = cm.as_ref()?;
+        match cm.load(session_id).await {
             Ok(Some(cp)) => cp.effective_max_spawn_depth,
             _ => None,
         }
@@ -239,8 +239,8 @@ impl SessionManager {
         // Persist communication config so routing restrictions survive restart.
         // Use the config from creation (single source of truth, avoids drift).
         cp = cp.with_communication_config(created.communication_config);
-        if let Some(storage) = self.storage.read().await.as_ref() {
-            if let Err(e) = storage.save_checkpoint(&cp).await {
+        if let Some(cm) = self.checkpoint_manager.read().await.as_ref() {
+            if let Err(e) = cm.save_raw(&cp).await {
                 warn!(
                     session_id = %child_session_id,
                     error = %e,
@@ -393,17 +393,17 @@ impl SessionManager {
 
     /// Rebuild the spawn tree (children table) from persisted checkpoints.
     pub async fn rebuild_spawn_tree(&self) -> Result<(), PersistenceError> {
-        let storage_arc = {
-            let guard = self.storage.read().await;
+        let cm_arc = {
+            let guard = self.checkpoint_manager.read().await;
             match guard.as_ref() {
-                Some(s) => std::sync::Arc::clone(s),
+                Some(cm) => std::sync::Arc::clone(cm),
                 None => return Ok(()),
             }
         };
 
         let mut all_ids: Vec<String> = {
-            let active = storage_arc.list_active_sessions().await?;
-            let archived = storage_arc.list_archived_sessions().await?;
+            let active = cm_arc.storage().list_active_sessions().await?;
+            let archived = cm_arc.storage().list_archived_sessions().await?;
             let mut ids = active;
             ids.extend(archived);
             ids
@@ -416,7 +416,7 @@ impl SessionManager {
         let mut orphan_ids: Vec<String> = Vec::new();
 
         for session_id in &all_ids {
-            let cp = match storage_arc.load_checkpoint(session_id).await {
+            let cp = match cm_arc.load(session_id).await {
                 Ok(Some(cp)) => cp,
                 Ok(None) => {
                     warn!(

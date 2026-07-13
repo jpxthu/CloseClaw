@@ -45,6 +45,14 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
         &self.storage
     }
 
+    /// Get an `Arc` reference to the underlying storage.
+    ///
+    /// Useful when callers need `Arc<dyn PersistenceService>` for
+    /// helper functions that require an owned reference.
+    pub fn storage_arc(&self) -> &Arc<S> {
+        &self.storage
+    }
+
     /// 保存 Checkpoint（异步写入，不阻塞主流程）
     pub async fn save(&self, mut checkpoint: SessionCheckpoint) -> Result<(), PersistenceError> {
         let session_id = checkpoint.session_id.clone();
@@ -134,6 +142,23 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
 
         // 删除存储中的数据
         self.storage.delete_checkpoint(session_id).await
+    }
+
+    /// 保存 Checkpoint（同步写入，不注入 identity，保留原始行为）
+    ///
+    /// Unlike [`save`](Self::save) and [`save_sync`](Self::save_sync),
+    /// this method does **not** inject `agent_id` / `role` identity into
+    /// the checkpoint — it writes the checkpoint as-is.
+    /// The local cache is updated.
+    pub async fn save_raw(&self, checkpoint: &SessionCheckpoint) -> Result<(), PersistenceError> {
+        let session_id = checkpoint.session_id.clone();
+        // Update local cache
+        {
+            let mut cache = self.local_cache.write().await;
+            cache.insert(session_id, checkpoint.clone());
+        }
+        // Synchronous write to storage
+        self.storage.save_checkpoint(checkpoint).await
     }
 
     /// 清空本地缓存

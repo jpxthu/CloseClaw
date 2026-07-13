@@ -7,7 +7,6 @@ use super::SessionManager;
 use closeclaw_session::persistence::PersistenceError;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::sync::Arc;
 use tracing::warn;
 
 impl SessionManager {
@@ -23,10 +22,10 @@ impl SessionManager {
     /// When multiple sessions share the same reconstructed key, the one with
     /// the latest `created_at` is kept.
     pub async fn rebuild_key_registry(&self) -> Result<(), PersistenceError> {
-        let storage_arc = {
-            let guard = self.storage.read().await;
+        let cm_arc = {
+            let guard = self.checkpoint_manager.read().await;
             match guard.as_ref() {
-                Some(s) => Arc::clone(s),
+                Some(cm) => std::sync::Arc::clone(cm),
                 None => {
                     // No storage configured — nothing to rebuild.
                     return Ok(());
@@ -37,14 +36,14 @@ impl SessionManager {
         // Collect session_ids from active sessions only.
         // Archived sessions are not loaded into the registry; they will be
         // restored on-demand via the SQLite fallback path in `resolve()`.
-        let all_session_ids = storage_arc.list_active_sessions().await?;
+        let all_session_ids = cm_arc.storage().list_active_sessions().await?;
 
         // Accumulate: reconstructed key → (created_at, session_id)
         // Keep only the latest created_at per key.
         let mut key_best: HashMap<String, (chrono::DateTime<chrono::Utc>, String)> = HashMap::new();
 
         for session_id in &all_session_ids {
-            let cp = match storage_arc.load_checkpoint(session_id).await {
+            let cp = match cm_arc.load(session_id).await {
                 Ok(Some(cp)) => cp,
                 Ok(None) => {
                     warn!(

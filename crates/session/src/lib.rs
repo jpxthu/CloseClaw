@@ -8,6 +8,8 @@ pub mod active_searcher;
 pub mod background;
 pub mod bootstrap;
 pub mod checkpoint_manager;
+#[cfg(test)]
+mod checkpoint_manager_tests;
 pub mod compaction;
 pub mod events;
 pub mod llm_session;

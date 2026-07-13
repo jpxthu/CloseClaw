@@ -16,7 +16,6 @@ use tracing::{error, info, warn};
 /// before forcibly aborting it on shutdown.
 pub(crate) const SWEEPER_GRACE_PERIOD_SECS: u64 = 5;
 
-use crate::session_manager::SessionManager;
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_session::persistence::{AgentRole, PersistenceError, PersistenceService};
 
@@ -34,9 +33,6 @@ pub enum ArchiveSweeperError {
 pub struct ArchiveSweeper {
     storage: Arc<dyn PersistenceService>,
     config: Arc<dyn SessionConfigProvider>,
-    /// Optional runtime session manager for cleaning up child sessions
-    /// when archiving a parent (design doc §生命周期联动).
-    session_manager: Option<Arc<SessionManager>>,
     /// Channel sender for notifying the DreamingScheduler about archived
     /// sessions, enabling immediate mining (design doc §即时 hook).
     mining_notify_tx: Option<mpsc::Sender<String>>,
@@ -51,16 +47,8 @@ impl ArchiveSweeper {
         Self {
             storage,
             config,
-            session_manager: None,
             mining_notify_tx: None,
         }
-    }
-
-    /// Attach a runtime [`SessionManager`] so the sweeper can
-    /// cascade-terminate children when archiving a parent session.
-    pub fn with_session_manager(mut self, sm: Arc<SessionManager>) -> Self {
-        self.session_manager = Some(sm);
-        self
     }
 
     /// Attach a mining notify channel sender.  When a session is
@@ -100,7 +88,6 @@ impl ArchiveSweeper {
                     let sweeper = Self {
                         storage: Arc::clone(&self.storage),
                         config: Arc::clone(&self.config),
-                        session_manager: self.session_manager.clone(),
                         mining_notify_tx: self.mining_notify_tx.clone(),
                     };
                     let task = tokio::task::spawn(async move {
@@ -198,7 +185,6 @@ impl ArchiveSweeper {
         // so panics propagate into catch_unwind.
         let storage = Arc::clone(&self.storage);
         let config = Arc::clone(&self.config);
-        let session_manager = self.session_manager.clone();
 
         let handle = tokio::task::spawn_blocking(move || {
             let runtime = tokio::runtime::Handle::current();
@@ -206,7 +192,6 @@ impl ArchiveSweeper {
                 runtime.block_on(Self::run_once_inner_impl(
                     Arc::clone(&storage),
                     Arc::clone(&config),
-                    session_manager,
                     notify_tx,
                 ))
             }))
@@ -236,7 +221,6 @@ impl ArchiveSweeper {
     async fn run_once_inner_impl(
         storage: Arc<dyn PersistenceService>,
         config: Arc<dyn SessionConfigProvider>,
-        session_manager: Option<Arc<SessionManager>>,
         notify_tx: Option<mpsc::Sender<String>>,
     ) -> Result<(), ArchiveSweeperError> {
         let agents = config.list_agents();
@@ -251,7 +235,6 @@ impl ArchiveSweeper {
                     config.as_ref(),
                     agent_id,
                     role,
-                    session_manager.as_ref(),
                     notify_tx.as_ref(),
                 )
                 .await;
@@ -267,7 +250,6 @@ impl ArchiveSweeper {
         config: &dyn SessionConfigProvider,
         agent_id: &str,
         role: AgentRole,
-        session_manager: Option<&Arc<SessionManager>>,
         notify_tx: Option<&mpsc::Sender<String>>,
     ) {
         let cfg = config.session_config_for(agent_id, role);
@@ -302,9 +284,7 @@ impl ArchiveSweeper {
                     }
                 }
 
-                if let Err(e) =
-                    Self::cascade_archive_impl(Arc::clone(&storage), sid.clone(), session_manager)
-                        .await
+                if let Err(e) = Self::cascade_archive_impl(Arc::clone(&storage), sid.clone()).await
                 {
                     error!(session_id = %sid_err, %e, "failed to archive idle session");
                 } else if let Some(tx) = notify_tx {
@@ -357,23 +337,15 @@ impl ArchiveSweeper {
     /// Cascade-terminate all descendants of `session_id` (deepest first),
     /// then archive the parent session.
     ///
-    /// When a runtime [`SessionManager`] is available, also cleans up
-    /// child sessions from the runtime tracking tables (design doc
-    /// §生命周期联动: "父 session 超时清理: 级联终止所有子 session").
+    /// Sweeper operates only on the persistence layer. Runtime tracking
+    /// tables are cleaned up lazily by SessionManager on next lookup
+    /// (design doc §Sweeper 机制: passive self-healing).
     pub(crate) async fn cascade_archive_impl(
         storage: Arc<dyn PersistenceService>,
         session_id: String,
-        session_manager: Option<&Arc<SessionManager>>,
     ) -> Result<(), ArchiveSweeperError> {
         // Recursively kill all descendants (deepest → shallowest)
         Self::cascade_kill_children(storage.as_ref(), &session_id).await?;
-
-        // Clean up runtime tracking tables if SessionManager is available.
-        // This terminates active child sessions and removes them from
-        // conversation_sessions / sessions / children tables.
-        if let Some(sm) = session_manager {
-            sm.cascade_kill_all_children(&session_id).await;
-        }
 
         // Now archive the parent session itself
         Self::archive_and_invalidate_impl(Arc::clone(&storage), session_id.clone()).await?;

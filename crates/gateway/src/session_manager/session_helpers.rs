@@ -2,6 +2,7 @@
 //! to keep the main file under the 500-line limit.
 
 use crate::Message;
+use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::{PersistenceService, SessionStatus};
 use closeclaw_session::workspace;
 use std::path::PathBuf;
@@ -25,12 +26,12 @@ pub(super) async fn compute_session_workdir(
     session_id: &str,
     message: &Message,
     workspace_dir: &Option<PathBuf>,
-    storage: &Arc<dyn closeclaw_session::persistence::PersistenceService>,
+    cm: &CheckpointManager<dyn PersistenceService>,
 ) -> Result<PathBuf, closeclaw_common::processor::ProcessError> {
     if restored {
         let checkpoint_agent_id = {
-            match storage
-                .load_checkpoint(session_id)
+            match cm
+                .load(session_id)
                 .await
                 .ok()
                 .flatten()
@@ -83,11 +84,11 @@ pub(super) fn create_new_session(
 /// - storage is not available
 /// - checkpoint does not exist
 pub(super) async fn update_checkpoint_thread_id(
-    storage: &Arc<dyn PersistenceService>,
+    cm: &CheckpointManager<dyn PersistenceService>,
     session_id: &str,
     thread_id: &Option<String>,
 ) {
-    let mut cp = match storage.load_checkpoint(session_id).await {
+    let mut cp = match cm.load(session_id).await {
         Ok(Some(cp)) => cp,
         Ok(None) | Err(_) => {
             warn!(
@@ -98,7 +99,7 @@ pub(super) async fn update_checkpoint_thread_id(
         }
     };
     cp.thread_id = thread_id.clone();
-    if let Err(e) = storage.save_checkpoint(&cp).await {
+    if let Err(e) = cm.save_raw(&cp).await {
         warn!(
             session_id = %session_id,
             error = %e,

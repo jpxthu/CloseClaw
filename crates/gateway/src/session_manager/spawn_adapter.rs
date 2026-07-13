@@ -59,15 +59,15 @@ impl SpawnCreationContext for SessionManager {
         &self,
         session_id: &str,
     ) -> Option<closeclaw_session::persistence::SessionCheckpoint> {
-        let storage = self.storage.read().await;
-        let storage = storage.as_ref()?;
-        storage.load_checkpoint(session_id).await.ok().flatten()
+        let cm = self.checkpoint_manager.read().await;
+        let cm = cm.as_ref()?;
+        cm.load(session_id).await.ok().flatten()
     }
 
     async fn save_checkpoint(&self, cp: &closeclaw_session::persistence::SessionCheckpoint) {
-        let storage = self.storage.read().await;
-        if let Some(storage) = storage.as_ref() {
-            if let Err(e) = storage.save_checkpoint(cp).await {
+        let cm = self.checkpoint_manager.read().await;
+        if let Some(cm) = cm.as_ref() {
+            if let Err(e) = cm.save_raw(cp).await {
                 tracing::warn!(
                     session_id = %cp.session_id,
                     error = %e,

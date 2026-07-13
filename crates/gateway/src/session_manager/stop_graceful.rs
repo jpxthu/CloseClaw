@@ -220,22 +220,22 @@ impl SessionManager {
         session_id: &str,
         pending_ops: Vec<PendingOperation>,
     ) -> Result<(), PersistenceError> {
-        let storage = {
-            let guard = self.storage.read().await;
+        let storage_arc = {
+            let guard = self.checkpoint_manager.read().await;
             match guard.as_ref() {
-                Some(s) => std::sync::Arc::clone(s),
+                Some(cm) => std::sync::Arc::clone(cm.storage_arc()),
                 None => return Ok(()),
             }
         };
 
-        let mut cp = self.build_checkpoint(session_id, &storage).await?;
+        let mut cp = self.build_checkpoint(session_id, &storage_arc).await?;
 
         // Record pending operations from forceful shutdown.
         if !pending_ops.is_empty() {
             cp.pending_operations = pending_ops;
         }
 
-        storage.save_checkpoint(&cp).await
+        storage_arc.save_checkpoint(&cp).await
     }
 
     /// Build a `SessionCheckpoint` for the given session, loading or creating

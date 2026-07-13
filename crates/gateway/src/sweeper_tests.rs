@@ -422,7 +422,7 @@ mod tests {
         mem.add_checkpoint(child);
 
         let storage: Arc<dyn PersistenceService> = mem.clone() as _;
-        ArchiveSweeper::cascade_archive_impl(storage, "parent-archive".into(), None)
+        ArchiveSweeper::cascade_archive_impl(storage, "parent-archive".into())
             .await
             .unwrap();
 
@@ -441,7 +441,7 @@ mod tests {
         mem.add_checkpoint(SessionCheckpoint::new("solo-parent".into()));
 
         let storage: Arc<dyn PersistenceService> = mem.clone() as _;
-        ArchiveSweeper::cascade_archive_impl(storage, "solo-parent".into(), None)
+        ArchiveSweeper::cascade_archive_impl(storage, "solo-parent".into())
             .await
             .unwrap();
 
