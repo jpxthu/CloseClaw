@@ -139,4 +139,47 @@ impl SessionManager {
             mgr.clear();
         }
     }
+
+    /// Create a partial-rewrite snapshot for a session.
+    ///
+    /// Called before `/system` modifications (add or clear) to capture
+    /// the current transcript state. Returns `true` if a snapshot was
+    /// created, `false` if the operation was a no-op.
+    pub async fn create_partial_rewrite_snapshot(&self, session_id: &str) -> bool {
+        // Ensure a snapshot manager exists for this session.
+        {
+            let mut mgrs = self.snapshot_managers.write().await;
+            mgrs.entry(session_id.to_string())
+                .or_insert_with(|| Arc::new(RwLock::new(RuntimeSnapshotManager::new())));
+        }
+        let conv_sessions = self.conversation_sessions.read().await;
+        let Some(cs) = conv_sessions.get(session_id) else {
+            warn!(
+                session_id = %session_id,
+                "create_partial_rewrite_snapshot: session not found"
+            );
+            return false;
+        };
+        let cs = cs.read().await;
+        let mgrs = self.snapshot_managers.read().await;
+        let Some(mgr) = mgrs.get(session_id) else {
+            warn!(
+                session_id = %session_id,
+                "create_partial_rewrite_snapshot: snapshot manager not found"
+            );
+            return false;
+        };
+        let mut mgr = mgr.write().await;
+        mgr.create_snapshot(cs.messages(), TranscriptOp::PartialRewrite)
+    }
+
+    /// Returns the snapshot count for a session, or `None` if no
+    /// snapshot manager exists for that session.
+    #[cfg(test)]
+    pub async fn snapshot_count_for(&self, session_id: &str) -> Option<usize> {
+        let mgrs = self.snapshot_managers.read().await;
+        let mgr_arc = mgrs.get(session_id)?;
+        let mgr = mgr_arc.read().await;
+        Some(mgr.snapshot_count())
+    }
 }
