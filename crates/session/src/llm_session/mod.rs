@@ -985,7 +985,6 @@ impl std::fmt::Debug for ConversationSession {
             .finish()
     }
 }
-
 #[cfg(test)]
 #[allow(deprecated)]
 /// Helper: create a temporary directory path for tests.
@@ -995,6 +994,7 @@ pub fn tmp_path() -> std::path::PathBuf {
 
 #[cfg(test)]
 mod streaming_assembly_tests;
-
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transcript_ops_tests;

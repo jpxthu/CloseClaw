@@ -286,7 +286,13 @@ impl RuntimeSnapshotManager {
             status: SnapshotStatus::Pending,
             is_pre_rollback: false,
         };
-        self.persist_meta(&snapshot);
+        self.persist_meta(&SnapshotMeta {
+            id: snapshot.id.clone(),
+            reason: snapshot.reason.clone(),
+            created_at: snapshot.created_at,
+            session_id: String::new(),
+            status: snapshot.status,
+        });
         if self.snapshots.len() >= MAX_SNAPSHOTS {
             self.snapshots.pop_front();
         }
@@ -314,7 +320,7 @@ impl RuntimeSnapshotManager {
             }
         }
         if let Some(meta) = meta {
-            self.persist_meta_from_meta(&meta);
+            self.persist_meta(&meta);
         }
     }
 
@@ -352,7 +358,13 @@ impl RuntimeSnapshotManager {
                 status: SnapshotStatus::Pending,
                 is_pre_rollback: true,
             };
-            self.persist_meta(&pre_rollback);
+            self.persist_meta(&SnapshotMeta {
+                id: pre_rollback.id.clone(),
+                reason: pre_rollback.reason.clone(),
+                created_at: pre_rollback.created_at,
+                session_id: String::new(),
+                status: pre_rollback.status,
+            });
             if self.snapshots.len() >= MAX_SNAPSHOTS {
                 self.snapshots.pop_front();
             }
@@ -397,7 +409,13 @@ impl RuntimeSnapshotManager {
             status: SnapshotStatus::Pending,
             is_pre_rollback: false,
         };
-        self.persist_meta(&snapshot);
+        self.persist_meta(&SnapshotMeta {
+            id: snapshot.id.clone(),
+            reason: snapshot.reason.clone(),
+            created_at: snapshot.created_at,
+            session_id: String::new(),
+            status: snapshot.status,
+        });
         if self.snapshots.len() >= MAX_SNAPSHOTS {
             self.snapshots.pop_front();
         }
@@ -415,26 +433,7 @@ impl RuntimeSnapshotManager {
     /// Spawns an async task to persist the snapshot metadata via the
     /// configured [`SnapshotMetaStore`]. Failures are logged but do
     /// not affect the caller.
-    fn persist_meta(&self, snapshot: &Snapshot) {
-        if let Some(ref store) = self.meta_store {
-            let meta = SnapshotMeta {
-                id: snapshot.id.clone(),
-                reason: snapshot.reason.clone(),
-                created_at: snapshot.created_at,
-                session_id: String::new(),
-                status: snapshot.status,
-            };
-            let store = Arc::clone(store);
-            spawn(async move {
-                if let Err(e) = store.save_meta(&meta).await {
-                    eprintln!("[snapshot-manager] failed to persist meta: {e}");
-                }
-            });
-        }
-    }
-
-    /// Fire-and-forget persistence from a pre-built [`SnapshotMeta`].
-    fn persist_meta_from_meta(&self, meta: &SnapshotMeta) {
+    fn persist_meta(&self, meta: &SnapshotMeta) {
         if let Some(ref store) = self.meta_store {
             let meta = meta.clone();
             let store = Arc::clone(store);
