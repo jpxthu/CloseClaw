@@ -156,7 +156,8 @@ impl SessionManager {
                             }
                             // Inject LLM caller and system prompt builder for delegation.
                             if let Some(caller) = self.get_llm_caller().await {
-                                conv_session.set_llm_caller(caller);
+                                conv_session.set_llm_caller(caller.clone());
+                                conv_session.init_health_checker(caller);
                             }
                             if let Some(builder) = self.get_system_prompt_builder().await {
                                 conv_session.set_system_prompt_builder(builder);
@@ -399,7 +400,8 @@ impl SessionManager {
         }
         // Inject LLM caller and system prompt builder for delegation.
         if let Some(caller) = self.get_llm_caller().await {
-            conv_session.set_llm_caller(caller);
+            conv_session.set_llm_caller(caller.clone());
+            conv_session.init_health_checker(caller);
         }
         if let Some(builder) = self.get_system_prompt_builder().await {
             conv_session.set_system_prompt_builder(builder);
