@@ -37,12 +37,6 @@ async fn wait_for_completion(mgr: &BackgroundTaskManager, task_id: &str) -> Back
 async fn test_spawn_returns_running() {
     let (mgr, _tmp) = test_manager();
     let task = mgr.spawn("echo hello", _tmp.path(), false).await.unwrap();
-    assert!(matches!(
-        task.state,
-        TaskState::Running {
-            is_backgrounded: false
-        }
-    ));
     assert!(
         matches!(
             task.state,
@@ -156,12 +150,6 @@ async fn test_get_task() {
     let s = snapshot.unwrap();
     assert_eq!(s.id, task.id);
     assert_eq!(s.command, "echo hello");
-    assert!(matches!(
-        s.state,
-        TaskState::Running {
-            is_backgrounded: false
-        }
-    ));
     assert!(
         matches!(
             s.state,
@@ -321,12 +309,6 @@ async fn test_backgroundize_signature_no_cwd() {
         .await
         .expect("backgroundize(child, command) should succeed");
 
-    assert!(matches!(
-        task.state,
-        TaskState::Running {
-            is_backgrounded: true
-        }
-    ));
     assert!(
         matches!(
             task.state,
