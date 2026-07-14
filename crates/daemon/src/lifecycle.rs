@@ -127,9 +127,9 @@ impl Daemon {
             }
         }
 
-        // Phase 0: Send initial shutdown notification after mode determination
+        // Phase 0: Send brief start notification (no session details yet)
         self.gateway
-            .send_shutdown_progress_card(self.shutdown.mode())
+            .send_shutdown_start_notification(self.shutdown.mode())
             .await;
 
         self.phase_1_inbound_drain(&mut sigint, &mut sigterm).await;
@@ -385,13 +385,13 @@ impl Daemon {
         let _ = self.plan_archive_shutdown_tx.send(());
 
         // Wait for all background tasks to exit (15s timeout per task)
-        let join_timeout = std::time::Duration::from_secs(15);
+        let join_timeout = std::time::Duration::from_secs(10);
 
         if let Some(handle) = self.archive_sweeper_handle.take() {
             match tokio::time::timeout(join_timeout, handle).await {
                 Ok(Ok(())) => tracing::info!("ArchiveSweeper exited cleanly"),
                 Ok(Err(e)) => tracing::warn!(error = %e, "ArchiveSweeper task panicked"),
-                Err(_) => tracing::warn!("ArchiveSweeper did not exit within 15s, continuing"),
+                Err(_) => tracing::warn!("ArchiveSweeper did not exit within 10s, continuing"),
             }
         }
 
@@ -399,7 +399,7 @@ impl Daemon {
             match tokio::time::timeout(join_timeout, handle).await {
                 Ok(Ok(())) => tracing::info!("AnnounceSweeper exited cleanly"),
                 Ok(Err(e)) => tracing::warn!(error = %e, "AnnounceSweeper task panicked"),
-                Err(_) => tracing::warn!("AnnounceSweeper did not exit within 15s, continuing"),
+                Err(_) => tracing::warn!("AnnounceSweeper did not exit within 10s, continuing"),
             }
         }
 
@@ -407,7 +407,7 @@ impl Daemon {
             match tokio::time::timeout(join_timeout, handle).await {
                 Ok(Ok(())) => tracing::info!("DreamingScheduler exited cleanly"),
                 Ok(Err(e)) => tracing::warn!(error = %e, "DreamingScheduler task panicked"),
-                Err(_) => tracing::warn!("DreamingScheduler did not exit within 15s, continuing"),
+                Err(_) => tracing::warn!("DreamingScheduler did not exit within 10s, continuing"),
             }
         }
 
@@ -415,7 +415,7 @@ impl Daemon {
             match tokio::time::timeout(join_timeout, handle).await {
                 Ok(Ok(())) => tracing::info!("PlanArchiveTask exited cleanly"),
                 Ok(Err(e)) => tracing::warn!(error = %e, "PlanArchiveTask task panicked"),
-                Err(_) => tracing::warn!("PlanArchiveTask did not exit within 15s, continuing"),
+                Err(_) => tracing::warn!("PlanArchiveTask did not exit within 10s, continuing"),
             }
         }
 
