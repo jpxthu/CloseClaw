@@ -93,7 +93,6 @@ async fn create_test_task(tasks: &TaskMap, task_id: &str, output_path: &std::pat
             output_path: output_path.to_path_buf(),
             kill_tx: None,
             notified: false,
-            is_backgrounded: false,
         },
     );
 }
@@ -221,7 +220,6 @@ async fn test_stuck_detection_skips_non_running_task() {
                 output_path: output_path.clone(),
                 kill_tx: None,
                 notified: false,
-                is_backgrounded: false,
             },
         );
     }

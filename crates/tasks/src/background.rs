@@ -48,7 +48,6 @@ pub struct BackgroundTask {
     pub command: String,
     pub state: TaskState,
     pub output_path: PathBuf,
-    pub is_backgrounded: bool,
 }
 
 /// Notification delivery priority.
@@ -91,7 +90,6 @@ pub(crate) struct TaskHandle {
     pub(crate) output_path: PathBuf,
     pub(crate) kill_tx: Option<oneshot::Sender<()>>,
     pub(crate) notified: bool,
-    pub(crate) is_backgrounded: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +258,6 @@ impl BackgroundTaskManager {
             command: h.command.clone(),
             state: h.state.clone(),
             output_path: h.output_path.clone(),
-            is_backgrounded: h.is_backgrounded,
         })
     }
 
@@ -574,7 +571,6 @@ async fn insert_initial_handle(
         output_path: output_path.to_path_buf(),
         kill_tx: None,
         notified: false,
-        is_backgrounded,
     };
     let mut map = lock_map(tasks).await;
     map.insert(task_id.to_owned(), handle);
@@ -591,7 +587,6 @@ fn make_public_task(
         command: command.to_owned(),
         state: TaskState::Running { is_backgrounded },
         output_path: output_path.to_path_buf(),
-        is_backgrounded,
     }
 }
 

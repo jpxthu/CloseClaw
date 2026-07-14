@@ -44,7 +44,12 @@ async fn test_spawn_returns_running() {
         }
     ));
     assert!(
-        !task.is_backgrounded,
+        matches!(
+            task.state,
+            TaskState::Running {
+                is_backgrounded: false
+            }
+        ),
         "explicit spawn should not be backgrounded"
     );
 }
@@ -158,7 +163,12 @@ async fn test_get_task() {
         }
     ));
     assert!(
-        !s.is_backgrounded,
+        matches!(
+            s.state,
+            TaskState::Running {
+                is_backgrounded: false
+            }
+        ),
         "explicit spawn snapshot should not be backgrounded"
     );
 }
@@ -318,7 +328,12 @@ async fn test_backgroundize_signature_no_cwd() {
         }
     ));
     assert!(
-        task.is_backgrounded,
+        matches!(
+            task.state,
+            TaskState::Running {
+                is_backgrounded: true
+            }
+        ),
         "auto-backgroundize task should be backgrounded"
     );
     assert_eq!(task.command, "true");
@@ -342,7 +357,12 @@ async fn test_backgroundize_takes_over_long_running_child() {
         .await
         .expect("backgroundize should accept a long-running child");
     assert!(
-        task.is_backgrounded,
+        matches!(
+            task.state,
+            TaskState::Running {
+                is_backgrounded: true
+            }
+        ),
         "auto-backgroundize long-running task should be backgrounded"
     );
     assert!(mgr.is_running(&task.id).await);
@@ -376,7 +396,12 @@ async fn test_backgroundize_captures_child_output() {
         .await
         .expect("backgroundize should succeed");
     assert!(
-        task.is_backgrounded,
+        matches!(
+            task.state,
+            TaskState::Running {
+                is_backgrounded: true
+            }
+        ),
         "auto-backgroundize output capture task should be backgrounded"
     );
     let _ = wait_for_completion(&mgr, &task.id).await;
@@ -495,7 +520,6 @@ fn test_background_task_fields() {
             is_backgrounded: false,
         },
         output_path: PathBuf::from("/tmp/out"),
-        is_backgrounded: false,
     };
     assert_eq!(task.id, "abc-123");
     assert_eq!(task.command, "echo hello");
@@ -510,7 +534,6 @@ fn test_background_task_clone() {
         command: "ls".to_string(),
         state: TaskState::Completed { exit_code: 0 },
         output_path: PathBuf::from("/tmp/clone"),
-        is_backgrounded: false,
     };
     let cloned = task.clone();
     assert_eq!(cloned.id, task.id);
@@ -528,7 +551,6 @@ fn test_background_task_debug() {
             is_backgrounded: false,
         },
         output_path: PathBuf::from("/tmp/debug"),
-        is_backgrounded: false,
     };
     let debug = format!("{:?}", task);
     assert!(debug.contains("BackgroundTask"));
@@ -598,7 +620,6 @@ async fn insert_handle(
         output_path: output_path.clone(),
         kill_tx: None,
         notified: false,
-        is_backgrounded: false,
     };
     mgr.tasks.lock().await.insert(task_id.to_owned(), handle);
     output_path
@@ -769,7 +790,6 @@ async fn test_cleanup_finished_cleanup_io_error() {
         output_path: output,
         kill_tx: None,
         notified: false,
-        is_backgrounded: false,
     };
     mgr.tasks.lock().await.insert("io-err".to_owned(), handle);
 

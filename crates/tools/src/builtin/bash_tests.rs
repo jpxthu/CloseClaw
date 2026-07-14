@@ -62,7 +62,6 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
             command: command.to_string(),
             state: closeclaw_tasks::TaskState::Running { is_backgrounded },
             output_path: cwd.join("output"),
-            is_backgrounded,
         };
         self.tasks
             .write()
@@ -81,7 +80,6 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
             command: command.to_string(),
             state: closeclaw_tasks::TaskState::Running { is_backgrounded },
             output_path: std::path::PathBuf::from("/tmp/output"),
-            is_backgrounded,
         };
         self.tasks
             .write()
@@ -328,7 +326,6 @@ fn test_build_background_result_has_task_id_and_output_path() {
             is_backgrounded: false,
         },
         output_path,
-        is_backgrounded: false,
     };
     let result = build_background_result(&task);
     assert_eq!(
@@ -354,7 +351,6 @@ fn test_build_background_result_has_no_auto_backgrounded_flag() {
             is_backgrounded: false,
         },
         output_path: tmp.path().join("y/output"),
-        is_backgrounded: false,
     };
     let result = build_background_result(&task);
     // Explicit `run_in_background: true` must NOT set the auto flag.
@@ -380,7 +376,6 @@ fn test_build_auto_background_result_has_task_id_and_flag() {
             is_backgrounded: false,
         },
         output_path,
-        is_backgrounded: false,
     };
     let result = build_auto_background_result(&task);
     assert_eq!(
