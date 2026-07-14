@@ -5,7 +5,7 @@
 //! consistently and the operation type is declared explicitly.
 
 use super::{ConversationSession, SessionMessage};
-use crate::run_health::{RuntimeSnapshotManager, TranscriptOp};
+use crate::run_health::{RollbackAction, RuntimeSnapshotManager, TranscriptOp};
 use closeclaw_common::ContentBlock;
 
 /// Transcript modification methods for [`ConversationSession`].
@@ -19,7 +19,7 @@ impl ConversationSession {
             let mgr = self
                 .snapshot_manager
                 .get_or_insert_with(RuntimeSnapshotManager::new);
-            mgr.create_snapshot(&self.messages, op);
+            mgr.create_snapshot(&self.messages, op, "transcript-op");
         }
         self.messages = new_messages;
         self.last_activity_at = chrono::Utc::now().timestamp();
@@ -32,20 +32,24 @@ impl ConversationSession {
 
     /// Rollback to the most recent snapshot, if any.
     ///
-    /// Returns `true` if a snapshot was restored, `false` if no
-    /// snapshot existed. After rollback the snapshot is consumed
-    /// (popped from the queue).
-    pub fn rollback_transcript(&mut self) -> bool {
-        let mgr: &mut RuntimeSnapshotManager = match self.snapshot_manager.as_mut() {
-            Some(m) => m,
-            None => return false,
-        };
-        let Some(messages) = mgr.rollback() else {
-            return false;
-        };
-        self.messages = messages;
-        self.last_activity_at = chrono::Utc::now().timestamp();
-        true
+    /// Returns `Some(RollbackAction)` if a snapshot was restored;
+    /// `None` if no snapshot existed. A pre-rollback snapshot of the
+    /// current messages is automatically created so the rollback is
+    /// undoable.
+    pub fn rollback_transcript(&mut self) -> Option<RollbackAction> {
+        let mgr: &mut RuntimeSnapshotManager = self.snapshot_manager.as_mut()?;
+        let action = mgr.rollback(&self.messages)?;
+        match &action {
+            RollbackAction::Replace { messages } => {
+                self.messages = messages.clone();
+                self.last_activity_at = chrono::Utc::now().timestamp();
+            }
+            RollbackAction::Truncate { .. } => {
+                // Caller is responsible for truncating the JSONL file
+                // based on the leaf_entry_id. We just return the action.
+            }
+        }
+        Some(action)
     }
 
     /// Returns the number of snapshots held, or `None` if no
@@ -72,7 +76,7 @@ impl ConversationSession {
             let mgr = self
                 .snapshot_manager
                 .get_or_insert_with(RuntimeSnapshotManager::new);
-            mgr.create_snapshot(&self.messages, op);
+            mgr.create_snapshot(&self.messages, op, "transcript-current-state");
         }
     }
 }

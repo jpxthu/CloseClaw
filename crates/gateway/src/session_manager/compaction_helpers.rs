@@ -98,7 +98,7 @@ impl SessionManager {
             return false;
         };
         let mut cs = cs.write().await;
-        cs.rollback_transcript()
+        cs.rollback_transcript().is_some()
     }
 
     /// Clear the pre-compaction snapshot after a successful compaction.
