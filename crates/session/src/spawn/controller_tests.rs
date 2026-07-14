@@ -87,6 +87,7 @@ fn make_agent_config(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfi
         disallowed_tools: vec![],
         subagents,
         memory: Default::default(),
+        hooks: Vec::new(),
         source: ConfigSource::User,
     }
 }

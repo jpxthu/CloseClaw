@@ -66,7 +66,7 @@ fn test_append_transcript_with_snapshot_creates_snapshot() {
         vec![ContentBlock::Text("reply".into())],
         "entry_10",
     );
-    assert!(created);
+    assert!(created.is_some());
     assert_eq!(cs.snapshot_count(), Some(1));
     // The appended message is present.
     assert_eq!(cs.messages.len(), 2);
@@ -102,7 +102,7 @@ fn test_append_transcript_with_snapshot_full_path() {
         vec![ContentBlock::Text("a1".into())],
         "entry_99",
     );
-    assert!(created);
+    assert!(created.is_some());
     assert_eq!(cs.messages.len(), 2);
     // Rollback returns Truncate with the correct leaf_entry_id.
     let action = cs.rollback_transcript().unwrap();

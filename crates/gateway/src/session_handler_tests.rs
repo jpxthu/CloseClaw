@@ -625,7 +625,7 @@ async fn test_apply_compact_result_order_and_state() {
         is_auto: false,
     };
 
-    apply_compact_result(&sm, "compact-order-test", &result).await;
+    apply_compact_result(&sm, "compact-order-test", &result, None).await;
 
     // 1. Messages should be replaced with the boundary message.
     let cs = sm
@@ -707,7 +707,7 @@ async fn test_apply_compact_result_no_session() {
     };
 
     // Should not panic even with nonexistent session
-    apply_compact_result(&sm, "nonexistent", &result).await;
+    apply_compact_result(&sm, "nonexistent", &result, None).await;
 
     // No checkpoint should be saved
     assert!(persistence_clone.checkpoints.lock().await.is_empty());

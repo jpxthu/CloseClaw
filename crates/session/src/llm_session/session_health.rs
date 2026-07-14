@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use closeclaw_common::LlmCaller;
+use closeclaw_common::{HookConfig, LlmCaller};
 
 use super::ConversationSession;
 use crate::run_health::factory::create_default_health_checker;
@@ -34,8 +34,8 @@ impl ConversationSession {
     ///
     /// Must be called after [`set_llm_caller`] so the hook reviewer
     /// can use the LLM caller for quality gate reviews.
-    pub fn init_health_checker(&mut self, llm_caller: Arc<dyn LlmCaller>) {
-        let checker = create_default_health_checker(Some(llm_caller), vec![]);
+    pub fn init_health_checker(&mut self, llm_caller: Arc<dyn LlmCaller>, hooks: Vec<HookConfig>) {
+        let checker = create_default_health_checker(Some(llm_caller), hooks);
         self.set_health_checker(checker);
     }
 }

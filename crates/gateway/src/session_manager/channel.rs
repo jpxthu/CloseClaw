@@ -57,9 +57,14 @@ impl SessionManager {
             conv_session.set_shutdown_handle(sh);
         }
         // Inject LLM caller and system prompt builder for delegation.
+        let agent_hooks = self
+            .get_agent_config(agent_id)
+            .await
+            .map(|c| c.hooks)
+            .unwrap_or_default();
         if let Some(caller) = self.get_llm_caller().await {
             conv_session.set_llm_caller(caller.clone());
-            conv_session.init_health_checker(caller);
+            conv_session.init_health_checker(caller, agent_hooks);
         }
         if let Some(builder) = self.get_system_prompt_builder().await {
             conv_session.set_system_prompt_builder(builder);

@@ -790,6 +790,8 @@ pub mod priority_prompt_tests;
 #[cfg(feature = "full-tests")]
 pub mod session_handler_dynamic_tests;
 #[cfg(test)]
+pub mod session_handler_recovery_tests;
+#[cfg(test)]
 pub mod session_handler_tests;
 #[cfg(test)]
 pub mod session_routing_tests;

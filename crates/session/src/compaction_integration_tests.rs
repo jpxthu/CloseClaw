@@ -145,6 +145,75 @@ mod tests {
         assert_eq!(mgr.snapshot_count(), 0);
     }
 
+    /// After compaction succeeds, mark_complete keeps the snapshot
+    /// in the queue with Complete status (not cleared).
+    #[test]
+    fn test_compaction_success_keeps_snapshot_complete() {
+        let mut mgr = RuntimeSnapshotManager::new();
+        let original = vec![msg("before compaction")];
+
+        // Step 1: create snapshot (Pending).
+        let snap_id = mgr
+            .create_snapshot(&original, TranscriptOp::Rewrite, "pre-compaction")
+            .expect("snapshot should be created for Rewrite");
+        assert_eq!(mgr.snapshot_count(), 1);
+
+        // Step 2: compaction succeeds → mark_complete.
+        mgr.mark_complete(&snap_id);
+
+        // Snapshot still in queue (not cleared), available for future rollback.
+        assert_eq!(mgr.snapshot_count(), 1);
+
+        // Rollback still works — the Complete snapshot can be restored.
+        let action = mgr
+            .rollback(&[msg("after compaction")])
+            .expect("Complete snapshot should still be restorable");
+        match action {
+            RollbackAction::Replace { messages } => {
+                assert_eq!(messages.len(), 1);
+                assert_eq!(
+                    messages[0].content_blocks[0],
+                    ContentBlock::Text("before compaction".into())
+                );
+            }
+            _ => panic!("expected Replace action"),
+        }
+    }
+
+    /// Complete snapshots participate in eviction just like Pending ones.
+    #[test]
+    fn test_complete_snapshot_evicted_at_queue_limit() {
+        let mut mgr = RuntimeSnapshotManager::new();
+        // Fill queue to MAX (25) and mark all Complete.
+        let mut ids = Vec::new();
+        for i in 0..25 {
+            let id = mgr
+                .create_snapshot(&[msg(&format!("msg-{i}"))], TranscriptOp::Rewrite, "test")
+                .unwrap();
+            ids.push(id);
+        }
+        for id in &ids {
+            mgr.mark_complete(id);
+        }
+        assert_eq!(mgr.snapshot_count(), 25);
+
+        // Add 26th — oldest Complete (msg-0) should be evicted.
+        mgr.create_snapshot(&[msg("msg-25")], TranscriptOp::Rewrite, "test");
+        assert_eq!(mgr.snapshot_count(), 25);
+
+        // Rollback pops msg-25 (newest).
+        let action = mgr.rollback(&[msg("msg-25")]).unwrap();
+        match action {
+            RollbackAction::Replace { messages } => {
+                assert_eq!(
+                    messages[0].content_blocks[0],
+                    ContentBlock::Text("msg-25".into())
+                );
+            }
+            _ => panic!("expected Replace"),
+        }
+    }
+
     // =====================================================================
     // 2. token_warning_state integration — threshold boundaries
     // =====================================================================

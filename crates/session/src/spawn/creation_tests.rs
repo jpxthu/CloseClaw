@@ -100,6 +100,7 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         disallowed_tools: vec![],
         subagents: Default::default(),
         memory: Default::default(),
+        hooks: Vec::new(),
         source: closeclaw_config::agents::ConfigSource::User,
     }
 }
