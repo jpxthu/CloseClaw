@@ -109,16 +109,12 @@ pub struct Daemon {
     /// Path to the admin RPC socket file (cleaned up on shutdown)
     admin_socket_path: PathBuf,
     /// Join handle for ArchiveSweeper background task
-    #[allow(dead_code)]
     archive_sweeper_handle: Option<tokio::task::JoinHandle<()>>,
     /// Join handle for AnnounceSweeper background task
-    #[allow(dead_code)]
     announce_sweeper_handle: Option<tokio::task::JoinHandle<()>>,
     /// Join handle for DreamingScheduler background task
-    #[allow(dead_code)]
     dreaming_scheduler_handle: Option<tokio::task::JoinHandle<()>>,
     /// Join handle for PlanArchiveTask background task
-    #[allow(dead_code)]
     plan_archive_task_handle: Option<tokio::task::JoinHandle<()>>,
 }
 // --- Topological startup orchestration ---

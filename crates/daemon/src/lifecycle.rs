@@ -389,6 +389,42 @@ impl Daemon {
         let _ = self.dreaming_scheduler_shutdown_tx.send(());
         // Signal PlanArchiveTask to stop
         let _ = self.plan_archive_shutdown_tx.send(());
+
+        // Wait for all background tasks to exit (15s timeout per task)
+        let join_timeout = std::time::Duration::from_secs(15);
+
+        if let Some(handle) = self.archive_sweeper_handle.take() {
+            match tokio::time::timeout(join_timeout, handle).await {
+                Ok(Ok(())) => tracing::info!("ArchiveSweeper exited cleanly"),
+                Ok(Err(e)) => tracing::warn!(error = %e, "ArchiveSweeper task panicked"),
+                Err(_) => tracing::warn!("ArchiveSweeper did not exit within 15s, continuing"),
+            }
+        }
+
+        if let Some(handle) = self.announce_sweeper_handle.take() {
+            match tokio::time::timeout(join_timeout, handle).await {
+                Ok(Ok(())) => tracing::info!("AnnounceSweeper exited cleanly"),
+                Ok(Err(e)) => tracing::warn!(error = %e, "AnnounceSweeper task panicked"),
+                Err(_) => tracing::warn!("AnnounceSweeper did not exit within 15s, continuing"),
+            }
+        }
+
+        if let Some(handle) = self.dreaming_scheduler_handle.take() {
+            match tokio::time::timeout(join_timeout, handle).await {
+                Ok(Ok(())) => tracing::info!("DreamingScheduler exited cleanly"),
+                Ok(Err(e)) => tracing::warn!(error = %e, "DreamingScheduler task panicked"),
+                Err(_) => tracing::warn!("DreamingScheduler did not exit within 15s, continuing"),
+            }
+        }
+
+        if let Some(handle) = self.plan_archive_task_handle.take() {
+            match tokio::time::timeout(join_timeout, handle).await {
+                Ok(Ok(())) => tracing::info!("PlanArchiveTask exited cleanly"),
+                Ok(Err(e)) => tracing::warn!(error = %e, "PlanArchiveTask task panicked"),
+                Err(_) => tracing::warn!("PlanArchiveTask did not exit within 15s, continuing"),
+            }
+        }
+
         // Clear pending approval requests (denied with callbacks triggered)
         self.approval_flow.lock().await.clear();
     }
