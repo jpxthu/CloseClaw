@@ -170,6 +170,7 @@ fn test_append_response_adds_message() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     };
     session.append_response(response);
     assert_eq!(session.messages().len(), 1);
@@ -192,6 +193,7 @@ fn test_append_tool_result_increments_turn() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     });
     assert_eq!(session.turn_count(), 0);
     session.append_tool_result("call_x".into(), "tool output".into());
@@ -214,6 +216,7 @@ fn test_append_response_empty_blocks_no_turn_increment() {
             cache_write_tokens: None,
         },
         finish_reason: None,
+        retry_attempts: 0,
     });
     assert_eq!(session.messages().len(), 0);
     assert_eq!(session.turn_count(), 0);
@@ -248,6 +251,7 @@ fn test_build_api_request_without_system_prompt() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     });
     let req = session.build_api_request();
     assert!(!req.messages.is_empty());
@@ -271,6 +275,7 @@ fn test_conversation_session_multiple_turns() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     });
     assert_eq!(session.messages().len(), 1);
     assert_eq!(session.turn_count(), 0);
@@ -289,6 +294,7 @@ fn test_conversation_session_multiple_turns() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     });
     assert_eq!(session.messages().len(), 2);
     assert_eq!(session.turn_count(), 1);
@@ -327,6 +333,7 @@ fn test_append_user_message_preserves_order_with_assistant() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     });
     assert_eq!(session.messages().len(), 2);
     assert_eq!(session.messages()[0].role, "user");
@@ -348,6 +355,7 @@ fn test_append_user_message_compact_includes_user() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     });
     let req = session.build_api_request();
     // Should contain user + assistant messages in the API request
@@ -385,6 +393,7 @@ fn test_apply_transcript_op_overwrites_existing() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     });
     assert_eq!(session.messages().len(), 1);
 
@@ -420,6 +429,7 @@ fn test_apply_transcript_op_empty_vec_clears() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     });
     assert_eq!(session.messages().len(), 1);
     session.apply_transcript_op(TranscriptOp::Rewrite, vec![]);
@@ -442,6 +452,7 @@ fn test_apply_transcript_op_rewrite_creates_snapshot() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     });
     assert_eq!(session.snapshot_count(), None);
     session.apply_transcript_op(
@@ -482,6 +493,7 @@ fn test_apply_transcript_op_partial_rewrite_creates_snapshot() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     });
     assert_eq!(session.snapshot_count(), None);
     session.apply_transcript_op(
@@ -588,6 +600,7 @@ fn test_build_api_request_separates_tool_result_messages() {
             cache_write_tokens: None,
         },
         finish_reason: Some("tool_calls".into()),
+        retry_attempts: 0,
     });
     // Append tool result
     session.append_tool_result("call_1".into(), "result: 42".into());
@@ -636,6 +649,7 @@ fn test_build_api_request_multiple_tool_results_appended_in_order() {
             cache_write_tokens: None,
         },
         finish_reason: Some("tool_calls".into()),
+        retry_attempts: 0,
     });
     session.append_tool_result("call_a".into(), "result_a".into());
     session.append_tool_result("call_b".into(), "result_b".into());
@@ -666,6 +680,7 @@ fn test_build_api_request_no_tool_result_preserves_original_behavior() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     });
 
     let req = session.build_api_request();
