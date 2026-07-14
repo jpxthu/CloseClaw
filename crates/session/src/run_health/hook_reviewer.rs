@@ -7,7 +7,7 @@
 //! Design reference: `docs/design/session/run-health.md`.
 
 use async_trait::async_trait;
-pub use closeclaw_common::{HookConfig, HookType};
+pub use closeclaw_common::{HookConfig, HookParams, HookType};
 use futures::future::join_all;
 
 use super::health_types::HookContext;
@@ -37,6 +37,33 @@ pub fn hook_prompt_template(hook_type: &HookType) -> &'static str {
              was made, NO if the turn advanced the task."
         }
     }
+}
+
+/// Build the full review prompt by merging the base template with
+/// hook-specific parameter descriptions.
+///
+/// This replaces hard-coded thresholds with values from the agent
+/// configuration, making hooks tunable per-agent.
+pub fn build_review_prompt(hook_type: &HookType, params: &HookParams) -> String {
+    let base = hook_prompt_template(hook_type);
+    let param_note = match hook_type {
+        HookType::LoopCheck => {
+            format!(
+                " A loop is defined as {} or more consecutive calls to \
+             the same tool with similar parameters.",
+                params.loop_check_repetition_threshold
+            )
+        }
+        HookType::ProgressCheck => {
+            format!(
+                " Only evaluate progress if the turn made at least {} \
+             tool call(s).",
+                params.progress_check_min_tool_calls
+            )
+        }
+        HookType::PlanCheck => String::new(),
+    };
+    format!("{base}{param_note}")
 }
 
 /// Verdict from a single hook review.
@@ -98,7 +125,7 @@ impl HookReviewer {
 
         let futures: Vec<_> = enabled_with_index
             .iter()
-            .map(|(_, config)| self.run_hook(&config.hook_type, snapshot))
+            .map(|(_, config)| self.run_hook(config, snapshot))
             .collect();
 
         let results = join_all(futures).await;
@@ -114,25 +141,25 @@ impl HookReviewer {
     }
 
     /// Execute a single hook against the turn snapshot.
-    async fn run_hook(&self, hook_type: &HookType, snapshot: &HookContext) -> HookVerdict {
+    async fn run_hook(&self, config: &HookConfig, snapshot: &HookContext) -> HookVerdict {
         let context = format_turn_context(snapshot);
-        let prompt = hook_prompt_template(hook_type);
+        let prompt = build_review_prompt(&config.hook_type, &config.params);
 
-        match self.llm.review(prompt, &context).await {
+        match self.llm.review(&prompt, &context).await {
             Ok(flag) => HookVerdict {
                 flag,
                 reason: if flag {
-                    format!("{hook_type:?} flagged the turn")
+                    format!("{:?} flagged the turn", config.hook_type)
                 } else {
-                    format!("{hook_type:?} found no issues")
+                    format!("{:?} found no issues", config.hook_type)
                 },
-                hook_type: hook_type.clone(),
+                hook_type: config.hook_type.clone(),
             },
             Err(err) => HookVerdict {
                 // LLM failure is treated as not-flagging (graceful degradation).
                 flag: false,
-                reason: format!("{hook_type:?} review failed: {err}"),
-                hook_type: hook_type.clone(),
+                reason: format!("{:?} review failed: {err}", config.hook_type),
+                hook_type: config.hook_type.clone(),
             },
         }
     }
