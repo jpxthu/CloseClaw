@@ -314,10 +314,15 @@ impl SessionMessageHandler {
                 NotificationPriority::Later => "[后台任务]",
             };
             let text = format!(
-                "{} {}。输出文件：{}",
+                "{} {}。输出文件：{}{}",
                 prefix,
                 notif.summary,
-                notif.output_path.display()
+                notif.output_path.display(),
+                notif
+                    .suggestion
+                    .as_ref()
+                    .map(|s| format!("。建议：{}", s))
+                    .unwrap_or_default()
             );
             cs_write.inject_system_message(text);
         }
