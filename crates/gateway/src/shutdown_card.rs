@@ -159,6 +159,103 @@ impl Gateway {
         }
     }
 
+    /// Send a heartbeat card during Phase 2 when no state changes for a while.
+    ///
+    /// Displays a simplified format: "⏳ 仍在关闭中，N 个 session 活跃（最长等待 Ns）"
+    /// with [Continue waiting] and [Force close] buttons. Only sent in graceful
+    /// mode. Sending failures are logged as warnings and do not block shutdown.
+    pub async fn send_shutdown_heartbeat_card(
+        &self,
+        active_count: usize,
+        longest_wait_secs: u64,
+        mode: closeclaw_common::shutdown::ShutdownMode,
+    ) {
+        let sessions = self.session_manager.get_all_sessions().await;
+        if sessions.is_empty() {
+            return;
+        }
+
+        let mut chats: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for session in &sessions {
+            if let Some(chat_id) = self.session_manager.get_chat_id(&session.id).await {
+                chats.entry(chat_id).or_default().push(session.id.clone());
+            }
+        }
+        if chats.is_empty() {
+            return;
+        }
+
+        let content = format!(
+            "⏳ 仍在关闭中，{} 个 session 活跃（最长等待 {}s）",
+            active_count, longest_wait_secs
+        );
+
+        let mut elements: Vec<serde_json::Value> = vec![json!({
+            "tag": "div",
+            "text": json!({
+                "tag": "lark_md",
+                "content": content
+            })
+        })];
+
+        if mode == closeclaw_common::shutdown::ShutdownMode::Graceful {
+            elements.push(json!({
+                "tag": "action",
+                "actions": [
+                    json!({
+                        "tag": "button",
+                        "text": json!({
+                            "tag": "plain_text",
+                            "content": "\u{7ee7}\u{7eed}\u{7b49}\u{5f85}"
+                        }),
+                        "type": "default",
+                        "disabled": true
+                    }),
+                    json!({
+                        "tag": "button",
+                        "text": json!({
+                            "tag": "plain_text",
+                            "content": "\u{5f3a}\u{5236}\u{5173}\u{95ed}"
+                        }),
+                        "type": "danger",
+                        "value": {"action": "forceful_shutdown"}
+                    })
+                ]
+            }));
+        }
+
+        let card = json!({
+            "config": { "wide_screen_mode": true },
+            "header": json!({
+                "title": json!({
+                    "tag": "plain_text",
+                    "content": "⏳ 心跳 — 关闭仍在进行中"
+                }),
+                "template": "blue"
+            }),
+            "elements": elements
+        });
+
+        let plugins = self.get_all_plugins().await;
+        for chat_id in chats.keys() {
+            for plugin in &plugins {
+                let output = RenderedOutput {
+                    msg_type: "interactive".into(),
+                    payload: card.clone(),
+                };
+                if let Err(e) = plugin.send(&output, chat_id, None).await {
+                    tracing::warn!(
+                        chat_id = %chat_id,
+                        plugin = plugin.platform(),
+                        error = %e,
+                        "failed to send shutdown heartbeat card — continuing"
+                    );
+                }
+            }
+        }
+    }
+
     /// Send a final shutdown progress card indicating completion.
     pub async fn send_shutdown_final_card(
         &self,

@@ -198,6 +198,39 @@ impl ConversationSession {
         );
     }
 
+    // ── force_kill ──────────────────────────────────────────────────────
+
+    /// Forcefully kill tool processes and cancel in-flight LLM requests.
+    ///
+    /// Used by the forceful-shutdown path in
+    /// [`SessionManager::stop_single_session`] to immediately terminate
+    /// running tool processes and cancel ongoing LLM streams without
+    /// clearing execution state. This allows
+    /// [`collect_pending_operations`](Self::collect_pending_operations) to
+    /// still observe tool_states / child_states for checkpoint recording.
+    ///
+    /// Incomplete assistant message fragments are discarded: the cancel
+    /// token causes in-flight streaming LLM calls to return
+    /// `LLMError::Cancelled`, and the Gateway layer does not append
+    /// partial assistant messages to the conversation history.
+    ///
+    /// This method is idempotent — cancelling an already-cancelled token
+    /// and killing already-cleared handles are harmless no-ops.
+    pub async fn force_kill(&self) {
+        // Cancel in-flight LLM requests. Streaming calls observe this
+        // via `cancel_token.cancelled()` in the Gateway's
+        // `call_llm_streaming` select branch and return Cancelled.
+        self.cancel_token.cancel();
+
+        // Kill every registered tool process.
+        self.kill_tool_handles().await;
+
+        tracing::info!(
+            session_id = %self.session_id,
+            "force_kill: tool processes killed, LLM requests cancelled"
+        );
+    }
+
     // ── stop(cascade) ───────────────────────────────────────────────────
 
     /// Idempotently stop this session and (optionally) all descendant
