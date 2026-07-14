@@ -233,7 +233,9 @@ impl SnapshotMetaStore for PersistenceMetaStore {
             .map_err(|e| format!("failed to load checkpoint: {e}"))?
             .ok_or_else(|| format!("checkpoint not found for session: {}", self.session_id))?;
 
-        checkpoint.snapshot_metas.push(meta.clone());
+        let mut meta = meta.clone();
+        meta.session_id = self.session_id.clone();
+        checkpoint.snapshot_metas.push(meta);
         checkpoint.touch();
 
         self.storage
