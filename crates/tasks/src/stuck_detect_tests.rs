@@ -243,3 +243,65 @@ async fn test_stuck_detection_skips_non_running_task() {
     let notifs = notifications.lock().await;
     assert!(notifs.is_empty(), "no alert expected for non-running task");
 }
+
+// ---------------------------------------------------------------------------
+// stuck alert suggestion field
+// ---------------------------------------------------------------------------
+
+/// Verify that `emit_stuck_alert` sets the suggestion field on the
+/// generated [`CompletionNotification`], and that the suggestion text
+/// contains the expected keywords "终止任务" and "管道输入".
+#[tokio::test]
+async fn test_stuck_alert_notification_suggestion() {
+    let tmp = TempDir::new().unwrap();
+    let output_path = tmp.path().join("output");
+    let task_id = "stuck-suggestion-test";
+
+    tokio::fs::write(&output_path, "Install? (y/n) ")
+        .await
+        .unwrap();
+
+    let tasks: TaskMap = Arc::new(Mutex::new(HashMap::new()));
+    let notifications: Arc<Mutex<Vec<CompletionNotification>>> = Arc::new(Mutex::new(Vec::new()));
+
+    create_test_task(&tasks, task_id, &output_path).await;
+
+    let config = StuckDetectConfig {
+        check_interval: Duration::from_secs(1),
+        stuck_timeout: Duration::from_secs(1),
+    };
+
+    start_stuck_detection(
+        task_id.to_string(),
+        output_path,
+        "test command".to_string(),
+        tasks,
+        notifications.clone(),
+        config,
+    );
+
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    let notifs = notifications.lock().await;
+    assert_eq!(
+        notifs.len(),
+        1,
+        "expected exactly one stuck alert notification"
+    );
+
+    let notif = &notifs[0];
+    let suggestion = notif
+        .suggestion
+        .as_ref()
+        .expect("suggestion should be Some");
+    assert!(
+        suggestion.contains("终止任务"),
+        "suggestion should contain '终止任务', got: {}",
+        suggestion
+    );
+    assert!(
+        suggestion.contains("管道输入"),
+        "suggestion should contain '管道输入', got: {}",
+        suggestion
+    );
+}

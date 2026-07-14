@@ -80,6 +80,8 @@ pub struct CompletionNotification {
     pub priority: NotificationPriority,
     /// Human-readable summary for the notification.
     pub summary: String,
+    /// Optional suggestion for the user based on the task result.
+    pub suggestion: Option<String>,
 }
 
 /// Internal handle for per-task bookkeeping.
@@ -534,6 +536,7 @@ async fn finalize_state(
             output_path: h.output_path.clone(),
             priority: NotificationPriority::Later,
             summary,
+            suggestion: None,
         };
         notifications.lock().await.push(notif);
     }
