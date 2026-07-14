@@ -14,6 +14,7 @@ fn input_base() -> HealthCheckInput {
         turn_duration_ms: 5_000,
         is_structurally_valid: true,
         structural_anomaly_detail: None,
+        side_effect_occurred: false,
     }
 }
 

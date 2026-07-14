@@ -87,6 +87,10 @@ pub struct HealthCheckInput {
     pub is_structurally_valid: bool,
     /// Optional detail describing a structural anomaly, if any.
     pub structural_anomaly_detail: Option<String>,
+    /// Whether tool calls were executed during this turn (side effects
+    /// occurred). This is set by the gateway layer based on the presence
+    /// of `ToolUse` content blocks in the LLM response.
+    pub side_effect_occurred: bool,
 }
 
 /// Result produced by the health-check pipeline for a single turn.

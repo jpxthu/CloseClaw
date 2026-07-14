@@ -24,6 +24,7 @@ fn healthy_input() -> HealthCheckInput {
         turn_duration_ms: 100,
         is_structurally_valid: true,
         structural_anomaly_detail: None,
+        side_effect_occurred: false,
     }
 }
 
@@ -100,6 +101,7 @@ async fn test_healthy_with_tool_calls() {
         turn_duration_ms: 50,
         is_structurally_valid: true,
         structural_anomaly_detail: None,
+        side_effect_occurred: false,
     };
     let verdict = checker.check_turn(&input, None).await;
     assert_eq!(verdict.status, HealthStatus::Healthy);
@@ -121,6 +123,7 @@ async fn test_thinking_only_triggers_unhealthy() {
         turn_duration_ms: 50,
         is_structurally_valid: true,
         structural_anomaly_detail: None,
+        side_effect_occurred: false,
     };
     let verdict = checker.check_turn(&input, None).await;
     match verdict.status {
@@ -149,6 +152,7 @@ async fn test_empty_response_violation() {
         turn_duration_ms: 100,
         is_structurally_valid: true,
         structural_anomaly_detail: None,
+        side_effect_occurred: false,
     };
     let verdict = checker.check_turn(&input, None).await;
     match verdict.status {
@@ -173,6 +177,7 @@ async fn test_timeout_violation() {
         turn_duration_ms: 60_000, // > 30s threshold
         is_structurally_valid: true,
         structural_anomaly_detail: None,
+        side_effect_occurred: false,
     };
     let verdict = checker.check_turn(&input, None).await;
     match verdict.status {
@@ -197,6 +202,7 @@ async fn test_structural_anomaly_violation() {
         turn_duration_ms: 100,
         is_structurally_valid: false,
         structural_anomaly_detail: Some("missing required field".into()),
+        side_effect_occurred: false,
     };
     let verdict = checker.check_turn(&input, None).await;
     match verdict.status {
@@ -221,6 +227,7 @@ async fn test_retry_exhausted_violation() {
         turn_duration_ms: 100,
         is_structurally_valid: true,
         structural_anomaly_detail: None,
+        side_effect_occurred: false,
     };
     let verdict = checker.check_turn(&input, None).await;
     match verdict.status {
@@ -317,6 +324,7 @@ async fn test_hard_rule_blocks_hook_review() {
         turn_duration_ms: 100,
         is_structurally_valid: true,
         structural_anomaly_detail: None,
+        side_effect_occurred: false,
     };
     let verdict = checker.check_turn(&input, None).await;
     // Hard rule violation takes precedence; hook is not invoked.
