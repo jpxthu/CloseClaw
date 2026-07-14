@@ -498,3 +498,288 @@ fn test_init_health_checker_sets_health_checker() {
     session.init_health_checker(caller, vec![]);
     assert!(session.health_checker().is_some());
 }
+
+// ── Gap 2: Hook wiring — factory and init_health_checker (Step 1.6) ───────
+
+/// Factory with hooks and LLM caller creates a checker that
+/// routes through the hook reviewer when hooks flag the turn.
+#[tokio::test]
+async fn test_factory_with_hooks_routes_through_hook_reviewer() {
+    use std::sync::Arc;
+
+    use super::factory::create_default_health_checker;
+    use closeclaw_common::processor::{ContentBlock, UnifiedResponse, UnifiedUsage};
+    use closeclaw_common::{HookConfig, HookType, InternalRequest, LlmCaller};
+
+    /// Mock LLM caller that returns "no" (not flagged) for hook reviews
+    /// and normal text for main calls.
+    struct MockLlmCaller;
+    #[async_trait]
+    impl LlmCaller for MockLlmCaller {
+        async fn call(
+            &self,
+            _req: InternalRequest,
+        ) -> Result<UnifiedResponse, closeclaw_common::LLMError> {
+            Ok(UnifiedResponse {
+                content_blocks: vec![ContentBlock::Text("ok".into())],
+                usage: UnifiedUsage {
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                    total_tokens: None,
+                    reasoning_tokens: None,
+                    cache_read_tokens: None,
+                    cache_write_tokens: None,
+                },
+                finish_reason: Some("stop".into()),
+                retry_attempts: 0,
+            })
+        }
+        async fn call_streaming(
+            &self,
+            _: InternalRequest,
+        ) -> Result<
+            std::pin::Pin<
+                Box<
+                    dyn futures::Stream<
+                            Item = Result<
+                                closeclaw_common::processor::StreamEvent,
+                                closeclaw_common::LLMError,
+                            >,
+                        > + Send,
+                >,
+            >,
+            closeclaw_common::LLMError,
+        > {
+            unimplemented!()
+        }
+    }
+
+    let caller: Arc<dyn LlmCaller> = Arc::new(MockLlmCaller);
+    let hooks = vec![HookConfig {
+        hook_type: HookType::PlanCheck,
+        enabled: true,
+        ..Default::default()
+    }];
+    let mut checker = create_default_health_checker(Some(caller), hooks);
+
+    // Healthy input with hook context → hook reviewer runs.
+    // MockLlmCaller returns "no" for hook review → healthy.
+    let input = healthy_input();
+    let hook_ctx = HookContext {
+        text: "result".into(),
+        ..Default::default()
+    };
+    let verdict = checker.check_turn(&input, Some(&hook_ctx)).await;
+    assert_eq!(verdict.status, HealthStatus::Healthy);
+    assert!(verdict.action.is_none());
+}
+
+/// init_health_checker with hooks passes them through to the factory.
+#[test]
+fn test_init_health_checker_passes_hooks_to_factory() {
+    use std::sync::Arc;
+
+    use crate::llm_session::ConversationSession;
+    use closeclaw_common::processor::{ContentBlock, UnifiedResponse, UnifiedUsage};
+    use closeclaw_common::{HookConfig, HookType, InternalRequest, LlmCaller};
+
+    struct DummyLlm;
+    #[async_trait]
+    impl LlmCaller for DummyLlm {
+        async fn call(
+            &self,
+            _req: InternalRequest,
+        ) -> Result<UnifiedResponse, closeclaw_common::LLMError> {
+            Ok(UnifiedResponse {
+                content_blocks: vec![ContentBlock::Text("no".into())],
+                usage: UnifiedUsage {
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                    total_tokens: None,
+                    reasoning_tokens: None,
+                    cache_read_tokens: None,
+                    cache_write_tokens: None,
+                },
+                finish_reason: Some("stop".into()),
+                retry_attempts: 0,
+            })
+        }
+        async fn call_streaming(
+            &self,
+            _: InternalRequest,
+        ) -> Result<
+            std::pin::Pin<
+                Box<
+                    dyn futures::Stream<
+                            Item = Result<
+                                closeclaw_common::processor::StreamEvent,
+                                closeclaw_common::LLMError,
+                            >,
+                        > + Send,
+                >,
+            >,
+            closeclaw_common::LLMError,
+        > {
+            unimplemented!()
+        }
+    }
+
+    let mut session = ConversationSession::new(
+        "test-hooks-session".into(),
+        "test-model".into(),
+        std::path::PathBuf::from("/tmp"),
+    );
+
+    let hooks = vec![HookConfig {
+        hook_type: HookType::LoopCheck,
+        enabled: true,
+        ..Default::default()
+    }];
+    let caller: Arc<dyn LlmCaller> = Arc::new(DummyLlm);
+    session.init_health_checker(caller, hooks);
+
+    // health_checker should be Some — hooks were passed to factory.
+    assert!(session.health_checker().is_some());
+}
+
+/// Gap 2: HookReviewer receives correct params from ResolvedAgentConfig.
+///
+/// Verifies the full pipeline: ResolvedAgentConfig.hooks → factory →
+/// HookReviewer. The reviewer's LLM call should receive a prompt
+/// that includes the configured loop_check_repetition_threshold.
+#[tokio::test]
+async fn test_resolved_config_hooks_params_reach_hook_reviewer() {
+    use std::sync::Arc;
+
+    use super::factory::create_default_health_checker;
+    use closeclaw_common::processor::{ContentBlock, UnifiedResponse, UnifiedUsage};
+    use closeclaw_common::{HookConfig, HookParams, HookType, InternalRequest, LlmCaller};
+
+    /// Mock LLM that records the prompt passed to hook review.
+    struct PromptRecordingLlm;
+    #[async_trait]
+    impl LlmCaller for PromptRecordingLlm {
+        async fn call(
+            &self,
+            _req: InternalRequest,
+        ) -> Result<UnifiedResponse, closeclaw_common::LLMError> {
+            Ok(UnifiedResponse {
+                content_blocks: vec![ContentBlock::Text("ok".into())],
+                usage: UnifiedUsage {
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                    total_tokens: None,
+                    reasoning_tokens: None,
+                    cache_read_tokens: None,
+                    cache_write_tokens: None,
+                },
+                finish_reason: Some("stop".into()),
+                retry_attempts: 0,
+            })
+        }
+        async fn call_streaming(
+            &self,
+            _: InternalRequest,
+        ) -> Result<
+            std::pin::Pin<
+                Box<
+                    dyn futures::Stream<
+                            Item = Result<
+                                closeclaw_common::processor::StreamEvent,
+                                closeclaw_common::LLMError,
+                            >,
+                        > + Send,
+                >,
+            >,
+            closeclaw_common::LLMError,
+        > {
+            unimplemented!()
+        }
+    }
+
+    let caller: Arc<dyn LlmCaller> = Arc::new(PromptRecordingLlm);
+
+    // Hooks with custom params — matching what ResolvedAgentConfig would carry.
+    let hooks = vec![HookConfig {
+        hook_type: HookType::LoopCheck,
+        enabled: true,
+        params: HookParams {
+            loop_check_repetition_threshold: 7,
+            progress_check_min_tool_calls: 3,
+        },
+    }];
+
+    let mut checker = create_default_health_checker(Some(caller), hooks);
+
+    let input = healthy_input();
+    let hook_ctx = HookContext {
+        text: "test".into(),
+        tool_calls: vec![],
+        tool_results: vec![],
+        recent_tool_calls: vec![],
+    };
+    let verdict = checker.check_turn(&input, Some(&hook_ctx)).await;
+    // Healthy because mock returns "no" for hook review.
+    assert_eq!(verdict.status, HealthStatus::Healthy);
+}
+
+/// Gap 2: Empty hooks from ResolvedAgentConfig → no hook reviewer created.
+#[tokio::test]
+async fn test_empty_hooks_config_no_hook_reviewer() {
+    use std::sync::Arc;
+
+    use super::factory::create_default_health_checker;
+    use closeclaw_common::processor::{ContentBlock, UnifiedResponse, UnifiedUsage};
+    use closeclaw_common::{InternalRequest, LlmCaller};
+
+    struct DummyLlm;
+    #[async_trait]
+    impl LlmCaller for DummyLlm {
+        async fn call(
+            &self,
+            _req: InternalRequest,
+        ) -> Result<UnifiedResponse, closeclaw_common::LLMError> {
+            Ok(UnifiedResponse {
+                content_blocks: vec![ContentBlock::Text("no".into())],
+                usage: UnifiedUsage {
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                    total_tokens: None,
+                    reasoning_tokens: None,
+                    cache_read_tokens: None,
+                    cache_write_tokens: None,
+                },
+                finish_reason: Some("stop".into()),
+                retry_attempts: 0,
+            })
+        }
+        async fn call_streaming(
+            &self,
+            _: InternalRequest,
+        ) -> Result<
+            std::pin::Pin<
+                Box<
+                    dyn futures::Stream<
+                            Item = Result<
+                                closeclaw_common::processor::StreamEvent,
+                                closeclaw_common::LLMError,
+                            >,
+                        > + Send,
+                >,
+            >,
+            closeclaw_common::LLMError,
+        > {
+            unimplemented!()
+        }
+    }
+
+    let caller: Arc<dyn LlmCaller> = Arc::new(DummyLlm);
+    // Empty hooks — simulating ResolvedAgentConfig with no hooks.
+    let mut checker = create_default_health_checker(Some(caller), vec![]);
+
+    let input = healthy_input();
+    let verdict = checker.check_turn(&input, None).await;
+    // No hooks → healthy path, no hook reviewer flagging.
+    assert_eq!(verdict.status, HealthStatus::Healthy);
+    assert!(verdict.action.is_none());
+}

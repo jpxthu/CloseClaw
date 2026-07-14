@@ -31,6 +31,9 @@ mod directory_tests;
 mod resolved_tests;
 
 #[cfg(test)]
+mod resolved_memory_tests;
+
+#[cfg(test)]
 mod permission_provider_tests;
 
 #[cfg(test)]

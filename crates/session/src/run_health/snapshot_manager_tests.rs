@@ -686,3 +686,168 @@ fn test_incremental_snapshot_leaf_entry_id_preserved() {
         _ => panic!("expected Truncate action"),
     }
 }
+
+// =====================================================================
+// Gap 1 — Snapshot lifecycle: Pending → Complete (Step 1.6)
+// =====================================================================
+
+/// After create_snapshot, status must be Pending (not Complete, not cleared).
+#[tokio::test]
+async fn test_snapshot_status_pending_immediately_after_create() {
+    let mut mgr = RuntimeSnapshotManager::new();
+    let _id = mgr
+        .create_snapshot(&[msg("user", "a")], TranscriptOp::Rewrite, "op")
+        .unwrap();
+    // Rollback pops the snapshot — we can verify it existed by
+    // the fact that rollback succeeds.
+    let action = mgr.rollback(&[msg("user", "current")]).unwrap();
+    match action {
+        RollbackAction::Replace { messages } => {
+            assert_eq!(
+                messages[0].content_blocks[0],
+                ContentBlock::Text("a".into())
+            );
+        }
+        _ => panic!("expected Replace"),
+    }
+    // Snapshot was Pending before rollback (rollback pops it regardless of status).
+    // We verify via the RecordingMetaStore that the created meta has Pending status.
+    let store = Arc::new(RecordingMetaStore::new());
+    let mut mgr2 = RuntimeSnapshotManager::new();
+    mgr2.set_meta_store(store.clone());
+    mgr2.create_snapshot(&[msg("user", "b")], TranscriptOp::Rewrite, "test");
+    tokio::task::yield_now().await;
+    // Persisted meta status must be Pending.
+    let meta = store.get_last_meta().unwrap();
+    assert_eq!(meta.status, SnapshotStatus::Pending);
+}
+
+/// mark_complete transitions the snapshot from Pending to Complete.
+#[tokio::test]
+async fn test_mark_complete_transitions_to_complete() {
+    let store = Arc::new(RecordingMetaStore::new());
+    let mut mgr = RuntimeSnapshotManager::new();
+    mgr.set_meta_store(store.clone());
+    let snap_id = mgr
+        .create_snapshot(&[msg("user", "before")], TranscriptOp::Rewrite, "op")
+        .unwrap();
+    // Wait for create_snapshot persistence to complete.
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    assert_eq!(
+        store.get_last_meta().unwrap().status,
+        SnapshotStatus::Pending
+    );
+    // Verify snapshot is in the queue.
+    assert_eq!(mgr.snapshot_count(), 1);
+    // Mark complete.
+    mgr.mark_complete(&snap_id);
+    // Wait for mark_complete persistence to complete.
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    // Persisted meta now shows Complete.
+    let meta = store.get_last_meta().unwrap();
+    assert_eq!(meta.status, SnapshotStatus::Complete);
+}
+
+/// After mark_complete, the snapshot remains in the queue (not removed).
+#[test]
+fn test_mark_complete_keeps_snapshot_in_queue() {
+    let mut mgr = RuntimeSnapshotManager::new();
+    let snap_id = mgr
+        .create_snapshot(&[msg("user", "a")], TranscriptOp::Rewrite, "op")
+        .unwrap();
+    assert_eq!(mgr.snapshot_count(), 1);
+    mgr.mark_complete(&snap_id);
+    // Snapshot still in queue.
+    assert_eq!(mgr.snapshot_count(), 1);
+    // Rollback still works (it was Complete, not cleared).
+    let action = mgr.rollback(&[msg("user", "current")]).unwrap();
+    assert!(matches!(action, RollbackAction::Replace { .. }));
+}
+
+/// Complete snapshots are evicted just like Pending ones when queue exceeds limit.
+#[test]
+fn test_complete_snapshots_evicted_at_limit() {
+    let mut mgr = RuntimeSnapshotManager::new();
+    let mut ids = Vec::new();
+    for i in 0..25 {
+        let id = mgr
+            .create_snapshot(
+                &[msg("user", &format!("m{i}"))],
+                TranscriptOp::Rewrite,
+                "op",
+            )
+            .unwrap();
+        ids.push(id);
+    }
+    assert_eq!(mgr.snapshot_count(), 25);
+    // Mark all as Complete.
+    for id in &ids {
+        mgr.mark_complete(id);
+    }
+    // Add 26th snapshot — oldest Complete (m0) should be evicted.
+    mgr.create_snapshot(&[msg("user", "m25")], TranscriptOp::Rewrite, "op");
+    assert_eq!(mgr.snapshot_count(), 25);
+    // The remaining snapshots should be m1 through m25.
+    // Rollback pops the newest (m25).
+    let action = mgr.rollback(&[msg("user", "m25")]).unwrap();
+    match action {
+        RollbackAction::Replace { messages } => {
+            assert_eq!(
+                messages[0].content_blocks[0],
+                ContentBlock::Text("m25".into())
+            );
+        }
+        _ => panic!("expected Replace"),
+    }
+}
+
+/// Pending → Complete via mark_complete, then rollback succeeds (snapshot not cleared).
+#[test]
+fn test_full_pending_to_complete_to_rollback_flow() {
+    let mut mgr = RuntimeSnapshotManager::new();
+    // Create snapshot of "before" state.
+    let snap_id = mgr
+        .create_snapshot(&[msg("user", "before")], TranscriptOp::Rewrite, "compact")
+        .unwrap();
+    assert_eq!(mgr.snapshot_count(), 1);
+    // Operation succeeds → mark_complete.
+    mgr.mark_complete(&snap_id);
+    assert_eq!(mgr.snapshot_count(), 1);
+    // Later, need to rollback → restore the "before" messages.
+    let action = mgr.rollback(&[msg("user", "current")]).unwrap();
+    match action {
+        RollbackAction::Replace { messages } => {
+            assert_eq!(
+                messages[0].content_blocks[0],
+                ContentBlock::Text("before".into())
+            );
+        }
+        _ => panic!("expected Replace"),
+    }
+    // Pre-rollback snapshot created for undo support.
+    assert_eq!(mgr.snapshot_count(), 1);
+}
+
+/// clear() is only for session destruction; mark_complete is the normal path.
+#[test]
+fn test_clear_differs_from_mark_complete() {
+    let mut mgr = RuntimeSnapshotManager::new();
+    let _snap_id = mgr
+        .create_snapshot(&[msg("user", "a")], TranscriptOp::Rewrite, "op")
+        .unwrap();
+    assert_eq!(mgr.snapshot_count(), 1);
+    // clear removes everything.
+    mgr.clear();
+    assert_eq!(mgr.snapshot_count(), 0);
+    assert!(mgr.rollback(&[]).is_none());
+
+    // Re-create, then mark_complete keeps it.
+    let snap_id2 = mgr
+        .create_snapshot(&[msg("user", "b")], TranscriptOp::Rewrite, "op")
+        .unwrap();
+    mgr.mark_complete(&snap_id2);
+    assert_eq!(mgr.snapshot_count(), 1);
+    // Rollback still works.
+    let action = mgr.rollback(&[msg("user", "current")]).unwrap();
+    assert!(matches!(action, RollbackAction::Replace { .. }));
+}

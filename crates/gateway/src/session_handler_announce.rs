@@ -346,6 +346,16 @@ impl SessionMessageHandler {
         }
     }
 
+    /// Test-only wrapper to expose `handle_recovery_action` for unit tests.
+    #[cfg(test)]
+    pub(super) fn test_handle_recovery_action(
+        session_id: &str,
+        action: RecoverableAction,
+        output_tx: &OutputTx,
+    ) -> bool {
+        Self::handle_recovery_action(session_id, action, output_tx)
+    }
+
     /// Step 1.5: best-effort announce to parent (run-mode child).
     ///
     /// Invoked at the end of `clear_busy_and_send` so a finished
