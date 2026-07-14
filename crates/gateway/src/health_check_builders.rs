@@ -44,15 +44,17 @@ pub(crate) fn build_health_check_input(
         }
     }
 
+    let has_tool_calls = result
+        .content_blocks
+        .iter()
+        .any(|b| matches!(b, ContentBlock::ToolUse { .. }));
+
     HealthCheckInput {
         has_text: result
             .content_blocks
             .iter()
             .any(|b| matches!(b, ContentBlock::Text(_))),
-        has_tool_calls: result
-            .content_blocks
-            .iter()
-            .any(|b| matches!(b, ContentBlock::ToolUse { .. })),
+        has_tool_calls,
         has_thinking: result
             .content_blocks
             .iter()
@@ -61,6 +63,7 @@ pub(crate) fn build_health_check_input(
         turn_duration_ms,
         is_structurally_valid,
         structural_anomaly_detail,
+        side_effect_occurred: has_tool_calls,
     }
 }
 

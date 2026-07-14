@@ -66,6 +66,9 @@ pub enum HardRuleViolation {
         /// Maximum allowed retries.
         max_retries: u32,
     },
+    /// Side effects (tool calls) were executed during this turn, but
+    /// the LLM response was interrupted (no text, no tool calls).
+    SideEffectOccurred,
 }
 
 /// Snapshot of session state at turn boundary, used as input to the
@@ -87,6 +90,10 @@ pub struct HealthCheckInput {
     pub is_structurally_valid: bool,
     /// Optional detail describing a structural anomaly, if any.
     pub structural_anomaly_detail: Option<String>,
+    /// Whether tool calls were executed during this turn (side effects
+    /// occurred). This is set by the gateway layer based on the presence
+    /// of `ToolUse` content blocks in the LLM response.
+    pub side_effect_occurred: bool,
 }
 
 /// Result produced by the health-check pipeline for a single turn.
@@ -115,6 +122,16 @@ pub struct RetryPolicy {
     pub backoff_multiplier: f64,
 }
 
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            initial_delay_ms: 1_000,
+            backoff_multiplier: 2.0,
+        }
+    }
+}
+
 /// Mapping from a hard-rule violation to a failure category.
 ///
 /// This is the canonical mapping used by both the hard-rule engine
@@ -127,6 +144,7 @@ impl From<&HardRuleViolation> for FailureCategory {
             HardRuleViolation::ThinkingOnlyResponse => FailureCategory::InvalidResponse,
             HardRuleViolation::StructuralAnomaly { .. } => FailureCategory::InvalidResponse,
             HardRuleViolation::RetryExhausted { .. } => FailureCategory::Unrecoverable,
+            HardRuleViolation::SideEffectOccurred => FailureCategory::SideEffectOccurred,
         }
     }
 }

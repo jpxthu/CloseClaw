@@ -104,6 +104,26 @@ impl HardRule for RetryExhaustedRule {
     }
 }
 
+/// Rule: tool calls were executed during this turn (side effects
+/// occurred) but the LLM response was interrupted (no text output
+/// and no tool call output).
+///
+/// This catches cases where tools have already been invoked but
+/// the LLM did not produce a complete response, potentially
+/// leaving the session in an inconsistent state.
+pub struct SideEffectOccurredRule;
+
+#[async_trait]
+impl HardRule for SideEffectOccurredRule {
+    async fn check(&self, input: &HealthCheckInput) -> Option<HardRuleViolation> {
+        if input.side_effect_occurred && !input.has_text && !input.has_tool_calls {
+            Some(HardRuleViolation::SideEffectOccurred)
+        } else {
+            None
+        }
+    }
+}
+
 /// Engine that aggregates multiple hard rules.
 ///
 /// Holds a list of rule implementations and evaluates them
