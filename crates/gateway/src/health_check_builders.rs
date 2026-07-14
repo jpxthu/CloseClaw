@@ -13,10 +13,13 @@ use closeclaw_session::run_health::{HealthCheckInput, HookContext, HookToolCallI
 /// Build a [`HealthCheckInput`] from a [`StreamResult`].
 ///
 /// Extracts content-block presence flags and tool-use metadata from
-/// the LLM response. `retry_count` and `turn_duration_ms` are set to
-/// zero because the caller does not currently track them at this
-/// level.
-pub(crate) fn build_health_check_input(result: &StreamResult) -> HealthCheckInput {
+/// the LLM response. `retry_count` and `turn_duration_ms` are
+/// provided by the caller which tracks them at the turn level.
+pub(crate) fn build_health_check_input(
+    result: &StreamResult,
+    retry_count: u32,
+    turn_duration_ms: u64,
+) -> HealthCheckInput {
     let has_text = result
         .content_blocks
         .iter()
@@ -34,8 +37,8 @@ pub(crate) fn build_health_check_input(result: &StreamResult) -> HealthCheckInpu
         has_text,
         has_tool_calls,
         has_thinking,
-        retry_count: 0,
-        turn_duration_ms: 0,
+        retry_count,
+        turn_duration_ms,
         is_structurally_valid: true,
         structural_anomaly_detail: None,
     }
