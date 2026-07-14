@@ -30,6 +30,31 @@ impl ConversationSession {
         self.push_message(role, content_blocks);
     }
 
+    /// Incremental transcript append with an incremental snapshot.
+    ///
+    /// Creates a [`SnapshotKind::Incremental`] snapshot recording the
+    /// given `leaf_entry_id` *before* appending. This enables
+    /// JSONL-truncation rollback for the appended entry.
+    ///
+    /// Returns `true` if a snapshot was created.
+    pub fn append_transcript_with_snapshot(
+        &mut self,
+        role: &str,
+        content_blocks: Vec<ContentBlock>,
+        leaf_entry_id: &str,
+    ) -> bool {
+        let mgr = self
+            .snapshot_manager
+            .get_or_insert_with(RuntimeSnapshotManager::new);
+        let created = mgr.create_incremental_snapshot(
+            &self.messages,
+            &format!("pre-append:{role}"),
+            leaf_entry_id,
+        );
+        self.push_message(role, content_blocks);
+        created
+    }
+
     /// Rollback to the most recent snapshot, if any.
     ///
     /// Returns `Some(RollbackAction)` if a snapshot was restored;
@@ -78,5 +103,30 @@ impl ConversationSession {
                 .get_or_insert_with(RuntimeSnapshotManager::new);
             mgr.create_snapshot(&self.messages, op, reason);
         }
+    }
+
+    /// Extract tool-call info from the last `n` messages.
+    ///
+    /// Scans `self.messages` in reverse, collecting
+    /// [`ToolUse`][ContentBlock::ToolUse] content blocks from each
+    /// message until `n` messages have been visited.  Returns the
+    /// result in chronological order (oldest first).  Tool results
+    /// and thinking blocks are skipped.
+    pub fn recent_tool_calls(&self, n: usize) -> Vec<crate::run_health::HookToolCallInfo> {
+        let mut per_message: Vec<Vec<crate::run_health::HookToolCallInfo>> = Vec::new();
+        for msg in self.messages.iter().rev().take(n) {
+            let mut calls = Vec::new();
+            for block in &msg.content_blocks {
+                if let ContentBlock::ToolUse { name, input, .. } = block {
+                    calls.push(crate::run_health::HookToolCallInfo {
+                        name: name.clone(),
+                        input: input.clone(),
+                    });
+                }
+            }
+            per_message.push(calls);
+        }
+        per_message.reverse();
+        per_message.into_iter().flatten().collect()
     }
 }
