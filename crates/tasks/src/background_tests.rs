@@ -19,7 +19,7 @@ async fn wait_for_completion(mgr: &BackgroundTaskManager, task_id: &str) -> Back
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let snapshot = mgr.get_task(task_id).await.unwrap();
-            if snapshot.state != TaskState::Running {
+            if !matches!(snapshot.state, TaskState::Running { .. }) {
                 return snapshot;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -37,7 +37,7 @@ async fn wait_for_completion(mgr: &BackgroundTaskManager, task_id: &str) -> Back
 async fn test_spawn_returns_running() {
     let (mgr, _tmp) = test_manager();
     let task = mgr.spawn("echo hello", _tmp.path()).await.unwrap();
-    assert_eq!(task.state, TaskState::Running);
+    assert!(matches!(task.state, TaskState::Running { .. }));
 }
 
 // ---------------------------------------------------------------------------
@@ -142,7 +142,7 @@ async fn test_get_task() {
     let s = snapshot.unwrap();
     assert_eq!(s.id, task.id);
     assert_eq!(s.command, "echo hello");
-    assert_eq!(s.state, TaskState::Running);
+    assert!(matches!(s.state, TaskState::Running { .. }));
 }
 
 #[tokio::test]
@@ -290,7 +290,7 @@ async fn test_backgroundize_signature_no_cwd() {
         .await
         .expect("backgroundize(child, command) should succeed");
 
-    assert_eq!(task.state, TaskState::Running);
+    assert!(matches!(task.state, TaskState::Running { .. }));
     assert_eq!(task.command, "true");
     assert!(mgr.is_running(&task.id).await);
 
@@ -360,8 +360,15 @@ async fn test_backgroundize_captures_child_output() {
 
 #[test]
 fn test_task_state_running() {
-    let state = TaskState::Running;
-    assert_eq!(state, TaskState::Running);
+    let state = TaskState::Running {
+        is_backgrounded: false,
+    };
+    assert_eq!(
+        state,
+        TaskState::Running {
+            is_backgrounded: false
+        }
+    );
 }
 
 #[test]
@@ -398,7 +405,9 @@ fn test_task_state_clone() {
 #[test]
 fn test_task_state_debug() {
     let states = [
-        TaskState::Running,
+        TaskState::Running {
+            is_backgrounded: false,
+        },
         TaskState::Completed { exit_code: 0 },
         TaskState::Failed { exit_code: 1 },
         TaskState::Killed,
@@ -411,9 +420,24 @@ fn test_task_state_debug() {
 
 #[test]
 fn test_task_state_equality_distinct_variants() {
-    assert_ne!(TaskState::Running, TaskState::Completed { exit_code: 0 });
-    assert_ne!(TaskState::Running, TaskState::Failed { exit_code: 1 });
-    assert_ne!(TaskState::Running, TaskState::Killed);
+    assert_ne!(
+        TaskState::Running {
+            is_backgrounded: false
+        },
+        TaskState::Completed { exit_code: 0 }
+    );
+    assert_ne!(
+        TaskState::Running {
+            is_backgrounded: false
+        },
+        TaskState::Failed { exit_code: 1 }
+    );
+    assert_ne!(
+        TaskState::Running {
+            is_backgrounded: false
+        },
+        TaskState::Killed
+    );
     assert_ne!(
         TaskState::Completed { exit_code: 0 },
         TaskState::Failed { exit_code: 0 }
@@ -429,12 +453,15 @@ fn test_background_task_fields() {
     let task = BackgroundTask {
         id: "abc-123".to_string(),
         command: "echo hello".to_string(),
-        state: TaskState::Running,
+        state: TaskState::Running {
+            is_backgrounded: false,
+        },
         output_path: PathBuf::from("/tmp/out"),
+        is_backgrounded: false,
     };
     assert_eq!(task.id, "abc-123");
     assert_eq!(task.command, "echo hello");
-    assert_eq!(task.state, TaskState::Running);
+    assert!(matches!(task.state, TaskState::Running { .. }));
     assert_eq!(task.output_path, PathBuf::from("/tmp/out"));
 }
 
@@ -445,6 +472,7 @@ fn test_background_task_clone() {
         command: "ls".to_string(),
         state: TaskState::Completed { exit_code: 0 },
         output_path: PathBuf::from("/tmp/clone"),
+        is_backgrounded: false,
     };
     let cloned = task.clone();
     assert_eq!(cloned.id, task.id);
@@ -458,8 +486,11 @@ fn test_background_task_debug() {
     let task = BackgroundTask {
         id: "debug-id".to_string(),
         command: "pwd".to_string(),
-        state: TaskState::Running,
+        state: TaskState::Running {
+            is_backgrounded: false,
+        },
         output_path: PathBuf::from("/tmp/debug"),
+        is_backgrounded: false,
     };
     let debug = format!("{:?}", task);
     assert!(debug.contains("BackgroundTask"));
@@ -529,6 +560,7 @@ async fn insert_handle(
         output_path: output_path.clone(),
         kill_tx: None,
         notified: false,
+        is_backgrounded: false,
     };
     mgr.tasks.lock().await.insert(task_id.to_owned(), handle);
     output_path
@@ -539,7 +571,15 @@ async fn insert_handle(
 #[tokio::test]
 async fn test_cleanup_finished_removes_terminal_tasks() {
     let (mgr, _tmp) = test_manager();
-    let running_path = insert_handle(&mgr, "t-run", "echo hi", TaskState::Running).await;
+    let running_path = insert_handle(
+        &mgr,
+        "t-run",
+        "echo hi",
+        TaskState::Running {
+            is_backgrounded: false,
+        },
+    )
+    .await;
     let completed_path = insert_handle(
         &mgr,
         "t-completed",
@@ -639,7 +679,15 @@ async fn test_cleanup_finished_failed_removes_output() {
 #[tokio::test]
 async fn test_cleanup_finished_preserves_running_tasks() {
     let (mgr, _tmp) = test_manager();
-    let running_path = insert_handle(&mgr, "run-1", "echo hello", TaskState::Running).await;
+    let running_path = insert_handle(
+        &mgr,
+        "run-1",
+        "echo hello",
+        TaskState::Running {
+            is_backgrounded: false,
+        },
+    )
+    .await;
 
     mgr.cleanup_finished().await;
 
@@ -683,6 +731,7 @@ async fn test_cleanup_finished_cleanup_io_error() {
         output_path: output,
         kill_tx: None,
         notified: false,
+        is_backgrounded: false,
     };
     mgr.tasks.lock().await.insert("io-err".to_owned(), handle);
 

@@ -32,7 +32,7 @@ pub enum BackgroundTaskError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskState {
     /// Process is running.
-    Running,
+    Running { is_backgrounded: bool },
     /// Process exited successfully.
     Completed { exit_code: i32 },
     /// Process exited with a non-zero exit code.
@@ -48,6 +48,7 @@ pub struct BackgroundTask {
     pub command: String,
     pub state: TaskState,
     pub output_path: PathBuf,
+    pub is_backgrounded: bool,
 }
 
 /// Notification delivery priority.
@@ -90,6 +91,7 @@ pub(crate) struct TaskHandle {
     pub(crate) output_path: PathBuf,
     pub(crate) kill_tx: Option<oneshot::Sender<()>>,
     pub(crate) notified: bool,
+    pub(crate) is_backgrounded: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +137,7 @@ impl BackgroundTaskManager {
         let task_id = Uuid::new_v4().to_string();
         let output_path = prepare_task_dir(&self.temp_dir, &task_id).await?;
 
-        insert_initial_handle(&self.tasks, &task_id, command, &output_path).await;
+        insert_initial_handle(&self.tasks, &task_id, command, &output_path, false).await;
 
         stuck_detect::start_stuck_detection(
             task_id.clone(),
@@ -158,7 +160,7 @@ impl BackgroundTaskManager {
             run_shell_command(&cmd, &cwd, &out, &shared, &tid, &notifs).await;
         });
 
-        Ok(make_public_task(&task_id, command, &output_path))
+        Ok(make_public_task(&task_id, command, &output_path, false))
     }
 
     /// Take over a running child process.
@@ -173,7 +175,7 @@ impl BackgroundTaskManager {
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
 
-        insert_initial_handle(&self.tasks, &task_id, command, &output_path).await;
+        insert_initial_handle(&self.tasks, &task_id, command, &output_path, false).await;
 
         stuck_detect::start_stuck_detection(
             task_id.clone(),
@@ -194,7 +196,7 @@ impl BackgroundTaskManager {
             backgroundize_process(child, stdout, stderr, &out, &shared, &tid, &notifs).await;
         });
 
-        Ok(make_public_task(&task_id, command, &output_path))
+        Ok(make_public_task(&task_id, command, &output_path, false))
     }
 }
 
@@ -206,7 +208,7 @@ impl BackgroundTaskManager {
             .get_mut(task_id)
             .ok_or_else(|| BackgroundTaskError::NotFound(task_id.to_owned()))?;
 
-        if handle.state != TaskState::Running {
+        if !matches!(handle.state, TaskState::Running { .. }) {
             return Err(BackgroundTaskError::NotRunning(task_id.to_owned()));
         }
 
@@ -221,7 +223,7 @@ impl BackgroundTaskManager {
     pub async fn is_running(&self, task_id: &str) -> bool {
         let map = lock_map(&self.tasks).await;
         map.get(task_id)
-            .is_some_and(|h| h.state == TaskState::Running)
+            .is_some_and(|h| matches!(h.state, TaskState::Running { .. }))
     }
 
     /// Retrieve a snapshot of the current task state.
@@ -232,6 +234,7 @@ impl BackgroundTaskManager {
             command: h.command.clone(),
             state: h.state.clone(),
             output_path: h.output_path.clone(),
+            is_backgrounded: h.is_backgrounded,
         })
     }
 
@@ -529,25 +532,38 @@ async fn prepare_task_dir(temp_dir: &Path, task_id: &str) -> Result<PathBuf, Bac
     Ok(dir.join("output"))
 }
 
-async fn insert_initial_handle(tasks: &TaskMap, task_id: &str, command: &str, output_path: &Path) {
+async fn insert_initial_handle(
+    tasks: &TaskMap,
+    task_id: &str,
+    command: &str,
+    output_path: &Path,
+    is_backgrounded: bool,
+) {
     let handle = TaskHandle {
         id: task_id.to_owned(),
         command: command.to_owned(),
-        state: TaskState::Running,
+        state: TaskState::Running { is_backgrounded },
         output_path: output_path.to_path_buf(),
         kill_tx: None,
         notified: false,
+        is_backgrounded,
     };
     let mut map = lock_map(tasks).await;
     map.insert(task_id.to_owned(), handle);
 }
 
-fn make_public_task(task_id: &str, command: &str, output_path: &Path) -> BackgroundTask {
+fn make_public_task(
+    task_id: &str,
+    command: &str,
+    output_path: &Path,
+    is_backgrounded: bool,
+) -> BackgroundTask {
     BackgroundTask {
         id: task_id.to_owned(),
         command: command.to_owned(),
-        state: TaskState::Running,
+        state: TaskState::Running { is_backgrounded },
         output_path: output_path.to_path_buf(),
+        is_backgrounded,
     }
 }
 
