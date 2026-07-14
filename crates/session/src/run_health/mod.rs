@@ -12,12 +12,14 @@
 //! - **Unhealthy handler** — maps failure categories to recovery
 //!   actions (retry with backoff, notify user, stop).
 
+pub mod checker;
 pub mod hard_rules;
 pub mod health_types;
 pub mod hook_reviewer;
 pub mod snapshot_manager;
 pub mod unhealthy_handler;
 
+pub use checker::{RunHealthChecker, RunHealthVerdict};
 pub use hard_rules::{
     EmptyResponseRule, HardRule, HardRuleEngine, RetryExhaustedRule, StructuralAnomalyRule,
     TimeoutRule,
@@ -29,9 +31,14 @@ pub use health_types::{
 pub use hook_reviewer::{
     hook_prompt_template, HookConfig, HookLlmProvider, HookReviewer, HookType, HookVerdict,
 };
-pub use snapshot_manager::{RuntimeSnapshotManager, Snapshot, TranscriptOp};
+pub use snapshot_manager::{
+    RollbackAction, RuntimeSnapshotManager, Snapshot, SnapshotKind, SnapshotMeta,
+    SnapshotMetaStore, SnapshotStatus, TranscriptOp,
+};
 pub use unhealthy_handler::{BackoffCounter, UnhealthyHandler};
 
+#[cfg(test)]
+mod checker_tests;
 #[cfg(test)]
 mod hard_rules_tests;
 #[cfg(test)]

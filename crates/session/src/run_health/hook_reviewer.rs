@@ -8,6 +8,7 @@
 
 use async_trait::async_trait;
 pub use closeclaw_common::{HookConfig, HookType};
+use futures::future::join_all;
 
 use super::health_types::HookContext;
 
@@ -84,17 +85,32 @@ impl HookReviewer {
     /// configured, returns an empty list. Hook verdicts are returned
     /// in configuration order.
     pub async fn review(&self, snapshot: &HookContext) -> Vec<HookVerdict> {
-        let mut verdicts = Vec::new();
+        let enabled_with_index: Vec<(usize, &HookConfig)> = self
+            .hooks
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.enabled)
+            .collect();
 
-        for config in &self.hooks {
-            if !config.enabled {
-                continue;
-            }
-            let verdict = self.run_hook(&config.hook_type, snapshot).await;
-            verdicts.push(verdict);
+        if enabled_with_index.is_empty() {
+            return Vec::new();
         }
 
-        verdicts
+        let futures: Vec<_> = enabled_with_index
+            .iter()
+            .map(|(_, config)| self.run_hook(&config.hook_type, snapshot))
+            .collect();
+
+        let results = join_all(futures).await;
+
+        let mut indexed: Vec<(usize, HookVerdict)> = results
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| (enabled_with_index[i].0, v))
+            .collect();
+        indexed.sort_by_key(|(idx, _)| *idx);
+
+        indexed.into_iter().map(|(_, v)| v).collect()
     }
 
     /// Execute a single hook against the turn snapshot.

@@ -6,6 +6,7 @@ pub mod announce_sweeper;
 mod announce_sweeper_tests;
 pub mod approval;
 pub mod card_action;
+pub(crate) mod health_check_builders;
 #[cfg(test)]
 mod im_adapter;
 pub mod inbound_queue;

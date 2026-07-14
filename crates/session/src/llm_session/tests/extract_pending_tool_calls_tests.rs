@@ -6,6 +6,7 @@
 
 use super::super::*;
 use crate::persistence::PendingOperationType;
+use crate::run_health::TranscriptOp;
 use closeclaw_common::ContentBlock;
 
 // ── helpers ──────────────────────────────────────────────────────────────
@@ -14,10 +15,10 @@ fn make_session(id: &str) -> ConversationSession {
     ConversationSession::new(id.to_string(), "gpt-4o".to_string(), tmp_path())
 }
 
-/// Append an assistant message with the given content blocks via
-/// `replace_messages` so we have full control over message history.
+/// Set messages on the session via `apply_transcript_op` for full
+/// control over message history.
 fn set_messages(session: &mut ConversationSession, msgs: Vec<SessionMessage>) {
-    session.replace_messages(msgs);
+    session.apply_transcript_op(TranscriptOp::Rewrite, msgs);
 }
 
 fn assistant_msg(blocks: Vec<ContentBlock>) -> SessionMessage {
