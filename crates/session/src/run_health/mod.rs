@@ -16,6 +16,7 @@ pub mod checker;
 pub mod hard_rules;
 pub mod health_types;
 pub mod hook_reviewer;
+pub mod llm_caller_hook_provider;
 pub mod snapshot_manager;
 pub mod unhealthy_handler;
 
@@ -32,6 +33,7 @@ pub use hook_reviewer::{
     build_review_prompt, hook_prompt_template, HookConfig, HookLlmProvider, HookParams,
     HookReviewer, HookType, HookVerdict,
 };
+pub use llm_caller_hook_provider::LlmCallerHookProvider;
 pub use snapshot_manager::{
     PersistenceMetaStore, RollbackAction, RuntimeSnapshotManager, Snapshot, SnapshotKind,
     SnapshotMeta, SnapshotMetaStore, SnapshotStatus, TranscriptOp,
@@ -46,6 +48,8 @@ mod hard_rules_tests;
 mod health_types_tests;
 #[cfg(test)]
 mod hook_reviewer_tests;
+#[cfg(test)]
+mod llm_caller_hook_provider_tests;
 #[cfg(test)]
 mod snapshot_manager_tests;
 #[cfg(test)]
