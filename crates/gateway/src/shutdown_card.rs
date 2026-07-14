@@ -477,6 +477,67 @@ mod tests {
     use super::*;
     use closeclaw_llm::session_state::LlmState;
 
+    /// Build the start notification card JSON for a given mode.
+    /// Extracted from `send_shutdown_start_notification` for testability.
+    fn build_start_notification_card(mode: ShutdownMode) -> serde_json::Value {
+        let header_title = if mode == ShutdownMode::Graceful {
+            "\u{23f3} \u{6b63}\u{5728}\u{4f18}\u{96c5}\u{5173}\u{95ed}..."
+        } else {
+            "\u{26a0}\u{fe0f} \u{5f3a}\u{5236}\u{5173}\u{95ed}\u{4e2d}..."
+        };
+        let body = if mode == ShutdownMode::Graceful {
+            "\u{7cfb}\u{7edf}\u{6b63}\u{5728}\u{4f18}\u{96c5}\u{5173}\u{95ed}\u{ff0c}drain \u{7ed3}\u{675f}\u{540e}\u{5c06}\u{5c55}\u{793a} session \u{8fdb}\u{5ea6}\u{8be6}\u{60c5}\u{3002}"
+        } else {
+            "\u{7cfb}\u{7edf}\u{6b63}\u{5728}\u{5f3a}\u{5236}\u{5173}\u{95ed}\u{ff0c}\u{672a}\u{5b8c}\u{6210}\u{7684}\u{64cd}\u{4f5c}\u{53ef}\u{80fd}\u{9700}\u{8981}\u{624b}\u{52a8}\u{6062}\u{590d}\u{3002}"
+        };
+
+        let mut elements: Vec<serde_json::Value> = vec![json!({
+            "tag": "div",
+            "text": json!({
+                "tag": "lark_md",
+                "content": body
+            })
+        })];
+
+        if mode == ShutdownMode::Graceful {
+            elements.push(json!({
+                "tag": "action",
+                "actions": [
+                    json!({
+                        "tag": "button",
+                        "text": json!({
+                            "tag": "plain_text",
+                            "content": "\u{7ee7}\u{7eed}\u{7b49}\u{5f85}"
+                        }),
+                        "type": "default",
+                        "disabled": true
+                    }),
+                    json!({
+                        "tag": "button",
+                        "text": json!({
+                            "tag": "plain_text",
+                            "content": "\u{5f3a}\u{5236}\u{5173}\u{95ed}"
+                        }),
+                        "type": "danger",
+                        "value": {"action": "forceful_shutdown"}
+                    })
+                ]
+            }));
+        }
+
+        json!({
+            "config": { "wide_screen_mode": true },
+            "header": json!({
+                "title": json!({
+                    "tag": "plain_text",
+                    "content": header_title
+                }),
+                "template": if mode == ShutdownMode::Graceful { "blue" } else { "red" }
+            }),
+            "elements": elements
+        })
+    }
+
     // ── build_session_status_label tests ──────────────────────────────────────
 
     /// Running tool with name and input shows tool details.
@@ -566,5 +627,138 @@ mod tests {
         assert!(label.starts_with("\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}tool "));
         // Should not panic on multi-byte truncation
         assert!(label.len() > 0);
+    }
+
+    // ── send_shutdown_start_notification card content tests ─────────────────
+
+    /// Graceful mode start notification has blue header and body mentioning
+    /// "drain" and "session 进度详情".
+    #[test]
+    fn test_start_notification_graceful_card_content() {
+        let card = build_start_notification_card(ShutdownMode::Graceful);
+
+        // Header should be blue
+        assert_eq!(card["header"]["template"], "blue");
+        // Title should mention 优雅关闭
+        let title = card["header"]["title"]["content"].as_str().unwrap();
+        assert!(title.contains("\u{4f18}\u{96c5}\u{5173}\u{95ed}"));
+
+        // Body should mention drain and session 进度详情
+        let body = card["elements"][0]["text"]["content"].as_str().unwrap();
+        assert!(body.contains("drain"));
+        assert!(body.contains("session"));
+        assert!(body.contains("\u{8fdb}\u{5ea6}\u{8be6}\u{60c5}"));
+
+        // Should have action buttons (Continue waiting + Force close)
+        let actions = card["elements"][1]["actions"].as_array().unwrap();
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0]["type"], "default");
+        assert_eq!(actions[1]["type"], "danger");
+    }
+
+    /// Forceful mode start notification has red header, no action buttons,
+    /// and body mentions 强制关闭.
+    #[test]
+    fn test_start_notification_forceful_card_content() {
+        let card = build_start_notification_card(ShutdownMode::Forceful);
+
+        // Header should be red
+        assert_eq!(card["header"]["template"], "red");
+        // Title should mention 强制关闭
+        let title = card["header"]["title"]["content"].as_str().unwrap();
+        assert!(title.contains("\u{5f3a}\u{5236}\u{5173}\u{95ed}"));
+
+        // Body should mention 强制关闭
+        let body = card["elements"][0]["text"]["content"].as_str().unwrap();
+        assert!(body.contains("\u{5f3a}\u{5236}\u{5173}\u{95ed}"));
+
+        // Should NOT have action buttons (only 1 element: the body div)
+        assert_eq!(card["elements"].as_array().unwrap().len(), 1);
+    }
+
+    /// Start notification card is brief — no per-session status details.
+    #[test]
+    fn test_start_notification_no_session_details() {
+        let card_graceful = build_start_notification_card(ShutdownMode::Graceful);
+        let card_forceful = build_start_notification_card(ShutdownMode::Forceful);
+
+        // Neither card should contain session IDs or per-session status
+        let body_g = card_graceful["elements"][0]["text"]["content"]
+            .as_str()
+            .unwrap();
+        let body_f = card_forceful["elements"][0]["text"]["content"]
+            .as_str()
+            .unwrap();
+
+        // No session- prefix (session IDs look like "session-1" etc.)
+        assert!(!body_g.contains("session-"));
+        assert!(!body_f.contains("session-"));
+        // No tool execution details
+        assert!(!body_g.contains("\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}"));
+        assert!(!body_f.contains("\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}"));
+        // No LLM streaming details
+        assert!(!body_g.contains("LLM"));
+        assert!(!body_f.contains("LLM"));
+    }
+
+    // ── Progress card tool display behavior tests ───────────────────────────
+
+    /// When a tool is running with name "make" and input "build --release",
+    /// the session status label shows tool name and truncated input.
+    #[test]
+    fn test_progress_card_tool_display_format() {
+        let tool_info = vec![("make".to_string(), "build --release".to_string())];
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        // Must match design doc format: "工具执行中：make build --release"
+        assert_eq!(
+            label,
+            "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}make build --release"
+        );
+    }
+
+    /// When no tools are running and LLM is idle, label is "已就绪"
+    /// (not "工具执行中").
+    #[test]
+    fn test_progress_card_no_tool_shows_idle_not_tool_executing() {
+        let tool_info: Vec<(String, String)> = Vec::new();
+        let label = build_session_status_label(false, &tool_info, LlmState::Idle);
+        assert_eq!(label, "\u{5df2}\u{5c31}\u{7eea}");
+        assert!(!label.contains("\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}"));
+    }
+
+    /// Tool name with empty input: shows tool name only, no trailing space.
+    #[test]
+    fn test_progress_card_tool_empty_input_no_trailing_space() {
+        let tool_info = vec![("web_search".to_string(), "".to_string())];
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        assert_eq!(
+            label,
+            "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}web_search"
+        );
+        // No trailing space after tool name
+        assert!(!label.ends_with(' '));
+    }
+
+    /// Tool with exactly 30-char input: no truncation, no "..." suffix.
+    #[test]
+    fn test_progress_card_tool_input_exactly_30_chars_no_truncation() {
+        let input = "a".repeat(30);
+        let tool_info = vec![("exec".to_string(), input.clone())];
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        assert!(label.contains(&input));
+        assert!(!label.ends_with("..."));
+    }
+
+    /// Tool with 31-char input: truncated to 30 chars + "...".
+    #[test]
+    fn test_progress_card_tool_input_31_chars_truncated() {
+        let input = "b".repeat(31);
+        let tool_info = vec![("exec".to_string(), input)];
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        assert!(label.ends_with("..."));
+        // The brief part before "..." should be 30 chars
+        let suffix = "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}exec ";
+        let brief = &label[suffix.len()..label.len() - 3];
+        assert_eq!(brief.len(), 30);
     }
 }
