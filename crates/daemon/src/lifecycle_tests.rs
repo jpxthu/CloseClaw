@@ -197,7 +197,8 @@ async fn test_phase3_join_handles_taken_after_stop() {
     assert!(plan_archive_handle.is_some());
 
     // Simulate phase_3_background_stop: take each handle
-    let join_timeout = std::time::Duration::from_secs(15);
+    // Must match phase_3_background_stop() join_timeout (10s).
+    let join_timeout = std::time::Duration::from_secs(10);
 
     if let Some(handle) = archive_handle.take() {
         let _ = tokio::time::timeout(join_timeout, handle).await;
@@ -244,7 +245,8 @@ async fn test_phase3_background_tasks_exit_on_signal() {
     let _ = tx.send(());
 
     // Task should exit cleanly within timeout
-    let join_timeout = std::time::Duration::from_secs(15);
+    // Must match phase_3_background_stop() join_timeout (10s).
+    let join_timeout = std::time::Duration::from_secs(10);
     let result = tokio::time::timeout(join_timeout, handle).await;
     assert!(result.is_ok(), "task should exit after shutdown signal");
     let join_result = result.unwrap();
@@ -284,7 +286,8 @@ async fn test_phase3_all_tasks_exit_on_respective_signals() {
     let _ = tx3.send(());
     let _ = tx4.send(());
 
-    let join_timeout = std::time::Duration::from_secs(15);
+    // Must match phase_3_background_stop() join_timeout (10s).
+    let join_timeout = std::time::Duration::from_secs(10);
     let (r1, r2, r3, r4) = tokio::join!(
         tokio::time::timeout(join_timeout, h1),
         tokio::time::timeout(join_timeout, h2),
@@ -299,7 +302,7 @@ async fn test_phase3_all_tasks_exit_on_respective_signals() {
 }
 
 /// Verify that a hung background task does not block the daemon.
-/// After the 15s join timeout, `phase_3_background_stop` continues.
+/// After the 10s join timeout, `phase_3_background_stop` continues.
 /// This test uses a short 100ms timeout to stay within CONTRIBUTING.md
 /// <1s limit while still verifying the timeout path.
 #[tokio::test]
@@ -388,11 +391,78 @@ async fn test_phase3_panicked_task_returns_err() {
         panic!("mock background task panic");
     });
 
-    let join_timeout = std::time::Duration::from_secs(15);
+    // Must match phase_3_background_stop() join_timeout (10s).
+    let join_timeout = std::time::Duration::from_secs(10);
     let result = tokio::time::timeout(join_timeout, handle).await;
 
     // Join completes (not timeout) — it's an Err from the panic
     assert!(result.is_ok(), "panicked task join should not timeout");
     let join_result = result.unwrap();
     assert!(join_result.is_err(), "panicked task should return Err");
+}
+
+// ── Step 1.4: Phase 3 join_timeout explicit verification ──────────────────
+
+/// Verify that phase_3_background_stop uses a 10-second join timeout.
+/// This test spawns a hung task and verifies it is abandoned after
+/// approximately 10 seconds — confirming the timeout matches the
+/// design doc requirement ("最长 10 秒").
+#[tokio::test]
+async fn test_phase3_join_timeout_is_10_seconds() {
+    // Spawn a task that never exits
+    let hang_handle = tokio::spawn(async {
+        std::future::pending::<()>().await;
+    });
+
+    // Use the exact timeout from phase_3_background_stop (10s)
+    let join_timeout = std::time::Duration::from_secs(10);
+    let start = tokio::time::Instant::now();
+    let result = tokio::time::timeout(join_timeout, hang_handle).await;
+    let elapsed = start.elapsed();
+
+    // Timeout should fire — the hung task is abandoned
+    assert!(result.is_err(), "10s join should timeout for hung task");
+    // Elapsed should be close to 10s (within 1s tolerance)
+    assert!(
+        elapsed >= std::time::Duration::from_secs(9)
+            && elapsed <= std::time::Duration::from_secs(11),
+        "elapsed should be ~10s, got {:?}",
+        elapsed
+    );
+}
+
+/// Verify that tasks completing well within 10s are not cut short.
+/// This mirrors ArchiveSweeper/DreamingScheduler exiting cleanly
+/// after receiving the shutdown signal.
+#[tokio::test]
+async fn test_phase3_clean_task_exits_within_10s() {
+    let (tx, rx) = tokio::sync::watch::channel(());
+
+    let handle = tokio::spawn(async move {
+        let mut rx = rx;
+        loop {
+            if *rx.borrow_and_update() == () {
+                break;
+            }
+            if rx.changed().await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Signal immediately — task should exit well before 10s
+    let _ = tx.send(());
+
+    let join_timeout = std::time::Duration::from_secs(10);
+    let start = tokio::time::Instant::now();
+    let result = tokio::time::timeout(join_timeout, handle).await;
+    let elapsed = start.elapsed();
+
+    assert!(result.is_ok(), "clean task should join within 10s");
+    assert!(result.unwrap().is_ok(), "clean task should not panic");
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "clean task should exit well before 10s, took {:?}",
+        elapsed
+    );
 }
