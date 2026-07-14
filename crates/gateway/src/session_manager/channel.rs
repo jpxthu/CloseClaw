@@ -8,6 +8,7 @@ use super::SessionManager;
 use crate::Session;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{SessionCheckpoint, SessionStatus};
+use closeclaw_session::run_health::PersistenceMetaStore;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -64,6 +65,14 @@ impl SessionManager {
             conv_session.set_system_prompt_builder(builder);
         }
         conv_session.set_prompt_overrides(self.get_prompt_overrides().await);
+        // Inject snapshot meta store for persistence.
+        if let Some(cm) = self.checkpoint_manager.read().await.as_ref() {
+            let meta_store = Arc::new(PersistenceMetaStore::new(
+                Arc::clone(cm.storage_arc()),
+                session_id.clone(),
+            ));
+            conv_session.set_snapshot_meta_store(meta_store);
+        }
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
             conv_sessions.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));

@@ -114,8 +114,7 @@ pub struct ConversationSession {
     /// each parent turn. Not persisted across process restarts.
     announce_queue: Vec<AnnounceEvent>,
     /// Per-session append-section items, managed by `/system` subcommand.
-    /// Persisted in `SessionCheckpoint::system_appends` so archived
-    /// sessions restore their append list intact.
+    /// Persisted in `SessionCheckpoint::system_appends`.
     system_appends: Vec<String>,
     /// LLM interaction state. See [`super::session_state`].
     pub llm_state: Arc<RwLock<LlmState>>,
@@ -124,8 +123,7 @@ pub struct ConversationSession {
     /// Per-child session states. See [`super::session_state`].
     pub child_states: Arc<RwLock<HashMap<String, ChildSessionState>>>,
     /// When this session was created (Unix timestamp, seconds).
-    /// Used by `build_dynamic_sections` as the ChannelContext timestamp
-    /// so that system-prompt KV-cache prefix stays stable across turns.
+    /// Used by `build_dynamic_sections` as the ChannelContext timestamp.
     created_at: i64,
     /// Tool process kill handles. See [`super::session_handles`].
     pub tool_handles: Arc<RwLock<HashMap<String, Arc<dyn KillHandle>>>>,
@@ -136,31 +134,23 @@ pub struct ConversationSession {
     pub cancel_token: CancellationToken,
     /// `stop()` idempotency flag. See [`super::session_handles`].
     pub stopped: Arc<AtomicBool>,
-    /// Per-session snapshot manager for transcript rollback safety.
-    /// Created lazily on first rewrite/partial-rewrite operation.
+    /// Per-session snapshot manager for transcript rollback safety, created lazily.
     snapshot_manager: Option<RuntimeSnapshotManager>,
     /// Per-session health checker (Arc<Mutex> for Clone compat).
     health_checker: Option<Arc<tokio::sync::Mutex<RunHealthChecker>>>,
-    /// Active-yield flag. When `true`, the session is in主动 Waiting
-    /// state (entered via `sessions_yield`). User messages are queued
-    /// until the session resumes. Passive Waiting (spawn without yield)
-    /// does not set this flag.
+    /// Active-yield flag. When `true`, the session is in主动 Waiting state
+    /// (entered via `sessions_yield`). User messages are queued until resume.
     is_yielding: Arc<AtomicBool>,
     /// Communication configuration for spawned child sessions.
     /// When set, restricts which agents the child may communicate with.
     communication_config: Option<CommunicationConfig>,
     /// Bootstrap mode cached from AgentRegistry at session creation.
-    /// Determines which bootstrap files are loaded when rebuilding
-    /// the system prompt. Defaults to [`BootstrapMode::Full`].
+    /// Defaults to [`BootstrapMode::Full`].
     bootstrap_mode: crate::bootstrap::loader::BootstrapMode,
-    /// Per-session memory-injection slot.
-    /// Written by the active-searcher async task, consumed and cleared
-    /// by the session owner when assembling the next message list.
+    /// Per-session memory-injection slot, managed by active-searcher.
     /// Not persisted across process restarts.
     memory_injection: Arc<Mutex<Option<MemoryInjection>>>,
-    /// Last activity timestamp (Unix seconds) — updated on every message
-    /// push or state mutation.  Used by the shutdown progress card to
-    /// display accurate "elapsed since last activity" instead of session age.
+    /// Last activity timestamp (Unix seconds) — updated on every mutation.
     last_activity_at: i64,
     /// Shutdown handle for busy-count tracking during tool execution.
     shutdown_handle: Option<Arc<dyn closeclaw_common::ShutdownSignal>>,
@@ -185,8 +175,7 @@ pub struct ConversationSession {
     /// Set via [`set_prompt_overrides`](Self::set_prompt_overrides) after construction.
     prompt_overrides: Option<PromptOverrides>,
     /// Manual backgrounding signal. When notified, foreground commands
-    /// being executed should be moved to background. Triggered by the
-    /// user via an interface action (e.g. keyboard shortcut).
+    /// being executed should be moved to background.
     pub manual_background_signal: Arc<tokio::sync::Notify>,
 }
 
@@ -369,6 +358,18 @@ impl ConversationSession {
     /// apply overrides when rebuilding its system prompt.
     pub fn set_prompt_overrides(&mut self, overrides: Option<PromptOverrides>) {
         self.prompt_overrides = overrides;
+    }
+
+    /// Set the snapshot meta store for persisting snapshot metadata.
+    /// Creates the snapshot manager lazily if not already present.
+    pub fn set_snapshot_meta_store(
+        &mut self,
+        store: Arc<dyn crate::run_health::SnapshotMetaStore>,
+    ) {
+        let mgr = self
+            .snapshot_manager
+            .get_or_insert_with(RuntimeSnapshotManager::new);
+        mgr.set_meta_store(store);
     }
 
     /// Get a clone of the shutdown handle, if set.

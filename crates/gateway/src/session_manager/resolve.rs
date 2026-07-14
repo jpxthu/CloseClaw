@@ -11,7 +11,7 @@ use closeclaw_common::processor::ProcessError;
 use closeclaw_session::bootstrap::loader::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{SessionCheckpoint, SessionStatus};
-use closeclaw_session::run_health::TranscriptOp;
+use closeclaw_session::run_health::{PersistenceMetaStore, TranscriptOp};
 use closeclaw_session::workspace;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -172,6 +172,14 @@ impl SessionManager {
                             conv_session
                                 .rebuild_system_prompt(&session_id, &agent_id, Some(bootstrap_mode))
                                 .await;
+                            // Inject snapshot meta store for persistence.
+                            if let Some(cm) = self.checkpoint_manager.read().await.as_ref() {
+                                let meta_store = Arc::new(PersistenceMetaStore::new(
+                                    Arc::clone(cm.storage_arc()),
+                                    session_id.clone(),
+                                ));
+                                conv_session.set_snapshot_meta_store(meta_store);
+                            }
                             {
                                 let mut cs = self.conversation_sessions.write().await;
                                 cs.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
@@ -412,6 +420,14 @@ impl SessionManager {
         conv_session
             .rebuild_system_prompt(&session_id, &agent_id, Some(bootstrap_mode))
             .await;
+        // Inject snapshot meta store for persistence.
+        if let Some(cm) = self.checkpoint_manager.read().await.as_ref() {
+            let meta_store = Arc::new(PersistenceMetaStore::new(
+                Arc::clone(cm.storage_arc()),
+                session_id.clone(),
+            ));
+            conv_session.set_snapshot_meta_store(meta_store);
+        }
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
             conv_sessions.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
