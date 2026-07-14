@@ -125,6 +125,7 @@ fn spawn_result() -> SpawnValidationResult {
             disallowed_tools: vec![],
             subagents: closeclaw_config::agents::SubagentsConfig::default(),
             memory: closeclaw_config::agents::MemoryConfig::default(),
+            hooks: Vec::new(),
             source: closeclaw_config::agents::ConfigSource::User,
         },
         effective_max_spawn_depth: 5,

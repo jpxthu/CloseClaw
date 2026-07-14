@@ -495,6 +495,6 @@ fn test_init_health_checker_sets_health_checker() {
 
     // After init_health_checker, health_checker() should return Some.
     let caller: Arc<dyn LlmCaller> = Arc::new(DummyLlm);
-    session.init_health_checker(caller);
+    session.init_health_checker(caller, vec![]);
     assert!(session.health_checker().is_some());
 }

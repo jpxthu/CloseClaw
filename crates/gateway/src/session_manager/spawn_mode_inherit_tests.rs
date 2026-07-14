@@ -26,6 +26,7 @@ fn test_resolved_config(id: &str) -> ResolvedAgentConfig {
         disallowed_tools: vec![],
         subagents: Default::default(),
         memory: MemoryConfig::default(),
+        hooks: Vec::new(),
         source: ConfigSource::Merged,
     }
 }
