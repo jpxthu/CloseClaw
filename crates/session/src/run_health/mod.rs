@@ -32,8 +32,8 @@ pub use hook_reviewer::{
     hook_prompt_template, HookConfig, HookLlmProvider, HookReviewer, HookType, HookVerdict,
 };
 pub use snapshot_manager::{
-    RollbackAction, RuntimeSnapshotManager, Snapshot, SnapshotKind, SnapshotMeta,
-    SnapshotMetaStore, SnapshotStatus, TranscriptOp,
+    PersistenceMetaStore, RollbackAction, RuntimeSnapshotManager, Snapshot, SnapshotKind,
+    SnapshotMeta, SnapshotMetaStore, SnapshotStatus, TranscriptOp,
 };
 pub use unhealthy_handler::{BackoffCounter, UnhealthyHandler};
 

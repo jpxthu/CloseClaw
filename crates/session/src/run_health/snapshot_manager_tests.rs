@@ -403,18 +403,15 @@ impl SnapshotMetaStore for CountingMetaStore {
     }
 }
 
-#[test]
-fn test_meta_store_called_on_snapshot_creation() {
+#[tokio::test]
+async fn test_meta_store_called_on_snapshot_creation() {
     let store = Arc::new(CountingMetaStore::new());
     let mut mgr = RuntimeSnapshotManager::new();
     mgr.set_meta_store(store.clone());
-    // Note: create_snapshot does NOT currently call the meta store
-    // because the store is set after creation. This tests that the
-    // store is wired up correctly (no panic, count stays 0).
     mgr.create_snapshot(&[msg("user", "a")], TranscriptOp::Rewrite, "test");
-    // The meta_store is set, but create_snapshot doesn't persist yet
-    // (persistence is a responsibility of the gateway layer).
-    assert_eq!(store.save_count.load(Ordering::SeqCst), 0);
+    // Give the spawned task time to complete.
+    tokio::task::yield_now().await;
+    assert_eq!(store.save_count.load(Ordering::SeqCst), 1);
 }
 
 // =====================================================================
