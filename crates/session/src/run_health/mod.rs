@@ -12,12 +12,14 @@
 //! - **Unhealthy handler** — maps failure categories to recovery
 //!   actions (retry with backoff, notify user, stop).
 
+pub mod checker;
 pub mod hard_rules;
 pub mod health_types;
 pub mod hook_reviewer;
 pub mod snapshot_manager;
 pub mod unhealthy_handler;
 
+pub use checker::{RunHealthChecker, RunHealthVerdict};
 pub use hard_rules::{
     EmptyResponseRule, HardRule, HardRuleEngine, RetryExhaustedRule, StructuralAnomalyRule,
     TimeoutRule,

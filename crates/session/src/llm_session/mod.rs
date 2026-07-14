@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::persistence::{ReasoningLevel, SessionMode};
-use crate::run_health::RuntimeSnapshotManager;
+use crate::run_health::{RunHealthChecker, RuntimeSnapshotManager};
 use crate::spawn::CommunicationConfig;
 use closeclaw_common::RunningStats;
 use closeclaw_common::StreamingSink;
@@ -53,6 +53,7 @@ pub use session_chat::ChatSession;
 
 mod session_exec;
 mod session_handles;
+mod session_health;
 mod session_llm;
 pub mod streaming_assembly;
 pub mod transcript_ops;
@@ -138,6 +139,8 @@ pub struct ConversationSession {
     /// Per-session snapshot manager for transcript rollback safety.
     /// Created lazily on first rewrite/partial-rewrite operation.
     snapshot_manager: Option<RuntimeSnapshotManager>,
+    /// Per-session health checker (Arc<Mutex> for Clone compat).
+    health_checker: Option<Arc<tokio::sync::Mutex<RunHealthChecker>>>,
     /// Active-yield flag. When `true`, the session is in主动 Waiting
     /// state (entered via `sessions_yield`). User messages are queued
     /// until the session resumes. Passive Waiting (spawn without yield)
@@ -221,6 +224,7 @@ impl ConversationSession {
             cancel_token: CancellationToken::new(),
             stopped: Arc::new(AtomicBool::new(false)),
             snapshot_manager: None,
+            health_checker: None,
             is_yielding: Arc::new(AtomicBool::new(false)),
             communication_config: None,
             bootstrap_mode: crate::bootstrap::loader::BootstrapMode::Full,
@@ -971,6 +975,10 @@ impl std::fmt::Debug for ConversationSession {
                     .memory_injection
                     .lock()
                     .expect("memory_injection lock poisoned"),
+            )
+            .field(
+                "health_checker",
+                &self.health_checker.as_ref().map(|_| "<HC>"),
             )
             .field("manual_background_signal", &"<Notify>")
             .finish()
