@@ -16,6 +16,8 @@
 - **User**：CloseClaw 的最终使用者，含 Owner 和非 Owner User
 - **Agent**：AI Agent，系统的另一类使用者（通过工具和 prompt 与系统交互）
 
+**命名约定**：模块名、产品名、技术专有名词保留英文原文，不翻译。
+
 ## 文件组织
 
 ```
