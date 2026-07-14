@@ -74,6 +74,7 @@ pub(crate) fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> Reso
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
         memory: MemoryConfig::default(),
+        hooks: Vec::new(),
         source: ConfigSource::Merged,
     }
 }

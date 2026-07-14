@@ -103,7 +103,7 @@ pub async fn create_child_conversation_session(
     .with_reasoning_level(ctx.default_reasoning_level())
     .with_bootstrap_mode(bootstrap_mode);
 
-    wire_session_dependencies(ctx, &mut cs);
+    wire_session_dependencies(ctx, &mut cs, config.hooks.clone());
 
     let spawn_context = build_spawn_context(
         params.depth,
@@ -179,14 +179,18 @@ async fn derive_child_token(
 }
 
 /// Wire cross-cutting dependencies onto the session: shutdown handle,
-/// LLM caller, system prompt builder, and prompt overrides.
-fn wire_session_dependencies(ctx: &dyn SpawnCreationContext, cs: &mut ConversationSession) {
+/// LLM caller, system prompt builder, prompt overrides, and health hooks.
+fn wire_session_dependencies(
+    ctx: &dyn SpawnCreationContext,
+    cs: &mut ConversationSession,
+    agent_hooks: Vec<closeclaw_common::HookConfig>,
+) {
     if let Some(signal) = ctx.shutdown_signal() {
         cs.set_shutdown_handle(signal);
     }
     if let Some(caller) = ctx.llm_caller() {
         cs.set_llm_caller(caller.clone());
-        cs.init_health_checker(caller);
+        cs.init_health_checker(caller, agent_hooks);
     }
     if let Some(builder) = ctx.system_prompt_builder() {
         cs.set_system_prompt_builder(builder);

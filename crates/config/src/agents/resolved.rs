@@ -33,7 +33,7 @@ use std::path::PathBuf;
 
 use crate::agents::config_types::{AgentConfig, MemoryConfig, ModelSpec, SubagentsConfig};
 use crate::ConfigError;
-use closeclaw_common::BootstrapMode;
+use closeclaw_common::{BootstrapMode, HookConfig};
 
 /// Configuration source level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +77,8 @@ pub struct ResolvedAgentConfig {
     pub disallowed_tools: Vec<String>,
     pub subagents: SubagentsConfig,
     pub memory: crate::agents::config_types::MemoryConfig,
+    /// Run-health hook review configuration.
+    pub hooks: Vec<HookConfig>,
     /// Which configuration level this was resolved from.
     pub source: ConfigSource,
 }
@@ -171,6 +173,7 @@ impl ResolvedAgentConfig {
             disallowed_tools: config.disallowed_tools,
             subagents: apply_subagent_defaults(config.subagents),
             memory,
+            hooks: config.hooks,
             source,
         })
     }
@@ -236,6 +239,7 @@ impl ResolvedAgentConfig {
                 user.disallowed_tools,
             ),
             subagents: merge_subagents(project.subagents, user.subagents),
+            hooks: override_if_non_empty(project.hooks, user.hooks),
             memory: {
                 // Three-layer merge: global (base) → user (middle) → project (top)
                 let base = global_memory.cloned().unwrap_or_default();

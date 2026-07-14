@@ -274,12 +274,13 @@ impl RuntimeSnapshotManager {
         messages: &[SessionMessage],
         op: TranscriptOp,
         reason: &str,
-    ) -> bool {
+    ) -> Option<String> {
         if !op.requires_snapshot() {
-            return false;
+            return None;
         }
+        let id = Uuid::new_v4().to_string();
         let snapshot = Snapshot {
-            id: Uuid::new_v4().to_string(),
+            id: id.clone(),
             reason: reason.to_string(),
             messages: messages.to_vec(),
             op,
@@ -299,7 +300,7 @@ impl RuntimeSnapshotManager {
             self.snapshots.pop_front();
         }
         self.snapshots.push_back(snapshot);
-        true
+        Some(id)
     }
 
     /// Mark a snapshot as [`SnapshotStatus::Complete`].
@@ -398,9 +399,10 @@ impl RuntimeSnapshotManager {
         messages: &[SessionMessage],
         reason: &str,
         leaf_entry_id: &str,
-    ) -> bool {
+    ) -> Option<String> {
+        let id = Uuid::new_v4().to_string();
         let snapshot = Snapshot {
-            id: Uuid::new_v4().to_string(),
+            id: id.clone(),
             reason: reason.to_string(),
             messages: messages.to_vec(),
             op: TranscriptOp::Append,
@@ -422,7 +424,7 @@ impl RuntimeSnapshotManager {
             self.snapshots.pop_front();
         }
         self.snapshots.push_back(snapshot);
-        true
+        Some(id)
     }
 
     /// Clear all snapshots without restoring.

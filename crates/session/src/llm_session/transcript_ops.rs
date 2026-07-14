@@ -42,17 +42,17 @@ impl ConversationSession {
         role: &str,
         content_blocks: Vec<ContentBlock>,
         leaf_entry_id: &str,
-    ) -> bool {
+    ) -> Option<String> {
         let mgr = self
             .snapshot_manager
             .get_or_insert_with(RuntimeSnapshotManager::new);
-        let created = mgr.create_incremental_snapshot(
+        let snapshot_id = mgr.create_incremental_snapshot(
             &self.messages,
             &format!("pre-append:{role}"),
             leaf_entry_id,
         );
         self.push_message(role, content_blocks);
-        created
+        snapshot_id
     }
 
     /// Rollback to the most recent snapshot, if any.
@@ -96,12 +96,27 @@ impl ConversationSession {
     /// replacing messages. Used by pre-compaction and pre-rewrite
     /// paths that need a backup before a separate operation modifies
     /// the transcript.
-    pub fn snapshot_current_state(&mut self, op: TranscriptOp, reason: &str) {
+    ///
+    /// Returns the snapshot id if a snapshot was created, `None`
+    /// otherwise (e.g. for [`Append`] operations).
+    pub fn snapshot_current_state(&mut self, op: TranscriptOp, reason: &str) -> Option<String> {
         if op.requires_snapshot() {
             let mgr = self
                 .snapshot_manager
                 .get_or_insert_with(RuntimeSnapshotManager::new);
-            mgr.create_snapshot(&self.messages, op, reason);
+            mgr.create_snapshot(&self.messages, op, reason)
+        } else {
+            None
+        }
+    }
+
+    /// Mark a snapshot as [`SnapshotStatus::Complete`].
+    ///
+    /// Used after a guarded operation (compaction, `/system` rewrite)
+    /// succeeds to transition the snapshot from `Pending` to `Complete`.
+    pub fn mark_complete_snapshot(&mut self, snapshot_id: &str) {
+        if let Some(mgr) = self.snapshot_manager.as_mut() {
+            mgr.mark_complete(snapshot_id);
         }
     }
 

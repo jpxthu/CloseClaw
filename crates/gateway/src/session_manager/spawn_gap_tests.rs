@@ -30,6 +30,7 @@ fn test_resolved_config(id: &str) -> ResolvedAgentConfig {
         disallowed_tools: vec![],
         subagents: closeclaw_config::agents::SubagentsConfig::default(),
         memory: MemoryConfig::default(),
+        hooks: Vec::new(),
         source: ConfigSource::Merged,
     }
 }

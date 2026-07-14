@@ -26,6 +26,7 @@ use crate::session_manager::SessionManager;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::llm_session::ChatSession;
+use closeclaw_session::run_health::RecoverableAction;
 use closeclaw_tasks::NotificationPriority;
 use tokio::time::Instant;
 
@@ -53,7 +54,7 @@ impl SessionMessageHandler {
         let turn_metrics = TurnMetrics {
             turn_duration_ms: turn_start.elapsed().as_millis() as u64,
         };
-        Self::clear_busy_and_send(
+        let skip_drain = Self::clear_busy_and_send(
             session_manager,
             session_id,
             result,
@@ -63,7 +64,16 @@ impl SessionMessageHandler {
         )
         .await;
 
-        // Step 1.5: Check if session is yielding (sessions_yield called).
+        // Step 1.5: Skip drain if recovery action or session yielding.
+        if skip_drain {
+            tracing::info!(
+                session_id = %session_id,
+                "finish_llm: recovery action requested stop, skipping pending drain"
+            );
+            return;
+        }
+
+        // Check if session is yielding (sessions_yield called).
         // If yielding, skip draining pending messages — the turn ends here.
         // Pending messages will be processed after the session resumes.
         if Self::is_session_yielding(session_manager, session_id).await {
@@ -103,6 +113,8 @@ impl SessionMessageHandler {
         }
     }
 
+    /// Returns `true` if the caller should skip `drain_pending_loop`
+    /// (recovery action requested a stop).
     async fn clear_busy_and_send(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
@@ -110,12 +122,13 @@ impl SessionMessageHandler {
         turn_metrics: TurnMetrics,
         output_tx: &OutputTx,
         metrics_emitter: &Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
-    ) {
+    ) -> bool {
         if let Some(cs) = session_manager.get_conversation_session(session_id).await {
             let cs = cs.write().await;
             cs.set_llm_busy(false);
             cs.set_llm_state(LlmState::Idle);
         }
+        let mut skip_drain = false;
         match result {
             Ok(stream_result) => {
                 // Append response to session message history. `append_response`
@@ -145,6 +158,7 @@ impl SessionMessageHandler {
                     cs_write.accumulate_usage(&stream_result.usage);
 
                     // Run health check at turn boundary.
+                    let mut recovery_action = None;
                     if let Some(checker_arc) = cs_write.health_checker() {
                         let input = crate::health_check_builders::build_health_check_input(
                             &stream_result,
@@ -164,7 +178,14 @@ impl SessionMessageHandler {
                                 action = ?verdict.action,
                                 "health check: unhealthy turn detected"
                             );
+                            recovery_action = verdict.action;
                         }
+                    }
+                    drop(cs_write);
+
+                    // Handle recovery actions from health check.
+                    if let Some(action) = recovery_action {
+                        skip_drain = Self::handle_recovery_action(session_id, action, output_tx);
                     }
                 }
                 let text = stream_result
@@ -187,6 +208,7 @@ impl SessionMessageHandler {
         }
         // Step 1.5: best-effort announce to parent (run-mode child).
         Self::maybe_push_announce(session_manager, session_id).await;
+        skip_drain
     }
 
     async fn drain_pending_loop(
@@ -253,7 +275,7 @@ impl SessionMessageHandler {
             let turn_metrics = TurnMetrics {
                 turn_duration_ms: turn_start.elapsed().as_millis() as u64,
             };
-            Self::clear_busy_and_send(
+            let skip_drain = Self::clear_busy_and_send(
                 session_manager,
                 session_id,
                 result,
@@ -262,7 +284,76 @@ impl SessionMessageHandler {
                 metrics_emitter,
             )
             .await;
+            if skip_drain {
+                tracing::info!(
+                    session_id = %session_id,
+                    "drain_pending_loop: recovery action requested stop, breaking drain loop"
+                );
+                break;
+            }
         }
+    }
+
+    /// Handle a recovery action from the health check pipeline.
+    ///
+    /// Returns `true` if the caller should skip `drain_pending_loop`.
+    fn handle_recovery_action(
+        session_id: &str,
+        action: RecoverableAction,
+        output_tx: &OutputTx,
+    ) -> bool {
+        match action {
+            RecoverableAction::NotifyUser { message } => {
+                tracing::warn!(
+                    session_id,
+                    message = %message,
+                    "health check: sending recovery notification to user"
+                );
+                let output_tx = output_tx.clone();
+                let msg = message.clone();
+                tokio::spawn(async move {
+                    let guard = output_tx.read().await;
+                    if let Some(tx) = guard.as_ref() {
+                        let _ = tx.send((msg, vec![])).await;
+                    }
+                });
+                false
+            }
+            RecoverableAction::Stop { reason } => {
+                tracing::warn!(
+                    session_id,
+                    reason = %reason,
+                    "health check: Stop action — skipping pending drain"
+                );
+                true
+            }
+            RecoverableAction::Retry {
+                delay_ms,
+                instruction,
+            } => {
+                // TODO: Implement retry with backoff. Requires session execution
+                // loop integration — retry involves re-invoking LLM with optional
+                // instruction injection and backoff delay, which is beyond gateway
+                // layer scope. Track with follow-up issue.
+                tracing::warn!(
+                    session_id,
+                    delay_ms,
+                    instruction = ?instruction,
+                    "health check: Retry action — not yet implemented (TODO)"
+                );
+                false
+            }
+        }
+    }
+
+    /// Test-only wrapper to expose `handle_recovery_action` for unit tests.
+    #[cfg(test)]
+    pub(super) fn test_handle_recovery_action(
+        session_id: &str,
+        action: RecoverableAction,
+        output_tx: &OutputTx,
+    ) -> bool {
+        Self::handle_recovery_action(session_id, action, output_tx)
     }
 
     /// Step 1.5: best-effort announce to parent (run-mode child).

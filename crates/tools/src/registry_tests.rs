@@ -529,6 +529,7 @@ fn make_agent_config(
         disallowed_tools,
         subagents: Default::default(),
         memory: MemoryConfig::default(),
+        hooks: Vec::new(),
         source: ConfigSource::User,
     }
 }

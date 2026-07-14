@@ -47,6 +47,7 @@ mod tests {
                     disallowed_tools: vec![],
                     subagents: Default::default(),
                     memory: MemoryConfig::default(),
+                    hooks: Vec::new(),
                     source: ConfigSource::Merged,
                 },
                 effective_max_spawn_depth: 10,

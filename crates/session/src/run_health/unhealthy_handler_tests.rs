@@ -168,12 +168,18 @@ fn handler_unrecoverable_immediately_notifies_user() {
 }
 
 #[test]
-fn handler_side_effect_stops_without_user_notification() {
+fn handler_side_effect_notifies_user_for_verification() {
     let mut handler = UnhealthyHandler::new(policy(3, 100, 2.0));
     let action = handler
         .handle(&output_with_category(FailureCategory::SideEffectOccurred))
         .unwrap();
-    assert!(matches!(action, RecoverableAction::Stop { .. }));
+    match action {
+        RecoverableAction::NotifyUser { message } => {
+            assert!(message.contains("user verification"));
+            assert!(message.contains("No rollback"));
+        }
+        _ => panic!("Expected NotifyUser, got {action:?}"),
+    }
 }
 
 #[test]

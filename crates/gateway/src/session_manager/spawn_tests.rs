@@ -32,6 +32,7 @@ fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> ResolvedAgentCo
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
         memory: MemoryConfig::default(),
+        hooks: Vec::new(),
         source: ConfigSource::Merged,
     }
 }
@@ -443,6 +444,7 @@ async fn test_create_child_session_allowed_tools_override() {
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
         memory: MemoryConfig::default(),
+        hooks: Vec::new(),
         source: ConfigSource::Merged,
     };
 

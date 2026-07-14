@@ -391,7 +391,8 @@ impl SessionMessageHandler {
                 return;
             }
         }
-        self.session_manager
+        let snapshot_id = self
+            .session_manager
             .save_pre_compaction_snapshot(session_id)
             .await;
         let cpt = self
@@ -415,6 +416,7 @@ impl SessionMessageHandler {
             &self.compaction_service,
             session_id,
             result,
+            snapshot_id.as_deref(),
         )
         .await;
     }
@@ -528,11 +530,12 @@ fn find_context_window_for_model(knowledge: &ProviderModelKnowledge, model: &str
 /// Replace session messages with boundary message on compaction.
 ///
 /// Follows the design doc pipeline: replace messages → rebuild system
-/// prompt → persist checkpoint → clear snapshot.
+/// prompt → persist checkpoint → mark snapshot complete.
 pub(crate) async fn apply_compact_result(
     sm: &Arc<SessionManager>,
     session_id: &str,
     result: &CompactionResult,
+    snapshot_id: Option<&str>,
 ) {
     let Some(cs) = sm.get_conversation_session(session_id).await else {
         return;
@@ -555,9 +558,12 @@ pub(crate) async fn apply_compact_result(
     // system prompt is a runtime field not in the checkpoint, so
     // rebuilding first does not affect data consistency.
     sm.save_checkpoint_after_compact(session_id).await;
-    // Clear the pre-compaction snapshot — compaction succeeded, so
-    // the backup is no longer needed.
-    sm.clear_pre_compaction_snapshot(session_id).await;
+    // Mark the pre-compaction snapshot as complete — compaction
+    // succeeded, so the snapshot is retained for potential rollback
+    // rather than being cleared.
+    if let Some(sid) = snapshot_id {
+        sm.complete_pre_compaction_snapshot(session_id, sid).await;
+    }
 }
 
 pub(crate) async fn send_output(output_tx: &OutputTx, text: &str) {
@@ -647,7 +653,7 @@ async fn run_manual_compact(
     stats: RunningStats,
 ) {
     // Save a snapshot before compaction so we can rollback on failure.
-    sm.save_pre_compaction_snapshot(&sid).await;
+    let snapshot_id = sm.save_pre_compaction_snapshot(&sid).await;
     let cpt = svc
         .lock()
         .expect("compaction_service poisoned")
@@ -665,7 +671,7 @@ async fn run_manual_compact(
     .await;
     match result {
         Ok(r) => {
-            apply_compact_result(&sm, &sid, &r).await;
+            apply_compact_result(&sm, &sid, &r, snapshot_id.as_deref()).await;
             send_output(&output_tx, &r.message).await;
             svc.lock()
                 .expect("compaction_service poisoned")
@@ -687,10 +693,11 @@ async fn finalize_auto_compact(
     svc: &Arc<std::sync::Mutex<CompactionService>>,
     session_id: &str,
     result: Result<CompactionResult, closeclaw_session::compaction::CompactionError>,
+    snapshot_id: Option<&str>,
 ) {
     match result {
         Ok(r) => {
-            apply_compact_result(sm, session_id, &r).await;
+            apply_compact_result(sm, session_id, &r, snapshot_id).await;
             svc.lock()
                 .expect("compaction_service poisoned")
                 .record_success();

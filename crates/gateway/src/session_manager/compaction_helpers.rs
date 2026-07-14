@@ -69,20 +69,23 @@ impl SessionManager {
     ///
     /// Delegates to the session's internal snapshot manager — no
     /// external snapshot management needed.
-    pub async fn save_pre_compaction_snapshot(&self, session_id: &str) {
+    ///
+    /// Returns the snapshot id if a snapshot was created, or `None`
+    /// if the session was not found.
+    pub async fn save_pre_compaction_snapshot(&self, session_id: &str) -> Option<String> {
         let conv_sessions = self.conversation_sessions.read().await;
         let Some(cs) = conv_sessions.get(session_id) else {
             warn!(
                 session_id = %session_id,
                 "save_pre_compaction_snapshot: session not found"
             );
-            return;
+            return None;
         };
         let mut cs = cs.write().await;
         cs.snapshot_current_state(
             closeclaw_session::run_health::TranscriptOp::Rewrite,
             "pre-compaction",
-        );
+        )
     }
 
     /// Rollback a failed compaction by restoring the pre-compaction
@@ -104,36 +107,39 @@ impl SessionManager {
         cs.rollback_transcript().is_some()
     }
 
-    /// Clear the pre-compaction snapshot after a successful compaction.
-    pub async fn clear_pre_compaction_snapshot(&self, session_id: &str) {
+    /// Mark the pre-compaction snapshot as complete after a
+    /// successful compaction.
+    ///
+    /// The snapshot is retained in the bounded queue for potential
+    /// future rollback, rather than being cleared. Old snapshots are
+    /// evicted automatically when the queue exceeds `MAX_SNAPSHOTS`.
+    pub async fn complete_pre_compaction_snapshot(&self, session_id: &str, snapshot_id: &str) {
         let conv_sessions = self.conversation_sessions.read().await;
         if let Some(cs) = conv_sessions.get(session_id) {
             let mut cs = cs.write().await;
-            cs.clear_snapshots();
+            cs.mark_complete_snapshot(snapshot_id);
         }
     }
 
     /// Create a partial-rewrite snapshot for a session.
     ///
     /// Called before `/system` modifications (add or clear) to capture
-    /// the current transcript state. Returns `true` if a snapshot was
-    /// created, `false` if the operation was a no-op.
-    pub async fn create_partial_rewrite_snapshot(&self, session_id: &str) -> bool {
+    /// the current transcript state. Returns the snapshot id if a
+    /// snapshot was created, or `None` if the session was not found.
+    pub async fn create_partial_rewrite_snapshot(&self, session_id: &str) -> Option<String> {
         let conv_sessions = self.conversation_sessions.read().await;
         let Some(cs) = conv_sessions.get(session_id) else {
             warn!(
                 session_id = %session_id,
                 "create_partial_rewrite_snapshot: session not found"
             );
-            return false;
+            return None;
         };
         let mut cs = cs.write().await;
-        let prev_count = cs.snapshot_count().unwrap_or(0);
         cs.snapshot_current_state(
             closeclaw_session::run_health::TranscriptOp::PartialRewrite,
             "system-prompt-update",
-        );
-        cs.snapshot_count().unwrap_or(0) > prev_count
+        )
     }
 
     /// Returns the snapshot count for a session, or `None` if no
