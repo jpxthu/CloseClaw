@@ -6,7 +6,6 @@
 
 use std::sync::Arc;
 
-use crate::session_manager::stop::DEFAULT_GRACEFUL_TIMEOUT;
 use crate::slash_executor::{
     ReplyAction, SideEffectContext, SlashEffectExecutor, SlashResultExecutor,
 };
@@ -643,10 +642,25 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         } else {
             ShutdownMode::Graceful
         };
-        let result = self
+        let mut result = self
             .session_manager
-            .stop_single_session(session_id, mode, DEFAULT_GRACEFUL_TIMEOUT, cascade)
+            .stop_single_session(session_id, mode, cascade)
             .await;
+
+        // If graceful was interrupted by forceful escalation, retry with forceful mode.
+        if let Err(crate::session_manager::stop::StopError::Failed) = &result {
+            if mode == ShutdownMode::Graceful {
+                tracing::info!(
+                    session_id = %session_id,
+                    "graceful stop interrupted by escalation, retrying with forceful mode"
+                );
+                result = self
+                    .session_manager
+                    .stop_single_session(session_id, ShutdownMode::Forceful, cascade)
+                    .await;
+            }
+        }
+
         match result {
             Ok(r) if r._completed => {
                 tracing::info!(

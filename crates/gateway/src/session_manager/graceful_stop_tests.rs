@@ -16,11 +16,10 @@
 //! unit tests; this file verifies the integration through
 //! `stop_all_sessions`.
 
-use crate::session_manager::stop::DEFAULT_GRACEFUL_TIMEOUT;
 use crate::session_manager::test_helpers::{register_child_only, setup_parent_with_conv};
 use crate::session_manager::SessionManager;
 use crate::Session;
-use closeclaw_common::shutdown::ShutdownMode;
+use closeclaw_common::shutdown::{ShutdownMode, ShutdownSignal};
 use closeclaw_llm::session_state::{LlmState, ToolExecState};
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::llm_session::{ChatSession, ConversationSession};
@@ -206,9 +205,7 @@ async fn test_graceful_stop_streaming_with_tool_calls() {
     )
     .await;
 
-    let result = mgr
-        .stop_all_sessions(ShutdownMode::Graceful, None, DEFAULT_GRACEFUL_TIMEOUT)
-        .await;
+    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
     assert!(
         result.succeeded >= 2,
         "expected >= 2 succeeded, got {:?}",
@@ -240,9 +237,7 @@ async fn test_graceful_stop_streaming_no_tool_calls() {
     )
     .await;
 
-    let result = mgr
-        .stop_all_sessions(ShutdownMode::Graceful, None, DEFAULT_GRACEFUL_TIMEOUT)
-        .await;
+    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
     assert!(result.succeeded >= 2);
     // Sessions remain in tracking tables after stop (Step 1.1).
     assert!(mgr.has_session(&child_id).await);
@@ -258,9 +253,7 @@ async fn test_graceful_stop_idle() {
     setup_child_with_conv(&mgr, parent_id, child_id).await;
 
     // Default: LlmState::Idle, no tools running.
-    let result = mgr
-        .stop_all_sessions(ShutdownMode::Graceful, None, DEFAULT_GRACEFUL_TIMEOUT)
-        .await;
+    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
     assert!(result.succeeded >= 2);
     // Sessions remain in tracking tables after stop (Step 1.1).
     assert!(mgr.has_session(&child_id).await);
@@ -304,9 +297,7 @@ async fn test_graceful_stop_tool_running() {
         tools.remove("tool_1");
     });
 
-    let result = mgr
-        .stop_all_sessions(ShutdownMode::Graceful, None, DEFAULT_GRACEFUL_TIMEOUT)
-        .await;
+    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
     assert!(result.succeeded >= 2);
     // Sessions remain in tracking tables after stop (Step 1.1).
     assert!(mgr.has_session(&child_id).await);
@@ -326,9 +317,7 @@ async fn test_forceful_stop_unchanged() {
     set_tool_state(&mgr, child_id, "tool_f", ToolExecState::RunningForeground).await;
 
     let start = tokio::time::Instant::now();
-    let result = mgr
-        .stop_all_sessions(ShutdownMode::Forceful, None, DEFAULT_GRACEFUL_TIMEOUT)
-        .await;
+    let result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
     let elapsed = start.elapsed();
 
     assert!(result.succeeded >= 2);
@@ -367,7 +356,7 @@ async fn test_forceful_mock_stops_streaming_immediately() {
     let start = tokio::time::Instant::now();
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        mgr.stop_all_sessions(ShutdownMode::Graceful, None, DEFAULT_GRACEFUL_TIMEOUT),
+        mgr.stop_all_sessions(ShutdownMode::Graceful, None),
     )
     .await;
     let elapsed = start.elapsed();
@@ -420,7 +409,7 @@ async fn test_escalation_propagation_across_levels() {
     // ── run with timeout to detect hangs ─────────────────────────────
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        mgr.stop_all_sessions(ShutdownMode::Graceful, None, DEFAULT_GRACEFUL_TIMEOUT),
+        mgr.stop_all_sessions(ShutdownMode::Graceful, None),
     )
     .await;
 
@@ -441,38 +430,35 @@ async fn test_escalation_propagation_across_levels() {
 
 // ── Step 1.2: GracefulTimeoutInfo field verification ─────────────────
 
+/// Forceful escalation during LLM streaming interrupts graceful wait.
 #[tokio::test]
-async fn test_graceful_timeout_populates_info_fields() {
+async fn test_graceful_escalation_interrupts_streaming_info() {
     let mgr = make_test_session_manager();
-    let parent_id = "parent-timeout-fields";
+    let parent_id = "parent-escalate-fields";
     setup_parent_with_conv(&mgr, parent_id).await;
-    let child_id = "child-timeout-fields";
+    let child_id = "child-escalate-fields";
     setup_child_with_conv(&mgr, parent_id, child_id).await;
     set_llm_state(&mgr, child_id, LlmState::Receiving).await;
-    let result = mgr
-        .stop_all_sessions(
-            ShutdownMode::Graceful,
-            None,
-            std::time::Duration::from_millis(100),
-        )
-        .await;
-    assert!(!result.graceful_timeouts.is_empty());
-    let info = &result.graceful_timeouts[0];
-    assert_eq!(info.session_id, child_id);
-    assert!(!info.waiting_items.is_empty());
-    assert!(info
-        .waiting_items
-        .iter()
-        .any(|s| s.contains("LLM streaming")));
-    assert!(info.elapsed >= std::time::Duration::from_millis(50));
+
+    let mock = install_mock_handle(&mgr, false).await;
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        mock.escalate_to_forceful();
+    });
+
+    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
+    assert!(result.total() >= 1);
+    assert!(result.failed >= 1, "escalation should fail the session");
+    assert!(result.graceful_timeouts.is_empty());
 }
 
+/// Forceful escalation during tool running interrupts graceful wait.
 #[tokio::test]
-async fn test_graceful_timeout_tool_listed_in_waiting_items() {
+async fn test_graceful_escalation_interrupts_tool_info() {
     let mgr = make_test_session_manager();
-    let parent_id = "parent-timeout-tool";
+    let parent_id = "parent-escalate-tool-info";
     setup_parent_with_conv(&mgr, parent_id).await;
-    let child_id = "child-timeout-tool";
+    let child_id = "child-escalate-tool-info";
     setup_child_with_conv(&mgr, parent_id, child_id).await;
     set_tool_state(
         &mgr,
@@ -481,30 +467,78 @@ async fn test_graceful_timeout_tool_listed_in_waiting_items() {
         ToolExecState::RunningForeground,
     )
     .await;
-    let result = mgr
-        .stop_all_sessions(
-            ShutdownMode::Graceful,
-            None,
-            std::time::Duration::from_millis(100),
-        )
-        .await;
-    assert!(!result.graceful_timeouts.is_empty());
-    assert!(result.graceful_timeouts[0]
-        .waiting_items
-        .iter()
-        .any(|s| s.contains("long_tool")));
+
+    let mock = install_mock_handle(&mgr, false).await;
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        mock.escalate_to_forceful();
+    });
+
+    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
+    assert!(result.total() >= 1);
+    assert!(result.failed >= 1, "escalation should fail the session");
+    assert!(result.graceful_timeouts.is_empty());
 }
 
+/// Idle session stops immediately.
 #[tokio::test]
 async fn test_graceful_idle_no_timeout_info() {
     let mgr = make_test_session_manager();
     setup_parent_with_conv(&mgr, "parent-idle-no-timeout").await;
-    let result = mgr
-        .stop_all_sessions(
-            ShutdownMode::Graceful,
-            None,
-            std::time::Duration::from_millis(200),
-        )
-        .await;
+    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
     assert!(result.graceful_timeouts.is_empty());
+}
+
+// ── Escalation interrupt tests ─────────────────────────────────────────
+
+/// Forceful escalation interrupts graceful wait for streaming session.
+#[tokio::test]
+async fn test_graceful_escalation_interrupts_streaming() {
+    let mgr = make_test_session_manager();
+    let parent_id = "parent-escalate-stream";
+    setup_parent_with_conv(&mgr, parent_id).await;
+    let child_id = "child-escalate-stream";
+    setup_child_with_conv(&mgr, parent_id, child_id).await;
+    set_llm_state(&mgr, child_id, LlmState::Receiving).await;
+
+    // Install mock starting as graceful
+    let mock = install_mock_handle(&mgr, false).await;
+
+    // Spawn escalation after 150ms
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        mock.escalate_to_forceful();
+    });
+
+    let r = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
+    // Session failed due to escalation — should not hang
+    assert!(r.total() >= 1);
+    assert!(r.failed >= 1, "escalation should fail the session");
+}
+
+/// Forceful escalation interrupts graceful wait for running tool.
+#[tokio::test]
+async fn test_graceful_escalation_interrupts_tool_running() {
+    let mgr = make_test_session_manager();
+    let parent_id = "parent-escalate-tool";
+    setup_parent_with_conv(&mgr, parent_id).await;
+    let child_id = "child-escalate-tool";
+    setup_child_with_conv(&mgr, parent_id, child_id).await;
+    set_tool_state(
+        &mgr,
+        child_id,
+        "tool永不结束",
+        ToolExecState::RunningForeground,
+    )
+    .await;
+
+    let mock = install_mock_handle(&mgr, false).await;
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        mock.escalate_to_forceful();
+    });
+
+    let r = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
+    assert!(r.total() >= 1);
+    assert!(r.failed >= 1, "escalation should fail the session");
 }

@@ -110,7 +110,6 @@ impl SessionManager {
                 .stop_single_session(
                     child_id,
                     closeclaw_common::shutdown::ShutdownMode::Forceful,
-                    Duration::from_secs(5),
                     true, // cascade
                 )
                 .await

@@ -18,9 +18,6 @@ use closeclaw_common::shutdown::ShutdownMode;
 
 use super::SessionManager;
 
-/// Default graceful shutdown timeout.
-pub const DEFAULT_GRACEFUL_TIMEOUT: Duration = Duration::from_secs(30);
-
 // ── progress reporting ──────────────────────────────────────────────────
 
 /// Progress event emitted by [`SessionManager::stop_all_sessions`]
@@ -66,7 +63,6 @@ impl SessionManager {
         &self,
         mode: ShutdownMode,
         progress_tx: Option<&tokio::sync::mpsc::Sender<StopProgress>>,
-        graceful_timeout: Duration,
     ) -> StopResult {
         let tree = self.build_stop_tree().await;
         let stop_order = stop_order_from_tree(&tree);
@@ -91,7 +87,6 @@ impl SessionManager {
                     &mut result,
                     progress_tx,
                     total_sessions.saturating_sub(processed),
-                    graceful_timeout,
                 )
                 .await;
             processed += count;
@@ -115,11 +110,10 @@ impl SessionManager {
         result: &mut StopResult,
         progress_tx: Option<&tokio::sync::mpsc::Sender<StopProgress>>,
         remaining: usize,
-        graceful_timeout: Duration,
     ) -> (usize, Vec<GracefulTimeoutInfo>) {
         let futures: Vec<_> = level
             .iter()
-            .map(|sid| self.stop_single_session(sid, mode, graceful_timeout, false))
+            .map(|sid| self.stop_single_session(sid, mode, false))
             .collect();
 
         let outcomes = futures::future::join_all(futures).await;
@@ -326,7 +320,6 @@ impl SessionManager {
         &self,
         session_id: &str,
         mode: ShutdownMode,
-        graceful_timeout: Duration,
         cascade: bool,
     ) -> Result<StopSingleResult, StopError> {
         let cs = self
@@ -352,21 +345,18 @@ impl SessionManager {
                 .await;
         }
 
-        // Graceful: state-aware loop with configurable timeout.
-        let (pending_ops, timeout_info) =
-            Self::graceful_wait_with_timeout(&cs, session_id, graceful_timeout).await;
+        // Graceful: state-aware loop, no hard timeout.
+        // The loop checks for forceful escalation each iteration.
+        let (pending_ops, interrupted) = self.graceful_wait(&cs, session_id).await;
 
-        if let Some(info) = timeout_info {
-            tracing::warn!(
+        if interrupted {
+            // Forceful escalation detected during graceful wait.
+            // Return error to signal caller to retry with forceful mode.
+            tracing::info!(
                 session_id = %session_id,
-                elapsed = ?info.elapsed,
-                waiting = ?info.waiting_items,
-                "graceful stop timed out: session not killed"
+                "forceful escalation detected during graceful wait, retrying with forceful mode"
             );
-            return Ok(StopSingleResult {
-                _completed: false,
-                graceful_timeout: Some(info),
-            });
+            return Err(StopError::Failed);
         }
 
         self.finalize_session_stop(cs, session_id, pending_ops, cascade)
@@ -493,9 +483,7 @@ mod tests {
     #[tokio::test]
     async fn test_stop_all_sessions_empty() {
         let mgr = make_test_session_manager();
-        let result = mgr
-            .stop_all_sessions(ShutdownMode::Graceful, None, DEFAULT_GRACEFUL_TIMEOUT)
-            .await;
+        let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
         assert_eq!(result.total(), 0);
     }
 
@@ -505,9 +493,7 @@ mod tests {
         let parent_id = "parent-2";
         setup_parent_with_conv(&mgr, parent_id).await;
 
-        let result = mgr
-            .stop_all_sessions(ShutdownMode::Forceful, None, DEFAULT_GRACEFUL_TIMEOUT)
-            .await;
+        let result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
         // Parent has no storage → persist_checkpoint returns Ok (no-op).
         // Parent should be stopped.
         assert!(result.succeeded >= 1);
@@ -571,9 +557,7 @@ mod tests {
         );
 
         // Forceful mode should stop without waiting
-        let result = mgr
-            .stop_all_sessions(ShutdownMode::Forceful, None, DEFAULT_GRACEFUL_TIMEOUT)
-            .await;
+        let result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
         assert!(result.succeeded >= 1);
     }
 
@@ -588,7 +572,7 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<StopProgress>(16);
 
         let result = mgr
-            .stop_all_sessions(ShutdownMode::Forceful, Some(&tx), DEFAULT_GRACEFUL_TIMEOUT)
+            .stop_all_sessions(ShutdownMode::Forceful, Some(&tx))
             .await;
         assert!(result.succeeded >= 1);
 
@@ -612,7 +596,7 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<StopProgress>(16);
 
         let result = mgr
-            .stop_all_sessions(ShutdownMode::Forceful, Some(&tx), DEFAULT_GRACEFUL_TIMEOUT)
+            .stop_all_sessions(ShutdownMode::Forceful, Some(&tx))
             .await;
         assert_eq!(result.succeeded, 1);
 
@@ -662,96 +646,24 @@ mod tests {
         *guard.llm_state.write().expect("lock") = state;
     }
 
-    /// Helper: set tool state on a session.
-    async fn set_tool(
-        mgr: &SessionManager,
-        sid: &str,
-        tid: &str,
-        s: closeclaw_llm::session_state::ToolExecState,
-    ) {
-        let cs = mgr.get_conversation_session(sid).await.unwrap();
-        let guard = cs.read().await;
-        guard
-            .tool_states
-            .write()
-            .expect("lock")
-            .insert(tid.to_string(), s);
-    }
-
-    /// Graceful timeout fires while LLM streaming → does not hang.
+    /// Idle session stops immediately without waiting.
     #[tokio::test]
-    async fn test_graceful_timeout_streaming_returns_info() {
-        let mgr = make_test_session_manager();
-        let pid = "parent-to-stream";
-        setup_parent_with_conv(&mgr, pid).await;
-        let cid = "child-to-stream";
-        setup_child(&mgr, pid, cid).await;
-        set_llm(&mgr, cid, LlmState::Receiving).await;
-        let r = mgr
-            .stop_all_sessions(
-                ShutdownMode::Graceful,
-                None,
-                std::time::Duration::from_millis(200),
-            )
-            .await;
-        assert!(r.total() >= 1);
-    }
-
-    /// Graceful timeout fires while tool running → does not hang.
-    #[tokio::test]
-    async fn test_graceful_timeout_tool_running_returns_info() {
-        let mgr = make_test_session_manager();
-        let pid = "parent-to-tool";
-        setup_parent_with_conv(&mgr, pid).await;
-        let cid = "child-to-tool";
-        setup_child(&mgr, pid, cid).await;
-        set_tool(
-            &mgr,
-            cid,
-            "tool永不结束",
-            closeclaw_llm::session_state::ToolExecState::RunningForeground,
-        )
-        .await;
-        let r = mgr
-            .stop_all_sessions(
-                ShutdownMode::Graceful,
-                None,
-                std::time::Duration::from_millis(200),
-            )
-            .await;
-        assert!(r.total() >= 1);
-    }
-
-    /// Idle session stops immediately within timeout.
-    #[tokio::test]
-    async fn test_graceful_timeout_idle_completes_immediately() {
+    async fn test_graceful_idle_completes_immediately() {
         let mgr = make_test_session_manager();
         setup_parent_with_conv(&mgr, "parent-idle-to").await;
-        let r = mgr
-            .stop_all_sessions(
-                ShutdownMode::Graceful,
-                None,
-                std::time::Duration::from_millis(200),
-            )
-            .await;
+        let r = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
         assert!(r.succeeded >= 1);
     }
 
-    /// Forceful mode ignores timeout entirely.
+    /// Forceful mode skips graceful entirely.
     #[tokio::test]
-    async fn test_forceful_ignores_timeout() {
+    async fn test_forceful_skips_graceful() {
         let mgr = make_test_session_manager();
         setup_parent_with_conv(&mgr, "parent-force-to").await;
         setup_child(&mgr, "parent-force-to", "child-force-to").await;
         set_llm(&mgr, "child-force-to", LlmState::Receiving).await;
         let start = tokio::time::Instant::now();
-        let r = mgr
-            .stop_all_sessions(
-                ShutdownMode::Forceful,
-                None,
-                std::time::Duration::from_millis(50),
-            )
-            .await;
+        let r = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
         assert!(r.succeeded >= 1);
         assert!(start.elapsed() < std::time::Duration::from_secs(2));
     }
@@ -794,9 +706,7 @@ mod tests {
             },
         );
 
-        let r = mgr
-            .stop_all_sessions(ShutdownMode::Forceful, None, DEFAULT_GRACEFUL_TIMEOUT)
-            .await;
+        let r = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
         assert!(r.succeeded >= 1);
 
         // After forceful stop, cancel token must be cancelled
@@ -850,9 +760,7 @@ mod tests {
             },
         );
 
-        let r = mgr
-            .stop_all_sessions(ShutdownMode::Forceful, None, DEFAULT_GRACEFUL_TIMEOUT)
-            .await;
+        let r = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
         assert!(r.succeeded >= 1);
 
         // Token cancelled
@@ -907,9 +815,7 @@ mod tests {
             },
         );
 
-        let r = mgr
-            .stop_all_sessions(ShutdownMode::Forceful, None, DEFAULT_GRACEFUL_TIMEOUT)
-            .await;
+        let r = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
         assert!(r.succeeded >= 1);
 
         // After forceful stop, cancel token is set
@@ -961,9 +867,7 @@ mod tests {
             },
         );
 
-        let r = mgr
-            .stop_all_sessions(ShutdownMode::Forceful, None, DEFAULT_GRACEFUL_TIMEOUT)
-            .await;
+        let r = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
         assert!(r.succeeded >= 1);
 
         // The forceful path calls collect_pending_operations BEFORE
