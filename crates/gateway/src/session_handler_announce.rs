@@ -150,8 +150,11 @@ impl SessionMessageHandler {
                             &stream_result,
                             turn_metrics.turn_duration_ms,
                         );
-                        let hook_ctx =
-                            crate::health_check_builders::build_hook_context(&stream_result);
+                        let recent_calls = cs_write.recent_tool_calls(5);
+                        let hook_ctx = crate::health_check_builders::build_hook_context(
+                            &stream_result,
+                            recent_calls,
+                        );
                         let mut checker = checker_arc.lock().await;
                         let verdict = checker.check_turn(&input, Some(&hook_ctx)).await;
                         if verdict.status != closeclaw_session::run_health::HealthStatus::Healthy {
