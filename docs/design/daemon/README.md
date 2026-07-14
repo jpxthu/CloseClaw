@@ -2,7 +2,8 @@
 
 ## 概述
 
-Daemon 是进程入口和组件胶水层。它负责系统启动时的组件初始化与依赖注入、后台任务启动，以及优雅关闭。Daemon 自身不含业务逻辑。
+- 关联需求文档：[requirements/daemon.md](../requirements/daemon.md)
+- 一句话：Daemon 是进程入口和组件胶水层，负责系统启动时的组件初始化与依赖注入、后台任务启动，以及优雅关闭。Daemon 自身不含业务逻辑。
 
 ## 架构
 
@@ -68,14 +69,14 @@ Daemon 启动（依赖驱动，按拓扑序分层执行）
   │   ├── IM Adapters（各平台 Adapter 创建，注入对应 Renderer）
   │   ├── Permission Engine（加载全局默认策略，Agent 维度规则延迟加载）
   │   ├── Tools Registry（各模块注册工具定义，SpawnController 注入）
-  │   ├── ArchiveSweeper（spawn 后台任务，定时扫描 idle session 归档 + 过期 archive 清理，详见 session 文档）
+  │   ├── ArchiveSweeper（spawn 后台任务，定时扫描 idle session 归档 + 过期 archive 清理，详见 [session-lifecycle.md](../session/session-lifecycle.md)）
   │   ├── Skill Watcher（spawn 后台任务，监听 skill 文件变更）
   │   ├── SpawnController（校验 Agent spawn 权限，注入 ToolRegistry）
   │   ├── DreamingScheduler（spawn 后台任务，定时扫描 archived 会话，触发记忆挖掘与升格）
   │   └── System Prompt 构建器（SessionManager 内部调用构建函数，持有 Prompt 覆盖配置，初始为空）
   │
   ├── 层 4（依赖层 3）
-  │   ├── Session Manager（注入 storage、agent registry、tool/skill registry）
+  │   ├── Session Manager（注入 storage、agent registry、tool/skill registry，初始化完成后执行启动恢复扫描）
   │   └── ApprovalFlow（注入 Permission Engine、AgentRegistry）
   │
   ├── 层 5（依赖层 4）
@@ -132,7 +133,7 @@ Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | IM Adapters | 启动时创建各平台适配器 |
 | Gateway | 启动时创建并注入依赖，Daemon 持有其所有权 |
 | Admin RPC Server | 启动时创建 Unix domain socket 管理服务，接收 CLI Admin 命令 |
-| ArchiveSweeper | 启动时 spawn 后台任务（依赖 Storage + SessionConfigProvider，详见 Session 设计文档） |
+| ArchiveSweeper | 启动时 spawn 后台任务（依赖 Storage + SessionConfigProvider，详见 [session-lifecycle.md](../session/session-lifecycle.md)） |
 | ApprovalFlow | 启动时创建并注入 Gateway，Daemon 持有其所有权 |
 | SpawnController | 启动时创建并注入 ToolRegistry，校验 Agent spawn 权限 |
 | Config Hot Reload | 启动时 spawn 后台任务，监听配置文件变更并触发重载 |
