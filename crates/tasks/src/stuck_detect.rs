@@ -139,7 +139,7 @@ async fn emit_stuck_alert(
             output_path: output_path.to_path_buf(),
             priority: NotificationPriority::Next,
             summary,
-            suggestion: None,
+            suggestion: Some("建议终止任务并以管道输入方式重新运行".to_owned()),
         };
         notifications.lock().await.push(notif);
         tracing::warn!(
