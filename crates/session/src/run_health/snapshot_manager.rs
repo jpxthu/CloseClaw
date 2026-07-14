@@ -12,6 +12,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::llm_session::SessionMessage;
@@ -73,7 +74,7 @@ pub enum SnapshotKind {
 // =====================================================================
 
 /// Lifecycle status of a snapshot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SnapshotStatus {
     /// Snapshot has been created but the operation it guards has not
     /// yet completed.
@@ -115,7 +116,7 @@ pub enum RollbackAction {
 // =====================================================================
 
 /// Metadata for a snapshot, suitable for persistence.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotMeta {
     /// Unique snapshot identifier (UUID v4).
     pub id: String,

@@ -246,6 +246,16 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
     #[serde(default)]
     pub spawn_mode: Option<String>,
+    /// Runtime snapshot metadata for rollback safety net.
+    ///
+    /// Stores snapshot metadata (id, reason, timestamp, status) so that
+    /// snapshot information survives process restarts. The recovery service
+    /// uses this to verify snapshot integrity and detect incomplete
+    /// rollback operations.
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
+    #[serde(default)]
+    pub snapshot_metas: Vec<crate::run_health::SnapshotMeta>,
 }
 
 impl SessionCheckpoint {
@@ -292,6 +302,7 @@ impl SessionCheckpoint {
             label: None,
             communication_config: None,
             spawn_mode: None,
+            snapshot_metas: Vec::new(),
         }
     }
 
