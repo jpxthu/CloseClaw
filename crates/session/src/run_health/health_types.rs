@@ -66,6 +66,9 @@ pub enum HardRuleViolation {
         /// Maximum allowed retries.
         max_retries: u32,
     },
+    /// Side effects (tool calls) were executed during this turn, but
+    /// the LLM response was interrupted (no text, no tool calls).
+    SideEffectOccurred,
 }
 
 /// Snapshot of session state at turn boundary, used as input to the
@@ -131,6 +134,7 @@ impl From<&HardRuleViolation> for FailureCategory {
             HardRuleViolation::ThinkingOnlyResponse => FailureCategory::InvalidResponse,
             HardRuleViolation::StructuralAnomaly { .. } => FailureCategory::InvalidResponse,
             HardRuleViolation::RetryExhausted { .. } => FailureCategory::Unrecoverable,
+            HardRuleViolation::SideEffectOccurred => FailureCategory::SideEffectOccurred,
         }
     }
 }

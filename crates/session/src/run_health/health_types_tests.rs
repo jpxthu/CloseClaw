@@ -47,3 +47,10 @@ fn health_check_output_default_is_empty() {
     assert!(output.violations.is_empty());
     assert!(output.suggested_category.is_none());
 }
+
+#[test]
+fn side_effect_occurred_maps_to_side_effect_occurred() {
+    let violation = HardRuleViolation::SideEffectOccurred;
+    let category: FailureCategory = (&violation).into();
+    assert_eq!(category, FailureCategory::SideEffectOccurred);
+}
