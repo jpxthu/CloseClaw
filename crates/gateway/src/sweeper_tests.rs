@@ -726,6 +726,14 @@ mod tests {
         );
     }
 
+    // ── Step 1.5: SWEEPER_GRACE_PERIOD_SECS constant test ───────────────
+
+    /// Verify SWEEPER_GRACE_PERIOD_SECS == 10 (design doc alignment).
+    #[test]
+    fn test_sweeper_grace_period_is_ten_seconds() {
+        assert_eq!(SWEEPER_GRACE_PERIOD_SECS, 10);
+    }
+
     // ── pending_operations tests ────────────────────────────────────────────
 
     /// Idle session with empty pending_operations → normal archive.

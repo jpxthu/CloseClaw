@@ -20,7 +20,7 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 /// Timeout (seconds) to wait for an active dreaming cycle during shutdown.
-const SHUTDOWN_GRACE_SECS: u64 = 10;
+pub(crate) const SHUTDOWN_GRACE_SECS: u64 = 10;
 
 use closeclaw_config::providers::MemoryConfigData;
 use closeclaw_config::session::SessionConfigProvider;
@@ -155,7 +155,7 @@ async fn mine_archived_session(
 ///
 /// Logs the outcome. Used during shutdown to give an in-progress
 /// cycle a chance to finish gracefully.
-async fn wait_for_active_task(handle: JoinHandle<Result<(), DreamingSchedulerError>>) {
+pub(crate) async fn wait_for_active_task(handle: JoinHandle<Result<(), DreamingSchedulerError>>) {
     match tokio::time::timeout(Duration::from_secs(SHUTDOWN_GRACE_SECS), handle).await {
         Ok(Ok(Ok(()))) => {
             info!("dreaming cycle completed before shutdown");

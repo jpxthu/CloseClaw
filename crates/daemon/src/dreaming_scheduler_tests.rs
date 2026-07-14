@@ -570,3 +570,144 @@ async fn test_immediate_hook_triggers_mining() {
         "run_once should succeed when processing unmined session: {result:?}"
     );
 }
+
+// ── Step 1.5: DreamingScheduler grace period tests ─────────────────────
+
+/// SHUTDOWN_GRACE_SECS must be 10 seconds (design doc alignment).
+#[test]
+fn test_dreaming_shutdown_grace_secs_is_ten() {
+    // Access the constant via the module. The constant is crate-private,
+    // so we verify it through the module path.
+    assert_eq!(
+        crate::dreaming_scheduler::SHUTDOWN_GRACE_SECS,
+        10,
+        "SHUTDOWN_GRACE_SECS must be 10 per design doc"
+    );
+}
+
+/// When no active task is running, shutdown exits immediately.
+#[tokio::test]
+async fn test_dreaming_shutdown_no_active_task_exits_immediately() {
+    let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
+    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let mut scheduler = make_scheduler(storage, config);
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(());
+    let handle = tokio::spawn(async move {
+        scheduler.run(shutdown_rx).await;
+    });
+
+    // Let the loop start, then immediately send shutdown (no task will fire
+    // because dreaming_interval is 600s).
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    let start = tokio::time::Instant::now();
+    shutdown_tx.send(()).unwrap();
+
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    assert!(
+        result.is_ok(),
+        "scheduler should exit promptly with no active task"
+    );
+    // Should exit well within 2 seconds (no grace period needed)
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(2),
+        "scheduler without active task should exit immediately, took {:?}",
+        start.elapsed()
+    );
+}
+
+/// When an active task is running, shutdown waits up to SHUTDOWN_GRACE_SECS
+/// for it to complete.
+#[tokio::test]
+async fn test_dreaming_shutdown_waits_for_active_task_within_grace() {
+    use crate::dreaming_scheduler::SHUTDOWN_GRACE_SECS;
+
+    // Verify the grace period constant is accessible
+    assert_eq!(SHUTDOWN_GRACE_SECS, 10);
+
+    // Spawn a task that takes 200ms (well under 10s grace period)
+    let handle = tokio::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        Ok::<(), crate::dreaming_scheduler::DreamingSchedulerError>(())
+    });
+
+    let start = tokio::time::Instant::now();
+    crate::dreaming_scheduler::wait_for_active_task(handle).await;
+    let elapsed = start.elapsed();
+
+    // Should complete in ~200ms, well under the 10s grace period
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "task completing within grace period should not wait full timeout, took {:?}",
+        elapsed
+    );
+}
+
+/// When an active task exceeds SHUTDOWN_GRACE_SECS, it is aborted
+/// and the scheduler exits after the timeout.
+#[tokio::test]
+async fn test_dreaming_shutdown_aborts_task_after_grace_period() {
+    use crate::dreaming_scheduler::SHUTDOWN_GRACE_SECS;
+
+    // Spawn a task that takes 30s (well beyond 10s grace period)
+    let handle = tokio::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+        Ok::<(), crate::dreaming_scheduler::DreamingSchedulerError>(())
+    });
+
+    let start = tokio::time::Instant::now();
+    crate::dreaming_scheduler::wait_for_active_task(handle).await;
+    let elapsed = start.elapsed();
+
+    // Should abort after ~10s grace period, not wait full 30s
+    assert!(
+        elapsed >= std::time::Duration::from_secs(SHUTDOWN_GRACE_SECS - 1)
+            && elapsed < std::time::Duration::from_secs(SHUTDOWN_GRACE_SECS + 3),
+        "task exceeding grace period should be aborted after ~{}s, took {:?}",
+        SHUTDOWN_GRACE_SECS,
+        elapsed
+    );
+}
+
+/// When an active task panics, shutdown logs the error and exits
+/// without waiting for the full grace period.
+#[tokio::test]
+async fn test_dreaming_shutdown_handles_panicked_task() {
+    let handle: tokio::task::JoinHandle<
+        Result<(), crate::dreaming_scheduler::DreamingSchedulerError>,
+    > = tokio::spawn(async {
+        panic!("test panic in dreaming task");
+    });
+
+    let start = tokio::time::Instant::now();
+    crate::dreaming_scheduler::wait_for_active_task(handle).await;
+    let elapsed = start.elapsed();
+
+    // Panicked task should be detected immediately, not after grace period
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "panicked task should be detected immediately, took {:?}",
+        elapsed
+    );
+}
+
+/// When an active task returns an error, shutdown logs it and exits.
+#[tokio::test]
+async fn test_dreaming_shutdown_handles_errored_task() {
+    let handle = tokio::spawn(async {
+        Err(crate::dreaming_scheduler::DreamingSchedulerError::Dreaming(
+            "test error".into(),
+        ))
+    });
+
+    let start = tokio::time::Instant::now();
+    crate::dreaming_scheduler::wait_for_active_task(handle).await;
+    let elapsed = start.elapsed();
+
+    // Error should be handled immediately
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "errored task should be handled immediately, took {:?}",
+        elapsed
+    );
+}
