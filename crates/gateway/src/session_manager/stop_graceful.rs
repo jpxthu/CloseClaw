@@ -136,10 +136,7 @@ impl SessionManager {
         );
         cs.read().await.stop(cascade).await;
         self.cleanup_and_persist(session_id, pending_ops).await?;
-        Ok(StopSingleResult {
-            _completed: true,
-            graceful_timeout: None,
-        })
+        Ok(StopSingleResult { _completed: true })
     }
 
     /// Cleanup task manager and persist checkpoint.

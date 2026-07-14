@@ -171,18 +171,228 @@ fn test_phase0_forceful_signal_sets_mode_for_red_card() {
 /// Graceful mode includes action buttons, Forceful does not.
 #[test]
 fn test_heartbeat_card_mode_affects_buttons() {
-    // Graceful mode: heartbeat card should have action buttons
-    // Forceful mode: heartbeat card should not have action buttons
-    // These are structural assertions about the card JSON,
-    // verified via the Gateway's `send_shutdown_heartbeat_card` method.
-    // The actual card rendering is tested in tests_plugin.rs.
-
-    // We verify the mode enum behavior here:
     let graceful = ShutdownMode::Graceful;
     let forceful = ShutdownMode::Forceful;
-
-    // Mode comparison works correctly
     assert_ne!(graceful, forceful);
     assert_eq!(ShutdownMode::Graceful, graceful);
     assert_eq!(ShutdownMode::Forceful, forceful);
+}
+
+// ── Step 1.5: Phase 3 join wait behavior tests ──────────────────────────
+
+/// Verify that after taking all JoinHandles, they become None.
+/// This mirrors what `phase_3_background_stop` does: each handle is
+/// `take()`-ed during the join phase, leaving the field as None.
+#[tokio::test]
+async fn test_phase3_join_handles_taken_after_stop() {
+    // Simulate: spawn tasks and store handles
+    let mut archive_handle = Some(tokio::spawn(async {}));
+    let mut announce_handle = Some(tokio::spawn(async {}));
+    let mut dreaming_handle = Some(tokio::spawn(async {}));
+    let mut plan_archive_handle = Some(tokio::spawn(async {}));
+
+    assert!(archive_handle.is_some());
+    assert!(announce_handle.is_some());
+    assert!(dreaming_handle.is_some());
+    assert!(plan_archive_handle.is_some());
+
+    // Simulate phase_3_background_stop: take each handle
+    let join_timeout = std::time::Duration::from_secs(15);
+
+    if let Some(handle) = archive_handle.take() {
+        let _ = tokio::time::timeout(join_timeout, handle).await;
+    }
+    if let Some(handle) = announce_handle.take() {
+        let _ = tokio::time::timeout(join_timeout, handle).await;
+    }
+    if let Some(handle) = dreaming_handle.take() {
+        let _ = tokio::time::timeout(join_timeout, handle).await;
+    }
+    if let Some(handle) = plan_archive_handle.take() {
+        let _ = tokio::time::timeout(join_timeout, handle).await;
+    }
+
+    // All handles should now be None
+    assert!(archive_handle.is_none());
+    assert!(announce_handle.is_none());
+    assert!(dreaming_handle.is_none());
+    assert!(plan_archive_handle.is_none());
+}
+
+/// Verify that background tasks exit cleanly when a `watch::Sender`
+/// sends the shutdown signal. This mirrors the real flow: tasks run
+/// a loop that watches for `()` on a `watch::Receiver`, and exit when
+/// the signal arrives.
+#[tokio::test]
+async fn test_phase3_background_tasks_exit_on_signal() {
+    let (tx, rx) = tokio::sync::watch::channel(());
+
+    // Spawn a mock background task that watches for shutdown
+    let handle = tokio::spawn(async move {
+        let mut rx = rx;
+        loop {
+            if *rx.borrow_and_update() == () {
+                break;
+            }
+            if rx.changed().await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Send shutdown signal
+    let _ = tx.send(());
+
+    // Task should exit cleanly within timeout
+    let join_timeout = std::time::Duration::from_secs(15);
+    let result = tokio::time::timeout(join_timeout, handle).await;
+    assert!(result.is_ok(), "task should exit after shutdown signal");
+    let join_result = result.unwrap();
+    assert!(join_result.is_ok(), "task should not panic");
+}
+
+/// Verify that multiple background tasks all exit when signalled.
+/// Mirrors phase_3_background_stop sending signals to 4 tasks.
+#[tokio::test]
+async fn test_phase3_all_tasks_exit_on_respective_signals() {
+    let (tx1, rx1) = tokio::sync::watch::channel(());
+    let (tx2, rx2) = tokio::sync::watch::channel(());
+    let (tx3, rx3) = tokio::sync::watch::channel(());
+    let (tx4, rx4) = tokio::sync::watch::channel(());
+
+    let make_task = |mut rx: tokio::sync::watch::Receiver<()>| {
+        tokio::spawn(async move {
+            loop {
+                if *rx.borrow_and_update() == () {
+                    break;
+                }
+                if rx.changed().await.is_err() {
+                    break;
+                }
+            }
+        })
+    };
+
+    let h1 = make_task(rx1);
+    let h2 = make_task(rx2);
+    let h3 = make_task(rx3);
+    let h4 = make_task(rx4);
+
+    // Send all shutdown signals
+    let _ = tx1.send(());
+    let _ = tx2.send(());
+    let _ = tx3.send(());
+    let _ = tx4.send(());
+
+    let join_timeout = std::time::Duration::from_secs(15);
+    let (r1, r2, r3, r4) = tokio::join!(
+        tokio::time::timeout(join_timeout, h1),
+        tokio::time::timeout(join_timeout, h2),
+        tokio::time::timeout(join_timeout, h3),
+        tokio::time::timeout(join_timeout, h4),
+    );
+
+    assert!(r1.is_ok(), "ArchiveSweeper mock should exit");
+    assert!(r2.is_ok(), "AnnounceSweeper mock should exit");
+    assert!(r3.is_ok(), "DreamingScheduler mock should exit");
+    assert!(r4.is_ok(), "PlanArchiveTask mock should exit");
+}
+
+/// Verify that a hung background task does not block the daemon.
+/// After the 15s join timeout, `phase_3_background_stop` continues.
+/// This test uses a short 100ms timeout to stay within CONTRIBUTING.md
+/// <1s limit while still verifying the timeout path.
+#[tokio::test]
+async fn test_phase3_hung_task_timeout_does_not_block() {
+    // Spawn a task that never exits (simulates a hung background task)
+    let hang_handle = tokio::spawn(async {
+        std::future::pending::<()>().await;
+    });
+
+    // Use a short timeout for testing (real code uses 15s)
+    let test_timeout = std::time::Duration::from_millis(100);
+    let start = tokio::time::Instant::now();
+    let result = tokio::time::timeout(test_timeout, hang_handle).await;
+    let elapsed = start.elapsed();
+
+    // Timeout should fire — the hung task is not awaited forever
+    assert!(result.is_err(), "join should timeout for hung task");
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "timeout should fire well within 1s"
+    );
+}
+
+/// Verify that after phase_3 pattern (signal + join with timeout),
+/// a mix of clean and hung tasks all resolve without blocking.
+/// The hung task times out, the clean task exits, and execution
+/// continues.
+#[tokio::test]
+async fn test_phase3_mixed_tasks_resolved() {
+    let (tx_clean, rx_clean) = tokio::sync::watch::channel(());
+
+    // Clean task: exits on signal
+    let clean_handle = tokio::spawn(async move {
+        let mut rx = rx_clean;
+        loop {
+            if *rx.borrow_and_update() == () {
+                break;
+            }
+            if rx.changed().await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Hung task: never exits
+    let hang_handle = tokio::spawn(async {
+        std::future::pending::<()>().await;
+    });
+
+    // Signal the clean task
+    let _ = tx_clean.send(());
+
+    let test_timeout = std::time::Duration::from_millis(100);
+    let start = tokio::time::Instant::now();
+
+    // Join both with timeout — neither should block overall
+    let (clean_result, hang_result) = tokio::join!(
+        tokio::time::timeout(test_timeout, clean_handle),
+        tokio::time::timeout(test_timeout, hang_handle),
+    );
+
+    let elapsed = start.elapsed();
+
+    // Clean task exited successfully
+    assert!(
+        clean_result.is_ok(),
+        "clean task should join within timeout"
+    );
+    assert!(clean_result.unwrap().is_ok(), "clean task should not panic");
+
+    // Hung task timed out
+    assert!(hang_result.is_err(), "hung task should timeout");
+
+    // Total elapsed should be bounded (timeout, not infinite)
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "mixed join should complete within 1s"
+    );
+}
+
+/// Verify that a panicked task's JoinHandle returns Err (not timeout).
+/// phase_3_background_stop logs this as a warning and continues.
+#[tokio::test]
+async fn test_phase3_panicked_task_returns_err() {
+    let handle = tokio::spawn(async {
+        panic!("mock background task panic");
+    });
+
+    let join_timeout = std::time::Duration::from_secs(15);
+    let result = tokio::time::timeout(join_timeout, handle).await;
+
+    // Join completes (not timeout) — it's an Err from the panic
+    assert!(result.is_ok(), "panicked task join should not timeout");
+    let join_result = result.unwrap();
+    assert!(join_result.is_err(), "panicked task should return Err");
 }

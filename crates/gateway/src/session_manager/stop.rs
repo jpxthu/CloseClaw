@@ -12,7 +12,6 @@
 //!    - **Forceful**: stop immediately, persist checkpoint.
 
 use std::collections::{HashMap, VecDeque};
-use std::time::Duration;
 
 use closeclaw_common::shutdown::ShutdownMode;
 
@@ -35,16 +34,6 @@ pub struct StopResult {
     pub succeeded: usize,
     pub failed: usize,
     pub skipped: usize,
-    /// Sessions where graceful stop timed out (session not killed).
-    pub graceful_timeouts: Vec<GracefulTimeoutInfo>,
-}
-
-/// Information about a session whose graceful stop timed out.
-#[derive(Debug, Clone)]
-pub struct GracefulTimeoutInfo {
-    pub session_id: String,
-    pub waiting_items: Vec<String>,
-    pub elapsed: Duration,
 }
 
 impl StopResult {
@@ -80,7 +69,7 @@ impl SessionManager {
         let mut processed = 0usize;
         for level in &stop_order {
             let effective_mode = self.resolve_effective_mode(mode).await;
-            let (count, timeouts) = self
+            let count = self
                 .process_stop_level(
                     level,
                     effective_mode,
@@ -90,7 +79,6 @@ impl SessionManager {
                 )
                 .await;
             processed += count;
-            result.graceful_timeouts.extend(timeouts);
         }
         tracing::info!(
             succeeded = result.succeeded,
@@ -102,7 +90,7 @@ impl SessionManager {
     }
 
     /// Process a single level of sessions concurrently.
-    /// Returns (count, timeout infos).
+    /// Returns count of sessions processed.
     async fn process_stop_level(
         &self,
         level: &[String],
@@ -110,7 +98,7 @@ impl SessionManager {
         result: &mut StopResult,
         progress_tx: Option<&tokio::sync::mpsc::Sender<StopProgress>>,
         remaining: usize,
-    ) -> (usize, Vec<GracefulTimeoutInfo>) {
+    ) -> usize {
         let futures: Vec<_> = level
             .iter()
             .map(|sid| self.stop_single_session(sid, mode, false))
@@ -118,12 +106,8 @@ impl SessionManager {
 
         let outcomes = futures::future::join_all(futures).await;
         let count = level.len();
-        let mut timeouts = Vec::new();
         for (idx, outcome) in outcomes.into_iter().enumerate() {
-            let (success, timeout_info) = Self::process_stop_outcome(outcome, result);
-            if let Some(info) = timeout_info {
-                timeouts.push(info);
-            }
+            let success = Self::process_stop_outcome(outcome, result);
             Self::notify_stop_progress(
                 progress_tx,
                 &level[idx],
@@ -132,7 +116,7 @@ impl SessionManager {
             )
             .await;
         }
-        (count, timeouts)
+        count
     }
 
     /// Send a stop progress event if a progress channel is provided.
@@ -153,23 +137,23 @@ impl SessionManager {
         }
     }
 
-    /// Record a stop outcome and return (success, optional timeout info).
+    /// Record a stop outcome and return success flag.
     fn process_stop_outcome(
         outcome: Result<StopSingleResult, StopError>,
         result: &mut StopResult,
-    ) -> (bool, Option<GracefulTimeoutInfo>) {
+    ) -> bool {
         match outcome {
-            Ok(r) => {
+            Ok(_) => {
                 result.succeeded += 1;
-                (true, r.graceful_timeout)
+                true
             }
             Err(StopError::Skipped) => {
                 result.skipped += 1;
-                (false, None)
+                false
             }
             Err(StopError::Failed) => {
                 result.failed += 1;
-                (false, None)
+                false
             }
         }
     }
@@ -303,18 +287,15 @@ pub(crate) enum StopError {
 /// Result of stopping a single session.
 pub(crate) struct StopSingleResult {
     /// Whether the stop completed successfully (all operations finished).
-    /// True also when a graceful timeout occurred but the session was
-    /// not killed — the caller can inspect `graceful_timeout` for details.
     pub(crate) _completed: bool,
-    /// If the graceful stop timed out, contains waiting item info.
-    pub(crate) graceful_timeout: Option<GracefulTimeoutInfo>,
 }
 
 impl SessionManager {
     /// Stop a single session and persist its checkpoint.
     ///
-    /// Graceful mode waits with a configurable timeout; on timeout,
-    /// the session is NOT killed — waiting item info is returned.
+    /// Graceful mode waits with no hard timeout; if forceful
+    /// escalation is detected during the wait, the session is
+    /// force-stopped immediately (per design doc).
     /// Forceful mode stops immediately.
     pub(crate) async fn stop_single_session(
         &self,
@@ -330,19 +311,7 @@ impl SessionManager {
         // Forceful: kill tool processes, cancel LLM requests,
         // then collect residual pending ops for checkpoint.
         if mode == ShutdownMode::Forceful {
-            // Kill tool processes and cancel in-flight LLM requests
-            // immediately. This discards incomplete assistant message
-            // fragments (the Gateway layer does not append partial
-            // messages on cancellation).
-            cs.write().await.force_kill().await;
-
-            let pending_ops = {
-                let guard = cs.read().await;
-                guard.collect_pending_operations()
-            };
-            return self
-                .finalize_session_stop(cs, session_id, pending_ops, cascade)
-                .await;
+            return self.forceful_stop_session(cs, session_id, cascade).await;
         }
 
         // Graceful: state-aware loop, no hard timeout.
@@ -351,14 +320,35 @@ impl SessionManager {
 
         if interrupted {
             // Forceful escalation detected during graceful wait.
-            // Return error to signal caller to retry with forceful mode.
+            // Per design doc: "未停止的切换为 forceful 模式继续" —
+            // force-stop the session instead of returning failure.
             tracing::info!(
                 session_id = %session_id,
-                "forceful escalation detected during graceful wait, retrying with forceful mode"
+                "forceful escalation detected during graceful wait, force-stopping"
             );
-            return Err(StopError::Failed);
+            return self.forceful_stop_session(cs, session_id, cascade).await;
         }
 
+        self.finalize_session_stop(cs, session_id, pending_ops, cascade)
+            .await
+    }
+
+    /// Forcefully stop a session: kill tool processes, cancel LLM
+    /// requests, collect pending ops, and persist checkpoint.
+    async fn forceful_stop_session(
+        &self,
+        cs: std::sync::Arc<
+            tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>,
+        >,
+        session_id: &str,
+        cascade: bool,
+    ) -> Result<StopSingleResult, StopError> {
+        cs.write().await.force_kill().await;
+
+        let pending_ops = {
+            let guard = cs.read().await;
+            guard.collect_pending_operations()
+        };
         self.finalize_session_stop(cs, session_id, pending_ops, cascade)
             .await
     }

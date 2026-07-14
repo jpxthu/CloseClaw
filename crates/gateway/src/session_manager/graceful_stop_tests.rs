@@ -428,9 +428,10 @@ async fn test_escalation_propagation_across_levels() {
     assert!(mgr.has_session(&child_id).await);
 }
 
-// ── Step 1.2: GracefulTimeoutInfo field verification ─────────────────
+// ── Step 1.2: escalation + idle stop behavior ─────────────────────────
 
-/// Forceful escalation during LLM streaming interrupts graceful wait.
+/// Forceful escalation during LLM streaming interrupts graceful wait
+/// and force-stops the session (design doc: retry with forceful).
 #[tokio::test]
 async fn test_graceful_escalation_interrupts_streaming_info() {
     let mgr = make_test_session_manager();
@@ -448,11 +449,14 @@ async fn test_graceful_escalation_interrupts_streaming_info() {
 
     let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
     assert!(result.total() >= 1);
-    assert!(result.failed >= 1, "escalation should fail the session");
-    assert!(result.graceful_timeouts.is_empty());
+    assert!(
+        result.succeeded >= 1,
+        "escalation should force-stop the session successfully"
+    );
 }
 
-/// Forceful escalation during tool running interrupts graceful wait.
+/// Forceful escalation during tool running interrupts graceful wait
+/// and force-stops the session (design doc: retry with forceful).
 #[tokio::test]
 async fn test_graceful_escalation_interrupts_tool_info() {
     let mgr = make_test_session_manager();
@@ -476,8 +480,10 @@ async fn test_graceful_escalation_interrupts_tool_info() {
 
     let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
     assert!(result.total() >= 1);
-    assert!(result.failed >= 1, "escalation should fail the session");
-    assert!(result.graceful_timeouts.is_empty());
+    assert!(
+        result.succeeded >= 1,
+        "escalation should force-stop the session successfully"
+    );
 }
 
 /// Idle session stops immediately.
@@ -486,12 +492,13 @@ async fn test_graceful_idle_no_timeout_info() {
     let mgr = make_test_session_manager();
     setup_parent_with_conv(&mgr, "parent-idle-no-timeout").await;
     let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
-    assert!(result.graceful_timeouts.is_empty());
+    assert!(result.succeeded >= 1);
 }
 
 // ── Escalation interrupt tests ─────────────────────────────────────────
 
-/// Forceful escalation interrupts graceful wait for streaming session.
+/// Forceful escalation interrupts graceful wait for streaming session
+/// and force-stops the session.
 #[tokio::test]
 async fn test_graceful_escalation_interrupts_streaming() {
     let mgr = make_test_session_manager();
@@ -511,12 +518,16 @@ async fn test_graceful_escalation_interrupts_streaming() {
     });
 
     let r = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
-    // Session failed due to escalation — should not hang
+    // Session force-stopped due to escalation
     assert!(r.total() >= 1);
-    assert!(r.failed >= 1, "escalation should fail the session");
+    assert!(
+        r.succeeded >= 1,
+        "escalation should force-stop the session successfully"
+    );
 }
 
-/// Forceful escalation interrupts graceful wait for running tool.
+/// Forceful escalation interrupts graceful wait for running tool
+/// and force-stops the session.
 #[tokio::test]
 async fn test_graceful_escalation_interrupts_tool_running() {
     let mgr = make_test_session_manager();
@@ -540,5 +551,8 @@ async fn test_graceful_escalation_interrupts_tool_running() {
 
     let r = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
     assert!(r.total() >= 1);
-    assert!(r.failed >= 1, "escalation should fail the session");
+    assert!(
+        r.succeeded >= 1,
+        "escalation should force-stop the session successfully"
+    );
 }

@@ -642,24 +642,10 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         } else {
             ShutdownMode::Graceful
         };
-        let mut result = self
+        let result = self
             .session_manager
             .stop_single_session(session_id, mode, cascade)
             .await;
-
-        // If graceful was interrupted by forceful escalation, retry with forceful mode.
-        if let Err(crate::session_manager::stop::StopError::Failed) = &result {
-            if mode == ShutdownMode::Graceful {
-                tracing::info!(
-                    session_id = %session_id,
-                    "graceful stop interrupted by escalation, retrying with forceful mode"
-                );
-                result = self
-                    .session_manager
-                    .stop_single_session(session_id, ShutdownMode::Forceful, cascade)
-                    .await;
-            }
-        }
 
         match result {
             Ok(r) if r._completed => {
@@ -670,17 +656,7 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
                     "session stopped successfully"
                 );
             }
-            Ok(r) => {
-                // Graceful timeout — session not killed, report waiting items.
-                if let Some(ref info) = r.graceful_timeout {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        elapsed = ?info.elapsed,
-                        waiting = ?info.waiting_items,
-                        "graceful stop timed out"
-                    );
-                }
-            }
+            Ok(_) => {}
             Err(e) => {
                 tracing::warn!(
                     session_id = %session_id,
