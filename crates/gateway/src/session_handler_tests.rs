@@ -11,6 +11,7 @@ use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::LLMRegistry;
 use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_session::run_health::TranscriptOp;
 use closeclaw_tasks::{
     BackgroundTask, BackgroundTaskError, CompletionNotification, NotificationPriority, TaskManager,
     TaskState,
@@ -571,14 +572,17 @@ async fn setup_for_compact_test(
     ));
     {
         let mut cs_guard = cs.write().await;
-        // Add some initial messages so replace_messages has something to replace
-        cs_guard.replace_messages(vec![closeclaw_session::llm_session::SessionMessage {
-            role: "user".to_string(),
-            content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
-                "old message".to_string(),
-            )],
-            timestamp: Utc::now(),
-        }]);
+        // Add some initial messages so apply_transcript_op has something to replace
+        cs_guard.apply_transcript_op(
+            TranscriptOp::Rewrite,
+            vec![closeclaw_session::llm_session::SessionMessage {
+                role: "user".to_string(),
+                content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
+                    "old message".to_string(),
+                )],
+                timestamp: Utc::now(),
+            }],
+        );
     }
     sm.conversation_sessions
         .write()
@@ -730,7 +734,7 @@ async fn populate_session_for_warning(sm: &SessionManager, sid: &str) {
                 timestamp: chrono::Utc::now(),
             });
         }
-        cs_write.replace_messages(msgs);
+        cs_write.apply_transcript_op(TranscriptOp::Rewrite, msgs);
         // Set high token usage via accumulate_usage so token_warning_state
         // returns Warning on the default model (128K context, buffer=13K).
         // Warning threshold: remaining ≤ buffer * 3/2 = 19,500 tokens.

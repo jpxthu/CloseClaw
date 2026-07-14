@@ -11,6 +11,7 @@ use closeclaw_common::processor::ProcessError;
 use closeclaw_session::bootstrap::loader::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{SessionCheckpoint, SessionStatus};
+use closeclaw_session::run_health::TranscriptOp;
 use closeclaw_session::workspace;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -193,7 +194,10 @@ impl SessionManager {
                                 // Restore transcript from checkpoint ("transcript is the
                                 // single source of truth" per design doc).
                                 if !cp.transcript.is_empty() {
-                                    cs.replace_messages(cp.transcript.clone());
+                                    cs.apply_transcript_op(
+                                        TranscriptOp::Rewrite,
+                                        cp.transcript.clone(),
+                                    );
                                 }
                             }
                         }

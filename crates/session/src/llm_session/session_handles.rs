@@ -345,7 +345,7 @@ impl ConversationSession {
         // tool_states and child_states: drop everything. We don't
         // need to mark them as Terminated because the session is
         // about to either be re-used (with fresh state from
-        // `replace_messages` / new turns) or be torn down.
+        // `apply_transcript_op` / new turns) or be torn down.
         self.tool_states
             .write()
             .expect("tool_states lock poisoned")

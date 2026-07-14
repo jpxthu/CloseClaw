@@ -130,6 +130,24 @@ impl SessionMessageHandler {
                         }
                     }
                     cs_write.accumulate_usage(&stream_result.usage);
+
+                    // Run health check at turn boundary.
+                    if let Some(checker_arc) = cs_write.health_checker() {
+                        let input =
+                            crate::health_check_builders::build_health_check_input(&stream_result);
+                        let hook_ctx =
+                            crate::health_check_builders::build_hook_context(&stream_result);
+                        let mut checker = checker_arc.lock().await;
+                        let verdict = checker.check_turn(&input, Some(&hook_ctx)).await;
+                        if verdict.status != closeclaw_session::run_health::HealthStatus::Healthy {
+                            tracing::warn!(
+                                session_id,
+                                status = ?verdict.status,
+                                action = ?verdict.action,
+                                "health check: unhealthy turn detected"
+                            );
+                        }
+                    }
                 }
                 let text = stream_result
                     .content_blocks

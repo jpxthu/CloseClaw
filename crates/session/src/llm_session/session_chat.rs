@@ -128,7 +128,7 @@ impl ChatSession for ConversationSession {
         if response.content_blocks.is_empty() {
             return;
         }
-        self.push_message("assistant", response.content_blocks);
+        self.append_transcript("assistant", response.content_blocks);
     }
 
     fn append_tool_result(&mut self, tool_call_id: String, result: String) {

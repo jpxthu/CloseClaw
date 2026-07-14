@@ -389,3 +389,122 @@ async fn test_mock_called_exactly_once_per_enabled_hook() {
     // Mock should have been called exactly 2 times
     // (once per enabled hook)
 }
+
+// ── Parallel execution verification ──────────────────────────────────────
+
+/// Mock that records concurrent access via an atomic flag.
+///
+/// If hooks run sequentially, the flag is never set to true
+/// because each call completes before the next starts.
+/// If hooks run in parallel, the flag can be observed as true.
+struct ParallelDetectLlm {
+    /// Gate: all hooks must reach this before any can proceed.
+    gate: std::sync::Arc<tokio::sync::Barrier>,
+}
+
+impl ParallelDetectLlm {
+    fn new(num_hooks: usize) -> Self {
+        Self {
+            gate: std::sync::Arc::new(tokio::sync::Barrier::new(num_hooks)),
+        }
+    }
+}
+
+#[async_trait]
+impl HookLlmProvider for ParallelDetectLlm {
+    async fn review(&self, _prompt: &str, _context: &str) -> Result<bool, String> {
+        // If we reach the barrier, all hooks are running concurrently.
+        self.gate.wait().await;
+        Ok(false)
+    }
+}
+
+#[tokio::test]
+async fn test_parallel_hooks_run_concurrently() {
+    let num_hooks = 3;
+    let llm = ParallelDetectLlm::new(num_hooks);
+    let hooks: Vec<HookConfig> = vec![
+        HookConfig {
+            hook_type: HookType::PlanCheck,
+            enabled: true,
+        },
+        HookConfig {
+            hook_type: HookType::LoopCheck,
+            enabled: true,
+        },
+        HookConfig {
+            hook_type: HookType::ProgressCheck,
+            enabled: true,
+        },
+    ];
+    let reviewer = HookReviewer::new(hooks, Box::new(llm));
+    let snapshot = HookContext::default();
+    let verdicts = reviewer.review(&snapshot).await;
+    // All 3 hooks ran (barrier was reached = all concurrent)
+    assert_eq!(verdicts.len(), 3);
+    // No flags (all returned false)
+    assert!(verdicts.iter().all(|v| !v.flag));
+}
+
+#[tokio::test]
+async fn test_return_order_matches_config_order() {
+    // Responses are in reverse config order, but returned verdicts
+    // must match config order.
+    let llm = MockLlmProvider::new(vec![Ok(true), Ok(false), Ok(true)]);
+    let hooks = vec![
+        HookConfig {
+            hook_type: HookType::PlanCheck,
+            enabled: true,
+        },
+        HookConfig {
+            hook_type: HookType::LoopCheck,
+            enabled: true,
+        },
+        HookConfig {
+            hook_type: HookType::ProgressCheck,
+            enabled: true,
+        },
+    ];
+    let reviewer = HookReviewer::new(hooks, Box::new(llm));
+    let snapshot = HookContext::default();
+    let verdicts = reviewer.review(&snapshot).await;
+    // Verdicts must be in config order: PlanCheck, LoopCheck, ProgressCheck
+    assert_eq!(verdicts.len(), 3);
+    assert_eq!(verdicts[0].hook_type, HookType::PlanCheck);
+    assert!(verdicts[0].flag);
+    assert_eq!(verdicts[1].hook_type, HookType::LoopCheck);
+    assert!(!verdicts[1].flag);
+    assert_eq!(verdicts[2].hook_type, HookType::ProgressCheck);
+    assert!(verdicts[2].flag);
+}
+
+#[tokio::test]
+async fn test_individual_hook_failure_does_not_affect_others() {
+    // First hook fails, second and third succeed.
+    let llm = MockLlmProvider::new(vec![Err("LLM crashed".into()), Ok(false), Ok(true)]);
+    let hooks = vec![
+        HookConfig {
+            hook_type: HookType::PlanCheck,
+            enabled: true,
+        },
+        HookConfig {
+            hook_type: HookType::LoopCheck,
+            enabled: true,
+        },
+        HookConfig {
+            hook_type: HookType::ProgressCheck,
+            enabled: true,
+        },
+    ];
+    let reviewer = HookReviewer::new(hooks, Box::new(llm));
+    let snapshot = HookContext::default();
+    let verdicts = reviewer.review(&snapshot).await;
+    assert_eq!(verdicts.len(), 3);
+    // First hook failed → not flagged (graceful degradation)
+    assert!(!verdicts[0].flag);
+    assert!(verdicts[0].reason.contains("failed"));
+    // Second hook succeeded → not flagged
+    assert!(!verdicts[1].flag);
+    // Third hook succeeded → flagged
+    assert!(verdicts[2].flag);
+}

@@ -8,7 +8,7 @@ mod tests {
         CompactionService, TokenWarningState,
     };
     use crate::llm_session::SessionMessage;
-    use crate::run_health::{RuntimeSnapshotManager, TranscriptOp};
+    use crate::run_health::{RollbackAction, RuntimeSnapshotManager, TranscriptOp};
     use chrono::Utc;
     use closeclaw_common::ContentBlock;
     use closeclaw_common::RunningStats;
@@ -40,75 +40,107 @@ mod tests {
         let original = vec![msg("hello"), msg("world")];
 
         // Save snapshot before modification.
-        mgr.create_snapshot(&original, TranscriptOp::Rewrite);
-
-        // Mutate messages (demonstrating the scenario).
-        // In real usage, mutated messages would be used for compaction.
+        mgr.create_snapshot(&original, TranscriptOp::Rewrite, "pre-compaction");
 
         // Restore snapshot.
-        let restored = mgr.rollback().expect("snapshot should exist");
-        assert_eq!(restored.len(), 2);
-        assert_eq!(
-            restored[0].content_blocks[0],
-            ContentBlock::Text("hello".into())
-        );
-        assert_eq!(
-            restored[1].content_blocks[0],
-            ContentBlock::Text("world".into())
-        );
+        let action = mgr.rollback(&original).expect("snapshot should exist");
+        match action {
+            RollbackAction::Replace { messages: restored } => {
+                assert_eq!(restored.len(), 2);
+                assert_eq!(
+                    restored[0].content_blocks[0],
+                    ContentBlock::Text("hello".into())
+                );
+                assert_eq!(
+                    restored[1].content_blocks[0],
+                    ContentBlock::Text("world".into())
+                );
+            }
+            _ => panic!("expected Replace action"),
+        }
     }
 
     #[test]
     fn test_snapshot_multiple_saves_override_old() {
         let mut mgr = RuntimeSnapshotManager::new();
 
-        mgr.create_snapshot(&[msg("first")], TranscriptOp::Rewrite);
-        mgr.create_snapshot(&[msg("first"), msg("second")], TranscriptOp::Rewrite); // should override first snapshot
+        mgr.create_snapshot(&[msg("first")], TranscriptOp::Rewrite, "s1");
+        mgr.create_snapshot(&[msg("first"), msg("second")], TranscriptOp::Rewrite, "s2");
 
         // Restore should return the most recent snapshot (second save).
-        let restored = mgr.rollback().expect("snapshot should exist");
-        assert_eq!(restored.len(), 2);
-        assert_eq!(
-            restored[0].content_blocks[0],
-            ContentBlock::Text("first".into())
-        );
-        assert_eq!(
-            restored[1].content_blocks[0],
-            ContentBlock::Text("second".into())
-        );
+        let action = mgr
+            .rollback(&[msg("first"), msg("second")])
+            .expect("snapshot should exist");
+        match action {
+            RollbackAction::Replace { messages: restored } => {
+                assert_eq!(restored.len(), 2);
+                assert_eq!(
+                    restored[0].content_blocks[0],
+                    ContentBlock::Text("first".into())
+                );
+                assert_eq!(
+                    restored[1].content_blocks[0],
+                    ContentBlock::Text("second".into())
+                );
+            }
+            _ => panic!("expected Replace action"),
+        }
     }
 
     #[test]
     fn test_snapshot_restore_clears_snapshot() {
         let mut mgr = RuntimeSnapshotManager::new();
 
-        mgr.create_snapshot(&[msg("keep")], TranscriptOp::Rewrite);
+        mgr.create_snapshot(&[msg("keep")], TranscriptOp::Rewrite, "test");
 
         // First rollback: should succeed and remove snapshot.
-        let restored = mgr.rollback().expect("snapshot should exist");
-        assert_eq!(restored.len(), 1);
+        let action = mgr.rollback(&[msg("keep")]).expect("snapshot should exist");
+        match action {
+            RollbackAction::Replace { messages } => assert_eq!(messages.len(), 1),
+            _ => panic!("expected Replace action"),
+        }
 
-        // Second rollback: no snapshot left, returns None.
-        assert!(mgr.rollback().is_none());
+        // After first rollback: target consumed, pre-rollback remains.
+        assert_eq!(mgr.snapshot_count(), 1);
+
+        // Second rollback: returns the pre-rollback snapshot.
+        let action2 = mgr
+            .rollback(&[msg("after")])
+            .expect("pre-rollback snapshot should exist");
+        match action2 {
+            RollbackAction::Replace { messages } => {
+                assert_eq!(messages.len(), 1);
+                assert_eq!(messages[0].role, "user");
+            }
+            _ => panic!("expected Replace action"),
+        }
+
+        // After second rollback: pre-rollback consumed, but a new pre-rollback
+        // is created (rollback always adds one). This is by design — the
+        // rollback chain is always undoable.
+        assert_eq!(mgr.snapshot_count(), 1);
     }
 
     #[test]
     fn test_snapshot_no_messages() {
         let mut mgr = RuntimeSnapshotManager::new();
-        mgr.create_snapshot(&[], TranscriptOp::Rewrite);
-        let restored = mgr.rollback().expect("snapshot should exist");
-        assert!(restored.is_empty());
+        mgr.create_snapshot(&[], TranscriptOp::Rewrite, "test");
+        let action = mgr.rollback(&[]).expect("snapshot should exist");
+        match action {
+            RollbackAction::Replace { messages } => assert!(messages.is_empty()),
+            _ => panic!("expected Replace action"),
+        }
     }
 
     #[test]
     fn test_clear_snapshot_after_success() {
         let mut mgr = RuntimeSnapshotManager::new();
-        mgr.create_snapshot(&[msg("data")], TranscriptOp::Rewrite);
+        mgr.create_snapshot(&[msg("data")], TranscriptOp::Rewrite, "test");
 
         mgr.clear();
 
         // Restore is no-op.
-        assert!(mgr.rollback().is_none());
+        assert!(mgr.rollback(&[]).is_none());
         // snapshot_count should be 0.
         assert_eq!(mgr.snapshot_count(), 0);
     }
@@ -497,7 +529,7 @@ mod tests {
         let mut config_01 = CompactConfig::default();
         config_01.chars_per_token = 0.1;
         let svc_01 = CompactionService::new(config_01);
-        // 3_948_004 * 0.1 = 394_800 tokens → Normal (960_200 remaining)
+        // 3_948_004 * 0.1 = 394_800 tokens → Normal (960,200 remaining)
         assert!(!svc_01.should_auto_compact(&msgs_01, "mini-max", None, &RunningStats::new()));
     }
 
@@ -510,7 +542,7 @@ mod tests {
         // Without knowledge: mini-max = 1_000_000 → AutoCompactTriggered
         assert!(svc.should_auto_compact(&msgs, "mini-max", None, &RunningStats::new()));
 
-        // With knowledge: 500_000 context → tokens are way over → Blocking
+        // With knowledge: 500,000 context → tokens are way over → Blocking
         // (not AutoCompactTriggered), so should_auto_compact returns false.
         assert!(!svc.should_auto_compact(&msgs, "mini-max", Some(500_000), &RunningStats::new()));
     }
