@@ -5,11 +5,146 @@
 
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::shutdown::ShutdownMode;
+use closeclaw_llm::session_state::LlmState;
 use serde_json::json;
 
 use super::Gateway;
 
+/// Build the session status label for display in the shutdown progress card.
+///
+/// When tools are running, displays the tool name and a truncated input
+/// summary (max 30 chars). Falls back to generic labels for LLM streaming
+/// or idle states.
+fn build_session_status_label(
+    has_running_tool: bool,
+    tool_info: &[(String, String)],
+    llm_state: LlmState,
+) -> String {
+    if has_running_tool {
+        if let Some((tool_name, input)) = tool_info.first() {
+            let input_brief: String = input.chars().take(30).collect();
+            let display = if input_brief.len() < input.len() {
+                format!("{}...", input_brief)
+            } else {
+                input_brief
+            };
+            if display.is_empty() {
+                format!(
+                    "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}{}",
+                    tool_name
+                )
+            } else {
+                format!(
+                    "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}{} {}",
+                    tool_name, display
+                )
+            }
+        } else {
+            "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}".to_string()
+        }
+    } else if matches!(llm_state, LlmState::Requesting | LlmState::Receiving) {
+        "LLM \u{6d41}\u{5f0f}\u{8f93}\u{51fa}\u{4e2d}".to_string()
+    } else {
+        "\u{5df2}\u{5c31}\u{7eea}".to_string()
+    }
+}
+
 impl Gateway {
+    /// Send a brief initial shutdown notification (Phase 0).
+    ///
+    /// Displays a simple message like "⏳ 正在优雅关闭..." or
+    /// "⚠️ 强制关闭中..." without per-session details. Session progress
+    /// will be shown later in Phase 2 via [`send_shutdown_progress_card`].
+    pub async fn send_shutdown_start_notification(&self, mode: ShutdownMode) {
+        let header_title = if mode == ShutdownMode::Graceful {
+            "⏳ 正在优雅关闭..."
+        } else {
+            "⚠️ 强制关闭中..."
+        };
+
+        let body = if mode == ShutdownMode::Graceful {
+            "系统正在优雅关闭，drain 结束后将展示 session 进度详情。"
+        } else {
+            "系统正在强制关闭，未完成的操作可能需要手动恢复。"
+        };
+
+        let mut elements: Vec<serde_json::Value> = vec![json!({
+            "tag": "div",
+            "text": json!({
+                "tag": "lark_md",
+                "content": body
+            })
+        })];
+
+        if mode == ShutdownMode::Graceful {
+            elements.push(json!({
+                "tag": "action",
+                "actions": [
+                    json!({
+                        "tag": "button",
+                        "text": json!({
+                            "tag": "plain_text",
+                            "content": "继续等待"
+                        }),
+                        "type": "default",
+                        "disabled": true
+                    }),
+                    json!({
+                        "tag": "button",
+                        "text": json!({
+                            "tag": "plain_text",
+                            "content": "强制关闭"
+                        }),
+                        "type": "danger",
+                        "value": {"action": "forceful_shutdown"}
+                    })
+                ]
+            }));
+        }
+
+        let card = json!({
+            "config": { "wide_screen_mode": true },
+            "header": json!({
+                "title": json!({
+                    "tag": "plain_text",
+                    "content": header_title
+                }),
+                "template": if mode == ShutdownMode::Graceful { "blue" } else { "red" }
+            }),
+            "elements": elements
+        });
+
+        // Send one card per chat (deduplicated by chat_id).
+        let sessions = self.session_manager.get_all_sessions().await;
+        if sessions.is_empty() {
+            return;
+        }
+        let mut chats: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for session in &sessions {
+            if let Some(chat_id) = self.session_manager.get_chat_id(&session.id).await {
+                chats.entry(chat_id).or_default().push(session.id.clone());
+            }
+        }
+        let plugins = self.get_all_plugins().await;
+        for chat_id in chats.keys() {
+            for plugin in &plugins {
+                let output = RenderedOutput {
+                    msg_type: "interactive".into(),
+                    payload: card.clone(),
+                };
+                if let Err(e) = plugin.send(&output, chat_id, None).await {
+                    tracing::warn!(
+                        chat_id = %chat_id,
+                        plugin = plugin.platform(),
+                        error = %e,
+                        "failed to send shutdown start notification — continuing"
+                    );
+                }
+            }
+        }
+    }
+
     /// Build and send a shutdown progress card to all active session chats.
     ///
     /// Displays per-session status (LLM streaming / tool executing / idle)
@@ -20,8 +155,6 @@ impl Gateway {
     /// When `mode` is [`ShutdownMode::Forceful`], the header changes to
     /// indicate forced shutdown and the action buttons are omitted.
     pub async fn send_shutdown_progress_card(&self, mode: ShutdownMode) {
-        use closeclaw_llm::session_state::LlmState;
-
         let sessions = self.session_manager.get_all_sessions().await;
         if sessions.is_empty() {
             return;
@@ -46,28 +179,41 @@ impl Gateway {
                     let guard = cs.read().await;
                     let state = *guard.llm_state.read().expect("llm_state lock poisoned");
                     let activity = guard.last_activity_at();
-                    let has_running_tool = {
+                    let (has_running_tool, running_ids) = {
                         let tool_states =
                             guard.tool_states.read().expect("tool_states lock poisoned");
-                        tool_states.values().any(|s| {
-                            matches!(
-                                s,
-                                closeclaw_llm::session_state::ToolExecState::RunningForeground
-                                    | closeclaw_llm::session_state::ToolExecState::RunningBackground
-                            )
-                        })
+                        let ids: Vec<String> = tool_states
+                            .iter()
+                            .filter(|(_, s)| {
+                                matches!(
+                                    *s,
+                                    closeclaw_llm::session_state::ToolExecState::RunningForeground
+                                        | closeclaw_llm::session_state::ToolExecState::RunningBackground
+                                )
+                            })
+                            .map(|(id, _)| id.clone())
+                            .collect();
+                        (!ids.is_empty(), ids)
                     };
-                    drop(guard);
-                    let label = if has_running_tool {
-                        "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}"
-                    } else if matches!(state, LlmState::Requesting | LlmState::Receiving) {
-                        "LLM \u{6d41}\u{5f0f}\u{8f93}\u{51fa}\u{4e2d}"
+
+                    // Extract tool name and input from conversation messages
+                    // for sessions with running tools.
+                    let tool_info: Vec<(String, String)> = if has_running_tool {
+                        let pending = guard.extract_pending_tool_calls();
+                        pending
+                            .into_iter()
+                            .filter(|op| running_ids.contains(&op.op_id))
+                            .map(|op| (op.name, op.args))
+                            .collect()
                     } else {
-                        "\u{5df2}\u{5c31}\u{7eea}"
+                        Vec::new()
                     };
+
+                    drop(guard);
+                    let label = build_session_status_label(has_running_tool, &tool_info, state);
                     (label, activity)
                 }
-                None => ("\u{5df2}\u{5c31}\u{7eea}", session.created_at),
+                None => ("\u{5df2}\u{5c31}\u{7eea}".to_string(), session.created_at),
             };
             drop(conv_sessions);
 
@@ -319,5 +465,106 @@ impl Gateway {
                 }
             }
         }
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Unit tests
+// ═════════════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use closeclaw_llm::session_state::LlmState;
+
+    // ── build_session_status_label tests ──────────────────────────────────────
+
+    /// Running tool with name and input shows tool details.
+    #[test]
+    fn test_label_running_tool_with_name_and_input() {
+        let tool_info = vec![("make".to_string(), "build --release".to_string())];
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        assert_eq!(
+            label,
+            "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}make build --release"
+        );
+    }
+
+    /// Running tool with long input is truncated to 30 chars.
+    #[test]
+    fn test_label_running_tool_long_input_truncated() {
+        let long_input = "a".repeat(50);
+        let tool_info = vec![("compile".to_string(), long_input)];
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        assert!(label.starts_with("\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}compile "));
+        // Should end with "..."
+        assert!(label.ends_with("..."));
+        // The input_brief part should be <= 33 chars (30 + "...")
+        let prefix = "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}compile ";
+        let brief_part = &label[prefix.len()..];
+        assert!(brief_part.len() <= 33);
+    }
+
+    /// Running tool with empty input shows tool name only.
+    #[test]
+    fn test_label_running_tool_empty_input() {
+        let tool_info = vec![("list_files".to_string(), "".to_string())];
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        assert_eq!(
+            label,
+            "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}list_files"
+        );
+    }
+
+    /// Running tool with no matching tool_info falls back to generic label.
+    #[test]
+    fn test_label_running_tool_no_info_fallback() {
+        let tool_info: Vec<(String, String)> = Vec::new();
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        assert_eq!(label, "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}");
+    }
+
+    /// No running tool, LLM requesting state.
+    #[test]
+    fn test_label_llm_requesting() {
+        let tool_info: Vec<(String, String)> = Vec::new();
+        let label = build_session_status_label(false, &tool_info, LlmState::Requesting);
+        assert_eq!(label, "LLM \u{6d41}\u{5f0f}\u{8f93}\u{51fa}\u{4e2d}");
+    }
+
+    /// No running tool, LLM receiving state.
+    #[test]
+    fn test_label_llm_receiving() {
+        let tool_info: Vec<(String, String)> = Vec::new();
+        let label = build_session_status_label(false, &tool_info, LlmState::Receiving);
+        assert_eq!(label, "LLM \u{6d41}\u{5f0f}\u{8f93}\u{51fa}\u{4e2d}");
+    }
+
+    /// No running tool, idle state.
+    #[test]
+    fn test_label_idle() {
+        let tool_info: Vec<(String, String)> = Vec::new();
+        let label = build_session_status_label(false, &tool_info, LlmState::Idle);
+        assert_eq!(label, "\u{5df2}\u{5c31}\u{7eea}");
+    }
+
+    /// Running tool takes precedence over LLM streaming state.
+    #[test]
+    fn test_label_running_tool_over_llm_streaming() {
+        let tool_info = vec![("exec".to_string(), "cargo test".to_string())];
+        let label = build_session_status_label(true, &tool_info, LlmState::Receiving);
+        assert!(label.starts_with("\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}"));
+        assert!(label.contains("exec"));
+    }
+
+    /// Multi-byte UTF-8 input is truncated safely.
+    #[test]
+    fn test_label_running_tool_multibyte_input() {
+        let input = "\u{4e2d}\u{6587}\u{6d4b}\u{8bd5}\u{5de5}\u{5177}\u{540d}\u{79f0}\u{548c}\u{53c2}\u{6570}".repeat(5);
+        let tool_info = vec![("tool".to_string(), input)];
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        assert!(label.starts_with("\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}tool "));
+        // Should not panic on multi-byte truncation
+        assert!(label.len() > 0);
     }
 }
