@@ -51,6 +51,9 @@ pub enum HardRuleViolation {
     /// LLM returned no usable content (no text, no tool calls, no
     /// thinking output).
     EmptyResponse,
+    /// LLM produced only thinking/reasoning output with no
+    /// text or tool calls.
+    ThinkingOnlyResponse,
     /// Response structure is malformed or missing required fields.
     StructuralAnomaly {
         /// Human-readable description of what was wrong.
@@ -121,6 +124,7 @@ impl From<&HardRuleViolation> for FailureCategory {
         match violation {
             HardRuleViolation::Timeout { .. } => FailureCategory::Retryable,
             HardRuleViolation::EmptyResponse => FailureCategory::InvalidResponse,
+            HardRuleViolation::ThinkingOnlyResponse => FailureCategory::InvalidResponse,
             HardRuleViolation::StructuralAnomaly { .. } => FailureCategory::InvalidResponse,
             HardRuleViolation::RetryExhausted { .. } => FailureCategory::Unrecoverable,
         }

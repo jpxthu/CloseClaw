@@ -46,14 +46,19 @@ impl HardRule for TimeoutRule {
 /// Rule: LLM returned no usable content.
 ///
 /// A response is considered empty when it contains no text, no tool
-/// calls, AND no thinking output.
+/// calls, AND no thinking output.  A response containing *only*
+/// thinking (no text, no tool calls) is also flagged as invalid.
 pub struct EmptyResponseRule;
 
 #[async_trait]
 impl HardRule for EmptyResponseRule {
     async fn check(&self, input: &HealthCheckInput) -> Option<HardRuleViolation> {
-        if !input.has_text && !input.has_tool_calls && !input.has_thinking {
-            Some(HardRuleViolation::EmptyResponse)
+        if !input.has_text && !input.has_tool_calls {
+            if input.has_thinking {
+                Some(HardRuleViolation::ThinkingOnlyResponse)
+            } else {
+                Some(HardRuleViolation::EmptyResponse)
+            }
         } else {
             None
         }
