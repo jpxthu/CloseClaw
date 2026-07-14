@@ -148,7 +148,11 @@ impl UnhealthyHandler {
                 ),
             }),
             FailureCategory::SideEffectOccurred => Some(RecoverableAction::NotifyUser {
-                message: "Side effects detected — user verification required. No rollback will be performed.".into(),
+                message: "Side effects detected".to_string()
+                    + " — user verification"
+                    + " required."
+                    + " No rollback will"
+                    + " be performed.",
             }),
         }
     }
