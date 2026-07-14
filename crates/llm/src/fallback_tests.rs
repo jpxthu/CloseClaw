@@ -166,7 +166,8 @@ async fn test_fallback_client_succeeds_on_first_model() {
     };
     let result = client.chat(req).await;
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().content, "hello");
+    let (resp, _retries) = result.unwrap();
+    assert_eq!(resp.content, "hello");
 }
 
 #[tokio::test]

@@ -165,6 +165,7 @@ fn test_build_api_request_does_not_modify_self_messages() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     });
     let original_count = session.messages().len();
     let original_blocks = session.messages()[0].content_blocks.len();

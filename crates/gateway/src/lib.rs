@@ -8,6 +8,8 @@ pub mod approval;
 pub mod card_action;
 pub(crate) mod health_check_builders;
 #[cfg(test)]
+mod health_check_builders_tests;
+#[cfg(test)]
 mod im_adapter;
 pub mod inbound_queue;
 #[cfg(test)]

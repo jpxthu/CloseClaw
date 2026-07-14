@@ -241,6 +241,7 @@ mod tests {
                 cache_write_tokens: None,
             },
             finish_reason: Some("stop".to_string()),
+            retry_attempts: 0,
         }
     }
 
