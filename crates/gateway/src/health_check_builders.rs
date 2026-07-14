@@ -34,12 +34,10 @@ pub(crate) fn build_health_check_input(
                         structural_anomaly_detail = Some("ToolUse block has empty name".into());
                     }
                 }
-                ContentBlock::ToolResult { tool_call_id, .. } => {
-                    if tool_call_id.is_empty() {
-                        is_structurally_valid = false;
-                        structural_anomaly_detail =
-                            Some("ToolResult block has empty tool_call_id".into());
-                    }
+                ContentBlock::ToolResult { tool_call_id, .. } if tool_call_id.is_empty() => {
+                    is_structurally_valid = false;
+                    structural_anomaly_detail =
+                        Some("ToolResult block has empty tool_call_id".into());
                 }
                 _ => {}
             }
