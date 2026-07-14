@@ -17,7 +17,6 @@ use closeclaw_session::run_health::{HealthCheckInput, HookContext, HookToolCallI
 /// provided by the caller which tracks them at the turn level.
 pub(crate) fn build_health_check_input(
     result: &StreamResult,
-    retry_count: u32,
     turn_duration_ms: u64,
 ) -> HealthCheckInput {
     let mut is_structurally_valid = true;
@@ -60,7 +59,7 @@ pub(crate) fn build_health_check_input(
             .content_blocks
             .iter()
             .any(|b| matches!(b, ContentBlock::Thinking { .. })),
-        retry_count,
+        retry_count: result.retry_attempts,
         turn_duration_ms,
         is_structurally_valid,
         structural_anomaly_detail,

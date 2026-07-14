@@ -171,6 +171,9 @@ pub struct UnifiedResponse {
     pub usage: UnifiedUsage,
     /// Reason why the response finished (e.g., "stop", "length").
     pub finish_reason: Option<String>,
+    /// Number of retry attempts made before this response succeeded.
+    #[serde(default)]
+    pub retry_attempts: u32,
 }
 
 // ---------------------------------------------------------------------------

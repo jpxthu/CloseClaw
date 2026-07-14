@@ -96,6 +96,7 @@ impl From<InternalResponse> for UnifiedResponse {
             content_blocks: resp.content_blocks.into_iter().map(Into::into).collect(),
             usage: resp.usage.into(),
             finish_reason: resp.finish_reason,
+            retry_attempts: 0,
         }
     }
 }
