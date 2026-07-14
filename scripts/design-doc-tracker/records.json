@@ -446,5 +446,13 @@
     "confirmed_time": "2026-07-07T01:21:44.946986+08:00",
     "comment": "",
     "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/tools/background-tasks.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-07-15T06:15:52.199050+08:00",
+    "comment": "",
+    "blocked_reason": "F2b深度对比3轮未一致: 通知注入时机描述正向标code_extra反向标doc_problem无法达成一致"
   }
 ]
