@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::persistence::{ReasoningLevel, SessionMode};
+use crate::run_health::RuntimeSnapshotManager;
 use crate::spawn::CommunicationConfig;
 use closeclaw_common::RunningStats;
 use closeclaw_common::StreamingSink;
@@ -54,6 +55,7 @@ mod session_exec;
 mod session_handles;
 mod session_llm;
 pub mod streaming_assembly;
+pub mod transcript_ops;
 pub use streaming_assembly::SessionStream;
 
 /// A single message in a conversation session.
@@ -93,7 +95,9 @@ pub struct AnnounceEvent {
 #[allow(dead_code)]
 pub struct ConversationSession {
     session_id: String,
-    messages: Vec<SessionMessage>,
+    /// Conversation messages. Accessible within the crate for
+    /// transcript operation methods in [`transcript_ops`].
+    pub(crate) messages: Vec<SessionMessage>,
     system_prompt: Option<String>,
     turn_counter: TurnCounter,
     model: String,
@@ -131,6 +135,9 @@ pub struct ConversationSession {
     pub cancel_token: CancellationToken,
     /// `stop()` idempotency flag. See [`super::session_handles`].
     pub stopped: Arc<AtomicBool>,
+    /// Per-session snapshot manager for transcript rollback safety.
+    /// Created lazily on first rewrite/partial-rewrite operation.
+    snapshot_manager: Option<RuntimeSnapshotManager>,
     /// Active-yield flag. When `true`, the session is in主动 Waiting
     /// state (entered via `sessions_yield`). User messages are queued
     /// until the session resumes. Passive Waiting (spawn without yield)
@@ -213,6 +220,7 @@ impl ConversationSession {
             child_handles: Arc::new(RwLock::new(HashMap::new())),
             cancel_token: CancellationToken::new(),
             stopped: Arc::new(AtomicBool::new(false)),
+            snapshot_manager: None,
             is_yielding: Arc::new(AtomicBool::new(false)),
             communication_config: None,
             bootstrap_mode: crate::bootstrap::loader::BootstrapMode::Full,
@@ -496,13 +504,13 @@ impl ConversationSession {
     }
 
     /// Appends a message to the session.
-    fn push_message(&mut self, role: &str, content_blocks: Vec<ContentBlock>) {
+    pub(crate) fn push_message(&mut self, role: &str, content_blocks: Vec<ContentBlock>) {
         self.messages.push(SessionMessage {
             role: role.to_string(),
             content_blocks,
-            timestamp: Utc::now(),
+            timestamp: chrono::Utc::now(),
         });
-        self.last_activity_at = Utc::now().timestamp();
+        self.last_activity_at = chrono::Utc::now().timestamp();
     }
 
     /// Sets the LLM busy state.
@@ -517,7 +525,7 @@ impl ConversationSession {
 
     /// 将来源消息克隆后注入到自身 messages 列表，
     /// 保留原始时间戳。用于 Fork 模式注入父 session 的对话历史。
-    pub fn clone_messages_from(&mut self, source: &[SessionMessage]) {
+    pub(crate) fn clone_messages_from(&mut self, source: &[SessionMessage]) {
         self.messages.extend(source.iter().cloned());
     }
 
@@ -545,13 +553,8 @@ impl ConversationSession {
     }
 }
 
-/// Message replacement, stats, and streaming-sink accessors.
+/// Stats and streaming-sink accessors.
 impl ConversationSession {
-    /// Replaces all session messages with the given list.
-    pub fn replace_messages(&mut self, new_messages: Vec<SessionMessage>) {
-        self.messages = new_messages;
-    }
-
     /// Returns a read-only reference to the running usage statistics.
     pub fn stats(&self) -> &RunningStats {
         &self.stats

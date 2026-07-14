@@ -22,6 +22,7 @@ use closeclaw_session::compaction::{
     CompactConfig, CompactionMessage, CompactionResult, CompactionService, TokenWarningState,
 };
 use closeclaw_session::llm_session::ChatSession;
+use closeclaw_session::run_health::TranscriptOp;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
@@ -543,7 +544,7 @@ pub(crate) async fn apply_compact_result(
     };
     {
         let mut cs = cs.write().await;
-        cs.replace_messages(vec![boundary]);
+        cs.apply_transcript_op(TranscriptOp::Rewrite, vec![boundary]);
     }
     // Rebuild system prompt after compaction so skills stay fresh.
     // The write guard above is now dropped, so we can safely acquire

@@ -7,8 +7,6 @@
 use std::sync::Arc;
 
 use closeclaw_session::llm_session::ChatSession;
-use closeclaw_session::run_health::{RuntimeSnapshotManager, TranscriptOp};
-use tokio::sync::RwLock;
 use tracing::warn;
 
 use super::SessionManager;
@@ -68,13 +66,10 @@ impl SessionManager {
     ///
     /// Must be called **before** compaction begins so that a failed
     /// compaction can be rolled back via [`rollback_compaction`].
+    ///
+    /// Delegates to the session's internal snapshot manager — no
+    /// external snapshot management needed.
     pub async fn save_pre_compaction_snapshot(&self, session_id: &str) {
-        // Ensure a snapshot manager exists for this session.
-        {
-            let mut mgrs = self.snapshot_managers.write().await;
-            mgrs.entry(session_id.to_string())
-                .or_insert_with(|| Arc::new(RwLock::new(RuntimeSnapshotManager::new())));
-        }
         let conv_sessions = self.conversation_sessions.read().await;
         let Some(cs) = conv_sessions.get(session_id) else {
             warn!(
@@ -83,17 +78,8 @@ impl SessionManager {
             );
             return;
         };
-        let cs = cs.read().await;
-        let mgrs = self.snapshot_managers.read().await;
-        let Some(mgr) = mgrs.get(session_id) else {
-            warn!(
-                session_id = %session_id,
-                "save_pre_compaction_snapshot: snapshot manager not found"
-            );
-            return;
-        };
-        let mut mgr = mgr.write().await;
-        mgr.create_snapshot(cs.messages(), TranscriptOp::Rewrite);
+        let mut cs = cs.write().await;
+        cs.snapshot_current_state(closeclaw_session::run_health::TranscriptOp::Rewrite);
     }
 
     /// Rollback a failed compaction by restoring the pre-compaction
@@ -103,21 +89,6 @@ impl SessionManager {
     /// `false` if no snapshot was saved (caller should treat as
     /// an error).
     pub async fn rollback_compaction(&self, session_id: &str) -> bool {
-        let mgrs = self.snapshot_managers.read().await;
-        let Some(mgr) = mgrs.get(session_id) else {
-            warn!(
-                session_id = %session_id,
-                "rollback_compaction: snapshot manager not found"
-            );
-            return false;
-        };
-        let mut mgr = mgr.write().await;
-        let Some(messages) = mgr.rollback() else {
-            return false;
-        };
-        drop(mgr);
-        drop(mgrs);
-        // Restore messages into the ConversationSession.
         let conv_sessions = self.conversation_sessions.read().await;
         let Some(cs) = conv_sessions.get(session_id) else {
             warn!(
@@ -127,16 +98,15 @@ impl SessionManager {
             return false;
         };
         let mut cs = cs.write().await;
-        cs.replace_messages(messages);
-        true
+        cs.rollback_transcript()
     }
 
     /// Clear the pre-compaction snapshot after a successful compaction.
     pub async fn clear_pre_compaction_snapshot(&self, session_id: &str) {
-        let mgrs = self.snapshot_managers.read().await;
-        if let Some(mgr) = mgrs.get(session_id) {
-            let mut mgr = mgr.write().await;
-            mgr.clear();
+        let conv_sessions = self.conversation_sessions.read().await;
+        if let Some(cs) = conv_sessions.get(session_id) {
+            let mut cs = cs.write().await;
+            cs.clear_snapshots();
         }
     }
 
@@ -146,12 +116,6 @@ impl SessionManager {
     /// the current transcript state. Returns `true` if a snapshot was
     /// created, `false` if the operation was a no-op.
     pub async fn create_partial_rewrite_snapshot(&self, session_id: &str) -> bool {
-        // Ensure a snapshot manager exists for this session.
-        {
-            let mut mgrs = self.snapshot_managers.write().await;
-            mgrs.entry(session_id.to_string())
-                .or_insert_with(|| Arc::new(RwLock::new(RuntimeSnapshotManager::new())));
-        }
         let conv_sessions = self.conversation_sessions.read().await;
         let Some(cs) = conv_sessions.get(session_id) else {
             warn!(
@@ -160,26 +124,19 @@ impl SessionManager {
             );
             return false;
         };
-        let cs = cs.read().await;
-        let mgrs = self.snapshot_managers.read().await;
-        let Some(mgr) = mgrs.get(session_id) else {
-            warn!(
-                session_id = %session_id,
-                "create_partial_rewrite_snapshot: snapshot manager not found"
-            );
-            return false;
-        };
-        let mut mgr = mgr.write().await;
-        mgr.create_snapshot(cs.messages(), TranscriptOp::PartialRewrite)
+        let mut cs = cs.write().await;
+        let prev_count = cs.snapshot_count().unwrap_or(0);
+        cs.snapshot_current_state(closeclaw_session::run_health::TranscriptOp::PartialRewrite);
+        cs.snapshot_count().unwrap_or(0) > prev_count
     }
 
     /// Returns the snapshot count for a session, or `None` if no
     /// snapshot manager exists for that session.
     #[cfg(test)]
     pub async fn snapshot_count_for(&self, session_id: &str) -> Option<usize> {
-        let mgrs = self.snapshot_managers.read().await;
-        let mgr_arc = mgrs.get(session_id)?;
-        let mgr = mgr_arc.read().await;
-        Some(mgr.snapshot_count())
+        let conv_sessions = self.conversation_sessions.read().await;
+        let cs = conv_sessions.get(session_id)?;
+        let cs = cs.read().await;
+        cs.snapshot_count()
     }
 }

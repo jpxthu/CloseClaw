@@ -69,6 +69,7 @@ pub struct Snapshot {
 ///    snapshots, or leave them for potential rollback.
 /// 3. On failure, call [`rollback`] to restore the most recent
 ///    snapshot.
+#[derive(Clone)]
 pub struct RuntimeSnapshotManager {
     snapshots: VecDeque<Snapshot>,
 }

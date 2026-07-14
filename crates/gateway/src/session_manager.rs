@@ -21,7 +21,6 @@ use closeclaw_session::persistence::{
     PendingMessage, PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
     SessionStatus,
 };
-use closeclaw_session::run_health::RuntimeSnapshotManager;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -106,9 +105,6 @@ pub struct SessionManager {
     /// and cleaning up finished task output files.
     task_manager: RwLock<Option<Arc<dyn closeclaw_tasks::TaskManager>>>,
     /// Per-session runtime snapshot managers for transcript rollback.
-    /// Keyed by session_id. Created on demand when a snapshot is first
-    /// needed; lazily cleaned up when the session is removed.
-    snapshot_managers: RwLock<HashMap<String, Arc<RwLock<RuntimeSnapshotManager>>>>,
     /// Per-agent mutexes for serializing resolve() requests.
     /// Keyed by agent_id. Ensures the same agent's lookup/restore/create
     /// operations are serialized while different agents run in parallel.
@@ -173,7 +169,6 @@ impl SessionManager {
             cache_invalidator: RwLock::new(None),
             mining_notify_tx: std::sync::RwLock::new(None),
             task_manager: RwLock::new(None),
-            snapshot_managers: RwLock::new(HashMap::new()),
             agent_locks: Arc::new(RwLock::new(HashMap::new())),
             yield_timeout_handles: RwLock::new(HashMap::new()),
             output_tx: RwLock::new(None),
