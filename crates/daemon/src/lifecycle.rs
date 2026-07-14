@@ -228,6 +228,11 @@ impl Daemon {
         let mut sigint = signal(SignalKind::interrupt()).ok();
         let mut sigterm = signal(SignalKind::terminate()).ok();
 
+        // Heartbeat state: send every 30s when no progress events arrive.
+        let heartbeat_interval = std::time::Duration::from_secs(30);
+        let phase2_start = std::time::Instant::now();
+        let mut last_event: tokio::time::Instant = tokio::time::Instant::now();
+
         // Monitor for escalation and update card
         let mut last_mode = mode;
         let mut stop_completed = false;
@@ -258,6 +263,7 @@ impl Daemon {
                 Some(progress) = progress_rx.recv() => {
                     // Progress event: update card with throttle
                     let now = std::time::Instant::now();
+                    last_event = tokio::time::Instant::now();
                     if progress.remaining == 0
                         || now.duration_since(last_card_update) >= throttle_interval
                     {
@@ -291,6 +297,36 @@ impl Daemon {
                     }
                 } => {
                     // Escalation signal received
+                }
+
+                _ = tokio::time::sleep_until(
+                    last_event + heartbeat_interval
+                ) => {
+                    // 30s with no events — send heartbeat notification
+                    let current_mode: closeclaw_common::shutdown::ShutdownMode =
+                        self.shutdown.mode();
+                    let longest_wait_secs = phase2_start.elapsed().as_secs();
+                    let active_count = {
+                        let conv = self
+                            .gateway
+                            .session_manager()
+                            .conversation_sessions
+                            .read()
+                            .await;
+                        conv.values().filter(|cs| {
+                            !cs.try_read().map_or(true, |c| c.is_stopped())
+                        }).count()
+                    };
+                    tracing::info!(
+                        active_count,
+                        longest_wait_secs,
+                        "Phase 2 heartbeat — sending periodic notification"
+                    );
+                    self.gateway
+                        .send_shutdown_heartbeat_card(active_count, longest_wait_secs, current_mode)
+                        .await;
+                    // Reset heartbeat timer
+                    last_event = tokio::time::Instant::now();
                 }
             }
 

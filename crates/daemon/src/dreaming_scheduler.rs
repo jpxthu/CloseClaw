@@ -11,11 +11,16 @@
 //! `SessionConfigProvider::dreaming_interval_secs()`.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::{Datelike, Local, Timelike};
 use thiserror::Error;
 use tokio::sync::{mpsc, watch};
-use tracing::{error, info};
+use tokio::task::JoinHandle;
+use tracing::{error, info, warn};
+
+/// Timeout (seconds) to wait for an active dreaming cycle during shutdown.
+const SHUTDOWN_GRACE_SECS: u64 = 10;
 
 use closeclaw_config::providers::MemoryConfigData;
 use closeclaw_config::session::SessionConfigProvider;
@@ -60,6 +65,118 @@ pub struct DreamingScheduler {
     /// Optional channel receiver for immediate mining notifications
     /// from ArchiveSweeper (design doc §即时 hook).
     mining_notify_rx: Option<mpsc::Receiver<String>>,
+}
+
+// ── Standalone helpers (spawnable without borrowing scheduler) ───────
+
+/// Execute one dreaming cycle: dreaming pipeline first, then mining scan.
+///
+/// Standalone async function so it can be spawned via `tokio::spawn`
+/// without borrowing the scheduler.
+async fn execute_dreaming_cycle(
+    storage: &Arc<dyn PersistenceService>,
+    config: &Arc<dyn SessionConfigProvider>,
+    dreaming_pipeline: &Arc<DreamingPipeline>,
+    memory_miner: &Arc<MemoryMiner>,
+) -> Result<(), DreamingSchedulerError> {
+    let agents = config.list_agents();
+    if agents.is_empty() {
+        return Ok(());
+    }
+
+    // Step 1: Run dreaming pipeline (process already-mined entries)
+    if let Err(e) = dreaming_pipeline.run_once(storage.as_ref()).await {
+        error!(%e, "dreaming pipeline failed");
+    }
+
+    // Step 2: Run mining scan (extract entries from new archived sessions)
+    let unmined = storage.list_archived_unmined_sessions().await?;
+    for session_id in unmined {
+        mine_archived_session(&session_id, &agents, storage, memory_miner).await;
+    }
+
+    Ok(())
+}
+
+/// Mine a single archived session (standalone version).
+async fn mine_archived_session(
+    session_id: &str,
+    agents: &[String],
+    storage: &Arc<dyn PersistenceService>,
+    memory_miner: &Arc<MemoryMiner>,
+) {
+    let checkpoint = match storage.load_archived_checkpoint(session_id).await {
+        Ok(Some(cp)) => cp,
+        Ok(None) => {
+            error!(
+                session_id = %session_id,
+                "archived checkpoint not found, skipping"
+            );
+            return;
+        }
+        Err(e) => {
+            error!(
+                session_id = %session_id,
+                %e,
+                "failed to load archived checkpoint"
+            );
+            return;
+        }
+    };
+
+    if let Some(ref aid) = checkpoint.agent_id {
+        if !agents.contains(aid) {
+            return;
+        }
+    }
+
+    let raw_transcript = format_transcript(&checkpoint.outbound_pending);
+    let agent_id = checkpoint.agent_id.as_deref().unwrap_or("");
+
+    if let Err(e) = memory_miner
+        .mine_session_from_checkpoint(
+            session_id,
+            &raw_transcript,
+            agent_id,
+            &checkpoint,
+            storage.as_ref(),
+        )
+        .await
+    {
+        error!(
+            session_id = %session_id,
+            %e,
+            "failed to mine session"
+        );
+    }
+}
+
+/// Wait for an active dreaming task to complete, with a timeout.
+///
+/// Logs the outcome. Used during shutdown to give an in-progress
+/// cycle a chance to finish gracefully.
+async fn wait_for_active_task(handle: JoinHandle<Result<(), DreamingSchedulerError>>) {
+    match tokio::time::timeout(Duration::from_secs(SHUTDOWN_GRACE_SECS), handle).await {
+        Ok(Ok(Ok(()))) => {
+            info!("dreaming cycle completed before shutdown");
+        }
+        Ok(Ok(Err(e))) => {
+            error!(%e, "dreaming cycle error during shutdown");
+        }
+        Ok(Err(e)) => {
+            error!(
+                %e,
+                "dreaming task panicked during shutdown"
+            );
+        }
+        Err(_) => {
+            warn!(
+                "dreaming cycle timed out after {}s, \
+                 forcing exit",
+                SHUTDOWN_GRACE_SECS
+            );
+        }
+    }
 }
 
 impl DreamingScheduler {
@@ -169,6 +286,7 @@ impl DreamingScheduler {
         initial_delay: tokio::time::Duration,
     ) {
         let mut next_fire = tokio::time::Instant::now() + initial_delay;
+        let mut active_task: Option<JoinHandle<Result<(), DreamingSchedulerError>>> = None;
 
         loop {
             tokio::select! {
@@ -176,6 +294,9 @@ impl DreamingScheduler {
                     info!(
                         "DreamingScheduler received shutdown signal, exiting"
                     );
+                    if let Some(handle) = active_task.take() {
+                        wait_for_active_task(handle).await;
+                    }
                     break;
                 }
                 result = self.config_rx.recv() => {
@@ -201,13 +322,9 @@ impl DreamingScheduler {
                     }
                 }
                 _ = tokio::time::sleep_until(next_fire) => {
-                    if let Err(e) = self.run_once().await {
-                        error!(
-                            %e,
-                            "DreamingScheduler run_once returned error, \
-                             continuing loop"
-                        );
-                    }
+                    self.spawn_or_skip_cycle(
+                        &mut active_task,
+                    ).await;
                     let next =
                         schedule.next_fire_time(Local::now());
                     let delay = (next - Local::now())
@@ -271,6 +388,7 @@ impl DreamingScheduler {
         interval: tokio::time::Duration,
     ) {
         let mut next_fire = tokio::time::Instant::now() + interval;
+        let mut active_task: Option<JoinHandle<Result<(), DreamingSchedulerError>>> = None;
 
         loop {
             tokio::select! {
@@ -278,6 +396,9 @@ impl DreamingScheduler {
                     info!(
                         "DreamingScheduler received shutdown signal, exiting"
                     );
+                    if let Some(handle) = active_task.take() {
+                        wait_for_active_task(handle).await;
+                    }
                     break;
                 }
                 result = self.config_rx.recv() => {
@@ -301,13 +422,9 @@ impl DreamingScheduler {
                     }
                 }
                 _ = tokio::time::sleep_until(next_fire) => {
-                    if let Err(e) = self.run_once().await {
-                        error!(
-                            %e,
-                            "DreamingScheduler run_once returned error, \
-                             continuing loop"
-                        );
-                    }
+                    self.spawn_or_skip_cycle(
+                        &mut active_task,
+                    ).await;
                     next_fire =
                         tokio::time::Instant::now() + interval;
                 }
@@ -315,78 +432,57 @@ impl DreamingScheduler {
         }
     }
 
+    /// Spawn a dreaming cycle if none is currently active.
+    ///
+    /// If a previous task has already finished, its result is
+    /// collected and logged before a new cycle is started.
+    async fn spawn_or_skip_cycle(
+        &self,
+        active_task: &mut Option<JoinHandle<Result<(), DreamingSchedulerError>>>,
+    ) {
+        // Collect result of finished task
+        if let Some(ref handle) = active_task {
+            if handle.is_finished() {
+                let handle = active_task.take().unwrap();
+                match handle.await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        error!(%e, "dreaming cycle error");
+                    }
+                    Err(e) => {
+                        error!(%e, "dreaming task panicked");
+                    }
+                }
+            }
+        }
+
+        // Spawn new task if none active
+        if active_task.is_none() {
+            let storage = self.storage.clone();
+            let config = self.config.clone();
+            let pipeline = self.dreaming_pipeline.clone();
+            let miner = self.memory_miner.clone();
+            *active_task = Some(tokio::spawn(async move {
+                execute_dreaming_cycle(&storage, &config, &pipeline, &miner).await
+            }));
+        }
+    }
+
     /// Execute one cycle: dreaming first, then mining.
     pub async fn run_once(&self) -> Result<(), DreamingSchedulerError> {
-        let agents = self.config.list_agents();
-        if agents.is_empty() {
-            return Ok(());
-        }
-
-        // Step 1: Run dreaming pipeline (process already-mined entries)
-        if let Err(e) = self.dreaming_pipeline.run_once(self.storage.as_ref()).await {
-            error!(%e, "dreaming pipeline failed");
-            // Continue to mining even if dreaming fails
-        }
-
-        // Step 2: Run mining scan (extract entries from new archived
-        // sessions)
-        let unmined = self.storage.list_archived_unmined_sessions().await?;
-
-        for session_id in unmined {
-            self.mine_session(&session_id, &agents).await;
-        }
-
-        Ok(())
+        execute_dreaming_cycle(
+            &self.storage,
+            &self.config,
+            &self.dreaming_pipeline,
+            &self.memory_miner,
+        )
+        .await
     }
 
     /// Mine a single archived session: load checkpoint, filter by agent,
     /// format transcript, and invoke the memory miner.
     async fn mine_session(&self, session_id: &str, agents: &[String]) {
-        let checkpoint = match self.storage.load_archived_checkpoint(session_id).await {
-            Ok(Some(cp)) => cp,
-            Ok(None) => {
-                error!(
-                    session_id = %session_id,
-                    "archived checkpoint not found, skipping"
-                );
-                return;
-            }
-            Err(e) => {
-                error!(
-                    session_id = %session_id,
-                    %e,
-                    "failed to load archived checkpoint"
-                );
-                return;
-            }
-        };
-
-        if let Some(ref aid) = checkpoint.agent_id {
-            if !agents.contains(aid) {
-                return;
-            }
-        }
-
-        let raw_transcript = format_transcript(&checkpoint.outbound_pending);
-        let agent_id = checkpoint.agent_id.as_deref().unwrap_or("");
-
-        if let Err(e) = self
-            .memory_miner
-            .mine_session_from_checkpoint(
-                session_id,
-                &raw_transcript,
-                agent_id,
-                &checkpoint,
-                self.storage.as_ref(),
-            )
-            .await
-        {
-            error!(
-                session_id = %session_id,
-                %e,
-                "failed to mine session"
-            );
-        }
+        mine_archived_session(session_id, agents, &self.storage, &self.memory_miner).await
     }
 }
 
