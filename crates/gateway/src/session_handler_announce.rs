@@ -29,11 +29,10 @@ use closeclaw_session::llm_session::ChatSession;
 use closeclaw_tasks::NotificationPriority;
 use tokio::time::Instant;
 
-/// Turn-level timing and retry metadata passed through the health
+/// Turn-level timing metadata passed through the health
 /// check pipeline so hard rules receive actual runtime values.
 pub(super) struct TurnMetrics {
     pub turn_duration_ms: u64,
-    pub retry_count: u32,
 }
 
 impl SessionMessageHandler {
@@ -53,7 +52,6 @@ impl SessionMessageHandler {
     ) {
         let turn_metrics = TurnMetrics {
             turn_duration_ms: turn_start.elapsed().as_millis() as u64,
-            retry_count: 0,
         };
         Self::clear_busy_and_send(
             session_manager,
@@ -150,7 +148,6 @@ impl SessionMessageHandler {
                     if let Some(checker_arc) = cs_write.health_checker() {
                         let input = crate::health_check_builders::build_health_check_input(
                             &stream_result,
-                            turn_metrics.retry_count,
                             turn_metrics.turn_duration_ms,
                         );
                         let hook_ctx =
@@ -252,7 +249,6 @@ impl SessionMessageHandler {
             };
             let turn_metrics = TurnMetrics {
                 turn_duration_ms: turn_start.elapsed().as_millis() as u64,
-                retry_count: 0,
             };
             Self::clear_busy_and_send(
                 session_manager,

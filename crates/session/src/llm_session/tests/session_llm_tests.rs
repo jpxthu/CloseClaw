@@ -128,6 +128,7 @@ fn canned_response(text: &str) -> UnifiedResponse {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     }
 }
 
@@ -365,6 +366,7 @@ async fn test_session_delegates_to_injected_caller() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     }));
     session.set_llm_caller(caller);
 

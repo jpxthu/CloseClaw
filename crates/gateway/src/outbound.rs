@@ -26,6 +26,8 @@ pub struct StreamResult {
     pub content_blocks: Vec<ContentBlock>,
     /// Token usage statistics from the LLM's `MessageEnd` event.
     pub usage: UnifiedUsage,
+    /// Number of retry attempts made before the LLM call succeeded.
+    pub retry_attempts: u32,
 }
 
 impl From<UnifiedResponse> for StreamResult {
@@ -39,6 +41,7 @@ impl From<UnifiedResponse> for StreamResult {
         StreamResult {
             content_blocks: response.content_blocks,
             usage: response.usage,
+            retry_attempts: response.retry_attempts,
         }
     }
 }
@@ -53,6 +56,7 @@ impl From<StreamResult> for UnifiedResponse {
             content_blocks: result.content_blocks,
             usage: result.usage,
             finish_reason: None,
+            retry_attempts: result.retry_attempts,
         }
     }
 }
@@ -576,6 +580,7 @@ impl Gateway {
         Ok(StreamResult {
             content_blocks: processed.content_blocks,
             usage: usage_override.unwrap_or(state.usage),
+            retry_attempts: 0,
         })
     }
 

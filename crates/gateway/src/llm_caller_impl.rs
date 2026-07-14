@@ -111,7 +111,7 @@ pub async fn execute_compact(
         max_tokens: Some(4096),
     };
 
-    let response = client
+    let (response, _retries) = client
         .chat(request)
         .await
         .map_err(|e| CompactionError::LLMCallFailed(e.to_string()))?;

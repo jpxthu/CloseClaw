@@ -76,6 +76,7 @@ impl ModelInterpreter for DefaultInterpreter {
             content_blocks,
             usage,
             finish_reason: response.finish_reason,
+            retry_attempts: 0,
         }
     }
 
@@ -228,6 +229,7 @@ impl ModelInterpreter for MinimaxInterpreter {
                 cache_write_tokens: response.usage.cache_write_tokens,
             },
             finish_reason: response.finish_reason,
+            retry_attempts: 0,
         }
     }
 
@@ -296,6 +298,7 @@ impl ModelInterpreter for GlmInterpreter {
                 cache_write_tokens: None,
             },
             finish_reason: response.finish_reason,
+            retry_attempts: 0,
         }
     }
 
@@ -377,6 +380,7 @@ impl ModelInterpreter for DeepSeekInterpreter {
                 cache_write_tokens: None,
             },
             finish_reason: response.finish_reason,
+            retry_attempts: 0,
         }
     }
 

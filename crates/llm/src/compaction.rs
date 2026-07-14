@@ -89,7 +89,7 @@ pub async fn execute_compact(
         max_tokens: Some(4096),
     };
 
-    let response = llm
+    let (response, _retries) = llm
         .chat(request)
         .await
         .map_err(|e| CompactionError::LLMCallFailed(e.to_string()))?;

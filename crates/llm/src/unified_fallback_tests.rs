@@ -459,6 +459,7 @@ async fn test_response_to_stream_roundtrip() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".to_string()),
+        retry_attempts: 0,
     };
     let mut stream = response_to_stream(response);
     let mut events = Vec::new();
@@ -505,6 +506,7 @@ async fn test_response_to_stream_char_by_char() {
             cache_write_tokens: None,
         },
         finish_reason: None,
+        retry_attempts: 0,
     };
     let mut stream = response_to_stream(response);
     let mut events = Vec::new();
@@ -546,6 +548,7 @@ async fn test_response_to_stream_empty_text_no_delta() {
             cache_write_tokens: None,
         },
         finish_reason: None,
+        retry_attempts: 0,
     };
     let mut stream = response_to_stream(response);
     let mut events = Vec::new();
@@ -577,6 +580,7 @@ async fn test_response_to_stream_unicode_char() {
             cache_write_tokens: None,
         },
         finish_reason: None,
+        retry_attempts: 0,
     };
     let mut stream = response_to_stream(response);
     let mut events = Vec::new();
@@ -612,6 +616,7 @@ async fn test_response_to_stream_tool_use_single_delta() {
             cache_write_tokens: None,
         },
         finish_reason: None,
+        retry_attempts: 0,
     };
     let mut stream = response_to_stream(response);
     let mut events = Vec::new();
@@ -660,6 +665,7 @@ async fn test_response_to_stream_empty_blocks() {
             cache_write_tokens: None,
         },
         finish_reason: None,
+        retry_attempts: 0,
     };
     let mut stream = response_to_stream(response);
     let mut events = Vec::new();

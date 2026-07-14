@@ -231,7 +231,10 @@ impl FallbackClient {
 
 impl FallbackClient {
     /// Make a chat request with automatic retry and fallback.
-    pub async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LLMError> {
+    ///
+    /// Returns `(response, retry_count)` where `retry_count` is the number
+    /// of retries performed for the successful provider call.
+    pub async fn chat(&self, request: ChatRequest) -> Result<(ChatResponse, u32), LLMError> {
         self.try_fallback_chain(request).await
     }
 
@@ -244,7 +247,13 @@ impl FallbackClient {
     }
 
     /// Walk the fallback chain until one model succeeds or all are exhausted.
-    async fn try_fallback_chain(&self, mut request: ChatRequest) -> Result<ChatResponse, LLMError> {
+    ///
+    /// Returns `(response, retry_count)` where `retry_count` is the number
+    /// of retries performed for the successful provider call.
+    async fn try_fallback_chain(
+        &self,
+        mut request: ChatRequest,
+    ) -> Result<(ChatResponse, u32), LLMError> {
         let mut model_idx = 0;
         loop {
             let entry = self.fallback_chain.get(model_idx).ok_or_else(|| {
@@ -272,11 +281,11 @@ impl FallbackClient {
                 .call_provider_with_retry(&provider, request.clone())
                 .await
             {
-                Ok(response) => {
+                Ok((response, retries)) => {
                     self.cooldown
                         .record_success(&entry.provider, &entry.model)
                         .await;
-                    return Ok(response);
+                    return Ok((response, retries));
                 }
                 Err(err) => {
                     let kind = err.kind();
@@ -325,10 +334,13 @@ impl FallbackClient {
             };
             request.model = entry.model.clone();
             match self.call_provider_unified(&provider, request.clone()).await {
-                Ok(response) => {
+                Ok(mut response) => {
                     self.cooldown
                         .record_success(&entry.provider, &entry.model)
                         .await;
+                    // This path does not use call_provider_with_retry,
+                    // so retry_attempts is not tracked here.
+                    response.retry_attempts = 0;
                     return Ok(response);
                 }
                 Err(err) => {
@@ -533,14 +545,17 @@ impl FallbackClient {
 // --- Retry logic ---
 
 impl FallbackClient {
-    /// Call with retry (exponential backoff) for transient errors
+    /// Call with retry (exponential backoff) for transient errors.
+    ///
+    /// Returns `(response, retry_count)` where `retry_count` is the number
+    /// of retries performed before succeeding (0 if succeeded on first try).
     async fn call_provider_with_retry(
         &self,
         provider: &Arc<dyn Provider>,
         request: ChatRequest,
-    ) -> Result<ChatResponse, LLMError> {
+    ) -> Result<(ChatResponse, u32), LLMError> {
         let max_retries = MAX_TRANSIENT_RETRIES;
-        let mut attempt = 0;
+        let mut attempt: u32 = 0;
         loop {
             attempt += 1;
             let result = tokio::time::timeout(
@@ -551,7 +566,10 @@ impl FallbackClient {
             .map_err(|_| LLMError::NetworkError("call timed out".to_string()))
             .and_then(|r| r);
             match result {
-                Ok(response) => return Ok(response),
+                Ok(response) => {
+                    let retries = attempt.saturating_sub(1);
+                    return Ok((response, retries));
+                }
                 Err(err) => {
                     let kind = err.kind();
                     if kind == ErrorKind::Transient || kind == ErrorKind::Unknown {

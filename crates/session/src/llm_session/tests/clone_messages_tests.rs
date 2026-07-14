@@ -15,6 +15,7 @@ fn test_clone_messages_from() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     });
     source_session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("second response".into())],
@@ -27,6 +28,7 @@ fn test_clone_messages_from() {
             cache_write_tokens: None,
         },
         finish_reason: Some("stop".into()),
+        retry_attempts: 0,
     });
 
     let mut child_session = ConversationSession::new("child_1".into(), "gpt-4o".into(), tmp_path());

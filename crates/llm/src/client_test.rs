@@ -269,6 +269,7 @@ async fn test_chat_interpreter_resolves() {
                     cache_write_tokens: None,
                 },
                 finish_reason: None,
+                retry_attempts: 0,
             }
         }
         fn interpret_stream_event(&self, e: StreamEvent) -> Option<StreamEvent> {
