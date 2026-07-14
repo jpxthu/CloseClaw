@@ -47,10 +47,10 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
         result: Result<StreamResult, closeclaw_llm::LLMError>,
+        turn_start: Instant,
         output_tx: &OutputTx,
         metrics_emitter: &Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
     ) {
-        let turn_start = Instant::now();
         let turn_metrics = TurnMetrics {
             turn_duration_ms: turn_start.elapsed().as_millis() as u64,
             retry_count: 0,

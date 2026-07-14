@@ -92,18 +92,6 @@ async fn empty_rule_no_trigger_when_has_tool_calls() {
 }
 
 #[tokio::test]
-async fn empty_rule_no_trigger_when_has_thinking() {
-    let rule = EmptyResponseRule;
-    let mut input = input_base();
-    input.has_text = false;
-    input.has_thinking = true;
-    assert_eq!(
-        rule.check(&input).await,
-        Some(HardRuleViolation::ThinkingOnlyResponse)
-    );
-}
-
-#[tokio::test]
 async fn empty_rule_triggers_when_no_content() {
     let rule = EmptyResponseRule;
     let mut input = input_base();
@@ -118,19 +106,6 @@ async fn empty_rule_triggers_when_no_content() {
 
 #[tokio::test]
 async fn empty_rule_only_thinking_triggers() {
-    let rule = EmptyResponseRule;
-    let mut input = input_base();
-    input.has_text = false;
-    input.has_tool_calls = false;
-    input.has_thinking = true;
-    assert_eq!(
-        rule.check(&input).await,
-        Some(HardRuleViolation::ThinkingOnlyResponse)
-    );
-}
-
-#[tokio::test]
-async fn empty_response_rule_thinking_only() {
     let rule = EmptyResponseRule;
     let mut input = input_base();
     input.has_text = false;
