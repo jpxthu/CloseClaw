@@ -46,21 +46,30 @@ impl Daemon {
             config_dir,
         )
         .await;
-        let (sweeper_tx, announce_sweeper_tx, dreaming_tx, plan_archive_tx, config_watcher) =
-            Self::init_phase_5_background(
-                Phase5Deps {
-                    config_manager: &config_manager,
-                    agent_registry: &agent_registry,
-                    skill_registry: &skill_registry,
-                    tool_registry: &tool_registry,
-                    session_manager: &session_manager,
-                    permission_engine: &permission_engine,
-                    approval_flow: &approval_flow,
-                    gateway: &gateway,
-                },
-                &data_dir,
-            )
-            .await?;
+        let (
+            sweeper_tx,
+            announce_sweeper_tx,
+            dreaming_tx,
+            plan_archive_tx,
+            config_watcher,
+            sweeper_handle,
+            announce_sweeper_handle,
+            dreaming_handle,
+            plan_archive_handle,
+        ) = Self::init_phase_5_background(
+            Phase5Deps {
+                config_manager: &config_manager,
+                agent_registry: &agent_registry,
+                skill_registry: &skill_registry,
+                tool_registry: &tool_registry,
+                session_manager: &session_manager,
+                permission_engine: &permission_engine,
+                approval_flow: &approval_flow,
+                gateway: &gateway,
+            },
+            &data_dir,
+        )
+        .await?;
         let (admin_handle, admin_sock_path) = Self::init_phase_6_admin_rpc(
             &agent_registry,
             &skill_registry,
@@ -89,6 +98,10 @@ impl Daemon {
             approval_flow,
             admin_handle: Some(admin_handle),
             admin_socket_path: admin_sock_path,
+            archive_sweeper_handle: Some(sweeper_handle),
+            announce_sweeper_handle: Some(announce_sweeper_handle),
+            dreaming_scheduler_handle: Some(dreaming_handle),
+            plan_archive_task_handle: Some(plan_archive_handle),
         })
     }
 
