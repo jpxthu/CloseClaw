@@ -147,8 +147,8 @@ impl UnhealthyHandler {
                         .unwrap_or_else(|| "unknown error".into())
                 ),
             }),
-            FailureCategory::SideEffectOccurred => Some(RecoverableAction::Stop {
-                reason: "Side effects detected — user verification required".into(),
+            FailureCategory::SideEffectOccurred => Some(RecoverableAction::NotifyUser {
+                message: "Side effects detected — user verification required. No rollback will be performed.".into(),
             }),
         }
     }
