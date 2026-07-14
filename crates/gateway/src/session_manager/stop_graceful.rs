@@ -4,55 +4,64 @@
 //! 100-line limit required by CONTRIBUTING.md.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_session::persistence::{
     PendingOperation, PersistenceError, PersistenceService, SessionCheckpoint, SessionStatus,
 };
 
-use super::stop::{GracefulTimeoutInfo, StopError, StopSingleResult};
+use super::stop::{StopError, StopSingleResult};
 use super::SessionManager;
 
 // ── graceful timeout logic ─────────────────────────────────────────────
 
 impl SessionManager {
-    /// Graceful wait with configurable timeout.
-    /// Returns pending ops and, on timeout, [`GracefulTimeoutInfo`].
-    pub(super) async fn graceful_wait_with_timeout(
+    /// Graceful wait with no hard timeout.
+    /// Checks for forceful escalation each iteration.
+    /// Returns (pending_ops, interrupted_by_forceful).
+    pub(super) async fn graceful_wait(
+        &self,
         cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
         session_id: &str,
-        timeout: Duration,
-    ) -> (Vec<PendingOperation>, Option<GracefulTimeoutInfo>) {
-        let start = tokio::time::Instant::now();
+    ) -> (Vec<PendingOperation>, bool) {
         let mut pending_ops = Vec::new();
         let mut streaming_seen = false;
 
-        let result = tokio::time::timeout(timeout, async {
-            loop {
-                let (is_streaming, has_running_tools) = Self::check_session_active_state(cs).await;
-                let should_break = Self::eval_graceful_iteration(
-                    cs,
-                    &mut pending_ops,
-                    &mut streaming_seen,
-                    is_streaming,
-                    has_running_tools,
-                );
-                if should_break {
-                    break;
+        loop {
+            // Check for forceful escalation each iteration.
+            // If escalation happened, break immediately — caller retries with forceful mode.
+            match self.get_shutdown_handle().await {
+                Some(sh) if sh.is_forceful() => {
+                    tracing::info!(
+                        session_id = %session_id,
+                        "graceful wait interrupted by forceful escalation"
+                    );
+                    return (pending_ops, true);
                 }
-                tracing::debug!(
-                    session_id = %session_id,
-                    streaming = is_streaming,
-                    running_tools = has_running_tools,
-                    "graceful stop: waiting for completion"
-                );
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                _ => {}
             }
-        })
-        .await;
 
-        Self::handle_graceful_result(result, pending_ops, cs, session_id, start).await
+            let (is_streaming, has_running_tools) = Self::check_session_active_state(cs).await;
+            let should_break = Self::eval_graceful_iteration(
+                cs,
+                &mut pending_ops,
+                &mut streaming_seen,
+                is_streaming,
+                has_running_tools,
+            );
+            if should_break {
+                break;
+            }
+            tracing::debug!(
+                session_id = %session_id,
+                streaming = is_streaming,
+                running_tools = has_running_tools,
+                "graceful stop: waiting for completion"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        (pending_ops, false)
     }
 
     /// Check whether the session is actively streaming or running tools.
@@ -105,65 +114,6 @@ impl SessionManager {
     }
 }
 
-// ── graceful result handling ──────────────────────────────────────────
-
-impl SessionManager {
-    /// Map timeout result to return type.
-    async fn handle_graceful_result(
-        result: Result<(), tokio::time::error::Elapsed>,
-        pending_ops: Vec<PendingOperation>,
-        cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
-        session_id: &str,
-        start: tokio::time::Instant,
-    ) -> (Vec<PendingOperation>, Option<GracefulTimeoutInfo>) {
-        match result {
-            Ok(()) => (pending_ops, None),
-            Err(_elapsed) => {
-                let waiting_items = Self::collect_waiting_items(cs).await;
-                (
-                    pending_ops,
-                    Some(GracefulTimeoutInfo {
-                        session_id: session_id.to_string(),
-                        waiting_items,
-                        elapsed: start.elapsed(),
-                    }),
-                )
-            }
-        }
-    }
-}
-
-// ── waiting items collection ───────────────────────────────────────────
-
-impl SessionManager {
-    /// Operations still in progress (for timeout reporting).
-    pub(super) async fn collect_waiting_items(
-        cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
-    ) -> Vec<String> {
-        let guard = cs.read().await;
-        let mut items = Vec::new();
-        let state = *guard.llm_state.read().expect("lock poisoned");
-        if matches!(state, LlmState::Receiving | LlmState::Requesting) {
-            items.push("LLM streaming".to_string());
-        }
-        for (id, s) in guard.tool_states.read().expect("lock poisoned").iter() {
-            if matches!(
-                s,
-                closeclaw_llm::session_state::ToolExecState::RunningForeground
-                    | closeclaw_llm::session_state::ToolExecState::RunningBackground
-            ) {
-                items.push(format!("tool {} running", id));
-            }
-        }
-        for (id, s) in guard.child_states.read().expect("lock poisoned").iter() {
-            if matches!(s, closeclaw_common::ChildSessionState::Running) {
-                items.push(format!("child session {} running", id));
-            }
-        }
-        items
-    }
-}
-
 // ── session finalization ───────────────────────────────────────────────
 
 impl SessionManager {
@@ -186,10 +136,7 @@ impl SessionManager {
         );
         cs.read().await.stop(cascade).await;
         self.cleanup_and_persist(session_id, pending_ops).await?;
-        Ok(StopSingleResult {
-            _completed: true,
-            graceful_timeout: None,
-        })
+        Ok(StopSingleResult { _completed: true })
     }
 
     /// Cleanup task manager and persist checkpoint.
