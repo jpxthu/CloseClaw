@@ -42,17 +42,17 @@ impl ConversationSession {
         role: &str,
         content_blocks: Vec<ContentBlock>,
         leaf_entry_id: &str,
-    ) -> bool {
+    ) -> Option<String> {
         let mgr = self
             .snapshot_manager
             .get_or_insert_with(RuntimeSnapshotManager::new);
-        let created = mgr.create_incremental_snapshot(
+        let snapshot_id = mgr.create_incremental_snapshot(
             &self.messages,
             &format!("pre-append:{role}"),
             leaf_entry_id,
         );
         self.push_message(role, content_blocks);
-        created
+        snapshot_id
     }
 
     /// Rollback to the most recent snapshot, if any.

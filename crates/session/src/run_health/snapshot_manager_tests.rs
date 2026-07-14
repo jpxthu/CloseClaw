@@ -37,18 +37,32 @@ fn test_transcript_op_requires_snapshot() {
 // =====================================================================
 
 #[test]
-fn test_create_snapshot_returns_true_for_rewrite() {
+fn test_create_snapshot_returns_some_for_rewrite() {
     let mut mgr = RuntimeSnapshotManager::new();
     let messages = vec![msg("user", "hello")];
-    assert!(mgr.create_snapshot(&messages, TranscriptOp::Rewrite, "test"));
+    let result = mgr.create_snapshot(&messages, TranscriptOp::Rewrite, "test");
+    assert!(result.is_some());
     assert_eq!(mgr.snapshot_count(), 1);
 }
 
 #[test]
-fn test_create_snapshot_returns_false_for_append() {
+fn test_create_snapshot_returns_unique_id() {
     let mut mgr = RuntimeSnapshotManager::new();
     let messages = vec![msg("user", "hello")];
-    assert!(!mgr.create_snapshot(&messages, TranscriptOp::Append, "test"));
+    let id1 = mgr.create_snapshot(&messages, TranscriptOp::Rewrite, "first");
+    let id2 = mgr.create_snapshot(&messages, TranscriptOp::Rewrite, "second");
+    assert!(id1.is_some());
+    assert!(id2.is_some());
+    assert_ne!(id1.unwrap(), id2.unwrap());
+}
+
+#[test]
+fn test_create_snapshot_returns_none_for_append() {
+    let mut mgr = RuntimeSnapshotManager::new();
+    let messages = vec![msg("user", "hello")];
+    assert!(mgr
+        .create_snapshot(&messages, TranscriptOp::Append, "test")
+        .is_none());
     assert_eq!(mgr.snapshot_count(), 0);
 }
 
@@ -73,7 +87,8 @@ fn test_create_snapshot_stores_messages() {
 fn test_create_snapshot_partial_rewrite() {
     let mut mgr = RuntimeSnapshotManager::new();
     let messages = vec![msg("system", "system prompt")];
-    assert!(mgr.create_snapshot(&messages, TranscriptOp::PartialRewrite, "test"));
+    let result = mgr.create_snapshot(&messages, TranscriptOp::PartialRewrite, "test");
+    assert!(result.is_some());
     assert_eq!(mgr.snapshot_count(), 1);
 }
 
