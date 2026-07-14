@@ -106,7 +106,7 @@ async fn test_healthy_with_tool_calls() {
 }
 
 #[tokio::test]
-async fn test_healthy_with_thinking() {
+async fn test_thinking_only_triggers_unhealthy() {
     let mut checker = RunHealthChecker::new(
         default_engine(),
         None,
@@ -122,7 +122,13 @@ async fn test_healthy_with_thinking() {
         structural_anomaly_detail: None,
     };
     let verdict = checker.check_turn(&input, None).await;
-    assert_eq!(verdict.status, HealthStatus::Healthy);
+    match verdict.status {
+        HealthStatus::Unhealthy(FailureCategory::InvalidResponse) => {}
+        other => {
+            panic!("expected Unhealthy(InvalidResponse) for thinking-only, got {other:?}")
+        }
+    }
+    assert!(verdict.action.is_some());
 }
 
 // ── Hard rule violations → unhealthy → action ──────────────────────────────

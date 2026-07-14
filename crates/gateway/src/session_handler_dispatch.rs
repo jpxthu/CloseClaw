@@ -10,6 +10,8 @@
 
 use std::sync::Arc;
 
+use tokio::time::Instant;
+
 use super::session_handler::{
     flatten_content_blocks, ActiveSearcherLlmCaller, MessageMetadata, SessionMessageHandler,
 };
@@ -486,6 +488,7 @@ impl SessionMessageHandler {
                 false
             };
 
+            let turn_start = Instant::now();
             let result = if stream_enabled {
                 if let (Some(gw), Some(pl)) = (gw_for_task.as_ref(), plugin_for_task.as_ref()) {
                     Self::call_llm_streaming(
@@ -534,7 +537,15 @@ impl SessionMessageHandler {
                 Err(_) => String::new(),
             };
 
-            Self::finish_llm(&sm, &session_id, result, &output_tx, &metrics_emitter).await;
+            Self::finish_llm(
+                &sm,
+                &session_id,
+                result,
+                turn_start,
+                &output_tx,
+                &metrics_emitter,
+            )
+            .await;
 
             // ── Trigger active-searcher for assistant message ───
             // After the assistant response is stored in the session,

@@ -27,6 +27,14 @@ use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::llm_session::ChatSession;
 use closeclaw_tasks::NotificationPriority;
+use tokio::time::Instant;
+
+/// Turn-level timing and retry metadata passed through the health
+/// check pipeline so hard rules receive actual runtime values.
+pub(super) struct TurnMetrics {
+    pub turn_duration_ms: u64,
+    pub retry_count: u32,
+}
 
 impl SessionMessageHandler {
     /// Clear busy flag, send output, and drain pending messages.
@@ -39,13 +47,19 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
         result: Result<StreamResult, closeclaw_llm::LLMError>,
+        turn_start: Instant,
         output_tx: &OutputTx,
         metrics_emitter: &Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
     ) {
+        let turn_metrics = TurnMetrics {
+            turn_duration_ms: turn_start.elapsed().as_millis() as u64,
+            retry_count: 0,
+        };
         Self::clear_busy_and_send(
             session_manager,
             session_id,
             result,
+            turn_metrics,
             output_tx,
             metrics_emitter,
         )
@@ -95,6 +109,7 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
         result: Result<StreamResult, closeclaw_llm::LLMError>,
+        turn_metrics: TurnMetrics,
         output_tx: &OutputTx,
         metrics_emitter: &Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
     ) {
@@ -133,8 +148,11 @@ impl SessionMessageHandler {
 
                     // Run health check at turn boundary.
                     if let Some(checker_arc) = cs_write.health_checker() {
-                        let input =
-                            crate::health_check_builders::build_health_check_input(&stream_result);
+                        let input = crate::health_check_builders::build_health_check_input(
+                            &stream_result,
+                            turn_metrics.retry_count,
+                            turn_metrics.turn_duration_ms,
+                        );
                         let hook_ctx =
                             crate::health_check_builders::build_hook_context(&stream_result);
                         let mut checker = checker_arc.lock().await;
@@ -218,6 +236,7 @@ impl SessionMessageHandler {
             }
 
             // Non-streaming path: delegate to ConversationSession.
+            let turn_start = Instant::now();
             let result: Result<StreamResult, closeclaw_llm::LLMError> = {
                 if let Some(cs) = session_manager.get_conversation_session(session_id).await {
                     cs.read()
@@ -231,10 +250,15 @@ impl SessionMessageHandler {
                     ))
                 }
             };
+            let turn_metrics = TurnMetrics {
+                turn_duration_ms: turn_start.elapsed().as_millis() as u64,
+                retry_count: 0,
+            };
             Self::clear_busy_and_send(
                 session_manager,
                 session_id,
                 result,
+                turn_metrics,
                 output_tx,
                 metrics_emitter,
             )
