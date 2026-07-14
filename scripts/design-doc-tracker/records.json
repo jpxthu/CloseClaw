@@ -129,11 +129,11 @@
   },
   {
     "path": "docs/design/daemon/README.md",
-    "commit": "304a588c09a54c5dbdf9e60c35735a3a54c79e7b",
-    "commit_time": "2026-06-29T21:32:50+08:00",
-    "confirmed_time": "2026-07-15T04:28:53.760453+08:00",
+    "commit": "4f30cdd86be338ee289fc535199a47f964fc44bb",
+    "commit_time": "2026-07-15T04:29:47+08:00",
+    "confirmed_time": "2026-07-15T04:37:00.815715+08:00",
     "comment": "",
-    "blocked_reason": "AdminRpcServer layer contradicts dependency: doc places it in Layer 5 alongside Gateway but depends on Gateway, same-layer with dependency is topologically impossible"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/daemon/shutdown.md",
