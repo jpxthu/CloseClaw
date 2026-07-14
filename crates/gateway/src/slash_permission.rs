@@ -715,19 +715,26 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         };
         // Create a PartialRewrite snapshot before modifying the system prompt,
         // per design doc: /system is a local rewrite that warrants a snapshot.
-        self.session_manager
+        let snapshot_id = self
+            .session_manager
             .create_partial_rewrite_snapshot(session_id)
             .await;
-        let mut cs = cs.write().await;
-        match action {
-            SystemAppendAction::Add(text) => {
-                cs.add_system_append(text.clone());
+        {
+            let mut cs = cs.write().await;
+            match action {
+                SystemAppendAction::Add(text) => {
+                    cs.add_system_append(text.clone());
+                }
+                SystemAppendAction::Clear => {
+                    cs.clear_system_appends();
+                    // Invalidate static layer cache on clear, so the next
+                    // prompt build regenerates from current state.
+                    self.session_manager.invalidate_static_cache().await;
+                }
             }
-            SystemAppendAction::Clear => {
-                cs.clear_system_appends();
-                // Invalidate static layer cache on clear, so the next
-                // prompt build regenerates from current state.
-                self.session_manager.invalidate_static_cache().await;
+            // Mark snapshot as complete after successful modification.
+            if let Some(ref sid) = snapshot_id {
+                cs.mark_complete_snapshot(sid);
             }
         }
     }
