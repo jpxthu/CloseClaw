@@ -139,6 +139,7 @@ async fn emit_stuck_alert(
             output_path: output_path.to_path_buf(),
             priority: NotificationPriority::Next,
             summary,
+            suggestion: None,
         };
         notifications.lock().await.push(notif);
         tracing::warn!(
