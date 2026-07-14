@@ -64,6 +64,9 @@ impl SessionManager {
             conv_session.set_system_prompt_builder(builder);
         }
         conv_session.set_prompt_overrides(self.get_prompt_overrides().await);
+        // Inject snapshot meta store for persistence.
+        self.inject_snapshot_meta_store(&session_id, &mut conv_session)
+            .await;
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
             conv_sessions.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));

@@ -385,6 +385,7 @@ pub fn load_checkpoint_inner(
         label: None,
         communication_config: None,
         spawn_mode: None,
+        snapshot_metas: Vec::new(),
     }))
 }
 
