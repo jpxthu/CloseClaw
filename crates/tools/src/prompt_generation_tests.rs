@@ -34,6 +34,7 @@ impl closeclaw_tasks::TaskManager for MockTaskManager {
         &self,
         _command: &str,
         _cwd: &std::path::Path,
+        _is_backgrounded: bool,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         unimplemented!("mock")
     }
@@ -41,6 +42,7 @@ impl closeclaw_tasks::TaskManager for MockTaskManager {
         &self,
         _child: tokio::process::Child,
         _command: &str,
+        _is_backgrounded: bool,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         unimplemented!("mock")
     }

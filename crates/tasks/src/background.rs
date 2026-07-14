@@ -133,11 +133,19 @@ impl BackgroundTaskManager {
         &self,
         command: &str,
         cwd: &Path,
+        is_backgrounded: bool,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
         let task_id = Uuid::new_v4().to_string();
         let output_path = prepare_task_dir(&self.temp_dir, &task_id).await?;
 
-        insert_initial_handle(&self.tasks, &task_id, command, &output_path, false).await;
+        insert_initial_handle(
+            &self.tasks,
+            &task_id,
+            command,
+            &output_path,
+            is_backgrounded,
+        )
+        .await;
 
         stuck_detect::start_stuck_detection(
             task_id.clone(),
@@ -160,7 +168,12 @@ impl BackgroundTaskManager {
             run_shell_command(&cmd, &cwd, &out, &shared, &tid, &notifs).await;
         });
 
-        Ok(make_public_task(&task_id, command, &output_path, false))
+        Ok(make_public_task(
+            &task_id,
+            command,
+            &output_path,
+            is_backgrounded,
+        ))
     }
 
     /// Take over a running child process.
@@ -168,6 +181,7 @@ impl BackgroundTaskManager {
         &self,
         mut child: tokio::process::Child,
         command: &str,
+        is_backgrounded: bool,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
         let task_id = Uuid::new_v4().to_string();
         let output_path = prepare_task_dir(&self.temp_dir, &task_id).await?;
@@ -175,7 +189,14 @@ impl BackgroundTaskManager {
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
 
-        insert_initial_handle(&self.tasks, &task_id, command, &output_path, false).await;
+        insert_initial_handle(
+            &self.tasks,
+            &task_id,
+            command,
+            &output_path,
+            is_backgrounded,
+        )
+        .await;
 
         stuck_detect::start_stuck_detection(
             task_id.clone(),
@@ -196,7 +217,12 @@ impl BackgroundTaskManager {
             backgroundize_process(child, stdout, stderr, &out, &shared, &tid, &notifs).await;
         });
 
-        Ok(make_public_task(&task_id, command, &output_path, false))
+        Ok(make_public_task(
+            &task_id,
+            command,
+            &output_path,
+            is_backgrounded,
+        ))
     }
 }
 
@@ -308,16 +334,18 @@ impl crate::TaskManager for BackgroundTaskManager {
         &self,
         command: &str,
         cwd: &std::path::Path,
+        is_backgrounded: bool,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
-        self.spawn(command, cwd).await
+        self.spawn(command, cwd, is_backgrounded).await
     }
 
     async fn backgroundize_task(
         &self,
         child: tokio::process::Child,
         command: &str,
+        is_backgrounded: bool,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
-        self.backgroundize(child, command).await
+        self.backgroundize(child, command, is_backgrounded).await
     }
 
     async fn kill_task(&self, task_id: &str) -> Result<(), BackgroundTaskError> {

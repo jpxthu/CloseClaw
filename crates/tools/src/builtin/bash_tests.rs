@@ -55,15 +55,14 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
         &self,
         command: &str,
         cwd: &std::path::Path,
+        is_backgrounded: bool,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         let task = closeclaw_tasks::BackgroundTask {
             id: uuid::Uuid::new_v4().to_string(),
             command: command.to_string(),
-            state: closeclaw_tasks::TaskState::Running {
-                is_backgrounded: false,
-            },
+            state: closeclaw_tasks::TaskState::Running { is_backgrounded },
             output_path: cwd.join("output"),
-            is_backgrounded: false,
+            is_backgrounded,
         };
         self.tasks
             .write()
@@ -75,15 +74,14 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
         &self,
         _child: tokio::process::Child,
         command: &str,
+        is_backgrounded: bool,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         let task = closeclaw_tasks::BackgroundTask {
             id: uuid::Uuid::new_v4().to_string(),
             command: command.to_string(),
-            state: closeclaw_tasks::TaskState::Running {
-                is_backgrounded: false,
-            },
+            state: closeclaw_tasks::TaskState::Running { is_backgrounded },
             output_path: std::path::PathBuf::from("/tmp/output"),
-            is_backgrounded: false,
+            is_backgrounded,
         };
         self.tasks
             .write()

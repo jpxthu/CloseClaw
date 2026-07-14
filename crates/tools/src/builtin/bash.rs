@@ -246,7 +246,7 @@ async fn backgroundize_child(
     child.stdout = stdout_handle;
     child.stderr = stderr_handle;
     let task = bg_manager
-        .backgroundize_task(child, command)
+        .backgroundize_task(child, command, true)
         .await
         .map_err(|e| format!("failed to backgroundize command: {}", e))?;
     if by_user {
@@ -496,7 +496,7 @@ async fn execute_command(
         // Per #762 design: `spawn_task()` is the "self-cold-start" path; do not
         // pre-spawn a Child and pass it through `backgroundize_task()` here.
         let task = bg_manager
-            .spawn_task(command, Path::new(cwd))
+            .spawn_task(command, Path::new(cwd), false)
             .await
             .map_err(|e| format!("failed to spawn background task: {}", e))?;
 
