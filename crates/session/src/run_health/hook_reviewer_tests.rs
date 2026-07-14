@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use super::health_types::{HookContext, HookToolCallInfo};
 use super::hook_reviewer::hook_prompt_template;
 use super::hook_reviewer::*;
+use closeclaw_common::HookParams;
 
 /// Mock LLM provider for testing.
 struct MockLlmProvider {
@@ -47,6 +48,7 @@ async fn test_disabled_hook_skipped() {
     let hooks = vec![HookConfig {
         hook_type: HookType::PlanCheck,
         enabled: false,
+        ..Default::default()
     }];
     let reviewer = HookReviewer::new(hooks, Box::new(llm));
     let snapshot = HookContext::default();
@@ -60,6 +62,7 @@ async fn test_plan_check_flags_turn() {
     let hooks = vec![HookConfig {
         hook_type: HookType::PlanCheck,
         enabled: true,
+        ..Default::default()
     }];
     let reviewer = HookReviewer::new(hooks, Box::new(llm));
     let snapshot = HookContext {
@@ -80,6 +83,7 @@ async fn test_plan_check_no_flag() {
     let hooks = vec![HookConfig {
         hook_type: HookType::PlanCheck,
         enabled: true,
+        ..Default::default()
     }];
     let reviewer = HookReviewer::new(hooks, Box::new(llm));
     let snapshot = HookContext {
@@ -103,14 +107,17 @@ async fn test_multiple_hooks_all_run() {
         HookConfig {
             hook_type: HookType::PlanCheck,
             enabled: true,
+            ..Default::default()
         },
         HookConfig {
             hook_type: HookType::LoopCheck,
             enabled: true,
+            ..Default::default()
         },
         HookConfig {
             hook_type: HookType::ProgressCheck,
             enabled: true,
+            ..Default::default()
         },
     ];
     let reviewer = HookReviewer::new(hooks, Box::new(llm));
@@ -136,6 +143,7 @@ async fn test_llm_failure_graceful_degradation() {
     let hooks = vec![HookConfig {
         hook_type: HookType::LoopCheck,
         enabled: true,
+        ..Default::default()
     }];
     let reviewer = HookReviewer::new(hooks, Box::new(llm));
     let snapshot = HookContext::default();
@@ -210,6 +218,7 @@ async fn test_plan_check_no_flag_no_tool_calls_no_promise() {
     let hooks = vec![HookConfig {
         hook_type: HookType::PlanCheck,
         enabled: true,
+        ..Default::default()
     }];
     let reviewer = HookReviewer::new(hooks, Box::new(llm));
     let snapshot = HookContext {
@@ -233,6 +242,7 @@ async fn test_loop_check_no_flag_no_repeat() {
     let hooks = vec![HookConfig {
         hook_type: HookType::LoopCheck,
         enabled: true,
+        ..Default::default()
     }];
     let reviewer = HookReviewer::new(hooks, Box::new(llm));
     let snapshot = HookContext {
@@ -263,6 +273,7 @@ async fn test_loop_check_flag_repeated_tools() {
     let hooks = vec![HookConfig {
         hook_type: HookType::LoopCheck,
         enabled: true,
+        ..Default::default()
     }];
     let reviewer = HookReviewer::new(hooks, Box::new(llm));
     let snapshot = HookContext {
@@ -299,6 +310,7 @@ async fn test_progress_check_no_flag_with_changes() {
     let hooks = vec![HookConfig {
         hook_type: HookType::ProgressCheck,
         enabled: true,
+        ..Default::default()
     }];
     let reviewer = HookReviewer::new(hooks, Box::new(llm));
     let snapshot = HookContext {
@@ -323,6 +335,7 @@ async fn test_progress_check_flag_no_changes() {
     let hooks = vec![HookConfig {
         hook_type: HookType::ProgressCheck,
         enabled: true,
+        ..Default::default()
     }];
     let reviewer = HookReviewer::new(hooks, Box::new(llm));
     let snapshot = HookContext {
@@ -346,10 +359,12 @@ async fn test_verdict_reason_contains_hook_type() {
         HookConfig {
             hook_type: HookType::PlanCheck,
             enabled: true,
+            ..Default::default()
         },
         HookConfig {
             hook_type: HookType::LoopCheck,
             enabled: true,
+            ..Default::default()
         },
     ];
     let reviewer = HookReviewer::new(hooks, Box::new(llm));
@@ -371,14 +386,17 @@ async fn test_mock_called_exactly_once_per_enabled_hook() {
         HookConfig {
             hook_type: HookType::PlanCheck,
             enabled: true,
+            ..Default::default()
         },
         HookConfig {
             hook_type: HookType::LoopCheck,
             enabled: false,
+            ..Default::default()
         },
         HookConfig {
             hook_type: HookType::ProgressCheck,
             enabled: true,
+            ..Default::default()
         },
     ];
     let reviewer = HookReviewer::new(hooks, Box::new(llm));
@@ -427,14 +445,17 @@ async fn test_parallel_hooks_run_concurrently() {
         HookConfig {
             hook_type: HookType::PlanCheck,
             enabled: true,
+            ..Default::default()
         },
         HookConfig {
             hook_type: HookType::LoopCheck,
             enabled: true,
+            ..Default::default()
         },
         HookConfig {
             hook_type: HookType::ProgressCheck,
             enabled: true,
+            ..Default::default()
         },
     ];
     let reviewer = HookReviewer::new(hooks, Box::new(llm));
@@ -455,14 +476,17 @@ async fn test_return_order_matches_config_order() {
         HookConfig {
             hook_type: HookType::PlanCheck,
             enabled: true,
+            ..Default::default()
         },
         HookConfig {
             hook_type: HookType::LoopCheck,
             enabled: true,
+            ..Default::default()
         },
         HookConfig {
             hook_type: HookType::ProgressCheck,
             enabled: true,
+            ..Default::default()
         },
     ];
     let reviewer = HookReviewer::new(hooks, Box::new(llm));
@@ -486,14 +510,17 @@ async fn test_individual_hook_failure_does_not_affect_others() {
         HookConfig {
             hook_type: HookType::PlanCheck,
             enabled: true,
+            ..Default::default()
         },
         HookConfig {
             hook_type: HookType::LoopCheck,
             enabled: true,
+            ..Default::default()
         },
         HookConfig {
             hook_type: HookType::ProgressCheck,
             enabled: true,
+            ..Default::default()
         },
     ];
     let reviewer = HookReviewer::new(hooks, Box::new(llm));
@@ -507,4 +534,101 @@ async fn test_individual_hook_failure_does_not_affect_others() {
     assert!(!verdicts[1].flag);
     // Third hook succeeded → flagged
     assert!(verdicts[2].flag);
+}
+
+// ── HookParams tests ─────────────────────────────────────────────────────
+
+#[test]
+fn test_hook_params_default_values() {
+    let params = HookParams::default();
+    assert_eq!(params.loop_check_repetition_threshold, 3);
+    assert_eq!(params.progress_check_min_tool_calls, 1);
+}
+
+#[test]
+fn test_hook_params_serialize_deserialize() {
+    let params = HookParams {
+        loop_check_repetition_threshold: 5,
+        progress_check_min_tool_calls: 2,
+    };
+    let json = serde_json::to_string(&params).unwrap();
+    assert!(json.contains("loopCheckRepetitionThreshold"));
+    assert!(json.contains("progressCheckMinToolCalls"));
+    let deserialized: HookParams = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.loop_check_repetition_threshold, 5);
+    assert_eq!(deserialized.progress_check_min_tool_calls, 2);
+}
+
+#[test]
+fn test_hook_params_default_when_omitted() {
+    let json = r#"{}"#;
+    let params: HookParams = serde_json::from_str(json).unwrap();
+    assert_eq!(params.loop_check_repetition_threshold, 3);
+    assert_eq!(params.progress_check_min_tool_calls, 1);
+}
+
+#[test]
+fn test_hook_config_with_params_serialize_roundtrip() {
+    let config = closeclaw_common::HookConfig {
+        hook_type: closeclaw_common::HookType::LoopCheck,
+        enabled: true,
+        params: HookParams {
+            loop_check_repetition_threshold: 5,
+            progress_check_min_tool_calls: 2,
+        },
+    };
+    let json = serde_json::to_string(&config).unwrap();
+    assert!(json.contains("loopCheckRepetitionThreshold"));
+    assert!(json.contains("progressCheckMinToolCalls"));
+    let deserialized: closeclaw_common::HookConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.params.loop_check_repetition_threshold, 5);
+    assert_eq!(deserialized.params.progress_check_min_tool_calls, 2);
+}
+
+#[test]
+fn test_hook_config_backward_compat_without_params() {
+    // Old config JSON without params field should still deserialize
+    let json = r#"{"hookType": "planCheck", "enabled": true}"#;
+    let config: closeclaw_common::HookConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.hook_type, closeclaw_common::HookType::PlanCheck);
+    assert!(config.enabled);
+    assert_eq!(config.params.loop_check_repetition_threshold, 3);
+    assert_eq!(config.params.progress_check_min_tool_calls, 1);
+}
+
+// ── build_review_prompt tests ────────────────────────────────────────────
+
+#[test]
+fn test_build_review_prompt_loop_check_includes_threshold() {
+    let params = HookParams {
+        loop_check_repetition_threshold: 5,
+        ..Default::default()
+    };
+    let prompt = build_review_prompt(&HookType::LoopCheck, &params);
+    assert!(prompt.contains("5 or more consecutive calls"));
+}
+
+#[test]
+fn test_build_review_prompt_progress_check_includes_min() {
+    let params = HookParams {
+        progress_check_min_tool_calls: 3,
+        ..Default::default()
+    };
+    let prompt = build_review_prompt(&HookType::ProgressCheck, &params);
+    assert!(prompt.contains("at least 3 tool call(s)"));
+}
+
+#[test]
+fn test_build_review_prompt_plan_check_no_param_note() {
+    let params = HookParams::default();
+    let prompt = build_review_prompt(&HookType::PlanCheck, &params);
+    // PlanCheck has no param-driven additions
+    assert_eq!(prompt, hook_prompt_template(&HookType::PlanCheck));
+}
+
+#[test]
+fn test_build_review_prompt_default_threshold() {
+    let params = HookParams::default();
+    let prompt = build_review_prompt(&HookType::LoopCheck, &params);
+    assert!(prompt.contains("3 or more consecutive calls"));
 }

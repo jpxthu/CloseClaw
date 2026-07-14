@@ -159,3 +159,69 @@ fn test_stream_result_from_unified_response_preserves_retry_attempts() {
     let sr: StreamResult = resp.into();
     assert_eq!(sr.retry_attempts, 3);
 }
+
+// ------------------------------------------------------------------
+// build_hook_context: recent_tool_calls parameter
+// ------------------------------------------------------------------
+
+use super::health_check_builders::build_hook_context;
+use closeclaw_session::run_health::HookToolCallInfo;
+
+#[test]
+fn test_build_hook_context_no_recent_calls() {
+    let result = make_stream_result(vec![
+        ContentBlock::Text("hello".into()),
+        ContentBlock::ToolUse {
+            id: "t1".into(),
+            name: "read".into(),
+            input: r#"{"path":"/a"}"#.into(),
+        },
+    ]);
+    let ctx = build_hook_context(&result, Vec::new());
+    assert_eq!(ctx.text, "hello");
+    assert_eq!(ctx.tool_calls.len(), 1);
+    assert_eq!(ctx.tool_calls[0].name, "read");
+    assert!(ctx.recent_tool_calls.is_empty());
+}
+
+#[test]
+fn test_build_hook_context_with_recent_calls() {
+    let result = make_stream_result(vec![ContentBlock::Text("done".into())]);
+    let recent = vec![
+        HookToolCallInfo {
+            name: "exec".into(),
+            input: "ls".into(),
+        },
+        HookToolCallInfo {
+            name: "read".into(),
+            input: r#"{"path":"/x"}"#.into(),
+        },
+    ];
+    let ctx = build_hook_context(&result, recent);
+    assert_eq!(ctx.recent_tool_calls.len(), 2);
+    assert_eq!(ctx.recent_tool_calls[0].name, "exec");
+    assert_eq!(ctx.recent_tool_calls[1].name, "read");
+}
+
+#[test]
+fn test_build_hook_context_recent_calls_preserves_order() {
+    let result = make_stream_result(vec![]);
+    let recent = vec![
+        HookToolCallInfo {
+            name: "a".into(),
+            input: "1".into(),
+        },
+        HookToolCallInfo {
+            name: "b".into(),
+            input: "2".into(),
+        },
+        HookToolCallInfo {
+            name: "c".into(),
+            input: "3".into(),
+        },
+    ];
+    let ctx = build_hook_context(&result, recent);
+    assert_eq!(ctx.recent_tool_calls[0].name, "a");
+    assert_eq!(ctx.recent_tool_calls[1].name, "b");
+    assert_eq!(ctx.recent_tool_calls[2].name, "c");
+}

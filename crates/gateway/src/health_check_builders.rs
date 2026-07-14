@@ -64,12 +64,17 @@ pub(crate) fn build_health_check_input(
     }
 }
 
-/// Build a [`HookContext`] from a [`StreamResult`].
+/// Build a [`HookContext`] from a [`StreamResult`] and recent
+/// tool-call history.
 ///
 /// Populates `text`, `tool_calls`, and `tool_results` from the
-/// response. `recent_tool_calls` is left empty — callers with
-/// access to session history can enrich it.
-pub(crate) fn build_hook_context(result: &StreamResult) -> HookContext {
+/// response.  `recent_tool_calls` carries tool-call data from
+/// previous turns so that loop-check and progress-check hooks
+/// can detect repetitive patterns.
+pub(crate) fn build_hook_context(
+    result: &StreamResult,
+    recent_tool_calls: Vec<HookToolCallInfo>,
+) -> HookContext {
     let mut text = String::new();
     let mut tool_calls = Vec::new();
     let mut tool_results = Vec::new();
@@ -99,6 +104,6 @@ pub(crate) fn build_hook_context(result: &StreamResult) -> HookContext {
         text,
         tool_calls,
         tool_results,
-        recent_tool_calls: Vec::new(),
+        recent_tool_calls,
     }
 }

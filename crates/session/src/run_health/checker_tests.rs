@@ -65,6 +65,7 @@ fn make_hook_reviewer(hook_type: HookType, flag: bool) -> HookReviewer {
     let hooks = vec![HookConfig {
         hook_type,
         enabled: true,
+        ..Default::default()
     }];
     HookReviewer::new(hooks, Box::new(MockHookLlm { flag }))
 }

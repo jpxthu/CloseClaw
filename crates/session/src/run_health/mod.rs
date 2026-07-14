@@ -29,7 +29,8 @@ pub use health_types::{
     HookContext, HookToolCallInfo, RecoverableAction, RetryPolicy,
 };
 pub use hook_reviewer::{
-    hook_prompt_template, HookConfig, HookLlmProvider, HookReviewer, HookType, HookVerdict,
+    build_review_prompt, hook_prompt_template, HookConfig, HookLlmProvider, HookParams,
+    HookReviewer, HookType, HookVerdict,
 };
 pub use snapshot_manager::{
     PersistenceMetaStore, RollbackAction, RuntimeSnapshotManager, Snapshot, SnapshotKind,

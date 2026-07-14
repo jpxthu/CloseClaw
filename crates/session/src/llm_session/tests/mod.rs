@@ -10,6 +10,7 @@ mod exec_state_tests;
 mod extract_pending_tool_calls_tests;
 mod manual_background_tests;
 mod rebuild_system_prompt_tests;
+mod recent_tool_calls_tests;
 mod session_llm_tests;
 mod stop_tests;
 mod streaming_tests;

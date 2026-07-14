@@ -86,6 +86,7 @@ fn test_agent_config_serialize_nonempty_hooks() {
         hooks: vec![closeclaw_common::HookConfig {
             hook_type: closeclaw_common::HookType::PlanCheck,
             enabled: true,
+            ..Default::default()
         }],
         ..Default::default()
     };
