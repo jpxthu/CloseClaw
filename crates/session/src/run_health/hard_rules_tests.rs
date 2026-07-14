@@ -14,6 +14,7 @@ fn input_base() -> HealthCheckInput {
         turn_duration_ms: 5_000,
         is_structurally_valid: true,
         structural_anomaly_detail: None,
+        side_effect_occurred: false,
     }
 }
 
@@ -173,6 +174,74 @@ async fn structural_rule_triggers_when_invalid_no_detail() {
             detail: "unknown structural anomaly".into(),
         })
     );
+}
+
+// ─── SideEffectOccurredRule ─────────────────────────────────
+
+#[tokio::test]
+async fn side_effect_rule_triggers_when_tool_executed_and_interrupted() {
+    let rule = SideEffectOccurredRule;
+    let mut input = input_base();
+    input.side_effect_occurred = true;
+    input.has_text = false;
+    input.has_tool_calls = false;
+    assert_eq!(
+        rule.check(&input).await,
+        Some(HardRuleViolation::SideEffectOccurred)
+    );
+}
+
+#[tokio::test]
+async fn side_effect_rule_no_trigger_when_response_normal() {
+    let rule = SideEffectOccurredRule;
+    let mut input = input_base();
+    input.side_effect_occurred = true;
+    input.has_text = true;
+    input.has_tool_calls = false;
+    assert_eq!(rule.check(&input).await, None);
+}
+
+#[tokio::test]
+async fn side_effect_rule_no_trigger_when_no_side_effects() {
+    let rule = SideEffectOccurredRule;
+    let mut input = input_base();
+    input.side_effect_occurred = false;
+    input.has_text = false;
+    input.has_tool_calls = false;
+    // Without side effects, this rule does not trigger;
+    // the EmptyResponseRule handles this case instead.
+    assert_eq!(rule.check(&input).await, None);
+}
+
+#[tokio::test]
+async fn side_effect_rule_no_trigger_when_tool_calls_present() {
+    let rule = SideEffectOccurredRule;
+    let mut input = input_base();
+    input.side_effect_occurred = true;
+    input.has_text = false;
+    input.has_tool_calls = true;
+    assert_eq!(rule.check(&input).await, None);
+}
+
+// ─── SideEffectOccurredRule in engine ──────────────────────
+
+#[tokio::test]
+async fn engine_side_effect_violation_category() {
+    let engine = HardRuleEngine::new(vec![Box::new(SideEffectOccurredRule)]);
+    let mut input = input_base();
+    input.side_effect_occurred = true;
+    input.has_text = false;
+    input.has_tool_calls = false;
+    let output = engine.evaluate(&input).await;
+    assert_eq!(
+        output.suggested_category,
+        Some(FailureCategory::SideEffectOccurred)
+    );
+    assert_eq!(output.violations.len(), 1);
+    assert!(matches!(
+        output.violations[0],
+        HardRuleViolation::SideEffectOccurred
+    ));
 }
 
 // ─── RetryExhaustedRule ─────────────────────────────────────

@@ -185,7 +185,8 @@ fn wire_session_dependencies(ctx: &dyn SpawnCreationContext, cs: &mut Conversati
         cs.set_shutdown_handle(signal);
     }
     if let Some(caller) = ctx.llm_caller() {
-        cs.set_llm_caller(caller);
+        cs.set_llm_caller(caller.clone());
+        cs.init_health_checker(caller);
     }
     if let Some(builder) = ctx.system_prompt_builder() {
         cs.set_system_prompt_builder(builder);
