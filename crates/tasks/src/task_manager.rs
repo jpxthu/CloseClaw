@@ -13,17 +13,27 @@ use crate::{BackgroundTask, BackgroundTaskError, CompletionNotification};
 #[async_trait::async_trait]
 pub trait TaskManager: Send + Sync {
     /// Spawn a shell command in the background, returning immediately.
+    ///
+    /// When `is_backgrounded` is `true`, the task was created via
+    /// auto-backgrounding or manual backgrounding (user-initiated);
+    /// `false` means explicit `run_in_background`.
     async fn spawn_task(
         &self,
         command: &str,
         cwd: &std::path::Path,
+        is_backgrounded: bool,
     ) -> Result<BackgroundTask, BackgroundTaskError>;
 
     /// Take over a running child process and manage it in the background.
+    ///
+    /// When `is_backgrounded` is `true`, the task was created via
+    /// auto-backgrounding or manual backgrounding (user-initiated);
+    /// `false` means explicit `run_in_background`.
     async fn backgroundize_task(
         &self,
         child: tokio::process::Child,
         command: &str,
+        is_backgrounded: bool,
     ) -> Result<BackgroundTask, BackgroundTaskError>;
 
     /// Kill a running background task by ID.
