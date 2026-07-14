@@ -14,7 +14,7 @@ use tracing::{error, info, warn};
 
 /// Grace period (in seconds) to wait for a running sweep to finish
 /// before forcibly aborting it on shutdown.
-pub(crate) const SWEEPER_GRACE_PERIOD_SECS: u64 = 5;
+pub(crate) const SWEEPER_GRACE_PERIOD_SECS: u64 = 10;
 
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_session::persistence::{AgentRole, PersistenceError, PersistenceService};

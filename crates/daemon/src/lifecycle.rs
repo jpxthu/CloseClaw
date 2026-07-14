@@ -114,6 +114,11 @@ impl Daemon {
             }
         }
 
+        // Phase 0: Send initial shutdown notification after mode determination
+        self.gateway
+            .send_shutdown_progress_card(self.shutdown.mode())
+            .await;
+
         self.phase_1_inbound_drain(&mut sigint, &mut sigterm).await;
         let mode = self.shutdown.mode();
         info!(phase = 1, "inbound shutdown complete");
