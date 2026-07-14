@@ -334,8 +334,15 @@ impl SessionManager {
             .await
             .ok_or(StopError::Skipped)?;
 
-        // Forceful: collect pending ops from live state, skip wait.
+        // Forceful: kill tool processes, cancel LLM requests,
+        // then collect residual pending ops for checkpoint.
         if mode == ShutdownMode::Forceful {
+            // Kill tool processes and cancel in-flight LLM requests
+            // immediately. This discards incomplete assistant message
+            // fragments (the Gateway layer does not append partial
+            // messages on cancellation).
+            cs.write().await.force_kill().await;
+
             let pending_ops = {
                 let guard = cs.read().await;
                 guard.collect_pending_operations()
