@@ -23,6 +23,20 @@ pub struct RunHealthVerdict {
     pub action: Option<RecoverableAction>,
 }
 
+/// Build a synthetic [`HealthCheckOutput`] from hook violation reasons.
+///
+/// Called when one or more hooks flag the turn. The output is
+/// consumed by the [`UnhealthyHandler`] to derive a recovery action.
+fn build_hook_violation_output(reasons: &[String]) -> super::health_types::HealthCheckOutput {
+    super::health_types::HealthCheckOutput {
+        status: HealthStatus::Unhealthy(super::health_types::FailureCategory::InvalidResponse),
+        violations: vec![super::health_types::HardRuleViolation::StructuralAnomaly {
+            detail: format!("hooks flagged: {}", reasons.join("; ")),
+        }],
+        suggested_category: Some(super::health_types::FailureCategory::InvalidResponse),
+    }
+}
+
 /// Orchestrates the run-health pipeline for a single session turn.
 ///
 /// Holds the three components of the pipeline and executes them
@@ -72,25 +86,12 @@ impl RunHealthChecker {
                     let hook_verdicts = reviewer.review(ctx).await;
                     let any_flagged = hook_verdicts.iter().any(|v| v.flag);
                     if any_flagged {
-                        // Build a synthetic unhealthy output for the handler.
                         let flag_reasons: Vec<String> = hook_verdicts
                             .iter()
                             .filter(|v| v.flag)
                             .map(|v| v.reason.clone())
                             .collect();
-                        let synthetic_output = super::health_types::HealthCheckOutput {
-                            status: HealthStatus::Unhealthy(
-                                super::health_types::FailureCategory::InvalidResponse,
-                            ),
-                            violations: vec![
-                                super::health_types::HardRuleViolation::StructuralAnomaly {
-                                    detail: format!("hooks flagged: {}", flag_reasons.join("; ")),
-                                },
-                            ],
-                            suggested_category: Some(
-                                super::health_types::FailureCategory::InvalidResponse,
-                            ),
-                        };
+                        let synthetic_output = build_hook_violation_output(&flag_reasons);
                         if let Some(action) = self.unhealthy_handler.handle(&synthetic_output) {
                             return RunHealthVerdict {
                                 status: HealthStatus::Unhealthy(
