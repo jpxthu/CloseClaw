@@ -122,6 +122,16 @@ pub struct RetryPolicy {
     pub backoff_multiplier: f64,
 }
 
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            initial_delay_ms: 1_000,
+            backoff_multiplier: 2.0,
+        }
+    }
+}
+
 /// Mapping from a hard-rule violation to a failure category.
 ///
 /// This is the canonical mapping used by both the hard-rule engine
