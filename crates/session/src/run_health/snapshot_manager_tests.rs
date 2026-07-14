@@ -1,9 +1,12 @@
-//! Unit tests for [`RuntimeSnapshotManager`].
+//! Unit tests for [`RuntimeSnapshotManager`] and [`PersistenceMetaStore`].
 
 use super::snapshot_manager::{
-    RollbackAction, RuntimeSnapshotManager, SnapshotMeta, SnapshotMetaStore, TranscriptOp,
+    PersistenceMetaStore, RollbackAction, RuntimeSnapshotManager, SnapshotMeta, SnapshotMetaStore,
+    SnapshotStatus, TranscriptOp,
 };
 use crate::llm_session::SessionMessage;
+use crate::persistence::{PersistenceService, SessionCheckpoint};
+use crate::storage::memory::MemoryStorage;
 use chrono::Utc;
 use closeclaw_common::ContentBlock;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -403,18 +406,237 @@ impl SnapshotMetaStore for CountingMetaStore {
     }
 }
 
-#[test]
-fn test_meta_store_called_on_snapshot_creation() {
+#[tokio::test]
+async fn test_meta_store_called_on_snapshot_creation() {
     let store = Arc::new(CountingMetaStore::new());
     let mut mgr = RuntimeSnapshotManager::new();
     mgr.set_meta_store(store.clone());
-    // Note: create_snapshot does NOT currently call the meta store
-    // because the store is set after creation. This tests that the
-    // store is wired up correctly (no panic, count stays 0).
     mgr.create_snapshot(&[msg("user", "a")], TranscriptOp::Rewrite, "test");
-    // The meta_store is set, but create_snapshot doesn't persist yet
-    // (persistence is a responsibility of the gateway layer).
-    assert_eq!(store.save_count.load(Ordering::SeqCst), 0);
+    // Give the spawned task time to complete.
+    tokio::task::yield_now().await;
+    assert_eq!(store.save_count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn test_meta_store_called_on_incremental_snapshot() {
+    let store = Arc::new(CountingMetaStore::new());
+    let mut mgr = RuntimeSnapshotManager::new();
+    mgr.set_meta_store(store.clone());
+    mgr.create_incremental_snapshot(&[msg("user", "a")], "append-op", "e1");
+    tokio::task::yield_now().await;
+    assert_eq!(store.save_count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn test_meta_store_called_on_rollback() {
+    let store = Arc::new(CountingMetaStore::new());
+    let mut mgr = RuntimeSnapshotManager::new();
+    mgr.set_meta_store(store.clone());
+    mgr.create_snapshot(&[msg("user", "a")], TranscriptOp::Rewrite, "test");
+    tokio::task::yield_now().await;
+    assert_eq!(store.save_count.load(Ordering::SeqCst), 1);
+    // Rollback creates a pre-rollback snapshot → second save_meta call.
+    let _ = mgr.rollback(&[msg("user", "current")]);
+    tokio::task::yield_now().await;
+    assert_eq!(store.save_count.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn test_no_meta_store_no_save() {
+    let mut mgr = RuntimeSnapshotManager::new();
+    // No meta_store set — all operations should succeed without error.
+    mgr.create_snapshot(&[msg("user", "a")], TranscriptOp::Rewrite, "test");
+    assert_eq!(mgr.snapshot_count(), 1);
+    let _ = mgr.rollback(&[msg("user", "current")]);
+    assert_eq!(mgr.snapshot_count(), 1);
+    mgr.clear();
+    assert_eq!(mgr.snapshot_count(), 0);
+}
+
+// =====================================================================
+// PersistenceMetaStore — happy path
+// =====================================================================
+
+#[tokio::test]
+async fn test_persistence_meta_store_save_meta() {
+    let storage = Arc::new(MemoryStorage::new());
+    let session_id = "sess-pms-1";
+    // Pre-create checkpoint so load_checkpoint succeeds.
+    storage
+        .save_checkpoint(&SessionCheckpoint::new(session_id.into()))
+        .await
+        .unwrap();
+    let pms = PersistenceMetaStore::new(storage.clone(), session_id.into());
+    let meta = SnapshotMeta {
+        id: "snap-1".into(),
+        reason: "compaction".into(),
+        created_at: Utc::now(),
+        session_id: session_id.into(),
+        status: SnapshotStatus::Pending,
+    };
+    pms.save_meta(&meta).await.unwrap();
+    let cp = storage.load_checkpoint(session_id).await.unwrap().unwrap();
+    assert_eq!(cp.snapshot_metas.len(), 1);
+    assert_eq!(cp.snapshot_metas[0].id, "snap-1");
+}
+
+#[tokio::test]
+async fn test_persistence_meta_store_appends_multiple() {
+    let storage = Arc::new(MemoryStorage::new());
+    let session_id = "sess-pms-multi";
+    storage
+        .save_checkpoint(&SessionCheckpoint::new(session_id.into()))
+        .await
+        .unwrap();
+    let pms = PersistenceMetaStore::new(storage.clone(), session_id.into());
+    for i in 0..3 {
+        let meta = SnapshotMeta {
+            id: format!("snap-{i}"),
+            reason: format!("reason-{i}"),
+            created_at: Utc::now(),
+            session_id: session_id.into(),
+            status: SnapshotStatus::Pending,
+        };
+        pms.save_meta(&meta).await.unwrap();
+    }
+    let cp = storage.load_checkpoint(session_id).await.unwrap().unwrap();
+    assert_eq!(cp.snapshot_metas.len(), 3);
+    assert_eq!(cp.snapshot_metas[2].id, "snap-2");
+}
+
+#[tokio::test]
+async fn test_persistence_meta_store_checkpoint_not_found() {
+    let storage = Arc::new(MemoryStorage::new());
+    let pms = PersistenceMetaStore::new(storage, "nonexistent".into());
+    let meta = SnapshotMeta {
+        id: "x".into(),
+        reason: "r".into(),
+        created_at: Utc::now(),
+        session_id: "nonexistent".into(),
+        status: SnapshotStatus::Pending,
+    };
+    let result = pms.save_meta(&meta).await;
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("not found"));
+}
+
+// =====================================================================
+// PersistenceMetaStore — session_id fill
+// =====================================================================
+
+#[tokio::test]
+async fn test_persistence_meta_store_fills_session_id() {
+    let storage = Arc::new(MemoryStorage::new());
+    let session_id = "sess-fill-id";
+    storage
+        .save_checkpoint(&SessionCheckpoint::new(session_id.into()))
+        .await
+        .unwrap();
+    let pms = PersistenceMetaStore::new(storage.clone(), session_id.into());
+    let meta = SnapshotMeta {
+        id: "snap-fill".into(),
+        reason: "test".into(),
+        created_at: Utc::now(),
+        session_id: String::new(), // intentionally empty
+        status: SnapshotStatus::Pending,
+    };
+    pms.save_meta(&meta).await.unwrap();
+    let cp = storage.load_checkpoint(session_id).await.unwrap().unwrap();
+    assert_eq!(cp.snapshot_metas.len(), 1);
+    // The persisted meta should have the store's session_id, not empty.
+    assert_eq!(cp.snapshot_metas[0].session_id, session_id);
+}
+
+#[tokio::test]
+async fn test_persistence_meta_store_overwrites_empty_session_id() {
+    let storage = Arc::new(MemoryStorage::new());
+    let session_id = "sess-overwrite";
+    storage
+        .save_checkpoint(&SessionCheckpoint::new(session_id.into()))
+        .await
+        .unwrap();
+    let pms = PersistenceMetaStore::new(storage.clone(), session_id.into());
+    // Save two metas — first with empty session_id, second with wrong session_id.
+    for (i, bad_id) in ["", "wrong-id"].iter().enumerate() {
+        let meta = SnapshotMeta {
+            id: format!("snap-{i}"),
+            reason: "test".into(),
+            created_at: Utc::now(),
+            session_id: bad_id.to_string(),
+            status: SnapshotStatus::Pending,
+        };
+        pms.save_meta(&meta).await.unwrap();
+    }
+    let cp = storage.load_checkpoint(session_id).await.unwrap().unwrap();
+    assert_eq!(cp.snapshot_metas.len(), 2);
+    // Both should have the store's session_id.
+    assert_eq!(cp.snapshot_metas[0].session_id, session_id);
+    assert_eq!(cp.snapshot_metas[1].session_id, session_id);
+}
+
+// =====================================================================
+// Reason passthrough verification
+// =====================================================================
+
+/// A `SnapshotMetaStore` that records every saved meta for inspection.
+struct RecordingMetaStore {
+    recorded: std::sync::Mutex<Vec<SnapshotMeta>>,
+}
+
+impl RecordingMetaStore {
+    fn new() -> Self {
+        Self {
+            recorded: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn get_last_meta(&self) -> Option<SnapshotMeta> {
+        self.recorded.lock().unwrap().last().cloned()
+    }
+}
+
+#[async_trait::async_trait]
+impl SnapshotMetaStore for RecordingMetaStore {
+    async fn save_meta(&self, meta: &SnapshotMeta) -> Result<(), String> {
+        self.recorded.lock().unwrap().push(meta.clone());
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn test_create_snapshot_passes_reason_to_meta() {
+    let store = Arc::new(RecordingMetaStore::new());
+    let mut mgr = RuntimeSnapshotManager::new();
+    mgr.set_meta_store(store.clone());
+    mgr.create_snapshot(&[msg("user", "test")], TranscriptOp::Rewrite, "user-stop");
+    tokio::task::yield_now().await;
+    let recorded = store.get_last_meta().unwrap();
+    assert_eq!(recorded.reason, "user-stop");
+}
+
+#[tokio::test]
+async fn test_create_incremental_snapshot_passes_reason_to_meta() {
+    let store = Arc::new(RecordingMetaStore::new());
+    let mut mgr = RuntimeSnapshotManager::new();
+    mgr.set_meta_store(store.clone());
+    mgr.create_incremental_snapshot(&[msg("user", "test")], "append-reason", "entry_1");
+    tokio::task::yield_now().await;
+    let recorded = store.get_last_meta().unwrap();
+    assert_eq!(recorded.reason, "append-reason");
+}
+
+#[tokio::test]
+async fn test_rollback_passes_pre_rollback_reason_to_meta() {
+    let store = Arc::new(RecordingMetaStore::new());
+    let mut mgr = RuntimeSnapshotManager::new();
+    mgr.set_meta_store(store.clone());
+    mgr.create_snapshot(&[msg("user", "a")], TranscriptOp::Rewrite, "first");
+    tokio::task::yield_now().await;
+    // Rollback creates a pre-rollback snapshot with reason "pre-rollback".
+    let _ = mgr.rollback(&[msg("user", "current")]);
+    tokio::task::yield_now().await;
+    let recorded = store.get_last_meta().unwrap();
+    assert_eq!(recorded.reason, "pre-rollback");
 }
 
 // =====================================================================

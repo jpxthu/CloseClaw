@@ -79,7 +79,10 @@ impl SessionManager {
             return;
         };
         let mut cs = cs.write().await;
-        cs.snapshot_current_state(closeclaw_session::run_health::TranscriptOp::Rewrite);
+        cs.snapshot_current_state(
+            closeclaw_session::run_health::TranscriptOp::Rewrite,
+            "pre-compaction",
+        );
     }
 
     /// Rollback a failed compaction by restoring the pre-compaction
@@ -126,7 +129,10 @@ impl SessionManager {
         };
         let mut cs = cs.write().await;
         let prev_count = cs.snapshot_count().unwrap_or(0);
-        cs.snapshot_current_state(closeclaw_session::run_health::TranscriptOp::PartialRewrite);
+        cs.snapshot_current_state(
+            closeclaw_session::run_health::TranscriptOp::PartialRewrite,
+            "system-prompt-update",
+        );
         cs.snapshot_count().unwrap_or(0) > prev_count
     }
 

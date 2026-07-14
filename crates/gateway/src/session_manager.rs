@@ -42,6 +42,7 @@ pub mod spawn_controller;
 pub mod stop;
 mod stop_graceful;
 mod yield_timeout;
+use closeclaw_session::run_health::PersistenceMetaStore;
 use closeclaw_session::spawn::SpawnTree;
 pub use spawn::{ChildSessionInfo, SpawnMode};
 pub use spawn_controller::SpawnController;
@@ -323,6 +324,27 @@ impl SessionManager {
     /// Get a clone of the shutdown handle, if set.
     pub(crate) async fn get_shutdown_handle(&self) -> Option<Arc<ShutdownHandle>> {
         self.shutdown_handle.read().await.clone()
+    }
+
+    /// Inject a [`PersistenceMetaStore`] into a conversation session's
+    /// snapshot manager for metadata persistence.
+    ///
+    /// When the checkpoint manager (and thus persistence) is available,
+    /// this wires the snapshot manager to persist metadata to the
+    /// session checkpoint. When persistence is unavailable, the snapshot
+    /// manager falls back to in-memory-only mode.
+    pub(crate) async fn inject_snapshot_meta_store(
+        &self,
+        session_id: &str,
+        conv: &mut ConversationSession,
+    ) {
+        if let Some(cm) = self.checkpoint_manager.read().await.as_ref() {
+            let meta_store = Arc::new(PersistenceMetaStore::new(
+                Arc::clone(cm.storage_arc()),
+                session_id.to_string(),
+            ));
+            conv.set_snapshot_meta_store(meta_store);
+        }
     }
 
     /// Register a callback to invalidate the static-layer section cache.

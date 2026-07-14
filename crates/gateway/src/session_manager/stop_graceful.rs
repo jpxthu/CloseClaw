@@ -178,6 +178,12 @@ impl SessionManager {
         pending_ops: Vec<PendingOperation>,
         cascade: bool,
     ) -> Result<StopSingleResult, StopError> {
+        // Snapshot current transcript state before stopping, so that the
+        // session can be recovered to this point if needed.
+        cs.write().await.snapshot_current_state(
+            closeclaw_session::run_health::TranscriptOp::Rewrite,
+            "user-stop",
+        );
         cs.read().await.stop(cascade).await;
         self.cleanup_and_persist(session_id, pending_ops).await?;
         Ok(StopSingleResult {

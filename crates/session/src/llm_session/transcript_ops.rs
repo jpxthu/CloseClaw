@@ -71,12 +71,12 @@ impl ConversationSession {
     /// replacing messages. Used by pre-compaction and pre-rewrite
     /// paths that need a backup before a separate operation modifies
     /// the transcript.
-    pub fn snapshot_current_state(&mut self, op: TranscriptOp) {
+    pub fn snapshot_current_state(&mut self, op: TranscriptOp, reason: &str) {
         if op.requires_snapshot() {
             let mgr = self
                 .snapshot_manager
                 .get_or_insert_with(RuntimeSnapshotManager::new);
-            mgr.create_snapshot(&self.messages, op, "transcript-current-state");
+            mgr.create_snapshot(&self.messages, op, reason);
         }
     }
 }

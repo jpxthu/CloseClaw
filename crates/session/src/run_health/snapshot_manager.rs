@@ -11,10 +11,14 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::sync::Arc;
 
+use tokio::spawn;
+
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::llm_session::SessionMessage;
+use crate::persistence::PersistenceService;
 
 /// Maximum number of snapshots retained per session.
 ///
@@ -73,7 +77,7 @@ pub enum SnapshotKind {
 // =====================================================================
 
 /// Lifecycle status of a snapshot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SnapshotStatus {
     /// Snapshot has been created but the operation it guards has not
     /// yet completed.
@@ -115,7 +119,7 @@ pub enum RollbackAction {
 // =====================================================================
 
 /// Metadata for a snapshot, suitable for persistence.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotMeta {
     /// Unique snapshot identifier (UUID v4).
     pub id: String,
@@ -196,6 +200,51 @@ pub struct RuntimeSnapshotManager {
     meta_store: Option<Arc<dyn SnapshotMetaStore>>,
 }
 
+/// Persistence-backed implementation of [`SnapshotMetaStore`].
+///
+/// Wraps a [`PersistenceService`] and a session ID to read-modify-write
+/// snapshot metadata into the session's [`SessionCheckpoint`].
+pub struct PersistenceMetaStore {
+    storage: Arc<dyn PersistenceService>,
+    session_id: String,
+}
+
+impl PersistenceMetaStore {
+    /// Create a new persistence-backed meta store.
+    pub fn new(storage: Arc<dyn PersistenceService>, session_id: String) -> Self {
+        Self {
+            storage,
+            session_id,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl SnapshotMetaStore for PersistenceMetaStore {
+    /// Persist snapshot metadata by loading the checkpoint, appending
+    /// the meta entry, and saving it back.
+    ///
+    /// Returns `Err` if the checkpoint cannot be loaded or saved.
+    async fn save_meta(&self, meta: &SnapshotMeta) -> Result<(), String> {
+        let mut checkpoint = self
+            .storage
+            .load_checkpoint(&self.session_id)
+            .await
+            .map_err(|e| format!("failed to load checkpoint: {e}"))?
+            .ok_or_else(|| format!("checkpoint not found for session: {}", self.session_id))?;
+
+        let mut meta = meta.clone();
+        meta.session_id = self.session_id.clone();
+        checkpoint.snapshot_metas.push(meta);
+        checkpoint.touch();
+
+        self.storage
+            .save_checkpoint(&checkpoint)
+            .await
+            .map_err(|e| format!("failed to save checkpoint: {e}"))
+    }
+}
+
 impl RuntimeSnapshotManager {
     /// Create an empty snapshot manager.
     pub fn new() -> Self {
@@ -239,6 +288,13 @@ impl RuntimeSnapshotManager {
             status: SnapshotStatus::Pending,
             is_pre_rollback: false,
         };
+        self.persist_meta(&SnapshotMeta {
+            id: snapshot.id.clone(),
+            reason: snapshot.reason.clone(),
+            created_at: snapshot.created_at,
+            session_id: String::new(),
+            status: snapshot.status,
+        });
         if self.snapshots.len() >= MAX_SNAPSHOTS {
             self.snapshots.pop_front();
         }
@@ -251,11 +307,22 @@ impl RuntimeSnapshotManager {
     /// Used after a guarded operation succeeds. Persists the metadata
     /// change if a [`SnapshotMetaStore`] is configured.
     pub fn mark_complete(&mut self, snapshot_id: &str) {
+        let mut meta = None;
         for snapshot in self.snapshots.iter_mut() {
             if snapshot.id == snapshot_id {
                 snapshot.status = SnapshotStatus::Complete;
+                meta = Some(SnapshotMeta {
+                    id: snapshot.id.clone(),
+                    reason: snapshot.reason.clone(),
+                    created_at: snapshot.created_at,
+                    session_id: String::new(),
+                    status: SnapshotStatus::Complete,
+                });
                 break;
             }
+        }
+        if let Some(meta) = meta {
+            self.persist_meta(&meta);
         }
     }
 
@@ -293,6 +360,13 @@ impl RuntimeSnapshotManager {
                 status: SnapshotStatus::Pending,
                 is_pre_rollback: true,
             };
+            self.persist_meta(&SnapshotMeta {
+                id: pre_rollback.id.clone(),
+                reason: pre_rollback.reason.clone(),
+                created_at: pre_rollback.created_at,
+                session_id: String::new(),
+                status: pre_rollback.status,
+            });
             if self.snapshots.len() >= MAX_SNAPSHOTS {
                 self.snapshots.pop_front();
             }
@@ -337,6 +411,13 @@ impl RuntimeSnapshotManager {
             status: SnapshotStatus::Pending,
             is_pre_rollback: false,
         };
+        self.persist_meta(&SnapshotMeta {
+            id: snapshot.id.clone(),
+            reason: snapshot.reason.clone(),
+            created_at: snapshot.created_at,
+            session_id: String::new(),
+            status: snapshot.status,
+        });
         if self.snapshots.len() >= MAX_SNAPSHOTS {
             self.snapshots.pop_front();
         }
@@ -347,6 +428,23 @@ impl RuntimeSnapshotManager {
     /// Clear all snapshots without restoring.
     pub fn clear(&mut self) {
         self.snapshots.clear();
+    }
+
+    /// Fire-and-forget persistence of snapshot metadata.
+    ///
+    /// Spawns an async task to persist the snapshot metadata via the
+    /// configured [`SnapshotMetaStore`]. Failures are logged but do
+    /// not affect the caller.
+    fn persist_meta(&self, meta: &SnapshotMeta) {
+        if let Some(ref store) = self.meta_store {
+            let meta = meta.clone();
+            let store = Arc::clone(store);
+            spawn(async move {
+                if let Err(e) = store.save_meta(&meta).await {
+                    eprintln!("[snapshot-manager] failed to persist meta: {e}");
+                }
+            });
+        }
     }
 }
 

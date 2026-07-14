@@ -172,6 +172,9 @@ impl SessionManager {
                             conv_session
                                 .rebuild_system_prompt(&session_id, &agent_id, Some(bootstrap_mode))
                                 .await;
+                            // Inject snapshot meta store for persistence.
+                            self.inject_snapshot_meta_store(&session_id, &mut conv_session)
+                                .await;
                             {
                                 let mut cs = self.conversation_sessions.write().await;
                                 cs.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
@@ -411,6 +414,9 @@ impl SessionManager {
         // Build initial system prompt via session's own builder.
         conv_session
             .rebuild_system_prompt(&session_id, &agent_id, Some(bootstrap_mode))
+            .await;
+        // Inject snapshot meta store for persistence.
+        self.inject_snapshot_meta_store(&session_id, &mut conv_session)
             .await;
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
