@@ -32,7 +32,7 @@ pub enum BackgroundTaskError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskState {
     /// Process is running.
-    Running,
+    Running { is_backgrounded: bool },
     /// Process exited successfully.
     Completed { exit_code: i32 },
     /// Process exited with a non-zero exit code.
@@ -131,11 +131,19 @@ impl BackgroundTaskManager {
         &self,
         command: &str,
         cwd: &Path,
+        is_backgrounded: bool,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
         let task_id = Uuid::new_v4().to_string();
         let output_path = prepare_task_dir(&self.temp_dir, &task_id).await?;
 
-        insert_initial_handle(&self.tasks, &task_id, command, &output_path).await;
+        insert_initial_handle(
+            &self.tasks,
+            &task_id,
+            command,
+            &output_path,
+            is_backgrounded,
+        )
+        .await;
 
         stuck_detect::start_stuck_detection(
             task_id.clone(),
@@ -158,7 +166,12 @@ impl BackgroundTaskManager {
             run_shell_command(&cmd, &cwd, &out, &shared, &tid, &notifs).await;
         });
 
-        Ok(make_public_task(&task_id, command, &output_path))
+        Ok(make_public_task(
+            &task_id,
+            command,
+            &output_path,
+            is_backgrounded,
+        ))
     }
 
     /// Take over a running child process.
@@ -166,6 +179,7 @@ impl BackgroundTaskManager {
         &self,
         mut child: tokio::process::Child,
         command: &str,
+        is_backgrounded: bool,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
         let task_id = Uuid::new_v4().to_string();
         let output_path = prepare_task_dir(&self.temp_dir, &task_id).await?;
@@ -173,7 +187,14 @@ impl BackgroundTaskManager {
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
 
-        insert_initial_handle(&self.tasks, &task_id, command, &output_path).await;
+        insert_initial_handle(
+            &self.tasks,
+            &task_id,
+            command,
+            &output_path,
+            is_backgrounded,
+        )
+        .await;
 
         stuck_detect::start_stuck_detection(
             task_id.clone(),
@@ -194,7 +215,12 @@ impl BackgroundTaskManager {
             backgroundize_process(child, stdout, stderr, &out, &shared, &tid, &notifs).await;
         });
 
-        Ok(make_public_task(&task_id, command, &output_path))
+        Ok(make_public_task(
+            &task_id,
+            command,
+            &output_path,
+            is_backgrounded,
+        ))
     }
 }
 
@@ -206,7 +232,7 @@ impl BackgroundTaskManager {
             .get_mut(task_id)
             .ok_or_else(|| BackgroundTaskError::NotFound(task_id.to_owned()))?;
 
-        if handle.state != TaskState::Running {
+        if !matches!(handle.state, TaskState::Running { .. }) {
             return Err(BackgroundTaskError::NotRunning(task_id.to_owned()));
         }
 
@@ -221,7 +247,7 @@ impl BackgroundTaskManager {
     pub async fn is_running(&self, task_id: &str) -> bool {
         let map = lock_map(&self.tasks).await;
         map.get(task_id)
-            .is_some_and(|h| h.state == TaskState::Running)
+            .is_some_and(|h| matches!(h.state, TaskState::Running { .. }))
     }
 
     /// Retrieve a snapshot of the current task state.
@@ -305,16 +331,18 @@ impl crate::TaskManager for BackgroundTaskManager {
         &self,
         command: &str,
         cwd: &std::path::Path,
+        is_backgrounded: bool,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
-        self.spawn(command, cwd).await
+        self.spawn(command, cwd, is_backgrounded).await
     }
 
     async fn backgroundize_task(
         &self,
         child: tokio::process::Child,
         command: &str,
+        is_backgrounded: bool,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
-        self.backgroundize(child, command).await
+        self.backgroundize(child, command, is_backgrounded).await
     }
 
     async fn kill_task(&self, task_id: &str) -> Result<(), BackgroundTaskError> {
@@ -529,11 +557,17 @@ async fn prepare_task_dir(temp_dir: &Path, task_id: &str) -> Result<PathBuf, Bac
     Ok(dir.join("output"))
 }
 
-async fn insert_initial_handle(tasks: &TaskMap, task_id: &str, command: &str, output_path: &Path) {
+async fn insert_initial_handle(
+    tasks: &TaskMap,
+    task_id: &str,
+    command: &str,
+    output_path: &Path,
+    is_backgrounded: bool,
+) {
     let handle = TaskHandle {
         id: task_id.to_owned(),
         command: command.to_owned(),
-        state: TaskState::Running,
+        state: TaskState::Running { is_backgrounded },
         output_path: output_path.to_path_buf(),
         kill_tx: None,
         notified: false,
@@ -542,11 +576,16 @@ async fn insert_initial_handle(tasks: &TaskMap, task_id: &str, command: &str, ou
     map.insert(task_id.to_owned(), handle);
 }
 
-fn make_public_task(task_id: &str, command: &str, output_path: &Path) -> BackgroundTask {
+fn make_public_task(
+    task_id: &str,
+    command: &str,
+    output_path: &Path,
+    is_backgrounded: bool,
+) -> BackgroundTask {
     BackgroundTask {
         id: task_id.to_owned(),
         command: command.to_owned(),
-        state: TaskState::Running,
+        state: TaskState::Running { is_backgrounded },
         output_path: output_path.to_path_buf(),
     }
 }

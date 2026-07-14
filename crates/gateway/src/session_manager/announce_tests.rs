@@ -930,6 +930,7 @@ impl TaskManager for MockTaskManager {
         &self,
         _command: &str,
         _cwd: &std::path::Path,
+        _is_backgrounded: bool,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
         unimplemented!("MockTaskManager::spawn_task")
     }
@@ -938,6 +939,7 @@ impl TaskManager for MockTaskManager {
         &self,
         _child: tokio::process::Child,
         _command: &str,
+        _is_backgrounded: bool,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
         unimplemented!("MockTaskManager::backgroundize_task")
     }

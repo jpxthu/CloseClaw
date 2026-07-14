@@ -12,6 +12,7 @@ mod tests {
     use crate::{
         SpawnError, SpawnValidationResult, SpawnValidator, Tool, ToolCallError, ToolContext,
     };
+    use closeclaw_common::BootstrapMode;
     use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
     use closeclaw_gateway::{GatewayConfig, SessionManager};
     use closeclaw_session::persistence::ReasoningLevel;

@@ -90,6 +90,7 @@ fn make_bg_manager() -> Arc<dyn closeclaw_tasks::TaskManager> {
             &self,
             _command: &str,
             _cwd: &std::path::Path,
+            _is_backgrounded: bool,
         ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
             unimplemented!("not needed for approval flow tests")
         }
@@ -97,6 +98,7 @@ fn make_bg_manager() -> Arc<dyn closeclaw_tasks::TaskManager> {
             &self,
             _child: tokio::process::Child,
             _command: &str,
+            _is_backgrounded: bool,
         ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
             unimplemented!("not needed for approval flow tests")
         }

@@ -107,7 +107,7 @@ async fn is_task_running(tasks: &TaskMap, task_id: &str) -> bool {
     let map = tasks.lock().await;
     matches!(
         map.get(task_id),
-        Some(h) if h.state == TaskState::Running
+        Some(h) if matches!(h.state, TaskState::Running { .. })
     )
 }
 

@@ -507,6 +507,7 @@ async fn test_build_tools_section_empty() {
 // These tests require a mock AgentToolsConfigQuery implementation.
 // For now, marked #[ignore] until moved to integration tests.
 
+use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 
 #[allow(dead_code)]

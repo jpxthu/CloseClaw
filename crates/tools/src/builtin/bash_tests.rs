@@ -41,7 +41,7 @@ impl BackgroundTaskManager {
             .read()
             .await
             .get(id)
-            .map(|t| t.state == closeclaw_tasks::TaskState::Running)
+            .map(|t| matches!(t.state, closeclaw_tasks::TaskState::Running { .. }))
             .unwrap_or(false)
     }
     async fn kill(&self, _id: &str) -> Result<(), String> {
@@ -55,11 +55,12 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
         &self,
         command: &str,
         cwd: &std::path::Path,
+        is_backgrounded: bool,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         let task = closeclaw_tasks::BackgroundTask {
             id: uuid::Uuid::new_v4().to_string(),
             command: command.to_string(),
-            state: closeclaw_tasks::TaskState::Running,
+            state: closeclaw_tasks::TaskState::Running { is_backgrounded },
             output_path: cwd.join("output"),
         };
         self.tasks
@@ -72,11 +73,12 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
         &self,
         _child: tokio::process::Child,
         command: &str,
+        is_backgrounded: bool,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         let task = closeclaw_tasks::BackgroundTask {
             id: uuid::Uuid::new_v4().to_string(),
             command: command.to_string(),
-            state: closeclaw_tasks::TaskState::Running,
+            state: closeclaw_tasks::TaskState::Running { is_backgrounded },
             output_path: std::path::PathBuf::from("/tmp/output"),
         };
         self.tasks
@@ -320,7 +322,9 @@ fn test_build_background_result_has_task_id_and_output_path() {
     let task = BackgroundTask {
         id: "task-abc-123".to_string(),
         command: "echo hi".to_string(),
-        state: TaskState::Running,
+        state: TaskState::Running {
+            is_backgrounded: false,
+        },
         output_path,
     };
     let result = build_background_result(&task);
@@ -343,7 +347,9 @@ fn test_build_background_result_has_no_auto_backgrounded_flag() {
     let task = BackgroundTask {
         id: "task-no-auto".to_string(),
         command: "true".to_string(),
-        state: TaskState::Running,
+        state: TaskState::Running {
+            is_backgrounded: false,
+        },
         output_path: tmp.path().join("y/output"),
     };
     let result = build_background_result(&task);
@@ -366,7 +372,9 @@ fn test_build_auto_background_result_has_task_id_and_flag() {
     let task = BackgroundTask {
         id: "task-auto-bg".to_string(),
         command: "sleep 10".to_string(),
-        state: TaskState::Running,
+        state: TaskState::Running {
+            is_backgrounded: false,
+        },
         output_path,
     };
     let result = build_auto_background_result(&task);
@@ -438,7 +446,7 @@ async fn test_execute_command_run_in_background_returns_background_task() {
         .expect("background task must be tracked by the manager");
     assert_eq!(snapshot.id, task_id);
     assert_eq!(snapshot.command, "echo run_in_bg");
-    assert_eq!(snapshot.state, TaskState::Running);
+    assert!(matches!(snapshot.state, TaskState::Running { .. }));
     assert!(bg_manager.is_running(task_id).await);
 
     // Wait for completion so the spawned tokio task is dropped before

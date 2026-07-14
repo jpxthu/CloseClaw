@@ -87,7 +87,9 @@ async fn create_test_task(tasks: &TaskMap, task_id: &str, output_path: &std::pat
         TaskHandle {
             id: task_id.to_string(),
             command: "test command".to_string(),
-            state: TaskState::Running,
+            state: TaskState::Running {
+                is_backgrounded: false,
+            },
             output_path: output_path.to_path_buf(),
             kill_tx: None,
             notified: false,

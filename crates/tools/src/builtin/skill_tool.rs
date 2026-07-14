@@ -228,6 +228,7 @@ impl Tool for SkillTool {
 mod tests {
     use super::*;
     use crate::{SpawnError, SpawnValidationResult, SpawnValidator, ToolContext};
+    use closeclaw_common::BootstrapMode;
     use closeclaw_config::agents::MemoryConfig;
     use closeclaw_session::persistence::ReasoningLevel;
     use closeclaw_skills::disk::types::{
