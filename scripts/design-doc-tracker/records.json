@@ -435,9 +435,9 @@
     "path": "docs/design/session/run-health.md",
     "commit": "",
     "commit_time": "",
-    "confirmed_time": "2026-07-14T12:44:38.140071+08:00",
+    "confirmed_time": "2026-07-14T16:10:58.201876+08:00",
     "comment": "",
-    "blocked_reason": "Design doc internal contradictions: (1) overview lists rollback as unhealthy response but failure category table has no matching entry, (2) HookConfig has no configurable parameters despite doc claiming configurable params"
+    "blocked_reason": "文档内部矛盾"
   },
   {
     "path": "docs/design/system_prompt/appends.md",
