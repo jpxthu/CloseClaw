@@ -20,27 +20,50 @@ pub(crate) fn build_health_check_input(
     retry_count: u32,
     turn_duration_ms: u64,
 ) -> HealthCheckInput {
-    let has_text = result
-        .content_blocks
-        .iter()
-        .any(|b| matches!(b, ContentBlock::Text(_)));
-    let has_tool_calls = result
-        .content_blocks
-        .iter()
-        .any(|b| matches!(b, ContentBlock::ToolUse { .. }));
-    let has_thinking = result
-        .content_blocks
-        .iter()
-        .any(|b| matches!(b, ContentBlock::Thinking { .. }));
+    let mut is_structurally_valid = true;
+    let mut structural_anomaly_detail: Option<String> = None;
+
+    for block in &result.content_blocks {
+        if is_structurally_valid {
+            match block {
+                ContentBlock::ToolUse { id, name, .. } => {
+                    if id.is_empty() {
+                        is_structurally_valid = false;
+                        structural_anomaly_detail = Some("ToolUse block has empty id".into());
+                    } else if name.is_empty() {
+                        is_structurally_valid = false;
+                        structural_anomaly_detail = Some("ToolUse block has empty name".into());
+                    }
+                }
+                ContentBlock::ToolResult { tool_call_id, .. } => {
+                    if tool_call_id.is_empty() {
+                        is_structurally_valid = false;
+                        structural_anomaly_detail =
+                            Some("ToolResult block has empty tool_call_id".into());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
 
     HealthCheckInput {
-        has_text,
-        has_tool_calls,
-        has_thinking,
+        has_text: result
+            .content_blocks
+            .iter()
+            .any(|b| matches!(b, ContentBlock::Text(_))),
+        has_tool_calls: result
+            .content_blocks
+            .iter()
+            .any(|b| matches!(b, ContentBlock::ToolUse { .. })),
+        has_thinking: result
+            .content_blocks
+            .iter()
+            .any(|b| matches!(b, ContentBlock::Thinking { .. })),
         retry_count,
         turn_duration_ms,
-        is_structurally_valid: true,
-        structural_anomaly_detail: None,
+        is_structurally_valid,
+        structural_anomaly_detail,
     }
 }
 
