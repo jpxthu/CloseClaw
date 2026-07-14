@@ -468,6 +468,35 @@ fn test_apply_transcript_op_append_no_snapshot() {
     assert_eq!(session.messages().len(), 1);
 }
 
+#[test]
+fn test_apply_transcript_op_partial_rewrite_creates_snapshot() {
+    let mut session = ConversationSession::new("s7".into(), "gpt-4o".into(), tmp_path());
+    session.append_response(UnifiedResponse {
+        content_blocks: vec![ContentBlock::Text("before".into())],
+        usage: UnifiedUsage {
+            prompt_tokens: 1,
+            completion_tokens: 1,
+            total_tokens: Some(2),
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+    });
+    assert_eq!(session.snapshot_count(), None);
+    session.apply_transcript_op(
+        TranscriptOp::PartialRewrite,
+        vec![SessionMessage {
+            role: "system".into(),
+            content_blocks: vec![ContentBlock::Text("new system".into())],
+            timestamp: Utc::now(),
+        }],
+    );
+    assert_eq!(session.snapshot_count(), Some(1));
+    assert_eq!(session.messages().len(), 1);
+    assert_eq!(session.messages()[0].role, "system");
+}
+
 // ── reasoning_level tests ─────────────────────────────────────────────────
 
 use crate::persistence::ReasoningLevel;

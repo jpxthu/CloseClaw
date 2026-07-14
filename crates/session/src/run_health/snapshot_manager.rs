@@ -314,6 +314,36 @@ impl RuntimeSnapshotManager {
         self.snapshots.len()
     }
 
+    /// Create an incremental snapshot for transcript truncation rollback.
+    ///
+    /// Unlike [`create_snapshot`] which always creates a `FullRewrite`
+    /// kind, this method creates an `Incremental` snapshot that records
+    /// the `leaf_entry_id` for JSONL truncation on rollback.
+    pub fn create_incremental_snapshot(
+        &mut self,
+        messages: &[SessionMessage],
+        reason: &str,
+        leaf_entry_id: &str,
+    ) -> bool {
+        let snapshot = Snapshot {
+            id: Uuid::new_v4().to_string(),
+            reason: reason.to_string(),
+            messages: messages.to_vec(),
+            op: TranscriptOp::Append,
+            created_at: Utc::now(),
+            snapshot_kind: SnapshotKind::Incremental {
+                leaf_entry_id: leaf_entry_id.to_string(),
+            },
+            status: SnapshotStatus::Pending,
+            is_pre_rollback: false,
+        };
+        if self.snapshots.len() >= MAX_SNAPSHOTS {
+            self.snapshots.pop_front();
+        }
+        self.snapshots.push_back(snapshot);
+        true
+    }
+
     /// Clear all snapshots without restoring.
     pub fn clear(&mut self) {
         self.snapshots.clear();

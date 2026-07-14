@@ -38,6 +38,8 @@ pub use snapshot_manager::{
 pub use unhealthy_handler::{BackoffCounter, UnhealthyHandler};
 
 #[cfg(test)]
+mod checker_tests;
+#[cfg(test)]
 mod hard_rules_tests;
 #[cfg(test)]
 mod health_types_tests;
