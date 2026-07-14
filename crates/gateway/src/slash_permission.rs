@@ -6,7 +6,6 @@
 
 use std::sync::Arc;
 
-use crate::session_manager::stop::DEFAULT_GRACEFUL_TIMEOUT;
 use crate::slash_executor::{
     ReplyAction, SideEffectContext, SlashEffectExecutor, SlashResultExecutor,
 };
@@ -645,8 +644,9 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         };
         let result = self
             .session_manager
-            .stop_single_session(session_id, mode, DEFAULT_GRACEFUL_TIMEOUT, cascade)
+            .stop_single_session(session_id, mode, cascade)
             .await;
+
         match result {
             Ok(r) if r._completed => {
                 tracing::info!(
@@ -656,17 +656,7 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
                     "session stopped successfully"
                 );
             }
-            Ok(r) => {
-                // Graceful timeout — session not killed, report waiting items.
-                if let Some(ref info) = r.graceful_timeout {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        elapsed = ?info.elapsed,
-                        waiting = ?info.waiting_items,
-                        "graceful stop timed out"
-                    );
-                }
-            }
+            Ok(_) => {}
             Err(e) => {
                 tracing::warn!(
                     session_id = %session_id,

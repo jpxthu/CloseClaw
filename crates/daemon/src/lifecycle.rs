@@ -46,21 +46,30 @@ impl Daemon {
             config_dir,
         )
         .await;
-        let (sweeper_tx, announce_sweeper_tx, dreaming_tx, plan_archive_tx, config_watcher) =
-            Self::init_phase_5_background(
-                Phase5Deps {
-                    config_manager: &config_manager,
-                    agent_registry: &agent_registry,
-                    skill_registry: &skill_registry,
-                    tool_registry: &tool_registry,
-                    session_manager: &session_manager,
-                    permission_engine: &permission_engine,
-                    approval_flow: &approval_flow,
-                    gateway: &gateway,
-                },
-                &data_dir,
-            )
-            .await?;
+        let (
+            sweeper_tx,
+            announce_sweeper_tx,
+            dreaming_tx,
+            plan_archive_tx,
+            config_watcher,
+            sweeper_handle,
+            announce_sweeper_handle,
+            dreaming_handle,
+            plan_archive_handle,
+        ) = Self::init_phase_5_background(
+            Phase5Deps {
+                config_manager: &config_manager,
+                agent_registry: &agent_registry,
+                skill_registry: &skill_registry,
+                tool_registry: &tool_registry,
+                session_manager: &session_manager,
+                permission_engine: &permission_engine,
+                approval_flow: &approval_flow,
+                gateway: &gateway,
+            },
+            &data_dir,
+        )
+        .await?;
         let (admin_handle, admin_sock_path) = Self::init_phase_6_admin_rpc(
             &agent_registry,
             &skill_registry,
@@ -89,6 +98,10 @@ impl Daemon {
             approval_flow,
             admin_handle: Some(admin_handle),
             admin_socket_path: admin_sock_path,
+            archive_sweeper_handle: Some(sweeper_handle),
+            announce_sweeper_handle: Some(announce_sweeper_handle),
+            dreaming_scheduler_handle: Some(dreaming_handle),
+            plan_archive_task_handle: Some(plan_archive_handle),
         })
     }
 
@@ -213,14 +226,8 @@ impl Daemon {
 
         // Spawn session stop as a background task
         let sm = self.gateway.session_manager().clone();
-        let mut stop_handle = tokio::spawn(async move {
-            sm.stop_all_sessions(
-                mode,
-                Some(&progress_tx),
-                closeclaw_gateway::session_manager::stop::DEFAULT_GRACEFUL_TIMEOUT,
-            )
-            .await
-        });
+        let mut stop_handle =
+            tokio::spawn(async move { sm.stop_all_sessions(mode, Some(&progress_tx)).await });
 
         // Spawn fresh signal handlers for escalation monitoring during Phase 2.
         // Phase 1's handlers are consumed by its tokio::select! loop.
@@ -376,6 +383,42 @@ impl Daemon {
         let _ = self.dreaming_scheduler_shutdown_tx.send(());
         // Signal PlanArchiveTask to stop
         let _ = self.plan_archive_shutdown_tx.send(());
+
+        // Wait for all background tasks to exit (15s timeout per task)
+        let join_timeout = std::time::Duration::from_secs(15);
+
+        if let Some(handle) = self.archive_sweeper_handle.take() {
+            match tokio::time::timeout(join_timeout, handle).await {
+                Ok(Ok(())) => tracing::info!("ArchiveSweeper exited cleanly"),
+                Ok(Err(e)) => tracing::warn!(error = %e, "ArchiveSweeper task panicked"),
+                Err(_) => tracing::warn!("ArchiveSweeper did not exit within 15s, continuing"),
+            }
+        }
+
+        if let Some(handle) = self.announce_sweeper_handle.take() {
+            match tokio::time::timeout(join_timeout, handle).await {
+                Ok(Ok(())) => tracing::info!("AnnounceSweeper exited cleanly"),
+                Ok(Err(e)) => tracing::warn!(error = %e, "AnnounceSweeper task panicked"),
+                Err(_) => tracing::warn!("AnnounceSweeper did not exit within 15s, continuing"),
+            }
+        }
+
+        if let Some(handle) = self.dreaming_scheduler_handle.take() {
+            match tokio::time::timeout(join_timeout, handle).await {
+                Ok(Ok(())) => tracing::info!("DreamingScheduler exited cleanly"),
+                Ok(Err(e)) => tracing::warn!(error = %e, "DreamingScheduler task panicked"),
+                Err(_) => tracing::warn!("DreamingScheduler did not exit within 15s, continuing"),
+            }
+        }
+
+        if let Some(handle) = self.plan_archive_task_handle.take() {
+            match tokio::time::timeout(join_timeout, handle).await {
+                Ok(Ok(())) => tracing::info!("PlanArchiveTask exited cleanly"),
+                Ok(Err(e)) => tracing::warn!(error = %e, "PlanArchiveTask task panicked"),
+                Err(_) => tracing::warn!("PlanArchiveTask did not exit within 15s, continuing"),
+            }
+        }
+
         // Clear pending approval requests (denied with callbacks triggered)
         self.approval_flow.lock().await.clear();
     }
