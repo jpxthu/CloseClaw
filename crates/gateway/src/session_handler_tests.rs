@@ -302,6 +302,7 @@ fn make_notification(
         output_path,
         priority: NotificationPriority::Later,
         summary: format!("Background command '{}' completed", command),
+        suggestion: None,
     }
 }
 
