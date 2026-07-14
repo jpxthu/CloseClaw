@@ -633,16 +633,16 @@ mod tests {
         // Send shutdown — task will NOT finish within grace period
         let _ = tx.send(());
         let start = tokio::time::Instant::now();
-        let result = tokio::time::timeout(std::time::Duration::from_secs(10), handle).await;
+        let result = tokio::time::timeout(std::time::Duration::from_secs(20), handle).await;
         let elapsed = start.elapsed();
         assert!(
             result.is_ok(),
             "sweeper should exit after grace period abort"
         );
-        // The sweeper should exit within ~grace_period (5s) + overhead, not
+        // The sweeper should exit within ~grace_period (10s) + overhead, not
         // the full 30s of the task.
         assert!(
-            elapsed < std::time::Duration::from_secs(8),
+            elapsed < std::time::Duration::from_secs(14),
             "sweeper should exit within grace period, took {:?}",
             elapsed
         );
@@ -724,6 +724,14 @@ mod tests {
             pos_gc_b1 < pos_child_b,
             "gc_b1 must be deleted before child_b"
         );
+    }
+
+    // ── Step 1.5: SWEEPER_GRACE_PERIOD_SECS constant test ───────────────
+
+    /// Verify SWEEPER_GRACE_PERIOD_SECS == 10 (design doc alignment).
+    #[test]
+    fn test_sweeper_grace_period_is_ten_seconds() {
+        assert_eq!(SWEEPER_GRACE_PERIOD_SECS, 10);
     }
 
     // ── pending_operations tests ────────────────────────────────────────────
