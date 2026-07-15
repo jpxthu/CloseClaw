@@ -262,7 +262,9 @@ Type: <type>
 
 | Footer | 含义 | 可选值 |
 |--------|------|--------|
-| `Source:` | 变更来源 | `issue #N` / `CI` / `user` |
+| `Source:` | 变更来源 | `issue #N` / `design-doc <path>` / `CI` / `user` |
+
+`<path>` 是相对项目根的 design doc 路径（如 `design-doc docs/design/daemon/shutdown.md`），路径中不能含空白
 | `Type:` | 变更类型 | 见上方分支与 Commit 类型表 |
 
 CI 会校验这两个 footer，缺失则阻止合并。

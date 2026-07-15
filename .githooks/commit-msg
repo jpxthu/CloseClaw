@@ -11,9 +11,10 @@ echo "$msg"
 echo ""
 
 # 1. Check Source: footer
-if ! echo "$msg" | grep -qE '^Source: (issue #[0-9]+|Fixes #|Refs #|Closes #|CI|user)'; then
+if ! echo "$msg" | grep -qE '^Source: (issue #[0-9]+|design-doc [^ ]+|Fixes #|Refs #|Closes #|CI|user)$'; then
     echo "ERROR: Source footer must be one of:"
     echo "  - issue #N"
+    echo "  - design-doc <path> (relative to project root, no spaces in path)"
     echo "  - Fixes #N / Refs #N / Closes #N (legacy)"
     echo "  - CI"
     echo "  - user"
