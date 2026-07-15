@@ -8,6 +8,7 @@ use super::spawn::{ChildSessionInfo, SpawnMode};
 use super::test_helpers::test_resolved_config;
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
+use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_session::llm_session::ConversationSession;
 use serial_test::serial;
 use std::path::PathBuf;
@@ -220,7 +221,7 @@ async fn test_kill_child_completed_session_skips_stop() {
             .get_conversation_session(&child_id)
             .await
             .expect("conversation session should exist");
-        cs.read().await.stop(true).await; // mark as stopped
+        cs.read().await.stop(true, ShutdownMode::Forceful).await; // mark as stopped
     }
     // Verify the stopped flag is now set.
     {

@@ -938,6 +938,8 @@ mod spawn_tests;
 #[cfg(test)]
 mod spawn_tree_tests;
 #[cfg(test)]
+mod stop_tests;
+#[cfg(test)]
 pub(crate) mod test_helpers;
 #[cfg(test)]
 pub(crate) mod tests;

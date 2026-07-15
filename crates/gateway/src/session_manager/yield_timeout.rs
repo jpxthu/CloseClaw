@@ -110,7 +110,9 @@ impl SessionManager {
                 .stop_single_session(
                     child_id,
                     closeclaw_common::shutdown::ShutdownMode::Forceful,
-                    true, // cascade
+                    true,                      // cascade
+                    std::time::Duration::ZERO, // not used in forceful mode
+                    None,
                 )
                 .await
             {

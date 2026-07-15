@@ -4,162 +4,62 @@
 //! 100-line limit required by CONTRIBUTING.md.
 
 use std::sync::Arc;
+use std::time::Duration;
 
-use closeclaw_llm::session_state::LlmState;
+use closeclaw_session::llm_session::session_handles::{GracefulStopProgress, GracefulStopResult};
 use closeclaw_session::persistence::{
     PendingOperation, PersistenceError, PersistenceService, SessionCheckpoint, SessionStatus,
 };
 
-use super::stop::{StopError, StopSingleResult};
 use super::SessionManager;
 
 // ── graceful timeout logic ─────────────────────────────────────────────
 
 impl SessionManager {
-    /// Graceful wait with no hard timeout.
-    /// Checks for forceful escalation each iteration.
-    /// Returns (pending_ops, interrupted_by_forceful).
+    /// Graceful wait with a hard timeout, delegated to
+    /// [`ConversationSession::graceful_stop`].
+    ///
+    /// Returns `(pending_ops, interrupted_by_forceful)` where:
+    /// - `pending_ops` — tool calls extracted after streaming ended
+    /// - `interrupted` — true if forceful escalation was detected
     pub(super) async fn graceful_wait(
         &self,
         cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
         session_id: &str,
+        timeout: Duration,
+        progress_tx: Option<tokio::sync::mpsc::Sender<GracefulStopProgress>>,
     ) -> (Vec<PendingOperation>, bool) {
-        let mut pending_ops = Vec::new();
-        let mut streaming_seen = false;
-
-        loop {
-            // Check for forceful escalation each iteration.
-            // If escalation happened, break immediately — caller retries with forceful mode.
-            match self.get_shutdown_handle().await {
-                Some(sh) if sh.is_forceful() => {
-                    tracing::info!(
-                        session_id = %session_id,
-                        "graceful wait interrupted by forceful escalation"
-                    );
-                    return (pending_ops, true);
-                }
-                _ => {}
-            }
-
-            let (is_streaming, has_running_tools) = Self::check_session_active_state(cs).await;
-            let should_break = Self::eval_graceful_iteration(
-                cs,
-                &mut pending_ops,
-                &mut streaming_seen,
-                is_streaming,
-                has_running_tools,
-            );
-            if should_break {
-                break;
-            }
-            tracing::debug!(
-                session_id = %session_id,
-                streaming = is_streaming,
-                running_tools = has_running_tools,
-                "graceful stop: waiting for completion"
-            );
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-
-        (pending_ops, false)
-    }
-
-    /// Check whether the session is actively streaming or running tools.
-    async fn check_session_active_state(
-        cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
-    ) -> (bool, bool) {
-        let guard = &*cs.read().await;
-        let state = *guard.llm_state.read().expect("llm_state lock poisoned");
-        let tool_states = guard.tool_states.read().expect("tool_states lock poisoned");
-        let streaming = matches!(state, LlmState::Receiving | LlmState::Requesting);
-        let tools = tool_states.values().any(|s| {
-            matches!(
-                s,
-                closeclaw_llm::session_state::ToolExecState::RunningForeground
-                    | closeclaw_llm::session_state::ToolExecState::RunningBackground
-            )
-        });
-        (streaming, tools)
-    }
-
-    /// Evaluate one graceful-loop iteration; returns true to break.
-    fn eval_graceful_iteration(
-        cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
-        pending_ops: &mut Vec<PendingOperation>,
-        streaming_seen: &mut bool,
-        is_streaming: bool,
-        has_running_tools: bool,
-    ) -> bool {
-        if is_streaming {
-            *streaming_seen = true;
-            return false;
-        }
-        if *streaming_seen {
-            let ops = {
-                (*cs)
-                    .try_read()
-                    .map(|g| g.extract_pending_tool_calls())
-                    .unwrap_or_default()
-            };
-            if !ops.is_empty() {
-                *pending_ops = ops;
-                return true;
-            }
-            if !has_running_tools {
-                return true;
-            }
-            return false;
-        }
-        !has_running_tools
-    }
-}
-
-// ── session finalization ───────────────────────────────────────────────
-
-impl SessionManager {
-    /// Finalize a stopped session: stop, clean up, persist.
-    ///
-    /// When `cascade` is true the session's own stop cascades to
-    /// children (used by `/stop --cascade`).
-    pub(super) async fn finalize_session_stop(
-        &self,
-        cs: Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
-        session_id: &str,
-        pending_ops: Vec<PendingOperation>,
-        cascade: bool,
-    ) -> Result<StopSingleResult, StopError> {
-        // Snapshot current transcript state before stopping, so that the
-        // session can be recovered to this point if needed.
-        cs.write().await.snapshot_current_state(
-            closeclaw_session::run_health::TranscriptOp::Rewrite,
-            "user-stop",
-        );
-        cs.read().await.stop(cascade).await;
-        self.cleanup_and_persist(session_id, pending_ops).await?;
-        Ok(StopSingleResult { _completed: true })
-    }
-
-    /// Cleanup task manager and persist checkpoint.
-    async fn cleanup_and_persist(
-        &self,
-        session_id: &str,
-        pending_ops: Vec<PendingOperation>,
-    ) -> Result<(), StopError> {
-        if let Some(tm) = self.get_task_manager().await {
-            tm.cleanup_finished().await;
-        }
-        if let Err(e) = self
-            .persist_checkpoint_with_pending(session_id, pending_ops)
+        let (internal_tx, mut progress_rx) = tokio::sync::mpsc::channel(4);
+        let result = cs
+            .read()
             .await
-        {
-            tracing::warn!(
+            .graceful_stop(timeout, Some(internal_tx))
+            .await;
+
+        // Forward progress events to the caller's progress channel
+        // (if any) and log each event.
+        while let Ok(progress) = progress_rx.try_recv() {
+            tracing::info!(
                 session_id = %session_id,
-                error = %e,
-                "stop_all_sessions: checkpoint persist failed"
+                remaining = progress.remaining,
+                "graceful_wait: timeout progress — items still in flight"
             );
-            return Err(StopError::Failed);
+            if let Some(ref tx) = progress_tx {
+                let _ = tx.send(progress).await;
+            }
         }
-        Ok(())
+
+        match result {
+            GracefulStopResult::Completed => {
+                let pending_ops = cs.read().await.extract_pending_tool_calls();
+                (pending_ops, false)
+            }
+            GracefulStopResult::Interrupted => (Vec::new(), true),
+            GracefulStopResult::TimedOut => {
+                let pending_ops = cs.read().await.extract_pending_tool_calls();
+                (pending_ops, false)
+            }
+        }
     }
 }
 
@@ -168,7 +68,7 @@ impl SessionManager {
 impl SessionManager {
     /// Persist a session checkpoint with optional pending operations.
     /// Non-empty `pending_ops` (forceful shutdown) are recorded for recovery.
-    async fn persist_checkpoint_with_pending(
+    pub(super) async fn persist_checkpoint_with_pending(
         &self,
         session_id: &str,
         pending_ops: Vec<PendingOperation>,

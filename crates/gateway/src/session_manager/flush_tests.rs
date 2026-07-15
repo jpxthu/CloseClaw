@@ -408,7 +408,13 @@ async fn test_flush_all_after_stop_preserves_sessions() {
 
     // Phase 2: stop all sessions
     use closeclaw_common::shutdown::ShutdownMode;
-    let stop_result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
+    let stop_result = mgr
+        .stop_all_sessions(
+            ShutdownMode::Forceful,
+            std::time::Duration::from_secs(30),
+            None,
+        )
+        .await;
     assert_eq!(
         stop_result.succeeded, 2,
         "both sessions should be stopped successfully"

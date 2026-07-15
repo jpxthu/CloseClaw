@@ -12,8 +12,10 @@ use std::time::Duration;
 
 use tokio::sync::RwLock;
 
+use super::super::session_handles::GracefulStopResult;
 use super::super::KillHandle;
 use super::super::*;
+use closeclaw_common::shutdown::ShutdownMode;
 
 // ── test doubles ─────────────────────────────────────────────────────────
 
@@ -96,7 +98,7 @@ async fn test_stop_false_kills_tools_cancels_llm_clears_state() {
         s.update_tool_state("call-1", closeclaw_common::ToolExecState::RunningForeground);
     }
 
-    cs.read().await.stop(false).await;
+    cs.read().await.stop(false, ShutdownMode::Forceful).await;
 
     let s = cs.read().await;
     assert!(s.is_stopped(), "stopped flag must be set");
@@ -147,7 +149,7 @@ async fn test_stop_true_cascades_to_child_sessions() {
         .await
         .register_tool_handle("call-c1", child_handle as Arc<dyn KillHandle>);
 
-    parent.read().await.stop(true).await;
+    parent.read().await.stop(true, ShutdownMode::Forceful).await;
 
     assert!(parent.read().await.is_stopped());
     assert!(
@@ -173,7 +175,7 @@ async fn test_child_independent_stop_does_not_affect_parent() {
         .await
         .register_child_handle("s_c2", Arc::downgrade(&child));
 
-    child.read().await.stop(false).await;
+    child.read().await.stop(false, ShutdownMode::Forceful).await;
 
     assert!(child.read().await.is_stopped());
     assert!(
@@ -216,7 +218,7 @@ async fn test_tool_handle_register_unregister() {
     // Unregister one; it must NOT be killed.
     cs.read().await.unregister_tool_handle("call-a");
 
-    cs.read().await.stop(false).await;
+    cs.read().await.stop(false, ShutdownMode::Forceful).await;
 
     assert_eq!(
         h1_count.load(Ordering::SeqCst),
@@ -245,7 +247,7 @@ async fn test_child_handle_register_unregister() {
     // Unregister; the child must NOT be cascade-stopped.
     parent.read().await.unregister_child_handle("c1");
 
-    parent.read().await.stop(true).await;
+    parent.read().await.stop(true, ShutdownMode::Forceful).await;
 
     assert!(parent.read().await.is_stopped());
     assert!(
@@ -265,7 +267,11 @@ async fn test_cancel_token_parent_propagates_to_child() {
         "fresh child token must not be cancelled"
     );
 
-    parent.read().await.stop(false).await;
+    parent
+        .read()
+        .await
+        .stop(false, ShutdownMode::Forceful)
+        .await;
     assert!(
         child_token.is_cancelled(),
         "child token must auto-cancel when parent is stopped"
@@ -302,9 +308,9 @@ async fn test_stop_is_idempotent() {
         .await
         .register_tool_handle("call-idem", h as Arc<dyn KillHandle>);
 
-    cs.read().await.stop(false).await;
-    cs.read().await.stop(false).await;
-    cs.read().await.stop(true).await;
+    cs.read().await.stop(false, ShutdownMode::Forceful).await;
+    cs.read().await.stop(false, ShutdownMode::Forceful).await;
+    cs.read().await.stop(true, ShutdownMode::Forceful).await;
 
     assert!(cs.read().await.is_stopped());
     assert_eq!(
@@ -321,7 +327,7 @@ async fn test_stop_empty_session_does_not_panic() {
     let cs = make_session("s_empty");
 
     // No handles, no children, no in-flight work.
-    cs.read().await.stop(true).await;
+    cs.read().await.stop(true, ShutdownMode::Forceful).await;
 
     assert!(cs.read().await.is_stopped());
     assert!(cs
@@ -352,7 +358,11 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
 
     // 5 s is the production timeout in session_handles. The test
     // budget is 30 s to absorb CI jitter.
-    let res = tokio::time::timeout(Duration::from_secs(30), cs.read().await.stop(false)).await;
+    let res = tokio::time::timeout(
+        Duration::from_secs(30),
+        cs.read().await.stop(false, ShutdownMode::Forceful),
+    )
+    .await;
     assert!(
         res.is_ok(),
         "stop() must return within budget even if kill() blocks"
@@ -406,7 +416,7 @@ async fn test_three_level_cascade_kills_all_tool_handles() {
         .await
         .register_child_handle("g", Arc::downgrade(&grandchild));
 
-    parent.read().await.stop(true).await;
+    parent.read().await.stop(true, ShutdownMode::Forceful).await;
 
     assert!(parent.read().await.is_stopped());
     assert!(child.read().await.is_stopped());
@@ -414,6 +424,235 @@ async fn test_three_level_cascade_kills_all_tool_handles() {
     assert_eq!(parent_count.load(Ordering::SeqCst), 1);
     assert_eq!(child_count.load(Ordering::SeqCst), 1);
     assert_eq!(gc_count.load(Ordering::SeqCst), 1);
+}
+
+// ── Step 1.3: Cascade mode passing tests ──────────────────────────────
+
+/// Graceful cascade: parent stop(Graceful, cascade=true) marks child
+/// as stopped but does NOT cancel child's cancel_token.
+#[tokio::test]
+async fn test_stop_graceful_cascade_does_not_cancel_child_token() {
+    let parent = make_session("s_graceful_parent");
+    let child = make_session("s_graceful_child");
+
+    parent
+        .read()
+        .await
+        .register_child_handle("s_graceful_child", Arc::downgrade(&child));
+
+    parent.read().await.stop(true, ShutdownMode::Graceful).await;
+
+    assert!(parent.read().await.is_stopped());
+    assert!(
+        child.read().await.is_stopped(),
+        "child must be stopped after graceful cascade"
+    );
+    assert!(
+        !child.read().await.is_cancelled(),
+        "child cancel_token must NOT be cancelled in graceful mode"
+    );
+}
+
+/// Forceful cascade: parent stop(Forceful, cascade=true) cancels
+/// child's cancel_token (existing behavior, now explicitly tested).
+#[tokio::test]
+async fn test_stop_forceful_cascade_cancels_child_token() {
+    let parent = make_session("s_forceful_parent");
+    let child = make_session("s_forceful_child");
+
+    parent
+        .read()
+        .await
+        .register_child_handle("s_forceful_child", Arc::downgrade(&child));
+
+    parent.read().await.stop(true, ShutdownMode::Forceful).await;
+
+    assert!(parent.read().await.is_stopped());
+    assert!(child.read().await.is_stopped());
+    assert!(
+        child.read().await.is_cancelled(),
+        "child cancel_token must be cancelled in forceful mode"
+    );
+}
+
+/// Three-level cascade with Graceful mode: grandchild, child, and root
+/// are all marked stopped; none of their cancel_tokens are cancelled.
+#[tokio::test]
+async fn test_three_level_cascade_graceful_does_not_cancel_tokens() {
+    let root = make_session("gr_root");
+    let child = make_session("gr_child");
+    let grandchild = make_session("gr_grandchild");
+
+    let root_h = Arc::new(MockKillHandle::new());
+    let child_h = Arc::new(MockKillHandle::new());
+    let gc_h = Arc::new(MockKillHandle::new());
+    let root_count = root_h.kill_count();
+    let child_count = child_h.kill_count();
+    let gc_count = gc_h.kill_count();
+
+    root.read()
+        .await
+        .register_tool_handle("root-tool", root_h as Arc<dyn KillHandle>);
+    child
+        .read()
+        .await
+        .register_tool_handle("child-tool", child_h as Arc<dyn KillHandle>);
+    grandchild
+        .read()
+        .await
+        .register_tool_handle("gc-tool", gc_h as Arc<dyn KillHandle>);
+
+    root.read()
+        .await
+        .register_child_handle("gr_child", Arc::downgrade(&child));
+    child
+        .read()
+        .await
+        .register_child_handle("gr_grandchild", Arc::downgrade(&grandchild));
+
+    root.read().await.stop(true, ShutdownMode::Graceful).await;
+
+    assert!(root.read().await.is_stopped());
+    assert!(child.read().await.is_stopped());
+    assert!(grandchild.read().await.is_stopped());
+    // Graceful mode: cancel_tokens are NOT cancelled
+    assert!(!root.read().await.is_cancelled());
+    assert!(!child.read().await.is_cancelled());
+    assert!(!grandchild.read().await.is_cancelled());
+    // State is cleared (tool_handles map emptied)
+    assert_eq!(root_count.load(Ordering::SeqCst), 0);
+    assert_eq!(child_count.load(Ordering::SeqCst), 0);
+    assert_eq!(gc_count.load(Ordering::SeqCst), 0);
+}
+
+// ── Step 1.3: Graceful stop timeout tests ──────────────────────────────
+
+/// Idle session (no in-flight ops) completes graceful_stop immediately.
+#[tokio::test]
+async fn test_graceful_stop_idle_completes_immediately() {
+    let cs = make_session("s_g_idle");
+    let result = cs
+        .read()
+        .await
+        .graceful_stop(Duration::from_secs(10), None)
+        .await;
+    assert_eq!(result, GracefulStopResult::Completed);
+}
+
+/// Graceful stop with a running tool times out and returns progress
+/// without killing the process.
+#[tokio::test]
+async fn test_graceful_stop_running_tool_times_out_with_progress() {
+    let cs = make_session("s_g_timeout");
+    // Simulate a running tool.
+    {
+        let guard = cs.read().await;
+        guard.register_tool_call("timeout-tool");
+        guard.update_tool_state(
+            "timeout-tool",
+            closeclaw_common::ToolExecState::RunningForeground,
+        );
+    }
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+    let result = cs
+        .read()
+        .await
+        .graceful_stop(Duration::from_millis(50), Some(tx))
+        .await;
+
+    assert_eq!(result, GracefulStopResult::TimedOut);
+    let progress = rx.try_recv().expect("progress must be sent on timeout");
+    assert_eq!(progress.remaining, 1);
+    assert!(progress
+        .waiting_items
+        .iter()
+        .any(|(name, _)| name == "timeout-tool"));
+    // Must NOT kill the tool process (no cancel_token, no kill_handle)
+    assert!(!cs.read().await.is_cancelled());
+}
+
+/// Graceful stop interrupted by forceful escalation returns Interrupted.
+#[tokio::test]
+async fn test_graceful_stop_interrupted_by_forceful_escalation() {
+    use closeclaw_common::ShutdownSignal;
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
+
+    /// Minimal mock implementing `ShutdownSignal` for tests.
+    struct MockShutdownSignal {
+        shutting_down: AtomicBool,
+        forceful: AtomicBool,
+        busy_count: AtomicUsize,
+    }
+    impl MockShutdownSignal {
+        fn new() -> Self {
+            Self {
+                shutting_down: AtomicBool::new(true),
+                forceful: AtomicBool::new(false),
+                busy_count: AtomicUsize::new(0),
+            }
+        }
+    }
+    impl ShutdownSignal for MockShutdownSignal {
+        fn is_shutting_down(&self) -> bool {
+            self.shutting_down.load(Ordering::SeqCst)
+        }
+        fn increment_busy(&self) {
+            self.busy_count.fetch_add(1, Ordering::SeqCst);
+        }
+        fn decrement_busy(&self) {
+            self.busy_count.fetch_sub(1, Ordering::SeqCst);
+        }
+        fn busy_count(&self) -> usize {
+            self.busy_count.load(Ordering::SeqCst)
+        }
+        fn escalate_to_forceful(&self) -> bool {
+            self.forceful.store(true, Ordering::SeqCst);
+            true
+        }
+        fn is_forceful(&self) -> bool {
+            self.forceful.load(Ordering::SeqCst)
+        }
+        fn drain_status(&self) -> closeclaw_common::DrainStatus {
+            closeclaw_common::DrainStatus {
+                state: closeclaw_common::shutdown::ShutdownState::Running,
+                busy_count: 0,
+                is_draining: false,
+            }
+        }
+    }
+
+    let cs = make_session("s_g_interrupt");
+    // Register a running tool so graceful_stop doesn't complete instantly.
+    {
+        let guard = cs.read().await;
+        guard.register_tool_call("blocker");
+        guard.update_tool_state(
+            "blocker",
+            closeclaw_common::ToolExecState::RunningForeground,
+        );
+    }
+
+    // Attach a shutdown handle so graceful_stop can detect escalation.
+    let sh = Arc::new(MockShutdownSignal::new());
+    {
+        let mut guard = cs.write().await;
+        guard.set_shutdown_handle(sh.clone() as Arc<dyn closeclaw_common::ShutdownSignal>);
+    }
+
+    // Escalate to forceful in the background after a short delay.
+    let sh_clone = Arc::clone(&sh);
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        sh_clone.escalate_to_forceful();
+    });
+
+    let result = cs
+        .read()
+        .await
+        .graceful_stop(Duration::from_secs(10), None)
+        .await;
+    assert_eq!(result, GracefulStopResult::Interrupted);
 }
 
 // ── 12. cascade must reach a grandchild whose stopped flag is initially false
@@ -453,7 +692,7 @@ async fn test_cascade_runs_grandchild_stop_even_if_already_cancelled() {
     assert!(!grandchild.read().await.is_stopped());
     assert!(grandchild.read().await.is_cancelled() == false);
 
-    parent.read().await.stop(true).await;
+    parent.read().await.stop(true, ShutdownMode::Forceful).await;
 
     assert!(grandchild.read().await.is_stopped());
     assert_eq!(
