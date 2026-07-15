@@ -42,12 +42,7 @@ impl ConversationSession {
         content_blocks: Vec<ContentBlock>,
         timestamp: chrono::DateTime<chrono::Utc>,
     ) {
-        self.messages.push(SessionMessage {
-            role: role.to_string(),
-            content_blocks,
-            timestamp,
-        });
-        self.last_activity_at = chrono::Utc::now().timestamp();
+        self.push_message_with_timestamp(role, content_blocks, timestamp);
     }
 
     /// Incremental transcript append with an incremental snapshot.
