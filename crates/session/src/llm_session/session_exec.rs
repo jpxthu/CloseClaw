@@ -94,7 +94,7 @@ impl ConversationSession {
 
     /// Updates the state of a registered child session. If the id is
     /// not registered, logs a warning and does nothing.
-    pub(crate) fn update_child_state(&self, child_id: &str, state: ChildSessionState) {
+    pub fn update_child_state(&self, child_id: &str, state: ChildSessionState) {
         let mut states = self
             .child_states
             .write()

@@ -17,13 +17,10 @@ use tokio_util::sync::CancellationToken;
 use crate::persistence::{ReasoningLevel, SessionMode};
 use crate::run_health::{RunHealthChecker, RuntimeSnapshotManager};
 use crate::spawn::CommunicationConfig;
-use closeclaw_common::RunningStats;
-use closeclaw_common::StreamingSink;
-use closeclaw_common::TurnCounter;
-use closeclaw_common::VerbosityLevel;
-use closeclaw_common::{ChildSessionState, LlmState, ToolExecState};
+use closeclaw_common::{ChildCompletionStatus, ChildSessionState, LlmState, ToolExecState};
 use closeclaw_common::{ContentBlock, UnifiedUsage};
 use closeclaw_common::{LlmCaller, PromptOverrides, SystemPromptBuilder};
+use closeclaw_common::{RunningStats, StreamingSink, TurnCounter, VerbosityLevel};
 use closeclaw_tasks::NotificationPriority;
 
 /// Maximum length of an individual append-section item (in characters).
@@ -89,6 +86,10 @@ pub struct AnnounceEvent {
     /// Delivery priority. Controls insertion order in the announce queue
     /// so higher-priority events are drained first.
     pub priority: NotificationPriority,
+    /// Completion status of the child session. Controls the injection
+    /// text so the parent session knows whether the child completed
+    /// successfully, errored, or was terminated.
+    pub status: ChildCompletionStatus,
 }
 
 /// A simple in-memory implementation of `ChatSession`.

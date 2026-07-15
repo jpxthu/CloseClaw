@@ -11,6 +11,7 @@ use closeclaw_session::persistence::{
     PendingOperation, PersistenceError, PersistenceService, SessionCheckpoint, SessionStatus,
 };
 
+use super::stop::GracefulStopOutcome;
 use super::SessionManager;
 
 // ── graceful timeout logic ─────────────────────────────────────────────
@@ -19,16 +20,19 @@ impl SessionManager {
     /// Graceful wait with a hard timeout, delegated to
     /// [`ConversationSession::graceful_stop`].
     ///
-    /// Returns `(pending_ops, interrupted_by_forceful)` where:
+    /// Returns `(pending_ops, outcome)` where:
     /// - `pending_ops` — tool calls extracted after streaming ended
-    /// - `interrupted` — true if forceful escalation was detected
+    ///   (only meaningful for `Completed`)
+    /// - `outcome` — [`GracefulStopOutcome`] indicating whether the
+    ///   stop completed, timed out (with progress info), or was
+    ///   interrupted by forceful escalation
     pub(super) async fn graceful_wait(
         &self,
         cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
         session_id: &str,
         timeout: Duration,
         progress_tx: Option<tokio::sync::mpsc::Sender<GracefulStopProgress>>,
-    ) -> (Vec<PendingOperation>, bool) {
+    ) -> (Vec<PendingOperation>, GracefulStopOutcome) {
         let (internal_tx, mut progress_rx) = tokio::sync::mpsc::channel(4);
         let result = cs
             .read()
@@ -37,13 +41,16 @@ impl SessionManager {
             .await;
 
         // Forward progress events to the caller's progress channel
-        // (if any) and log each event.
+        // (if any), log each event, and capture the last one for
+        // the TimedOut outcome.
+        let mut last_progress: Option<GracefulStopProgress> = None;
         while let Ok(progress) = progress_rx.try_recv() {
             tracing::info!(
                 session_id = %session_id,
                 remaining = progress.remaining,
                 "graceful_wait: timeout progress — items still in flight"
             );
+            last_progress = Some(progress.clone());
             if let Some(ref tx) = progress_tx {
                 let _ = tx.send(progress).await;
             }
@@ -52,12 +59,21 @@ impl SessionManager {
         match result {
             GracefulStopResult::Completed => {
                 let pending_ops = cs.read().await.extract_pending_tool_calls();
-                (pending_ops, false)
+                (pending_ops, GracefulStopOutcome::Completed)
             }
-            GracefulStopResult::Interrupted => (Vec::new(), true),
+            GracefulStopResult::Interrupted => (Vec::new(), GracefulStopOutcome::Interrupted),
             GracefulStopResult::TimedOut => {
-                let pending_ops = cs.read().await.extract_pending_tool_calls();
-                (pending_ops, false)
+                let progress = last_progress.unwrap_or(GracefulStopProgress {
+                    waiting_items: Vec::new(),
+                    remaining: 0,
+                });
+                (
+                    Vec::new(),
+                    GracefulStopOutcome::TimedOut {
+                        waiting_items: progress.waiting_items,
+                        remaining: progress.remaining,
+                    },
+                )
             }
         }
     }
