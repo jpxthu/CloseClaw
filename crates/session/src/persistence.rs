@@ -66,7 +66,6 @@ pub struct SessionCheckpoint {
     /// Named `outbound_pending` to match its actual purpose (tracking pending
     /// outbound messages), avoiding conflict with the design doc's use of
     /// `pending_messages` to refer to the transcript.
-    #[serde(alias = "pending_messages")]
     pub outbound_pending: Vec<PendingMessage>,
     /// 当前模式
     pub mode: ReasoningMode,
@@ -221,12 +220,14 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 Normal）。
     #[serde(default)]
     pub session_mode: SessionMode,
-    /// 压缩后的对话 transcript（仅 boundary 消息，不含 system prompt）
+    /// 对话记录（仅 boundary 消息，不含 system prompt）
     ///
     /// 设计文档要求"transcript 是唯一真实来源"，压缩后完整写入持久化存储。
-    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON。
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON；
+    /// 用 `#[serde(alias = "transcript")]` 兼容旧格式 JSON 数据。
     #[serde(default)]
-    pub transcript: Vec<crate::llm_session::SessionMessage>,
+    #[serde(alias = "transcript")]
+    pub pending_messages: Vec<crate::llm_session::SessionMessage>,
     /// 子 session 简短标签（spawn 时传入，用于 UI 展示和调试）
     ///
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
@@ -300,7 +301,7 @@ impl SessionCheckpoint {
             approval_tool_calls: Vec::new(),
             plan_references: Vec::new(),
             session_mode: SessionMode::default(),
-            transcript: Vec::new(),
+            pending_messages: Vec::new(),
             label: None,
             communication_config: None,
             spawn_mode: None,
