@@ -30,6 +30,21 @@ impl ConversationSession {
         self.push_message(role, content_blocks);
     }
 
+    /// Incremental transcript append preserving the original timestamp.
+    ///
+    /// Unlike [`append_transcript`](Self::append_transcript) which uses the
+    /// current time, this method keeps the provided `timestamp`. Used by
+    /// [`clone_messages_from`](Self::clone_messages_from) to preserve
+    /// source message timing while going through the declaration channel.
+    pub fn append_transcript_preserving_timestamp(
+        &mut self,
+        role: &str,
+        content_blocks: Vec<ContentBlock>,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    ) {
+        self.push_message_with_timestamp(role, content_blocks, timestamp);
+    }
+
     /// Incremental transcript append with an incremental snapshot.
     ///
     /// Creates a [`SnapshotKind::Incremental`] snapshot recording the

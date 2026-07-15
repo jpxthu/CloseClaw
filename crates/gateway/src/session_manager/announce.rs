@@ -15,7 +15,9 @@ use super::spawn::SpawnMode;
 use super::SessionManager;
 use crate::session_manager::communication::CommunicationError;
 use chrono::Utc;
+use closeclaw_common::SessionExecStatus;
 use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSession};
+use closeclaw_session::run_health::AnnounceSweepTarget;
 use closeclaw_tasks::NotificationPriority;
 use tracing::warn;
 
@@ -401,5 +403,37 @@ fn build_announce_event(
         result_text,
         completed_at: Utc::now(),
         priority,
+    }
+}
+
+// ── AnnounceSweepTarget trait implementation ───────────────────────────────
+
+#[async_trait::async_trait]
+impl AnnounceSweepTarget for SessionManager {
+    async fn get_run_mode_children(&self) -> Vec<(String, String)> {
+        let tree = self.children.read().await;
+        tree.iter()
+            .flat_map(|(_parent, infos)| infos.iter())
+            .filter(|info| info.mode == SpawnMode::Run)
+            .map(|info| (info.session_id.clone(), info.parent_session_id.clone()))
+            .collect()
+    }
+
+    async fn is_child_removed(&self, child_id: &str) -> bool {
+        let tree = self.children.read().await;
+        tree.find_child(child_id).is_none()
+    }
+
+    async fn is_session_idle(&self, session_id: &str) -> bool {
+        let Some(child_cs) = self.get_conversation_session(session_id).await else {
+            // Session not found in memory — treat as not idle.
+            return false;
+        };
+        let cs = child_cs.read().await;
+        matches!(cs.exec_status(), SessionExecStatus::Idle)
+    }
+
+    async fn try_push_announce(&self, session_id: &str) {
+        SessionManager::try_push_announce(self, session_id).await;
     }
 }

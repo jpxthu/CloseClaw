@@ -1,6 +1,6 @@
 //! Unit tests for transcript operation methods.
 
-use super::ConversationSession;
+use super::{ConversationSession, SessionMessage};
 use crate::run_health::TranscriptOp;
 use closeclaw_common::ContentBlock;
 use std::path::PathBuf;
@@ -114,4 +114,82 @@ fn test_append_transcript_with_snapshot_full_path() {
     }
     // After rollback, the snapshot count reflects the pre-rollback sentinel.
     assert!(cs.snapshot_count().unwrap() >= 1);
+}
+
+// ── Convenience methods: verify they go through append_transcript ─────────
+
+/// `append_user_message` adds a user message via `append_transcript`.
+#[test]
+fn test_append_user_message_via_append_transcript() {
+    let mut cs = make_session("s8");
+    cs.append_user_message("hello world");
+    assert_eq!(cs.messages.len(), 1);
+    assert_eq!(cs.messages[0].role, "user");
+    assert_eq!(
+        cs.messages[0].content_blocks[0],
+        ContentBlock::Text("hello world".into())
+    );
+}
+
+/// `inject_system_message` adds a system message via `append_transcript`.
+#[test]
+fn test_inject_system_message_via_append_transcript() {
+    let mut cs = make_session("s9");
+    cs.inject_system_message("retry instruction".to_string());
+    assert_eq!(cs.messages.len(), 1);
+    assert_eq!(cs.messages[0].role, "system");
+    assert_eq!(
+        cs.messages[0].content_blocks[0],
+        ContentBlock::Text("retry instruction".into())
+    );
+}
+
+/// `inject_tool_result` adds a tool result via `append_transcript`.
+#[test]
+fn test_inject_tool_result_via_append_transcript() {
+    let mut cs = make_session("s10");
+    cs.inject_tool_result("call_1", "tool output");
+    assert_eq!(cs.messages.len(), 1);
+    assert_eq!(cs.messages[0].role, "tool");
+    assert_eq!(
+        cs.messages[0].content_blocks[0],
+        ContentBlock::ToolResult {
+            tool_call_id: "call_1".into(),
+            content: "tool output".into(),
+        }
+    );
+}
+
+/// `clone_messages_from` appends multiple messages preserving timestamps.
+#[test]
+fn test_clone_messages_from_via_append_transcript() {
+    use chrono::Utc;
+    let source = vec![
+        SessionMessage {
+            role: "user".into(),
+            content_blocks: vec![ContentBlock::Text("q".into())],
+            timestamp: Utc::now(),
+        },
+        SessionMessage {
+            role: "assistant".into(),
+            content_blocks: vec![ContentBlock::Text("a".into())],
+            timestamp: Utc::now(),
+        },
+    ];
+    let mut cs = make_session("s11");
+    cs.clone_messages_from(&source);
+    assert_eq!(cs.messages.len(), 2);
+    assert_eq!(cs.messages[0].role, "user");
+    assert_eq!(cs.messages[1].role, "assistant");
+}
+
+/// Convenience methods do not create snapshots (Append does not require snapshot).
+#[test]
+fn test_convenience_methods_no_snapshot() {
+    let mut cs = make_session("s12");
+    cs.append_user_message("msg1");
+    cs.inject_system_message("sys".to_string());
+    cs.inject_tool_result("t1", "res");
+    // Append operations should not create snapshots.
+    assert_eq!(cs.snapshot_count(), None);
 }

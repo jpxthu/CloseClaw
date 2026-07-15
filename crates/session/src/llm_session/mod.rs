@@ -508,12 +508,20 @@ impl ConversationSession {
         prompt
     }
 
-    /// Appends a message to the session.
     pub(crate) fn push_message(&mut self, role: &str, content_blocks: Vec<ContentBlock>) {
+        self.push_message_with_timestamp(role, content_blocks, chrono::Utc::now());
+    }
+    /// Like [`push_message`] but uses the provided `timestamp`.
+    pub(crate) fn push_message_with_timestamp(
+        &mut self,
+        role: &str,
+        content_blocks: Vec<ContentBlock>,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    ) {
         self.messages.push(SessionMessage {
             role: role.to_string(),
             content_blocks,
-            timestamp: chrono::Utc::now(),
+            timestamp,
         });
         self.last_activity_at = chrono::Utc::now().timestamp();
     }
@@ -528,10 +536,15 @@ impl ConversationSession {
         &self.model
     }
 
-    /// 将来源消息克隆后注入到自身 messages 列表，
-    /// 保留原始时间戳。用于 Fork 模式注入父 session 的对话历史。
+    /// Clone messages from `source`, preserving original timestamps.
     pub(crate) fn clone_messages_from(&mut self, source: &[SessionMessage]) {
-        self.messages.extend(source.iter().cloned());
+        for msg in source {
+            self.append_transcript_preserving_timestamp(
+                &msg.role,
+                msg.content_blocks.clone(),
+                msg.timestamp,
+            );
+        }
     }
 
     /// Walk messages in reverse, concatenate `ContentBlock::Text`
@@ -671,25 +684,18 @@ impl ConversationSession {
     }
 
     /// Persist a user message into the conversation history.
-    ///
-    /// Writes the user input as a [`SessionMessage`] with `role="user"`
-    /// so that [`build_compact_messages`] can extract complete
-    /// user/assistant conversation history for compaction.
     pub fn append_user_message(&mut self, content: &str) {
-        self.push_message("user", vec![ContentBlock::Text(content.to_string())]);
+        self.append_transcript("user", vec![ContentBlock::Text(content.to_string())]);
     }
 
     /// Inject a system message into the conversation history.
     pub fn inject_system_message(&mut self, text: String) {
-        self.push_message("system", vec![ContentBlock::Text(text)]);
+        self.append_transcript("system", vec![ContentBlock::Text(text)]);
     }
 
     /// Inject a tool result into the conversation history.
-    ///
-    /// Used by the recovery path to inject failure results for pending
-    /// tool calls so the LLM sees a natural tool-result response.
     pub fn inject_tool_result(&mut self, tool_call_id: &str, content: &str) {
-        self.push_message(
+        self.append_transcript(
             "tool",
             vec![ContentBlock::ToolResult {
                 tool_call_id: tool_call_id.to_string(),
@@ -699,15 +705,6 @@ impl ConversationSession {
     }
 
     /// Extract pending tool calls from the last assistant message.
-    ///
-    /// Scans `self.messages` for the most recent assistant message, then
-    /// collects every `ContentBlock::ToolUse` block into a
-    /// [`PendingOperation`] list. This is used by the graceful-shutdown
-    /// path to record tool calls that were requested but not yet executed.
-    ///
-    /// Unlike [`collect_pending_operations`](Self::collect_pending_operations)
-    /// (which inspects tool_states / child_states), this method reads
-    /// directly from the conversation history.
     pub fn extract_pending_tool_calls(&self) -> Vec<crate::persistence::PendingOperation> {
         use crate::persistence::{PendingOperation, PendingOperationStatus, PendingOperationType};
 
