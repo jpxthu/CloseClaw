@@ -956,4 +956,19 @@ pub trait PersistenceService: Send + Sync {
     async fn run_consistency_check(&self) -> Result<ConsistencyCheckResult, PersistenceError> {
         Ok(ConsistencyCheckResult::default())
     }
+
+    /// Run an incremental bidirectional consistency check since the given
+    /// Unix epoch seconds (`since`).
+    ///
+    /// - SQLite → File system: only active records with `last_message_at > since`.
+    /// - File system → SQLite: only transcript files with `mtime > since`.
+    ///
+    /// The default implementation delegates to the full `run_consistency_check`
+    /// (ignoring `since`), preserving backward compatibility.
+    async fn run_incremental_consistency_check(
+        &self,
+        _since: i64,
+    ) -> Result<ConsistencyCheckResult, PersistenceError> {
+        self.run_consistency_check().await
+    }
 }

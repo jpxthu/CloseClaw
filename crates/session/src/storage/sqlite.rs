@@ -897,39 +897,45 @@ impl PersistenceService for SqliteStorage {
     }
 
     async fn run_consistency_check(&self) -> Result<ConsistencyCheckResult, PersistenceError> {
-        let data_dir = self.data_dir.clone();
+        // Full scan == incremental scan since epoch start (since = 0)
+        self.run_incremental_consistency_check(0).await
+    }
 
+    async fn run_incremental_consistency_check(
+        &self,
+        since: i64,
+    ) -> Result<ConsistencyCheckResult, PersistenceError> {
+        let data_dir = self.data_dir.clone();
         spawn_blocking(move || {
             let mut result = ConsistencyCheckResult::default();
             let conn = Connection::open(data_dir.join("sessions.sqlite"))
                 .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
-
-            check_sqlite_to_filesystem(&conn, &data_dir, &mut result)?;
-            check_filesystem_to_sqlite(&conn, &data_dir, &mut result)?;
-
+            check_sqlite_to_filesystem_filtered(&conn, &data_dir, &mut result, since)?;
+            check_filesystem_to_sqlite_filtered(&conn, &data_dir, &mut result, since)?;
             Ok(result)
         })
         .await
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
     }
 }
-
-/// SQLite → File system: remove active records whose transcript is missing.
-fn check_sqlite_to_filesystem(
+/// SQLite → File system: check active records with `last_message_at > since`.
+fn check_sqlite_to_filesystem_filtered(
     conn: &Connection,
     data_dir: &std::path::Path,
     result: &mut ConsistencyCheckResult,
+    since: i64,
 ) -> Result<(), PersistenceError> {
     let active_ids: Vec<String> = {
         let mut stmt = conn
-            .prepare("SELECT id FROM sessions WHERE status = 'active'")
+            .prepare(
+                "SELECT id FROM sessions \
+                 WHERE status = 'active' AND last_message_at > ?1",
+            )
             .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
-        let ids: Vec<String> = stmt
-            .query_map([], |row| row.get(0))
-            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
-            .filter_map(|r| r.ok())
-            .collect();
-        ids
+        let rows = stmt
+            .query_map(rusqlite::params![since], |row| row.get(0))
+            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+        rows.filter_map(|r| r.ok()).collect()
     };
 
     for id in &active_ids {
@@ -943,11 +949,12 @@ fn check_sqlite_to_filesystem(
     Ok(())
 }
 
-/// File system → SQLite: remove orphan transcript files not in SQLite.
-fn check_filesystem_to_sqlite(
+/// File system → SQLite: check `.jsonl` files whose mtime > since.
+fn check_filesystem_to_sqlite_filtered(
     conn: &Connection,
     data_dir: &std::path::Path,
     result: &mut ConsistencyCheckResult,
+    since: i64,
 ) -> Result<(), PersistenceError> {
     let sessions_dir = data_dir.join("sessions");
     if !sessions_dir.exists() {
@@ -959,6 +966,17 @@ fn check_filesystem_to_sqlite(
         let entry = entry.map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        // Skip files whose mtime <= since (not modified since last check)
+        let mtime = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        if mtime <= since {
             continue;
         }
         let file_stem = path.file_stem().and_then(|e| e.to_str()).unwrap_or("");
