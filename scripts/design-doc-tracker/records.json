@@ -448,6 +448,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/session/session-injection.md",
+    "commit": "1d5d33b3dad313d1477a56c1a229083d67229ea0",
+    "commit_time": "2026-07-16T05:56:29+08:00",
+    "confirmed_time": "2026-07-16T06:06:48.501415+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/system_prompt/appends.md",
     "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
     "commit_time": "2026-07-07T01:07:02+08:00",
