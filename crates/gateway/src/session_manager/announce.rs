@@ -15,7 +15,7 @@ use super::spawn::SpawnMode;
 use super::SessionManager;
 use crate::session_manager::communication::CommunicationError;
 use chrono::Utc;
-use closeclaw_common::SessionExecStatus;
+use closeclaw_common::{ChildCompletionStatus, ChildSessionState, SessionExecStatus};
 use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSession};
 use closeclaw_session::run_health::AnnounceSweepTarget;
 use closeclaw_tasks::NotificationPriority;
@@ -94,9 +94,14 @@ impl SessionManager {
             };
             let mut cs_write = cs.write().await;
             for event in events {
+                let status_label = match event.status {
+                    ChildCompletionStatus::Completed => "任务已完成",
+                    ChildCompletionStatus::Errored => "任务出错",
+                    ChildCompletionStatus::Terminated => "任务被终止",
+                };
                 let text = format!(
-                    "[子 agent {}] 任务已完成：\n{}",
-                    event.child_agent_id, event.result_text
+                    "[子 agent {}] {}：\n{}",
+                    event.child_agent_id, status_label, event.result_text
                 );
                 cs_write.inject_system_message(text);
             }
@@ -177,11 +182,15 @@ impl SessionManager {
             return;
         };
 
+        let child_status = self
+            .resolve_child_completion_status(&parent_session_id, child_session_id)
+            .await;
         let event = build_announce_event(
             child_session_id,
             child_agent_id,
             result_text,
             NotificationPriority::Next,
+            child_status,
         );
         if let Err(e) = self.push_announce(&parent_session_id, event).await {
             warn!(
@@ -271,6 +280,41 @@ impl SessionManager {
             .list_children(parent_id)
             .iter()
             .any(|info| info.mode == SpawnMode::Run)
+    }
+
+    /// Resolve the child session's completion status from the parent's
+    /// `child_states` map. Falls back to `Completed` if the child's
+    /// state is not found (e.g. state was already cleaned up).
+    async fn resolve_child_completion_status(
+        &self,
+        parent_session_id: &str,
+        child_session_id: &str,
+    ) -> ChildCompletionStatus {
+        let Some(parent_cs) = self.get_conversation_session(parent_session_id).await else {
+            warn!(
+                parent_session_id = %parent_session_id,
+                "resolve_child_completion_status: parent session not found, defaulting to Completed"
+            );
+            return ChildCompletionStatus::Completed;
+        };
+        let cs = parent_cs.read().await;
+        let state = cs
+            .child_states
+            .read()
+            .expect("child_states lock poisoned")
+            .get(child_session_id)
+            .copied();
+        match state {
+            Some(ChildSessionState::Completed) => ChildCompletionStatus::Completed,
+            Some(ChildSessionState::Errored) => ChildCompletionStatus::Errored,
+            Some(ChildSessionState::Terminated) => ChildCompletionStatus::Terminated,
+            Some(ChildSessionState::Running) | None => {
+                // Running or missing state at announce time: treat as
+                // Completed since the child has finished its last assistant
+                // turn (which is why try_push_announce was called).
+                ChildCompletionStatus::Completed
+            }
+        }
     }
 
     /// Step 1.6: Auto-recovery — exit Waiting and drain pending
@@ -396,6 +440,7 @@ fn build_announce_event(
     child_agent_id: String,
     result_text: String,
     priority: NotificationPriority,
+    status: ChildCompletionStatus,
 ) -> AnnounceEvent {
     AnnounceEvent {
         child_session_id: child_session_id.to_string(),
@@ -403,6 +448,7 @@ fn build_announce_event(
         result_text,
         completed_at: Utc::now(),
         priority,
+        status,
     }
 }
 
