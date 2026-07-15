@@ -48,9 +48,11 @@ impl SessionMessageHandler {
         plugin: &Arc<dyn IMPlugin>,
     ) -> Result<StreamResult, LLMError> {
         // ── Open LLM stream via ConversationSession ──
-        // `invoke_llm_streaming` returns a SessionStream that wraps the raw
-        // LLM event stream and accumulates ContentBlock[] as events pass
-        // through. The session layer is the source of truth for assembly.
+        // Set per-request context for dynamic-layer injection before
+        // opening the stream so build_system_prompt_parts sees current metadata.
+        cs.read()
+            .await
+            .set_request_context(_meta.to_request_context());
         let session_stream: SessionStream = cs.read().await.invoke_llm_streaming(content).await?;
 
         // Retrieve the session's streaming sink (if any) for delta notifications.
