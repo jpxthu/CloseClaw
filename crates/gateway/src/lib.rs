@@ -17,6 +17,8 @@ pub mod message;
 pub mod outbound;
 #[cfg(test)]
 mod outbound_tests;
+#[cfg(test)]
+mod receiving_transition_tests;
 pub mod session_handler;
 mod session_handler_announce;
 mod session_handler_dispatch;

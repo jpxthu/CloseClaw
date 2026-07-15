@@ -9,6 +9,7 @@ use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::StreamingOutput;
 
 use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
+use closeclaw_common::LlmState;
 use closeclaw_common::VerbosityLevel;
 use closeclaw_llm::types::{
     ContentBlock, ContentBlockType, ContentDelta, StreamEvent, UnifiedResponse, UnifiedUsage,
@@ -528,8 +529,22 @@ impl Gateway {
                 None => &NoopProcessorChain,
             };
         let mut state = StreamState::new(verbosity_level);
+        let mut first_event_received = false;
         while let Some(event_result) = stream.next().await {
             let event = event_result.map_err(|e| GatewayError::OutboundError(e.to_string()))?;
+            // Transition LlmState from Requesting → Receiving on the first
+            // stream event. This aligns the runtime state machine with the
+            // design doc: Idle → Requesting → Receiving → Idle.
+            if !first_event_received {
+                first_event_received = true;
+                if let Some(cs) = self
+                    .session_manager
+                    .get_conversation_session(session_id)
+                    .await
+                {
+                    cs.read().await.set_llm_state(LlmState::Receiving);
+                }
+            }
             let ctx = StreamContext {
                 plugin,
                 chat_id: &chat_id,
