@@ -21,10 +21,13 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_common::tool_session::KillHandle;
+use closeclaw_common::ToolExecState;
 
 use super::ConversationSession;
 use closeclaw_common::LlmState;
@@ -35,6 +38,34 @@ use closeclaw_common::LlmState;
 /// kill attempt is abandoned and cleanup continues — orphan processes
 /// are not allowed to wedge the stop path.
 const STOP_KILL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Default timeout for graceful stop when no explicit timeout is provided
+/// by the caller (e.g. `/stop` slash command).
+pub const DEFAULT_GRACEFUL_TIMEOUT: Duration = Duration::from_secs(30);
+
+// ── graceful stop types ─────────────────────────────────────────────────
+
+/// Progress report emitted by [`ConversationSession::graceful_stop`]
+/// when the wait times out. Sent via `progress_tx` so the caller
+/// (SessionManager / Daemon) can report what is still running.
+#[derive(Debug, Clone)]
+pub struct GracefulStopProgress {
+    /// Items still in flight at timeout: (name, elapsed since stop began).
+    pub waiting_items: Vec<(String, Duration)>,
+    /// Number of items still pending.
+    pub remaining: usize,
+}
+
+/// Outcome of [`ConversationSession::graceful_stop`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GracefulStopResult {
+    /// All in-flight operations completed within the timeout.
+    Completed,
+    /// Forceful escalation detected during the wait.
+    Interrupted,
+    /// Timeout elapsed; `GracefulStopProgress` was sent via `progress_tx`.
+    TimedOut,
+}
 
 // ── handle / cancel-token / cascade-stop methods ────────────────────────
 
@@ -231,63 +262,192 @@ impl ConversationSession {
         );
     }
 
-    // ── stop(cascade) ───────────────────────────────────────────────────
+    // ── graceful_stop ────────────────────────────────────────────────────
+
+    /// Wait for in-flight operations to complete, with a hard timeout.
+    ///
+    /// Polls every 100 ms for LLM streaming and tool execution state.
+    /// Checks for forceful escalation via the session's shutdown handle.
+    /// On timeout, sends a [`GracefulStopProgress`] report via
+    /// `progress_tx` and returns [`GracefulStopResult::TimedOut`].
+    ///
+    /// This method does **not** clean up or persist state — that is
+    /// the responsibility of `stop()` (cleanup) and the caller
+    /// (`stop_single_session` in SessionManager, persistence).
+    pub async fn graceful_stop(
+        &self,
+        timeout: Duration,
+        progress_tx: Option<mpsc::Sender<GracefulStopProgress>>,
+    ) -> GracefulStopResult {
+        let start = tokio::time::Instant::now();
+        let mut streaming_seen = false;
+
+        loop {
+            // ── forceful escalation check ────────────────────────────
+            if let Some(sh) = self.get_shutdown_handle() {
+                if sh.is_forceful() {
+                    tracing::info!(
+                        session_id = %self.session_id,
+                        "graceful_stop: interrupted by forceful escalation"
+                    );
+                    return GracefulStopResult::Interrupted;
+                }
+            }
+
+            // ── timeout check ────────────────────────────────────────
+            if start.elapsed() >= timeout {
+                let waiting = self.collect_waiting_items(start);
+                let remaining = waiting.len();
+                if let Some(tx) = progress_tx {
+                    let _ = tx
+                        .send(GracefulStopProgress {
+                            waiting_items: waiting,
+                            remaining,
+                        })
+                        .await;
+                }
+                return GracefulStopResult::TimedOut;
+            }
+
+            // ── state inspection ─────────────────────────────────────
+            let state = self.llm_state();
+            let is_streaming = matches!(state, LlmState::Receiving | LlmState::Requesting);
+            let has_running_tools = self.has_running_tools();
+
+            if is_streaming {
+                streaming_seen = true;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
+            }
+
+            if streaming_seen {
+                let pending = self.extract_pending_tool_calls();
+                if !pending.is_empty() {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
+                }
+                if !has_running_tools {
+                    return GracefulStopResult::Completed;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
+            }
+
+            // Not streaming — idle path.
+            if !has_running_tools {
+                return GracefulStopResult::Completed;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    /// Collect the names and elapsed times of items still in flight.
+    fn collect_waiting_items(&self, start: tokio::time::Instant) -> Vec<(String, Duration)> {
+        let elapsed = start.elapsed();
+        let mut items = Vec::new();
+
+        let state = self.llm_state();
+        if matches!(state, LlmState::Receiving | LlmState::Requesting) {
+            items.push(("llm_stream".to_string(), elapsed));
+        }
+
+        let tool_states = self.tool_states.read().expect("tool_states lock poisoned");
+        for (id, state) in tool_states.iter() {
+            if matches!(
+                state,
+                ToolExecState::RunningForeground | ToolExecState::RunningBackground
+            ) {
+                items.push((id.clone(), elapsed));
+            }
+        }
+        items
+    }
+
+    /// Returns `true` if any tool is in a running state.
+    fn has_running_tools(&self) -> bool {
+        let tool_states = self.tool_states.read().expect("tool_states lock poisoned");
+        tool_states.values().any(|s| {
+            matches!(
+                s,
+                ToolExecState::RunningForeground | ToolExecState::RunningBackground
+            )
+        })
+    }
+
+    // ── stop(cascade, mode) ─────────────────────────────────────────────
 
     /// Idempotently stop this session and (optionally) all descendant
     /// sessions. See `docs/design/session/session-execution.md` for
     /// the full state table and ordering rules.
     ///
+    /// `mode` controls how in-flight operations are terminated:
+    /// - **Graceful**: pause external input, cascade with same mode,
+    ///   then delegate to `graceful_stop()` (Step 1.2). Cleanup is
+    ///   always done after wait completes or times out.
+    /// - **Forceful**: cancel token, cascade with forceful mode, kill
+    ///   tool handles immediately. Existing behavior preserved.
+    ///
     /// Idempotency: subsequent calls are no-ops once `stopped` has
     /// been set, so the caller does not need to guard.
-    pub async fn stop(&self, cascade: bool) {
-        // 1. Idempotency check. `swap` returns the previous value —
-        // if it was already true, this is a duplicate stop.
-        if self
-            .stopped
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .is_err()
-        {
-            return;
+    pub async fn stop(&self, cascade: bool, mode: ShutdownMode) {
+        match mode {
+            ShutdownMode::Graceful => {
+                // Graceful path: if already stopped, this is a
+                // duplicate call — skip.
+                if self
+                    .stopped
+                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_err()
+                {
+                    return;
+                }
+                // Pause external input via `stopped` flag (Gateway
+                // checks `is_stopped()`).
+                // Cascade children with the same Graceful mode.
+                if cascade {
+                    self.cascade_stop_children(mode).await;
+                }
+                // Wait delegated to SessionManager (no graceful_stop
+                // call here — avoids double-wait).
+                // Cleanup.
+                self.clear_exec_state();
+            }
+            ShutdownMode::Forceful => {
+                // Forceful path: always execute (idempotent ops).
+                // No stopped-flag check — operations are safe to
+                // repeat (token cancel, cascade, kill, clear are
+                // all idempotent). This allows stop() to be called
+                // from both stop_single_session (stopped already
+                // set) and kill_child (stopped not set).
+                //
+                // Set stopped flag (best-effort, for Gateway
+                // is_stopped() check).
+                let _ =
+                    self.stopped
+                        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst);
+                // Cancel in-flight LLM requests via cancel token.
+                self.cancel_token.cancel();
+                // Cascade children with Forceful mode.
+                if cascade {
+                    self.cascade_stop_children(mode).await;
+                }
+                // Kill every registered tool handle.
+                self.kill_tool_handles().await;
+                // Reset execution state.
+                self.clear_exec_state();
+            }
         }
-
-        // 2. Fire the cancel token first. This unblocks any
-        //    `tokio::select!` branch in `call_llm` /
-        //    `call_llm_streaming` waiting on `cancel_token.cancelled()`
-        //    without us having to touch `llm_state` directly. The
-        //    token also propagates to every child token derived from
-        //    this one (via `child_cancel_token()`), so child LLM
-        //    requests are cancelled in lockstep.
-        self.cancel_token.cancel();
-
-        // 3. If cascading, recurse into every live child session.
-        //    A child's own `stopped` flag may still be false even
-        //    though its cancel token is now triggered — that is
-        //    expected. Each child is responsible for its own
-        //    `tool_handles` / `child_handles` cleanup, which only
-        //    `stop()` performs.
-        if cascade {
-            self.cascade_stop_children().await;
-        }
-
-        // 4. Kill every registered tool handle. Each kill is wrapped
-        //    in a 5s timeout so a wedged process cannot block the
-        //    cascade indefinitely.
-        self.kill_tool_handles().await;
-
-        // 5. Reset execution state so the session returns to a
-        //    well-defined idle surface. This is the "兜底" cleanup
-        //    — LLM requests should already have unwound via the
-        //    cancel-token branch, but we still want tool_states and
-        //    child_states to reflect "nothing in flight" once stop
-        //    returns.
-        self.clear_exec_state();
     }
 
-    /// Recursively call `stop(true)` on every live child session.
+    /// Recursively call `stop(cascade, mode)` on every live child
+    /// session. The mode is forwarded so children are stopped with
+    /// the same strategy as the parent.
+    ///
     /// Weak references that have been dropped (child completed and
     /// reaped) are silently skipped.
     fn cascade_stop_children<'a>(
         &'a self,
+        mode: ShutdownMode,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
         Box::pin(async move {
             // Snapshot the children so we don't hold the lock across
@@ -312,7 +472,7 @@ impl ConversationSession {
                 // progress.
                 let stop_fut = async {
                     let guard = child_arc.read().await;
-                    guard.stop(true).await;
+                    guard.stop(true, mode).await;
                 };
                 if tokio::time::timeout(STOP_KILL_TIMEOUT, stop_fut)
                     .await

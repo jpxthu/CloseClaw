@@ -374,6 +374,24 @@ impl Gateway {
             }
         }
 
+        // ── Session stopped gate: reject new messages ─────────────────
+        // Per design doc: during graceful stop the `stopped` flag is set
+        // to prevent new LLM requests. New user messages are rejected
+        // (dropped) so they don't trigger autonomous turns.
+        if let Some(cs) = self
+            .session_manager
+            .get_conversation_session(&session_id)
+            .await
+        {
+            if cs.read().await.is_stopped() {
+                tracing::warn!(
+                    session_id = %session_id,
+                    "rejecting inbound message: session is stopped"
+                );
+                return None;
+            }
+        }
+
         // ── New user auto-registration ─────────────────────────────────
         // Per design doc: when a non-owner, unregistered user sends
         // their first message, auto-submit a user creation request for

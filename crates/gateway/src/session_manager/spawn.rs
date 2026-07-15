@@ -5,6 +5,8 @@
 //! handles the gateway-specific registration steps (conversation_sessions
 //! map, sessions map, children table, checkpoint persistence, timeout).
 
+use closeclaw_common::shutdown::ShutdownMode;
+
 use super::SessionManager;
 use crate::session_manager::communication::CommunicationError;
 use crate::Session;
@@ -338,7 +340,7 @@ impl SessionManager {
 
         for id in &descendant_ids {
             if let Some(cs) = self.get_conversation_session(id).await {
-                cs.read().await.stop(true).await;
+                cs.read().await.stop(true, ShutdownMode::Forceful).await;
             }
             self.conversation_sessions.write().await.remove(id);
             if let Some(info) = self.children.read().await.find_child(id) {
@@ -355,7 +357,7 @@ impl SessionManager {
         }
 
         if let Some(cs) = self.get_conversation_session(child_id).await {
-            cs.read().await.stop(true).await;
+            cs.read().await.stop(true, ShutdownMode::Forceful).await;
         }
         self.conversation_sessions.write().await.remove(child_id);
         if let Some(pcs) = self.conversation_sessions.read().await.get(parent_id) {
