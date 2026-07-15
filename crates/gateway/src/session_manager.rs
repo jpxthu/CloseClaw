@@ -134,6 +134,11 @@ pub struct SessionManager {
     ///
     /// Uses `Weak` to avoid a reference cycle with Gateway.
     gateway_ref: RwLock<Option<std::sync::Weak<crate::Gateway>>>,
+    /// Timestamp (Unix epoch seconds) of the last consistency scan.
+    /// `None` means no scan has been performed yet; the first periodic
+    /// incremental scan will use 0 (equivalent to full scan) until the
+    /// startup full scan sets this value.
+    last_consistency_check_time: std::sync::Mutex<Option<i64>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -180,6 +185,7 @@ impl SessionManager {
             yield_timeout_handles: RwLock::new(HashMap::new()),
             output_tx: RwLock::new(None),
             gateway_ref: RwLock::new(None),
+            last_consistency_check_time: std::sync::Mutex::new(None),
         }
     }
 
@@ -319,6 +325,16 @@ impl SessionManager {
     /// Get the dynamic prompt builder, if set.
     pub async fn get_dynamic_prompt_builder(&self) -> Option<Arc<dyn DynamicPromptBuilder>> {
         self.dynamic_prompt_builder.read().await.clone()
+    }
+
+    /// Initialize the consistency check timestamp after the startup full scan.
+    ///
+    /// Call this once after `run_consistency_check()` completes at startup
+    /// so that subsequent incremental scans only examine records that
+    /// changed since this point.
+    pub fn initialize_consistency_check_time(&self) {
+        let now = chrono::Utc::now().timestamp();
+        *self.last_consistency_check_time.lock().unwrap() = Some(now);
     }
 
     /// Swap in a new config snapshot, releasing the old one.

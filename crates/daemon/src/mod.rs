@@ -310,6 +310,8 @@ impl Daemon {
         if let Err(e) = session_manager.run_consistency_check().await {
             tracing::warn!(error = %e, "consistency check failed — continuing");
         }
+        // Mark the scan timestamp so subsequent periodic checks are incremental.
+        session_manager.initialize_consistency_check_time();
         if let Err(e) = session_manager.rebuild_spawn_tree().await {
             tracing::warn!(error = %e, "failed to rebuild spawn_tree — continuing");
         }
