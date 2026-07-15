@@ -591,7 +591,8 @@ impl Daemon {
         info!("ArchiveSweeper spawned");
         // Spawn AnnounceSweeper for spawn silent-failure protection.
         let announce_sweeper =
-            closeclaw_gateway::announce_sweeper::AnnounceSweeper::new(Arc::clone(session_manager));
+            closeclaw_session::run_health::AnnounceSweeper::new(Arc::clone(session_manager)
+                as Arc<dyn closeclaw_session::run_health::AnnounceSweepTarget>);
         let announce_sweeper_handle = tokio::spawn(async move {
             announce_sweeper.run(announce_sweeper_rx).await;
         });

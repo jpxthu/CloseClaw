@@ -225,3 +225,97 @@ fn test_build_hook_context_recent_calls_preserves_order() {
     assert_eq!(ctx.recent_tool_calls[1].name, "b");
     assert_eq!(ctx.recent_tool_calls[2].name, "c");
 }
+
+// ------------------------------------------------------------------
+// side_effect_occurred: ToolResult-based (not ToolUse-based)
+// ------------------------------------------------------------------
+
+/// ToolResult + text → side_effect_occurred = true, but SideEffectOccurredRule
+/// does not trigger because has_text = true (LLM response complete).
+#[test]
+fn test_side_effect_occurred_with_text_and_tool_result() {
+    let result = make_stream_result(vec![
+        ContentBlock::Text("done".into()),
+        ContentBlock::ToolResult {
+            tool_call_id: "t1".into(),
+            content: "ok".into(),
+        },
+    ]);
+    let input = build_health_check_input(&result, 100);
+    assert!(
+        input.side_effect_occurred,
+        "ToolResult present → side_effect_occurred = true"
+    );
+    assert!(input.has_text, "text present → has_text = true");
+    // SideEffectOccurredRule: side_effect_occurred && !has_text && !has_tool_calls
+    // = true && false && true = false → rule does not trigger
+}
+
+/// Only ToolResult (no text, no ToolUse) → side_effect_occurred = true,
+/// SideEffectOccurredRule triggers (tools executed, LLM response interrupted).
+#[test]
+fn test_side_effect_occurred_only_tool_result_triggers_rule() {
+    let result = make_stream_result(vec![ContentBlock::ToolResult {
+        tool_call_id: "t1".into(),
+        content: "result".into(),
+    }]);
+    let input = build_health_check_input(&result, 100);
+    assert!(
+        input.side_effect_occurred,
+        "ToolResult present → side_effect_occurred = true"
+    );
+    assert!(!input.has_text, "no text");
+    assert!(!input.has_tool_calls, "no ToolUse");
+    // SideEffectOccurredRule: true && !false && !false = true → triggers
+}
+
+/// ToolUse only (no ToolResult) → side_effect_occurred = false.
+/// ToolUse is just LLM requesting a tool, not an executed side effect.
+#[test]
+fn test_side_effect_occurred_tool_use_only_no_side_effect() {
+    let result = make_stream_result(vec![ContentBlock::ToolUse {
+        id: "t1".into(),
+        name: "search".into(),
+        input: "{}".into(),
+    }]);
+    let input = build_health_check_input(&result, 100);
+    assert!(
+        !input.side_effect_occurred,
+        "ToolUse only → side_effect_occurred = false"
+    );
+    assert!(input.has_tool_calls, "ToolUse present");
+}
+
+/// Empty content blocks → side_effect_occurred = false.
+#[test]
+fn test_side_effect_occurred_empty_blocks() {
+    let result = make_stream_result(vec![]);
+    let input = build_health_check_input(&result, 0);
+    assert!(
+        !input.side_effect_occurred,
+        "no blocks → side_effect_occurred = false"
+    );
+}
+
+/// ToolResult + ToolUse (no text) → side_effect_occurred = true,
+/// but SideEffectOccurredRule does NOT trigger because has_tool_calls = true.
+/// This represents a tool being executed AND LLM requesting more tools — a
+/// complete response, not an interruption.
+#[test]
+fn test_side_effect_occurred_with_tool_result_and_tool_use_no_text() {
+    let result = make_stream_result(vec![
+        ContentBlock::ToolResult {
+            tool_call_id: "t1".into(),
+            content: "ok".into(),
+        },
+        ContentBlock::ToolUse {
+            id: "t2".into(),
+            name: "write".into(),
+            input: "{}".into(),
+        },
+    ]);
+    let input = build_health_check_input(&result, 100);
+    assert!(input.side_effect_occurred, "ToolResult present");
+    assert!(input.has_tool_calls, "ToolUse present");
+    // SideEffectOccurredRule: true && !false && !true = false → no trigger
+}

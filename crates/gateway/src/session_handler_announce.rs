@@ -185,7 +185,14 @@ impl SessionMessageHandler {
 
                     // Handle recovery actions from health check.
                     if let Some(action) = recovery_action {
-                        skip_drain = Self::handle_recovery_action(session_id, action, output_tx);
+                        skip_drain = Self::handle_recovery_action(
+                            Arc::clone(session_manager),
+                            session_id.to_string(),
+                            action,
+                            output_tx.clone(),
+                            metrics_emitter.clone(),
+                        )
+                        .await;
                     }
                 }
                 let text = stream_result
@@ -297,63 +304,147 @@ impl SessionMessageHandler {
     /// Handle a recovery action from the health check pipeline.
     ///
     /// Returns `true` if the caller should skip `drain_pending_loop`.
+    ///
+    /// Uses `Box::pin` to break the recursive async call cycle:
+    /// `handle_recovery_action` → `clear_busy_and_send` → `handle_recovery_action`.
     fn handle_recovery_action(
-        session_id: &str,
+        session_manager: Arc<SessionManager>,
+        session_id: String,
         action: RecoverableAction,
-        output_tx: &OutputTx,
+        output_tx: OutputTx,
+        metrics_emitter: Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>> {
+        Box::pin(Self::handle_recovery_action_impl(
+            session_manager,
+            session_id,
+            action,
+            output_tx,
+            metrics_emitter,
+        ))
+    }
+
+    /// Inner implementation of recovery action handling.
+    async fn handle_recovery_action_impl(
+        session_manager: Arc<SessionManager>,
+        session_id: String,
+        action: RecoverableAction,
+        output_tx: OutputTx,
+        metrics_emitter: Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
     ) -> bool {
         match action {
             RecoverableAction::NotifyUser { message } => {
-                tracing::warn!(
-                    session_id,
-                    message = %message,
-                    "health check: sending recovery notification to user"
-                );
-                let output_tx = output_tx.clone();
-                let msg = message.clone();
-                tokio::spawn(async move {
-                    let guard = output_tx.read().await;
-                    if let Some(tx) = guard.as_ref() {
-                        let _ = tx.send((msg, vec![])).await;
-                    }
-                });
-                false
+                Self::handle_notify_user(session_id, message, output_tx)
             }
-            RecoverableAction::Stop { reason } => {
-                tracing::warn!(
-                    session_id,
-                    reason = %reason,
-                    "health check: Stop action — skipping pending drain"
-                );
-                true
-            }
+            RecoverableAction::Stop { reason } => Self::handle_stop(session_id, reason),
             RecoverableAction::Retry {
                 delay_ms,
                 instruction,
             } => {
-                // TODO: Implement retry with backoff. Requires session execution
-                // loop integration — retry involves re-invoking LLM with optional
-                // instruction injection and backoff delay, which is beyond gateway
-                // layer scope. Track with follow-up issue.
-                tracing::warn!(
+                Self::handle_retry(
+                    session_manager,
                     session_id,
                     delay_ms,
-                    instruction = ?instruction,
-                    "health check: Retry action — not yet implemented (TODO)"
-                );
-                false
+                    instruction,
+                    output_tx,
+                    metrics_emitter,
+                )
+                .await
             }
         }
     }
 
+    /// Handle NotifyUser: send message to user, don't skip drain.
+    fn handle_notify_user(session_id: String, message: String, output_tx: OutputTx) -> bool {
+        tracing::warn!(
+            session_id = %session_id,
+            message = %message,
+            "health check: sending recovery notification to user"
+        );
+        let msg = message.clone();
+        tokio::spawn(async move {
+            let guard = output_tx.read().await;
+            if let Some(tx) = guard.as_ref() {
+                let _ = tx.send((msg, vec![])).await;
+            }
+        });
+        false
+    }
+
+    /// Handle Stop: skip drain without user notification.
+    fn handle_stop(session_id: String, reason: String) -> bool {
+        tracing::warn!(
+            session_id = %session_id,
+            reason = %reason,
+            "health check: Stop action — skipping pending drain"
+        );
+        true
+    }
+
+    /// Handle Retry: backoff delay → inject instruction → re-invoke LLM.
+    async fn handle_retry(
+        session_manager: Arc<SessionManager>,
+        session_id: String,
+        delay_ms: u64,
+        instruction: Option<String>,
+        output_tx: OutputTx,
+        metrics_emitter: Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
+    ) -> bool {
+        tracing::warn!(
+            session_id = %session_id,
+            delay_ms,
+            instruction = %instruction.as_deref().unwrap_or(""),
+            "health check: Retry action — executing backoff retry"
+        );
+        // 1. Wait for backoff delay.
+        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+        // 2. Inject retry instruction if provided.
+        if let Some(ref instr) = instruction {
+            if let Some(cs) = session_manager.get_conversation_session(&session_id).await {
+                let mut cs_write = cs.write().await;
+                cs_write.inject_system_message(instr.clone());
+                drop(cs_write);
+            }
+        }
+        // 3. Re-invoke LLM. Empty content — conversation history has
+        //    the original user request.
+        let result: Result<StreamResult, closeclaw_llm::LLMError> = {
+            if let Some(cs) = session_manager.get_conversation_session(&session_id).await {
+                cs.read().await.invoke_llm("").await.map(Into::into)
+            } else {
+                Err(closeclaw_llm::LLMError::InvalidRequest(
+                    "session not found for retry".to_string(),
+                ))
+            }
+        };
+        // 4. Process result through the normal health-check pipeline.
+        let turn_start = tokio::time::Instant::now();
+        Self::clear_busy_and_send(
+            &session_manager,
+            &session_id,
+            result,
+            TurnMetrics {
+                turn_duration_ms: turn_start.elapsed().as_millis() as u64,
+            },
+            &output_tx,
+            &metrics_emitter,
+        )
+        .await
+    }
+
     /// Test-only wrapper to expose `handle_recovery_action` for unit tests.
     #[cfg(test)]
-    pub(super) fn test_handle_recovery_action(
-        session_id: &str,
+    pub(super) fn test_handle_recovery_action<'a>(
+        session_manager: &'a Arc<SessionManager>,
+        session_id: &'a str,
         action: RecoverableAction,
-        output_tx: &OutputTx,
-    ) -> bool {
-        Self::handle_recovery_action(session_id, action, output_tx)
+        output_tx: &'a OutputTx,
+        metrics_emitter: &'a Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+        let sm = Arc::clone(session_manager);
+        let sid = session_id.to_string();
+        let tx = output_tx.clone();
+        let me = metrics_emitter.clone();
+        Box::pin(async move { Self::handle_recovery_action(sm, sid, action, tx, me).await })
     }
 
     /// Step 1.5: best-effort announce to parent (run-mode child).

@@ -12,6 +12,7 @@
 //! - **Unhealthy handler** — maps failure categories to recovery
 //!   actions (retry with backoff, notify user, stop).
 
+pub mod announce_sweeper;
 pub mod checker;
 pub mod factory;
 pub mod hard_rules;
@@ -21,6 +22,7 @@ pub mod llm_caller_hook_provider;
 pub mod snapshot_manager;
 pub mod unhealthy_handler;
 
+pub use announce_sweeper::{AnnounceSweepTarget, AnnounceSweeper};
 pub use checker::{RunHealthChecker, RunHealthVerdict};
 pub use factory::create_default_health_checker;
 pub use hard_rules::{
@@ -42,6 +44,8 @@ pub use snapshot_manager::{
 };
 pub use unhealthy_handler::{BackoffCounter, UnhealthyHandler};
 
+#[cfg(test)]
+mod announce_sweeper_tests;
 #[cfg(test)]
 mod checker_tests;
 #[cfg(test)]
