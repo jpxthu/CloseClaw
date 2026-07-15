@@ -440,6 +440,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/session/session-execution.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-07-16T03:34:47.063306+08:00",
+    "comment": "",
+    "blocked_reason": "passive-waiting-doc-contradiction-and-unclear-terminal-state-and-cascade-timeout"
+  },
+  {
     "path": "docs/design/system_prompt/appends.md",
     "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
     "commit_time": "2026-07-07T01:07:02+08:00",
