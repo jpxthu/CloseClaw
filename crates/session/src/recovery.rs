@@ -506,28 +506,33 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         for op in &checkpoint.pending_operations {
             match op.op_type {
                 PendingOperationType::ToolCall => {
+                    let tool_name = op.detail.tool_name().unwrap_or("unknown");
+                    let args = op.detail.args_summary().unwrap_or("无参数");
+                    let args_display = if args.is_empty() {
+                        "无参数".to_string()
+                    } else {
+                        args.to_string()
+                    };
                     tool_calls.push(format!(
                         "  • 工具调用: {}({}) — 发起于 {}",
-                        op.name,
-                        if op.args.is_empty() {
-                            "无参数".to_string()
-                        } else {
-                            op.args.clone()
-                        },
+                        tool_name,
+                        args_display,
                         op.created_at.format("%Y-%m-%dT%H:%M:%SZ")
                     ));
                 }
                 PendingOperationType::SubSessionSpawn => {
+                    let child_id = op.detail.child_session_id().unwrap_or("unknown");
                     sub_spawns.push(format!(
                         "  • 子 Session: {} — 发起于 {}",
-                        op.name,
+                        child_id,
                         op.created_at.format("%Y-%m-%dT%H:%M:%SZ")
                     ));
                 }
                 PendingOperationType::OutboundMessage => {
+                    let msg_id = op.detail.message_id().unwrap_or("unknown");
                     outbound_msgs.push(format!(
                         "  • 出站消息: {} — 创建于 {}",
-                        op.name,
+                        msg_id,
                         op.created_at.format("%Y-%m-%dT%H:%M:%SZ")
                     ));
                 }
@@ -564,9 +569,10 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             .iter()
             .filter(|op| op.op_type == PendingOperationType::ToolCall)
             .map(|op| {
+                let tool_name = op.detail.tool_name().unwrap_or("unknown");
                 serde_json::json!({
                     "error": "进程中断：网关重启",
-                    "tool": op.name,
+                    "tool": tool_name,
                     "op_id": op.op_id,
                 })
                 .to_string()

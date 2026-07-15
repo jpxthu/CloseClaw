@@ -5,7 +5,7 @@ mod tests {
     use closeclaw_config::session::PerAgentSessionConfig;
     use closeclaw_config::SessionConfigProvider;
     use closeclaw_session::persistence::{
-        AgentRole, PersistenceError, PersistenceService, SessionCheckpoint,
+        AgentRole, PendingOperationDetail, PersistenceError, PersistenceService, SessionCheckpoint,
     };
     use std::sync::{Arc, Mutex};
     use tokio::sync::watch;
@@ -773,8 +773,10 @@ mod tests {
             op_id: "op-1".into(),
             op_type: PendingOperationType::ToolCall,
             status: PendingOperationStatus::Running,
-            name: "bash".into(),
-            args: "{}".into(),
+            detail: PendingOperationDetail::ToolCall {
+                tool_name: "bash".into(),
+                args_summary: "{}".into(),
+            },
             created_at: Utc::now(),
         }]);
         mem.add_checkpoint(cp);

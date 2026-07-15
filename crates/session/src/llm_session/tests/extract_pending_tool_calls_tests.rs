@@ -91,13 +91,13 @@ fn test_extract_pending_tool_calls_with_tools() {
 
     assert_eq!(ops[0].op_id, "call_1");
     assert!(matches!(ops[0].op_type, PendingOperationType::ToolCall));
-    assert_eq!(ops[0].name, "get_weather");
-    assert_eq!(ops[0].args, r#"{"city":"Tokyo"}"#);
+    assert_eq!(ops[0].detail.tool_name(), Some("get_weather"));
+    assert_eq!(ops[0].detail.args_summary(), Some(r#"{"city":"Tokyo"}"#));
 
     assert_eq!(ops[1].op_id, "call_2");
     assert!(matches!(ops[1].op_type, PendingOperationType::ToolCall));
-    assert_eq!(ops[1].name, "get_time");
-    assert_eq!(ops[1].args, r#"{"tz":"Asia/Tokyo"}"#);
+    assert_eq!(ops[1].detail.tool_name(), Some("get_time"));
+    assert_eq!(ops[1].detail.args_summary(), Some(r#"{"tz":"Asia/Tokyo"}"#));
 }
 
 #[test]

@@ -287,7 +287,7 @@ async fn test_large_checkpoint_save_load() {
     let mut cp = make_cp("large-session");
     // Create a large transcript (~1000 messages)
     for i in 0..1000 {
-        cp.transcript.push(SessionMessage {
+        cp.pending_messages.push(SessionMessage {
             role: "user".into(),
             content_blocks: vec![closeclaw_common::ContentBlock::Text(format!("message-{i}"))],
             timestamp: chrono::Utc::now(),
@@ -297,7 +297,7 @@ async fn test_large_checkpoint_save_load() {
     cm.save_sync(cp).await.unwrap();
 
     let loaded = cm.load("large-session").await.unwrap().unwrap();
-    assert_eq!(loaded.transcript.len(), 1000);
+    assert_eq!(loaded.pending_messages.len(), 1000);
 }
 
 // ── Boundary: load non-existent after clear cache → None ────────────────────

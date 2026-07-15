@@ -61,7 +61,7 @@ mod tests {
             approval_tool_calls: Vec::new(),
             plan_references: Vec::new(),
             session_mode: SessionMode::default(),
-            transcript: Vec::new(),
+            pending_messages: Vec::new(),
             label: None,
             communication_config: None,
             spawn_mode: None,

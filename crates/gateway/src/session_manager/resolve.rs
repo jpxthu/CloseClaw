@@ -207,10 +207,10 @@ impl SessionManager {
                                 }
                                 // Restore transcript from checkpoint ("transcript is the
                                 // single source of truth" per design doc).
-                                if !cp.transcript.is_empty() {
+                                if !cp.pending_messages.is_empty() {
                                     cs.apply_transcript_op(
                                         TranscriptOp::Rewrite,
-                                        cp.transcript.clone(),
+                                        cp.pending_messages.clone(),
                                     );
                                 }
                             }

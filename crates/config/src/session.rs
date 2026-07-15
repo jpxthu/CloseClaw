@@ -17,7 +17,7 @@ use closeclaw_common::CompactConfig;
 /// Default idle time in minutes before a session is considered idle
 pub const DEFAULT_IDLE_MINUTES: i64 = 30;
 /// Default purge time in minutes after which archived sessions are permanently deleted
-pub const DEFAULT_PURGE_AFTER_MINUTES: i64 = 10080; // 7 days
+pub const DEFAULT_PURGE_AFTER_MINUTES: i64 = 0; // 0 = never purge
 /// Default sweeper interval in seconds
 pub const DEFAULT_SWEEPER_INTERVAL_SECS: u64 = 300; // 5 minutes
 /// Default dreaming interval in seconds
@@ -504,19 +504,19 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // Test: purge_after_minutes = 10080 (7 days) default is correct
+    // Test: purge_after_minutes = 0 is the new default (never purge)
     // -------------------------------------------------------------------------
 
     #[test]
-    fn test_default_purge_after_minutes_is_10080() {
-        assert_eq!(DEFAULT_PURGE_AFTER_MINUTES, 10080); // 7 days in minutes
+    fn test_default_purge_after_minutes_is_zero() {
+        assert_eq!(DEFAULT_PURGE_AFTER_MINUTES, 0); // 0 = never purge
 
-        // When no config file exists, hardcoded default is 10080
+        // When no config file exists, hardcoded default is 0
         let temp = TempDir::new().unwrap();
         let nonexistent = temp.path().join("nonexistent.json");
         let provider = JsonSessionConfigProvider::new(&nonexistent).unwrap();
         let cfg = provider.session_config_for("any", AgentRole::MainAgent);
-        assert_eq!(cfg.purge_after_minutes, 10080);
+        assert_eq!(cfg.purge_after_minutes, 0);
     }
 
     // -------------------------------------------------------------------------

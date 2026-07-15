@@ -381,7 +381,7 @@ pub fn load_checkpoint_inner(
         approval_tool_calls: Vec::new(),
         plan_references: Vec::new(),
         session_mode: session_mode_val,
-        transcript: transcript_messages,
+        pending_messages: transcript_messages,
         label: None,
         communication_config: None,
         spawn_mode: None,
