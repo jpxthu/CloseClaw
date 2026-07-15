@@ -1,5 +1,6 @@
 use super::*;
 use closeclaw_llm::types::ContentBlock;
+use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::persistence::ReasoningLevel;
 
 // =========================================================================
@@ -163,6 +164,88 @@ async fn test_retry_no_instruction() {
             .await;
     // No instruction injected, LLM call fails (no caller) → false.
     assert!(!skip_drain);
+}
+
+/// Retry with instruction: verify the instruction is injected before LLM re-invoke.
+///
+/// We create a session with a ConversationSession, retry with an instruction,
+/// then verify the session received a system message (the instruction).
+#[tokio::test]
+async fn test_retry_with_instruction_injects_message() {
+    let sm = make_sm();
+    use std::collections::HashMap;
+    let msg = crate::Message {
+        id: "msg_1".into(),
+        from: "alice".into(),
+        to: "bob".into(),
+        content: "hello".into(),
+        channel: "ch".into(),
+        timestamp: chrono::Utc::now().timestamp(),
+        metadata: HashMap::new(),
+        thread_id: None,
+    };
+    let sid = sm.find_or_create("ch", &msg, None).await.unwrap();
+
+    let (output_tx, _rx) = make_output_tx(true);
+    let action = closeclaw_session::run_health::RecoverableAction::Retry {
+        delay_ms: 5,
+        instruction: Some("please retry with more detail".to_string()),
+    };
+    let _ =
+        SessionMessageHandler::test_handle_recovery_action(&sm, &sid, action, &output_tx, &None)
+            .await;
+
+    // Verify the instruction was injected as a system message.
+    let cs = sm.get_conversation_session(&sid).await.expect("session");
+    let msgs = cs.read().await.messages().to_vec();
+    let system_msgs: Vec<_> = msgs.iter().filter(|m| m.role == "system").collect();
+    assert_eq!(
+        system_msgs.len(),
+        1,
+        "should have 1 injected system message"
+    );
+    match &system_msgs[0].content_blocks[0] {
+        closeclaw_llm::types::ContentBlock::Text(t) => {
+            assert_eq!(t, "please retry with more detail");
+        }
+        other => panic!("expected Text block, got {:?}", other),
+    }
+}
+
+/// Retry without instruction: no system message should be injected.
+#[tokio::test]
+async fn test_retry_no_instruction_no_injection() {
+    let sm = make_sm();
+    use std::collections::HashMap;
+    let msg = crate::Message {
+        id: "msg_1".into(),
+        from: "alice".into(),
+        to: "bob".into(),
+        content: "hello".into(),
+        channel: "ch".into(),
+        timestamp: chrono::Utc::now().timestamp(),
+        metadata: HashMap::new(),
+        thread_id: None,
+    };
+    let sid = sm.find_or_create("ch", &msg, None).await.unwrap();
+
+    let (output_tx, _rx) = make_output_tx(true);
+    let action = closeclaw_session::run_health::RecoverableAction::Retry {
+        delay_ms: 5,
+        instruction: None,
+    };
+    let _ =
+        SessionMessageHandler::test_handle_recovery_action(&sm, &sid, action, &output_tx, &None)
+            .await;
+
+    // Verify no system message was injected.
+    let cs = sm.get_conversation_session(&sid).await.expect("session");
+    let msgs = cs.read().await.messages().to_vec();
+    let system_msgs: Vec<_> = msgs.iter().filter(|m| m.role == "system").collect();
+    assert!(
+        system_msgs.is_empty(),
+        "no system message should be injected"
+    );
 }
 
 /// Gap 3: Healthy turn does not trigger any recovery action.
