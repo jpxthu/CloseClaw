@@ -52,7 +52,7 @@ mod session_chat;
 pub use session_chat::ChatSession;
 
 mod session_exec;
-mod session_handles;
+pub mod session_handles;
 mod session_health;
 mod session_llm;
 pub mod streaming_assembly;

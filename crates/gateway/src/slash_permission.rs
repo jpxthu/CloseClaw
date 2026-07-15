@@ -642,9 +642,10 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         } else {
             ShutdownMode::Graceful
         };
+        let timeout = closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT;
         let result = self
             .session_manager
-            .stop_single_session(session_id, mode, cascade)
+            .stop_single_session(session_id, mode, cascade, timeout, None)
             .await;
 
         match result {

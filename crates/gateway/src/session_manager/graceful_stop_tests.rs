@@ -205,7 +205,13 @@ async fn test_graceful_stop_streaming_with_tool_calls() {
     )
     .await;
 
-    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
+    let result = mgr
+        .stop_all_sessions(
+            ShutdownMode::Graceful,
+            std::time::Duration::from_secs(30),
+            None,
+        )
+        .await;
     assert!(
         result.succeeded >= 2,
         "expected >= 2 succeeded, got {:?}",
@@ -237,7 +243,13 @@ async fn test_graceful_stop_streaming_no_tool_calls() {
     )
     .await;
 
-    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
+    let result = mgr
+        .stop_all_sessions(
+            ShutdownMode::Graceful,
+            std::time::Duration::from_secs(30),
+            None,
+        )
+        .await;
     assert!(result.succeeded >= 2);
     // Sessions remain in tracking tables after stop (Step 1.1).
     assert!(mgr.has_session(&child_id).await);
@@ -253,7 +265,13 @@ async fn test_graceful_stop_idle() {
     setup_child_with_conv(&mgr, parent_id, child_id).await;
 
     // Default: LlmState::Idle, no tools running.
-    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
+    let result = mgr
+        .stop_all_sessions(
+            ShutdownMode::Graceful,
+            std::time::Duration::from_secs(30),
+            None,
+        )
+        .await;
     assert!(result.succeeded >= 2);
     // Sessions remain in tracking tables after stop (Step 1.1).
     assert!(mgr.has_session(&child_id).await);
@@ -297,7 +315,13 @@ async fn test_graceful_stop_tool_running() {
         tools.remove("tool_1");
     });
 
-    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
+    let result = mgr
+        .stop_all_sessions(
+            ShutdownMode::Graceful,
+            std::time::Duration::from_secs(30),
+            None,
+        )
+        .await;
     assert!(result.succeeded >= 2);
     // Sessions remain in tracking tables after stop (Step 1.1).
     assert!(mgr.has_session(&child_id).await);
@@ -317,7 +341,13 @@ async fn test_forceful_stop_unchanged() {
     set_tool_state(&mgr, child_id, "tool_f", ToolExecState::RunningForeground).await;
 
     let start = tokio::time::Instant::now();
-    let result = mgr.stop_all_sessions(ShutdownMode::Forceful, None).await;
+    let result = mgr
+        .stop_all_sessions(
+            ShutdownMode::Forceful,
+            std::time::Duration::from_secs(30),
+            None,
+        )
+        .await;
     let elapsed = start.elapsed();
 
     assert!(result.succeeded >= 2);
@@ -356,7 +386,11 @@ async fn test_forceful_mock_stops_streaming_immediately() {
     let start = tokio::time::Instant::now();
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        mgr.stop_all_sessions(ShutdownMode::Graceful, None),
+        mgr.stop_all_sessions(
+            ShutdownMode::Graceful,
+            std::time::Duration::from_secs(30),
+            None,
+        ),
     )
     .await;
     let elapsed = start.elapsed();
@@ -409,7 +443,11 @@ async fn test_escalation_propagation_across_levels() {
     // ── run with timeout to detect hangs ─────────────────────────────
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        mgr.stop_all_sessions(ShutdownMode::Graceful, None),
+        mgr.stop_all_sessions(
+            ShutdownMode::Graceful,
+            std::time::Duration::from_secs(30),
+            None,
+        ),
     )
     .await;
 
@@ -447,7 +485,13 @@ async fn test_graceful_escalation_interrupts_streaming_info() {
         mock.escalate_to_forceful();
     });
 
-    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
+    let result = mgr
+        .stop_all_sessions(
+            ShutdownMode::Graceful,
+            std::time::Duration::from_secs(30),
+            None,
+        )
+        .await;
     assert!(result.total() >= 1);
     assert!(
         result.succeeded >= 1,
@@ -478,7 +522,13 @@ async fn test_graceful_escalation_interrupts_tool_info() {
         mock.escalate_to_forceful();
     });
 
-    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
+    let result = mgr
+        .stop_all_sessions(
+            ShutdownMode::Graceful,
+            std::time::Duration::from_secs(30),
+            None,
+        )
+        .await;
     assert!(result.total() >= 1);
     assert!(
         result.succeeded >= 1,
@@ -491,7 +541,13 @@ async fn test_graceful_escalation_interrupts_tool_info() {
 async fn test_graceful_idle_no_timeout_info() {
     let mgr = make_test_session_manager();
     setup_parent_with_conv(&mgr, "parent-idle-no-timeout").await;
-    let result = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
+    let result = mgr
+        .stop_all_sessions(
+            ShutdownMode::Graceful,
+            std::time::Duration::from_secs(30),
+            None,
+        )
+        .await;
     assert!(result.succeeded >= 1);
 }
 
@@ -517,7 +573,13 @@ async fn test_graceful_escalation_interrupts_streaming() {
         mock.escalate_to_forceful();
     });
 
-    let r = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
+    let r = mgr
+        .stop_all_sessions(
+            ShutdownMode::Graceful,
+            std::time::Duration::from_secs(30),
+            None,
+        )
+        .await;
     // Session force-stopped due to escalation
     assert!(r.total() >= 1);
     assert!(
@@ -549,7 +611,13 @@ async fn test_graceful_escalation_interrupts_tool_running() {
         mock.escalate_to_forceful();
     });
 
-    let r = mgr.stop_all_sessions(ShutdownMode::Graceful, None).await;
+    let r = mgr
+        .stop_all_sessions(
+            ShutdownMode::Graceful,
+            std::time::Duration::from_secs(30),
+            None,
+        )
+        .await;
     assert!(r.total() >= 1);
     assert!(
         r.succeeded >= 1,
