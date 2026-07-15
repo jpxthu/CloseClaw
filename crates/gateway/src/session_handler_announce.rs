@@ -227,8 +227,9 @@ impl SessionMessageHandler {
         output_tx: &OutputTx,
         metrics_emitter: &Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
     ) {
-        // Step 1.5: drain queued announces.
-        Self::drain_announce_events(session_manager, session_id).await;
+        // Step 1.4: drain Next/Later priority announces at turn start.
+        // Now-priority events were already drained before the LLM call.
+        Self::drain_announces_rest(session_manager, session_id).await;
         loop {
             // Get next pending message
             let Some(pending) = session_manager.pop_pending_message(session_id).await else {
@@ -462,18 +463,36 @@ impl SessionMessageHandler {
         session_manager.try_push_announce(session_id).await;
     }
 
-    /// Step 1.5: drain queued announces before processing the next
-    /// pending message.
+    /// Step 1.4: drain Now-priority announces before user message processing.
     ///
-    /// Invoked at the start of `drain_pending_loop` so any announces
-    /// queued during the previous LLM turn are injected into the
-    /// session before the next pending user message is processed.
-    /// Wraps `SessionManager::drain_and_inject_announces`.
-    pub(super) async fn drain_announce_events(
+    /// Injects session announces with `NotificationPriority::Now` into the
+    /// conversation so the agent sees urgent notifications before the next
+    /// LLM call. Task notifications are not drained here — they are always
+    /// drained at turn start via [`drain_announces_rest`] since
+    /// `TaskManager::drain_notifications` consumes all at once.
+    pub(super) async fn drain_announces_now(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
     ) {
-        session_manager.drain_and_inject_announces(session_id).await;
+        session_manager
+            .drain_and_inject_announces_filtered(session_id, |p| *p == NotificationPriority::Now)
+            .await;
+    }
+
+    /// Step 1.4: drain Next + Later priority announces at turn start.
+    ///
+    /// Injects session announces with `NotificationPriority::Next` or
+    /// `NotificationPriority::Later` and all background task completion
+    /// notifications. Called at the start of `drain_pending_loop` after
+    /// Now-priority events have already been injected.
+    pub(super) async fn drain_announces_rest(
+        session_manager: &Arc<SessionManager>,
+        session_id: &str,
+    ) {
+        // Drain session announces with Next + Later priority.
+        session_manager
+            .drain_and_inject_announces_filtered(session_id, |p| *p < NotificationPriority::Now)
+            .await;
 
         // Drain background task completion notifications and inject as
         // system messages so the agent sees them on the next turn.
@@ -487,7 +506,7 @@ impl SessionMessageHandler {
         let Some(cs) = session_manager.get_conversation_session(session_id).await else {
             tracing::warn!(
                 session_id = %session_id,
-                "drain_announce_events: session not found for task notifications"
+                "drain_announces_rest: session not found for task notifications"
             );
             return;
         };

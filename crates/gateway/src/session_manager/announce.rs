@@ -107,6 +107,75 @@ impl SessionManager {
             }
         }
     }
+
+    /// Drain announce events matching a priority predicate.
+    ///
+    /// Filters the session's announce queue, returning only events whose
+    /// priority satisfies the predicate. Non-matching events are re-inserted
+    /// into the queue in priority order.
+    pub async fn drain_announces_filtered(
+        &self,
+        session_id: &str,
+        predicate: impl Fn(&NotificationPriority) -> bool,
+    ) -> Vec<AnnounceEvent> {
+        let Some(cs) = self.get_conversation_session(session_id).await else {
+            warn!(
+                session_id = %session_id,
+                "drain_announces_filtered: session not found, returning empty list"
+            );
+            return Vec::new();
+        };
+        let mut cs = cs.write().await;
+        let all = cs.drain_announce_queue();
+        let mut matched = Vec::new();
+        for event in all {
+            if predicate(&event.priority) {
+                matched.push(event);
+            } else {
+                cs.push_announce_to_queue(event);
+            }
+        }
+        matched
+    }
+
+    /// Drain and inject announce events matching a priority predicate.
+    ///
+    /// Loops until no matching events remain, injecting each as a
+    /// `role="system"` message. Non-matching events stay in the queue.
+    pub async fn drain_and_inject_announces_filtered(
+        &self,
+        session_id: &str,
+        predicate: impl Fn(&NotificationPriority) -> bool,
+    ) {
+        loop {
+            let events = self
+                .drain_announces_filtered(session_id, |p| predicate(p))
+                .await;
+            if events.is_empty() {
+                break;
+            }
+            let Some(cs) = self.get_conversation_session(session_id).await else {
+                warn!(
+                    session_id = %session_id,
+                    "drain_and_inject_announces_filtered: session missing mid-drain"
+                );
+                return;
+            };
+            let mut cs_write = cs.write().await;
+            for event in events {
+                let status_label = match event.status {
+                    ChildCompletionStatus::Completed => "任务已完成",
+                    ChildCompletionStatus::Errored => "任务出错",
+                    ChildCompletionStatus::Terminated => "任务被终止",
+                };
+                let text = format!(
+                    "[子 agent {}] {}：\n{}",
+                    event.child_agent_id, status_label, event.result_text
+                );
+                cs_write.inject_system_message(text);
+            }
+        }
+    }
 }
 
 // ── try_push_announce + private helpers ─────────────────────────────────────
