@@ -530,13 +530,14 @@ impl ConversationSession {
 
     /// 将来源消息克隆后注入到自身 messages 列表，
     /// 保留原始时间戳。用于 Fork 模式注入父 session 的对话历史。
+    /// 走 `append_transcript_preserving_timestamp` 声明通道。
     pub(crate) fn clone_messages_from(&mut self, source: &[SessionMessage]) {
         for msg in source {
-            self.messages.push(SessionMessage {
-                role: msg.role.clone(),
-                content_blocks: msg.content_blocks.clone(),
-                timestamp: msg.timestamp,
-            });
+            self.append_transcript_preserving_timestamp(
+                &msg.role,
+                msg.content_blocks.clone(),
+                msg.timestamp,
+            );
         }
     }
 
