@@ -441,11 +441,11 @@
   },
   {
     "path": "docs/design/session/session-execution.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-07-16T03:34:47.063306+08:00",
+    "commit": "832879547572ca5f7a8dc294bd77e871ab3d2f50",
+    "commit_time": "2026-07-16T03:35:31+08:00",
+    "confirmed_time": "2026-07-16T03:43:03.458358+08:00",
     "comment": "",
-    "blocked_reason": "passive-waiting-doc-contradiction-and-unclear-terminal-state-and-cascade-timeout"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/system_prompt/appends.md",
