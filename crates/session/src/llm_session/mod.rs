@@ -531,7 +531,13 @@ impl ConversationSession {
     /// 将来源消息克隆后注入到自身 messages 列表，
     /// 保留原始时间戳。用于 Fork 模式注入父 session 的对话历史。
     pub(crate) fn clone_messages_from(&mut self, source: &[SessionMessage]) {
-        self.messages.extend(source.iter().cloned());
+        for msg in source {
+            self.messages.push(SessionMessage {
+                role: msg.role.clone(),
+                content_blocks: msg.content_blocks.clone(),
+                timestamp: msg.timestamp,
+            });
+        }
     }
 
     /// Walk messages in reverse, concatenate `ContentBlock::Text`
@@ -671,25 +677,18 @@ impl ConversationSession {
     }
 
     /// Persist a user message into the conversation history.
-    ///
-    /// Writes the user input as a [`SessionMessage`] with `role="user"`
-    /// so that [`build_compact_messages`] can extract complete
-    /// user/assistant conversation history for compaction.
     pub fn append_user_message(&mut self, content: &str) {
-        self.push_message("user", vec![ContentBlock::Text(content.to_string())]);
+        self.append_transcript("user", vec![ContentBlock::Text(content.to_string())]);
     }
 
     /// Inject a system message into the conversation history.
     pub fn inject_system_message(&mut self, text: String) {
-        self.push_message("system", vec![ContentBlock::Text(text)]);
+        self.append_transcript("system", vec![ContentBlock::Text(text)]);
     }
 
     /// Inject a tool result into the conversation history.
-    ///
-    /// Used by the recovery path to inject failure results for pending
-    /// tool calls so the LLM sees a natural tool-result response.
     pub fn inject_tool_result(&mut self, tool_call_id: &str, content: &str) {
-        self.push_message(
+        self.append_transcript(
             "tool",
             vec![ContentBlock::ToolResult {
                 tool_call_id: tool_call_id.to_string(),
