@@ -353,6 +353,159 @@ impl SessionManager {
         self.drain_pending_for_session(parent_id).await;
     }
 
+    /// Notify parent about a forcefuly terminated child session.
+    ///
+    /// Called from `stop_single_session` / `forceful_stop_session` when
+    /// a run-mode child is killed with `Forceful` mode. Sets the child's
+    /// state to `Terminated` in the parent's `child_states` and pushes
+    /// an `AnnounceEvent` with `status = Terminated`.
+    ///
+    /// If the session is not a run-mode child, or the parent session
+    /// is not found, this is a no-op. Dedup protection: if the child's
+    /// state is already terminal (`Completed`, `Errored`, `Terminated`),
+    /// the notification is skipped.
+    pub(crate) async fn notify_child_forced_termination(&self, session_id: &str) {
+        let Some(info) = self.find_child_info(session_id).await else {
+            // Not a child in the tree — nothing to do.
+            return;
+        };
+        if info.mode != SpawnMode::Run {
+            // Only run-mode children produce announce notifications.
+            return;
+        }
+        let parent_session_id = &info.parent_session_id;
+        let child_agent_id = &info.agent_id;
+
+        // Check if the parent session exists.
+        let Some(parent_cs) = self.get_conversation_session(parent_session_id).await else {
+            warn!(
+                parent_session_id = %parent_session_id,
+                "notify_child_forced_termination: parent session not found"
+            );
+            return;
+        };
+
+        // Dedup protection: skip if child state is already terminal.
+        {
+            let parent_guard = parent_cs.read().await;
+            let states = parent_guard
+                .child_states
+                .read()
+                .expect("child_states lock poisoned");
+            if let Some(state) = states.get(session_id) {
+                if matches!(
+                    state,
+                    ChildSessionState::Completed
+                        | ChildSessionState::Errored
+                        | ChildSessionState::Terminated
+                ) {
+                    tracing::debug!(
+                        session_id = %session_id,
+                        ?state,
+                        "notify_child_forced_termination: child already terminal, skipping"
+                    );
+                    return;
+                }
+            }
+        }
+
+        // Set child state to Terminated in parent's child_states.
+        {
+            let parent_guard = parent_cs.read().await;
+            parent_guard.update_child_state(session_id, ChildSessionState::Terminated);
+        }
+
+        // Build announce event with Terminated status.
+        let event = build_announce_event(
+            session_id,
+            child_agent_id.clone(),
+            "任务被终止".to_string(),
+            NotificationPriority::Next,
+            ChildCompletionStatus::Terminated,
+        );
+
+        if let Err(e) = self.push_announce(parent_session_id, event).await {
+            warn!(
+                parent_session_id = %parent_session_id,
+                error = %e,
+                "notify_child_forced_termination: push_announce failed"
+            );
+        }
+
+        // Decrement busy count for drain tracking.
+        if let Some(sh) = self.get_shutdown_handle().await {
+            sh.decrement_busy();
+        }
+
+        // Unregister child handle from parent's ConversationSession.
+        if let Some(parent_cs) = self.get_conversation_session(parent_session_id).await {
+            parent_cs.read().await.unregister_child_handle(session_id);
+        }
+    }
+
+    /// Notify parent about a child session that errored.
+    ///
+    /// Called from `clear_busy_and_send` when the LLM call fails for
+    /// a run-mode child session. Sets the child's state to `Errored`
+    /// in the parent's `child_states` so that `try_push_announce`
+    /// resolves the correct `ChildCompletionStatus::Errored`.
+    ///
+    /// Dedup protection: if the child's state is already terminal,
+    /// the update is skipped.
+    pub(crate) async fn notify_child_error(&self, session_id: &str) {
+        let Some(info) = self.find_child_info(session_id).await else {
+            return;
+        };
+        if info.mode != SpawnMode::Run {
+            return;
+        }
+        let parent_session_id = &info.parent_session_id;
+
+        let Some(parent_cs) = self.get_conversation_session(parent_session_id).await else {
+            warn!(
+                parent_session_id = %parent_session_id,
+                "notify_child_error: parent session not found"
+            );
+            return;
+        };
+
+        // Dedup protection: skip if child state is already terminal.
+        {
+            let parent_guard = parent_cs.read().await;
+            let states = parent_guard
+                .child_states
+                .read()
+                .expect("child_states lock poisoned");
+            if let Some(state) = states.get(session_id) {
+                if matches!(
+                    state,
+                    ChildSessionState::Completed
+                        | ChildSessionState::Errored
+                        | ChildSessionState::Terminated
+                ) {
+                    tracing::debug!(
+                        session_id = %session_id,
+                        ?state,
+                        "notify_child_error: child already terminal, skipping"
+                    );
+                    return;
+                }
+            }
+        }
+
+        // Set child state to Errored in parent's child_states.
+        {
+            let parent_guard = parent_cs.read().await;
+            parent_guard.update_child_state(session_id, ChildSessionState::Errored);
+        }
+    }
+
+    /// Find child info in the spawn tree by session ID.
+    async fn find_child_info(&self, session_id: &str) -> Option<super::spawn::ChildSessionInfo> {
+        let children = self.children.read().await;
+        children.find_child(session_id).cloned()
+    }
+
     /// Trigger recovery check for a yielded session.
     ///
     /// Public (within crate) wrapper around `maybe_recover_yielded_session`

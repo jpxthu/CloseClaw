@@ -211,6 +211,9 @@ impl SessionMessageHandler {
             }
             Err(err) => {
                 tracing::warn!(session_id, error = %err, "LLM call failed");
+                // Mark run-mode child as Errored so try_push_announce
+                // resolves the correct ChildCompletionStatus.
+                session_manager.notify_child_error(session_id).await;
             }
         }
         // Step 1.5: best-effort announce to parent (run-mode child).

@@ -325,6 +325,10 @@ impl SessionManager {
                 "user-stop",
             );
             cs.write().await.force_kill().await;
+
+            // Notify parent about forced termination of run-mode child.
+            self.notify_child_forced_termination(session_id).await;
+
             let pending_ops = {
                 let guard = cs.read().await;
                 guard.collect_pending_operations()
@@ -413,6 +417,9 @@ impl SessionManager {
             "user-stop",
         );
         cs.write().await.force_kill().await;
+
+        // Notify parent about forced termination of run-mode child.
+        self.notify_child_forced_termination(session_id).await;
 
         let pending_ops = {
             let guard = cs.read().await;
