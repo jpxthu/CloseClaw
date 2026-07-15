@@ -52,4 +52,37 @@ mod tests {
         assert_eq!(cloned.channel, "feishu");
         assert_eq!(cloned.timestamp, 1234567890);
     }
+
+    #[test]
+    fn test_request_context_set_fields_match() {
+        let ctx = RequestContext {
+            sender_id: "ou_xyz".to_string(),
+            channel: "telegram".to_string(),
+            timestamp: 9999,
+        };
+        assert_eq!(ctx.sender_id, "ou_xyz");
+        assert_eq!(ctx.channel, "telegram");
+        assert_eq!(ctx.timestamp, 9999);
+    }
+
+    #[test]
+    fn test_request_context_serialization_roundtrip() {
+        let ctx = RequestContext {
+            sender_id: "ou_ser".to_string(),
+            channel: "slack".to_string(),
+            timestamp: 42,
+        };
+        let json = serde_json::to_string(&ctx).unwrap();
+        let restored: RequestContext = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.sender_id, "ou_ser");
+        assert_eq!(restored.channel, "slack");
+        assert_eq!(restored.timestamp, 42);
+    }
+
+    #[test]
+    fn test_request_context_default_is_debug() {
+        let ctx = RequestContext::default();
+        let dbg = format!("{:?}", ctx);
+        assert!(dbg.contains("RequestContext"));
+    }
 }

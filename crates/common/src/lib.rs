@@ -46,6 +46,8 @@ pub mod streaming;
 #[cfg(test)]
 pub mod streaming_tests;
 pub mod system_prompt;
+#[cfg(test)]
+pub mod system_prompt_tests;
 pub mod test_helpers;
 pub mod tool_registry;
 pub mod tool_session;

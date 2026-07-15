@@ -172,7 +172,6 @@ pub struct ConversationSession {
     /// being executed should be moved to background.
     pub manual_background_signal: Arc<tokio::sync::Notify>,
 }
-
 // `impl ConversationSession` is split across multiple blocks so each
 // block stays under the CONTRIBUTING.md 100-line cap. Block A
 // (below): construction and basic setters/getters. Block B (further
@@ -988,6 +987,7 @@ impl std::fmt::Debug for ConversationSession {
     }
 }
 #[cfg(test)]
+#[allow(deprecated)]
 /// Helper: create a temporary directory path for tests.
 pub fn tmp_path() -> std::path::PathBuf {
     tempfile::tempdir().unwrap().into_path()
