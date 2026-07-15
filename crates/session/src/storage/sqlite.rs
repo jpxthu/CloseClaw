@@ -357,6 +357,54 @@ impl SqliteStorage {
         };
         Ok(result)
     }
+
+    /// Find an archived session by routing fields on an open connection.
+    ///
+    /// Returns the session with the most recent `last_message_at`.
+    fn find_archived_session_inner(
+        conn: &Connection,
+        channel: &str,
+        sender_id: &str,
+        peer_id: &str,
+        account_id: Option<&str>,
+    ) -> Result<Option<String>, PersistenceError> {
+        let result = if let Some(acc) = account_id {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id FROM sessions
+                     WHERE status = 'archived'
+                       AND platform = ?1
+                       AND sender_id = ?2
+                       AND peer_id = ?3
+                       AND account_id = ?4
+                     ORDER BY last_message_at DESC
+                     LIMIT 1",
+                )
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            stmt.query_row(params![channel, sender_id, peer_id, acc], |row| {
+                row.get::<_, String>(0)
+            })
+            .ok()
+        } else {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id FROM sessions
+                     WHERE status = 'archived'
+                       AND platform = ?1
+                       AND sender_id = ?2
+                       AND peer_id = ?3
+                       AND account_id IS NULL
+                     ORDER BY last_message_at DESC
+                     LIMIT 1",
+                )
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            stmt.query_row(params![channel, sender_id, peer_id], |row| {
+                row.get::<_, String>(0)
+            })
+            .ok()
+        };
+        Ok(result)
+    }
 }
 
 #[async_trait]
@@ -580,6 +628,38 @@ impl PersistenceService for SqliteStorage {
             let conn = Connection::open(data_dir.join("sessions.sqlite"))
                 .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
             Self::find_active_session_inner(
+                &conn,
+                &channel,
+                &sender_id,
+                &peer_id,
+                account_id.as_deref(),
+            )
+        })
+        .await
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    }
+
+    /// Find an archived session matching the given routing fields.
+    ///
+    /// Returns the archived session with the most recent `last_message_at`.
+    /// When `account_id` is `None`, matches rows where `account_id IS NULL`.
+    async fn find_archived_session_by_routing(
+        &self,
+        account_id: Option<&str>,
+        channel: &str,
+        sender_id: &str,
+        peer_id: &str,
+    ) -> Result<Option<String>, PersistenceError> {
+        let data_dir = self.data_dir.clone();
+        let channel = channel.to_string();
+        let sender_id = sender_id.to_string();
+        let peer_id = peer_id.to_string();
+        let account_id = account_id.map(String::from);
+
+        spawn_blocking(move || -> Result<Option<String>, PersistenceError> {
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            Self::find_archived_session_inner(
                 &conn,
                 &channel,
                 &sender_id,
