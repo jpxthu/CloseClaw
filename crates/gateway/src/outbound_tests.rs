@@ -427,14 +427,14 @@ use futures::stream;
 use std::path::PathBuf;
 
 /// Mock plugin that records thinking indicator calls for assertions.
-struct ThinkingIndicatorMock {
+pub(crate) struct ThinkingIndicatorMock {
     platform: String,
     renderer: std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>,
     thinking_calls: Arc<std::sync::Mutex<Vec<bool>>>,
 }
 
 impl ThinkingIndicatorMock {
-    fn new(platform: &str) -> Self {
+    pub(crate) fn new(platform: &str) -> Self {
         Self {
             platform: platform.to_string(),
             renderer: std::sync::Mutex::new(
@@ -505,7 +505,7 @@ impl closeclaw_common::IMPlugin for ThinkingIndicatorMock {
     }
 }
 
-fn streaming_config() -> GatewayConfig {
+pub(crate) fn streaming_config() -> GatewayConfig {
     GatewayConfig {
         name: "test-streaming".to_string(),
         rate_limit_per_minute: 100,
@@ -515,7 +515,7 @@ fn streaming_config() -> GatewayConfig {
 }
 
 /// Helper: set up Gateway for streaming tests with a session mapped to a chat.
-async fn setup_streaming_gw(
+pub(crate) async fn setup_streaming_gw(
     session_id: &str,
     plugin: Arc<dyn closeclaw_common::IMPlugin>,
 ) -> crate::Gateway {
@@ -910,7 +910,7 @@ async fn test_thinking_indicator_stops_on_block_end() {
 }
 
 /// Helper to provide default usage for tests that don't care about usage values.
-fn default_usage() -> UnifiedUsage {
+pub(crate) fn default_usage() -> UnifiedUsage {
     UnifiedUsage {
         prompt_tokens: 0,
         completion_tokens: 0,
