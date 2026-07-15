@@ -167,6 +167,7 @@ pub struct ConversationSession {
     /// Prompt overrides injected by Gateway for prompt rebuilds.
     /// Set via [`set_prompt_overrides`](Self::set_prompt_overrides) after construction.
     prompt_overrides: Option<PromptOverrides>,
+    dynamic_prompt_builder: Option<Arc<dyn closeclaw_common::DynamicPromptBuilder>>,
     /// Manual backgrounding signal. When notified, foreground commands
     /// being executed should be moved to background.
     pub manual_background_signal: Arc<tokio::sync::Notify>,
@@ -220,6 +221,7 @@ impl ConversationSession {
             llm_caller: None,
             system_prompt_builder: None,
             prompt_overrides: None,
+            dynamic_prompt_builder: None,
             manual_background_signal: Arc::new(tokio::sync::Notify::new()),
         }
     }
@@ -986,12 +988,10 @@ impl std::fmt::Debug for ConversationSession {
     }
 }
 #[cfg(test)]
-#[allow(deprecated)]
 /// Helper: create a temporary directory path for tests.
 pub fn tmp_path() -> std::path::PathBuf {
     tempfile::tempdir().unwrap().into_path()
 }
-
 #[cfg(test)]
 mod streaming_assembly_tests;
 #[cfg(test)]

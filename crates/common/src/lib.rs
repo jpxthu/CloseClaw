@@ -111,7 +111,10 @@ pub use communication::{
 pub use session_mode::SessionMode;
 pub use session_mode_query::SessionModeQuery;
 pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, StorageProvider};
-pub use system_prompt::{PromptOverrides, SystemPromptBuilder};
+pub use system_prompt::{
+    split_static_dynamic, DynamicPromptBuilder, DynamicPromptContext, PromptOverrides,
+    SystemPromptBuilder,
+};
 // TaskManager, TaskState, BackgroundTask, BackgroundTaskError migrated to closeclaw-tasks
 pub use tool_registry::{
     RegistryError, ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry,
