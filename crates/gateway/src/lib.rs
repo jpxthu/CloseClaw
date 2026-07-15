@@ -2,6 +2,8 @@
 //!
 //! Central hub that connects IM platforms (Feishu, Discord, etc.) to agents.
 pub mod approval;
+#[cfg(test)]
+pub mod approval_tests;
 pub mod card_action;
 pub(crate) mod health_check_builders;
 #[cfg(test)]

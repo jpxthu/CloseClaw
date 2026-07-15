@@ -99,10 +99,9 @@ impl Gateway {
         // Check for /approve or /deny prefix
         let (is_approve, rest) = if let Some(r) = trimmed.strip_prefix("/approve") {
             (true, r.trim())
-        } else if let Some(r) = trimmed.strip_prefix("/deny") {
-            (false, r.trim())
         } else {
-            return None; // Not an approval command
+            let r = trimmed.strip_prefix("/deny")?;
+            (false, r.trim())
         };
 
         // Verify sender is the owner
