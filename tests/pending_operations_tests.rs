@@ -9,8 +9,8 @@
 use closeclaw_llm::session_state::{ChildSessionState, ToolExecState};
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{
-    PendingOperation, PendingOperationStatus, PendingOperationType, PersistenceService,
-    SessionCheckpoint,
+    PendingOperation, PendingOperationDetail, PendingOperationStatus, PendingOperationType,
+    PersistenceService, SessionCheckpoint,
 };
 
 // ── Step 1.4: collect_pending_operations ────────────────────────────────
@@ -196,24 +196,32 @@ fn test_checkpoint_pending_operations_roundtrip_with_ops() {
             status: PendingOperationStatus::Running,
             op_id: "tool_call_1".into(),
             op_type: PendingOperationType::ToolCall,
-            name: "bash".into(),
-            args: r#"{"command":"ls"}"#.into(),
+            detail: PendingOperationDetail::ToolCall {
+                tool_name: "bash".into(),
+                args_summary: r#"{"command":"ls"}"#.into(),
+            },
             created_at: now,
         },
         PendingOperation {
             status: PendingOperationStatus::Running,
             op_id: "child_1".into(),
             op_type: PendingOperationType::SubSessionSpawn,
-            name: "sub-agent-1".into(),
-            args: String::new(),
+            detail: PendingOperationDetail::SubSessionSpawn {
+                child_session_id: "sub-agent-1".into(),
+                agent_id: String::new(),
+                task_summary: String::new(),
+            },
             created_at: now,
         },
         PendingOperation {
             status: PendingOperationStatus::Running,
             op_id: "msg_1".into(),
             op_type: PendingOperationType::OutboundMessage,
-            name: "outbound-chat".into(),
-            args: "hello world".into(),
+            detail: PendingOperationDetail::OutboundMessage {
+                target_channel: "outbound-chat".into(),
+                message_id: "msg_1".into(),
+                delivery_status: "hello world".into(),
+            },
             created_at: now,
         },
     ];
@@ -227,8 +235,14 @@ fn test_checkpoint_pending_operations_roundtrip_with_ops() {
         parsed.pending_operations[0].op_type,
         PendingOperationType::ToolCall
     );
-    assert_eq!(parsed.pending_operations[0].name, "bash");
-    assert_eq!(parsed.pending_operations[0].args, r#"{"command":"ls"}"#);
+    assert_eq!(
+        parsed.pending_operations[0].detail.tool_name(),
+        Some("bash")
+    );
+    assert_eq!(
+        parsed.pending_operations[0].detail.args_summary(),
+        Some(r#"{"command":"ls"}"#)
+    );
     assert_eq!(
         parsed.pending_operations[1].op_type,
         PendingOperationType::SubSessionSpawn
@@ -237,7 +251,10 @@ fn test_checkpoint_pending_operations_roundtrip_with_ops() {
         parsed.pending_operations[2].op_type,
         PendingOperationType::OutboundMessage
     );
-    assert_eq!(parsed.pending_operations[2].args, "hello world");
+    assert_eq!(
+        parsed.pending_operations[2].detail.delivery_status(),
+        Some("hello world")
+    );
 }
 
 #[test]
@@ -293,8 +310,10 @@ fn test_checkpoint_with_pending_operations_builder() {
         op_id: "op_1".into(),
         op_type: PendingOperationType::ToolCall,
         status: PendingOperationStatus::Running,
-        name: "test_tool".into(),
-        args: String::new(),
+        detail: PendingOperationDetail::ToolCall {
+            tool_name: "test_tool".into(),
+            args_summary: String::new(),
+        },
         created_at: chrono::Utc::now(),
     }];
 
@@ -316,24 +335,32 @@ fn make_checkpoint_with_pending_ops(session_id: &str) -> SessionCheckpoint {
             status: PendingOperationStatus::Running,
             op_id: "tool_1".into(),
             op_type: PendingOperationType::ToolCall,
-            name: "bash".into(),
-            args: r#"{"cmd":"echo"}"#.into(),
+            detail: PendingOperationDetail::ToolCall {
+                tool_name: "bash".into(),
+                args_summary: r#"{"cmd":"echo"}"#.into(),
+            },
             created_at: now,
         },
         PendingOperation {
             status: PendingOperationStatus::Running,
             op_id: "child_1".into(),
             op_type: PendingOperationType::SubSessionSpawn,
-            name: "sub-agent".into(),
-            args: String::new(),
+            detail: PendingOperationDetail::SubSessionSpawn {
+                child_session_id: "sub-agent".into(),
+                agent_id: String::new(),
+                task_summary: String::new(),
+            },
             created_at: now,
         },
         PendingOperation {
             status: PendingOperationStatus::Running,
             op_id: "msg_1".into(),
             op_type: PendingOperationType::OutboundMessage,
-            name: "chat-output".into(),
-            args: "pending reply".into(),
+            detail: PendingOperationDetail::OutboundMessage {
+                target_channel: "chat-output".into(),
+                message_id: "msg_1".into(),
+                delivery_status: "pending reply".into(),
+            },
             created_at: now,
         },
     ])
@@ -511,8 +538,8 @@ async fn test_recovery_report_dirty_sessions_count() {
 #[tokio::test]
 async fn test_recovery_callback_receives_notification_and_tool_failures() {
     use closeclaw_session::persistence::{
-        PendingOperation, PendingOperationStatus, PendingOperationType, PersistenceService,
-        SessionCheckpoint,
+        PendingOperation, PendingOperationDetail, PendingOperationStatus, PendingOperationType,
+        PersistenceService, SessionCheckpoint,
     };
     use closeclaw_session::storage::memory::MemoryStorage;
     use std::sync::Arc;
@@ -524,16 +551,21 @@ async fn test_recovery_callback_receives_notification_and_tool_failures() {
             status: PendingOperationStatus::Running,
             op_id: "tool_1".into(),
             op_type: PendingOperationType::ToolCall,
-            name: "bash".into(),
-            args: r#"{"cmd":"ls"}"#.into(),
+            detail: PendingOperationDetail::ToolCall {
+                tool_name: "bash".into(),
+                args_summary: r#"{"cmd":"ls"}"#.into(),
+            },
             created_at: now,
         },
         PendingOperation {
             status: PendingOperationStatus::Running,
             op_id: "child_1".into(),
             op_type: PendingOperationType::SubSessionSpawn,
-            name: "sub-agent".into(),
-            args: String::new(),
+            detail: PendingOperationDetail::SubSessionSpawn {
+                child_session_id: "sub-agent".into(),
+                agent_id: String::new(),
+                task_summary: String::new(),
+            },
             created_at: now,
         },
     ]);

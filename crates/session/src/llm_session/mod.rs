@@ -710,14 +710,13 @@ impl ConversationSession {
 
     /// Extract pending tool calls from the last assistant message.
     pub fn extract_pending_tool_calls(&self) -> Vec<crate::persistence::PendingOperation> {
-        use crate::persistence::{PendingOperation, PendingOperationStatus, PendingOperationType};
-
+        use crate::persistence::{
+            PendingOperation, PendingOperationDetail, PendingOperationStatus, PendingOperationType,
+        };
         let last_assistant = self.messages.iter().rev().find(|m| m.role == "assistant");
-
         let Some(msg) = last_assistant else {
             return Vec::new();
         };
-
         let now = Utc::now();
         msg.content_blocks
             .iter()
@@ -727,8 +726,10 @@ impl ConversationSession {
                         op_id: id.clone(),
                         op_type: PendingOperationType::ToolCall,
                         status: PendingOperationStatus::Running,
-                        name: name.clone(),
-                        args: input.clone(),
+                        detail: PendingOperationDetail::ToolCall {
+                            tool_name: name.clone(),
+                            args_summary: input.clone(),
+                        },
                         created_at: now,
                     })
                 } else {
@@ -739,19 +740,14 @@ impl ConversationSession {
     }
 
     /// Collect pending operations from the current session state.
-    ///
-    /// Scans tool_states, child_states, and pending_messages to build a
-    /// list of operations that were in progress when the session stopped.
-    /// Used by the shutdown path to record what needs recovery on restart.
     pub fn collect_pending_operations(&self) -> Vec<crate::persistence::PendingOperation> {
-        use crate::persistence::{PendingOperation, PendingOperationStatus, PendingOperationType};
+        use crate::persistence::{
+            PendingOperation, PendingOperationDetail, PendingOperationStatus, PendingOperationType,
+        };
         use chrono::Utc;
         use closeclaw_common::{ChildSessionState, ToolExecState};
-
         let mut ops = Vec::new();
         let now = Utc::now();
-
-        // Tool calls in progress or pending
         {
             let tool_states = self.tool_states.read().expect("tool_states lock poisoned");
             for (tool_id, state) in tool_states.iter() {
@@ -765,15 +761,15 @@ impl ConversationSession {
                         op_id: tool_id.clone(),
                         op_type: PendingOperationType::ToolCall,
                         status: PendingOperationStatus::Running,
-                        name: tool_id.clone(),
-                        args: String::new(),
+                        detail: PendingOperationDetail::ToolCall {
+                            tool_name: tool_id.clone(),
+                            args_summary: String::new(),
+                        },
                         created_at: now,
                     });
                 }
             }
         }
-
-        // Child sessions in progress
         {
             let child_states = self
                 .child_states
@@ -785,28 +781,31 @@ impl ConversationSession {
                         op_id: child_id.clone(),
                         op_type: PendingOperationType::SubSessionSpawn,
                         status: PendingOperationStatus::Running,
-                        name: child_id.clone(),
-                        args: String::new(),
+                        detail: PendingOperationDetail::SubSessionSpawn {
+                            child_session_id: child_id.clone(),
+                            agent_id: String::new(),
+                            task_summary: String::new(),
+                        },
                         created_at: now,
                     });
                 }
             }
         }
-
-        // Unsold pending messages (outbound)
         for pm in &self.pending_messages {
             if !pm.sent {
                 ops.push(PendingOperation {
                     op_id: pm.message_id.clone(),
                     op_type: PendingOperationType::OutboundMessage,
                     status: PendingOperationStatus::Running,
-                    name: pm.message_id.clone(),
-                    args: pm.content.clone(),
+                    detail: PendingOperationDetail::OutboundMessage {
+                        target_channel: String::new(),
+                        message_id: pm.message_id.clone(),
+                        delivery_status: pm.content.clone(),
+                    },
                     created_at: pm.created_at,
                 });
             }
         }
-
         ops
     }
 }

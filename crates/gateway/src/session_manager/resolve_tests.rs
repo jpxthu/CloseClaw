@@ -639,7 +639,7 @@ async fn test_resolve_restores_transcript_from_checkpoint() {
 
     // Save checkpoint with transcript to storage
     let mut cp = SessionCheckpoint::new(session_id.to_string());
-    cp.transcript = vec![boundary.clone()];
+    cp.pending_messages = vec![boundary.clone()];
     cp.status = SessionStatus::Archived;
     storage.save_checkpoint(&cp).await.unwrap();
 

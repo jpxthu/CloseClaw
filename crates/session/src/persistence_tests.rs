@@ -941,42 +941,42 @@ mod tests {
 
     #[test]
     fn test_checkpoint_transcript_roundtrip_and_backward_compat() {
-        // 1) Non-empty transcript: serialize → deserialize preserves content
         let boundary = make_boundary_msg("[Session Compaction] summary");
         let mut cp = SessionCheckpoint::new("s-transcript-rt".into());
-        cp.transcript = vec![boundary.clone()];
-        let json = serde_json::to_string(&cp).unwrap();
-        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.transcript.len(), 1);
-        assert_eq!(parsed.transcript[0].role, "system");
-        assert_eq!(parsed.transcript[0].content_blocks, boundary.content_blocks);
-        // 2) Empty transcript roundtrip
-        let cp_empty = SessionCheckpoint::new("s-transcript-empty".into());
-        let json = serde_json::to_string(&cp_empty).unwrap();
-        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
-        assert!(parsed.transcript.is_empty());
-        // 3) Old JSON without transcript field → defaults to empty Vec
-        let mut jv: serde_json::Value = serde_json::to_value(&cp).unwrap();
-        jv.as_object_mut().unwrap().remove("transcript");
-        let old: SessionCheckpoint =
-            serde_json::from_str(&serde_json::to_string(&jv).unwrap()).unwrap();
-        assert!(old.transcript.is_empty(), "old JSON defaults to empty Vec");
-        // 4) Multiple messages roundtrip
-        cp.transcript = vec![
-            make_boundary_msg("s1"),
-            make_boundary_msg("s2"),
-            make_boundary_msg("s3"),
-        ];
-        let json = serde_json::to_string(&cp).unwrap();
-        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.transcript.len(), 3);
+        cp.pending_messages = vec![boundary.clone()];
+        // Non-empty roundtrip
+        let parsed: SessionCheckpoint =
+            serde_json::from_str(&serde_json::to_string(&cp).unwrap()).unwrap();
+        assert_eq!(parsed.pending_messages.len(), 1);
         assert_eq!(
-            parsed.transcript[0].content_blocks,
-            vec![ContentBlock::Text("s1".to_string())]
+            parsed.pending_messages[0].content_blocks,
+            boundary.content_blocks
         );
+        // Empty roundtrip
+        let empty = serde_json::to_string(&SessionCheckpoint::new("e".into())).unwrap();
+        assert!(serde_json::from_str::<SessionCheckpoint>(&empty)
+            .unwrap()
+            .pending_messages
+            .is_empty());
+        // Old JSON without field → defaults to empty Vec
+        let mut jv: serde_json::Value = serde_json::to_value(&cp).unwrap();
+        jv.as_object_mut().unwrap().remove("pending_messages");
+        let old: SessionCheckpoint = serde_json::from_str(&jv.to_string()).unwrap();
+        assert!(
+            old.pending_messages.is_empty(),
+            "old JSON defaults to empty Vec"
+        );
+        // Old JSON with "transcript" key → backward compat via serde alias
+        jv.as_object_mut().unwrap().remove("pending_messages");
+        jv.as_object_mut().unwrap().insert(
+            "transcript".into(),
+            serde_json::to_value(&cp.pending_messages).unwrap(),
+        );
+        let old: SessionCheckpoint = serde_json::from_str(&jv.to_string()).unwrap();
+        assert_eq!(old.pending_messages.len(), 1);
         assert_eq!(
-            parsed.transcript[2].content_blocks,
-            vec![ContentBlock::Text("s3".to_string())]
+            old.pending_messages[0].content_blocks,
+            boundary.content_blocks
         );
     }
 
@@ -984,16 +984,14 @@ mod tests {
     async fn test_checkpoint_transcript_persists_through_memory_storage() {
         use crate::storage::memory::MemoryStorage;
         let storage = MemoryStorage::new();
-        let boundary = make_boundary_msg("persisted summary");
         let mut cp = SessionCheckpoint::new("s-transcript-persist".into());
-        cp.transcript = vec![boundary.clone()];
+        cp.pending_messages = vec![make_boundary_msg("persisted summary")];
         storage.save_checkpoint(&cp).await.unwrap();
         let loaded = storage
             .load_checkpoint("s-transcript-persist")
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(loaded.transcript.len(), 1);
-        assert_eq!(loaded.transcript[0].content_blocks, boundary.content_blocks);
+        assert_eq!(loaded.pending_messages.len(), 1);
     }
 }

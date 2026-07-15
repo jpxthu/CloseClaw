@@ -49,7 +49,7 @@ impl SessionManager {
             let conv_sessions = self.conversation_sessions.read().await;
             if let Some(cs) = conv_sessions.get(session_id) {
                 let cs = cs.read().await;
-                cp.transcript = cs.messages().to_vec();
+                cp.pending_messages = cs.messages().to_vec();
             }
         }
         cp.touch();
