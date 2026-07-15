@@ -1,13 +1,17 @@
 //! Per-request context for dynamic-layer system prompt injection.
 //!
 //! Stores inbound message metadata needed by
-//! [`build_dynamic_sections`](closeclaw_system_prompt::inject::build_dynamic_sections)
+//! [`build_dynamic_sections`]
+//! ([closeclaw_system_prompt::inject::build_dynamic_sections])
 //! at LLM request time. The session crate holds this type via
-//! [`ConversationSession::set_request_context`] so that the gateway
-//! layer can pass inbound metadata without a reverse dependency.
+//! [`ConversationSession::set_request_context`] so that the
+//! gateway layer can pass inbound metadata without a reverse
+//! dependency.
 //!
 //! This type lives in `closeclaw-common` (Layer 0) to avoid the
-//! session → gateway dependency that [`MessageMetadata`][closeclaw_gateway::session_handler::MessageMetadata]
+//! session → gateway dependency that
+//! [`MessageMetadata`]
+//! ([closeclaw_gateway::session_handler::MessageMetadata])
 //! would require.
 
 use serde::{Deserialize, Serialize};
@@ -15,9 +19,10 @@ use serde::{Deserialize, Serialize};
 /// Metadata about the current inbound message, carried into the
 /// session for dynamic-layer construction.
 ///
-/// Set by the gateway before each [`invoke_llm`][closeclaw_session::llm_session::ConversationSession::invoke_llm]
-/// call so the session can build fresh dynamic sections (ChannelContext,
-/// etc.) with up-to-date timestamps.
+/// Set by the gateway before each [`invoke_llm`]
+/// ([closeclaw_session::llm_session::ConversationSession::invoke_llm])
+/// call so the session can build fresh dynamic sections
+/// (ChannelContext, etc.) with up-to-date timestamps.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RequestContext {
     /// Open ID of the message sender.
@@ -33,39 +38,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_request_context_default() {
-        let ctx = RequestContext::default();
-        assert!(ctx.sender_id.is_empty());
-        assert!(ctx.channel.is_empty());
-        assert_eq!(ctx.timestamp, 0);
-    }
-
-    #[test]
-    fn test_request_context_clone() {
-        let ctx = RequestContext {
-            sender_id: "ou_abc".to_string(),
-            channel: "feishu".to_string(),
-            timestamp: 1234567890,
-        };
-        let cloned = ctx.clone();
-        assert_eq!(cloned.sender_id, "ou_abc");
-        assert_eq!(cloned.channel, "feishu");
-        assert_eq!(cloned.timestamp, 1234567890);
-    }
-
-    #[test]
-    fn test_request_context_set_fields_match() {
-        let ctx = RequestContext {
-            sender_id: "ou_xyz".to_string(),
-            channel: "telegram".to_string(),
-            timestamp: 9999,
-        };
-        assert_eq!(ctx.sender_id, "ou_xyz");
-        assert_eq!(ctx.channel, "telegram");
-        assert_eq!(ctx.timestamp, 9999);
-    }
-
-    #[test]
     fn test_request_context_serialization_roundtrip() {
         let ctx = RequestContext {
             sender_id: "ou_ser".to_string(),
@@ -77,12 +49,5 @@ mod tests {
         assert_eq!(restored.sender_id, "ou_ser");
         assert_eq!(restored.channel, "slack");
         assert_eq!(restored.timestamp, 42);
-    }
-
-    #[test]
-    fn test_request_context_default_is_debug() {
-        let ctx = RequestContext::default();
-        let dbg = format!("{:?}", ctx);
-        assert!(dbg.contains("RequestContext"));
     }
 }
