@@ -537,6 +537,14 @@ impl Daemon {
                 invalidate_all_sections();
             }))
             .await;
+        // Inject dynamic prompt builder so resolve() and
+        // force_new_for_channel() can pass it to every new
+        // ConversationSession for per-request dynamic-layer injection.
+        session_manager
+            .set_dynamic_prompt_builder(Arc::new(
+                closeclaw_system_prompt::SystemPromptDynamicBuilder,
+            ))
+            .await;
         Ok((
             sweeper_tx,
             announce_sweeper_tx,

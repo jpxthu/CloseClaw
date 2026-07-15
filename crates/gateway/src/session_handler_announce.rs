@@ -269,6 +269,12 @@ impl SessionMessageHandler {
             }
 
             // Non-streaming path: delegate to ConversationSession.
+            // Set default request context (no inbound metadata for queued messages).
+            if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+                cs.read()
+                    .await
+                    .set_request_context(closeclaw_common::RequestContext::default());
+            }
             let turn_start = Instant::now();
             let result: Result<StreamResult, closeclaw_llm::LLMError> = {
                 if let Some(cs) = session_manager.get_conversation_session(session_id).await {
@@ -411,8 +417,12 @@ impl SessionMessageHandler {
         }
         // 3. Re-invoke LLM. Empty content — conversation history has
         //    the original user request.
+        // Set default request context (no inbound metadata for retry).
         let result: Result<StreamResult, closeclaw_llm::LLMError> = {
             if let Some(cs) = session_manager.get_conversation_session(&session_id).await {
+                cs.read()
+                    .await
+                    .set_request_context(closeclaw_common::RequestContext::default());
                 cs.read().await.invoke_llm("").await.map(Into::into)
             } else {
                 Err(closeclaw_llm::LLMError::InvalidRequest(

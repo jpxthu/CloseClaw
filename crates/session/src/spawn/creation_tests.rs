@@ -80,6 +80,10 @@ impl SpawnCreationContext for MockCreationContext {
         None
     }
 
+    fn dynamic_prompt_builder(&self) -> Option<Arc<dyn closeclaw_common::DynamicPromptBuilder>> {
+        None
+    }
+
     async fn sender_id(&self, _session_id: &str) -> Option<String> {
         Some("test-user".to_string())
     }

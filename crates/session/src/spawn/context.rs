@@ -54,6 +54,9 @@ pub trait SpawnCreationContext: Send + Sync {
     /// Get the priority prompt overrides.
     fn prompt_overrides(&self) -> Option<PromptOverrides>;
 
+    /// Get the dynamic prompt builder for per-request injection.
+    fn dynamic_prompt_builder(&self) -> Option<Arc<dyn closeclaw_common::DynamicPromptBuilder>>;
+
     /// Get the sender/user ID for a session (used for workspace path fallback).
     async fn sender_id(&self, session_id: &str) -> Option<String>;
 }

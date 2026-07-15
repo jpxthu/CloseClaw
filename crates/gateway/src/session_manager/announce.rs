@@ -616,6 +616,10 @@ impl SessionManager {
                     cs_write.set_llm_state(closeclaw_llm::session_state::LlmState::Requesting);
                 }
                 // Invoke LLM for the queued message.
+                // Set default request context (no inbound metadata for queued messages).
+                cs.read()
+                    .await
+                    .set_request_context(closeclaw_common::RequestContext::default());
                 let result = cs.read().await.invoke_llm(&pending.content).await;
                 // Clear busy state.
                 {

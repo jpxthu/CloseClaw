@@ -493,6 +493,15 @@ impl SessionMessageHandler {
             };
 
             let turn_start = Instant::now();
+
+            // Set per-request context for dynamic-layer injection so
+            // build_system_prompt_parts can construct fresh ChannelContext
+            // with current sender/channel/timestamp.
+            let request_ctx = meta.to_request_context();
+            if let Some(cs) = sm.get_conversation_session(&session_id).await {
+                cs.read().await.set_request_context(request_ctx);
+            }
+
             let result = if stream_enabled {
                 if let (Some(gw), Some(pl)) = (gw_for_task.as_ref(), plugin_for_task.as_ref()) {
                     Self::call_llm_streaming(

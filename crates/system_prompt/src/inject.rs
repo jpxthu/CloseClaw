@@ -10,7 +10,7 @@ use crate::builder::PromptOverrides;
 use crate::plan_path::analyze_plan_path;
 use crate::sections::Section;
 use crate::workdir;
-use closeclaw_common::{PlanPath, SessionMode};
+use closeclaw_common::{DynamicPromptBuilder, DynamicPromptContext, PlanPath, SessionMode};
 use closeclaw_gateway::session_handler::MessageMetadata;
 
 /// Build dynamic sections from metadata and session state.
@@ -186,6 +186,85 @@ pub fn build_full_system_prompt(
         }
     } else {
         dynamic_rendered
+    }
+}
+
+// ── DynamicPromptBuilder adapter ───────────────────────────────────────────
+
+/// Adapter implementing [`DynamicPromptBuilder`] for the system_prompt crate.
+///
+/// Bridges the session-layer trait to the concrete
+/// [`build_dynamic_sections`] / [`build_full_system_prompt`] functions.
+pub struct SystemPromptDynamicBuilder;
+
+impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
+    fn build_prompt_parts(
+        &self,
+        context: &DynamicPromptContext,
+    ) -> (Option<String>, Option<String>) {
+        let meta = MessageMetadata {
+            sender_id: context.ctx.sender_id.clone(),
+            channel: context.ctx.channel.clone(),
+            timestamp: context.ctx.timestamp,
+        };
+
+        // Check for priority prompt overrides (override > agent > custom).
+        if let Some(ov) = context.overrides {
+            let priority = ov
+                .override_prompt
+                .as_deref()
+                .or(ov.agent_prompt.as_deref())
+                .or(ov.custom_prompt.as_deref());
+
+            if let Some(base) = priority {
+                // Override replaces the static layer; only AppendSection
+                // entries from the dynamic side are preserved.
+                let sections = build_dynamic_sections(
+                    &meta,
+                    None,
+                    context.system_appends,
+                    None,
+                    context.session_mode,
+                    None,
+                    context.user_input,
+                );
+                let append_parts: Vec<&str> = sections
+                    .iter()
+                    .filter_map(|s| match s {
+                        Section::AppendSection(body) => Some(body.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                let dynamic = if append_parts.is_empty() {
+                    None
+                } else {
+                    Some(append_parts.join("\n"))
+                };
+                return (Some(base.to_string()), dynamic);
+            }
+        }
+
+        // Normal path: static layer from stored prompt, dynamic layer
+        // freshly built from request context.
+        let workdir_str = context.workdir.to_str().map(|s| s.to_owned());
+        let sections = build_dynamic_sections(
+            &meta,
+            workdir_str.as_deref(),
+            context.system_appends,
+            None, // use meta.timestamp, not session created_at
+            context.session_mode,
+            None,
+            context.user_input,
+        );
+        let dynamic_rendered = if sections.is_empty() {
+            None
+        } else {
+            Some(sections.iter().map(|s| s.render()).collect())
+        };
+        (
+            context.system_prompt.map(|s| s.to_string()),
+            dynamic_rendered,
+        )
     }
 }
 

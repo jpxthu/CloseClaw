@@ -912,3 +912,48 @@ async fn test_user_message_persisted_before_compact_check() {
         other => panic!("expected Text block, got {:?}", other),
     }
 }
+
+// ── to_request_context (Step 1.4 / 1.5) ─────────────────────────────────
+
+/// Verify that `MessageMetadata::to_request_context` maps all fields
+/// correctly into a `closeclaw_common::RequestContext`.
+#[test]
+fn test_to_request_context_maps_fields() {
+    let meta = MessageMetadata {
+        sender_id: "ou_sender_123".into(),
+        channel: "feishu".into(),
+        timestamp: 1700000000,
+    };
+    let ctx = meta.to_request_context();
+    assert_eq!(ctx.sender_id, "ou_sender_123");
+    assert_eq!(ctx.channel, "feishu");
+    assert_eq!(ctx.timestamp, 1700000000);
+}
+
+/// `default_meta()` produces a RequestContext with empty sender/channel
+/// and a non-zero timestamp (current time).
+#[test]
+fn test_default_meta_to_request_context() {
+    let meta = MessageMetadata::default_meta();
+    let ctx = meta.to_request_context();
+    assert!(ctx.sender_id.is_empty());
+    assert!(ctx.channel.is_empty());
+    // Timestamp should be recent (within last 60 seconds)
+    let now = chrono::Utc::now().timestamp();
+    assert!(ctx.timestamp <= now);
+    assert!(ctx.timestamp > now - 60);
+}
+
+/// Empty-string fields roundtrip correctly.
+#[test]
+fn test_to_request_context_empty_fields() {
+    let meta = MessageMetadata {
+        sender_id: String::new(),
+        channel: String::new(),
+        timestamp: 0,
+    };
+    let ctx = meta.to_request_context();
+    assert!(ctx.sender_id.is_empty());
+    assert!(ctx.channel.is_empty());
+    assert_eq!(ctx.timestamp, 0);
+}

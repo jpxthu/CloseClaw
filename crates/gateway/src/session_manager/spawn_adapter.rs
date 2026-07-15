@@ -115,6 +115,11 @@ impl SpawnCreationContext for SessionManager {
         guard.clone()
     }
 
+    fn dynamic_prompt_builder(&self) -> Option<Arc<dyn closeclaw_common::DynamicPromptBuilder>> {
+        let guard = self.dynamic_prompt_builder.try_read().ok()?;
+        guard.clone()
+    }
+
     async fn sender_id(&self, session_id: &str) -> Option<String> {
         self.get_sender_id(session_id).await
     }
