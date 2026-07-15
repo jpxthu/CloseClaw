@@ -1,10 +1,8 @@
 //! Session layer for LLM conversations.
 //!
-//! Provides `SessionMessage`, `ChatSession` trait and `ConversationSession`
-//! for managing conversation state. The handle / cancel / cascade-stop
-//! surface lives in [`crate::session_handles`]; the public
-//! [`ChatSession`] trait and its `ConversationSession` impl live in
-//! [`super::session_chat`].
+//! Provides `SessionMessage`, `ChatSession` trait and `ConversationSession`.
+//! See [`crate::session_handles`] for cancel/cascade-stop and
+//! [`super::session_chat`] for the `ChatSession` impl.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -23,13 +21,7 @@ use closeclaw_common::{LlmCaller, PromptOverrides, SystemPromptBuilder};
 use closeclaw_common::{RunningStats, StreamingSink, TurnCounter, VerbosityLevel};
 use closeclaw_tasks::NotificationPriority;
 
-/// Maximum length of an individual append-section item (in characters).
-///
-/// Used by [`ConversationSession::add_system_append`] to truncate
-/// user-supplied content. Previously lived in `crate::system_prompt`
-/// alongside the now-removed global `APPEND_SECTION` static;
-/// migrated here as part of issue #862 since the per-session
-/// `system_appends` list is the only remaining production consumer.
+/// Max length of an append-section item (chars).
 pub const APPEND_SECTION_MAX_LEN: usize = 500;
 
 // Re-export `KillHandle` from common so call sites that
@@ -69,9 +61,8 @@ pub struct SessionMessage {
 
 /// Announce event pushed by a child session to its parent.
 ///
-/// Produced when a run-mode child session completes its task; the parent
-/// session drains these at the start of its next turn and injects the
-/// result text as a `role="system"` SessionMessage.
+/// Produced when a run-mode child completes; the parent injects
+/// the result as a `role="system"` SessionMessage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnnounceEvent {
     /// ID of the child session that completed.
@@ -97,8 +88,7 @@ pub struct AnnounceEvent {
 #[allow(dead_code)]
 pub struct ConversationSession {
     session_id: String,
-    /// Conversation messages. Accessible within the crate for
-    /// transcript operation methods in [`transcript_ops`].
+    /// Conversation messages (transcript_ops).
     pub(crate) messages: Vec<SessionMessage>,
     system_prompt: Option<String>,
     turn_counter: TurnCounter,
@@ -166,6 +156,8 @@ pub struct ConversationSession {
     /// Session mode controlling session-level behavior constraints.
     /// Orthogonal to `ReasoningMode` — see [`SessionMode`] docs.
     session_mode: Arc<Mutex<SessionMode>>,
+    /// Per-request context for dynamic-layer injection.
+    request_context: Arc<Mutex<closeclaw_common::RequestContext>>,
     /// LLM caller injected by Gateway for delegating LLM requests.
     /// Set via [`set_llm_caller`](Self::set_llm_caller) after construction.
     llm_caller: Option<Arc<dyn LlmCaller>>,
@@ -223,6 +215,7 @@ impl ConversationSession {
             shutdown_handle: None,
             verbosity_level: VerbosityLevel::default(),
             session_mode: Arc::new(Mutex::new(SessionMode::default())),
+            request_context: Arc::new(Mutex::new(closeclaw_common::RequestContext::default())),
             progress_appends: Arc::new(Mutex::new(Vec::new())),
             llm_caller: None,
             system_prompt_builder: None,
@@ -412,6 +405,15 @@ impl ConversationSession {
             .session_mode
             .lock()
             .expect("session_mode lock poisoned") = mode;
+    }
+
+    /// Set per-request context for dynamic-layer injection.
+    pub fn set_request_context(&self, ctx: closeclaw_common::RequestContext) {
+        *self.request_context.lock().expect("rc poisoned") = ctx;
+    }
+    /// Returns a clone of the current per-request context.
+    pub fn request_context(&self) -> closeclaw_common::RequestContext {
+        self.request_context.lock().expect("rc poisoned").clone()
     }
 
     /// Returns a reference to the memory-injection Arc.

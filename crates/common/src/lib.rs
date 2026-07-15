@@ -30,6 +30,7 @@ pub mod plan_status_tests;
 pub mod processor;
 #[cfg(test)]
 pub mod processor_tests;
+pub mod request_context;
 pub mod session_lookup;
 pub mod session_mode;
 pub mod session_mode_query;
@@ -90,6 +91,7 @@ pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
     ProcessedMessage, ProcessorChain, StreamEvent, UnifiedResponse, UnifiedUsage,
 };
+pub use request_context::RequestContext;
 pub use session_lookup::{PendingMessage, SessionLookup};
 pub use session_state::{
     ChildCompletionStatus, ChildSessionState, LlmState, SessionExecStatus, ToolExecState,
