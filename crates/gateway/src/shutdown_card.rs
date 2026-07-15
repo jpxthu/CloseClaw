@@ -203,7 +203,11 @@ impl Gateway {
                         pending
                             .into_iter()
                             .filter(|op| running_ids.contains(&op.op_id))
-                            .map(|op| (op.name, op.args))
+                            .map(|op| {
+                                let name = op.detail.tool_name().unwrap_or("unknown").to_string();
+                                let args = op.detail.args_summary().unwrap_or("").to_string();
+                                (name, args)
+                            })
                             .collect()
                     } else {
                         Vec::new()

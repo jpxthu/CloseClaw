@@ -13,6 +13,7 @@ mod checkpoint_manager_tests;
 pub mod compaction;
 pub mod events;
 pub mod llm_session;
+pub mod pending_operation_detail;
 pub mod persistence;
 pub mod plan_archive;
 pub mod plan_file;

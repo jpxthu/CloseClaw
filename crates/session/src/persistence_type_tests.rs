@@ -190,13 +190,17 @@ mod tests {
 
     #[test]
     fn test_pending_operation_new_has_status_running() {
-        use crate::persistence::{PendingOperation, PendingOperationStatus, PendingOperationType};
+        use crate::persistence::{
+            PendingOperation, PendingOperationDetail, PendingOperationStatus, PendingOperationType,
+        };
         let op = PendingOperation {
             op_id: "op1".into(),
             op_type: PendingOperationType::ToolCall,
             status: PendingOperationStatus::Running,
-            name: "test".into(),
-            args: String::new(),
+            detail: PendingOperationDetail::ToolCall {
+                tool_name: "test".into(),
+                args_summary: String::new(),
+            },
             created_at: chrono::Utc::now(),
         };
         assert_eq!(op.status, PendingOperationStatus::Running);
@@ -204,13 +208,17 @@ mod tests {
 
     #[test]
     fn test_pending_operation_serde_roundtrip_with_status() {
-        use crate::persistence::{PendingOperation, PendingOperationStatus, PendingOperationType};
+        use crate::persistence::{
+            PendingOperation, PendingOperationDetail, PendingOperationStatus, PendingOperationType,
+        };
         let op = PendingOperation {
             op_id: "op1".into(),
             op_type: PendingOperationType::ToolCall,
             status: PendingOperationStatus::Running,
-            name: "test".into(),
-            args: String::new(),
+            detail: PendingOperationDetail::ToolCall {
+                tool_name: "test".into(),
+                args_summary: String::new(),
+            },
             created_at: chrono::Utc::now(),
         };
         let json = serde_json::to_string(&op).unwrap();

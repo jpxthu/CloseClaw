@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::warn;
 
+pub use crate::pending_operation_detail::PendingOperationDetail;
 use closeclaw_common::communication::CommunicationConfig;
 pub use closeclaw_common::{AgentRole, PendingMessage, PlanState, ReasoningLevel, SessionMode};
 
@@ -153,6 +154,7 @@ pub struct SessionCheckpoint {
     ///
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_pending_operations")]
     pub pending_operations: Vec<PendingOperation>,
     /// Recovery notification text to inject into the conversation transcript.
     ///
@@ -679,26 +681,77 @@ impl std::fmt::Display for PendingOperationStatus {
 }
 
 /// A pending operation recorded in a checkpoint during forceful shutdown.
-///
 /// When the daemon restarts, these entries allow the recovery service to
-/// inject failure results into the conversation flow so the LLM can
-/// decide whether to retry.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// inject failure results into the conversation flow.
+#[derive(Debug, Clone, Serialize)]
 pub struct PendingOperation {
-    /// Unique identifier for this operation (e.g. tool call id, child session id).
     pub op_id: String,
-    /// Type of the pending operation.
     pub op_type: PendingOperationType,
-    /// Status of the operation (always Running; completed ops are deleted).
     #[serde(default)]
     pub status: PendingOperationStatus,
-    /// Human-readable name (tool name, session id, channel name).
-    pub name: String,
-    /// Serialized arguments (tool args JSON, session config, message content).
-    #[serde(default)]
-    pub args: String,
-    /// When this operation was initiated.
+    /// Structured supplementary information, varying by op_type.
+    pub detail: PendingOperationDetail,
     pub created_at: DateTime<Utc>,
+}
+
+impl<'de> serde::Deserialize<'de> for PendingOperation {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_pending_operation(deserializer)
+    }
+}
+
+/// Backward-compatible deserialization for `Vec<PendingOperation>`.
+fn deserialize_pending_operations<'de, D>(
+    deserializer: D,
+) -> Result<Vec<PendingOperation>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let vec: Vec<serde_json::Value> = Vec::deserialize(deserializer)?;
+    vec.into_iter()
+        .map(|v| serde_json::from_value(v).map_err(serde::de::Error::custom))
+        .collect()
+}
+
+/// Backward-compatible deserialization for `PendingOperation`.
+///
+/// Handles old format (`name` + `args` → ToolCall) and new format (`detail`).
+fn deserialize_pending_operation<'de, D>(deserializer: D) -> Result<PendingOperation, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    struct Helper {
+        op_id: String,
+        op_type: PendingOperationType,
+        #[serde(default)]
+        status: PendingOperationStatus,
+        detail: Option<PendingOperationDetail>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        args: Option<String>,
+        created_at: DateTime<Utc>,
+    }
+    let h = Helper::deserialize(deserializer)?;
+    let detail = if let Some(d) = h.detail {
+        d
+    } else {
+        PendingOperationDetail::ToolCall {
+            tool_name: h.name.unwrap_or_default(),
+            args_summary: h.args.unwrap_or_default(),
+        }
+    };
+    Ok(PendingOperation {
+        op_id: h.op_id,
+        op_type: h.op_type,
+        status: h.status,
+        detail,
+        created_at: h.created_at,
+    })
 }
 
 /// Persistence errors

@@ -4,9 +4,9 @@ mod tests {
     use std::sync::Arc;
 
     use crate::persistence::{
-        DreamingStatus, PendingOperation, PendingOperationStatus, PendingOperationType,
-        PersistenceError, PersistenceService, ReasoningLevel, ReasoningMode, ReasoningModeState,
-        SessionCheckpoint, SessionMode, SessionStatus,
+        DreamingStatus, PendingOperation, PendingOperationDetail, PendingOperationStatus,
+        PendingOperationType, PersistenceError, PersistenceService, ReasoningLevel, ReasoningMode,
+        ReasoningModeState, SessionCheckpoint, SessionMode, SessionStatus,
     };
     use crate::recovery::{
         extract_tasks_from_content, RecoveryReport, SessionRecoveryService, SpawnTree,
@@ -111,8 +111,10 @@ mod tests {
                 status: PendingOperationStatus::Running,
                 op_id: "op_1".into(),
                 op_type: PendingOperationType::ToolCall,
-                name: "bash".into(),
-                args: String::new(),
+                detail: PendingOperationDetail::ToolCall {
+                    tool_name: "bash".into(),
+                    args_summary: String::new(),
+                },
                 created_at: now,
             },
         ]);
@@ -355,16 +357,21 @@ mod tests {
                 status: PendingOperationStatus::Running,
                 op_id: "call_1".into(),
                 op_type: PendingOperationType::ToolCall,
-                name: "exec".into(),
-                args: r#"{"command":"kubectl get pods"}"#.into(),
+                detail: PendingOperationDetail::ToolCall {
+                    tool_name: "exec".into(),
+                    args_summary: r#"{"command":"kubectl get pods"}"#.into(),
+                },
                 created_at: now,
             },
             PendingOperation {
                 status: PendingOperationStatus::Running,
                 op_id: "child_1".into(),
                 op_type: PendingOperationType::SubSessionSpawn,
-                name: "sub-agent".into(),
-                args: String::new(),
+                detail: PendingOperationDetail::SubSessionSpawn {
+                    child_session_id: "sub-agent".into(),
+                    agent_id: String::new(),
+                    task_summary: String::new(),
+                },
                 created_at: now,
             },
         ]);
@@ -445,8 +452,10 @@ mod tests {
             op_id: "op_archived".into(),
             op_type: PendingOperationType::ToolCall,
             status: PendingOperationStatus::Running,
-            name: "exec".into(),
-            args: r#"{"cmd":"echo hello"}"#.into(),
+            detail: PendingOperationDetail::ToolCall {
+                tool_name: "exec".into(),
+                args_summary: r#"{"cmd":"echo hello"}"#.into(),
+            },
             created_at: now,
         }];
         // Save to active first (so load_checkpoint can find it), then archive,
