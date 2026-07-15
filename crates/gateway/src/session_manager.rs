@@ -10,7 +10,8 @@ use closeclaw_common::shutdown::ShutdownMode;
 use crate::shutdown_handle::ShutdownHandle;
 use closeclaw_common::IMPlugin;
 use closeclaw_common::{
-    LlmCaller, PromptOverrides, SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
+    DynamicPromptBuilder, LlmCaller, PromptOverrides, SkillRegistryQuery, SystemPromptBuilder,
+    ToolRegistryQuery,
 };
 use closeclaw_config::manager::{ConfigManager, ConfigSnapshot};
 use closeclaw_config::ConfigSection;
@@ -72,6 +73,10 @@ pub struct SessionManager {
     /// LLM caller injected by Gateway for delegating LLM requests.
     /// Set via [`set_llm_caller`](Self::set_llm_caller) after construction.
     llm_caller: RwLock<Option<Arc<dyn LlmCaller>>>,
+    /// Dynamic prompt builder for per-request dynamic-layer injection.
+    /// Injected by daemon (composition root) so gateway avoids depending
+    /// on `closeclaw-system-prompt` directly.
+    dynamic_prompt_builder: RwLock<Option<Arc<dyn DynamicPromptBuilder>>>,
     /// Children tracking table: parent_session_id → list of child sessions.
     pub(crate) children: RwLock<SpawnTree>,
     /// Channel → active session_id mapping.
@@ -159,6 +164,7 @@ impl SessionManager {
             prompt_overrides: RwLock::new(None),
             system_prompt_builder: RwLock::new(None),
             llm_caller: RwLock::new(None),
+            dynamic_prompt_builder: RwLock::new(None),
             children: RwLock::new(SpawnTree::new()),
             channel_active_sessions: RwLock::new(HashMap::new()),
             key_registry: RwLock::new(HashMap::new()),
@@ -299,6 +305,20 @@ impl SessionManager {
     /// Get the LLM caller, if set.
     pub async fn get_llm_caller(&self) -> Option<Arc<dyn LlmCaller>> {
         self.llm_caller.read().await.clone()
+    }
+
+    /// Inject a [`DynamicPromptBuilder`] into the session manager.
+    ///
+    /// Called by daemon (composition root) after construction so that
+    /// `resolve()` and `force_new_for_channel()` can pass it to every
+    /// new [`ConversationSession`].
+    pub async fn set_dynamic_prompt_builder(&self, builder: Arc<dyn DynamicPromptBuilder>) {
+        *self.dynamic_prompt_builder.write().await = Some(builder);
+    }
+
+    /// Get the dynamic prompt builder, if set.
+    pub async fn get_dynamic_prompt_builder(&self) -> Option<Arc<dyn DynamicPromptBuilder>> {
+        self.dynamic_prompt_builder.read().await.clone()
     }
 
     /// Swap in a new config snapshot, releasing the old one.

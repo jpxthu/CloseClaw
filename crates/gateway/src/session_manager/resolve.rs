@@ -168,6 +168,11 @@ impl SessionManager {
                                 conv_session.set_system_prompt_builder(builder);
                             }
                             conv_session.set_prompt_overrides(self.get_prompt_overrides().await);
+                            // Inject dynamic prompt builder for per-request
+                            // dynamic-layer injection (ChannelContext, etc.).
+                            if let Some(dpb) = self.get_dynamic_prompt_builder().await {
+                                conv_session.set_dynamic_prompt_builder(dpb);
+                            }
                             // Query bootstrap mode from AgentRegistry and cache.
                             let bootstrap_mode = self
                                 .query_agent_bootstrap_mode(&agent_id)
@@ -417,6 +422,11 @@ impl SessionManager {
             conv_session.set_system_prompt_builder(builder);
         }
         conv_session.set_prompt_overrides(self.get_prompt_overrides().await);
+        // Inject dynamic prompt builder for per-request dynamic-layer
+        // injection (ChannelContext, SessionState, etc.).
+        if let Some(dpb) = self.get_dynamic_prompt_builder().await {
+            conv_session.set_dynamic_prompt_builder(dpb);
+        }
         // Query bootstrap mode from AgentRegistry and cache.
         let bootstrap_mode = self
             .query_agent_bootstrap_mode(&agent_id)

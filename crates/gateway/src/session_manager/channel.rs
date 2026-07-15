@@ -6,6 +6,7 @@
 
 use super::SessionManager;
 use crate::Session;
+use closeclaw_session::bootstrap::loader::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{SessionCheckpoint, SessionStatus};
 use std::sync::Arc;
@@ -70,6 +71,21 @@ impl SessionManager {
             conv_session.set_system_prompt_builder(builder);
         }
         conv_session.set_prompt_overrides(self.get_prompt_overrides().await);
+        // Inject dynamic prompt builder for per-request dynamic-layer
+        // injection (ChannelContext, SessionState, etc.).
+        if let Some(dpb) = self.get_dynamic_prompt_builder().await {
+            conv_session.set_dynamic_prompt_builder(dpb);
+        }
+        // Query bootstrap mode from AgentRegistry and cache.
+        let bootstrap_mode = self
+            .query_agent_bootstrap_mode(agent_id)
+            .await
+            .unwrap_or(BootstrapMode::Full);
+        conv_session = conv_session.with_bootstrap_mode(bootstrap_mode);
+        // Build initial system prompt via session's own builder.
+        conv_session
+            .rebuild_system_prompt(&session_id, agent_id, Some(bootstrap_mode))
+            .await;
         // Inject snapshot meta store for persistence.
         self.inject_snapshot_meta_store(&session_id, &mut conv_session)
             .await;

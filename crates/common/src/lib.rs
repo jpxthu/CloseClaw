@@ -30,6 +30,7 @@ pub mod plan_status_tests;
 pub mod processor;
 #[cfg(test)]
 pub mod processor_tests;
+pub mod request_context;
 pub mod session_lookup;
 pub mod session_mode;
 pub mod session_mode_query;
@@ -45,6 +46,8 @@ pub mod streaming;
 #[cfg(test)]
 pub mod streaming_tests;
 pub mod system_prompt;
+#[cfg(test)]
+pub mod system_prompt_tests;
 pub mod test_helpers;
 pub mod tool_registry;
 pub mod tool_session;
@@ -90,6 +93,7 @@ pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
     ProcessedMessage, ProcessorChain, StreamEvent, UnifiedResponse, UnifiedUsage,
 };
+pub use request_context::RequestContext;
 pub use session_lookup::{PendingMessage, SessionLookup};
 pub use session_state::{
     ChildCompletionStatus, ChildSessionState, LlmState, SessionExecStatus, ToolExecState,
@@ -109,7 +113,10 @@ pub use communication::{
 pub use session_mode::SessionMode;
 pub use session_mode_query::SessionModeQuery;
 pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, StorageProvider};
-pub use system_prompt::{PromptOverrides, SystemPromptBuilder};
+pub use system_prompt::{
+    split_static_dynamic, DynamicPromptBuilder, DynamicPromptContext, PromptOverrides,
+    SystemPromptBuilder,
+};
 // TaskManager, TaskState, BackgroundTask, BackgroundTaskError migrated to closeclaw-tasks
 pub use tool_registry::{
     RegistryError, ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry,

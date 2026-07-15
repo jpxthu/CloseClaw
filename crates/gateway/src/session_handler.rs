@@ -46,6 +46,16 @@ impl MessageMetadata {
             timestamp: chrono::Utc::now().timestamp(),
         }
     }
+
+    /// Convert into a [`RequestContext`](closeclaw_common::RequestContext)
+    /// for session-side dynamic-layer injection.
+    pub fn to_request_context(&self) -> closeclaw_common::RequestContext {
+        closeclaw_common::RequestContext {
+            sender_id: self.sender_id.clone(),
+            channel: self.channel.clone(),
+            timestamp: self.timestamp,
+        }
+    }
 }
 
 /// Outcome of handling an inbound message.

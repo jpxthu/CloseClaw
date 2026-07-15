@@ -589,3 +589,51 @@ async fn test_swap_config_snapshot() {
         "new snapshot should differ from the old one"
     );
 }
+
+// =====================================================================
+// Step 1.7 — force_new_for_channel injection test
+// =====================================================================
+
+/// force_new_for_channel with a builder should produce a non-empty
+/// system prompt after session creation.
+#[tokio::test]
+#[serial]
+async fn test_force_new_injects_system_prompt_with_builder() {
+    clear_global_prompt_state();
+
+    let tmp = make_temp_workspace(&[
+        ("AGENTS.md", "agents content"),
+        ("SOUL.md", "soul content"),
+        ("IDENTITY.md", "identity content"),
+        ("USER.md", "user content"),
+        ("TOOLS.md", "tools content"),
+        ("BOOTSTRAP.md", "bootstrap content"),
+        ("MEMORY.md", "memory content"),
+    ]);
+    let workspace_dir = tmp.path().to_path_buf();
+    let mgr = SessionManager::new(
+        &test_config(),
+        None,
+        Some(workspace_dir.clone()),
+        ReasoningLevel::default(),
+    );
+    mgr.set_system_prompt_builder(Arc::new(TestPromptBuilder::new(
+        Some(workspace_dir),
+        BootstrapMode::Full,
+    )))
+    .await;
+
+    let session_id = mgr.force_new_for_channel("feishu", "agent-test").await;
+    let conv_slot = mgr.get_conversation_session(&session_id).await;
+    assert!(conv_slot.is_some(), "session should exist");
+    let conv = conv_slot.unwrap();
+    let conv = conv.read().await;
+    let prompt = conv
+        .system_prompt()
+        .expect("system prompt should be non-empty");
+    assert!(!prompt.is_empty(), "system prompt should be non-empty");
+    assert!(
+        prompt.contains("agents content"),
+        "system prompt should contain bootstrap content"
+    );
+}
