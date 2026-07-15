@@ -904,6 +904,14 @@ mod consistency_check_tests;
 #[cfg(test)]
 mod flush_tests;
 #[cfg(test)]
+mod gap3_graceful_timeout_tests;
+#[cfg(test)]
+mod gap3_priority_injection_tests;
+#[cfg(test)]
+mod gap3_status_text_tests;
+#[cfg(test)]
+mod gap3_termination_notification_tests;
+#[cfg(test)]
 mod graceful_stop_tests;
 #[cfg(test)]
 mod rebuild_spawn_tree_tests;

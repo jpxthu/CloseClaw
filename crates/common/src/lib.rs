@@ -91,7 +91,9 @@ pub use processor::{
     ProcessedMessage, ProcessorChain, StreamEvent, UnifiedResponse, UnifiedUsage,
 };
 pub use session_lookup::{PendingMessage, SessionLookup};
-pub use session_state::{ChildSessionState, LlmState, SessionExecStatus, ToolExecState};
+pub use session_state::{
+    ChildCompletionStatus, ChildSessionState, LlmState, SessionExecStatus, ToolExecState,
+};
 pub use session_types::{AgentRole, ReasoningLevel};
 pub use shutdown::{DrainStatus, ShutdownMode, ShutdownSignal, ShutdownState};
 pub use skill_registry::SkillRegistryQuery;

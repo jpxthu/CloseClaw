@@ -481,6 +481,10 @@ impl SessionMessageHandler {
                 }
             }
 
+            // Step 1.4: inject Now-priority announces before user message
+            // processing so the agent sees urgent notifications first.
+            Self::drain_announces_now(&sm, &session_id).await;
+
             // Check if streaming is enabled for this session
             let stream_enabled = if let Some(cs) = sm.get_conversation_session(&session_id).await {
                 cs.read().await.stream_enabled()

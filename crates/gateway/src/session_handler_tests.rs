@@ -360,7 +360,9 @@ async fn test_drain_notifications_injects_system_message() {
     // handler_with_sm sets up LLM caller on SessionManager — needed
     // so the ConversationSession can invoke LLM when needed.
     let _handler = handler_with_sm(sm.clone()).await;
-    SessionMessageHandler::drain_announce_events(&sm, &sid).await;
+    // Step 1.4: drain both phases — Now first, then rest.
+    SessionMessageHandler::drain_announces_now(&sm, &sid).await;
+    SessionMessageHandler::drain_announces_rest(&sm, &sid).await;
 
     let cs = sm.get_conversation_session(&sid).await.expect("session");
     let msgs = cs.read().await.messages().to_vec();
@@ -404,7 +406,9 @@ async fn test_drain_notifications_no_task_manager() {
     // Do NOT set task_manager — it should be None by default.
 
     let _handler = handler_with_sm(sm.clone()).await;
-    SessionMessageHandler::drain_announce_events(&sm, &sid).await;
+    // Step 1.4: drain both phases — Now first, then rest.
+    SessionMessageHandler::drain_announces_now(&sm, &sid).await;
+    SessionMessageHandler::drain_announces_rest(&sm, &sid).await;
 
     // No panic, no error. Session should still exist.
     assert!(sm.get_conversation_session(&sid).await.is_some());
@@ -421,7 +425,9 @@ async fn test_drain_notifications_empty() {
     sm.set_task_manager(tm).await;
 
     let _handler = handler_with_sm(sm.clone()).await;
-    SessionMessageHandler::drain_announce_events(&sm, &sid).await;
+    // Step 1.4: drain both phases — Now first, then rest.
+    SessionMessageHandler::drain_announces_now(&sm, &sid).await;
+    SessionMessageHandler::drain_announces_rest(&sm, &sid).await;
 
     let cs = sm.get_conversation_session(&sid).await.expect("session");
     let msgs = cs.read().await.messages().to_vec();

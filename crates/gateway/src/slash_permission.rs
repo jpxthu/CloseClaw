@@ -22,6 +22,7 @@ use closeclaw_permission::engine::engine_types::{
 };
 use closeclaw_session::persistence::PendingMessage;
 
+use super::session_manager::stop::GracefulStopOutcome;
 use super::{Gateway, HandleResult, SessionManager, SessionMessageHandler};
 use closeclaw_permission::UserRegistry;
 use closeclaw_session::llm_session::ConversationSession;
@@ -649,7 +650,7 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             .await;
 
         match result {
-            Ok(r) if r._completed => {
+            Ok(GracefulStopOutcome::Completed) => {
                 tracing::info!(
                     session_id = %session_id,
                     force = force,
@@ -657,7 +658,47 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
                     "session stopped successfully"
                 );
             }
-            Ok(_) => {}
+            Ok(GracefulStopOutcome::Interrupted) => {
+                tracing::info!(
+                    session_id = %session_id,
+                    force = force,
+                    cascade = cascade,
+                    "session interrupted and force-stopped"
+                );
+            }
+            Ok(GracefulStopOutcome::TimedOut { remaining, .. }) => {
+                // User /stop: escalate to forceful on timeout.
+                tracing::info!(
+                    session_id = %session_id,
+                    remaining = remaining,
+                    "graceful timeout, escalating to forceful"
+                );
+                let force_result = self
+                    .session_manager
+                    .stop_single_session(
+                        session_id,
+                        ShutdownMode::Forceful,
+                        cascade,
+                        std::time::Duration::ZERO,
+                        None,
+                    )
+                    .await;
+                match force_result {
+                    Ok(_) => {
+                        tracing::info!(
+                            session_id = %session_id,
+                            "session force-stopped after timeout"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            error = ?e,
+                            "force stop after timeout failed"
+                        );
+                    }
+                }
+            }
             Err(e) => {
                 tracing::warn!(
                     session_id = %session_id,

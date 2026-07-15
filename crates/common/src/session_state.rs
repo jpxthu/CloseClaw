@@ -3,6 +3,8 @@
 //! See `docs/design/session/session-execution.md` for the full state
 //! model and transition rules.
 
+use serde::{Deserialize, Serialize};
+
 /// State of the LLM interaction for this session.
 ///
 /// Transitions:
@@ -58,6 +60,20 @@ pub enum ChildSessionState {
     Terminated,
     /// Child session errored.
     Errored,
+}
+
+/// Completion status of a child session, used in [`AnnounceEvent`]
+/// to convey the final outcome to the parent session.
+///
+/// This is a snapshot of [`ChildSessionState`] taken at announce time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChildCompletionStatus {
+    /// Child session completed its task successfully.
+    Completed,
+    /// Child session finished with an error.
+    Errored,
+    /// Child session was explicitly terminated (e.g. via forceful kill).
+    Terminated,
 }
 
 /// Overall session execution status derived from the three dimensions

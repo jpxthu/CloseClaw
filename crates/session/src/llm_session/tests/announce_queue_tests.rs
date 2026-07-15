@@ -6,6 +6,7 @@
 
 use super::*;
 use chrono::Utc;
+use closeclaw_common::ChildCompletionStatus;
 use closeclaw_tasks::NotificationPriority;
 
 // ── Helper ──────────────────────────────────────────────────────────────────
@@ -17,6 +18,7 @@ fn make_event(agent_id: &str, priority: NotificationPriority) -> AnnounceEvent {
         result_text: format!("result from {}", agent_id),
         completed_at: Utc::now(),
         priority,
+        status: ChildCompletionStatus::Completed,
     }
 }
 

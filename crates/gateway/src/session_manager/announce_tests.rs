@@ -54,6 +54,7 @@ async fn test_push_and_drain_announce() {
             result_text: format!("result-{}", i),
             completed_at: Utc::now(),
             priority: NotificationPriority::Next,
+            status: closeclaw_common::ChildCompletionStatus::Completed,
         };
         mgr.push_announce(&parent_id, event)
             .await
@@ -220,6 +221,7 @@ async fn test_announce_inject_as_system_message() {
         result_text: "computed answer".to_string(),
         completed_at: Utc::now(),
         priority: NotificationPriority::Next,
+        status: closeclaw_common::ChildCompletionStatus::Completed,
     };
     mgr.push_announce(&parent_id, event)
         .await
