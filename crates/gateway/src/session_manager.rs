@@ -35,6 +35,7 @@ pub mod communication;
 mod compaction_helpers;
 mod consistency_check;
 mod key_registry;
+mod recovery_injection;
 mod resolve;
 mod session_helpers;
 mod spawn;
