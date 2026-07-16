@@ -7,6 +7,7 @@ use super::{Gateway, GatewayError, Message};
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::StreamingOutput;
+use std::sync::Arc;
 
 use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
 use closeclaw_common::LlmState;
@@ -309,6 +310,49 @@ impl Gateway {
             .process_outbound(input)
             .await
             .map_err(|e| GatewayError::OutboundError(e.to_string()))
+    }
+
+    /// Fallback to plain-text output when no IM plugin is registered for
+    /// the target channel. Logs a warning, records the raw text to the
+    /// outbound log (via `process_outbound_raw_log_only`), and returns `Ok(())`
+    /// so the caller does not fail.
+    #[allow(dead_code)] // used by send_outbound* in Step 1.2
+    async fn fallback_to_plain_text(
+        &self,
+        channel: &str,
+        raw_output: &str,
+    ) -> Result<(), GatewayError> {
+        tracing::warn!(
+            channel,
+            "no IM plugin registered, falling back to plain-text log"
+        );
+        let blocks = vec![ContentBlock::Text(raw_output.to_string())];
+        self.process_outbound_raw_log_only(raw_output, blocks, channel)
+            .await?;
+        Ok(())
+    }
+
+    /// Fallback to plain-text send when the plugin exists but `render` or
+    /// `send` failed. Constructs a plain-text [`RenderedOutput`] and retries
+    /// via `plugin.send`. Returns the send result.
+    #[allow(dead_code)] // used by send_outbound* in Step 1.2
+    async fn send_as_plain_text(
+        &self,
+        plugin: &Arc<dyn IMPlugin>,
+        raw_output: &str,
+        chat_id: &str,
+        thread_id: Option<&str>,
+    ) -> Result<(), GatewayError> {
+        tracing::warn!(
+            chat_id,
+            "render/send failed, falling back to plain-text send"
+        );
+        let rendered = RenderedOutput {
+            msg_type: "text".to_string(),
+            payload: serde_json::json!({ "content": { "text": raw_output } }),
+        };
+        plugin.send(&rendered, chat_id, thread_id).await?;
+        Ok(())
     }
 
     /// Build a [`Message`] for checkpoint persistence from outbound fields.
