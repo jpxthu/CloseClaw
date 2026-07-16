@@ -724,4 +724,209 @@ mod tests {
             "mined_at ({ts}) should be between {before} and {after}"
         );
     }
+
+    // ===================================================================
+    // find_archived_session_by_routing tests
+    // ===================================================================
+
+    #[tokio::test]
+    async fn test_find_archived_session_by_routing_hit() {
+        let temp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(temp.path()).unwrap();
+
+        let mut cp = make_checkpoint("s-arch-find", SessionStatus::Active);
+        cp.platform = Some("feishu".to_string());
+        cp.sender_id = Some("user-1".to_string());
+        cp.peer_id = Some("chat-1".to_string());
+        cp.account_id = Some("acct-1".to_string());
+        storage.save_checkpoint(&cp).await.unwrap();
+        storage.archive_checkpoint(&cp).await.unwrap();
+
+        let found = storage
+            .find_archived_session_by_routing(Some("acct-1"), "feishu", "user-1", "chat-1")
+            .await
+            .unwrap();
+        assert_eq!(found.as_deref(), Some("s-arch-find"));
+    }
+
+    #[tokio::test]
+    async fn test_find_archived_session_by_routing_no_match() {
+        let temp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(temp.path()).unwrap();
+
+        let found = storage
+            .find_archived_session_by_routing(Some("acct-x"), "feishu", "user-x", "chat-x")
+            .await
+            .unwrap();
+        assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_find_archived_session_by_routing_multiple_returns_newest() {
+        let temp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(temp.path()).unwrap();
+
+        let now = Utc::now();
+        let mut cp_old = make_checkpoint("s-arch-old", SessionStatus::Active);
+        cp_old.platform = Some("feishu".to_string());
+        cp_old.sender_id = Some("user-1".to_string());
+        cp_old.peer_id = Some("chat-1".to_string());
+        cp_old.account_id = None;
+        cp_old.last_message_at = Some(now - chrono::Duration::hours(2));
+        storage.save_checkpoint(&cp_old).await.unwrap();
+        storage.archive_checkpoint(&cp_old).await.unwrap();
+
+        let mut cp_new = make_checkpoint("s-arch-new", SessionStatus::Active);
+        cp_new.platform = Some("feishu".to_string());
+        cp_new.sender_id = Some("user-1".to_string());
+        cp_new.peer_id = Some("chat-1".to_string());
+        cp_new.account_id = None;
+        cp_new.last_message_at = Some(now);
+        storage.save_checkpoint(&cp_new).await.unwrap();
+        storage.archive_checkpoint(&cp_new).await.unwrap();
+
+        let found = storage
+            .find_archived_session_by_routing(None, "feishu", "user-1", "chat-1")
+            .await
+            .unwrap();
+        assert_eq!(
+            found.as_deref(),
+            Some("s-arch-new"),
+            "should return the most recent archived session"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_find_archived_session_by_routing_different_fields_no_cross() {
+        let temp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(temp.path()).unwrap();
+
+        let mut cp = make_checkpoint("s-arch-diff", SessionStatus::Active);
+        cp.platform = Some("feishu".to_string());
+        cp.sender_id = Some("user-1".to_string());
+        cp.peer_id = Some("chat-1".to_string());
+        cp.account_id = None;
+        storage.save_checkpoint(&cp).await.unwrap();
+        storage.archive_checkpoint(&cp).await.unwrap();
+
+        // Different platform
+        let found = storage
+            .find_archived_session_by_routing(None, "telegram", "user-1", "chat-1")
+            .await
+            .unwrap();
+        assert!(found.is_none(), "different platform should not match");
+
+        // Different sender_id
+        let found = storage
+            .find_archived_session_by_routing(None, "feishu", "user-2", "chat-1")
+            .await
+            .unwrap();
+        assert!(found.is_none(), "different sender_id should not match");
+
+        // Different peer_id
+        let found = storage
+            .find_archived_session_by_routing(None, "feishu", "user-1", "chat-2")
+            .await
+            .unwrap();
+        assert!(found.is_none(), "different peer_id should not match");
+    }
+
+    #[tokio::test]
+    async fn test_find_archived_session_by_routing_account_id_none_vs_some() {
+        let temp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(temp.path()).unwrap();
+
+        let mut cp = make_checkpoint("s-arch-acct", SessionStatus::Active);
+        cp.platform = Some("feishu".to_string());
+        cp.sender_id = Some("user-1".to_string());
+        cp.peer_id = Some("chat-1".to_string());
+        cp.account_id = Some("acct-1".to_string());
+        storage.save_checkpoint(&cp).await.unwrap();
+        storage.archive_checkpoint(&cp).await.unwrap();
+
+        // Query with account_id=None should NOT match a record with account_id=Some
+        let found = storage
+            .find_archived_session_by_routing(None, "feishu", "user-1", "chat-1")
+            .await
+            .unwrap();
+        assert!(found.is_none(), "None account_id should not match Some");
+
+        // Query with account_id=Some("acct-1") should match
+        let found = storage
+            .find_archived_session_by_routing(Some("acct-1"), "feishu", "user-1", "chat-1")
+            .await
+            .unwrap();
+        assert_eq!(found.as_deref(), Some("s-arch-acct"));
+    }
+
+    #[tokio::test]
+    async fn test_find_archived_session_by_routing_ignores_active() {
+        let temp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(temp.path()).unwrap();
+
+        let mut cp = make_checkpoint("s-active-only", SessionStatus::Active);
+        cp.platform = Some("feishu".to_string());
+        cp.sender_id = Some("user-1".to_string());
+        cp.peer_id = Some("chat-1".to_string());
+        cp.account_id = None;
+        storage.save_checkpoint(&cp).await.unwrap();
+        // Do NOT archive
+
+        let found = storage
+            .find_archived_session_by_routing(None, "feishu", "user-1", "chat-1")
+            .await
+            .unwrap();
+        assert!(found.is_none(), "should not return active session");
+    }
+
+    // ===================================================================
+    // run_incremental_consistency_check tests
+    // ===================================================================
+
+    #[tokio::test]
+    async fn test_incremental_check_since_zero_is_full_scan() {
+        let temp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(temp.path()).unwrap();
+
+        // since=0 should behave like a full scan
+        let result = storage.run_incremental_consistency_check(0).await.unwrap();
+        assert_eq!(result.deleted_orphaned_records, 0);
+        assert_eq!(result.deleted_orphaned_files, 0);
+    }
+
+    #[tokio::test]
+    async fn test_incremental_check_skips_old_records() {
+        let temp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(temp.path()).unwrap();
+
+        // Save a checkpoint with last_message_at in the past
+        let mut cp = make_checkpoint("s-old", SessionStatus::Active);
+        cp.last_message_at = Some(chrono::DateTime::from_timestamp(1577836800, 0).unwrap());
+        storage.save_checkpoint(&cp).await.unwrap();
+
+        // Delete the transcript file to create an orphan
+        let transcript = temp.path().join("sessions").join("s-old.jsonl");
+        let _ = std::fs::remove_file(&transcript);
+
+        // Incremental scan with since = far future should skip this record
+        let future = chrono::Utc::now().timestamp() + 1000;
+        let result = storage
+            .run_incremental_consistency_check(future)
+            .await
+            .unwrap();
+        assert_eq!(
+            result.deleted_orphaned_records, 0,
+            "old record should be skipped"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_incremental_check_empty_table_no_error() {
+        let temp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(temp.path()).unwrap();
+
+        let result = storage.run_incremental_consistency_check(0).await.unwrap();
+        assert_eq!(result.deleted_orphaned_records, 0);
+        assert_eq!(result.deleted_orphaned_files, 0);
+    }
 }
