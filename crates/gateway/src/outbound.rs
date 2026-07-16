@@ -550,29 +550,45 @@ impl Gateway {
             };
         let mut state = StreamState::new(verbosity_level);
         let mut first_event_received = false;
-        while let Some(event_result) = stream.next().await {
-            let event = event_result.map_err(|e| GatewayError::OutboundError(e.to_string()))?;
-            // Transition LlmState from Requesting → Receiving on the first
-            // stream event. This aligns the runtime state machine with the
-            // design doc: Idle → Requesting → Receiving → Idle.
-            if !first_event_received {
-                first_event_received = true;
-                if let Some(cs) = self
-                    .session_manager
-                    .get_conversation_session(session_id)
-                    .await
-                {
-                    cs.read().await.set_llm_state(LlmState::Receiving);
+        let timeout_duration = std::time::Duration::from_millis(200);
+        let ctx = StreamContext {
+            plugin,
+            chat_id: &chat_id,
+            thread_id: thread_id.as_deref(),
+            middlewares: &middlewares,
+            processor_registry: processor_ref,
+        };
+        loop {
+            tokio::select! {
+                event_result = stream.next() => {
+                    let Some(event_result) = event_result else {
+                        break;
+                    };
+                    let event = event_result
+                        .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
+                    // Transition LlmState from Requesting → Receiving on the first
+                    // stream event. This aligns the runtime state machine with the
+                    // design doc: Idle → Requesting → Receiving → Idle.
+                    if !first_event_received {
+                        first_event_received = true;
+                        if let Some(cs) = self
+                            .session_manager
+                            .get_conversation_session(session_id)
+                            .await
+                        {
+                            cs.read().await.set_llm_state(LlmState::Receiving);
+                        }
+                    }
+                    self.process_stream_event(&ctx, event, &mut state).await?;
+                }
+                _ = tokio::time::sleep(timeout_duration) => {
+                    // Timeout check: force-output any buffered content.
+                    let out = ctx.plugin.check_stream_timeout();
+                    if !out.text_messages.is_empty() {
+                        dispatch_text(&ctx, out, &mut state).await?;
+                    }
                 }
             }
-            let ctx = StreamContext {
-                plugin,
-                chat_id: &chat_id,
-                thread_id: thread_id.as_deref(),
-                middlewares: &middlewares,
-                processor_registry: processor_ref,
-            };
-            self.process_stream_event(&ctx, event, &mut state).await?;
         }
         tracing::debug!(session_id, channel, "streaming outbound complete");
 

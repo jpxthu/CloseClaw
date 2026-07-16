@@ -20,7 +20,7 @@ use crate::IMAdapter;
 use async_trait::async_trait;
 use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::processor::{ContentBlock, DslParseResult, StreamEvent};
-use closeclaw_common::streaming::{DefaultStreamingRenderer, StreamingRenderer};
+use closeclaw_common::streaming::{CodeBlockMode, DefaultStreamingRenderer, StreamingRenderer};
 use closeclaw_common::{
     AdapterError as CommonAdapterError, CardActionEvent, IMPlugin, NormalizedMessage,
     RenderedOutput, StreamingOutput,
@@ -230,7 +230,9 @@ impl FeishuPlugin {
         Self {
             adapter,
             identity_resolver: None,
-            streaming_renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
+            streaming_renderer: std::sync::Mutex::new(
+                DefaultStreamingRenderer::new().with_code_block_mode(CodeBlockMode::WholeBlock),
+            ),
         }
     }
 
@@ -243,7 +245,9 @@ impl FeishuPlugin {
         Self {
             adapter,
             identity_resolver,
-            streaming_renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
+            streaming_renderer: std::sync::Mutex::new(
+                DefaultStreamingRenderer::new().with_code_block_mode(CodeBlockMode::WholeBlock),
+            ),
         }
     }
 
@@ -382,6 +386,10 @@ impl IMPlugin for FeishuPlugin {
             .lock()
             .expect("FeishuPlugin streaming renderer lock poisoned")
             .flush()
+    }
+
+    fn check_stream_timeout(&self) -> StreamingOutput {
+        self.streaming_renderer.lock().unwrap().check_timeout()
     }
 
     fn clean_content(&self, raw: &str) -> String {

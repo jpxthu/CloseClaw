@@ -11,21 +11,39 @@
 //! - [`StreamingOutput`] — incremental output struct carrying completed
 //!   text lines and non-Text [`ContentBlock`]s.
 
+use std::time::{Duration, Instant};
+
 use crate::im_plugin::StreamingOutput;
 use crate::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
 
 /// Default threshold (in characters) for forcing buffer emission.
 const LINE_THRESHOLD: usize = 100;
 
+/// Default timeout for forced buffer emission.
+const DEFAULT_TIMEOUT: Duration = Duration::from_millis(200);
+
+/// Controls how code block content is emitted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodeBlockMode {
+    /// Emit each line as it arrives (default).
+    LineByLine,
+    /// Accumulate the entire code block and emit at block end.
+    WholeBlock,
+}
+
 /// Line buffer for incremental text rendering.
 ///
 /// Splits incoming text on sentence terminators (`。！？.!?\n`) when outside
 /// fenced code blocks, and on `\n` when inside. Forces emission when the
-/// buffer exceeds the configured threshold.
+/// buffer exceeds the configured threshold or when the timeout elapses
+/// since the last feed.
 pub struct LineBuffer {
     buffer: String,
     in_code_block: bool,
     threshold: usize,
+    last_activity: Option<Instant>,
+    timeout: Option<Duration>,
+    code_block_mode: CodeBlockMode,
 }
 
 impl Default for LineBuffer {
@@ -35,7 +53,8 @@ impl Default for LineBuffer {
 }
 
 impl LineBuffer {
-    /// Create a new line buffer with the default threshold (100 chars).
+    /// Create a new line buffer with the default threshold (100 chars)
+    /// and a 200ms timeout.
     pub fn new() -> Self {
         Self::with_threshold(LINE_THRESHOLD)
     }
@@ -46,13 +65,29 @@ impl LineBuffer {
             buffer: String::new(),
             in_code_block: false,
             threshold,
+            last_activity: None,
+            timeout: Some(DEFAULT_TIMEOUT),
+            code_block_mode: CodeBlockMode::LineByLine,
         }
+    }
+
+    /// Set the timeout for forced emission. Pass `None` to disable.
+    pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// Set the code block output mode.
+    pub fn with_code_block_mode(mut self, mode: CodeBlockMode) -> Self {
+        self.code_block_mode = mode;
+        self
     }
 
     /// Reset the buffer and code-block state.
     pub fn reset(&mut self) {
         self.buffer.clear();
         self.in_code_block = false;
+        self.last_activity = None;
     }
 
     /// Feed a text chunk; returns any lines completed by this chunk.
@@ -60,6 +95,7 @@ impl LineBuffer {
         if chunk.is_empty() {
             return Vec::new();
         }
+        self.last_activity = Some(Instant::now());
         let mut emitted: Vec<String> = Vec::new();
         let mut current_line = std::mem::take(&mut self.buffer);
         let mut in_code = self.in_code_block;
@@ -72,13 +108,29 @@ impl LineBuffer {
                 continue;
             }
             if backtick_run >= 3 {
-                in_code = !in_code;
+                if in_code {
+                    // Closing fence: strip trailing ```
+                    // from output in WholeBlock mode.
+                    if self.code_block_mode == CodeBlockMode::WholeBlock {
+                        let fence = "`".repeat(backtick_run);
+                        if let Some(pos) = current_line.rfind(&fence) {
+                            current_line.truncate(pos);
+                        }
+                    }
+                    in_code = false;
+                } else {
+                    in_code = true;
+                }
             }
             backtick_run = 0;
             current_line.push(ch);
 
             let emit = if in_code {
-                ch == '\n'
+                if self.code_block_mode == CodeBlockMode::WholeBlock {
+                    false
+                } else {
+                    ch == '\n'
+                }
             } else {
                 is_sentence_terminator(ch) || ch == '\n'
             };
@@ -102,7 +154,28 @@ impl LineBuffer {
             None
         } else {
             self.in_code_block = false;
+            self.last_activity = None;
             Some(std::mem::take(&mut self.buffer))
+        }
+    }
+
+    /// Check if the timeout has elapsed since the last feed. If so, force
+    /// output the buffered content and return it.
+    pub fn check_timeout(&mut self) -> Option<Vec<String>> {
+        let (Some(last), Some(timeout)) = (self.last_activity, self.timeout) else {
+            return None;
+        };
+        if self.buffer.is_empty() {
+            return None;
+        }
+        if last.elapsed() >= timeout {
+            let mut emitted = Vec::new();
+            self.force_emit(&mut emitted);
+            self.last_activity = None;
+            self.in_code_block = false;
+            Some(emitted)
+        } else {
+            None
         }
     }
 
@@ -192,6 +265,14 @@ pub trait StreamingRenderer: Send {
 
     /// Flush any remaining buffered content; called at MessageEnd.
     fn flush(&mut self) -> StreamingOutput;
+
+    /// Check the timeout; if elapsed, force-output buffered content.
+    ///
+    /// The default implementation returns empty output. Platforms that
+    /// support time-based forced emission should override this.
+    fn check_timeout(&mut self) -> StreamingOutput {
+        StreamingOutput::default()
+    }
 }
 
 /// Default streaming renderer: line-buffered text + per-block accumulation.
@@ -217,6 +298,23 @@ impl DefaultStreamingRenderer {
             current_block_index: None,
             current_acc: None,
         }
+    }
+
+    /// Set the code block output mode.
+    pub fn with_code_block_mode(mut self, mode: CodeBlockMode) -> Self {
+        self.line_buffer = self.line_buffer.with_code_block_mode(mode);
+        self
+    }
+
+    /// Check the line buffer timeout; if elapsed, force-output buffered content.
+    pub fn check_timeout(&mut self) -> StreamingOutput {
+        let mut out = StreamingOutput::default();
+        if let Some(lines) = self.line_buffer.check_timeout() {
+            for line in lines {
+                route_line(&line, &mut out);
+            }
+        }
+        out
     }
 
     fn handle_text_delta(&mut self, text: &str, out: &mut StreamingOutput) {
@@ -348,6 +446,10 @@ impl StreamingRenderer for DefaultStreamingRenderer {
         self.current_acc = None;
         out
     }
+
+    fn check_timeout(&mut self) -> StreamingOutput {
+        DefaultStreamingRenderer::check_timeout(self)
+    }
 }
 
 /// Blanket [`StreamingRenderer`] impl for `Mutex<DefaultStreamingRenderer>`.
@@ -365,5 +467,11 @@ impl StreamingRenderer for std::sync::Mutex<DefaultStreamingRenderer> {
         self.get_mut()
             .expect("DefaultStreamingRenderer lock poisoned")
             .flush()
+    }
+
+    fn check_timeout(&mut self) -> StreamingOutput {
+        self.get_mut()
+            .expect("DefaultStreamingRenderer lock poisoned")
+            .check_timeout()
     }
 }
