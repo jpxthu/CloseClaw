@@ -192,7 +192,7 @@ impl SessionManager {
     ///
     /// Returns the number of messages successfully delivered.
     #[allow(dead_code)] // wired up in Step 1.2 (daemon startup)
-    pub(crate) async fn drain_outbound_pending_for_session(
+    pub async fn drain_outbound_pending_for_session(
         &self,
         session_id: &str,
     ) -> Result<usize, String> {
