@@ -45,3 +45,8 @@ tests/fixtures/feishu/package-lock.json
 __pycache__/
 *.pyc
 *.pyo
+
+# EDA workspace artifacts
+plan/
+memory/
+run_ddt_check.sh
