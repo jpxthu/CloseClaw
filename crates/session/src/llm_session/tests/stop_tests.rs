@@ -94,7 +94,7 @@ async fn test_stop_false_kills_tools_cancels_llm_clears_state() {
     {
         let s = cs.read().await;
         s.register_tool_handle("call-1", handle as Arc<dyn KillHandle>);
-        s.register_tool_call("call-1");
+        s.register_tool_call("call-1", "bash", "test cmd");
         s.update_tool_state("call-1", closeclaw_common::ToolExecState::RunningForeground);
     }
 
@@ -547,7 +547,7 @@ async fn test_graceful_stop_running_tool_times_out_with_progress() {
     // Simulate a running tool.
     {
         let guard = cs.read().await;
-        guard.register_tool_call("timeout-tool");
+        guard.register_tool_call("timeout-tool", "bash", "long cmd");
         guard.update_tool_state(
             "timeout-tool",
             closeclaw_common::ToolExecState::RunningForeground,
@@ -626,7 +626,7 @@ async fn test_graceful_stop_interrupted_by_forceful_escalation() {
     // Register a running tool so graceful_stop doesn't complete instantly.
     {
         let guard = cs.read().await;
-        guard.register_tool_call("blocker");
+        guard.register_tool_call("blocker", "bash", "blocker cmd");
         guard.update_tool_state(
             "blocker",
             closeclaw_common::ToolExecState::RunningForeground,

@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use crate::persistence::{ReasoningLevel, SessionMode};
+use crate::persistence::{PendingOperationDetail, ReasoningLevel, SessionMode};
 use crate::run_health::{RunHealthChecker, RuntimeSnapshotManager};
 use crate::spawn::CommunicationConfig;
 use closeclaw_common::{ChildCompletionStatus, ChildSessionState, LlmState, ToolExecState};
@@ -44,6 +44,7 @@ mod session_exec;
 pub mod session_handles;
 mod session_health;
 mod session_llm;
+mod session_pending;
 pub mod streaming_assembly;
 pub mod transcript_ops;
 pub use streaming_assembly::SessionStream;
@@ -85,7 +86,7 @@ pub struct AnnounceEvent {
 
 /// A simple in-memory implementation of `ChatSession`.
 #[derive(Clone)]
-#[allow(dead_code)]
+#[allow(dead_code, clippy::type_complexity)]
 pub struct ConversationSession {
     session_id: String,
     /// Conversation messages (transcript_ops).
@@ -110,9 +111,10 @@ pub struct ConversationSession {
     /// LLM interaction state. See [`super::session_state`].
     pub llm_state: Arc<RwLock<LlmState>>,
     /// Per-call tool states. See [`super::session_state`].
-    pub tool_states: Arc<RwLock<HashMap<String, ToolExecState>>>,
+    pub tool_states: Arc<RwLock<HashMap<String, (ToolExecState, Option<PendingOperationDetail>)>>>,
     /// Per-child session states. See [`super::session_state`].
-    pub child_states: Arc<RwLock<HashMap<String, ChildSessionState>>>,
+    pub child_states:
+        Arc<RwLock<HashMap<String, (ChildSessionState, Option<PendingOperationDetail>)>>>,
     /// When this session was created (Unix timestamp, seconds).
     /// Used by `build_dynamic_sections` as the ChannelContext timestamp.
     created_at: i64,
@@ -171,6 +173,13 @@ pub struct ConversationSession {
     /// Manual backgrounding signal. When notified, foreground commands
     /// being executed should be moved to background.
     pub manual_background_signal: Arc<tokio::sync::Notify>,
+    /// Optional persistence service for `persist_pending_checkpoint`.
+    ///
+    /// Injected by the Gateway after session creation so that
+    /// `ToolSession::persist_pending_checkpoint` can persist the
+    /// current pending operations without requiring a reference to
+    /// the Gateway's `CheckpointManager`.
+    checkpoint_storage: Option<Arc<dyn crate::persistence::PersistenceService>>,
 }
 // `impl ConversationSession` is split across multiple blocks so each
 // block stays under the CONTRIBUTING.md 100-line cap. Block A
@@ -222,6 +231,7 @@ impl ConversationSession {
             prompt_overrides: None,
             dynamic_prompt_builder: None,
             manual_background_signal: Arc::new(tokio::sync::Notify::new()),
+            checkpoint_storage: None,
         }
     }
 
@@ -365,6 +375,18 @@ impl ConversationSession {
             .snapshot_manager
             .get_or_insert_with(RuntimeSnapshotManager::new);
         mgr.set_meta_store(store);
+    }
+
+    /// Set the persistence service for `persist_pending_checkpoint`.
+    ///
+    /// Injected by the Gateway after session creation so that the
+    /// `ToolSession::persist_pending_checkpoint` implementation can
+    /// persist the current pending operations.
+    pub fn set_checkpoint_storage(
+        &mut self,
+        storage: Arc<dyn crate::persistence::PersistenceService>,
+    ) {
+        self.checkpoint_storage = Some(storage);
     }
 
     /// Get a clone of the shutdown handle, if set.
@@ -738,78 +760,7 @@ impl ConversationSession {
             })
             .collect()
     }
-
-    /// Collect pending operations from the current session state.
-    pub fn collect_pending_operations(&self) -> Vec<crate::persistence::PendingOperation> {
-        use crate::persistence::{
-            PendingOperation, PendingOperationDetail, PendingOperationStatus, PendingOperationType,
-        };
-        use chrono::Utc;
-        use closeclaw_common::{ChildSessionState, ToolExecState};
-        let mut ops = Vec::new();
-        let now = Utc::now();
-        {
-            let tool_states = self.tool_states.read().expect("tool_states lock poisoned");
-            for (tool_id, state) in tool_states.iter() {
-                if matches!(
-                    state,
-                    ToolExecState::RunningForeground
-                        | ToolExecState::RunningBackground
-                        | ToolExecState::Pending
-                ) {
-                    ops.push(PendingOperation {
-                        op_id: tool_id.clone(),
-                        op_type: PendingOperationType::ToolCall,
-                        status: PendingOperationStatus::Running,
-                        detail: PendingOperationDetail::ToolCall {
-                            tool_name: tool_id.clone(),
-                            args_summary: String::new(),
-                        },
-                        created_at: now,
-                    });
-                }
-            }
-        }
-        {
-            let child_states = self
-                .child_states
-                .read()
-                .expect("child_states lock poisoned");
-            for (child_id, state) in child_states.iter() {
-                if matches!(state, ChildSessionState::Running) {
-                    ops.push(PendingOperation {
-                        op_id: child_id.clone(),
-                        op_type: PendingOperationType::SubSessionSpawn,
-                        status: PendingOperationStatus::Running,
-                        detail: PendingOperationDetail::SubSessionSpawn {
-                            child_session_id: child_id.clone(),
-                            agent_id: String::new(),
-                            task_summary: String::new(),
-                        },
-                        created_at: now,
-                    });
-                }
-            }
-        }
-        for pm in &self.pending_messages {
-            if !pm.sent {
-                ops.push(PendingOperation {
-                    op_id: pm.message_id.clone(),
-                    op_type: PendingOperationType::OutboundMessage,
-                    status: PendingOperationStatus::Running,
-                    detail: PendingOperationDetail::OutboundMessage {
-                        target_channel: String::new(),
-                        message_id: pm.message_id.clone(),
-                        delivery_status: pm.content.clone(),
-                    },
-                    created_at: pm.created_at,
-                });
-            }
-        }
-        ops
-    }
 }
-
 /// Per-session append-section items (managed by `/system` subcommand).
 ///
 /// Replaces the previous global static `APPEND_SECTION` in
@@ -902,7 +853,9 @@ impl ConversationSession {
             .child_states
             .read()
             .expect("child_states lock poisoned");
-        states.values().any(|s| *s == ChildSessionState::Running)
+        states
+            .values()
+            .any(|(s, _)| *s == ChildSessionState::Running)
     }
 }
 

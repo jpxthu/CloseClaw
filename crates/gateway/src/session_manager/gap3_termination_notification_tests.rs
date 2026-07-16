@@ -35,7 +35,7 @@ async fn register_child_with_session(
         let guard = parent_cs.read().await;
         guard.child_states.write().expect("lock").insert(
             child_id.to_string(),
-            closeclaw_common::ChildSessionState::Running,
+            (closeclaw_common::ChildSessionState::Running, None),
         );
     }
 
@@ -119,7 +119,7 @@ async fn test_forceful_kill_sets_child_state_terminated() {
     let states = guard.child_states.read().expect("lock");
     let state = states
         .get("child-ft-2")
-        .copied()
+        .map(|(s, _)| *s)
         .expect("child state should exist");
     assert_eq!(
         state,
@@ -310,7 +310,7 @@ async fn test_notify_child_error_sets_state() {
     let states = guard.child_states.read().expect("lock");
     let state = states
         .get("child-ne-1")
-        .copied()
+        .map(|(s, _)| *s)
         .expect("child state should exist");
     assert_eq!(
         state,
@@ -351,7 +351,7 @@ async fn test_notify_child_error_dedup_terminal() {
     let parent_cs = mgr.get_conversation_session(&parent_id).await.unwrap();
     let guard = parent_cs.read().await;
     let states = guard.child_states.read().expect("lock");
-    let state = states.get("child-ne-d").copied().unwrap();
+    let state = states.get("child-ne-d").map(|(s, _)| *s).unwrap();
     assert_eq!(
         state,
         ChildSessionState::Completed,

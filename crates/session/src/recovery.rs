@@ -496,7 +496,8 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
     fn build_notification_text(&self, checkpoint: &SessionCheckpoint) -> String {
         use crate::persistence::PendingOperationType;
 
-        let restart_time = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
+        let restart_time_utc = chrono::Utc::now();
+        let restart_time = restart_time_utc.format("%Y-%m-%dT%H:%M:%SZ");
 
         // Build summary by op_type
         let mut tool_calls = Vec::new();
@@ -522,10 +523,11 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
                 }
                 PendingOperationType::SubSessionSpawn => {
                     let child_id = op.detail.child_session_id().unwrap_or("unknown");
+                    let elapsed = (restart_time_utc - op.created_at).num_seconds();
+                    let duration_str = format_duration_seconds(elapsed);
                     sub_spawns.push(format!(
-                        "  • 子 Session: {} — 发起于 {}",
-                        child_id,
-                        op.created_at.format("%Y-%m-%dT%H:%M:%SZ")
+                        "  • 子 Session: {} — 已运行 {}",
+                        child_id, duration_str
                     ));
                 }
                 PendingOperationType::OutboundMessage => {
@@ -629,6 +631,37 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
     pub fn storage(&self) -> &S {
         &self.storage
     }
+}
+
+/// Format a number of seconds as a human-readable duration string.
+///
+/// Examples:
+/// - 0 → "0s"
+/// - 30 → "30s"
+/// - 90 → "1m30s"
+/// - 3661 → "1h1m1s"
+/// - 86400 → "1d"
+fn format_duration_seconds(seconds: i64) -> String {
+    let seconds = seconds.max(0) as u64;
+    let days = seconds / 86400;
+    let hours = (seconds % 86400) / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let secs = seconds % 60;
+
+    let mut parts = Vec::new();
+    if days > 0 {
+        parts.push(format!("{}d", days));
+    }
+    if hours > 0 {
+        parts.push(format!("{}h", hours));
+    }
+    if minutes > 0 {
+        parts.push(format!("{}m", minutes));
+    }
+    if secs > 0 || parts.is_empty() {
+        parts.push(format!("{}s", secs));
+    }
+    parts.join("")
 }
 
 /// Spawn tree — tracks parent-child relationships between sessions.
@@ -954,3 +987,7 @@ mod tests;
 #[cfg(test)]
 #[path = "recovery_progress_tests.rs"]
 mod recovery_progress_tests;
+
+#[cfg(test)]
+#[path = "crash_recovery_tests.rs"]
+mod crash_recovery_tests;

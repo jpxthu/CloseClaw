@@ -186,6 +186,8 @@ impl SessionManager {
                             // Inject snapshot meta store for persistence.
                             self.inject_snapshot_meta_store(&session_id, &mut conv_session)
                                 .await;
+                            // Inject checkpoint storage for pending-operation persistence.
+                            self.inject_checkpoint_storage(&mut conv_session).await;
                             {
                                 let mut cs = self.conversation_sessions.write().await;
                                 cs.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
@@ -469,6 +471,8 @@ impl SessionManager {
                             // Inject snapshot meta store for persistence.
                             self.inject_snapshot_meta_store(&archived_id, &mut conv_session)
                                 .await;
+                            // Inject checkpoint storage for pending-operation persistence.
+                            self.inject_checkpoint_storage(&mut conv_session).await;
                             {
                                 let mut cs = self.conversation_sessions.write().await;
                                 cs.insert(archived_id.clone(), Arc::new(RwLock::new(conv_session)));
@@ -635,6 +639,8 @@ impl SessionManager {
         // Inject snapshot meta store for persistence.
         self.inject_snapshot_meta_store(&session_id, &mut conv_session)
             .await;
+        // Inject checkpoint storage for pending-operation persistence.
+        self.inject_checkpoint_storage(&mut conv_session).await;
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
             conv_sessions.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
