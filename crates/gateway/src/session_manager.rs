@@ -925,6 +925,8 @@ impl SessionLookup for SessionManager {
     }
 }
 #[cfg(test)]
+mod announce_dedup_tests;
+#[cfg(test)]
 mod announce_drain_outbound_tests;
 #[cfg(test)]
 mod announce_tests;

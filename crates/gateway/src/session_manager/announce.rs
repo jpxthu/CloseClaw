@@ -19,7 +19,7 @@ use closeclaw_common::{ChildCompletionStatus, ChildSessionState, SessionExecStat
 use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSession};
 use closeclaw_session::run_health::AnnounceSweepTarget;
 use closeclaw_tasks::NotificationPriority;
-use tracing::warn;
+use tracing::{debug, warn};
 
 // ── Queue accessors (push / drain) ─────────────────────────────────────────
 
@@ -375,6 +375,33 @@ impl SessionManager {
                 }
             }
             return;
+        }
+
+        // Dedup protection: skip announce if child state is already terminal.
+        // This prevents duplicate AnnounceEvent injection when
+        // AnnounceSweeper and clear_busy_and_send race on the same child.
+        // Style matches notify_child_forced_termination / notify_child_error.
+        if let Some(parent_cs) = self.get_conversation_session(&parent_session_id).await {
+            let parent_guard = parent_cs.read().await;
+            let states = parent_guard
+                .child_states
+                .read()
+                .expect("child_states lock poisoned");
+            if let Some((state, _)) = states.get(child_session_id) {
+                if matches!(
+                    state,
+                    ChildSessionState::Completed
+                        | ChildSessionState::Errored
+                        | ChildSessionState::Terminated
+                ) {
+                    debug!(
+                        child_session_id = %child_session_id,
+                        ?state,
+                        "try_push_announce: child already terminal, skipping"
+                    );
+                    return;
+                }
+            }
         }
 
         let Some(result_text) = self.extract_last_assistant_text(child_session_id).await else {
