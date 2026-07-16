@@ -172,6 +172,7 @@ impl LineBuffer {
             let mut emitted = Vec::new();
             self.force_emit(&mut emitted);
             self.last_activity = None;
+            self.in_code_block = false;
             Some(emitted)
         } else {
             None

@@ -564,7 +564,8 @@ impl Gateway {
                     let Some(event_result) = event_result else {
                         break;
                     };
-                    let event = event_result.map_err(|e| GatewayError::OutboundError(e.to_string()))?;
+                    let event = event_result
+                        .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
                     // Transition LlmState from Requesting → Receiving on the first
                     // stream event. This aligns the runtime state machine with the
                     // design doc: Idle → Requesting → Receiving → Idle.

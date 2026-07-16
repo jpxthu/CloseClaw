@@ -359,8 +359,9 @@ fn test_feed_resets_timeout_timer() {
     buf.feed("first");
     thread::sleep(Duration::from_millis(100));
     buf.feed("second"); // This resets the timer.
-    thread::sleep(Duration::from_millis(150)); // Total ~250ms from first feed, but only ~150ms from second.
-                                               // Timer was reset by the second feed, so check_timeout should return None.
+                        // Total ~250ms from first feed, but only ~150ms from second.
+                        // Timer was reset by second feed, so check_timeout returns None.
+    thread::sleep(Duration::from_millis(150));
     assert!(buf.check_timeout().is_none());
     // Now wait for the timeout to actually elapse from the second feed.
     thread::sleep(Duration::from_millis(200));
