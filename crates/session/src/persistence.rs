@@ -826,6 +826,23 @@ pub trait PersistenceService: Send + Sync {
         Ok(None)
     }
 
+    /// 查找与给定 routing fields 匹配的 archived session。
+    ///
+    /// 用于归档恢复路径：当 key_registry 未命中且活跃会话也不存在时，
+    /// 通过路由字段查询归档会话。返回 `last_message_at` 最新的那条。
+    /// 当 `account_id` 为 `None` 时，匹配数据库中 `account_id IS NULL` 的记录。
+    ///
+    /// 返回匹配的 session_id，若无匹配返回 `Ok(None)`。
+    async fn find_archived_session_by_routing(
+        &self,
+        _account_id: Option<&str>,
+        _channel: &str,
+        _sender_id: &str,
+        _peer_id: &str,
+    ) -> Result<Option<String>, PersistenceError> {
+        Ok(None)
+    }
+
     /// 归档 Checkpoint
     async fn archive_checkpoint(
         &self,
@@ -938,5 +955,20 @@ pub trait PersistenceService: Send + Sync {
     /// (e.g. `SqliteStorage`) should override this to perform the actual check.
     async fn run_consistency_check(&self) -> Result<ConsistencyCheckResult, PersistenceError> {
         Ok(ConsistencyCheckResult::default())
+    }
+
+    /// Run an incremental bidirectional consistency check since the given
+    /// Unix epoch seconds (`since`).
+    ///
+    /// - SQLite → File system: only active records with `last_message_at > since`.
+    /// - File system → SQLite: only transcript files with `mtime > since`.
+    ///
+    /// The default implementation delegates to the full `run_consistency_check`
+    /// (ignoring `since`), preserving backward compatibility.
+    async fn run_incremental_consistency_check(
+        &self,
+        _since: i64,
+    ) -> Result<ConsistencyCheckResult, PersistenceError> {
+        self.run_consistency_check().await
     }
 }

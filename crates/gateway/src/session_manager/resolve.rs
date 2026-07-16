@@ -374,6 +374,201 @@ impl SessionManager {
             return Ok(existing_id);
         }
 
+        // Archived session check: if no active session found in SQLite,
+        // check for an archived session that can be restored.
+        let archived_check = {
+            let cm_guard = self.checkpoint_manager.read().await;
+            match cm_guard.as_ref() {
+                Some(cm) => cm
+                    .storage()
+                    .find_archived_session_by_routing(
+                        account_id,
+                        channel,
+                        &message.from,
+                        &message.to,
+                    )
+                    .await
+                    .ok()
+                    .flatten(),
+                None => None,
+            }
+        };
+        if let Some(archived_id) = archived_check {
+            if self
+                .try_restore_archived_session(&archived_id, channel)
+                .await
+            {
+                // Load checkpoint and set up conversation session + Session entry
+                let cm_arc = {
+                    let guard = self.checkpoint_manager.read().await;
+                    guard.as_ref().map(Arc::clone)
+                };
+                if let Some(cm) = cm_arc {
+                    if let Some(cp) = cm.load(&archived_id).await.ok().flatten() {
+                        // Ensure ConversationSession exists
+                        let needs_conv = {
+                            let cs = self.conversation_sessions.read().await;
+                            !cs.contains_key(&archived_id)
+                        };
+                        if needs_conv {
+                            let agent_id =
+                                cp.agent_id.clone().unwrap_or_else(|| message.to.clone());
+                            let workdir_path = session_helpers::compute_session_workdir(
+                                true,
+                                &archived_id,
+                                message,
+                                &self.workspace_dir,
+                                cm.as_ref(),
+                            )
+                            .await?;
+
+                            let mut conv_session = ConversationSession::new(
+                                archived_id.clone(),
+                                "default".to_string(),
+                                workdir_path,
+                            )
+                            .with_system_prompt("")
+                            .with_reasoning_level(self.default_reasoning_level);
+                            // Wire shutdown handle for busy-count tracking.
+                            if let Some(sh) = self.get_shutdown_handle().await {
+                                conv_session.set_shutdown_handle(sh);
+                            }
+                            // Inject LLM caller and system prompt builder.
+                            let agent_hooks = self
+                                .get_agent_config(&agent_id)
+                                .await
+                                .map(|c| c.hooks)
+                                .unwrap_or_default();
+                            if let Some(caller) = self.get_llm_caller().await {
+                                conv_session.set_llm_caller(caller.clone());
+                                conv_session.init_health_checker(caller, agent_hooks);
+                            }
+                            if let Some(builder) = self.get_system_prompt_builder().await {
+                                conv_session.set_system_prompt_builder(builder);
+                            }
+                            conv_session.set_prompt_overrides(self.get_prompt_overrides().await);
+                            // Inject dynamic prompt builder for per-request
+                            // dynamic-layer injection (ChannelContext, etc.).
+                            if let Some(dpb) = self.get_dynamic_prompt_builder().await {
+                                conv_session.set_dynamic_prompt_builder(dpb);
+                            }
+                            // Query bootstrap mode from AgentRegistry and cache.
+                            let bootstrap_mode = self
+                                .query_agent_bootstrap_mode(&agent_id)
+                                .await
+                                .unwrap_or(BootstrapMode::Full);
+                            conv_session = conv_session.with_bootstrap_mode(bootstrap_mode);
+                            // Build initial system prompt via session's own builder.
+                            conv_session
+                                .rebuild_system_prompt(
+                                    &archived_id,
+                                    &agent_id,
+                                    Some(bootstrap_mode),
+                                )
+                                .await;
+                            // Inject snapshot meta store for persistence.
+                            self.inject_snapshot_meta_store(&archived_id, &mut conv_session)
+                                .await;
+                            {
+                                let mut cs = self.conversation_sessions.write().await;
+                                cs.insert(archived_id.clone(), Arc::new(RwLock::new(conv_session)));
+                            }
+                        }
+
+                        // Restore pending messages, system_appends, verbosity_level,
+                        // and communication_config from checkpoint.
+                        {
+                            let cs = self.conversation_sessions.read().await;
+                            if let Some(cs) = cs.get(&archived_id) {
+                                let mut cs = cs.write().await;
+                                cs.restore_pending_messages(cp.outbound_pending.clone());
+                                cs.restore_system_appends(cp.system_appends.clone());
+                                cs.set_verbosity_level(cp.verbosity_level);
+                                // Restore communication config for spawned sessions.
+                                if let Some(ref comm_config) = cp.communication_config {
+                                    cs.set_communication_config(comm_config.clone());
+                                }
+                                // Restore transcript from checkpoint.
+                                if !cp.pending_messages.is_empty() {
+                                    cs.apply_transcript_op(
+                                        TranscriptOp::Rewrite,
+                                        cp.pending_messages.clone(),
+                                    );
+                                }
+                            }
+                        }
+
+                        // Inject recovery notifications and tool failure results
+                        // from checkpoint.
+                        if let Some(ref notification) = cp.recovery_notification {
+                            let cs = self.conversation_sessions.read().await;
+                            if let Some(cs) = cs.get(&archived_id) {
+                                let mut cs = cs.write().await;
+                                cs.inject_system_message(notification.clone());
+                                for failure in &cp.pending_tool_failures {
+                                    let tool_call_id =
+                                        serde_json::from_str::<serde_json::Value>(failure)
+                                            .ok()
+                                            .and_then(|v| {
+                                                v.get("op_id")?.as_str().map(String::from)
+                                            })
+                                            .unwrap_or_else(|| "recovery".to_string());
+                                    cs.inject_tool_result(&tool_call_id, failure);
+                                }
+                                info!(
+                                    session_id = %archived_id,
+                                    "injected recovery notification and {} tool failure(s)",
+                                    cp.pending_tool_failures.len()
+                                );
+                            }
+                        }
+
+                        // Create Session entry
+                        {
+                            let mut sessions = self.sessions.write().await;
+                            if !sessions.contains_key(&archived_id) {
+                                sessions.insert(
+                                    archived_id.clone(),
+                                    super::session_helpers::create_new_session(
+                                        &archived_id,
+                                        message,
+                                        channel,
+                                    ),
+                                );
+                            }
+                        }
+
+                        // Save checkpoint with updated thread_id
+                        let mut cp = cp;
+                        cp.thread_id = message.thread_id.clone();
+                        if let Err(e) = cm.save_raw(&cp).await {
+                            warn!(
+                                session_id = %archived_id,
+                                error = %e,
+                                "failed to save checkpoint after restore"
+                            );
+                        }
+                    }
+                }
+
+                // Re-register routing_key so subsequent lookups find
+                // the restored session.
+                {
+                    let mut registry = self.key_registry.write().await;
+                    registry.insert(routing_key.clone(), archived_id.clone());
+                }
+
+                self.update_checkpoint_thread_id(&archived_id, &message.thread_id)
+                    .await;
+                info!(
+                    session_id = %archived_id,
+                    routing_key = %routing_key,
+                    "SQLite archived check: found and restored archived session"
+                );
+                return Ok(archived_id);
+            }
+        }
+
         let session_id = session_helpers::generate_session_id(&message.to);
 
         // Write to key_registry using routing_key (no timestamps)
