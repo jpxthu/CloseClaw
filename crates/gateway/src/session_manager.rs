@@ -891,7 +891,6 @@ impl SessionManager {
         );
     }
 }
-
 // --- SessionLookup trait implementation ---
 
 use closeclaw_common::SessionLookup;
@@ -953,6 +952,8 @@ mod graceful_stop_tests;
 #[cfg(test)]
 mod rebuild_spawn_tree_tests;
 #[cfg(test)]
+mod recovery_injection_tests;
+#[cfg(test)]
 mod resolve_archived_recovery_tests;
 #[cfg(test)]
 mod resolve_checkpoint_status_tests;
@@ -996,5 +997,3 @@ pub(crate) mod tests;
 mod yield_recovery_tests;
 #[cfg(test)]
 mod yield_timeout_tests;
-// #[cfg(test)]
-// mod tests_get_thread_id;  // DISABLED: imports from full-tests only modules
