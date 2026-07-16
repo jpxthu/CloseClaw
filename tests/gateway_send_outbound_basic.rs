@@ -327,13 +327,17 @@ async fn test_send_outbound_unknown_session() {
 }
 
 #[tokio::test]
-async fn test_send_outbound_unknown_channel() {
+async fn test_send_outbound_unknown_channel_fallback() {
     let (gw, sm) = make_outbound_gw(make_config());
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
     let result = gw.send_outbound(&sid, "unknown", "raw", vec![]).await;
-    assert!(matches!(result, Err(GatewayError::UnknownChannel(_))));
+    assert!(
+        result.is_ok(),
+        "unknown channel should fall back to plain-text, got {:?}",
+        result
+    );
 }
 
 #[tokio::test]
