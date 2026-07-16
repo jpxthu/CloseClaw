@@ -278,7 +278,7 @@ impl Daemon {
         // pending_operations, and persist recovery notifications/failure
         // results into checkpoints so resolve.rs can inject them when
         // sessions are restored.
-        {
+        let dirty_sessions_for_drain: Vec<String> = {
             use closeclaw_session::recovery::SessionRecoveryService;
             let recovery_svc =
                 SessionRecoveryService::new(Arc::clone(storage) as Arc<dyn PersistenceService>);
@@ -296,12 +296,14 @@ impl Daemon {
                             "recovery scan complete — no dirty sessions"
                         );
                     }
+                    report.dirty_sessions
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "recovery scan failed — continuing without recovery");
+                    Vec::new()
                 }
             }
-        }
+        };
 
         if let Err(e) = session_manager.rebuild_key_registry().await {
             tracing::warn!(error = %e, "failed to rebuild key_registry — continuing");
@@ -327,6 +329,33 @@ impl Daemon {
             .set_metrics_emitter(Arc::new(NoopMetricsEmitter))
             .await;
         closeclaw_im_adapter::platforms::register_platform_plugins(&gateway, config_dir).await;
+        // Drain outbound pending messages for dirty sessions recovered earlier.
+        // Each session is drained asynchronously via tokio::spawn so startup
+        // is not blocked by network I/O.
+        if !dirty_sessions_for_drain.is_empty() {
+            let sm_ref = Arc::clone(&session_manager);
+            for session_id in dirty_sessions_for_drain {
+                let sm = Arc::clone(&sm_ref);
+                tokio::spawn(async move {
+                    match sm.drain_outbound_pending_for_session(&session_id).await {
+                        Ok(count) => {
+                            info!(
+                                session_id = %session_id,
+                                delivered = count,
+                                "outbound pending drain complete"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                session_id = %session_id,
+                                error = %e,
+                                "outbound pending drain failed"
+                            );
+                        }
+                    }
+                });
+            }
+        }
         Self::init_terminal_plugin(&gateway).await;
         Self::init_slash_dispatcher(&gateway, &session_manager, permission_engine).await;
         // Start the inbound queue consumer so webhook messages are buffered.
