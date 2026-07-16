@@ -2,7 +2,7 @@
 
 ## 概述
 
-- 关联需求文档：[requirements/daemon.md](../requirements/daemon.md)
+- 关联需求文档：[requirements/daemon.md](../../requirements/daemon.md)
 - 一句话：Daemon 是进程入口和组件胶水层，负责系统启动时的组件初始化与依赖注入、后台任务启动，以及优雅关闭。Daemon 自身不含业务逻辑。
 
 ## 架构
@@ -33,11 +33,11 @@
 | 4 | Session Manager | Storage, AgentRegistry, Skills Registry, Tools Registry |
 | 4 | ApprovalFlow | Permission Engine, AgentRegistry |
 | 5 | Gateway | Session Manager, IM Adapters, Permission Engine, ApprovalFlow |
-| 5 | Admin RPC Server | Gateway |
+| 6 | Admin RPC Server | Gateway |
 
 初始化完成后进入消息循环，由 Gateway 接管所有消息处理。
 
-Daemon 持有 SessionManager、Gateway 和 ApprovalFlow 的引用，管理其生命周期。
+Daemon 持有 Session Manager、Gateway 和 ApprovalFlow 的引用，管理其生命周期。
 
 ### 子功能
 
@@ -80,7 +80,9 @@ Daemon 启动（依赖驱动，按拓扑序分层执行）
   │   └── ApprovalFlow（注入 Permission Engine、AgentRegistry）
   │
   ├── 层 5（依赖层 4）
-  │   ├── Gateway（注入 adapters、processor registry、renderers、session manager、permission；安装 SlashDispatcher；注入 ApprovalFlow）
+  │   └── Gateway（注入 adapters、processor registry、renderers、session manager、permission；安装 SlashDispatcher；注入 ApprovalFlow）
+  │
+  ├── 层 6（依赖层 5）
   │   └── Admin RPC Server（启动 Unix domain socket 管理服务，接收 CLI Admin 命令）
   │
   └── 进入消息循环
@@ -112,11 +114,8 @@ Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 
 ## 模块关系
 
-### 上游
-
-操作系统进程管理器。
-
-### 下游（Daemon 初始化/管理哪些模块）
+- **上游**：操作系统进程管理器。
+- **下游**：Daemon 初始化/管理以下模块。
 
 | 模块 | 关系 |
 |------|------|
@@ -134,14 +133,12 @@ Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | Gateway | 启动时创建并注入依赖，Daemon 持有其所有权 |
 | Admin RPC Server | 启动时创建 Unix domain socket 管理服务，接收 CLI Admin 命令 |
 | ArchiveSweeper | 启动时 spawn 后台任务（依赖 Storage + SessionConfigProvider，详见 [session-lifecycle.md](../session/session-lifecycle.md)） |
-| ApprovalFlow | 启动时创建并注入 Gateway，Daemon 持有其所有权 |
+| ApprovalFlow | 启动时创建并注入到 Gateway，Daemon 持有其所有权 |
 | SpawnController | 启动时创建并注入 ToolRegistry，校验 Agent spawn 权限 |
 | Config Hot Reload | 启动时 spawn 后台任务，监听配置文件变更并触发重载 |
 | Skill Watcher | 启动时 spawn 后台任务 |
 | DreamingScheduler | 定时扫描 archived 会话触发记忆挖掘与升格（先 dreaming 后 mining） |
 
-### 无关
-
-- **Processor Chain**（无调用关系）：处理器链由 Gateway 调度，Daemon 不直接参与
+- **无关**：**Processor Chain**（无调用关系）——处理器链由 Gateway 调度，Daemon 不直接参与
 
 
