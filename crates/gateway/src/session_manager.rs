@@ -932,6 +932,8 @@ impl SessionLookup for SessionManager {
 
 // Unit tests
 #[cfg(test)]
+mod announce_drain_outbound_tests;
+#[cfg(test)]
 mod announce_tests;
 #[cfg(test)]
 mod bug904_tests;
