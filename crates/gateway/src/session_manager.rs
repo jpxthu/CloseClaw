@@ -952,6 +952,8 @@ mod graceful_stop_tests;
 #[cfg(test)]
 mod rebuild_spawn_tree_tests;
 #[cfg(test)]
+mod resolve_archived_recovery_tests;
+#[cfg(test)]
 mod resolve_checkpoint_status_tests;
 #[cfg(test)]
 mod resolve_registry_tests;
