@@ -11,21 +11,29 @@
 //! - [`StreamingOutput`] — incremental output struct carrying completed
 //!   text lines and non-Text [`ContentBlock`]s.
 
+use std::time::{Duration, Instant};
+
 use crate::im_plugin::StreamingOutput;
 use crate::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
 
 /// Default threshold (in characters) for forcing buffer emission.
 const LINE_THRESHOLD: usize = 100;
 
+/// Default timeout for forced buffer emission.
+const DEFAULT_TIMEOUT: Duration = Duration::from_millis(200);
+
 /// Line buffer for incremental text rendering.
 ///
 /// Splits incoming text on sentence terminators (`。！？.!?\n`) when outside
 /// fenced code blocks, and on `\n` when inside. Forces emission when the
-/// buffer exceeds the configured threshold.
+/// buffer exceeds the configured threshold or when the timeout elapses
+/// since the last feed.
 pub struct LineBuffer {
     buffer: String,
     in_code_block: bool,
     threshold: usize,
+    last_activity: Option<Instant>,
+    timeout: Option<Duration>,
 }
 
 impl Default for LineBuffer {
@@ -35,7 +43,8 @@ impl Default for LineBuffer {
 }
 
 impl LineBuffer {
-    /// Create a new line buffer with the default threshold (100 chars).
+    /// Create a new line buffer with the default threshold (100 chars)
+    /// and a 200ms timeout.
     pub fn new() -> Self {
         Self::with_threshold(LINE_THRESHOLD)
     }
@@ -46,13 +55,22 @@ impl LineBuffer {
             buffer: String::new(),
             in_code_block: false,
             threshold,
+            last_activity: None,
+            timeout: Some(DEFAULT_TIMEOUT),
         }
+    }
+
+    /// Set the timeout for forced emission. Pass `None` to disable.
+    pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
+        self.timeout = timeout;
+        self
     }
 
     /// Reset the buffer and code-block state.
     pub fn reset(&mut self) {
         self.buffer.clear();
         self.in_code_block = false;
+        self.last_activity = None;
     }
 
     /// Feed a text chunk; returns any lines completed by this chunk.
@@ -60,6 +78,7 @@ impl LineBuffer {
         if chunk.is_empty() {
             return Vec::new();
         }
+        self.last_activity = Some(Instant::now());
         let mut emitted: Vec<String> = Vec::new();
         let mut current_line = std::mem::take(&mut self.buffer);
         let mut in_code = self.in_code_block;
@@ -102,7 +121,27 @@ impl LineBuffer {
             None
         } else {
             self.in_code_block = false;
+            self.last_activity = None;
             Some(std::mem::take(&mut self.buffer))
+        }
+    }
+
+    /// Check if the timeout has elapsed since the last feed. If so, force
+    /// output the buffered content and return it.
+    pub fn check_timeout(&mut self) -> Option<Vec<String>> {
+        let (Some(last), Some(timeout)) = (self.last_activity, self.timeout) else {
+            return None;
+        };
+        if self.buffer.is_empty() {
+            return None;
+        }
+        if last.elapsed() >= timeout {
+            let mut emitted = Vec::new();
+            self.force_emit(&mut emitted);
+            self.last_activity = None;
+            Some(emitted)
+        } else {
+            None
         }
     }
 
