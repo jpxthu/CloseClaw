@@ -138,3 +138,199 @@ fn test_normalized_optional_fields_absent() {
     assert!(msg.media_refs.is_empty());
     assert!(msg.thread_id.is_none());
 }
+
+// ===========================================================================
+// Gap 4: IMPlugin trait default delegation tests
+// ===========================================================================
+
+use crate::im_plugin::{AdapterError, IMPlugin, StreamingOutput};
+use crate::processor::{ContentBlock, StreamEvent};
+use crate::streaming::{DefaultStreamingRenderer, StreamingRenderer};
+use std::sync::Mutex;
+
+/// A mock plugin that returns `Some(renderer)` from `streaming_renderer()`.
+/// Does NOT override `handle_stream_event`, `flush_stream`, or
+/// `check_stream_timeout` — relies on the default trait implementations.
+struct DelegatingPlugin {
+    renderer: Mutex<DefaultStreamingRenderer>,
+}
+
+impl DelegatingPlugin {
+    fn new() -> Self {
+        Self {
+            renderer: Mutex::new(DefaultStreamingRenderer::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl IMPlugin for DelegatingPlugin {
+    fn platform(&self) -> &str {
+        "delegating"
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(None)
+    }
+
+    fn render(
+        &self,
+        _content_blocks: &[ContentBlock],
+        _dsl_result: Option<&crate::processor::DslParseResult>,
+    ) -> crate::im_plugin::RenderedOutput {
+        crate::im_plugin::RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::Value::Null,
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &crate::im_plugin::RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        Ok(())
+    }
+
+    fn streaming_renderer(&self) -> Option<&Mutex<DefaultStreamingRenderer>> {
+        Some(&self.renderer)
+    }
+    // NOTE: handle_stream_event, flush_stream, check_stream_timeout
+    // are NOT overridden — they use the default trait implementations.
+}
+
+/// A mock plugin that returns `None` from `streaming_renderer()`.
+struct NoRendererPlugin;
+
+#[async_trait::async_trait]
+impl IMPlugin for NoRendererPlugin {
+    fn platform(&self) -> &str {
+        "no_renderer"
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(None)
+    }
+
+    fn render(
+        &self,
+        _content_blocks: &[ContentBlock],
+        _dsl_result: Option<&crate::processor::DslParseResult>,
+    ) -> crate::im_plugin::RenderedOutput {
+        crate::im_plugin::RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::Value::Null,
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &crate::im_plugin::RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        Ok(())
+    }
+
+    // streaming_renderer() returns None (default).
+    // handle_stream_event, flush_stream, check_stream_timeout
+    // use default trait implementations.
+}
+
+/// Gap 4: Default `handle_stream_event` delegates to `streaming_renderer()`
+/// when it returns `Some`.
+#[test]
+fn test_default_handle_stream_event_delegates_to_renderer() {
+    let plugin = DelegatingPlugin::new();
+    let event = StreamEvent::BlockStart {
+        index: 0,
+        block_type: crate::processor::ContentBlockType::Text,
+    };
+    let out = plugin.handle_stream_event(event);
+    // The default implementation delegates to the renderer, which processes
+    // BlockStart and returns an empty output (no text completed yet).
+    assert!(out.text_messages.is_empty());
+    assert!(out.render_blocks.is_empty());
+}
+
+/// Gap 4: Default `handle_stream_event` returns empty when
+/// `streaming_renderer()` returns `None`.
+#[test]
+fn test_default_handle_stream_event_returns_empty_when_no_renderer() {
+    let plugin = NoRendererPlugin;
+    let event = StreamEvent::BlockStart {
+        index: 0,
+        block_type: crate::processor::ContentBlockType::Text,
+    };
+    let out = plugin.handle_stream_event(event);
+    assert_eq!(out, StreamingOutput::default());
+}
+
+/// Gap 4: Default `flush_stream` delegates to renderer when available.
+#[test]
+fn test_default_flush_stream_delegates_to_renderer() {
+    let plugin = DelegatingPlugin::new();
+    // Feed some partial text via the renderer, then flush.
+    {
+        let mut r = plugin.renderer.lock().unwrap();
+        r.handle_event(StreamEvent::BlockStart {
+            index: 0,
+            block_type: crate::processor::ContentBlockType::Text,
+        });
+        r.handle_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: crate::processor::ContentDelta::Text {
+                text: "partial".to_string(),
+            },
+        });
+    }
+    let out = plugin.flush_stream();
+    assert_eq!(out.text_messages, vec!["partial"]);
+}
+
+/// Gap 4: Default `flush_stream` returns empty when no renderer.
+#[test]
+fn test_default_flush_stream_returns_empty_when_no_renderer() {
+    let plugin = NoRendererPlugin;
+    let out = plugin.flush_stream();
+    assert_eq!(out, StreamingOutput::default());
+}
+
+/// Gap 4: Default `check_stream_timeout` delegates to renderer when available.
+#[test]
+fn test_default_check_stream_timeout_delegates_to_renderer() {
+    let plugin = DelegatingPlugin::new();
+    // No text buffered, so timeout returns empty even when delegated.
+    let out = plugin.check_stream_timeout();
+    assert!(out.text_messages.is_empty());
+    assert!(out.render_blocks.is_empty());
+}
+
+/// Gap 4: Default `check_stream_timeout` returns empty when no renderer.
+#[test]
+fn test_default_check_stream_timeout_returns_empty_when_no_renderer() {
+    let plugin = NoRendererPlugin;
+    let out = plugin.check_stream_timeout();
+    assert_eq!(out, StreamingOutput::default());
+}
+
+/// Gap 4: Default `streaming_renderer()` returns `None`.
+#[test]
+fn test_default_streaming_renderer_returns_none() {
+    let plugin = NoRendererPlugin;
+    assert!(plugin.streaming_renderer().is_none());
+}
+
+/// Gap 4: Plugin with renderer returns `Some` from `streaming_renderer()`.
+#[test]
+fn test_streaming_renderer_returns_some_when_overridden() {
+    let plugin = DelegatingPlugin::new();
+    assert!(plugin.streaming_renderer().is_some());
+}

@@ -354,12 +354,12 @@ impl DefaultStreamingRenderer {
             ContentBlockType::Text => self.line_buffer.reset(),
             ContentBlockType::Thinking
             | ContentBlockType::ToolUse
-            | ContentBlockType::ToolResult
-            | ContentBlockType::Image
-            | ContentBlockType::Audio
-            | ContentBlockType::File => {
+            | ContentBlockType::ToolResult => {
                 self.current_acc = Some(BlockAccumulator::default());
             }
+            // Image/Audio/File blocks do not participate in streaming
+            // rendering; they are collected directly by Gateway.
+            ContentBlockType::Image | ContentBlockType::Audio | ContentBlockType::File => {}
         }
     }
 
@@ -377,14 +377,14 @@ impl DefaultStreamingRenderer {
             }
             ContentBlockType::Thinking
             | ContentBlockType::ToolUse
-            | ContentBlockType::ToolResult
-            | ContentBlockType::Image
-            | ContentBlockType::Audio
-            | ContentBlockType::File => {
+            | ContentBlockType::ToolResult => {
                 if let Some(acc) = self.current_acc.take() {
                     out.render_blocks.push(acc.into_block(block_type));
                 }
             }
+            // Image/Audio/File blocks do not participate in streaming
+            // rendering; no render_blocks output from the renderer.
+            ContentBlockType::Image | ContentBlockType::Audio | ContentBlockType::File => {}
         }
         if self.current_block_index == Some(index) {
             self.current_block_type = None;
@@ -409,24 +409,11 @@ impl StreamingRenderer for DefaultStreamingRenderer {
                 ContentDelta::ToolResultText { text } => {
                     self.handle_thinking_delta(&text);
                 }
-                ContentDelta::ImageRef { name, url } => {
-                    if let Some(acc) = self.current_acc.as_mut() {
-                        acc.name = Some(name);
-                        acc.url = Some(url);
-                    }
-                }
-                ContentDelta::AudioRef { name, url } => {
-                    if let Some(acc) = self.current_acc.as_mut() {
-                        acc.name = Some(name);
-                        acc.url = Some(url);
-                    }
-                }
-                ContentDelta::FileRef { name, url } => {
-                    if let Some(acc) = self.current_acc.as_mut() {
-                        acc.name = Some(name);
-                        acc.url = Some(url);
-                    }
-                }
+                // Image/Audio/File deltas are ignored — these blocks
+                // do not participate in streaming rendering.
+                ContentDelta::ImageRef { .. }
+                | ContentDelta::AudioRef { .. }
+                | ContentDelta::FileRef { .. } => {}
             },
             StreamEvent::BlockEnd { index, block_type } => {
                 self.handle_block_end(index, block_type, &mut out);

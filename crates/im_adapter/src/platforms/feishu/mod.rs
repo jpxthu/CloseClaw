@@ -19,11 +19,11 @@ use crate::normalized::{add_code_block_language_hint, normalize_urls};
 use crate::IMAdapter;
 use async_trait::async_trait;
 use closeclaw_common::identity::IdentityResolver;
-use closeclaw_common::processor::{ContentBlock, DslParseResult, StreamEvent};
-use closeclaw_common::streaming::{CodeBlockMode, DefaultStreamingRenderer, StreamingRenderer};
+use closeclaw_common::processor::{ContentBlock, DslParseResult};
+use closeclaw_common::streaming::{CodeBlockMode, DefaultStreamingRenderer};
 use closeclaw_common::{
     AdapterError as CommonAdapterError, CardActionEvent, IMPlugin, NormalizedMessage,
-    RenderedOutput, StreamingOutput,
+    RenderedOutput,
 };
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_gateway::Message;
@@ -374,22 +374,8 @@ impl IMPlugin for FeishuPlugin {
         Ok(())
     }
 
-    fn handle_stream_event(&self, event: StreamEvent) -> StreamingOutput {
-        self.streaming_renderer
-            .lock()
-            .expect("FeishuPlugin streaming renderer lock poisoned")
-            .handle_event(event)
-    }
-
-    fn flush_stream(&self) -> StreamingOutput {
-        self.streaming_renderer
-            .lock()
-            .expect("FeishuPlugin streaming renderer lock poisoned")
-            .flush()
-    }
-
-    fn check_stream_timeout(&self) -> StreamingOutput {
-        self.streaming_renderer.lock().unwrap().check_timeout()
+    fn streaming_renderer(&self) -> Option<&std::sync::Mutex<DefaultStreamingRenderer>> {
+        Some(&self.streaming_renderer)
     }
 
     fn clean_content(&self, raw: &str) -> String {

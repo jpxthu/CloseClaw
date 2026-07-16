@@ -239,10 +239,11 @@ fn renderer_message_end_then_new_block() {
     assert!(out.render_blocks.is_empty());
 }
 
-// ── ImageRef / AudioRef / FileRef name vs url ──────────────────────────────
+// ── Gap 3: Image/Audio/File blocks skip streaming rendering ──────────────
 
+/// Gap 3: Image blocks do NOT produce render_blocks.
 #[test]
-fn test_image_ref_name_and_url_independent() {
+fn test_image_ref_no_render_block() {
     let mut r = DefaultStreamingRenderer::new();
     r.handle_event(block_start(0, ContentBlockType::Image));
     r.handle_event(StreamEvent::BlockDelta {
@@ -253,18 +254,15 @@ fn test_image_ref_name_and_url_independent() {
         },
     });
     let out = r.handle_event(block_end(0, ContentBlockType::Image));
-    assert_eq!(out.render_blocks.len(), 1);
-    match &out.render_blocks[0] {
-        ContentBlock::Image { name, url } => {
-            assert_eq!(name, "photo.jpg");
-            assert_eq!(url, "https://cdn.example.com/photo.jpg");
-        }
-        other => panic!("expected Image block, got {:?}", other),
-    }
+    assert!(
+        out.render_blocks.is_empty(),
+        "Image blocks should not produce render_blocks"
+    );
 }
 
+/// Gap 3: Audio blocks do NOT produce render_blocks.
 #[test]
-fn test_audio_ref_name_and_url_independent() {
+fn test_audio_ref_no_render_block() {
     let mut r = DefaultStreamingRenderer::new();
     r.handle_event(block_start(0, ContentBlockType::Audio));
     r.handle_event(StreamEvent::BlockDelta {
@@ -275,18 +273,15 @@ fn test_audio_ref_name_and_url_independent() {
         },
     });
     let out = r.handle_event(block_end(0, ContentBlockType::Audio));
-    assert_eq!(out.render_blocks.len(), 1);
-    match &out.render_blocks[0] {
-        ContentBlock::Audio { name, url } => {
-            assert_eq!(name, "recording.wav");
-            assert_eq!(url, "https://cdn.example.com/recording.wav");
-        }
-        other => panic!("expected Audio block, got {:?}", other),
-    }
+    assert!(
+        out.render_blocks.is_empty(),
+        "Audio blocks should not produce render_blocks"
+    );
 }
 
+/// Gap 3: File blocks do NOT produce render_blocks.
 #[test]
-fn test_file_ref_name_and_url_independent() {
+fn test_file_ref_no_render_block() {
     let mut r = DefaultStreamingRenderer::new();
     r.handle_event(block_start(0, ContentBlockType::File));
     r.handle_event(StreamEvent::BlockDelta {
@@ -297,12 +292,35 @@ fn test_file_ref_name_and_url_independent() {
         },
     });
     let out = r.handle_event(block_end(0, ContentBlockType::File));
-    assert_eq!(out.render_blocks.len(), 1);
-    match &out.render_blocks[0] {
-        ContentBlock::File { name, url } => {
-            assert_eq!(name, "report.pdf");
-            assert_eq!(url, "https://cdn.example.com/report.pdf");
-        }
-        other => panic!("expected File block, got {:?}", other),
-    }
+    assert!(
+        out.render_blocks.is_empty(),
+        "File blocks should not produce render_blocks"
+    );
+}
+
+/// Gap 3: Image/Audio/File deltas are silently ignored by the renderer.
+#[test]
+fn test_image_audio_file_deltas_ignored() {
+    let mut r = DefaultStreamingRenderer::new();
+    r.handle_event(block_start(0, ContentBlockType::Image));
+    let out1 = r.handle_event(StreamEvent::BlockDelta {
+        index: 0,
+        delta: ContentDelta::ImageRef {
+            name: "a.jpg".to_string(),
+            url: "https://x.com/a.jpg".to_string(),
+        },
+    });
+    let out2 = r.handle_event(StreamEvent::BlockDelta {
+        index: 0,
+        delta: ContentDelta::ImageRef {
+            name: "b.jpg".to_string(),
+            url: "https://x.com/b.jpg".to_string(),
+        },
+    });
+    assert!(out1.text_messages.is_empty());
+    assert!(out1.render_blocks.is_empty());
+    assert!(out2.text_messages.is_empty());
+    assert!(out2.render_blocks.is_empty());
+    let out3 = r.handle_event(block_end(0, ContentBlockType::Image));
+    assert!(out3.render_blocks.is_empty());
 }

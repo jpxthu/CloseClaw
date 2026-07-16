@@ -13,8 +13,8 @@ use super::*;
 // State transition: DslParseResult accumulates and merges post-stream
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// DSL results from multiple streaming lines accumulate in StreamState.
-/// After the stream ends, they are merged into the post-stream output.
+/// All lines are sent as-is during streaming — no DSL parsing in incremental
+/// phase. DSL is deferred to post-stream Processor Chain.
 #[tokio::test]
 async fn test_streaming_dsl_results_accumulate_and_merge() {
     let chain = Arc::new(MockProcessorChain::new());
@@ -77,21 +77,28 @@ async fn test_streaming_dsl_results_accumulate_and_merge() {
         .await
         .unwrap();
 
+    // parse_line_for_dsl should NOT be called during streaming (DSL deferred).
     let parsed = chain.parsed_lines();
-    assert_eq!(parsed.len(), 3);
-    assert_eq!(parsed[0], "Please choose:\n");
-    assert_eq!(parsed[1], "::button[label:Yes;action:confirm;value:1]\n");
-    assert_eq!(parsed[2], "::button[label:No;action:cancel;value:0]\n");
+    assert!(
+        parsed.is_empty(),
+        "parse_line_for_dsl should not be called during streaming"
+    );
 
     let sent = plugin.drain_sent();
-    // Only plain text sent (DSL stripped to empty, skipped).
-    assert_eq!(sent.len(), 1, "only plain text sent");
+    // All lines sent as-is (no DSL stripping).
+    assert_eq!(sent.len(), 3, "all lines should be sent");
     assert_eq!(extract_text(&sent[0]), "Please choose:\n");
+    assert_eq!(
+        extract_text(&sent[1]),
+        "::button[label:Yes;action:confirm;value:1]\n"
+    );
+    assert_eq!(
+        extract_text(&sent[2]),
+        "::button[label:No;action:cancel;value:0]\n"
+    );
 }
 
-/// Multiple DSL instructions from different streaming lines are all
-/// accumulated. When no plain text exists, sent is empty but DSL
-/// is still tracked.
+/// DSL-only lines are sent as-is during streaming (no DSL stripping).
 #[tokio::test]
 async fn test_streaming_all_dsl_no_plain_text() {
     let chain = Arc::new(MockProcessorChain::new());
@@ -148,11 +155,16 @@ async fn test_streaming_all_dsl_no_plain_text() {
         .await
         .unwrap();
 
+    // parse_line_for_dsl should NOT be called during streaming (DSL deferred).
     let parsed = chain.parsed_lines();
-    assert_eq!(parsed.len(), 2);
+    assert!(
+        parsed.is_empty(),
+        "parse_line_for_dsl should not be called during streaming"
+    );
 
+    // DSL lines are sent as-is during streaming.
     let sent = plugin.drain_sent();
-    assert_eq!(sent.len(), 0, "DSL-only lines should not be sent");
+    assert_eq!(sent.len(), 2, "DSL lines should be sent as text");
 
     let text_blocks: Vec<String> = result
         .content_blocks
@@ -162,13 +174,16 @@ async fn test_streaming_all_dsl_no_plain_text() {
             _ => None,
         })
         .collect();
-    assert_eq!(text_blocks.len(), 0, "no text blocks for DSL-only lines");
+    assert_eq!(
+        text_blocks.len(),
+        2,
+        "DSL lines should be in content_blocks"
+    );
 }
 
 /// After streaming completes, the post-stream `process_or_bypass`
-/// runs on already-clean content_blocks. Streaming DSL results are
-/// merged back to avoid losing DSL instructions extracted during
-/// streaming.
+/// runs the full Processor Chain on content_blocks. All lines
+/// (including DSL) are sent as-is during streaming.
 #[tokio::test]
 async fn test_streaming_dsl_results_not_lost_after_merge() {
     let chain = Arc::new(MockProcessorChain::new());
@@ -218,8 +233,13 @@ async fn test_streaming_dsl_results_not_lost_after_merge() {
         .unwrap();
 
     let sent = plugin.drain_sent();
-    assert_eq!(sent.len(), 1, "only plain text sent (DSL stripped)");
+    // All lines sent as-is during streaming (no DSL stripping).
+    assert_eq!(sent.len(), 2, "all lines should be sent");
     assert_eq!(extract_text(&sent[0]), "Choose an option:\n");
+    assert_eq!(
+        extract_text(&sent[1]),
+        "::button[label:Submit;action:go;value:confirm]\n"
+    );
 
     let text_blocks: Vec<String> = result
         .content_blocks
@@ -229,17 +249,16 @@ async fn test_streaming_dsl_results_not_lost_after_merge() {
             _ => None,
         })
         .collect();
-    assert_eq!(text_blocks, vec!["Choose an option:\n"]);
-
-    for block in &result.content_blocks {
-        if let ContentBlock::Text(t) = block {
-            assert!(
-                !t.contains("::button"),
-                "DSL marker should be stripped: {}",
-                t
-            );
-        }
-    }
+    // Both lines in content_blocks (DSL included).
+    assert_eq!(text_blocks.len(), 2);
+    assert!(
+        text_blocks.contains(&"Choose an option:\n".to_string()),
+        "should contain plain text"
+    );
+    assert!(
+        text_blocks.iter().any(|t| t.contains("::button")),
+        "should contain DSL line (no stripping in streaming)"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

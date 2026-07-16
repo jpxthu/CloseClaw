@@ -165,6 +165,7 @@ pub struct RenderedOutput {
 }
 
 use crate::processor::ContentBlock;
+use crate::streaming::StreamingRenderer;
 
 // ---------------------------------------------------------------------------
 // CardActionEvent
@@ -389,20 +390,54 @@ pub trait IMPlugin: Send + Sync {
         }
     }
 
+    /// Returns a reference to the platform's streaming renderer, if any.
+    ///
+    /// Platforms that hold a [`DefaultStreamingRenderer`] should override this
+    /// to return `Some(&self.streaming_renderer)`. The default streaming
+    /// methods ([`handle_stream_event`](IMPlugin::handle_stream_event),
+    /// [`flush_stream`](IMPlugin::flush_stream),
+    /// [`check_stream_timeout`](IMPlugin::check_stream_timeout)) will then
+    /// delegate to it automatically.
+    ///
+    /// The default implementation returns `None`, causing the streaming
+    /// methods to return empty output.
+    fn streaming_renderer(
+        &self,
+    ) -> Option<&std::sync::Mutex<crate::streaming::DefaultStreamingRenderer>> {
+        None
+    }
+
     /// Handle a streaming event from the LLM.
     ///
     /// Returns incremental output (text lines, render blocks) for the
-    /// platform to deliver. The default implementation returns empty output.
-    fn handle_stream_event(&self, _event: crate::processor::StreamEvent) -> StreamingOutput {
-        StreamingOutput::default()
+    /// platform to deliver. Delegates to the platform's streaming renderer
+    /// when [`streaming_renderer`](IMPlugin::streaming_renderer) returns
+    /// `Some`; otherwise returns empty output.
+    fn handle_stream_event(&self, event: crate::processor::StreamEvent) -> StreamingOutput {
+        if let Some(renderer) = self.streaming_renderer() {
+            renderer
+                .lock()
+                .expect("streaming renderer lock poisoned")
+                .handle_event(event)
+        } else {
+            StreamingOutput::default()
+        }
     }
 
     /// Flush any buffered streaming output.
     ///
     /// Called when the stream ends to drain any remaining buffered content.
-    /// Returns empty output by default.
+    /// Delegates to the platform's streaming renderer when available;
+    /// otherwise returns empty output.
     fn flush_stream(&self) -> StreamingOutput {
-        StreamingOutput::default()
+        if let Some(renderer) = self.streaming_renderer() {
+            renderer
+                .lock()
+                .expect("streaming renderer lock poisoned")
+                .flush()
+        } else {
+            StreamingOutput::default()
+        }
     }
 
     /// Send a thinking/reasoning state indicator to the IM platform.
@@ -422,10 +457,16 @@ pub trait IMPlugin: Send + Sync {
     /// Check the streaming timeout; if elapsed, force-output buffered content.
     ///
     /// Called by the Gateway when no stream events arrive within the
-    /// configured timeout window. The default implementation returns
-    /// empty output. Platforms with time-based streaming emission should
-    /// override this to delegate to their renderer's timeout check.
+    /// configured timeout window. Delegates to the platform's streaming
+    /// renderer when available; otherwise returns empty output.
     fn check_stream_timeout(&self) -> StreamingOutput {
-        StreamingOutput::default()
+        if let Some(renderer) = self.streaming_renderer() {
+            renderer
+                .lock()
+                .expect("streaming renderer lock poisoned")
+                .check_timeout()
+        } else {
+            StreamingOutput::default()
+        }
     }
 }
