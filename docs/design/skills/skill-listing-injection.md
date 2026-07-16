@@ -1,151 +1,118 @@
-# Skill 列表注入
+# 技能清单生成
 
 ## 概述
 
-Skill 列表注入机制负责在 session 启动时将可用 skill 的摘要清单注入到 system prompt 中，让 agent 在对话初始化时就知道有哪些 skill 可用。
-
-核心设计：
-- Skill 列表作为 `SkillListingSection` 进入 system prompt 静态层
-- 列表为空时不添加此 Section
-- 文件变更时通过缓存失效触发重建，不操作 session transcript
+技能清单生成机制负责将注册中心中的可用技能渲染为格式化摘要文本，供 Session 模块在每个 turn 作为 attachment 注入 Agent 对话上下文。清单内容随技能文件变更自动更新。
 
 ## 架构
 
-列表注入由两个子组件协作完成：列表生成器、文件监听器。
+清单生成由列表生成器和文件监听器两个子组件协作完成。列表生成器从注册中心获取数据并格式化；文件监听器独立运行，检测技能目录文件变更后触发缓存失效。
 
 ```
-统一注册中心（SkillRegistry：DiskSkillRegistry 管磁盘 skill + SkillRegistry 管内置 skill）─── 数据源
+DiskSkillRegistry + BuiltinSkillRegistry ─── 数据源
         │
         ▼
-┌─ 列表生成器（generate_listing）────────┐
-│  过滤：agent-id 匹配                   │
-│  排序：source 优先级 → name 字母序     │
+┌─ 列表生成器 ──────────────────────────┐
+│  过滤：user-invocable 已声明           │
+│        paths 已声明 → 不在初始清单     │
+│  排序：来源优先级高→低 → 字母序        │
 │  格式化：- **{name}**: {description}   │
-│          可选 — {when_to_use}          │
-│          可选 ⚡ auto-activates on      │
-└────────────────┬───────────────────────┘
+└────────────────┬──────────────────────┘
                  │
                  ▼
-┌─ System Prompt 构建器 ─────────────────┐
-│  创建 SkillListingSection(listing)     │
-│  拼接进 system prompt 静态层           │
-│  写入 ConversationSession              │
-└────────────────┬───────────────────────┘
-                 │
-                 ▼
-┌─ 文件监听器（Skill Watcher）──────────┐
+┌─ Session 模块 ────────────────────────┐
+│  技能清单作为 per-turn attachment     │
+│  注入当前 turn 的 instruction block   │
+│  对话压缩时受 Session 模块保护        │
+│                                       │
+│  负责：路径匹配检测、增量 diff 计算    │
+└──────────────────────────────────────┘
+
+┌─ 文件监听器（独立运行）───────────────┐
 │  监听技能目录文件变更                  │
-│  300ms debounce 聚合事件               │
-│  重新扫描 → 使 listing 缓存失效        │
-│  下次 session 创建/恢复/compaction     │
-│  时重建 SkillListingSection            │
-└────────────────────────────────────────┘
+│  300ms debounce                       │
+│  使 listing 缓存失效                   │
+└──────────────────────────────────────┘
 ```
 
-### 列表生成
+### 过滤规则
 
-列表生成由 `DiskSkillRegistry.generate_listing(agent_id)` 实现，输入注册中心和 agent_id，输出格式化字符串。格式根据 skill 的 `when_to_use` 和 `paths` 字段有三种变体：
+初始清单仅包含声明了 `user-invocable` 的技能。声明了 `paths` 的技能不在初始清单中（即使同时声明了 `user-invocable`），遵循条件激活规则。
 
-```
-- **{name}**: {description}
-  基础格式（无 when_to_use、无 paths）
+### 排序规则
 
-- **{name}**: {description} — {when_to_use}
-  含决策提示（无 paths）
+两层排序，来源优先级定义见 [skill-definition.md](skill-definition.md) 目录层级与优先级表：
+1. 按 skill 来源优先级降序（高优先级在前）
+2. 同来源内按目录名（即 skill 名）字母序升序
 
-- **{name}**: {description} — {when_to_use} ⚡ auto-activates on: {glob patterns}
-  含决策提示 + 条件激活标记
-```
+### 格式化
 
-排序规则两层：
-1. 按 skill 来源优先级排序（高优先级在前）
-2. 同来源内按 name 字母序升序
+根据 skill 的字段组合有三种变体，effort 字段有值时统一追加在末尾：
 
-过滤条件：仅注入 agent-id 匹配的 skill（agent-id 为空或匹配当前 agent）。
+- 基础格式（无 when-to-use、无 paths）：
+  `- **{name}**: {description}`
+- 含决策提示（有 when-to-use、无 paths）：
+  `- **{name}**: {description} — {when-to-use}`
+- 含决策提示与条件激活标记（有 when-to-use、有 paths）：
+  `- **{name}**: {description} — {when-to-use} ⚡ auto-activates on: {glob patterns}`
 
-### 列表注入
+以上任一格式中，若 skill 声明了 `effort` 字段，在末尾追加 `[effort: {effort}]`。
 
-Session 启动时，`build_from_workspace` 从 `DiskSkillRegistry` 获取 listing 内容，创建 `SkillListingSection` 加入 Sections 队列，拼接到 system prompt 字符串中。listing 为空时不添加此 Section。
+带 ⚡ 标记的第三种变体仅用于条件激活后的增量注入，不出现在初始清单中。
 
-SkillListingSection 渲染格式为 `## Available Skills\n\n{content}\n`。
+清单为空时不生成，Session 模块不注入空 attachment。
 
-### 热重载
+### 增量更新
 
-热重载通过缓存失效实现，不涉及 session transcript 操作：
+增量注入由 Session 模块负责——Session 保持上一 turn 的清单状态，收到新清单后计算 diff，仅将变更条目作为 attachment 注入。增量注入保持与初始注入相同的格式与位置，确保不破坏 Agent 对话上下文的连续性。
 
-1. **文件监听器**：SKILL.md 文件的创建、修改、删除事件触发 → 300ms debounce → 使 `skill_listing` Section 缓存失效
-2. **触发重建**：下次 session 创建、archive 恢复或 compaction 发生时，重新调用 `build_from_workspace`，从 `DiskSkillRegistry` 获取最新 listing，生成新的 `SkillListingSection`。文件监听器不下发信号、不通知 SessionManager。
+文件变更触发的增量更新和路径匹配触发的条件激活在同一个 turn 可能同时发生。Session 模块合并两种来源的增量后统一注入，处理顺序为：先更新文件变更引起的增量，再处理条件激活的增量。
 
-替换在 system prompt 字符串层面发生，无需定位或修改 session transcript 中的消息。
+### 文件监听与热重载
 
-### Compaction 保护
+技能文件变更通过文件监听器触发缓存失效，session 下一 turn 重建清单 attachment 时从注册中心获取最新数据。
 
-System prompt 独立于对话消息流存储（作为 `ConversationSession.system_prompt` 字段），compaction 只压缩对话消息列表。compaction 完成后，通过 `rebuild_system_prompt` 触发 system prompt 重建，确保 SkillListingSection 包含最新内容（与 session 创建、archive 恢复走同一重建路径）。
+流程：SKILL.md 创建/修改/删除 → 300ms debounce → 使 listing 缓存失效 → 重新扫描变更目录，更新注册中心 listing 缓存 → 下一 turn 更新附件内容。
+
+不涉及 session transcript 操作，无需查找或修改 transcript 中的消息。
 
 ### 条件激活
 
-带 `paths` 字段的 skill 在 listing 中有特殊标注（⚡ 标记），表示该 skill 在操作匹配文件时自动激活。
-
-条件激活的判断由 agent 在对话中根据当前操作的路径自行匹配，不依赖额外的运行时激活列表。
+声明了 `paths` 字段的技能在条件激活后，清单条目中带有特殊标注（⚡ 标记）。由 Session 模块检测 Agent 当前操作的文件路径是否匹配某技能的 `paths` 模式——匹配时 Session 模块内部维护激活标记，在下一 turn 以增量方式注入清单条目。激活标记的生命周期跟随当前 session，session 结束时清空。条件激活的增量注入仅含清单条目（不含正文），正文在调用时按需加载，详见 [skill-execution.md](skill-execution.md)。
 
 ## 数据流
 
-### 启动注入
+### 初始清单
 
-```
-Session 启动
-  │
-  ├─ 加载 bootstrap 文件
-  │
-  ├─ 从 DiskSkillRegistry 获取全部 skill
-  │     │
-  │     └─ agent_id 匹配？（不匹配 → 跳过）
-  │
-  ├─ 排序：source 优先级高→低
-  │         └─ 同 source 内 name 字母序
-  │
-  ├─ 格式化：- **{name}**: {description} [— {when_to_use}] [⚡ ...]
-  │
-  └─ 创建 SkillListingSection → 拼接到 system prompt 静态层
-        └─ agent 在对话初始化时读取全部可用 skill
-```
+1. Session 启动
+2. 从 DiskSkillRegistry 和 BuiltinSkillRegistry 获取全部 skill 元数据
+3. 过滤：user-invocable 已声明
+   - paths 已声明 → 排除（条件激活）
+4. 排序：来源优先级降序 → 同来源内字母序升序
+5. 格式化为摘要文本 → 返回给 Session 模块
+6. Session 模块将其作为 per-turn attachment 注入 instruction block
 
-### 热重载
+### 增量更新
 
-```
-SKILL.md 文件变更
-  → 文件监听器捕获事件
-    → 300ms debounce 等待写入完成
-      → 使 skill_listing 缓存失效
-        → 重新扫描变更目录，重建注册中心 listing 缓存
-          → 等待下次 session 创建、archive 恢复或 compaction
-            → build_from_workspace 从 registry 获取最新 listing
-              → 生成新的 SkillListingSection
-                → 新的 system prompt 替换旧的
-```
+1. 技能文件变更
+2. 文件监听器捕获事件
+3. 300ms debounce
+4. 使 listing 缓存失效
+5. 重新扫描变更目录
+6. 下一 turn，Session 模块请求最新清单
+7. Session 模块对比上一 turn 的清单，计算增量
+8. 仅注入变化条目
 
-### 技能调用衔接
+### 条件激活
 
-```
-Agent 读取 system prompt 中的 skill listing
-  │
-  ├─ 判断：when_to_use 条件满足？
-  │     ├─ 不满足 → 不调用
-  │     └─ 满足 → 决策调用
-  │
-  ├─ 通过 SkillTool 发起调用
-  │     └─ 从注册中心查找 skill 实例
-  │
-  ├─ 按需加载 skill 正文（SKILL.md 指令文本）
-  │
-  └─ 正文注入对话上下文 → agent 继续执行
-```
-
-列表注入发生在 session 启动时的 system prompt 构建，正文注入发生在每次 skill 调用时，两者完全独立。
+1. Agent 操作文件路径匹配某 skill 的 paths 模式
+2. Session 模块内部标记该 skill 为激活
+3. 下一 turn 增量注入该 skill 的清单条目
+4. Agent 看到后可在后续 turn 调用该 skill
+5. 调用时按需加载正文（详见 [skill-execution.md](skill-execution.md)）
 
 ## 模块关系
 
-- **上游**：Session 启动流程（触发初始注入）、文件监听器 Skill Watcher（触发热重载）
-- **下游**：DiskSkillRegistry（获取 skill 列表数据源）、System Prompt 构建器（接收 listing 字符串作为输入，创建 SkillListingSection 并拼入 system prompt）
-- **相关**：Skills 模块主体（SkillTool 调用后注入正文，与列表注入完全独立、互不干扰）
-- **关联**：Compaction 模块（间接关联）：compaction 后通过 `rebuild_system_prompt` 触发 system prompt 重建，SkillListingSection 在重建时从 `DiskSkillRegistry` 获取最新 listing，与 session 创建、archive 恢复走同一路径
+- **上游**：DiskSkillRegistry + BuiltinSkillRegistry（数据源）、Session 模块（触发清单请求；对话压缩时保护技能清单免于被压缩，见 [session](../session/README.md)）
+- **下游**：无（清单文本由 Session 模块消费，不属于本模块的下游调用）
+- **无关**：system_prompt（技能清单不进入 system prompt 静态层）、processor_chain、renderer
