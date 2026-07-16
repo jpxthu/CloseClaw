@@ -514,8 +514,8 @@ impl PersistenceService for SqliteStorage {
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
     }
 
-    /// Load a session checkpoint from the database and reconstruct
-    /// outbound_pending from the transcript file.
+    /// Load a session checkpoint from the database. Transcript is read from
+    /// the JSONL file; outbound_pending from metadata JSON.
     async fn load_checkpoint(
         &self,
         session_id: &str,

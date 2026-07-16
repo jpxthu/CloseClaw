@@ -265,6 +265,7 @@ pub fn load_checkpoint_inner(
     let mut mode_state_val: crate::persistence::ReasoningModeState;
     let mode_val: String;
     let mut system_appends: Vec<String> = Vec::new();
+    let mut outbound_pending: Vec<crate::persistence::PendingMessage> = Vec::new();
     let transcript_messages: Vec<crate::llm_session::SessionMessage> =
         transcript_messages_from_jsonl;
     let mut session_mode_val: crate::persistence::SessionMode =
@@ -288,6 +289,10 @@ pub fn load_checkpoint_inner(
             session_mode_val =
                 crate::persistence::SessionMode::from_str_opt(mode_str).unwrap_or_default();
         }
+        outbound_pending = v
+            .get("outbound_pending")
+            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
+            .unwrap_or_default();
     } else {
         mode_state_val = crate::persistence::ReasoningModeState::default();
         mode_val = "direct".to_string();
@@ -303,7 +308,7 @@ pub fn load_checkpoint_inner(
         session_id: session_id.to_string(),
         last_message_id,
         mode_state: mode_state_val,
-        outbound_pending: Vec::new(),
+        outbound_pending,
         mode: match mode_val.as_str() {
             "plan" => crate::persistence::ReasoningMode::Plan,
             "stream" => crate::persistence::ReasoningMode::Stream,
