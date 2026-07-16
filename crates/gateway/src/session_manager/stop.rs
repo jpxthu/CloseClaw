@@ -396,13 +396,16 @@ impl SessionManager {
         }
 
         // Graceful path:
-        // 1. Set stopped flag BEFORE waiting, so Gateway's
-        //    is_stopped() check rejects new messages during wait.
+        // 1. Set stopped flag BEFORE cascade and waiting, so
+        //    Gateway's is_stopped() check rejects new messages.
         // 2. Snapshot transcript state before stop clears exec state.
-        // 3. Call stop(cascade, mode) — handles cascade + cleanup.
-        //    stop() internally does NOT call graceful_stop() (that
-        //    was the double-wait bug fixed in Step 1.7).
-        // 4. Persist checkpoint.
+        // 3. Call stop(cascade, mode) — handles cascade to children
+        //    (recursive graceful stop, waiting for children's
+        //    in-flight ops) + cleanup (clear_exec_state).
+        // 4. graceful_wait — wait for THIS session's in-flight ops
+        //    (LLM stream + tool calls). This happens AFTER cascade
+        //    so children's in-flight ops are handled first.
+        // 5. Persist checkpoint.
         {
             let guard = cs.read().await;
             let _ = guard.stopped.compare_exchange(
@@ -417,6 +420,15 @@ impl SessionManager {
             "user-stop",
         );
 
+        // Cascade: stop children recursively with Graceful mode.
+        // stop() calls cascade_stop_children which recursively calls
+        // child.stop(true, Graceful) — each child's in-flight ops are
+        // waited on via graceful_stop() before the next sibling is
+        // processed. Returns info about any children that timed out.
+        let cascade_info = cs.read().await.stop(cascade, mode).await;
+
+        // Wait for THIS session's in-flight ops (after cascade
+        // completes, so children's in-flight ops have been handled).
         let (pending_ops, outcome) = self
             .graceful_wait(&cs, session_id, timeout, progress_tx)
             .await;
@@ -437,6 +449,15 @@ impl SessionManager {
                 waiting_items,
                 remaining,
             } => {
+                // Merge cascade timeout info (children that timed out
+                // during the recursive cascade stop) into the waiting
+                // items so the caller can report the full picture.
+                let mut all_items = waiting_items;
+                let cascade_timeout_count = cascade_info.timed_out_children.len();
+                for (child_id, elapsed) in cascade_info.timed_out_children {
+                    all_items.push((child_id, elapsed));
+                }
+                let remaining = remaining + cascade_timeout_count;
                 tracing::info!(
                     session_id = %session_id,
                     remaining,
@@ -445,22 +466,22 @@ impl SessionManager {
                 // Do NOT call stop() or persist — caller decides
                 // whether to force, continue waiting, or abandon.
                 return Ok(GracefulStopOutcome::TimedOut {
-                    waiting_items,
+                    waiting_items: all_items,
                     remaining,
                 });
             }
             GracefulStopOutcome::Completed => {
-                // Proceed with stop() + persist below.
+                // Persist checkpoint below.
             }
         }
 
-        // stop() handles cascade (to children) + cleanup. The
-        // stopped flag is already set, so stop()'s Graceful branch
-        // skips the idempotency guard and proceeds with cascade
-        // and clear_exec_state.
-        cs.read().await.stop(cascade, mode).await;
+        // Clear exec state now that in-flight ops are done.
+        // This was previously in stop()'s Graceful branch but was
+        // moved here so that graceful_wait() can observe in-flight
+        // state on timeout/escalation.
+        cs.read().await.clear_exec_state();
 
-        // Persist checkpoint (no stop() call inside).
+        // Persist checkpoint.
         if let Err(e) = self
             .persist_checkpoint_with_pending(session_id, pending_ops)
             .await
