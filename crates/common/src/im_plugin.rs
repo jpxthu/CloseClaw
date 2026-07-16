@@ -418,4 +418,14 @@ pub trait IMPlugin: Send + Sync {
     /// The default implementation is a no-op. Platforms that support
     /// thinking indicators should override this method.
     fn send_thinking_indicator(&self, _active: bool) {}
+
+    /// Check the streaming timeout; if elapsed, force-output buffered content.
+    ///
+    /// Called by the Gateway when no stream events arrive within the
+    /// configured timeout window. The default implementation returns
+    /// empty output. Platforms with time-based streaming emission should
+    /// override this to delegate to their renderer's timeout check.
+    fn check_stream_timeout(&self) -> StreamingOutput {
+        StreamingOutput::default()
+    }
 }

@@ -231,6 +231,14 @@ pub trait StreamingRenderer: Send {
 
     /// Flush any remaining buffered content; called at MessageEnd.
     fn flush(&mut self) -> StreamingOutput;
+
+    /// Check the timeout; if elapsed, force-output buffered content.
+    ///
+    /// The default implementation returns empty output. Platforms that
+    /// support time-based forced emission should override this.
+    fn check_timeout(&mut self) -> StreamingOutput {
+        StreamingOutput::default()
+    }
 }
 
 /// Default streaming renderer: line-buffered text + per-block accumulation.
@@ -256,6 +264,17 @@ impl DefaultStreamingRenderer {
             current_block_index: None,
             current_acc: None,
         }
+    }
+
+    /// Check the line buffer timeout; if elapsed, force-output buffered content.
+    pub fn check_timeout(&mut self) -> StreamingOutput {
+        let mut out = StreamingOutput::default();
+        if let Some(lines) = self.line_buffer.check_timeout() {
+            for line in lines {
+                route_line(&line, &mut out);
+            }
+        }
+        out
     }
 
     fn handle_text_delta(&mut self, text: &str, out: &mut StreamingOutput) {
@@ -387,6 +406,10 @@ impl StreamingRenderer for DefaultStreamingRenderer {
         self.current_acc = None;
         out
     }
+
+    fn check_timeout(&mut self) -> StreamingOutput {
+        DefaultStreamingRenderer::check_timeout(self)
+    }
 }
 
 /// Blanket [`StreamingRenderer`] impl for `Mutex<DefaultStreamingRenderer>`.
@@ -404,5 +427,11 @@ impl StreamingRenderer for std::sync::Mutex<DefaultStreamingRenderer> {
         self.get_mut()
             .expect("DefaultStreamingRenderer lock poisoned")
             .flush()
+    }
+
+    fn check_timeout(&mut self) -> StreamingOutput {
+        self.get_mut()
+            .expect("DefaultStreamingRenderer lock poisoned")
+            .check_timeout()
     }
 }
