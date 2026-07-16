@@ -60,6 +60,19 @@ pub(super) async fn compute_session_workdir(
     }
 }
 
+/// Create a Session entry from checkpoint data (no Message needed).
+///
+/// Used by startup recovery injection where no inbound message is available.
+pub(super) fn create_session_from_checkpoint(session_id: &str, agent_id: &str) -> crate::Session {
+    crate::Session {
+        id: session_id.to_string(),
+        agent_id: agent_id.to_string(),
+        channel: String::new(),
+        created_at: chrono::Utc::now().timestamp(),
+        depth: 0,
+    }
+}
+
 /// Create and persist a brand-new session.
 pub(super) fn create_new_session(
     session_id: &str,

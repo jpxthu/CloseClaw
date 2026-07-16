@@ -228,7 +228,12 @@ impl Daemon {
         storage: &Arc<SqliteStorage>,
         permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
         config_manager: &ConfigManager,
-    ) -> anyhow::Result<(Arc<Gateway>, Arc<SessionManager>, shutdown::ShutdownHandle)> {
+    ) -> anyhow::Result<(
+        Arc<Gateway>,
+        Arc<SessionManager>,
+        shutdown::ShutdownHandle,
+        Vec<String>,
+    )> {
         let gateway_config = GatewayConfig {
             name: "closeclaw".to_string(),
             rate_limit_per_minute: 60,
@@ -334,8 +339,9 @@ impl Daemon {
         // is not blocked by network I/O.
         if !dirty_sessions_for_drain.is_empty() {
             let sm_ref = Arc::clone(&session_manager);
-            for session_id in dirty_sessions_for_drain {
+            for session_id in &dirty_sessions_for_drain {
                 let sm = Arc::clone(&sm_ref);
+                let session_id = session_id.clone();
                 tokio::spawn(async move {
                     match sm.drain_outbound_pending_for_session(&session_id).await {
                         Ok(count) => {
@@ -367,7 +373,7 @@ impl Daemon {
             .set_shutdown_handle(crate::bridge::common_shutdown_handle(&shutdown))
             .await;
         info!("Shutdown coordinator initialized");
-        Ok((gateway, session_manager, shutdown))
+        Ok((gateway, session_manager, shutdown, dirty_sessions_for_drain))
     }
 }
 
