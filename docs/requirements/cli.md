@@ -26,7 +26,7 @@ Owner 可以在终端中与 Agent 进行文本对话。
 
 终端对话的输出应充分利用终端能力，提供可读性良好的格式化展示。
 
-- **ANSI 能力检测**：根据终端环境自动判定是否支持 ANSI 转义序列（颜色、粗体、斜体等）。支持时启用格式化输出，不支持时自动回退纯文本
+- **ANSI 渲染策略**：根据终端能力渲染格式化输出。终端能力检测与降级逻辑见 [platform §F3](platform.md)（终端能力自适应）
 
 - **Markdown 转 ANSI**：普通文本中的 markdown 格式标记（标题、粗体、斜体、列表、引用、链接、分割线）渲染为对应的 ANSI 样式
 
@@ -56,7 +56,7 @@ Owner 可以通过 CLI 命令管理 daemon 进程的启停。
 
 - daemon 已运行时执行 `closeclaw run` 应拒绝启动新实例
 
-> **交叉引用**：daemon 启动与关闭过程的完整需求见 [daemon §F1–F2](daemon.md)。
+> **交叉引用**：PID 文件机制见 [platform §F1](platform.md)；daemon 启动与关闭过程的完整需求见 [daemon §F1–F2](daemon.md)。
 
 ### F4. 配置管理
 
@@ -93,7 +93,7 @@ Owner 可以通过 CLI 查看权限规则——包括校验规则语法和列出
 
 ### F8. 跨平台支持
 
-CLI 应在 Linux、macOS、Windows WSL2 上可用，用户在这些平台上获得一致的操作体验和命令行为。
+跨平台一致性见 [platform §F5](platform.md)（系统差异隔离）及非功能需求。
 
 ## 关联设计文档
 
