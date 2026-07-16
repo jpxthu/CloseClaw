@@ -39,27 +39,15 @@ pub fn delete_transcript(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
-/// Write transcript entries to a .jsonl file.
+/// Write transcript (pending_messages) to a .jsonl file.
 pub fn write_transcript(
     path: &Path,
     checkpoint: &SessionCheckpoint,
 ) -> Result<(), PersistenceError> {
-    #[derive(serde::Serialize)]
-    struct TranscriptEntry {
-        role: String,
-        content: String,
-        timestamp: DateTime<Utc>,
-    }
     let file = std::fs::File::create(path).map_err(PersistenceError::Io)?;
     let mut writer = std::io::BufWriter::new(file);
-    for msg in &checkpoint.outbound_pending {
-        let role = msg.role.clone().unwrap_or_else(|| msg.message_id.clone());
-        let entry = TranscriptEntry {
-            role,
-            content: msg.content.clone(),
-            timestamp: msg.created_at,
-        };
-        serde_json::to_writer(&mut writer, &entry).map_err(PersistenceError::Serialization)?;
+    for msg in &checkpoint.pending_messages {
+        serde_json::to_writer(&mut writer, msg).map_err(PersistenceError::Serialization)?;
         use std::io::Write;
         writeln!(&mut writer).map_err(PersistenceError::Io)?;
     }
@@ -266,7 +254,7 @@ pub fn load_checkpoint_inner(
             .join(format!("{session_id}.jsonl")),
     };
 
-    let outbound_pending = if transcript_path.exists() {
+    let transcript_messages_from_jsonl = if transcript_path.exists() {
         read_transcript(&transcript_path)?
     } else {
         return Err(PersistenceError::NotFound(session_id.to_string()));
@@ -277,7 +265,9 @@ pub fn load_checkpoint_inner(
     let mut mode_state_val: crate::persistence::ReasoningModeState;
     let mode_val: String;
     let mut system_appends: Vec<String> = Vec::new();
-    let mut transcript_messages: Vec<crate::llm_session::SessionMessage> = Vec::new();
+    let mut outbound_pending: Vec<crate::persistence::PendingMessage> = Vec::new();
+    let transcript_messages: Vec<crate::llm_session::SessionMessage> =
+        transcript_messages_from_jsonl;
     let mut session_mode_val: crate::persistence::SessionMode =
         crate::persistence::SessionMode::default();
     if let Some(ref meta) = metadata {
@@ -295,14 +285,14 @@ pub fn load_checkpoint_inner(
             .get("system_appends")
             .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
             .unwrap_or_default();
-        transcript_messages = v
-            .get("transcript")
-            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
-            .unwrap_or_default();
         if let Some(mode_str) = v.get("session_mode").and_then(|x| x.as_str()) {
             session_mode_val =
                 crate::persistence::SessionMode::from_str_opt(mode_str).unwrap_or_default();
         }
+        outbound_pending = v
+            .get("outbound_pending")
+            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
+            .unwrap_or_default();
     } else {
         mode_state_val = crate::persistence::ReasoningModeState::default();
         mode_val = "direct".to_string();
@@ -389,30 +379,19 @@ pub fn load_checkpoint_inner(
     }))
 }
 
-/// Read transcript entries from a .jsonl file.
+/// Read transcript (pending_messages) from a .jsonl file.
 fn read_transcript(
     path: &Path,
-) -> Result<Vec<crate::persistence::PendingMessage>, PersistenceError> {
-    #[derive(serde::Deserialize)]
-    struct Entry {
-        role: String,
-        content: String,
-        timestamp: DateTime<Utc>,
-    }
+) -> Result<Vec<crate::llm_session::SessionMessage>, PersistenceError> {
     let content = std::fs::read_to_string(path).map_err(PersistenceError::Io)?;
     let mut messages = Vec::new();
     for line in content.lines() {
         if line.trim().is_empty() {
             continue;
         }
-        let entry: Entry = serde_json::from_str(line).map_err(PersistenceError::Serialization)?;
-        messages.push(crate::persistence::PendingMessage {
-            message_id: entry.role.clone(),
-            content: entry.content,
-            created_at: entry.timestamp,
-            sent: true,
-            role: Some(entry.role),
-        });
+        let msg: crate::llm_session::SessionMessage =
+            serde_json::from_str(line).map_err(PersistenceError::Serialization)?;
+        messages.push(msg);
     }
     Ok(messages)
 }
