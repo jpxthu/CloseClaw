@@ -1,9 +1,11 @@
 use super::*;
+use crate::llm_session::SessionMessage;
 use crate::persistence::{
     DreamingStatus, PersistenceService, ReasoningLevel, ReasoningMode, ReasoningModeState,
     SessionMode, SessionStatus,
 };
 use chrono::Utc;
+use closeclaw_common::ContentBlock;
 use rusqlite::Connection;
 
 fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
@@ -93,7 +95,7 @@ async fn test_load_system_appends_backward_compat() {
             "mode": mode_to_db(&checkpoint.mode),
             "mode_state":
                 serde_json::to_string(&checkpoint.mode_state).unwrap(),
-            "pending_messages":
+            "outbound_pending":
                 serde_json::to_string(&checkpoint.outbound_pending).unwrap(),
             // intentionally omit "system_appends"
         })
@@ -500,7 +502,7 @@ async fn test_load_session_mode_backward_compat_missing_key() {
             "mode": mode_to_db(&cp.mode),
             "mode_state":
                 serde_json::to_string(&cp.mode_state).unwrap(),
-            "pending_messages":
+            "outbound_pending":
                 serde_json::to_string(&cp.outbound_pending).unwrap(),
             "system_appends":
                 serde_json::to_string(&cp.system_appends).unwrap(),
@@ -575,7 +577,7 @@ async fn test_load_session_mode_invalid_value_fallback() {
             "mode": mode_to_db(&cp.mode),
             "mode_state":
                 serde_json::to_string(&cp.mode_state).unwrap(),
-            "pending_messages":
+            "outbound_pending":
                 serde_json::to_string(&cp.outbound_pending).unwrap(),
             "system_appends":
                 serde_json::to_string(&cp.system_appends).unwrap(),
@@ -597,4 +599,150 @@ async fn test_load_session_mode_invalid_value_fallback() {
         SessionMode::Normal,
         "invalid session_mode should fall back to Normal"
     );
+}
+
+// ===================================================================
+// Step 1.5: transcript persistence tests
+// ===================================================================
+
+/// Save → load roundtrip preserves transcript (pending_messages) in JSONL.
+#[tokio::test]
+async fn test_transcript_roundtrip_via_jsonl() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    let mut cp = create_test_checkpoint("transcript-rt");
+    cp.pending_messages = vec![
+        SessionMessage {
+            role: "user".to_string(),
+            content_blocks: vec![ContentBlock::Text("Hello".to_string())],
+            timestamp: Utc::now(),
+        },
+        SessionMessage {
+            role: "assistant".to_string(),
+            content_blocks: vec![ContentBlock::Text("Hi there".to_string())],
+            timestamp: Utc::now(),
+        },
+    ];
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    let loaded = storage.load_checkpoint("transcript-rt").await.unwrap();
+    let loaded = loaded.expect("checkpoint should exist");
+    assert_eq!(loaded.pending_messages.len(), 2);
+    assert_eq!(loaded.pending_messages[0].role, "user");
+    assert_eq!(loaded.pending_messages[1].role, "assistant");
+}
+
+/// Transcript roundtrip preserves multi-block messages (thinking + text).
+#[tokio::test]
+async fn test_transcript_roundtrip_multi_block() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    let mut cp = create_test_checkpoint("transcript-multi");
+    cp.pending_messages = vec![SessionMessage {
+        role: "assistant".to_string(),
+        content_blocks: vec![
+            ContentBlock::Thinking {
+                thinking: "reasoning...".to_string(),
+                signature: None,
+            },
+            ContentBlock::Text("final answer".to_string()),
+        ],
+        timestamp: Utc::now(),
+    }];
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    let loaded = storage.load_checkpoint("transcript-multi").await.unwrap();
+    let loaded = loaded.expect("checkpoint should exist");
+    assert_eq!(loaded.pending_messages.len(), 1);
+    assert_eq!(loaded.pending_messages[0].content_blocks.len(), 2);
+}
+
+/// Metadata JSON does not contain a "transcript" key after save.
+#[tokio::test]
+async fn test_metadata_does_not_contain_transcript_key() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    let mut cp = create_test_checkpoint("no-transcript-key");
+    cp.pending_messages = vec![SessionMessage {
+        role: "user".to_string(),
+        content_blocks: vec![ContentBlock::Text("msg".to_string())],
+        timestamp: Utc::now(),
+    }];
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    // Read raw metadata from SQLite
+    let db_path = tmp.path().join("sessions.sqlite");
+    let conn = Connection::open(&db_path).unwrap();
+    let metadata: String = conn
+        .query_row(
+            "SELECT metadata FROM sessions WHERE id = ?1",
+            params!["no-transcript-key"],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&metadata).unwrap();
+    assert!(
+        v.get("transcript").is_none(),
+        "metadata JSON must not contain 'transcript' key"
+    );
+    // outbound_pending should still be present
+    assert!(
+        v.get("outbound_pending").is_some(),
+        "metadata JSON should contain 'outbound_pending' key"
+    );
+}
+
+/// Empty transcript saves and loads correctly.
+#[tokio::test]
+async fn test_empty_transcript_roundtrip() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    let cp = create_test_checkpoint("empty-transcript");
+    assert!(cp.pending_messages.is_empty());
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    let loaded = storage.load_checkpoint("empty-transcript").await.unwrap();
+    let loaded = loaded.expect("checkpoint should exist");
+    assert!(
+        loaded.pending_messages.is_empty(),
+        "empty transcript should load as empty Vec"
+    );
+}
+
+/// Transcript survives archive → restore cycle.
+#[tokio::test]
+async fn test_transcript_survives_archive_restore() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    let mut cp = create_test_checkpoint("arch-restore-transcript");
+    cp.pending_messages = vec![SessionMessage {
+        role: "user".to_string(),
+        content_blocks: vec![ContentBlock::Text("before archive".to_string())],
+        timestamp: Utc::now(),
+    }];
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    // Archive
+    storage.archive_checkpoint(&cp).await.unwrap();
+
+    // Verify transcript moved to archived_sessions/
+    let archived_path = tmp
+        .path()
+        .join("archived_sessions")
+        .join("arch-restore-transcript.jsonl");
+    assert!(archived_path.exists(), "archived JSONL should exist");
+
+    // Restore
+    let restored = storage
+        .restore_checkpoint("arch-restore-transcript")
+        .await
+        .unwrap();
+    let restored = restored.expect("restored checkpoint should exist");
+    assert_eq!(restored.pending_messages.len(), 1);
+    assert_eq!(restored.pending_messages[0].role, "user");
 }
