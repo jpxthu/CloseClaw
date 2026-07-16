@@ -3,12 +3,14 @@
 #![cfg(test)]
 
 mod tests {
+    use crate::llm_session::SessionMessage;
     use crate::persistence::{
         DreamingStatus, PersistenceError, PersistenceService, ReasoningLevel, ReasoningMode,
         ReasoningModeState, SessionCheckpoint, SessionMode, SessionStatus,
     };
     use crate::storage::SqliteStorage;
     use chrono::Utc;
+    use closeclaw_common::ContentBlock;
     use tempfile::TempDir;
 
     fn make_checkpoint(session_id: &str, status: SessionStatus) -> SessionCheckpoint {
@@ -928,5 +930,54 @@ mod tests {
         let result = storage.run_incremental_consistency_check(0).await.unwrap();
         assert_eq!(result.deleted_orphaned_records, 0);
         assert_eq!(result.deleted_orphaned_files, 0);
+    }
+
+    // ===================================================================
+    // Step 1.5: transcript persistence tests
+    // ===================================================================
+
+    /// Transcript (pending_messages) round-trips through save/load via JSONL.
+    #[tokio::test]
+    async fn test_transcript_roundtrip() -> Result<(), PersistenceError> {
+        let temp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(temp.path())?;
+
+        let mut cp = make_checkpoint("transcript-rt", SessionStatus::Active);
+        cp.pending_messages = vec![
+            SessionMessage {
+                role: "user".to_string(),
+                content_blocks: vec![ContentBlock::Text("hello".to_string())],
+                timestamp: Utc::now(),
+            },
+            SessionMessage {
+                role: "assistant".to_string(),
+                content_blocks: vec![ContentBlock::Text("world".to_string())],
+                timestamp: Utc::now(),
+            },
+        ];
+        storage.save_checkpoint(&cp).await?;
+
+        let loaded = storage.load_checkpoint("transcript-rt").await?;
+        let loaded = loaded.expect("checkpoint should exist");
+        assert_eq!(loaded.pending_messages.len(), 2);
+        assert_eq!(loaded.pending_messages[0].role, "user");
+        assert_eq!(loaded.pending_messages[1].role, "assistant");
+        Ok(())
+    }
+
+    /// Transcript is empty after save/load when no messages are present.
+    #[tokio::test]
+    async fn test_empty_transcript_roundtrip() -> Result<(), PersistenceError> {
+        let temp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(temp.path())?;
+
+        let cp = make_checkpoint("empty-transcript", SessionStatus::Active);
+        assert!(cp.pending_messages.is_empty());
+        storage.save_checkpoint(&cp).await?;
+
+        let loaded = storage.load_checkpoint("empty-transcript").await?;
+        let loaded = loaded.expect("checkpoint should exist");
+        assert!(loaded.pending_messages.is_empty());
+        Ok(())
     }
 }
