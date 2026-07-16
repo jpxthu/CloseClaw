@@ -9,6 +9,8 @@ mod consistency_check;
 #[cfg(test)]
 mod bug904_tests;
 #[cfg(test)]
+mod consistency_check_tests;
+#[cfg(test)]
 mod tests;
 
 use crate::persistence::{
