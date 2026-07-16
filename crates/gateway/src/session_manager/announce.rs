@@ -248,6 +248,17 @@ impl SessionManager {
             .await
             .ok_or_else(|| "drain_outbound_pending: gateway not available".to_string())?;
 
+        // 5a. Persist checkpoint with current pending_operations before delivery
+        //     so that crash recovery can detect in-flight outbound messages.
+        cp.touch();
+        if let Err(e) = cm.save_raw(&cp).await {
+            warn!(
+                session_id = %session_id,
+                error = %e,
+                "drain_outbound_pending: failed to persist checkpoint before delivery"
+            );
+        }
+
         // 6. Deliver each unsent message.
         let mut delivered = 0usize;
         for (idx, content) in &unsent {
@@ -270,8 +281,24 @@ impl SessionManager {
             }
         }
 
-        // 7. Persist updated checkpoint if any messages were delivered.
+        // 7. Remove OutboundMessage entries from pending_operations for delivered
+        //     messages, then persist the updated checkpoint.
         if delivered > 0 {
+            let delivered_msg_ids: std::collections::HashSet<String> = unsent
+                .iter()
+                .filter(|(idx, _)| cp.outbound_pending[*idx].sent)
+                .map(|(idx, _)| cp.outbound_pending[*idx].message_id.clone())
+                .collect();
+            cp.pending_operations.retain(|op| {
+                if op.op_type
+                    == closeclaw_session::persistence::PendingOperationType::OutboundMessage
+                {
+                    !delivered_msg_ids.contains(&op.op_id)
+                } else {
+                    true
+                }
+            });
+            cp.touch();
             if let Err(e) = cm.save_raw(&cp).await {
                 warn!(
                     session_id = %session_id,
@@ -405,6 +432,15 @@ impl SessionManager {
                 .read()
                 .await
                 .unregister_child_handle(child_session_id);
+            // Deregister from parent's child_states and persist checkpoint
+            // so crash recovery no longer sees this as a pending operation.
+            {
+                use closeclaw_common::tool_session::ToolSession;
+                let guard = parent_cs.read().await;
+                guard
+                    .deregister_child_state(child_session_id.to_string())
+                    .await;
+            }
         }
 
         // Step 1.6: Auto-recovery — check if parent session should
@@ -479,7 +515,7 @@ impl SessionManager {
             .read()
             .expect("child_states lock poisoned")
             .get(child_session_id)
-            .copied();
+            .map(|(s, _)| *s);
         match state {
             Some(ChildSessionState::Completed) => ChildCompletionStatus::Completed,
             Some(ChildSessionState::Errored) => ChildCompletionStatus::Errored,
@@ -568,7 +604,7 @@ impl SessionManager {
                 .child_states
                 .read()
                 .expect("child_states lock poisoned");
-            if let Some(state) = states.get(session_id) {
+            if let Some((state, _)) = states.get(session_id) {
                 if matches!(
                     state,
                     ChildSessionState::Completed
@@ -616,6 +652,12 @@ impl SessionManager {
         // Unregister child handle from parent's ConversationSession.
         if let Some(parent_cs) = self.get_conversation_session(parent_session_id).await {
             parent_cs.read().await.unregister_child_handle(session_id);
+            // Deregister from parent's child_states and persist checkpoint.
+            {
+                use closeclaw_common::tool_session::ToolSession;
+                let guard = parent_cs.read().await;
+                guard.deregister_child_state(session_id.to_string()).await;
+            }
         }
     }
 
@@ -652,7 +694,7 @@ impl SessionManager {
                 .child_states
                 .read()
                 .expect("child_states lock poisoned");
-            if let Some(state) = states.get(session_id) {
+            if let Some((state, _)) = states.get(session_id) {
                 if matches!(
                     state,
                     ChildSessionState::Completed
