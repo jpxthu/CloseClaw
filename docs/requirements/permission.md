@@ -13,9 +13,9 @@ Owner 需要系统区分两种独立身份：
 - **Agent 身份**：每个 Agent 有独立的权限边界。新建 Agent 默认只能收发消息，无文件读写、无命令行、无网络访问。Agent 的操作始终在某个 User 上下文中执行——不存在无 User 上下文的操作。
 - **User 身份**：每个 User 通过 IM 渠道 + IM User ID 的组合绑定到系统。一个 User 可以绑定多个 IM 渠道（如飞书 Open ID + Telegram User ID），映射为同一个人。新建 User 默认无任何权限，收发消息也需 Owner 显式授予。不区分用户组，所有权限以个人为单位。
 
-User 上下文的来源由场景决定：IM 消息来自发送者、CLI 调用默认为 Owner、定时任务使用任务配置中指定的 User ID、子 Agent 继承父 Agent 的 User 上下文。
+User 上下文的来源由场景决定：IM 消息来自发送者、定时任务使用任务配置中指定的 User ID、子 Agent 继承父 Agent 的 User 上下文。CLI 渠道的 User 上下文见 [cli §F1](cli.md)。
 
-Owner 的 User ID 固定为 `owner`，额外拥有 CLI 渠道的访问方式。
+Owner 的 User ID 固定为 `owner`。
 
 ### F2. 权限维度
 
