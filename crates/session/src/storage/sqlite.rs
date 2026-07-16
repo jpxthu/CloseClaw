@@ -429,15 +429,12 @@ impl PersistenceService for SqliteStorage {
                 .map_err(PersistenceError::Serialization)?;
             let system_appends_json = serde_json::to_string(&checkpoint.system_appends)
                 .map_err(PersistenceError::Serialization)?;
-            let transcript_json = serde_json::to_string(&checkpoint.pending_messages)
-                .map_err(PersistenceError::Serialization)?;
             let metadata_json = json!({
                 "mode": mode_to_db(&checkpoint.mode),
                 "mode_state": mode_state_json,
                 "outbound_pending": pending_json,
                 "system_appends": system_appends_json,
                 "session_mode": checkpoint.session_mode.to_string(),
-                "transcript": transcript_json,
             })
             .to_string();
 
