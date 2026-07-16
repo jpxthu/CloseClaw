@@ -321,14 +321,18 @@ async fn test_no_registry_bypass_uses_plugin() {
 }
 
 #[tokio::test]
-async fn test_unknown_channel_returns_error() {
+async fn test_unknown_channel_falls_back_to_plain_text() {
     let config = make_config();
     let (gw, sm) = make_outbound_gw(config);
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
     let result = gw.send_outbound(&sid, "unknown", "raw", vec![]).await;
-    assert!(matches!(result, Err(GatewayError::UnknownChannel(_))));
+    assert!(
+        result.is_ok(),
+        "unknown channel should fall back to plain-text, got {:?}",
+        result
+    );
 }
 
 #[tokio::test]
