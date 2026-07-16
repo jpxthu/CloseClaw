@@ -25,13 +25,14 @@ impl Daemon {
         let (config_manager, storage, data_dir) = Self::init_phase_1_foundation(config_dir)?;
         let (agent_registry, skill_registry, tool_registry, skill_watcher) =
             Self::init_phase_2_registries(config_dir).await?;
-        let (gateway, session_manager, shutdown) = Self::init_phase_3_core_services(
-            config_dir,
-            &storage,
-            &permission_engine,
-            &config_manager,
-        )
-        .await?;
+        let (gateway, session_manager, shutdown, dirty_sessions) =
+            Self::init_phase_3_core_services(
+                config_dir,
+                &storage,
+                &permission_engine,
+                &config_manager,
+            )
+            .await?;
         let shutdown = Arc::new(shutdown);
         // Wire shutdown handle into Gateway and SessionManager for
         // busy-count tracking during drain.
@@ -70,6 +71,17 @@ impl Daemon {
             &data_dir,
         )
         .await?;
+        // Inject recovery notifications into dirty sessions at startup.
+        // Must happen after Phase 5 when LLM caller, system prompt builder,
+        // and other dependencies are wired into SessionManager.
+        session_manager
+            .inject_startup_recovery_notifications(&dirty_sessions)
+            .await;
+        // Recovery injection may have created new ConversationSession / Session
+        // entries. Rebuild key_registry so they are resolvable by routing key.
+        if let Err(e) = session_manager.rebuild_key_registry().await {
+            tracing::warn!(error = %e, "failed to rebuild key_registry after recovery injection — continuing");
+        }
         let (admin_handle, admin_sock_path) = Self::init_phase_6_admin_rpc(
             &agent_registry,
             &skill_registry,

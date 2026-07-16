@@ -3,11 +3,10 @@
 //! Responsible for session lifecycle: lookup, creation, restoration.
 //! On daemon shutdown, `flush_all()` serializes all active sessions to the persistence backend.
 
+use crate::shutdown_handle::ShutdownHandle;
 use crate::{compute_session_key, GatewayConfig, Message, Session};
 use closeclaw_common::processor::ProcessError;
 use closeclaw_common::shutdown::ShutdownMode;
-
-use crate::shutdown_handle::ShutdownHandle;
 use closeclaw_common::IMPlugin;
 use closeclaw_common::{
     DynamicPromptBuilder, LlmCaller, PromptOverrides, SkillRegistryQuery, SystemPromptBuilder,
@@ -35,6 +34,7 @@ pub mod communication;
 mod compaction_helpers;
 mod consistency_check;
 mod key_registry;
+mod recovery_injection;
 mod resolve;
 mod session_helpers;
 mod spawn;
@@ -890,9 +890,6 @@ impl SessionManager {
         );
     }
 }
-
-// --- SessionLookup trait implementation ---
-
 use closeclaw_common::SessionLookup;
 
 #[async_trait::async_trait]
@@ -927,8 +924,6 @@ impl SessionLookup for SessionManager {
         }
     }
 }
-
-// Unit tests
 #[cfg(test)]
 mod announce_drain_outbound_tests;
 #[cfg(test)]
@@ -951,6 +946,8 @@ mod gap3_termination_notification_tests;
 mod graceful_stop_tests;
 #[cfg(test)]
 mod rebuild_spawn_tree_tests;
+#[cfg(test)]
+mod recovery_injection_tests;
 #[cfg(test)]
 mod resolve_archived_recovery_tests;
 #[cfg(test)]
@@ -995,5 +992,3 @@ pub(crate) mod tests;
 mod yield_recovery_tests;
 #[cfg(test)]
 mod yield_timeout_tests;
-// #[cfg(test)]
-// mod tests_get_thread_id;  // DISABLED: imports from full-tests only modules

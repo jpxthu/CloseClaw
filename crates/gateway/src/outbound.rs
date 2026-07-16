@@ -205,20 +205,32 @@ impl Gateway {
                     .unwrap_or(ctx.fallback_text)
                     .to_string();
                 let msg = Self::make_outbound_msg(ctx.channel, ctx.chat_id.clone(), text);
+                // Pre-send checkpoint: persist pending before delivery so
+                // recovery can detect the pending operation on crash.
+                self.persist_outbound_checkpoint(ctx.session_id, &msg, false)
+                    .await;
                 ctx.plugin
                     .send(&rendered, &ctx.chat_id, ctx.thread_id.as_deref())
                     .await?;
-                self.persist_outbound_checkpoint(ctx.session_id, &msg).await;
+                // Post-send checkpoint: mark as sent after successful delivery.
+                self.persist_outbound_checkpoint(ctx.session_id, &msg, true)
+                    .await;
                 Ok(())
             }
             "interactive" => {
                 let payload_str =
                     serde_json::to_string(&rendered.payload).unwrap_or_else(|_| "{}".to_string());
+                let msg = Self::make_outbound_msg(ctx.channel, ctx.chat_id.clone(), payload_str);
+                // Pre-send checkpoint: persist pending before delivery so
+                // recovery can detect the pending operation on crash.
+                self.persist_outbound_checkpoint(ctx.session_id, &msg, false)
+                    .await;
                 ctx.plugin
                     .send(&rendered, &ctx.chat_id, ctx.thread_id.as_deref())
                     .await?;
-                let msg = Self::make_outbound_msg(ctx.channel, ctx.chat_id, payload_str);
-                self.persist_outbound_checkpoint(ctx.session_id, &msg).await;
+                // Post-send checkpoint: mark as sent after successful delivery.
+                self.persist_outbound_checkpoint(ctx.session_id, &msg, true)
+                    .await;
                 Ok(())
             }
             _ => Err(GatewayError::OutboundError(format!(
@@ -314,7 +326,12 @@ impl Gateway {
     }
 
     /// Persist outbound message to checkpoint if checkpoint_manager is configured.
-    async fn persist_outbound_checkpoint(&self, session_id: &str, msg: &Message) {
+    ///
+    /// When `mark_sent` is `true`, the pending message is marked as sent
+    /// (checkpoint saved after successful delivery). When `false`, the
+    /// pending message is persisted without the sent flag, serving as a
+    /// pre-send checkpoint so recovery can detect the pending operation.
+    async fn persist_outbound_checkpoint(&self, session_id: &str, msg: &Message, mark_sent: bool) {
         let Some(ref cm) = self.checkpoint_manager else {
             return;
         };
@@ -334,7 +351,9 @@ impl Gateway {
             "assistant".to_string(),
         );
         pending.target_channel = msg.channel.clone();
-        pending.mark_sent();
+        if mark_sent {
+            pending.mark_sent();
+        }
         let mut cp = checkpoint.add_outbound_pending(pending);
         // Sync per-session append-section list from ConversationSession
         // (issue #860: archived session restore preserves append content).
