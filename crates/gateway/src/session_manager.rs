@@ -3,11 +3,10 @@
 //! Responsible for session lifecycle: lookup, creation, restoration.
 //! On daemon shutdown, `flush_all()` serializes all active sessions to the persistence backend.
 
+use crate::shutdown_handle::ShutdownHandle;
 use crate::{compute_session_key, GatewayConfig, Message, Session};
 use closeclaw_common::processor::ProcessError;
 use closeclaw_common::shutdown::ShutdownMode;
-
-use crate::shutdown_handle::ShutdownHandle;
 use closeclaw_common::IMPlugin;
 use closeclaw_common::{
     DynamicPromptBuilder, LlmCaller, PromptOverrides, SkillRegistryQuery, SystemPromptBuilder,
@@ -891,8 +890,6 @@ impl SessionManager {
         );
     }
 }
-// --- SessionLookup trait implementation ---
-
 use closeclaw_common::SessionLookup;
 
 #[async_trait::async_trait]
@@ -927,8 +924,6 @@ impl SessionLookup for SessionManager {
         }
     }
 }
-
-// Unit tests
 #[cfg(test)]
 mod announce_drain_outbound_tests;
 #[cfg(test)]

@@ -77,6 +77,11 @@ impl Daemon {
         session_manager
             .inject_startup_recovery_notifications(&dirty_sessions)
             .await;
+        // Recovery injection may have created new ConversationSession / Session
+        // entries. Rebuild key_registry so they are resolvable by routing key.
+        if let Err(e) = session_manager.rebuild_key_registry().await {
+            tracing::warn!(error = %e, "failed to rebuild key_registry after recovery injection — continuing");
+        }
         let (admin_handle, admin_sock_path) = Self::init_phase_6_admin_rpc(
             &agent_registry,
             &skill_registry,
