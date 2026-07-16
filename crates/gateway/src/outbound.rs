@@ -707,6 +707,15 @@ impl Gateway {
         delta: ContentDelta,
         state: &mut StreamState,
     ) -> Result<(), GatewayError> {
+        // Accumulate Image/Audio/File deltas at Gateway level.
+        if let ContentDelta::ImageRef { name, url }
+        | ContentDelta::AudioRef { name, url }
+        | ContentDelta::FileRef { name, url } = &delta
+        {
+            state.media_name = Some(name.clone());
+            state.media_url = Some(url.clone());
+            return Ok(());
+        }
         let is_text_delta = matches!(delta, ContentDelta::Text { .. });
         let out = ctx
             .plugin
@@ -731,18 +740,26 @@ impl Gateway {
     ) -> Result<(), GatewayError> {
         let mut out = ctx.plugin.handle_stream_event(event);
         if block_type != ContentBlockType::Text {
-            let render_blocks = std::mem::take(&mut out.render_blocks);
-            for block in render_blocks {
-                // Thinking blocks bypass VerbosityFilter when sent via
-                // send_render_block during streaming. Only send them in
-                // Full mode; otherwise skip the real-time send but still
-                // push to content_blocks for the post-stream pipeline.
-                let should_send = block_type != ContentBlockType::Thinking
-                    || state.verbosity_level == VerbosityLevel::Full;
-                if should_send {
-                    send_render_block(ctx, &block).await?;
-                }
+            if matches!(
+                block_type,
+                ContentBlockType::Image | ContentBlockType::Audio | ContentBlockType::File
+            ) {
+                let block = state.take_media_block(block_type);
                 state.content_blocks.push(block);
+            } else {
+                let render_blocks = std::mem::take(&mut out.render_blocks);
+                for block in render_blocks {
+                    // Thinking blocks bypass VerbosityFilter when sent via
+                    // send_render_block during streaming. Only send them in
+                    // Full mode; otherwise skip the real-time send but still
+                    // push to content_blocks for the post-stream pipeline.
+                    let should_send = block_type != ContentBlockType::Thinking
+                        || state.verbosity_level == VerbosityLevel::Full;
+                    if should_send {
+                        send_render_block(ctx, &block).await?;
+                    }
+                    state.content_blocks.push(block);
+                }
             }
         }
         dispatch_text(ctx, out, state).await
@@ -805,10 +822,10 @@ struct StreamContext<'a> {
 struct StreamState {
     content_blocks: Vec<ContentBlock>,
     usage: UnifiedUsage,
-    /// Verbosity level resolved once per stream; drives per-block filtering.
     verbosity_level: VerbosityLevel,
-    /// DSL instructions accumulated during streaming, merged post-stream.
     dsl_results: DslParseResult,
+    media_name: Option<String>,
+    media_url: Option<String>,
 }
 
 impl StreamState {
@@ -827,6 +844,20 @@ impl StreamState {
             dsl_results: DslParseResult {
                 instructions: vec![],
             },
+            media_name: None,
+            media_url: None,
+        }
+    }
+
+    /// Take the accumulated media block and reset state.
+    fn take_media_block(&mut self, block_type: ContentBlockType) -> ContentBlock {
+        let name = self.media_name.take().unwrap_or_default();
+        let url = self.media_url.take().unwrap_or_default();
+        match block_type {
+            ContentBlockType::Image => ContentBlock::Image { name, url },
+            ContentBlockType::Audio => ContentBlock::Audio { name, url },
+            ContentBlockType::File => ContentBlock::File { name, url },
+            _ => unreachable!(),
         }
     }
 }
