@@ -39,27 +39,15 @@ pub fn delete_transcript(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
-/// Write transcript entries to a .jsonl file.
+/// Write transcript (pending_messages) to a .jsonl file.
 pub fn write_transcript(
     path: &Path,
     checkpoint: &SessionCheckpoint,
 ) -> Result<(), PersistenceError> {
-    #[derive(serde::Serialize)]
-    struct TranscriptEntry {
-        role: String,
-        content: String,
-        timestamp: DateTime<Utc>,
-    }
     let file = std::fs::File::create(path).map_err(PersistenceError::Io)?;
     let mut writer = std::io::BufWriter::new(file);
-    for msg in &checkpoint.outbound_pending {
-        let role = msg.role.clone().unwrap_or_else(|| msg.message_id.clone());
-        let entry = TranscriptEntry {
-            role,
-            content: msg.content.clone(),
-            timestamp: msg.created_at,
-        };
-        serde_json::to_writer(&mut writer, &entry).map_err(PersistenceError::Serialization)?;
+    for msg in &checkpoint.pending_messages {
+        serde_json::to_writer(&mut writer, msg).map_err(PersistenceError::Serialization)?;
         use std::io::Write;
         writeln!(&mut writer).map_err(PersistenceError::Io)?;
     }
