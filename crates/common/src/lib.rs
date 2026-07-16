@@ -104,7 +104,7 @@ pub use skill_registry::SkillRegistryQuery;
 pub use slash_router::{
     SlashContext, SlashDispatcherTrait, SlashHandler, SlashResult, SlashRouter, SystemAppendAction,
 };
-pub use streaming::{DefaultStreamingRenderer, LineBuffer, StreamingRenderer};
+pub use streaming::{CodeBlockMode, DefaultStreamingRenderer, LineBuffer, StreamingRenderer};
 pub use turn::TurnCounter;
 
 pub use communication::{

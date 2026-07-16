@@ -22,6 +22,15 @@ const LINE_THRESHOLD: usize = 100;
 /// Default timeout for forced buffer emission.
 const DEFAULT_TIMEOUT: Duration = Duration::from_millis(200);
 
+/// Controls how code block content is emitted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodeBlockMode {
+    /// Emit each line as it arrives (default).
+    LineByLine,
+    /// Accumulate the entire code block and emit at block end.
+    WholeBlock,
+}
+
 /// Line buffer for incremental text rendering.
 ///
 /// Splits incoming text on sentence terminators (`。！？.!?\n`) when outside
@@ -34,6 +43,7 @@ pub struct LineBuffer {
     threshold: usize,
     last_activity: Option<Instant>,
     timeout: Option<Duration>,
+    code_block_mode: CodeBlockMode,
 }
 
 impl Default for LineBuffer {
@@ -57,12 +67,19 @@ impl LineBuffer {
             threshold,
             last_activity: None,
             timeout: Some(DEFAULT_TIMEOUT),
+            code_block_mode: CodeBlockMode::LineByLine,
         }
     }
 
     /// Set the timeout for forced emission. Pass `None` to disable.
     pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    /// Set the code block output mode.
+    pub fn with_code_block_mode(mut self, mode: CodeBlockMode) -> Self {
+        self.code_block_mode = mode;
         self
     }
 
@@ -91,13 +108,29 @@ impl LineBuffer {
                 continue;
             }
             if backtick_run >= 3 {
-                in_code = !in_code;
+                if in_code {
+                    // Closing fence: strip trailing ```
+                    // from output in WholeBlock mode.
+                    if self.code_block_mode == CodeBlockMode::WholeBlock {
+                        let fence = "`".repeat(backtick_run);
+                        if let Some(pos) = current_line.rfind(&fence) {
+                            current_line.truncate(pos);
+                        }
+                    }
+                    in_code = false;
+                } else {
+                    in_code = true;
+                }
             }
             backtick_run = 0;
             current_line.push(ch);
 
             let emit = if in_code {
-                ch == '\n'
+                if self.code_block_mode == CodeBlockMode::WholeBlock {
+                    false
+                } else {
+                    ch == '\n'
+                }
             } else {
                 is_sentence_terminator(ch) || ch == '\n'
             };
@@ -264,6 +297,12 @@ impl DefaultStreamingRenderer {
             current_block_index: None,
             current_acc: None,
         }
+    }
+
+    /// Set the code block output mode.
+    pub fn with_code_block_mode(mut self, mode: CodeBlockMode) -> Self {
+        self.line_buffer = self.line_buffer.with_code_block_mode(mode);
+        self
     }
 
     /// Check the line buffer timeout; if elapsed, force-output buffered content.
