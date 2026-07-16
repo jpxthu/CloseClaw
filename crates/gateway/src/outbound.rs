@@ -542,12 +542,6 @@ impl Gateway {
             VerbosityLevel::default()
         };
         let middlewares = self.get_outbound_middlewares().await;
-        let processor_registry = self.processor_registry.read().unwrap().clone();
-        let processor_ref: &dyn closeclaw_common::processor::ProcessorChain =
-            match processor_registry.as_ref() {
-                Some(r) => r.as_ref(),
-                None => &NoopProcessorChain,
-            };
         let mut state = StreamState::new(verbosity_level);
         let mut first_event_received = false;
         let timeout_duration = std::time::Duration::from_millis(200);
@@ -556,7 +550,6 @@ impl Gateway {
             chat_id: &chat_id,
             thread_id: thread_id.as_deref(),
             middlewares: &middlewares,
-            processor_registry: processor_ref,
         };
         loop {
             tokio::select! {
@@ -611,7 +604,7 @@ impl Gateway {
             None => (std::mem::take(&mut state.content_blocks), None),
         };
 
-        let mut processed = self
+        let processed = self
             .process_or_bypass(
                 "",
                 content_blocks_for_pipeline,
@@ -620,13 +613,6 @@ impl Gateway {
                 verbosity_level,
             )
             .await?;
-
-        if !state.dsl_results.instructions.is_empty() {
-            let streaming_json = serde_json::to_string(&state.dsl_results).unwrap_or_default();
-            processed
-                .metadata
-                .insert("dsl_result".to_string(), streaming_json);
-        }
 
         Ok(StreamResult {
             content_blocks: processed.content_blocks,
@@ -707,6 +693,15 @@ impl Gateway {
         delta: ContentDelta,
         state: &mut StreamState,
     ) -> Result<(), GatewayError> {
+        // Accumulate Image/Audio/File deltas at Gateway level.
+        if let ContentDelta::ImageRef { name, url }
+        | ContentDelta::AudioRef { name, url }
+        | ContentDelta::FileRef { name, url } = &delta
+        {
+            state.media_name = Some(name.clone());
+            state.media_url = Some(url.clone());
+            return Ok(());
+        }
         let is_text_delta = matches!(delta, ContentDelta::Text { .. });
         let out = ctx
             .plugin
@@ -731,18 +726,25 @@ impl Gateway {
     ) -> Result<(), GatewayError> {
         let mut out = ctx.plugin.handle_stream_event(event);
         if block_type != ContentBlockType::Text {
-            let render_blocks = std::mem::take(&mut out.render_blocks);
-            for block in render_blocks {
-                // Thinking blocks bypass VerbosityFilter when sent via
-                // send_render_block during streaming. Only send them in
-                // Full mode; otherwise skip the real-time send but still
-                // push to content_blocks for the post-stream pipeline.
-                let should_send = block_type != ContentBlockType::Thinking
-                    || state.verbosity_level == VerbosityLevel::Full;
-                if should_send {
-                    send_render_block(ctx, &block).await?;
-                }
+            if matches!(
+                block_type,
+                ContentBlockType::Image | ContentBlockType::Audio | ContentBlockType::File
+            ) {
+                let block = state.take_media_block(block_type);
                 state.content_blocks.push(block);
+            } else {
+                let render_blocks = std::mem::take(&mut out.render_blocks);
+                // Filter non-Text blocks through VerbosityFilter for
+                // real-time send. VerbosityLevel::Off suppresses all
+                // non-Text output; VerbosityLevel::Normal suppresses
+                // Thinking blocks; VerbosityLevel::Full passes all.
+                let filtered = filter_by_verbosity(render_blocks.clone(), state.verbosity_level);
+                for block in &filtered {
+                    send_render_block(ctx, block).await?;
+                }
+                // Push ALL original blocks to content_blocks so the
+                // post-stream Processor Chain has the full data set.
+                state.content_blocks.extend(render_blocks);
             }
         }
         dispatch_text(ctx, out, state).await
@@ -798,17 +800,15 @@ struct StreamContext<'a> {
     chat_id: &'a str,
     thread_id: Option<&'a str>,
     middlewares: &'a [std::sync::Arc<dyn closeclaw_common::OutboundMiddleware>],
-    processor_registry: &'a dyn closeclaw_common::processor::ProcessorChain,
 }
 
 /// Mutable state carried across stream events in `send_outbound_streaming`.
 struct StreamState {
     content_blocks: Vec<ContentBlock>,
     usage: UnifiedUsage,
-    /// Verbosity level resolved once per stream; drives per-block filtering.
     verbosity_level: VerbosityLevel,
-    /// DSL instructions accumulated during streaming, merged post-stream.
-    dsl_results: DslParseResult,
+    media_name: Option<String>,
+    media_url: Option<String>,
 }
 
 impl StreamState {
@@ -824,36 +824,43 @@ impl StreamState {
                 cache_write_tokens: None,
             },
             verbosity_level,
-            dsl_results: DslParseResult {
-                instructions: vec![],
-            },
+            media_name: None,
+            media_url: None,
+        }
+    }
+
+    /// Take the accumulated media block and reset state.
+    fn take_media_block(&mut self, block_type: ContentBlockType) -> ContentBlock {
+        let name = self.media_name.take().unwrap_or_default();
+        let url = self.media_url.take().unwrap_or_default();
+        match block_type {
+            ContentBlockType::Image => ContentBlock::Image { name, url },
+            ContentBlockType::Audio => ContentBlock::Audio { name, url },
+            ContentBlockType::File => ContentBlock::File { name, url },
+            _ => unreachable!(),
         }
     }
 }
 
 /// Send any text messages from `out` into `state`.
 ///
-/// Each line is processed through the DslParser (zero-overhead passthrough
-/// for non-DSL lines), logged to the outbound trace, and sent as clean text.
+/// In the incremental streaming phase, text lines are dispatched as-is
+/// without DslParser processing. DSL parsing is deferred to the
+/// post-stream Processor Chain in `finish_streaming_pipeline`.
 async fn dispatch_text(
     ctx: &StreamContext<'_>,
     out: StreamingOutput,
     state: &mut StreamState,
 ) -> Result<(), GatewayError> {
     for text in out.text_messages {
-        let (clean_text, dsl_result) = ctx.processor_registry.parse_line_for_dsl(&text);
-        state
-            .dsl_results
-            .instructions
-            .extend(dsl_result.instructions);
         tracing::info!(
             chat_id = ctx.chat_id,
-            content = %clean_text,
+            content = %text,
             "streaming outbound text"
         );
-        if !clean_text.is_empty() {
-            send_text(ctx, &clean_text).await?;
-            state.content_blocks.push(ContentBlock::Text(clean_text));
+        if !text.is_empty() {
+            send_text(ctx, &text).await?;
+            state.content_blocks.push(ContentBlock::Text(text));
         }
     }
     Ok(())
@@ -902,53 +909,11 @@ async fn send_render_block(
 // Verbosity filtering
 // ---------------------------------------------------------------------------
 
-/// No-op processor chain fallback when no processor registry is configured.
-/// Returns lines unchanged — zero-overhead passthrough.
-#[derive(Debug)]
-struct NoopProcessorChain;
-
-#[async_trait::async_trait]
-impl closeclaw_common::processor::ProcessorChain for NoopProcessorChain {
-    async fn process_inbound(
-        &self,
-        msg: closeclaw_common::im_plugin::NormalizedMessage,
-    ) -> Result<
-        closeclaw_common::processor::ProcessedMessage,
-        closeclaw_common::processor::ProcessError,
-    > {
-        Ok(closeclaw_common::processor::ProcessedMessage {
-            content_blocks: vec![closeclaw_common::processor::ContentBlock::Text(msg.content)],
-            metadata: std::collections::HashMap::new(),
-        })
-    }
-
-    async fn process_outbound(
-        &self,
-        msg: closeclaw_common::processor::ProcessedMessage,
-    ) -> Result<
-        closeclaw_common::processor::ProcessedMessage,
-        closeclaw_common::processor::ProcessError,
-    > {
-        Ok(msg)
-    }
-
-    async fn process_outbound_raw_log_only(
-        &self,
-        msg: closeclaw_common::processor::ProcessedMessage,
-    ) -> Result<
-        closeclaw_common::processor::ProcessedMessage,
-        closeclaw_common::processor::ProcessError,
-    > {
-        Ok(msg)
-    }
-}
-
 /// Filter content blocks based on the session's verbosity level.
 ///
 /// - [`VerbosityLevel::Full`]: no filtering, all blocks are kept.
 /// - [`VerbosityLevel::Normal`]: remove [`ContentBlock::Thinking`] blocks.
 /// - [`VerbosityLevel::Off`]: only keep [`ContentBlock::Text`] blocks.
-#[allow(dead_code)]
 pub(crate) fn filter_by_verbosity(
     blocks: Vec<ContentBlock>,
     level: VerbosityLevel,
