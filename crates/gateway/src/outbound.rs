@@ -7,6 +7,7 @@ use super::{Gateway, GatewayError, Message};
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::StreamingOutput;
+use std::sync::Arc;
 
 use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
 use closeclaw_common::LlmState;
@@ -111,10 +112,9 @@ impl Gateway {
             .get_chat_id(session_id)
             .await
             .ok_or(GatewayError::MissingSessionId)?;
-        let plugin = self
-            .get_plugin(channel)
-            .await
-            .ok_or_else(|| GatewayError::UnknownChannel(channel.to_string()))?;
+        let Some(plugin) = self.get_plugin(channel).await else {
+            return self.fallback_to_plain_text(channel, raw_output).await;
+        };
 
         // 2. Resolve verbosity level and inject into chain metadata.
         let verbosity_level = if let Some(cs) = self
@@ -156,6 +156,7 @@ impl Gateway {
         let thread_id = self.session_manager.get_thread_id(session_id).await;
 
         // 9. Dispatch by msg_type and persist checkpoint on success.
+        // On render/send failure, fall back to plain-text send.
         let fallback_text = blocks
             .iter()
             .find_map(|b| match b {
@@ -163,16 +164,24 @@ impl Gateway {
                 _ => None,
             })
             .unwrap_or("");
-        self.dispatch_and_persist(DispatchCtx {
-            plugin: &plugin,
-            rendered: &rendered,
-            fallback_text,
-            session_id,
-            channel,
-            chat_id,
-            thread_id,
-        })
-        .await
+        let result = self
+            .dispatch_and_persist(DispatchCtx {
+                plugin: &plugin,
+                rendered: &rendered,
+                fallback_text,
+                session_id,
+                channel,
+                chat_id: chat_id.clone(),
+                thread_id: thread_id.clone(),
+            })
+            .await;
+        match result {
+            Ok(()) => Ok(()),
+            Err(_) => {
+                self.send_as_plain_text(&plugin, raw_output, &chat_id, thread_id.as_deref())
+                    .await
+            }
+        }
     }
 
     /// Dispatch a rendered output to its destination plugin and persist the
@@ -311,6 +320,47 @@ impl Gateway {
             .map_err(|e| GatewayError::OutboundError(e.to_string()))
     }
 
+    /// Fallback to plain-text output when no IM plugin is registered for
+    /// the target channel. Logs a warning, records the raw text to the
+    /// outbound log (via `process_outbound_raw_log_only`), and returns `Ok(())`
+    /// so the caller does not fail.
+    async fn fallback_to_plain_text(
+        &self,
+        channel: &str,
+        raw_output: &str,
+    ) -> Result<(), GatewayError> {
+        tracing::warn!(
+            channel,
+            "no IM plugin registered, falling back to plain-text log"
+        );
+        let blocks = vec![ContentBlock::Text(raw_output.to_string())];
+        self.process_outbound_raw_log_only(raw_output, blocks, channel)
+            .await?;
+        Ok(())
+    }
+
+    /// Fallback to plain-text send when the plugin exists but `render` or
+    /// `send` failed. Constructs a plain-text [`RenderedOutput`] and retries
+    /// via `plugin.send`. Returns the send result.
+    async fn send_as_plain_text(
+        &self,
+        plugin: &Arc<dyn IMPlugin>,
+        raw_output: &str,
+        chat_id: &str,
+        thread_id: Option<&str>,
+    ) -> Result<(), GatewayError> {
+        tracing::warn!(
+            chat_id,
+            "render/send failed, falling back to plain-text send"
+        );
+        let rendered = RenderedOutput {
+            msg_type: "text".to_string(),
+            payload: serde_json::json!({ "content": { "text": raw_output } }),
+        };
+        plugin.send(&rendered, chat_id, thread_id).await?;
+        Ok(())
+    }
+
     /// Build a [`Message`] for checkpoint persistence from outbound fields.
     fn make_outbound_msg(channel: &str, to: String, content: String) -> Message {
         Message {
@@ -389,10 +439,9 @@ impl Gateway {
         channel: &str,
         raw_output: &str,
     ) -> Result<(), GatewayError> {
-        let plugin = self
-            .get_plugin(channel)
-            .await
-            .ok_or_else(|| GatewayError::UnknownChannel(channel.to_string()))?;
+        let Some(plugin) = self.get_plugin(channel).await else {
+            return self.fallback_to_plain_text(channel, raw_output).await;
+        };
 
         // Processor chain (VerbosityFilter → DslParser → OutboundRawLog).
         let blocks = vec![ContentBlock::Text(raw_output.to_string())];
@@ -415,14 +464,25 @@ impl Gateway {
         // Run outbound middleware chain (render → middleware → send).
         let middlewares = self.get_outbound_middlewares().await;
         if !middlewares.is_empty() {
-            rendered = run_middleware_chain(&middlewares, rendered)
-                .await
-                .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
+            match run_middleware_chain(&middlewares, rendered).await {
+                Ok(r) => rendered = r,
+                Err(_) => {
+                    return self
+                        .send_as_plain_text(&plugin, raw_output, chat_id, None)
+                        .await;
+                }
+            }
         }
 
-        // Dispatch via plugin.send.
-        plugin.send(&rendered, chat_id, None).await?;
-        Ok(())
+        // Dispatch via plugin.send. On failure, fall back to plain-text send.
+        let result = plugin.send(&rendered, chat_id, None).await;
+        match result {
+            Ok(()) => Ok(()),
+            Err(_) => {
+                self.send_as_plain_text(&plugin, raw_output, chat_id, None)
+                    .await
+            }
+        }
     }
 
     /// Send a simplified outbound message, skipping the full processor chain
@@ -434,10 +494,9 @@ impl Gateway {
         channel: &str,
         raw_output: &str,
     ) -> Result<(), GatewayError> {
-        let plugin = self
-            .get_plugin(channel)
-            .await
-            .ok_or_else(|| GatewayError::UnknownChannel(channel.to_string()))?;
+        let Some(plugin) = self.get_plugin(channel).await else {
+            return self.fallback_to_plain_text(channel, raw_output).await;
+        };
         let blocks = vec![ContentBlock::Text(raw_output.to_string())];
 
         // Run only the outbound raw-log processor (skip Verbosity/DslParser).
@@ -452,8 +511,15 @@ impl Gateway {
         let rendered = plugin.render(&processed.content_blocks, None);
 
         // Send directly — no outbound middleware chain.
-        plugin.send(&rendered, chat_id, None).await?;
-        Ok(())
+        // On render/send failure, fall back to plain-text send.
+        let result = plugin.send(&rendered, chat_id, None).await;
+        match result {
+            Ok(()) => Ok(()),
+            Err(_) => {
+                self.send_as_plain_text(&plugin, raw_output, chat_id, None)
+                    .await
+            }
+        }
     }
 
     /// Send a streaming LLM response via the registered IM plugin.

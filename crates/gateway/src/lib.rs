@@ -20,6 +20,8 @@ pub mod outbound;
 #[cfg(test)]
 mod outbound_checkpoint_timing_tests;
 #[cfg(test)]
+mod outbound_fallback_tests;
+#[cfg(test)]
 mod outbound_tests;
 #[cfg(test)]
 mod receiving_transition_tests;
