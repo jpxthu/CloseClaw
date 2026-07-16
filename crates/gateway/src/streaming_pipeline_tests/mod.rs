@@ -967,3 +967,4 @@ async fn test_streaming_multiline_dsl_each_line_independent() {
 }
 
 mod part2;
+mod part3;
