@@ -542,12 +542,6 @@ impl Gateway {
             VerbosityLevel::default()
         };
         let middlewares = self.get_outbound_middlewares().await;
-        let processor_registry = self.processor_registry.read().unwrap().clone();
-        let processor_ref: &dyn closeclaw_common::processor::ProcessorChain =
-            match processor_registry.as_ref() {
-                Some(r) => r.as_ref(),
-                None => &NoopProcessorChain,
-            };
         let mut state = StreamState::new(verbosity_level);
         let mut first_event_received = false;
         let timeout_duration = std::time::Duration::from_millis(200);
@@ -556,7 +550,6 @@ impl Gateway {
             chat_id: &chat_id,
             thread_id: thread_id.as_deref(),
             middlewares: &middlewares,
-            processor_registry: processor_ref,
         };
         loop {
             tokio::select! {
@@ -611,7 +604,7 @@ impl Gateway {
             None => (std::mem::take(&mut state.content_blocks), None),
         };
 
-        let mut processed = self
+        let processed = self
             .process_or_bypass(
                 "",
                 content_blocks_for_pipeline,
@@ -620,13 +613,6 @@ impl Gateway {
                 verbosity_level,
             )
             .await?;
-
-        if !state.dsl_results.instructions.is_empty() {
-            let streaming_json = serde_json::to_string(&state.dsl_results).unwrap_or_default();
-            processed
-                .metadata
-                .insert("dsl_result".to_string(), streaming_json);
-        }
 
         Ok(StreamResult {
             content_blocks: processed.content_blocks,
@@ -815,7 +801,6 @@ struct StreamContext<'a> {
     chat_id: &'a str,
     thread_id: Option<&'a str>,
     middlewares: &'a [std::sync::Arc<dyn closeclaw_common::OutboundMiddleware>],
-    processor_registry: &'a dyn closeclaw_common::processor::ProcessorChain,
 }
 
 /// Mutable state carried across stream events in `send_outbound_streaming`.
@@ -823,7 +808,6 @@ struct StreamState {
     content_blocks: Vec<ContentBlock>,
     usage: UnifiedUsage,
     verbosity_level: VerbosityLevel,
-    dsl_results: DslParseResult,
     media_name: Option<String>,
     media_url: Option<String>,
 }
@@ -841,9 +825,6 @@ impl StreamState {
                 cache_write_tokens: None,
             },
             verbosity_level,
-            dsl_results: DslParseResult {
-                instructions: vec![],
-            },
             media_name: None,
             media_url: None,
         }
@@ -864,27 +845,23 @@ impl StreamState {
 
 /// Send any text messages from `out` into `state`.
 ///
-/// Each line is processed through the DslParser (zero-overhead passthrough
-/// for non-DSL lines), logged to the outbound trace, and sent as clean text.
+/// In the incremental streaming phase, text lines are dispatched as-is
+/// without DslParser processing. DSL parsing is deferred to the
+/// post-stream Processor Chain in `finish_streaming_pipeline`.
 async fn dispatch_text(
     ctx: &StreamContext<'_>,
     out: StreamingOutput,
     state: &mut StreamState,
 ) -> Result<(), GatewayError> {
     for text in out.text_messages {
-        let (clean_text, dsl_result) = ctx.processor_registry.parse_line_for_dsl(&text);
-        state
-            .dsl_results
-            .instructions
-            .extend(dsl_result.instructions);
         tracing::info!(
             chat_id = ctx.chat_id,
-            content = %clean_text,
+            content = %text,
             "streaming outbound text"
         );
-        if !clean_text.is_empty() {
-            send_text(ctx, &clean_text).await?;
-            state.content_blocks.push(ContentBlock::Text(clean_text));
+        if !text.is_empty() {
+            send_text(ctx, &text).await?;
+            state.content_blocks.push(ContentBlock::Text(text));
         }
     }
     Ok(())
@@ -932,47 +909,6 @@ async fn send_render_block(
 // ---------------------------------------------------------------------------
 // Verbosity filtering
 // ---------------------------------------------------------------------------
-
-/// No-op processor chain fallback when no processor registry is configured.
-/// Returns lines unchanged — zero-overhead passthrough.
-#[derive(Debug)]
-struct NoopProcessorChain;
-
-#[async_trait::async_trait]
-impl closeclaw_common::processor::ProcessorChain for NoopProcessorChain {
-    async fn process_inbound(
-        &self,
-        msg: closeclaw_common::im_plugin::NormalizedMessage,
-    ) -> Result<
-        closeclaw_common::processor::ProcessedMessage,
-        closeclaw_common::processor::ProcessError,
-    > {
-        Ok(closeclaw_common::processor::ProcessedMessage {
-            content_blocks: vec![closeclaw_common::processor::ContentBlock::Text(msg.content)],
-            metadata: std::collections::HashMap::new(),
-        })
-    }
-
-    async fn process_outbound(
-        &self,
-        msg: closeclaw_common::processor::ProcessedMessage,
-    ) -> Result<
-        closeclaw_common::processor::ProcessedMessage,
-        closeclaw_common::processor::ProcessError,
-    > {
-        Ok(msg)
-    }
-
-    async fn process_outbound_raw_log_only(
-        &self,
-        msg: closeclaw_common::processor::ProcessedMessage,
-    ) -> Result<
-        closeclaw_common::processor::ProcessedMessage,
-        closeclaw_common::processor::ProcessError,
-    > {
-        Ok(msg)
-    }
-}
 
 /// Filter content blocks based on the session's verbosity level.
 ///

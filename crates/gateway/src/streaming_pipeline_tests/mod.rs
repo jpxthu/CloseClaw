@@ -337,7 +337,8 @@ pub(super) fn extract_text(payload: &serde_json::Value) -> String {
 // Normal path: non-DSL text passes through unchanged (zero-overhead)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Non-DSL text lines go through `parse_line_for_dsl` and come back unchanged.
+/// Non-DSL text lines pass through unchanged — no DSL parsing in
+/// incremental streaming phase (DslParser is deferred to post-stream).
 #[tokio::test]
 async fn test_streaming_non_dsl_text_passthrough() {
     let chain = Arc::new(MockProcessorChain::new());
@@ -371,10 +372,12 @@ async fn test_streaming_non_dsl_text_passthrough() {
         .await
         .unwrap();
 
-    // Verify `parse_line_for_dsl` was called for each text line.
+    // parse_line_for_dsl should NOT be called during streaming (DSL deferred).
     let parsed = chain.parsed_lines();
-    assert!(!parsed.is_empty(), "parse_line_for_dsl should be called");
-    assert_eq!(parsed[0], "Hello world.");
+    assert!(
+        parsed.is_empty(),
+        "parse_line_for_dsl should not be called during streaming"
+    );
 
     // Verify the text content is preserved unchanged.
     let text_blocks: Vec<String> = result
@@ -397,8 +400,8 @@ async fn test_streaming_non_dsl_text_passthrough() {
 // DSL path: `::button[...]` lines extracted, DSL accumulated
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Lines containing DSL markers are parsed by DslParser; clean text is sent
-/// and DSL instructions are accumulated in StreamState.
+/// DSL lines are sent as-is during streaming — no DslParser in incremental
+/// phase. DSL parsing is deferred to the post-stream Processor Chain.
 #[tokio::test]
 async fn test_streaming_dsl_line_extracted_and_accumulated() {
     let chain = Arc::new(MockProcessorChain::new());
@@ -441,25 +444,46 @@ async fn test_streaming_dsl_line_extracted_and_accumulated() {
         .await
         .unwrap();
 
-    // parse_line_for_dsl was called with the DSL line (including LineBuffer terminator).
+    // parse_line_for_dsl should NOT be called during streaming (DSL deferred).
     let parsed = chain.parsed_lines();
-    assert_eq!(parsed.len(), 1);
-    assert_eq!(parsed[0], "::button[label:Yes;action:confirm;value:1]\n");
+    assert!(
+        parsed.is_empty(),
+        "parse_line_for_dsl should not be called during streaming"
+    );
 
-    // DSL line is stripped from sent text (clean_text is empty, not sent).
+    // DSL line is sent as-is (not stripped) during streaming.
     let sent = plugin.drain_sent();
-    assert_eq!(sent.len(), 0, "DSL-only lines should not be sent");
+    assert_eq!(
+        sent.len(),
+        1,
+        "DSL line should be sent as text during streaming"
+    );
+    assert_eq!(
+        extract_text(&sent[0]),
+        "::button[label:Yes;action:confirm;value:1]\n"
+    );
 
-    // StreamResult has no text block (empty clean_text skipped).
-    assert_eq!(result.content_blocks.len(), 0);
+    // StreamResult includes the DSL line as a text block.
+    let text_blocks: Vec<String> = result
+        .content_blocks
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        text_blocks,
+        vec!["::button[label:Yes;action:confirm;value:1]\n"]
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Mixed path: some lines with DSL, some without
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// When the stream contains both DSL and non-DSL lines, the non-DSL lines
-/// pass through unchanged and DSL lines are extracted.
+/// When the stream contains both DSL and non-DSL lines, all lines are
+/// sent as-is during streaming — no DSL parsing in incremental phase.
 #[tokio::test]
 async fn test_streaming_mixed_dsl_and_plain_text() {
     let chain = Arc::new(MockProcessorChain::new());
@@ -515,21 +539,24 @@ async fn test_streaming_mixed_dsl_and_plain_text() {
         .await
         .unwrap();
 
-    // parse_line_for_dsl was called for each complete line (with terminator).
+    // parse_line_for_dsl should NOT be called during streaming (DSL deferred).
     let parsed = chain.parsed_lines();
-    assert_eq!(parsed.len(), 3, "should have parsed 3 lines");
-    assert_eq!(parsed[0], "Hello world\n");
-    assert_eq!(parsed[1], "::button[label:Click;action:go;value:ok]\n");
-    assert_eq!(parsed[2], "Goodbye\n");
+    assert!(
+        parsed.is_empty(),
+        "parse_line_for_dsl should not be called during streaming"
+    );
 
-    // Sent messages: plain text dispatched (DSL stripped to empty, skipped).
+    // All lines are sent as-is (including DSL lines).
     let sent = plugin.drain_sent();
-
-    assert_eq!(sent.len(), 2, "only plain text lines dispatched");
+    assert_eq!(sent.len(), 3, "all lines should be dispatched");
     assert_eq!(extract_text(&sent[0]), "Hello world\n");
-    assert_eq!(extract_text(&sent[1]), "Goodbye\n");
+    assert_eq!(
+        extract_text(&sent[1]),
+        "::button[label:Click;action:go;value:ok]\n"
+    );
+    assert_eq!(extract_text(&sent[2]), "Goodbye\n");
 
-    // Content blocks: plain text accumulated.
+    // Content blocks: all lines accumulated.
     let text_blocks: Vec<String> = result
         .content_blocks
         .iter()
@@ -538,6 +565,7 @@ async fn test_streaming_mixed_dsl_and_plain_text() {
             _ => None,
         })
         .collect();
+    assert_eq!(text_blocks.len(), 3);
     assert!(
         text_blocks.contains(&"Hello world\n".to_string()),
         "should contain 'Hello world\n'"
@@ -871,8 +899,7 @@ async fn test_streaming_long_line_force_emitted() {
 }
 
 /// Multi-line DSL markers: `::button` syntax spans multiple lines.
-/// Each line is parsed independently, so a multi-line DSL is NOT recognized
-/// as a single instruction (documented behavior per DslParser spec).
+/// During streaming, all lines are sent as-is (no DSL parsing).
 #[tokio::test]
 async fn test_streaming_multiline_dsl_each_line_independent() {
     let chain = Arc::new(MockProcessorChain::new());
@@ -914,16 +941,14 @@ async fn test_streaming_multiline_dsl_each_line_independent() {
         .await
         .unwrap();
 
-    // parse_line_for_dsl was called for each complete line (with terminator).
+    // parse_line_for_dsl should NOT be called during streaming (DSL deferred).
     let parsed = chain.parsed_lines();
-    assert_eq!(parsed.len(), 2);
-    // First line: incomplete DSL (no closing bracket) → treated as plain text.
-    // LineBuffer includes the terminator in emitted lines.
-    assert_eq!(parsed[0], "::button[label:Yes\n");
-    // Second line: continuation → not valid DSL by itself.
-    assert_eq!(parsed[1], "action:confirm;value:1]\n");
+    assert!(
+        parsed.is_empty(),
+        "parse_line_for_dsl should not be called during streaming"
+    );
 
-    // Both lines are sent (no DSL extracted, zero overhead passthrough).
+    // Both lines are sent as-is (no DSL parsing).
     let sent = plugin.drain_sent();
     assert_eq!(sent.len(), 2);
     assert_eq!(extract_text(&sent[0]), "::button[label:Yes\n");
