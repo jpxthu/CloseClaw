@@ -19,10 +19,13 @@ ConversationSession
   │     Receiving ──→ 流结束 → Idle
   │
   ├── 工具状态：每个工具调用独立跟踪
-  │       Pending → 前台执行 | 后台执行
+  │       Pending → 前台执行 | 后台执行 | 被终止（stop/取消时直接终态，不经过执行阶段）
   │       执行中 → 完成 | 失败 | 被终止 | 超时
   │     前台：session 阻塞，不接受新的 LLM 请求直到完成
   │     后台：session 不阻塞，可继续对话，进程句柄保留
+  │     终态映射：工具进入完成/失败/被终止/超时等终态后立即注销——
+  │       从跟踪 map 中移除，整体状态判定表中该维度计为「无」。
+  │       只有 Pending 和前台/后台执行中的工具参与状态判定
   │
   └── 子 Session 状态：每个子 session 独立跟踪
           执行中 → 完成 | 被终止 | 出错
@@ -34,11 +37,12 @@ ConversationSession
 
 Session 的整体状态由三维组合判定：
 
-| LLM | 前台 Tool | 后台 Tool | 子 Session | 整体判定 |
+| LLM | 前台工具 | 后台工具 | 子 Session | 整体判定 |
 |-----|----------|----------|-----------|---------|
 | Idle | 无 | 无 | 无 | **Idle**：完全空闲，等待输入 |
 | Idle | 无 | 有 | 无 | **Idle（后台活跃）**：可接受新输入，但需提示有后台任务 |
 | Idle | 无 | 无 | 有 Running | **Waiting**：被动检测——系统识别到子 session 运行中。agent 可通过 yield 主动进入阻塞式 Waiting |
+| Idle | 无 | 有 | 有 Running | **Waiting**：子 session 运行中，后台工具不影响判定——子 session Running 的优先级高于后台工具 |
 | Requesting / Receiving | * | * | * | **Busy**：LLM 交互中 |
 | * | 有前台 | * | * | **Busy**：工具执行中（阻塞） |
 
@@ -53,6 +57,8 @@ Session 的整体状态由三维组合判定：
 停止完成后，LLM 状态置 Idle，工具状态和子 Session 状态清空。
 
 级联采用取消信号链：父 session 的取消信号触发时联动子 session，子 session 单独取消不影响父。
+
+**级联超时保护**：Graceful 模式下，级联停止纳入整体超时范围——若子 session 在上级等待时限内未完成，上级不无限等待，而是向调用方报告该子 session 的标识和已执行时长。调用方自行决定继续等待或升级为 forceful。forceful 模式下无超时概念——直接 kill，不等待。
 
 ### 停止入口
 
@@ -93,12 +99,18 @@ sessions_yield 是 agent 明确表达「我 spawn 完了，等结果」的工具
 
 #### Waiting 状态行为
 
-Waiting 有两种进入方式，行为不同：
+Waiting 有两种进入方式，行为不同。两者的共性是子 agent 完成自动触发通知；差异在于用户消息处理方式和等待结束后的恢复行为。
 
-- **被动 Waiting**：agent spawn 子 session 后未 yield，系统自动判定为 Waiting。此状态下 session 仍接受用户输入——agent 可以继续对话，子 agent 完成后通过 announce 消息在后续 turn 中注入
-- **主动 Waiting**：agent 调用 sessions_yield 后进入。此状态下用户消息排队、子 agent 完成后自动恢复。agent 选择 yield 意味着"在子 agent 完成之前我没有别的事要做"
+- **被动 Waiting**：agent spawn 子 session 后未 yield，系统自动判定为 Waiting。此状态下 session 仍接受用户输入——agent 可以继续对话，子 agent 完成后通过 announce 消息在后续 turn 中自然注入。被动 Waiting 不是真正的「等待」——session 仍是活跃的，只是有后台子任务在运行
+- **主动 Waiting**：agent 调用 sessions_yield 后进入。agent 选择 yield 意味着"在子 agent 完成之前我没有别的事要做"，session 进入阻塞式等待
 
-两种 Waiting 共同的约束：
+被动 Waiting 的约束：
+
+- **接受用户输入**：agent 继续正常对话，用户消息不排队
+- **子 agent 完成自动注入**：每收到一个子 agent 的完成 announce，系统注入到父 session 的消息队列，在后续 turn 中呈现
+- **超时保护**：若子 agent 在可配置的时间内未完成，系统主动终止该子 agent（级联终止其所有后代子 session），并注入超时通知；父 session 本身不因超时而强制恢复（因为从未暂停）
+
+主动 Waiting 的约束：
 
 - **用户消息排队**：用户在此期间发送的消息进入等待队列，等 session 恢复后再处理
 - **子 agent 完成自动触发**：每收到一个子 agent 的完成 announce，系统注入到父 session 的消息队列
@@ -180,7 +192,7 @@ Graceful 模式：
           调用方决定：继续等 / 升级为 force / 放弃
   ↓
   5. 清理：清空工具状态、清空子 session 状态、LLM 状态置 Idle
-     SessionManager 移除运行时引用 → 持久化最终状态
+     SessionManager 移除运行时引用 → 持久化对话记录和元数据
 
 Forceful 模式：
   →
@@ -192,7 +204,7 @@ Forceful 模式：
   ↓
   4. 清理运行时状态：清空内存中的工具状态和子 session 状态（进程句柄、运行时跟踪），不涉及 checkpoint 持久化字段——pending_operations 保持原样，下次启动由恢复扫描处理。LLM 状态置 Idle
   ↓
-  5. 持久化最终状态
+  5. 持久化对话记录和元数据
 ```
 
 系统关闭时，SessionManager 遍历所有活跃 session 构建父子树，叶子→根顺序、同级 session 并行停止，级联机制同步处理子 session。
