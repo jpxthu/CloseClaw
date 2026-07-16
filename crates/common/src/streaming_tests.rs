@@ -326,3 +326,159 @@ fn mutex_renderer_delegates_flush() {
     let out = renderer.flush();
     assert_eq!(out.text_messages, vec!["partial"]);
 }
+
+// ── LineBuffer timeout tests ──────────────────────────────────────────────
+
+use std::thread;
+use std::time::Duration;
+
+#[test]
+fn test_check_timeout_before_timeout_returns_none() {
+    let mut buf = LineBuffer::new();
+    buf.feed("partial");
+    // Immediately after feed, timeout hasn't elapsed.
+    assert!(buf.check_timeout().is_none());
+}
+
+#[test]
+fn test_check_timeout_after_timeout_returns_lines() {
+    let mut buf = LineBuffer::new();
+    buf.feed("partial data");
+    thread::sleep(Duration::from_millis(250));
+    let result = buf.check_timeout();
+    assert!(result.is_some());
+    let lines = result.unwrap();
+    assert_eq!(lines, vec!["partial data"]);
+    // Buffer should be drained after timeout triggers.
+    assert!(buf.flush().is_none());
+}
+
+#[test]
+fn test_feed_resets_timeout_timer() {
+    let mut buf = LineBuffer::new();
+    buf.feed("first");
+    thread::sleep(Duration::from_millis(100));
+    buf.feed("second"); // This resets the timer.
+                        // Total ~250ms from first feed, but only ~150ms from second.
+                        // Timer was reset by second feed, so check_timeout returns None.
+    thread::sleep(Duration::from_millis(150));
+    assert!(buf.check_timeout().is_none());
+    // Now wait for the timeout to actually elapse from the second feed.
+    thread::sleep(Duration::from_millis(200));
+    let result = buf.check_timeout();
+    assert!(result.is_some());
+    assert_eq!(result.unwrap(), vec!["firstsecond"]);
+}
+
+#[test]
+fn test_check_timeout_empty_buffer_returns_none() {
+    let mut buf = LineBuffer::new();
+    // No feed at all, buffer is empty.
+    assert!(buf.check_timeout().is_none());
+}
+
+#[test]
+fn test_check_timeout_disabled_returns_none() {
+    let mut buf = LineBuffer::new().with_timeout(None);
+    buf.feed("partial");
+    thread::sleep(Duration::from_millis(250));
+    // Timeout is disabled, so check_timeout should always return None.
+    assert!(buf.check_timeout().is_none());
+    // Data is still in the buffer though.
+    assert_eq!(buf.flush(), Some("partial".to_string()));
+}
+
+// ── WholeBlock code block mode tests ──────────────────────────────────────
+
+#[test]
+fn test_whole_block_code_block_emits_at_close() {
+    let mut buf = LineBuffer::new().with_code_block_mode(CodeBlockMode::WholeBlock);
+    let mut all = Vec::new();
+    all.extend(buf.feed("```rust\nline 1\nline 2\n```\n"));
+    // WholeBlock mode: code block content is held until the closing fence.
+    // The closing ```\n should emit the accumulated block (without the trailing ```).
+    assert!(!all.is_empty());
+    // Should have the opening fence and the accumulated code block.
+    let joined = all.join("");
+    assert!(joined.contains("line 1"));
+    assert!(joined.contains("line 2"));
+}
+
+#[test]
+fn test_whole_block_outside_codeblock_linebyline() {
+    let mut buf = LineBuffer::new().with_code_block_mode(CodeBlockMode::WholeBlock);
+    let mut all = Vec::new();
+    // Outside code block, sentence terminators should trigger line-by-line output.
+    all.extend(buf.feed("Hello world. "));
+    assert!(
+        all.iter().any(|l| l.contains("Hello world.")),
+        "Expected sentence terminator to trigger line output outside code block: {:?}",
+        all
+    );
+}
+
+#[test]
+fn test_line_by_line_codeblock_default_behavior() {
+    let mut buf = LineBuffer::new(); // Default is LineByLine.
+    let out1 = buf.feed("```\nfoo\n");
+    assert_eq!(out1, vec!["```\n", "foo\n"]);
+    let out2 = buf.feed("bar\n```\n");
+    assert_eq!(out2, vec!["bar\n", "```\n"]);
+}
+
+// ── DefaultStreamingRenderer timeout tests ─────────────────────────────────
+
+#[test]
+fn test_renderer_check_timeout_delegates_to_line_buffer() {
+    let mut r = DefaultStreamingRenderer::new();
+    r.handle_event(block_start(0, ContentBlockType::Text));
+    r.handle_event(text_delta("buffered text"));
+    thread::sleep(Duration::from_millis(250));
+    let out = r.check_timeout();
+    assert!(
+        !out.text_messages.is_empty(),
+        "Expected text_messages from timeout, got: {:?}",
+        out
+    );
+    assert!(out
+        .text_messages
+        .iter()
+        .any(|m| m.contains("buffered text")));
+}
+
+#[test]
+fn test_renderer_with_code_block_mode_whole() {
+    let mut r = DefaultStreamingRenderer::new().with_code_block_mode(CodeBlockMode::WholeBlock);
+    r.handle_event(block_start(0, ContentBlockType::Text));
+    // Feed code block in one chunk.
+    let out = r.handle_event(text_delta("```rust\nfn main() {}\n```\n"));
+    // In WholeBlock mode, the code block should be emitted as one piece
+    // when the closing fence arrives.
+    let joined = out.text_messages.join("");
+    assert!(
+        joined.contains("fn main() {}"),
+        "Expected code block content in output: {:?}",
+        out.text_messages
+    );
+}
+
+// ── Edge cases ────────────────────────────────────────────────────────────
+
+#[test]
+fn test_check_timeout_just_under_threshold() {
+    let mut buf = LineBuffer::new();
+    buf.feed("partial");
+    thread::sleep(Duration::from_millis(100));
+    // 100ms < 200ms timeout, should return None.
+    assert!(buf.check_timeout().is_none());
+}
+
+#[test]
+fn test_line_buffer_with_timeout_none_never_emits() {
+    let mut buf = LineBuffer::new().with_timeout(None);
+    buf.feed("data");
+    thread::sleep(Duration::from_millis(250));
+    assert!(buf.check_timeout().is_none());
+    thread::sleep(Duration::from_millis(500));
+    assert!(buf.check_timeout().is_none());
+}
