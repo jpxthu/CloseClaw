@@ -914,7 +914,6 @@ async fn send_render_block(
 /// - [`VerbosityLevel::Full`]: no filtering, all blocks are kept.
 /// - [`VerbosityLevel::Normal`]: remove [`ContentBlock::Thinking`] blocks.
 /// - [`VerbosityLevel::Off`]: only keep [`ContentBlock::Text`] blocks.
-#[allow(dead_code)]
 pub(crate) fn filter_by_verbosity(
     blocks: Vec<ContentBlock>,
     level: VerbosityLevel,
