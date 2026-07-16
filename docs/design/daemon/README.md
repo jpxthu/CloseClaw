@@ -37,7 +37,7 @@
 
 初始化完成后进入消息循环，由 Gateway 接管所有消息处理。
 
-Daemon 持有 Session Manager、Gateway 和 ApprovalFlow 的引用，管理其生命周期。
+Daemon 持有 AgentRegistry、Session Manager、Gateway 和 ApprovalFlow 的引用，管理其生命周期。
 
 ### 子功能
 
