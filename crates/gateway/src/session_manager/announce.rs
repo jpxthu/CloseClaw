@@ -176,6 +176,114 @@ impl SessionManager {
             }
         }
     }
+
+    /// Drain unsent outbound pending messages for a single session and
+    /// re-deliver them through the gateway's outbound pipeline.
+    ///
+    /// Called during daemon startup (Step 1.2) after recovery scan and
+    /// IM adapter registration, for each dirty session that has
+    /// `outbound_pending` entries with `sent == false`. This ensures
+    /// outbound messages created before a crash are re-delivered even
+    /// when no inbound message activates the session.
+    ///
+    /// Strategy: "better duplicate than miss" — no dedup protection.
+    /// Delivery failure is logged as a warning and does not block
+    /// processing of subsequent messages.
+    ///
+    /// Returns the number of messages successfully delivered.
+    #[allow(dead_code)] // wired up in Step 1.2 (daemon startup)
+    pub(crate) async fn drain_outbound_pending_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<usize, String> {
+        // 1. Load checkpoint.
+        let Some(cm) = self.checkpoint_manager.read().await.as_ref().cloned() else {
+            return Ok(0);
+        };
+        let mut cp = cm
+            .load(session_id)
+            .await
+            .map_err(|e| format!("drain_outbound_pending: failed to load checkpoint: {}", e))?
+            .ok_or_else(|| {
+                format!(
+                    "drain_outbound_pending: checkpoint not found for session {}",
+                    session_id
+                )
+            })?;
+
+        // 2. Short-circuit: nothing to do.
+        if cp.outbound_pending.is_empty() {
+            return Ok(0);
+        }
+
+        // 3. Collect unsent messages (indices + content).
+        let unsent: Vec<(usize, String)> = cp
+            .outbound_pending
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| !m.sent)
+            .map(|(i, m)| (i, m.content.clone()))
+            .collect();
+
+        if unsent.is_empty() {
+            return Ok(0);
+        }
+
+        // 4. Resolve channel from the in-memory session map.
+        let channel = {
+            let sessions = self.sessions.read().await;
+            sessions
+                .get(session_id)
+                .map(|s| s.channel.clone())
+                .ok_or_else(|| {
+                    format!(
+                        "drain_outbound_pending: session {} not found in sessions map",
+                        session_id
+                    )
+                })?
+        };
+
+        // 5. Get Gateway reference for outbound delivery.
+        let gw = self
+            .get_gateway_ref()
+            .await
+            .ok_or_else(|| "drain_outbound_pending: gateway not available".to_string())?;
+
+        // 6. Deliver each unsent message.
+        let mut delivered = 0usize;
+        for (idx, content) in &unsent {
+            match gw
+                .send_outbound(session_id, &channel, content, vec![])
+                .await
+            {
+                Ok(()) => {
+                    cp.outbound_pending[*idx].mark_sent();
+                    delivered += 1;
+                }
+                Err(e) => {
+                    warn!(
+                        session_id = %session_id,
+                        message_id = %cp.outbound_pending[*idx].message_id,
+                        error = %e,
+                        "drain_outbound_pending: delivery failed, skipping"
+                    );
+                }
+            }
+        }
+
+        // 7. Persist updated checkpoint if any messages were delivered.
+        if delivered > 0 {
+            if let Err(e) = cm.save_raw(&cp).await {
+                warn!(
+                    session_id = %session_id,
+                    error = %e,
+                    "drain_outbound_pending: failed to persist checkpoint"
+                );
+            }
+        }
+
+        Ok(delivered)
+    }
 }
 
 // ── try_push_announce + private helpers ─────────────────────────────────────
