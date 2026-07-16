@@ -54,7 +54,7 @@ async fn register_child_with_session(
         let guard = parent_cs.read().await;
         guard.child_states.write().expect("lock").insert(
             child_id.to_string(),
-            closeclaw_common::ChildSessionState::Running,
+            (closeclaw_common::ChildSessionState::Running, None),
         );
     }
 

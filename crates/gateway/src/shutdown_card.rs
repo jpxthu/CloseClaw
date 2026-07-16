@@ -184,7 +184,7 @@ impl Gateway {
                             guard.tool_states.read().expect("tool_states lock poisoned");
                         let ids: Vec<String> = tool_states
                             .iter()
-                            .filter(|(_, s)| {
+                            .filter(|(_, (s, _))| {
                                 matches!(
                                     *s,
                                     closeclaw_llm::session_state::ToolExecState::RunningForeground

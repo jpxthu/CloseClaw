@@ -57,6 +57,54 @@ pub trait ToolSession: Send + Sync {
     /// cancelled.
     async fn register_tool_handle(&self, call_id: String, handle: Arc<dyn KillHandle>);
 
+    /// Register a tool call for pending-operation tracking.
+    ///
+    /// Called before a tool forks (spawns a subprocess or background
+    /// task). The session records the tool name and args summary so
+    /// that [`persist_pending_checkpoint`](Self::persist_pending_checkpoint)
+    /// can include it in the next checkpoint.
+    async fn register_tool_call(
+        &self,
+        _call_id: String,
+        _tool_name: String,
+        _args_summary: String,
+    ) {
+    }
+
+    /// Deregister a tool call after it completes.
+    ///
+    /// Called after the tool result is available. The session removes
+    /// the tool from its pending-operation set.
+    async fn deregister_tool_call(&self, _call_id: String) {}
+
+    /// Register a child session for pending-operation tracking.
+    ///
+    /// Called before a child session starts processing. The session records
+    /// the agent_id and task summary so that
+    /// [`persist_pending_checkpoint`](Self::persist_pending_checkpoint)
+    /// can include it in the next checkpoint.
+    async fn register_child_state(
+        &self,
+        _child_id: String,
+        _agent_id: String,
+        _task_summary: String,
+    ) {
+    }
+
+    /// Deregister a child session after it completes.
+    ///
+    /// Called when the child session finishes or is terminated. The session
+    /// removes the child from its pending-operation set.
+    async fn deregister_child_state(&self, _child_id: String) {}
+
+    /// Persist a checkpoint with the current pending operations.
+    ///
+    /// Async fire-and-forget: failures are logged at warn level and
+    /// must not block the caller. Called after `register_tool_call`
+    /// and `deregister_tool_call` so that crash recovery can detect
+    /// in-flight operations.
+    async fn persist_pending_checkpoint(&self) {}
+
     /// Returns a reference to the manual backgrounding notify signal.
     ///
     /// Tools can await `signal.notified()` inside `tokio::select!`

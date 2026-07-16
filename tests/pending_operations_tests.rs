@@ -37,9 +37,15 @@ fn test_collect_pending_operations_tool_calls() {
     // Simulate running tool calls via pub(crate) field
     {
         let mut tool_states = cs.tool_states.write().unwrap();
-        tool_states.insert("call_1".to_string(), ToolExecState::RunningForeground);
-        tool_states.insert("call_2".to_string(), ToolExecState::RunningBackground);
-        tool_states.insert("call_3".to_string(), ToolExecState::Pending);
+        tool_states.insert(
+            "call_1".to_string(),
+            (ToolExecState::RunningForeground, None),
+        );
+        tool_states.insert(
+            "call_2".to_string(),
+            (ToolExecState::RunningBackground, None),
+        );
+        tool_states.insert("call_3".to_string(), (ToolExecState::Pending, None));
     }
 
     let ops = cs.collect_pending_operations();
@@ -65,8 +71,11 @@ fn test_collect_pending_operations_skips_completed_tools() {
 
     {
         let mut tool_states = cs.tool_states.write().unwrap();
-        tool_states.insert("done".to_string(), ToolExecState::Completed);
-        tool_states.insert("running".to_string(), ToolExecState::RunningForeground);
+        tool_states.insert("done".to_string(), (ToolExecState::Completed, None));
+        tool_states.insert(
+            "running".to_string(),
+            (ToolExecState::RunningForeground, None),
+        );
     }
 
     let ops = cs.collect_pending_operations();
@@ -86,8 +95,8 @@ fn test_collect_pending_operations_child_sessions() {
 
     {
         let mut child_states = cs.child_states.write().unwrap();
-        child_states.insert("child_1".to_string(), ChildSessionState::Running);
-        child_states.insert("child_2".to_string(), ChildSessionState::Running);
+        child_states.insert("child_1".to_string(), (ChildSessionState::Running, None));
+        child_states.insert("child_2".to_string(), (ChildSessionState::Running, None));
     }
 
     let ops = cs.collect_pending_operations();
@@ -154,11 +163,14 @@ fn test_collect_pending_operations_mixed_types() {
     // Add one of each type
     {
         let mut tool_states = cs.tool_states.write().unwrap();
-        tool_states.insert("tool_1".to_string(), ToolExecState::RunningForeground);
+        tool_states.insert(
+            "tool_1".to_string(),
+            (ToolExecState::RunningForeground, None),
+        );
     }
     {
         let mut child_states = cs.child_states.write().unwrap();
-        child_states.insert("child_1".to_string(), ChildSessionState::Running);
+        child_states.insert("child_1".to_string(), (ChildSessionState::Running, None));
     }
     {
         use closeclaw_session::persistence::PendingMessage;

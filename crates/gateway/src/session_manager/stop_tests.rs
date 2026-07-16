@@ -154,7 +154,10 @@ async fn test_stop_sessions_forceful_with_tool_running() {
             .tool_states
             .write()
             .expect("tool_states lock poisoned");
-        tool_states.insert("tool-1".to_string(), ToolExecState::RunningForeground);
+        tool_states.insert(
+            "tool-1".to_string(),
+            (ToolExecState::RunningForeground, None),
+        );
     }
     mgr.conversation_sessions
         .write()
@@ -362,11 +365,10 @@ async fn test_forceful_kills_running_tool_collects_pending_ops() {
     // Register a running tool
     {
         let guard = cs.read().await;
-        guard
-            .tool_states
-            .write()
-            .expect("tool_states lock")
-            .insert("tool-exec-1".into(), ToolExecState::RunningForeground);
+        guard.tool_states.write().expect("tool_states lock").insert(
+            "tool-exec-1".into(),
+            (ToolExecState::RunningForeground, None),
+        );
     }
     mgr.conversation_sessions
         .write()
@@ -472,11 +474,10 @@ async fn test_forceful_pending_ops_written_to_checkpoint() {
     // Register a running tool so collect_pending_operations returns non-empty
     {
         let guard = cs.read().await;
-        guard
-            .tool_states
-            .write()
-            .expect("tool_states lock")
-            .insert("pending-tool".into(), ToolExecState::RunningForeground);
+        guard.tool_states.write().expect("tool_states lock").insert(
+            "pending-tool".into(),
+            (ToolExecState::RunningForeground, None),
+        );
     }
 
     mgr.conversation_sessions
@@ -508,10 +509,10 @@ async fn test_forceful_pending_ops_written_to_checkpoint() {
         "test-model".into(),
         std::path::PathBuf::from("/tmp"),
     );
-    cs2.tool_states
-        .write()
-        .expect("tool_states lock")
-        .insert("pending-tool".into(), ToolExecState::RunningForeground);
+    cs2.tool_states.write().expect("tool_states lock").insert(
+        "pending-tool".into(),
+        (ToolExecState::RunningForeground, None),
+    );
     let pending = cs2.collect_pending_operations();
     assert_eq!(pending.len(), 1);
     assert_eq!(
@@ -549,11 +550,10 @@ async fn test_graceful_timeout_and_forceful_skip_running_tool() {
     let cs = mgr.get_conversation_session("child-gt-1").await.unwrap();
     {
         let guard = cs.read().await;
-        guard
-            .tool_states
-            .write()
-            .expect("lock")
-            .insert("running-tool".into(), ToolExecState::RunningForeground);
+        guard.tool_states.write().expect("lock").insert(
+            "running-tool".into(),
+            (ToolExecState::RunningForeground, None),
+        );
     }
     let r = mgr
         .stop_all_sessions(ShutdownMode::Graceful, Duration::from_millis(50), None)
@@ -572,7 +572,7 @@ async fn test_graceful_timeout_and_forceful_skip_running_tool() {
             .tool_states
             .write()
             .expect("lock")
-            .insert("tool".into(), ToolExecState::RunningForeground);
+            .insert("tool".into(), (ToolExecState::RunningForeground, None));
     }
     let start = tokio::time::Instant::now();
     let r = mgr2
@@ -598,7 +598,7 @@ async fn test_graceful_timeout_sends_progress_event() {
             .tool_states
             .write()
             .expect("lock")
-            .insert("blocker".into(), ToolExecState::RunningForeground);
+            .insert("blocker".into(), (ToolExecState::RunningForeground, None));
     }
     let (tx, mut rx) = tokio::sync::mpsc::channel::<StopProgress>(16);
     let r = mgr

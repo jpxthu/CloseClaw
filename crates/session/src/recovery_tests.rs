@@ -1,8 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::sync::Arc;
-
     use crate::persistence::{
         DreamingStatus, PendingOperation, PendingOperationDetail, PendingOperationStatus,
         PendingOperationType, PersistenceError, PersistenceService, ReasoningLevel, ReasoningMode,
@@ -14,6 +11,8 @@ mod tests {
     };
     use crate::storage::memory::MemoryStorage;
     use chrono::Utc;
+    use std::collections::HashMap;
+    use std::sync::Arc;
     fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         SessionCheckpoint {
             session_id: session_id.to_string(),
@@ -63,7 +62,6 @@ mod tests {
             snapshot_metas: Vec::new(),
         }
     }
-
     #[tokio::test]
     async fn test_recovery_report() {
         let full = RecoveryReport {
@@ -83,23 +81,19 @@ mod tests {
         assert!(!partial.is_full_success());
         assert_eq!(partial.total(), 2);
     }
-
     #[tokio::test]
     async fn test_recovery_service_recover_empty() {
         let storage = Arc::new(MemoryStorage::new());
         let service = SessionRecoveryService::new(storage);
-
         let report = service.recover().await.unwrap();
         assert!(report.recovered.is_empty());
         assert!(report.failed.is_empty());
     }
-
     #[tokio::test]
     async fn test_recovery_service_recover_with_callback() {
         use chrono::Utc;
         let storage = Arc::new(MemoryStorage::new());
         let now = Utc::now();
-
         // Clean session
         storage
             .save_checkpoint(&create_test_checkpoint("session1"))
@@ -119,9 +113,7 @@ mod tests {
             },
         ]);
         storage.save_checkpoint(&dirty).await.unwrap();
-
         let service = SessionRecoveryService::new(Arc::clone(&storage));
-
         // Capture callback parameters
         let restored = Arc::new(std::sync::Mutex::new(Vec::new()));
         let captured_notification = Arc::new(std::sync::Mutex::new(Vec::<Option<String>>::new()));
@@ -129,7 +121,6 @@ mod tests {
         let r = Arc::clone(&restored);
         let cn = Arc::clone(&captured_notification);
         let cf = Arc::clone(&captured_failures);
-
         service
             .set_restore_callback(
                 move |session_id, _checkpoint, notification, tool_failures| {
@@ -140,28 +131,23 @@ mod tests {
                 },
             )
             .await;
-
         let report = service.recover().await.unwrap();
         assert_eq!(report.recovered.len(), 2);
         assert!(report.failed.is_empty());
-
         let mut restored_sessions = restored.lock().unwrap();
         restored_sessions.sort();
         assert_eq!(restored_sessions[0], "session1");
         assert_eq!(restored_sessions[1], "session2");
-
         // Dirty session callback should receive notification
         let notifs = captured_notification.lock().unwrap();
         let notif = notifs.iter().find(|n| n.is_some()).unwrap();
         assert!(notif.as_ref().unwrap().contains("网关已重启"));
-
         // Dirty session callback should receive tool failures
         let failures = captured_failures.lock().unwrap();
         let dirty_failures = failures.iter().find(|f| !f.is_empty()).unwrap();
         assert_eq!(dirty_failures.len(), 1);
         assert!(dirty_failures[0].contains("进程中断：网关重启"));
     }
-
     // -----------------------------------------------------------------
     // Spawn tree tests
     // -----------------------------------------------------------------
@@ -177,10 +163,8 @@ mod tests {
             .save_checkpoint(&create_test_checkpoint("root2"))
             .await
             .unwrap();
-
         let service = SessionRecoveryService::new(Arc::clone(&storage));
         let report = service.recover().await.unwrap();
-
         assert_eq!(report.recovered.len(), 2);
         let tree = &report.spawn_tree;
         assert_eq!(tree.roots.len(), 2);
@@ -188,29 +172,23 @@ mod tests {
         assert!(tree.roots.contains(&"root2".to_string()));
         assert!(tree.children.is_empty());
     }
-
     #[tokio::test]
     async fn test_recovery_spawn_tree_parent_child() {
         let storage = Arc::new(MemoryStorage::new());
-
         // Parent session
         let mut parent_cp = create_test_checkpoint("parent");
         parent_cp.parent_session_id = None;
         parent_cp.depth = 0;
         storage.save_checkpoint(&parent_cp).await.unwrap();
-
         // Child session
         let mut child_cp = create_test_checkpoint("child");
         child_cp.parent_session_id = Some("parent".to_string());
         child_cp.depth = 1;
         storage.save_checkpoint(&child_cp).await.unwrap();
-
         let service = SessionRecoveryService::new(Arc::clone(&storage));
         let report = service.recover().await.unwrap();
-
         assert_eq!(report.recovered.len(), 2);
         let tree = &report.spawn_tree;
-
         // Parent is root, child is registered under parent
         assert!(tree.is_root("parent"));
         assert!(!tree.is_root("child"));
@@ -218,65 +196,50 @@ mod tests {
         assert_eq!(children.len(), 1);
         assert_eq!(children[0], "child");
     }
-
     #[tokio::test]
     async fn test_recovery_spawn_tree_orphan_demoted_to_root() {
         let storage = Arc::new(MemoryStorage::new());
-
         // Child session whose parent is NOT in storage (swept)
         let mut child_cp = create_test_checkpoint("orphan_child");
         child_cp.parent_session_id = Some("missing_parent".to_string());
         child_cp.depth = 2;
         storage.save_checkpoint(&child_cp).await.unwrap();
-
         let service = SessionRecoveryService::new(Arc::clone(&storage));
         let report = service.recover().await.unwrap();
-
         assert_eq!(report.recovered.len(), 1);
         let tree = &report.spawn_tree;
-
         // Orphan child is demoted to root
         assert!(tree.is_root("orphan_child"));
         assert!(tree.children.is_empty());
     }
-
     #[tokio::test]
     async fn test_recovery_spawn_tree_multi_level() {
         let storage = Arc::new(MemoryStorage::new());
-
         // root -> child1 -> grandchild
         let mut root_cp = create_test_checkpoint("root");
         root_cp.parent_session_id = None;
         root_cp.depth = 0;
         storage.save_checkpoint(&root_cp).await.unwrap();
-
         let mut child_cp = create_test_checkpoint("child1");
         child_cp.parent_session_id = Some("root".to_string());
         child_cp.depth = 1;
         storage.save_checkpoint(&child_cp).await.unwrap();
-
         let mut grandchild_cp = create_test_checkpoint("grandchild");
         grandchild_cp.parent_session_id = Some("child1".to_string());
         grandchild_cp.depth = 2;
         storage.save_checkpoint(&grandchild_cp).await.unwrap();
-
         let service = SessionRecoveryService::new(Arc::clone(&storage));
         let report = service.recover().await.unwrap();
-
         assert_eq!(report.recovered.len(), 3);
         let tree = &report.spawn_tree;
-
         assert!(tree.is_root("root"));
         assert!(!tree.is_root("child1"));
         assert!(!tree.is_root("grandchild"));
-
         let root_children = tree.get_children("root").unwrap();
         assert_eq!(root_children, &vec!["child1".to_string()]);
-
         let child1_children = tree.get_children("child1").unwrap();
         assert_eq!(child1_children, &vec!["grandchild".to_string()]);
     }
-
     #[test]
     fn test_spawn_tree_unit() {
         // is_root
@@ -287,7 +250,6 @@ mod tests {
         assert!(tree.is_root("r1"));
         assert!(tree.is_root("r2"));
         assert!(!tree.is_root("r3"));
-
         // get_children
         let mut children = HashMap::new();
         children.insert("p1".to_string(), vec!["c1".to_string(), "c2".to_string()]);
@@ -297,7 +259,6 @@ mod tests {
         };
         assert_eq!(tree.get_children("p1").unwrap().len(), 2);
         assert!(tree.get_children("p2").is_none());
-
         // root_ids
         let tree = SpawnTree {
             roots: vec!["a".to_string(), "b".to_string()],
@@ -305,7 +266,6 @@ mod tests {
         };
         assert_eq!(tree.root_ids(), &["a", "b"]);
     }
-
     #[test]
     fn test_build_spawn_tree_demoted_depth_reset() {
         // orphan child with depth=2 should be demoted to root with depth=0
@@ -314,16 +274,13 @@ mod tests {
         orphan_cp.parent_session_id = Some("missing_parent".to_string());
         orphan_cp.depth = 2;
         checkpoints.insert("orphan".to_string(), orphan_cp);
-
         let recovered = vec!["orphan".to_string()];
         let (tree, demoted) =
             SessionRecoveryService::<MemoryStorage>::build_spawn_tree(&mut checkpoints, &recovered);
-
         assert!(tree.is_root("orphan"));
         assert_eq!(checkpoints["orphan"].depth, 0);
         assert!(demoted.contains(&"orphan".to_string()));
     }
-
     #[test]
     fn test_build_spawn_tree_edge_cases() {
         // empty
@@ -345,12 +302,10 @@ mod tests {
         assert!(tree2.children.is_empty());
         assert!(demoted2.is_empty());
     }
-
     #[tokio::test]
     async fn test_recovery_notifications_and_tool_failures() {
         let storage = Arc::new(MemoryStorage::new());
         let now = Utc::now();
-
         // Dirty session: tool call + sub-spawn
         let dirty = SessionCheckpoint::new("dirty_tools".into()).with_pending_operations(vec![
             PendingOperation {
@@ -376,21 +331,17 @@ mod tests {
             },
         ]);
         storage.save_checkpoint(&dirty).await.unwrap();
-
         // Clean session: no pending ops
         let clean = SessionCheckpoint::new("clean_notif".into());
         storage.save_checkpoint(&clean).await.unwrap();
-
         let service = SessionRecoveryService::new(Arc::clone(&storage));
         let report = service.recover().await.unwrap();
-
         assert_eq!(report.recovered.len(), 2);
         assert!(report.dirty_sessions.contains(&"dirty_tools".to_string()));
         assert!(
             report.dirty_sessions.is_empty()
                 || !report.dirty_sessions.contains(&"clean_notif".to_string())
         );
-
         // Dirty: notification stored, tool failures built
         let loaded = storage
             .load_checkpoint("dirty_tools")
@@ -403,7 +354,6 @@ mod tests {
         assert!(notif.contains("工具调用: exec"));
         assert_eq!(loaded.pending_tool_failures.len(), 1);
         assert!(loaded.pending_tool_failures[0].contains("exec"));
-
         // Clean: no notification
         let loaded = storage
             .load_checkpoint("clean_notif")
@@ -412,7 +362,6 @@ mod tests {
             .unwrap();
         assert!(loaded.recovery_notification.is_none());
     }
-
     // ── Step 1.3: archived session recovery tests ───────────────────
 
     /// Minimal mock storage for testing the "checkpoint not found" path.
@@ -973,5 +922,68 @@ mod tests {
             parsed.communication_config.is_none(),
             "old checkpoint without communication_config should deserialize to None"
         );
+    }
+
+    #[tokio::test]
+    async fn test_sub_session_duration_in_notification() {
+        use chrono::{Duration, Utc};
+        let storage = Arc::new(MemoryStorage::new());
+        let created_at = Utc::now() - Duration::minutes(2) - Duration::seconds(30);
+        let dirty = SessionCheckpoint::new("dirty-dur".into()).with_pending_operations(vec![
+            PendingOperation {
+                status: PendingOperationStatus::Running,
+                op_id: "c1".into(),
+                op_type: PendingOperationType::SubSessionSpawn,
+                detail: PendingOperationDetail::SubSessionSpawn {
+                    child_session_id: "sub-dur".into(),
+                    agent_id: "a".into(),
+                    task_summary: String::new(),
+                },
+                created_at,
+            },
+        ]);
+        storage.save_checkpoint(&dirty).await.unwrap();
+        SessionRecoveryService::new(Arc::clone(&storage))
+            .recover()
+            .await
+            .unwrap();
+        let notif = storage
+            .load_checkpoint("dirty-dur")
+            .await
+            .unwrap()
+            .unwrap()
+            .recovery_notification
+            .unwrap();
+        assert!(notif.contains("已运行"), "got: {}", notif);
+        assert!(!notif.contains("发起于"), "got: {}", notif);
+    }
+    #[tokio::test]
+    async fn test_tool_call_still_uses_initiated_at() {
+        let storage = Arc::new(MemoryStorage::new());
+        let dirty = SessionCheckpoint::new("dirty-ts".into()).with_pending_operations(vec![
+            PendingOperation {
+                status: PendingOperationStatus::Running,
+                op_id: "o1".into(),
+                op_type: PendingOperationType::ToolCall,
+                detail: PendingOperationDetail::ToolCall {
+                    tool_name: "bash".into(),
+                    args_summary: String::new(),
+                },
+                created_at: Utc::now(),
+            },
+        ]);
+        storage.save_checkpoint(&dirty).await.unwrap();
+        SessionRecoveryService::new(Arc::clone(&storage))
+            .recover()
+            .await
+            .unwrap();
+        let notif = storage
+            .load_checkpoint("dirty-ts")
+            .await
+            .unwrap()
+            .unwrap()
+            .recovery_notification
+            .unwrap();
+        assert!(notif.contains("发起于"), "got: {}", notif);
     }
 }

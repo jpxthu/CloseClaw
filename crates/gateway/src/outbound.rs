@@ -333,6 +333,7 @@ impl Gateway {
             msg.content.clone(),
             "assistant".to_string(),
         );
+        pending.target_channel = msg.channel.clone();
         pending.mark_sent();
         let mut cp = checkpoint.add_outbound_pending(pending);
         // Sync per-session append-section list from ConversationSession

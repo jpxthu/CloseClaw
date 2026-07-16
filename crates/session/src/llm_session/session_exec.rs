@@ -6,6 +6,7 @@
 //! state table in `docs/design/session/session-execution.md`.
 
 use super::ConversationSession;
+use crate::pending_operation_detail::PendingOperationDetail;
 use closeclaw_common::{ChildSessionState, LlmState, SessionExecStatus, ToolExecState};
 
 #[allow(dead_code)] // Callers (gateway, tests) are integrated in later steps.
@@ -26,12 +27,30 @@ impl ConversationSession {
 
     // ── tool state ────────────────────────────────────────────────────────
 
-    /// Registers a new tool call. Returns `true` if newly registered,
-    /// `false` if a call with the same id already exists.
-    pub(crate) fn register_tool_call(&self, call_id: impl Into<String>) -> bool {
+    /// Registers a new tool call with detail information.
+    ///
+    /// Stores the `ToolExecState::Pending` alongside a
+    /// [`PendingOperationDetail::ToolCall`] carrying `tool_name` and
+    /// `args_summary` so that [`collect_pending_operations`](Self::collect_pending_operations)
+    /// can include them in checkpoint data.
+    ///
+    /// Returns `true` if newly registered, `false` if a call with
+    /// the same id already exists.
+    pub(crate) fn register_tool_call(
+        &self,
+        call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        args_summary: impl Into<String>,
+    ) -> bool {
         let id = call_id.into();
+        let detail = PendingOperationDetail::ToolCall {
+            tool_name: tool_name.into(),
+            args_summary: args_summary.into(),
+        };
         let mut states = self.tool_states.write().expect("tool_states lock poisoned");
-        states.insert(id, ToolExecState::Pending).is_none()
+        states
+            .insert(id, (ToolExecState::Pending, Some(detail)))
+            .is_none()
     }
 
     /// Updates the state of a registered tool call. If the id is not
@@ -39,7 +58,7 @@ impl ConversationSession {
     pub(crate) fn update_tool_state(&self, call_id: &str, state: ToolExecState) {
         let mut states = self.tool_states.write().expect("tool_states lock poisoned");
         match states.get_mut(call_id) {
-            Some(existing) => *existing = state,
+            Some((existing, _)) => *existing = state,
             None => tracing::warn!(
                 call_id = %call_id,
                 "update_tool_state: call_id not registered"
@@ -64,7 +83,7 @@ impl ConversationSession {
         let states = self.tool_states.read().expect("tool_states lock poisoned");
         states
             .values()
-            .any(|s| matches!(s, ToolExecState::RunningForeground))
+            .any(|(s, _)| matches!(s, ToolExecState::RunningForeground))
     }
 
     /// Returns whether any tool call is currently running in the background.
@@ -72,7 +91,7 @@ impl ConversationSession {
         let states = self.tool_states.read().expect("tool_states lock poisoned");
         states
             .values()
-            .any(|s| matches!(s, ToolExecState::RunningBackground))
+            .any(|(s, _)| matches!(s, ToolExecState::RunningBackground))
     }
 }
 
@@ -80,16 +99,34 @@ impl ConversationSession {
 
 #[allow(dead_code)]
 impl ConversationSession {
-    /// Registers a new child session in the `Running` state. Returns
-    /// `true` if newly registered, `false` if a child with the same id
+    /// Registers a new child session in the `Running` state with detail information.
+    ///
+    /// Stores the `ChildSessionState::Running` alongside a
+    /// [`PendingOperationDetail::SubSessionSpawn`] carrying `agent_id` and
+    /// `task_summary` so that [`collect_pending_operations`](Self::collect_pending_operations)
+    /// can include them in checkpoint data.
+    ///
+    /// Returns `true` if newly registered, `false` if a child with the same id
     /// already exists.
-    pub(crate) fn register_child(&self, child_id: impl Into<String>) -> bool {
+    pub(crate) fn register_child(
+        &self,
+        child_id: impl Into<String>,
+        agent_id: impl Into<String>,
+        task_summary: impl Into<String>,
+    ) -> bool {
         let id = child_id.into();
+        let detail = PendingOperationDetail::SubSessionSpawn {
+            child_session_id: id.clone(),
+            agent_id: agent_id.into(),
+            task_summary: task_summary.into(),
+        };
         let mut states = self
             .child_states
             .write()
             .expect("child_states lock poisoned");
-        states.insert(id, ChildSessionState::Running).is_none()
+        states
+            .insert(id, (ChildSessionState::Running, Some(detail)))
+            .is_none()
     }
 
     /// Updates the state of a registered child session. If the id is
@@ -100,7 +137,7 @@ impl ConversationSession {
             .write()
             .expect("child_states lock poisoned");
         match states.get_mut(child_id) {
-            Some(existing) => *existing = state,
+            Some((existing, _)) => *existing = state,
             None => tracing::warn!(
                 child_id = %child_id,
                 "update_child_state: child_id not registered"
@@ -131,7 +168,7 @@ impl ConversationSession {
             .expect("child_states lock poisoned");
         states
             .values()
-            .any(|s| matches!(s, ChildSessionState::Running))
+            .any(|(s, _)| matches!(s, ChildSessionState::Running))
     }
 
     /// Computes the overall session execution status by combining the
@@ -149,13 +186,13 @@ impl ConversationSession {
         let tools = self.tool_states.read().expect("tool_states lock poisoned");
         if tools
             .values()
-            .any(|s| matches!(s, ToolExecState::RunningForeground))
+            .any(|(s, _)| matches!(s, ToolExecState::RunningForeground))
         {
             return SessionExecStatus::Busy;
         }
         let has_background_tool = tools
             .values()
-            .any(|s| matches!(s, ToolExecState::RunningBackground));
+            .any(|(s, _)| matches!(s, ToolExecState::RunningBackground));
         drop(tools);
 
         // 3. Child session dimension.
@@ -165,7 +202,7 @@ impl ConversationSession {
             .expect("child_states lock poisoned");
         if children
             .values()
-            .any(|s| matches!(s, ChildSessionState::Running))
+            .any(|(s, _)| matches!(s, ChildSessionState::Running))
         {
             return SessionExecStatus::Waiting;
         }
@@ -189,7 +226,7 @@ impl ConversationSession {
             .expect("child_states lock poisoned");
         states
             .values()
-            .filter(|s| matches!(s, ChildSessionState::Running))
+            .filter(|(s, _)| matches!(s, ChildSessionState::Running))
             .count()
     }
 

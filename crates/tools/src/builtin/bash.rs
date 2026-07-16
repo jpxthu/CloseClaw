@@ -166,6 +166,19 @@ impl Tool for BashTool {
 
 // --- Helper functions ---
 
+/// Truncate a command string for use as `args_summary` in pending
+/// operation tracking. Caps at 200 characters to keep checkpoint
+/// data compact.
+fn truncate_summary(command: &str) -> String {
+    const MAX_SUMMARY_LEN: usize = 200;
+    if command.len() <= MAX_SUMMARY_LEN {
+        command.to_string()
+    } else {
+        let end = command.floor_char_boundary(MAX_SUMMARY_LEN);
+        format!("{}…", &command[..end])
+    }
+}
+
 /// Parse and clamp the `timeout` parameter. Default 120 000 ms, max 600 000 ms.
 fn parse_timeout(args: &Value) -> u64 {
     let raw = args
@@ -493,12 +506,36 @@ async fn execute_command(
     manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
 ) -> Result<ToolResult, String> {
     if run_in_background {
+        // ── Pending-operation tracking ──────────────────────────────────
+        // Register the tool call before spawning so that a crash
+        // after spawn but before completion is recoverable.
+        let mut registered_call_id = None;
+        if let (Some(s), Some(cid)) = (session, call_id) {
+            let summary = truncate_summary(command);
+            s.register_tool_call(cid.to_string(), "bash".to_string(), summary)
+                .await;
+            registered_call_id = Some(cid.to_string());
+            s.persist_pending_checkpoint().await;
+        }
+
         // Per #762 design: `spawn_task()` is the "self-cold-start" path; do not
         // pre-spawn a Child and pass it through `backgroundize_task()` here.
         let task = bg_manager
             .spawn_task(command, Path::new(cwd), false)
             .await
-            .map_err(|e| format!("failed to spawn background task: {}", e))?;
+            .map_err(|e| {
+                // Deregister on spawn failure.
+                if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
+                    // Fire-and-forget deregister; spawn failure is the primary error.
+                    let s = Arc::clone(s);
+                    let cid = cid.to_string();
+                    tokio::spawn(async move {
+                        s.deregister_tool_call(cid).await;
+                        s.persist_pending_checkpoint().await;
+                    });
+                }
+                format!("failed to spawn background task: {}", e)
+            })?;
 
         // Register BackgroundKillHandle so cascade-stop can find the
         // task. No unregister — background tasks run independently
@@ -513,7 +550,26 @@ async fn execute_command(
             s.register_tool_handle(cid.to_string(), handle).await;
         }
 
+        // Deregister the pending-operation entry: the background task
+        // runs independently of the tool invocation.
+        if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
+            s.deregister_tool_call(cid.to_string()).await;
+            s.persist_pending_checkpoint().await;
+        }
+
         return Ok(build_background_result(&task));
+    }
+
+    // ── Pending-operation tracking (foreground) ──────────────────────────
+    // Register before spawning so a crash during execution is
+    // detectable by the recovery service.
+    let mut registered_call_id = None;
+    if let (Some(s), Some(cid)) = (session, call_id) {
+        let summary = truncate_summary(command);
+        s.register_tool_call(cid.to_string(), "bash".to_string(), summary)
+            .await;
+        registered_call_id = Some(cid.to_string());
+        s.persist_pending_checkpoint().await;
     }
 
     // Foreground path: spawn, wrap child in a shared slot, register
@@ -538,6 +594,12 @@ async fn execute_command(
     let result =
         handle_foreground_result(child_arc, command, bg_timeout, bg_manager, manual_bg_signal)
             .await;
+
+    // ── Deregister pending operation ─────────────────────────────────────
+    if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
+        s.deregister_tool_call(cid.to_string()).await;
+        s.persist_pending_checkpoint().await;
+    }
 
     // The kill handle's `Arc` is dropped here; if the foreground wait
     // consumed the child, the slot was already `None` and the drop is a no-op.

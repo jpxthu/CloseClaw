@@ -115,24 +115,15 @@ pub struct SessionManager {
     /// Keyed by agent_id. Ensures the same agent's lookup/restore/create
     /// operations are serialized while different agents run in parallel.
     agent_locks: Arc<RwLock<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
-    /// Per-session yield timeout handles.
-    /// Keyed by session_id. Each entry is a JoinHandle for the timeout
-    /// task spawned when the session enters active Waiting via
-    /// `sessions_yield`. The handle is aborted on normal recovery
-    /// (all children completed) or on timeout (which terminates
-    /// children and resumes the session).
+    /// Per-session yield timeout handles (keyed by session_id).
+    /// Aborted on normal recovery or timeout.
     yield_timeout_handles: RwLock<HashMap<String, tokio::task::JoinHandle<()>>>,
     /// Output channel for sending LLM responses to the user.
     /// Set via [`set_output_tx`](Self::set_output_tx) after construction.
     /// Used by [`drain_pending_for_session`](super::announce::SessionManager::drain_pending_for_session)
     /// to send responses to the user during yield recovery.
     output_tx: RwLock<Option<crate::OutputTx>>,
-    /// Back-reference to the owning Gateway for outbound message dispatch.
-    /// Set via [`set_gateway_ref`](Self::set_gateway_ref) after construction.
-    /// Used by [`drain_pending_for_session`](super::announce::SessionManager::drain_pending_for_session)
-    /// to send LLM responses to the user during yield recovery.
-    ///
-    /// Uses `Weak` to avoid a reference cycle with Gateway.
+    /// Back-reference to Gateway for outbound dispatch (Weak to avoid cycle).
     gateway_ref: RwLock<Option<std::sync::Weak<crate::Gateway>>>,
     /// Timestamp (Unix epoch seconds) of the last consistency scan.
     /// `None` means no scan has been performed yet; the first periodic
@@ -380,6 +371,13 @@ impl SessionManager {
                 session_id.to_string(),
             ));
             conv.set_snapshot_meta_store(meta_store);
+        }
+    }
+
+    /// Inject persistence service for `persist_pending_checkpoint`.
+    pub(crate) async fn inject_checkpoint_storage(&self, conv: &mut ConversationSession) {
+        if let Some(cm) = self.checkpoint_manager.read().await.as_ref() {
+            conv.set_checkpoint_storage(Arc::clone(cm.storage_arc()));
         }
     }
 
@@ -967,6 +965,8 @@ mod self_heal_tests;
 mod setter_tests;
 #[cfg(test)]
 mod spawn_cascade_tests;
+#[cfg(test)]
+mod spawn_child_state_tests;
 #[cfg(test)]
 mod spawn_controller_boundary_tests;
 #[cfg(test)]

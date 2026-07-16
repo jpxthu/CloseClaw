@@ -182,6 +182,24 @@ impl SessionManager {
         let child_session_id = created.session_id.clone();
         let child_cs_arc = created.conversation_session;
 
+        // Register child in parent's child_states for checkpoint tracking.
+        // This must happen before the child session is fully registered so
+        // that crash recovery can detect the pending SubSessionSpawn.
+        {
+            let conv_sessions = self.conversation_sessions.read().await;
+            if let Some(parent_cs) = conv_sessions.get(parent_session_id) {
+                let guard = parent_cs.read().await;
+                use closeclaw_common::tool_session::ToolSession;
+                guard
+                    .register_child_state(
+                        child_session_id.clone(),
+                        config.id.clone(),
+                        task.to_string(),
+                    )
+                    .await;
+            }
+        }
+
         // Retain the cancel token for the optional spawn timeout.
         let timeout_token = {
             let guard = child_cs_arc.read().await;
@@ -347,6 +365,12 @@ impl SessionManager {
                 let pid = info.parent_session_id.clone();
                 if let Some(pcs) = self.conversation_sessions.read().await.get(&pid) {
                     pcs.read().await.unregister_child_handle(id);
+                    // Deregister from parent's child_states.
+                    {
+                        use closeclaw_common::tool_session::ToolSession;
+                        let guard = pcs.read().await;
+                        guard.deregister_child_state(id.to_string()).await;
+                    }
                 }
             }
             self.sessions.write().await.remove(id);
@@ -362,6 +386,12 @@ impl SessionManager {
         self.conversation_sessions.write().await.remove(child_id);
         if let Some(pcs) = self.conversation_sessions.read().await.get(parent_id) {
             pcs.read().await.unregister_child_handle(child_id);
+            // Deregister from parent's child_states.
+            {
+                use closeclaw_common::tool_session::ToolSession;
+                let guard = pcs.read().await;
+                guard.deregister_child_state(child_id.to_string()).await;
+            }
         }
         self.sessions.write().await.remove(child_id);
         self.children

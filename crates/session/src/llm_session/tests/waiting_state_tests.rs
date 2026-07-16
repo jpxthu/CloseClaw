@@ -52,7 +52,7 @@ fn test_has_active_children_with_running_child() {
             .child_states
             .write()
             .expect("child_states lock poisoned");
-        states.insert("child_1".into(), ChildSessionState::Running);
+        states.insert("child_1".into(), (ChildSessionState::Running, None));
     }
     assert!(session.has_active_children());
 }
@@ -65,8 +65,8 @@ fn test_has_active_children_all_completed() {
             .child_states
             .write()
             .expect("child_states lock poisoned");
-        states.insert("child_1".into(), ChildSessionState::Completed);
-        states.insert("child_2".into(), ChildSessionState::Terminated);
+        states.insert("child_1".into(), (ChildSessionState::Completed, None));
+        states.insert("child_2".into(), (ChildSessionState::Terminated, None));
     }
     assert!(!session.has_active_children());
 }
@@ -79,8 +79,8 @@ fn test_has_active_children_mixed_states() {
             .child_states
             .write()
             .expect("child_states lock poisoned");
-        states.insert("child_1".into(), ChildSessionState::Completed);
-        states.insert("child_2".into(), ChildSessionState::Running);
+        states.insert("child_1".into(), (ChildSessionState::Completed, None));
+        states.insert("child_2".into(), (ChildSessionState::Running, None));
     }
     // One still running → has active children
     assert!(session.has_active_children());

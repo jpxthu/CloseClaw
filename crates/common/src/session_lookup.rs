@@ -18,6 +18,9 @@ pub struct PendingMessage {
     /// 消息角色（"user" / "assistant"），用于 transcript 格式化
     #[serde(default)]
     pub role: Option<String>,
+    /// 目标渠道标识（如 "feishu"、"telegram"），用于 pending_operation 的 target_channel 字段
+    #[serde(default)]
+    pub target_channel: String,
 }
 
 impl PendingMessage {
@@ -29,6 +32,7 @@ impl PendingMessage {
             created_at: Utc::now(),
             sent: false,
             role: None,
+            target_channel: String::new(),
         }
     }
 
@@ -40,6 +44,23 @@ impl PendingMessage {
             created_at: Utc::now(),
             sent: false,
             role: Some(role),
+            target_channel: String::new(),
+        }
+    }
+
+    /// Create a new pending message with a target channel.
+    pub fn with_target_channel(
+        message_id: String,
+        content: String,
+        target_channel: String,
+    ) -> Self {
+        Self {
+            message_id,
+            content,
+            created_at: Utc::now(),
+            sent: false,
+            role: None,
+            target_channel,
         }
     }
 

@@ -88,7 +88,7 @@ async fn set_tool_state(
         .tool_states
         .write()
         .expect("tool_states lock poisoned");
-    tools.insert(tool_id.to_string(), state);
+    tools.insert(tool_id.to_string(), (state, None));
 }
 
 /// Append an assistant message via `ChatSession::append_response`.

@@ -352,7 +352,7 @@ impl ConversationSession {
         }
 
         let tool_states = self.tool_states.read().expect("tool_states lock poisoned");
-        for (id, state) in tool_states.iter() {
+        for (id, (state, _)) in tool_states.iter() {
             if matches!(
                 state,
                 ToolExecState::RunningForeground | ToolExecState::RunningBackground
@@ -366,7 +366,7 @@ impl ConversationSession {
     /// Returns `true` if any tool is in a running state.
     fn has_running_tools(&self) -> bool {
         let tool_states = self.tool_states.read().expect("tool_states lock poisoned");
-        tool_states.values().any(|s| {
+        tool_states.values().any(|(s, _)| {
             matches!(
                 s,
                 ToolExecState::RunningForeground | ToolExecState::RunningBackground
@@ -592,5 +592,60 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
 
     fn is_waiting(&self) -> bool {
         ConversationSession::is_waiting(self)
+    }
+
+    async fn register_tool_call(&self, call_id: String, tool_name: String, args_summary: String) {
+        ConversationSession::register_tool_call(self, call_id, tool_name, args_summary);
+    }
+
+    async fn deregister_tool_call(&self, call_id: String) {
+        ConversationSession::deregister_tool_call(self, &call_id);
+    }
+
+    async fn register_child_state(&self, child_id: String, agent_id: String, task_summary: String) {
+        ConversationSession::register_child(self, child_id, agent_id, task_summary);
+        self.persist_pending_checkpoint().await;
+    }
+
+    async fn deregister_child_state(&self, child_id: String) {
+        ConversationSession::deregister_child(self, &child_id);
+        self.persist_pending_checkpoint().await;
+    }
+
+    async fn persist_pending_checkpoint(&self) {
+        let Some(ref storage) = self.checkpoint_storage else {
+            return;
+        };
+        let session_id = self.session_id.clone();
+        let pending_ops = self.collect_pending_operations();
+        let system_appends = self.user_system_appends().to_vec();
+        let verbosity = self.verbosity_level();
+        let storage = Arc::clone(storage);
+        tokio::spawn(async move {
+            // Load existing checkpoint or create a minimal one.
+            let cp = match storage.load_checkpoint(&session_id).await {
+                Ok(Some(mut cp)) => {
+                    cp.pending_operations = pending_ops;
+                    cp.system_appends = system_appends;
+                    cp.verbosity_level = verbosity;
+                    cp.touch();
+                    cp
+                }
+                _ => {
+                    let mut cp = crate::persistence::SessionCheckpoint::new(session_id.clone());
+                    cp.pending_operations = pending_ops;
+                    cp.system_appends = system_appends;
+                    cp.verbosity_level = verbosity;
+                    cp
+                }
+            };
+            if let Err(e) = storage.save_checkpoint(&cp).await {
+                tracing::warn!(
+                    session_id = %cp.session_id,
+                    "persist_pending_checkpoint: save failed: {}",
+                    e
+                );
+            }
+        });
     }
 }
