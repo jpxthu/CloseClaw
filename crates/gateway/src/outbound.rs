@@ -734,18 +734,17 @@ impl Gateway {
                 state.content_blocks.push(block);
             } else {
                 let render_blocks = std::mem::take(&mut out.render_blocks);
-                for block in render_blocks {
-                    // Thinking blocks bypass VerbosityFilter when sent via
-                    // send_render_block during streaming. Only send them in
-                    // Full mode; otherwise skip the real-time send but still
-                    // push to content_blocks for the post-stream pipeline.
-                    let should_send = block_type != ContentBlockType::Thinking
-                        || state.verbosity_level == VerbosityLevel::Full;
-                    if should_send {
-                        send_render_block(ctx, &block).await?;
-                    }
-                    state.content_blocks.push(block);
+                // Filter non-Text blocks through VerbosityFilter for
+                // real-time send. VerbosityLevel::Off suppresses all
+                // non-Text output; VerbosityLevel::Normal suppresses
+                // Thinking blocks; VerbosityLevel::Full passes all.
+                let filtered = filter_by_verbosity(render_blocks.clone(), state.verbosity_level);
+                for block in &filtered {
+                    send_render_block(ctx, block).await?;
                 }
+                // Push ALL original blocks to content_blocks so the
+                // post-stream Processor Chain has the full data set.
+                state.content_blocks.extend(render_blocks);
             }
         }
         dispatch_text(ctx, out, state).await
