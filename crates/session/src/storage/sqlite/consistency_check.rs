@@ -67,26 +67,22 @@ pub(super) fn check_sqlite_to_filesystem_filtered(
     Ok(())
 }
 
-/// File system → SQLite: check `.jsonl` files whose mtime > since.
-pub(super) fn check_filesystem_to_sqlite_filtered(
+/// Scan a single directory for `.jsonl` files orphaned in SQLite.
+fn scan_dir_for_orphans(
     conn: &Connection,
-    data_dir: &std::path::Path,
+    dir: &std::path::Path,
     result: &mut ConsistencyCheckResult,
     since: i64,
 ) -> Result<(), PersistenceError> {
-    let sessions_dir = data_dir.join("sessions");
-    if !sessions_dir.exists() {
+    if !dir.exists() {
         return Ok(());
     }
-    for entry in
-        std::fs::read_dir(&sessions_dir).map_err(|e| PersistenceError::Sqlite(e.to_string()))?
-    {
+    for entry in std::fs::read_dir(dir).map_err(|e| PersistenceError::Sqlite(e.to_string()))? {
         let entry = entry.map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
             continue;
         }
-        // Skip files whose mtime <= since (not modified since last check)
         let mtime = entry
             .metadata()
             .and_then(|m| m.modified())
@@ -110,5 +106,20 @@ pub(super) fn check_filesystem_to_sqlite_filtered(
             result.deleted_orphaned_files += 1;
         }
     }
+    Ok(())
+}
+
+/// File system → SQLite: check `.jsonl` files whose mtime > since.
+///
+/// Scans both `sessions/` (active) and `archived_sessions/` (archived)
+/// directories.  Orphaned files (no matching SQLite record) are deleted.
+pub(super) fn check_filesystem_to_sqlite_filtered(
+    conn: &Connection,
+    data_dir: &std::path::Path,
+    result: &mut ConsistencyCheckResult,
+    since: i64,
+) -> Result<(), PersistenceError> {
+    scan_dir_for_orphans(conn, &data_dir.join("sessions"), result, since)?;
+    scan_dir_for_orphans(conn, &data_dir.join("archived_sessions"), result, since)?;
     Ok(())
 }
