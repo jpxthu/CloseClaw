@@ -5,7 +5,7 @@
 //! - `list_descendants`: multi-level nesting / single level / no descendants
 //! - `get_parent`: has parent / root node (no parent)
 
-use closeclaw_session::spawn::{ChildSessionInfo, SpawnMode, SpawnTree};
+use closeclaw_session::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode, SpawnTree};
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -16,6 +16,7 @@ fn info(session_id: &str, parent_session_id: &str, depth: u32) -> ChildSessionIn
         agent_id: "test-agent".to_string(),
         depth,
         mode: SpawnMode::Run,
+        status: ChildSessionStatus::Active,
     }
 }
 

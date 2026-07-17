@@ -41,9 +41,9 @@
   },
   {
     "path": "docs/design/agent/agent-spawn.md",
-    "commit": "bc34e87ab05ed4c921f5943b8175254723e65501",
-    "commit_time": "2026-07-13T21:55:33+08:00",
-    "confirmed_time": "2026-07-13T22:05:30.262329+08:00",
+    "commit": "e5318beee3156d23d6dbaeda045eb5d251362360",
+    "commit_time": "2026-07-17T21:54:48+08:00",
+    "confirmed_time": "2026-07-17T21:59:17.251838+08:00",
     "comment": "",
     "blocked_reason": ""
   },

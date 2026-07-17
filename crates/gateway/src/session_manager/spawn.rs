@@ -20,7 +20,7 @@ use tracing::warn;
 
 #[cfg(test)]
 use closeclaw_session::spawn::creation::build_spawn_context as build_spawn_context_inner;
-pub use closeclaw_session::spawn::{ChildSessionInfo, SpawnMode};
+pub use closeclaw_session::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 
 impl SessionManager {
     /// Get the depth of a session. Returns None if session does not exist.
@@ -47,21 +47,11 @@ impl SessionManager {
 
     /// Count active (non-completed) child sessions for a parent.
     pub async fn count_active_children(&self, parent_id: &str) -> usize {
-        let child_ids: Vec<String> = {
-            let children = self.children.read().await;
-            children
-                .list_children(parent_id)
-                .into_iter()
-                .map(|info| info.session_id.clone())
-                .collect()
-        };
-        if child_ids.is_empty() {
-            return 0;
-        }
-        let conv = self.conversation_sessions.read().await;
-        child_ids
-            .iter()
-            .filter(|id| conv.contains_key(id.as_str()))
+        let children = self.children.read().await;
+        children
+            .list_children(parent_id)
+            .into_iter()
+            .filter(|info| info.status == ChildSessionStatus::Active)
             .count()
     }
 
@@ -278,6 +268,7 @@ impl SessionManager {
                 agent_id: config.id.clone(),
                 depth,
                 mode,
+                status: ChildSessionStatus::Active,
             },
         )
         .await;
@@ -521,6 +512,7 @@ impl SessionManager {
                     agent_id: cp.agent_id.unwrap_or_default(),
                     depth: cp.depth,
                     mode,
+                    status: ChildSessionStatus::Active,
                 },
             )
             .await;
@@ -532,6 +524,23 @@ impl SessionManager {
             for orphan_id in &orphan_ids {
                 if let Some(s) = sessions.get_mut(orphan_id) {
                     s.depth = 0;
+                }
+            }
+            drop(sessions);
+
+            // Reset effective_max_spawn_depth for demoted orphans
+            // and persist the updated checkpoint.
+            for orphan_id in &orphan_ids {
+                if let Ok(Some(mut cp)) = cm_arc.load(orphan_id).await {
+                    cp.depth = 0;
+                    cp.effective_max_spawn_depth = None;
+                    if let Err(e) = cm_arc.save_raw(&cp).await {
+                        warn!(
+                            session_id = %orphan_id,
+                            error = %e,
+                            "failed to persist demoted orphan checkpoint"
+                        );
+                    }
                 }
             }
         }

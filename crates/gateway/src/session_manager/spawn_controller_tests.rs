@@ -19,7 +19,7 @@ use closeclaw_config::ConfigManager;
 use closeclaw_session::persistence::ReasoningLevel;
 
 use crate::session_manager::spawn_controller::{SpawnController, SpawnError};
-use crate::session_manager::{ChildSessionInfo, SpawnMode};
+use crate::session_manager::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use crate::{GatewayConfig, Message, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
@@ -153,6 +153,7 @@ async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
                 agent_id: "child".to_string(),
                 depth: 1,
                 mode: SpawnMode::Run,
+                status: ChildSessionStatus::Active,
             },
         )
         .await;
@@ -718,6 +719,7 @@ macro_rules! register_child {
                 agent_id: $agent.to_string(),
                 depth: $depth,
                 mode: $mode,
+                status: ChildSessionStatus::Active,
             },
         )
         .await;
@@ -796,6 +798,7 @@ async fn test_kill_child_no_descendants_clean_removal() {
             agent_id: "child-agent".to_string(),
             depth: 1,
             mode: SpawnMode::Run,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;
@@ -899,6 +902,7 @@ async fn test_session_child_survives_without_explicit_kill() {
             agent_id: "child-agent".to_string(),
             depth: 1,
             mode: SpawnMode::Session,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;
@@ -954,6 +958,7 @@ async fn test_run_child_survives_without_explicit_kill() {
             agent_id: "child-agent".to_string(),
             depth: 1,
             mode: SpawnMode::Run,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;

@@ -4,7 +4,7 @@
 //! are removed first, completed/terminated sessions skip cancel but
 //! are still cleaned up, and single-child scenarios work correctly.
 
-use super::spawn::{ChildSessionInfo, SpawnMode};
+use super::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use super::test_helpers::test_resolved_config;
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
@@ -51,6 +51,7 @@ async fn register_tree_entry(
             agent_id: agent_id.to_string(),
             depth,
             mode: SpawnMode::Run,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;
