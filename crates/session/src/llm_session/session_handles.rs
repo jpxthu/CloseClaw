@@ -43,6 +43,25 @@ const STOP_KILL_TIMEOUT: Duration = Duration::from_secs(5);
 /// by the caller (e.g. `/stop` slash command).
 pub const DEFAULT_GRACEFUL_TIMEOUT: Duration = Duration::from_secs(30);
 
+// ── cascade stop info ────────────────────────────────────────────────────
+
+/// Information collected during a cascade stop about children that
+/// timed out before completing their graceful stop. Propagated from
+/// `cascade_stop_children` → `stop()` → `stop_single_session` so
+/// the caller can report progress to the daemon shutdown handler.
+#[derive(Debug, Clone, Default)]
+pub struct CascadeStopInfo {
+    /// Children whose graceful stop timed out: (session_id, elapsed).
+    pub timed_out_children: Vec<(String, Duration)>,
+}
+
+impl CascadeStopInfo {
+    /// Merge another `CascadeStopInfo` into this one.
+    pub fn merge(&mut self, other: CascadeStopInfo) {
+        self.timed_out_children.extend(other.timed_out_children);
+    }
+}
+
 // ── graceful stop types ─────────────────────────────────────────────────
 
 /// Progress report emitted by [`ConversationSession::graceful_stop`]
@@ -389,28 +408,34 @@ impl ConversationSession {
     ///
     /// Idempotency: subsequent calls are no-ops once `stopped` has
     /// been set, so the caller does not need to guard.
-    pub async fn stop(&self, cascade: bool, mode: ShutdownMode) {
+    ///
+    /// Returns [`CascadeStopInfo`] with any timed-out children from
+    pub async fn stop(&self, cascade: bool, mode: ShutdownMode) -> CascadeStopInfo {
         match mode {
             ShutdownMode::Graceful => {
-                // Graceful path: if already stopped, this is a
-                // duplicate call — skip.
-                if self
-                    .stopped
-                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_err()
-                {
-                    return;
-                }
-                // Pause external input via `stopped` flag (Gateway
-                // checks `is_stopped()`).
-                // Cascade children with the same Graceful mode.
+                // Cascade children with the same Graceful mode,
+                // waiting for each child's in-flight operations
+                // before moving to the next sibling. This follows
+                // the design doc order: cascade → wait → cleanup.
+                //
+                // Set the stopped flag so callers that invoke stop()
+                // directly (without stop_single_session) see the
+                // flag set. This is idempotent and safe to repeat
+                // during recursive cascade.
+                let _ =
+                    self.stopped
+                        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst);
+                let mut cascade_info = CascadeStopInfo::default();
                 if cascade {
-                    self.cascade_stop_children(mode).await;
+                    cascade_info = self.cascade_stop_children(mode).await;
                 }
-                // Wait delegated to SessionManager (no graceful_stop
-                // call here — avoids double-wait).
-                // Cleanup.
-                self.clear_exec_state();
+                // NOTE: clear_exec_state() is intentionally NOT called
+                // here. The caller (stop_single_session) needs the
+                // exec state to remain intact for graceful_wait() to
+                // observe in-flight operations. The caller calls
+                // clear_exec_state() after graceful_wait() completes
+                // (Completed path) or defers it on TimedOut/Interrupted.
+                cascade_info
             }
             ShutdownMode::Forceful => {
                 // Forceful path: always execute (idempotent ops).
@@ -435,6 +460,7 @@ impl ConversationSession {
                 self.kill_tool_handles().await;
                 // Reset execution state.
                 self.clear_exec_state();
+                CascadeStopInfo::default()
             }
         }
     }
@@ -443,13 +469,23 @@ impl ConversationSession {
     /// session. The mode is forwarded so children are stopped with
     /// the same strategy as the parent.
     ///
+    /// In Graceful mode, each child's in-flight operations are
+    /// waited on (via `graceful_stop`) before the next sibling is
+    /// processed. This ensures the cascade follows the design doc
+    /// ordering: cascade → wait → cleanup.
+    ///
     /// Weak references that have been dropped (child completed and
     /// reaped) are silently skipped.
+    ///
+    /// Returns [`CascadeStopInfo`] with any children that timed out
+    /// during the graceful wait.
     fn cascade_stop_children<'a>(
         &'a self,
         mode: ShutdownMode,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = CascadeStopInfo> + Send + 'a>> {
         Box::pin(async move {
+            let mut info = CascadeStopInfo::default();
+
             // Snapshot the children so we don't hold the lock across
             // the (potentially long-running) recursive stop calls.
             let snapshot: Vec<std::sync::Weak<RwLock<ConversationSession>>> = {
@@ -470,21 +506,40 @@ impl ConversationSession {
                 // we abandon the wait and move on. The orphan process
                 // is a known-acceptable cost; the cascade must make
                 // progress.
+                let child_start = tokio::time::Instant::now();
                 let stop_fut = async {
                     let guard = child_arc.read().await;
+                    // In Graceful mode, wait for the child's in-flight
+                    // operations BEFORE calling stop() on it. This
+                    // ensures the child's tools/LLM stream complete
+                    // (or time out) before we proceed to the next
+                    // sibling.
+                    if mode == ShutdownMode::Graceful {
+                        let _ = guard.graceful_stop(STOP_KILL_TIMEOUT, None).await;
+                    }
                     guard.stop(true, mode).await;
                 };
                 if tokio::time::timeout(STOP_KILL_TIMEOUT, stop_fut)
                     .await
                     .is_err()
                 {
+                    let elapsed = child_start.elapsed();
                     tracing::warn!(
                         child = ?child_arc,
+                        elapsed = ?elapsed,
                         "cascade_stop_children: child stop() timed out after {:?}",
                         STOP_KILL_TIMEOUT
                     );
+                    // Collect timeout info for the caller.
+                    let child_id = {
+                        let guard = child_arc.read().await;
+                        guard.session_id.clone()
+                    };
+                    info.timed_out_children.push((child_id, elapsed));
                 }
             }
+
+            info
         })
     }
 
@@ -528,7 +583,7 @@ impl ConversationSession {
     /// Reset llm_state / tool_states / child_states to a clean
     /// "nothing in flight" surface and clear the in-memory handle
     /// maps. Called at the end of `stop()`.
-    fn clear_exec_state(&self) {
+    pub fn clear_exec_state(&self) {
         // llm_state → Idle. The cancel-token branch in call_llm
         // should already have set this, but we make it explicit
         // so post-stop invariants hold even if a future caller
