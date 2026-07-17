@@ -368,16 +368,19 @@ impl SessionManager {
             .await
             .ok_or(StopError::Skipped)?;
 
-        // Forceful path: snapshot → force_kill → persist checkpoint.
-        // `stop(cascade)` is NOT called here — it would re-run forced
-        // operations (token cancel, cascade, kill) redundantly.
+        // Forceful path: snapshot → stop(cascade) → persist checkpoint.
+        // `stop()` with Forceful mode handles cascade to child sessions
+        // (recursive force stop), token cancellation, tool-process kills,
+        // and exec-state cleanup — all in one call.
         if mode == ShutdownMode::Forceful {
-            // Snapshot transcript state before force-kill clears exec state.
+            // Snapshot transcript state before stop clears exec state.
             cs.write().await.snapshot_current_state(
                 closeclaw_session::run_health::TranscriptOp::Rewrite,
                 "user-stop",
             );
-            cs.write().await.force_kill().await;
+            // Cascade to children (recursive forceful stop), cancel token,
+            // kill tool handles, and clear exec state.
+            cs.read().await.stop(cascade, mode).await;
 
             // Notify parent about forced termination of run-mode child.
             self.notify_child_forced_termination(session_id).await;
