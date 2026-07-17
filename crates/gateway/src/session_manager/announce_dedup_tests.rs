@@ -14,6 +14,7 @@ use super::test_helpers::{
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use closeclaw_common::ChildSessionState;
 use closeclaw_llm::types::ContentBlock;
+use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
 use tempfile::TempDir;
 
@@ -59,7 +60,8 @@ async fn test_dedup_child_running_allows_push() {
     )
     .await;
 
-    mgr.try_push_announce(&child_id).await;
+    mgr.try_push_announce(&child_id, NotificationPriority::Next)
+        .await;
 
     let drained = mgr.drain_announces(&parent_id).await;
     assert_eq!(
@@ -129,7 +131,8 @@ async fn test_dedup_child_completed_skips_push() {
         "queue should be empty before try_push_announce"
     );
 
-    mgr.try_push_announce(&child_id).await;
+    mgr.try_push_announce(&child_id, NotificationPriority::Next)
+        .await;
 
     let queue_after = mgr.drain_announces(&parent_id).await;
     assert!(
@@ -191,7 +194,8 @@ async fn test_dedup_child_errored_skips_push() {
         .await
         .update_child_state(&child_id, ChildSessionState::Errored);
 
-    mgr.try_push_announce(&child_id).await;
+    mgr.try_push_announce(&child_id, NotificationPriority::Next)
+        .await;
 
     let drained = mgr.drain_announces(&parent_id).await;
     assert!(
@@ -252,7 +256,8 @@ async fn test_dedup_child_terminated_skips_push() {
         .await
         .update_child_state(&child_id, ChildSessionState::Terminated);
 
-    mgr.try_push_announce(&child_id).await;
+    mgr.try_push_announce(&child_id, NotificationPriority::Next)
+        .await;
 
     let drained = mgr.drain_announces(&parent_id).await;
     assert!(
@@ -289,7 +294,8 @@ async fn test_dedup_child_not_in_states_allows_push() {
     )
     .await;
 
-    mgr.try_push_announce("child-missing-state").await;
+    mgr.try_push_announce("child-missing-state", NotificationPriority::Next)
+        .await;
 
     // Announce should have been pushed (dedup guard saw no entry → not terminal).
     // Note: the push itself will fail because the child has no ConversationSession
@@ -353,7 +359,8 @@ async fn test_dedup_first_push_deregisters_child() {
     .await;
 
     // First call: state is Running → push succeeds.
-    mgr.try_push_announce(&child_id).await;
+    mgr.try_push_announce(&child_id, NotificationPriority::Next)
+        .await;
     let events = mgr.drain_announces(&parent_id).await;
     assert_eq!(events.len(), 1, "first push should produce 1 event");
 
@@ -362,7 +369,8 @@ async fn test_dedup_first_push_deregisters_child() {
     // block, but the announce is pushed again (child still in spawn
     // tree, still has assistant text). This tests that deregistration
     // happens as expected.
-    mgr.try_push_announce(&child_id).await;
+    mgr.try_push_announce(&child_id, NotificationPriority::Next)
+        .await;
     let events2 = mgr.drain_announces(&parent_id).await;
     assert_eq!(
         events2.len(),

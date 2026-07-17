@@ -11,6 +11,8 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use closeclaw_tasks::NotificationPriority;
+
 /// Mock target for testing `AnnounceSweeper` without a real
 /// `SessionManager`.
 struct MockTarget {
@@ -76,7 +78,7 @@ impl AnnounceSweepTarget for MockTarget {
             .contains(&session_id.to_string())
     }
 
-    async fn try_push_announce(&self, session_id: &str) {
+    async fn try_push_announce(&self, session_id: &str, _priority: NotificationPriority) {
         self.pushed_announces
             .write()
             .await
