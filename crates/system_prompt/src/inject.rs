@@ -56,6 +56,8 @@ pub fn build_dynamic_sections(
         sections.push(Section::ModeInstruction {
             mode: session_mode,
             plan_path: resolved_plan_path,
+            sparse: false,
+            sub_agent: false,
         });
     }
 
