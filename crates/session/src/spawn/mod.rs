@@ -2,7 +2,7 @@
 //!
 //! Provides `SpawnController` for validating spawn requests,
 //! `create_child_conversation_session` for building child sessions,
-//! shared types (`ChildSessionInfo`, `SpawnMode`, `SpawnValidationResult`),
+//! shared types (`ChildSessionInfo`, `ChildSessionStatus`, `SpawnMode`, `SpawnValidationResult`),
 //! and the `SpawnCreationContext` trait for dependency injection.
 
 pub mod communication;
@@ -26,6 +26,7 @@ pub use creation::{
 pub use error::SpawnError;
 pub use tree::SpawnTree;
 pub use types::ChildSessionInfo;
+pub use types::ChildSessionStatus;
 pub use types::SpawnMode;
 pub use types::SpawnValidationResult;
 

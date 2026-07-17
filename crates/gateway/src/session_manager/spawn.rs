@@ -20,7 +20,7 @@ use tracing::warn;
 
 #[cfg(test)]
 use closeclaw_session::spawn::creation::build_spawn_context as build_spawn_context_inner;
-pub use closeclaw_session::spawn::{ChildSessionInfo, SpawnMode};
+pub use closeclaw_session::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 
 impl SessionManager {
     /// Get the depth of a session. Returns None if session does not exist.
