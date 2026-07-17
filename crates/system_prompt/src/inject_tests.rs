@@ -9,7 +9,7 @@
 //! - Boundary: Normal→Normal produces no transition
 //! - Ordering: ModeInstruction → ModeTransition → ChannelContext
 
-use super::inject::build_dynamic_sections;
+use super::inject::{build_dynamic_sections, DynamicSectionsParams};
 use closeclaw_common::{ModeTransition, PlanPath, SessionMode};
 use closeclaw_gateway::session_handler::MessageMetadata;
 
@@ -18,6 +18,20 @@ fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
         sender_id: sender.to_string(),
         channel: channel.to_string(),
         timestamp: ts,
+    }
+}
+
+/// Helper: build a `DynamicSectionsParams` with defaults for optional fields.
+fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSectionsParams<'_> {
+    DynamicSectionsParams {
+        meta,
+        workdir_path: None,
+        system_appends: &[],
+        session_timestamp: None,
+        session_mode,
+        explicit_plan_path: None,
+        user_input: None,
+        pending_mode_transition: None,
     }
 }
 
@@ -30,22 +44,15 @@ fn test_one_shot_injection_transition_appears_exactly_once() {
     let meta = make_meta("u", "ch", 0);
 
     // First build — with ExitPlan transition
-    let sections = build_dynamic_sections(
-        &meta,
-        None,
-        &[],
-        None,
-        SessionMode::Auto,
-        None,
-        None,
-        Some(ModeTransition::ExitPlan),
-    );
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        pending_mode_transition: Some(ModeTransition::ExitPlan),
+        ..make_params(&meta, SessionMode::Auto)
+    });
     let has_transition = sections.iter().any(|s| s.name() == "mode_transition");
     assert!(has_transition, "first build should include transition");
 
     // Second build — without transition (simulates take happened)
-    let sections2 =
-        build_dynamic_sections(&meta, None, &[], None, SessionMode::Auto, None, None, None);
+    let sections2 = build_dynamic_sections(&make_params(&meta, SessionMode::Auto));
     let has_transition2 = sections2.iter().any(|s| s.name() == "mode_transition");
     assert!(
         !has_transition2,
@@ -61,44 +68,27 @@ fn test_repeated_transitions_each_produces_one() {
     let meta = make_meta("u", "ch", 0);
 
     // Switch 1: ExitPlan
-    let s1 = build_dynamic_sections(
-        &meta,
-        None,
-        &[],
-        None,
-        SessionMode::Auto,
-        None,
-        None,
-        Some(ModeTransition::ExitPlan),
-    );
+    let s1 = build_dynamic_sections(&DynamicSectionsParams {
+        pending_mode_transition: Some(ModeTransition::ExitPlan),
+        ..make_params(&meta, SessionMode::Auto)
+    });
     let t1 = s1.iter().find(|s| s.name() == "mode_transition").unwrap();
     assert!(t1.render().contains("Exited Plan Mode"));
 
     // Switch 2: Reentry
-    let s2 = build_dynamic_sections(
-        &meta,
-        None,
-        &[],
-        None,
-        SessionMode::Plan,
-        Some(PlanPath::Standard),
-        None,
-        Some(ModeTransition::Reentry),
-    );
+    let s2 = build_dynamic_sections(&DynamicSectionsParams {
+        explicit_plan_path: Some(PlanPath::Standard),
+        pending_mode_transition: Some(ModeTransition::Reentry),
+        ..make_params(&meta, SessionMode::Plan)
+    });
     let t2 = s2.iter().find(|s| s.name() == "mode_transition").unwrap();
     assert!(t2.render().contains("Re-entering Plan Mode"));
 
     // Switch 3: ExitAuto
-    let s3 = build_dynamic_sections(
-        &meta,
-        None,
-        &[],
-        None,
-        SessionMode::Normal,
-        None,
-        None,
-        Some(ModeTransition::ExitAuto),
-    );
+    let s3 = build_dynamic_sections(&DynamicSectionsParams {
+        pending_mode_transition: Some(ModeTransition::ExitAuto),
+        ..make_params(&meta, SessionMode::Normal)
+    });
     let t3 = s3.iter().find(|s| s.name() == "mode_transition").unwrap();
     assert!(t3.render().contains("Exited Auto Mode"));
 }
@@ -109,16 +99,7 @@ fn test_repeated_transitions_each_produces_one() {
 #[test]
 fn test_normal_to_normal_no_transition() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(
-        &meta,
-        None,
-        &[],
-        None,
-        SessionMode::Normal,
-        None,
-        None,
-        None,
-    );
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
     let has_transition = sections.iter().any(|s| s.name() == "mode_transition");
     assert!(
         !has_transition,
@@ -131,16 +112,7 @@ fn test_normal_to_normal_no_transition() {
 #[test]
 fn test_normal_mode_no_mode_instruction() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(
-        &meta,
-        None,
-        &[],
-        None,
-        SessionMode::Normal,
-        None,
-        None,
-        None,
-    );
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
     assert!(
         !sections.iter().any(|s| s.name() == "mode_instruction"),
         "Normal mode should not inject ModeInstruction"
@@ -153,16 +125,11 @@ fn test_normal_mode_no_mode_instruction() {
 #[test]
 fn test_ordering_mode_instruction_then_transition_then_channel() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(
-        &meta,
-        None,
-        &[],
-        None,
-        SessionMode::Plan,
-        Some(PlanPath::Standard),
-        None,
-        Some(ModeTransition::Reentry),
-    );
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        explicit_plan_path: Some(PlanPath::Standard),
+        pending_mode_transition: Some(ModeTransition::Reentry),
+        ..make_params(&meta, SessionMode::Plan)
+    });
 
     let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
     let transition_idx = sections.iter().position(|s| s.name() == "mode_transition");
@@ -189,8 +156,7 @@ fn test_ordering_mode_instruction_then_transition_then_channel() {
 #[test]
 fn test_ordering_without_transition_mode_instruction_then_channel() {
     let meta = make_meta("u", "ch", 0);
-    let sections =
-        build_dynamic_sections(&meta, None, &[], None, SessionMode::Auto, None, None, None);
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Auto));
 
     let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
     let channel_idx = sections.iter().position(|s| s.name() == "channel_context");
@@ -210,16 +176,10 @@ fn test_ordering_without_transition_mode_instruction_then_channel() {
 #[test]
 fn test_plan_to_auto_transition_exit_plan() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(
-        &meta,
-        None,
-        &[],
-        None,
-        SessionMode::Auto,
-        None,
-        None,
-        Some(ModeTransition::ExitPlan),
-    );
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        pending_mode_transition: Some(ModeTransition::ExitPlan),
+        ..make_params(&meta, SessionMode::Auto)
+    });
 
     // Auto mode instruction should be present
     let mode_sec = sections.iter().find(|s| s.name() == "mode_instruction");
@@ -253,16 +213,11 @@ fn test_plan_to_auto_transition_exit_plan() {
 #[test]
 fn test_reentry_plan_mode_with_existing_plan() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(
-        &meta,
-        None,
-        &[],
-        None,
-        SessionMode::Plan,
-        Some(PlanPath::Standard),
-        None,
-        Some(ModeTransition::Reentry),
-    );
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        explicit_plan_path: Some(PlanPath::Standard),
+        pending_mode_transition: Some(ModeTransition::Reentry),
+        ..make_params(&meta, SessionMode::Plan)
+    });
 
     let transition = sections.iter().find(|s| s.name() == "mode_transition");
     assert!(
@@ -282,16 +237,10 @@ fn test_reentry_plan_mode_with_existing_plan() {
 #[test]
 fn test_exit_auto_from_auto_to_normal() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(
-        &meta,
-        None,
-        &[],
-        None,
-        SessionMode::Normal,
-        None,
-        None,
-        Some(ModeTransition::ExitAuto),
-    );
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        pending_mode_transition: Some(ModeTransition::ExitAuto),
+        ..make_params(&meta, SessionMode::Normal)
+    });
 
     // Normal mode should NOT have ModeInstruction
     assert!(

@@ -26,7 +26,7 @@ pub use builder::{
     build_from_workspace, build_system_prompt, PromptOverrides, WorkspaceBuildConfig,
 };
 pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
-pub use inject::SystemPromptDynamicBuilder;
+pub use inject::{DynamicSectionsParams, SystemPromptDynamicBuilder};
 pub use providers::bootstrap::BootstrapFragmentProvider;
 pub use providers::memory::MemoryFragmentProvider;
 pub use providers::skills::SkillsFragmentProvider;
