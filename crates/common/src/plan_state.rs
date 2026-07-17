@@ -52,7 +52,7 @@ pub enum StatusTransitionError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanPath {
-    /// 标准路径：需求明确，4 阶段流程
+    /// 标准路径：需求明确，5 阶段工作流
     Standard,
     /// Interview 路径：需求模糊，循环探索
     #[default]
