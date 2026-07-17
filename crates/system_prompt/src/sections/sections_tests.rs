@@ -371,6 +371,174 @@ fn test_section_render_mode_instruction_uses_flags() {
     );
 }
 
+// ── Gap 4: Interview Path global constraint ─────────────────────────────
+
+/// Verify render_interview_path_instruction() includes PLAN_MODE_CONSTRAINT.
+#[test]
+fn test_interview_path_includes_plan_mode_constraint() {
+    let output = render_interview_path_instruction();
+    assert!(
+        output.contains(PLAN_MODE_CONSTRAINT),
+        "render_interview_path_instruction() must include PLAN_MODE_CONSTRAINT"
+    );
+}
+
+/// Verify render_interview_path_instruction() output format matches
+/// "## Mode: Plan — Interview Path\n\n{CONSTRAINT}\n\n{PROMPT}\n".
+#[test]
+fn test_interview_path_output_format() {
+    let output = render_interview_path_instruction();
+    let expected = format!(
+        "## Mode: Plan \u{2014} Interview Path\n\n{}\n\n{}\n",
+        PLAN_MODE_CONSTRAINT, INTERVIEW_PATH_PROMPT
+    );
+    assert_eq!(output, expected);
+}
+
+/// Verify render_standard_path_instruction() and render_interview_path_instruction()
+/// use the same PLAN_MODE_CONSTRAINT text.
+#[test]
+fn test_standard_and_interview_share_plan_mode_constraint() {
+    let standard = render_standard_path_instruction();
+    let interview = render_interview_path_instruction();
+    // Both should contain the same constraint text
+    assert!(standard.contains(PLAN_MODE_CONSTRAINT));
+    assert!(interview.contains(PLAN_MODE_CONSTRAINT));
+    // The constraint text should be identical in both outputs
+    let standard_idx = standard.find(PLAN_MODE_CONSTRAINT).unwrap();
+    let interview_idx = interview.find(PLAN_MODE_CONSTRAINT).unwrap();
+    let standard_slice = &standard[standard_idx..standard_idx + PLAN_MODE_CONSTRAINT.len()];
+    let interview_slice = &interview[interview_idx..interview_idx + PLAN_MODE_CONSTRAINT.len()];
+    assert_eq!(standard_slice, interview_slice);
+}
+
+// ── Gap 1: Sparse injection tests ────────────────────────────────────────
+
+/// Plan Mode + compacted → STANDARD_SPARSE text
+#[test]
+fn test_sparse_plan_mode_outputs_standard_sparse() {
+    let output = render_mode_instruction_with_flags(
+        SessionMode::Plan,
+        Some(PlanPath::Standard),
+        true,  // is_compacted
+        false, // is_sub_agent
+    );
+    assert!(
+        output.contains("Plan mode still active"),
+        "Plan Mode compacted should output STANDARD_SPARSE, got: {}",
+        output
+    );
+    assert!(output.contains("Read-only except plan file"));
+}
+
+/// Auto Mode + compacted → AUTO_MODE_SPARSE text (different from Plan sparse)
+#[test]
+fn test_sparse_auto_mode_outputs_auto_sparse() {
+    let output = render_mode_instruction_with_flags(
+        SessionMode::Auto,
+        None,  // plan_path irrelevant for Auto
+        true,  // is_compacted
+        false, // is_sub_agent
+    );
+    assert!(
+        output.contains("Auto mode still active"),
+        "Auto Mode compacted should output AUTO_MODE_SPARSE, got: {}",
+        output
+    );
+    assert!(output.contains("Execute autonomously"));
+}
+
+/// Plan sparse and Auto sparse produce different output
+#[test]
+fn test_sparse_plan_and_auto_produce_different_output() {
+    let plan_sparse = render_mode_instruction_with_flags(
+        SessionMode::Plan,
+        Some(PlanPath::Standard),
+        true,
+        false,
+    );
+    let auto_sparse = render_mode_instruction_with_flags(SessionMode::Auto, None, true, false);
+    assert_ne!(
+        plan_sparse, auto_sparse,
+        "Plan sparse and Auto sparse should produce different outputs"
+    );
+    assert!(plan_sparse.contains("Plan mode"));
+    assert!(auto_sparse.contains("Auto mode"));
+}
+
+/// Not compacted → full prompt (no sparse text)
+#[test]
+fn test_not_compacted_outputs_full_prompt() {
+    let plan_full = render_mode_instruction_with_flags(
+        SessionMode::Plan,
+        Some(PlanPath::Standard),
+        false, // not compacted
+        false,
+    );
+    // Full Plan prompt should contain standard path phases, not sparse
+    assert!(plan_full.contains("Phase 1: Initial Understanding"));
+    assert!(!plan_full.contains("Plan mode still active"));
+
+    let auto_full = render_mode_instruction_with_flags(
+        SessionMode::Auto,
+        None,
+        false, // not compacted
+        false,
+    );
+    // Full Auto prompt should contain full auto instructions, not sparse
+    assert!(auto_full.contains("Auto Mode Active"));
+    assert!(!auto_full.contains("Auto mode still active"));
+}
+
+// ── Gap 2: Sub-agent injection tests ──────────────────────────────────────
+
+/// is_sub_agent = true → SUBAGENT_SPARSE text
+#[test]
+fn test_sub_agent_true_outputs_subagent_sparse() {
+    let output = render_mode_instruction_with_flags(
+        SessionMode::Plan,
+        Some(PlanPath::Standard),
+        false, // sparse irrelevant when sub_agent is true
+        true,  // is_sub_agent
+    );
+    assert!(
+        output.contains("Plan mode is active"),
+        "Sub-agent should output SUBAGENT_SPARSE, got: {}",
+        output
+    );
+    assert!(output.contains("incremental edits"));
+    assert!(output.contains("READ-ONLY actions"));
+}
+
+/// is_sub_agent = false → normal mode instruction (not sub-agent sparse)
+#[test]
+fn test_sub_agent_false_outputs_normal_instruction() {
+    let output = render_mode_instruction_with_flags(
+        SessionMode::Plan,
+        Some(PlanPath::Standard),
+        false,
+        false, // not sub-agent
+    );
+    assert!(output.contains("Phase 1: Initial Understanding"));
+    assert!(!output.contains("incremental edits"));
+}
+
+/// Sub-agent takes precedence over sparse
+#[test]
+fn test_sub_agent_precedence_over_sparse() {
+    let output = render_mode_instruction_with_flags(
+        SessionMode::Plan,
+        Some(PlanPath::Standard),
+        true, // compacted
+        true, // sub-agent
+    );
+    assert!(
+        output.contains("incremental edits"),
+        "Sub-agent should take precedence over sparse"
+    );
+    assert!(!output.contains("Plan mode still active"));
+}
+
 // ── ModeTransition section rendering ───────────────────────────────────────
 
 #[test]
