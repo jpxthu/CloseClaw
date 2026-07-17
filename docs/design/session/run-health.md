@@ -1,4 +1,4 @@
-# Run Health & Checkpoint
+# Run Health & 运行快照（Runtime Snapshot）
 
 ## 概述
 
@@ -27,7 +27,7 @@ unhealthy → 按失败类别处理（退避重试 / 通知用户 / 回滚快照
 
 核心组件：
 
-- **硬规则检测器**：纯代码逻辑，不依赖 LLM。检测超时、响应结构不合法、重试计数器耗尽。检测到即判 unhealthy。
+- **硬规则检测器**：纯代码逻辑，不依赖 LLM。检测超时、空响应、结构异常、重试耗尽。检测到即判 unhealthy。
 - **Hook 审查器**：可选组件，按 agent 配置决定挂载 0 到 N 个。每个 hook 是固定 prompt 的轻量 LLM 调用，审查当前 turn 的输出质量（如是否只计划未执行、是否陷入工具调用循环）。Hook 调用与主对话隔离，不进入 transcript。
 - **运行快照管理器**：在毁坏性操作前自动创建 transcript 快照，提供回滚能力。每个 session 最多保留 25 个快照，旧的自动淘汰。与持久化层的 CheckpointManager（管理 SessionCheckpoint 的读写缓存和持久化）职责不同。
 - **转录修改分类器**：所有修改 transcript 的代码路径必须声明操作类型。Session 层根据类型决定是否触发运行快照。
@@ -78,7 +78,7 @@ Hook 是可选的轻量 LLM 质量门禁，按 agent 配置选择性启用：
 
 AnnounceSweeper 只负责投递，不判断任务质量：session 结束即产生 announce，Sweeper 确保它送达父 session。子 agent 任务是否满意、是否需要重试——由父 agent 收到 announce 后自主决策。这一层兜底第一层遗漏的投递失败。与 session-lifecycle 的 ArchiveSweeper（负责归档/清理，可配置间隔）是独立组件。
 
-**第三层：启动恢复**。系统重启后扫描 pending_operations 中未完成的 spawn 操作，向父 session 注入恢复通知（告知有哪些子 session 未完成）。后续由 LLM 自行查询子 session 状态并决定重试或放弃——系统不替 agent 做自动判定。这一层兜底进程崩溃导致的状态丢失。
+**第三层：启动恢复**。系统重启后扫描 pending_operations 中未完成的操作（spawn、工具调用、出站消息）。出站消息自动重投递；其余操作注入恢复通知，由 Agent 自行决策处理。详细机制见 session-recovery.md。这一层兜底进程崩溃导致的状态丢失。
 
 ### 失败类别与处理
 
@@ -89,7 +89,6 @@ unhealthy 不细分状态名，处理方式由失败类别决定：
 | 可重试 | LLM API 瞬时错误、超时 | 退避重试，耗尽后升级为不可重试 |
 | 响应无效 | 空响应、纯推理无文本、纯计划不执行 | 给 LLM retry instruction（有限次），耗尽后通知用户 |
 | 不可重试 | auth 失效、模型不存在、上下文彻底耗尽 | 立即通知用户，保留 session 状态 |
-| 副作用已发生 | 工具已执行/消息已外发，但 LLM 响应中断 | 通知用户验证当前状态，不回滚 |
 
 ## 数据流
 
@@ -128,9 +127,7 @@ unhealthy
   ├─ 响应无效 → retry instruction 注入 → 重试
   │   └─ 耗尽 → 通知用户 → 停止
   │
-  ├─ 不可重试 → 通知用户（含原因）→ 停止
-  │
-  └─ 副作用已发生 → 通知用户验证 → 停止（不回滚）
+  └─ 不可重试 → 通知用户（含原因）→ 停止
 ```
 
 ### 运行快照创建与回滚
@@ -143,7 +140,7 @@ unhealthy
 执行操作
   ↓
 操作成功 → 快照标记为 complete
-操作失败 → 系统检测到 unhealthy
+操作失败 → 系统检测到 unhealthy → 可回滚到快照恢复 transcript
   ↓
 可选操作：load 快照 → 原子性替换 transcript → 记录回滚 audit
 ```
