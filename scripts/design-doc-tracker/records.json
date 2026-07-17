@@ -17,9 +17,9 @@
   },
   {
     "path": "docs/design/agent/agent-config.md",
-    "commit": "4441834b0c516d70b4372569ea99cb7491715074",
-    "commit_time": "2026-07-12T00:34:11+08:00",
-    "confirmed_time": "2026-07-12T00:45:23.818885+08:00",
+    "commit": "f62b3245be2df88ec5d6899dbd9503c282b58bff",
+    "commit_time": "2026-07-17T19:41:15+08:00",
+    "confirmed_time": "2026-07-17T19:57:00.883676+08:00",
     "comment": "",
     "blocked_reason": ""
   },
