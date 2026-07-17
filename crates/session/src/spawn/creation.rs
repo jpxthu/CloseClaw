@@ -240,7 +240,7 @@ async fn configure_spawn_behavior(
     // Inject prompt template into system prompt tail (design doc §9).
     // The template text goes into the system prompt, not the user message.
     if let Some(tpl_prefix) = params.prompt_template_prefix {
-        system_prompt.push_str("\n");
+        system_prompt.push('\n');
         system_prompt.push_str(tpl_prefix);
     }
     cs.replace_system_prompt(system_prompt);
