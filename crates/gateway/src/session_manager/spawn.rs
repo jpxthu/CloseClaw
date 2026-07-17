@@ -107,6 +107,7 @@ impl SessionManager {
         max_spawn_depth: u32,
         spawn_timeout: Option<u64>,
         label: Option<&str>,
+        prompt_template_prefix: Option<&str>,
     ) -> Result<String, String> {
         // ── Increment busy count for drain tracking ────────────────────
         if let Some(sh) = self.get_shutdown_handle().await {
@@ -162,6 +163,7 @@ impl SessionManager {
             model_override,
             parent_subagents_model,
             max_spawn_depth,
+            prompt_template_prefix,
         };
         let created = session_spawn::create_child_conversation_session(
             self, // SpawnCreationContext impl

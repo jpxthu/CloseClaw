@@ -133,6 +133,7 @@ async fn test_create_child_session_removes_spawn_tool_when_budget_zero() {
             0,    // max_spawn_depth == 0
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -186,6 +187,7 @@ async fn test_create_child_session_keeps_spawn_tool_when_budget_positive() {
             3,    // max_spawn_depth > 0
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -275,6 +277,7 @@ async fn test_count_active_children_excludes_completed() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -322,6 +325,7 @@ async fn test_count_active_children_includes_active() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .unwrap();
@@ -341,6 +345,7 @@ async fn test_count_active_children_includes_active() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .unwrap();
@@ -395,6 +400,7 @@ async fn test_kill_completed_child_succeeds() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .unwrap();
@@ -449,6 +455,7 @@ async fn test_kill_active_child_cascades() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .unwrap();
@@ -470,6 +477,7 @@ async fn test_kill_active_child_cascades() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .unwrap();
@@ -520,6 +528,7 @@ async fn test_cascade_kill_mixed_active_completed() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .unwrap();
@@ -541,6 +550,7 @@ async fn test_cascade_kill_mixed_active_completed() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .unwrap();
@@ -562,6 +572,7 @@ async fn test_cascade_kill_mixed_active_completed() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .unwrap();

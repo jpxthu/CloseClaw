@@ -93,6 +93,7 @@ async fn test_create_child_session_basic() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -151,6 +152,7 @@ async fn test_create_child_session_workspace_fallback() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -176,6 +178,7 @@ async fn test_create_child_session_workspace_fallback() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session with explicit workspace should succeed");
@@ -215,6 +218,7 @@ async fn test_create_child_session_registers_child_info() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -255,6 +259,7 @@ async fn test_steer_child_injects_pending_message() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -308,6 +313,7 @@ async fn test_kill_child_removes_from_all_tables() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -374,6 +380,7 @@ async fn test_validate_child_ownership_by_mode() {
                 3,
                 None, // spawn_timeout,
                 None, // label
+                None, // prompt_template_prefix
             )
             .await
             .expect("create_child_session should succeed");
@@ -409,6 +416,7 @@ async fn test_validate_child_ownership_by_mode() {
                 3,
                 None, // spawn_timeout,
                 None, // label
+                None, // prompt_template_prefix
             )
             .await
             .expect("create_child_session should succeed");
@@ -468,6 +476,7 @@ async fn test_create_child_session_allowed_tools_override() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session with allowed_tools should succeed");
@@ -491,6 +500,7 @@ async fn test_create_child_session_allowed_tools_override() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session without allowed_tools should succeed");
@@ -533,6 +543,7 @@ async fn test_create_child_session_workspace_fallback_to_parent() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -609,6 +620,7 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -729,6 +741,7 @@ async fn test_child_session_system_prompt_contains_spawn_context() {
             4,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -846,6 +859,7 @@ async fn test_child_session_communication_config_has_parent() {
             3,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -954,6 +968,7 @@ async fn test_spawn_checkpoint_persists_parent_session_id_and_depth() {
             4,
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");

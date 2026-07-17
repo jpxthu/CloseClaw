@@ -131,6 +131,7 @@ async fn test_task_injected_with_user_role() {
         model_override: None,
         parent_subagents_model: None,
         max_spawn_depth: 3,
+        prompt_template_prefix: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -167,6 +168,7 @@ async fn test_task_content_forwarded() {
         model_override: None,
         parent_subagents_model: None,
         max_spawn_depth: 3,
+        prompt_template_prefix: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -201,6 +203,7 @@ async fn test_pending_message_id_format() {
         model_override: None,
         parent_subagents_model: None,
         max_spawn_depth: 3,
+        prompt_template_prefix: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -242,6 +245,7 @@ async fn test_task_role_user_in_session_mode() {
         model_override: None,
         parent_subagents_model: None,
         max_spawn_depth: 3,
+        prompt_template_prefix: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -255,5 +259,124 @@ async fn test_task_role_user_in_session_mode() {
         pending[0].role.as_deref(),
         Some("user"),
         "task role must be 'user' in Session mode too"
+    );
+}
+
+// ── Gap 4: Prompt template injection into system prompt ───────────────────
+
+/// Verify prompt_template_prefix is injected into system prompt, not the user message.
+#[tokio::test]
+async fn test_prompt_template_injected_into_system_prompt() {
+    let ctx = MockCreationContext::new();
+    let config = make_config("child-agent");
+    let params = ChildSessionCreationParams {
+        parent_session_id: "parent-session",
+        parent_agent_id: "parent-agent",
+        depth: 0,
+        task: "Analyze the codebase",
+        light_context: false,
+        workspace: None,
+        mode: SpawnMode::Run,
+        fork: false,
+        model_override: None,
+        parent_subagents_model: None,
+        max_spawn_depth: 3,
+        prompt_template_prefix: Some("## Custom Template\nRead only."),
+    };
+
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("create_child_conversation_session should succeed");
+
+    let cs = result.conversation_session.read().await;
+
+    // System prompt should contain the template text
+    let sys_prompt = cs.system_prompt().map(|s| s.to_owned()).unwrap_or_default();
+    assert!(
+        sys_prompt.contains("## Custom Template"),
+        "system prompt should contain the template text"
+    );
+    assert!(
+        sys_prompt.contains("Read only."),
+        "system prompt should contain the template body"
+    );
+
+    // User message (task) should NOT contain the template text
+    let pending = cs.get_pending_messages();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].content, "Analyze the codebase");
+    assert!(
+        !pending[0].content.contains("## Custom Template"),
+        "user message must NOT contain the template prefix"
+    );
+}
+
+/// Verify task content is unchanged when prompt_template_prefix is provided.
+#[tokio::test]
+async fn test_task_unchanged_with_prompt_template() {
+    let ctx = MockCreationContext::new();
+    let config = make_config("child-agent");
+    let task_text = "Run tests and report results";
+    let params = ChildSessionCreationParams {
+        parent_session_id: "parent-session",
+        parent_agent_id: "parent-agent",
+        depth: 0,
+        task: task_text,
+        light_context: false,
+        workspace: None,
+        mode: SpawnMode::Run,
+        fork: false,
+        model_override: None,
+        parent_subagents_model: None,
+        max_spawn_depth: 3,
+        prompt_template_prefix: Some("Template prefix"),
+    };
+
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("create_child_conversation_session should succeed");
+
+    let cs = result.conversation_session.read().await;
+    let pending = cs.get_pending_messages();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(
+        pending[0].content, task_text,
+        "task content must be exactly the original task text"
+    );
+}
+
+/// Verify behavior without prompt_template_prefix is unchanged.
+#[tokio::test]
+async fn test_no_prompt_template_unchanged_behavior() {
+    let ctx = MockCreationContext::new();
+    let config = make_config("child-agent");
+    let params = ChildSessionCreationParams {
+        parent_session_id: "parent-session",
+        parent_agent_id: "parent-agent",
+        depth: 0,
+        task: "Simple task",
+        light_context: false,
+        workspace: None,
+        mode: SpawnMode::Run,
+        fork: false,
+        model_override: None,
+        parent_subagents_model: None,
+        max_spawn_depth: 3,
+        prompt_template_prefix: None,
+    };
+
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("create_child_conversation_session should succeed");
+
+    let cs = result.conversation_session.read().await;
+    let pending = cs.get_pending_messages();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].content, "Simple task");
+    // System prompt should not contain any template-related text
+    let sys_prompt = cs.system_prompt().map(|s| s.to_owned()).unwrap_or_default();
+    assert!(
+        !sys_prompt.contains("Template prefix"),
+        "system prompt should not contain template text when prefix is None"
     );
 }
