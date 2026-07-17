@@ -21,7 +21,7 @@ use closeclaw_config::ConfigManager;
 use closeclaw_session::persistence::ReasoningLevel;
 
 use crate::session_manager::spawn_controller::{SpawnController, SpawnError};
-use crate::session_manager::{ChildSessionInfo, SpawnMode};
+use crate::session_manager::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use crate::{GatewayConfig, Message, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
@@ -131,6 +131,7 @@ async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
                 agent_id: "child".to_string(),
                 depth: 1,
                 mode: SpawnMode::Run,
+                status: ChildSessionStatus::Active,
             },
         )
         .await;
