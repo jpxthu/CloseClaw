@@ -37,3 +37,6 @@ mod controller_tests;
 #[cfg(test)]
 #[path = "creation_tests.rs"]
 mod creation_tests;
+
+#[cfg(test)]
+mod tree_tests;
