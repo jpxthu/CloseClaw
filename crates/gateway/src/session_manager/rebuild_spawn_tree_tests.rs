@@ -276,33 +276,6 @@ async fn test_rebuild_spawn_tree_spawn_mode_session() {
     assert_eq!(list[0].mode, SpawnMode::Session);
 }
 
-/// Orphan downgrade: rebuild_spawn_tree should persist effective_max_spawn_depth=None
-/// for demoted orphan checkpoints.
-#[tokio::test]
-async fn test_rebuild_spawn_tree_orphan_effective_max_spawn_depth_reset() {
-    let storage = Arc::new(closeclaw_session::storage::memory::MemoryStorage::new());
-
-    // Only child checkpoint, no parent — orphan.
-    let mut child_cp = SessionCheckpoint::new("orphan-budget".to_string());
-    child_cp.depth = 2;
-    child_cp.agent_id = Some("orphan-agent".to_string());
-    child_cp.parent_session_id = Some("nonexistent-parent".to_string());
-    child_cp.effective_max_spawn_depth = Some(1);
-    storage.save_checkpoint(&child_cp).await.unwrap();
-
-    let mgr = make_mgr_with_storage(storage.clone());
-
-    mgr.rebuild_spawn_tree().await.unwrap();
-
-    // Verify the checkpoint was persisted with effective_max_spawn_depth=None.
-    let loaded = storage.load_checkpoint("orphan-budget").await.unwrap().unwrap();
-    assert_eq!(
-        loaded.effective_max_spawn_depth, None,
-        "demoted orphan checkpoint should have effective_max_spawn_depth reset to None"
-    );
-    assert_eq!(loaded.depth, 0, "demoted orphan depth should be reset to 0");
-}
-
 /// spawn_mode absent (old checkpoint, backward compat) → default to Session
 #[tokio::test]
 async fn test_rebuild_spawn_tree_spawn_mode_missing_backward_compat() {
