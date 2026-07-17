@@ -606,13 +606,14 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
                             .push(session_id.clone());
                     }
                     Some(parent_id) => {
-                        // 父 session 未恢复 — 降级为根节点，depth 重置为 0
+                        // 父 session 未恢复 — 降级为根节点，depth 和预算重置
                         tracing::info!(
                             session_id = %session_id,
                             parent_id = %parent_id,
                             "Session demoted to root: parent not recovered"
                         );
                         cp.depth = 0;
+                        cp.effective_max_spawn_depth = None;
                         demoted.push(session_id.clone());
                         tree.roots.push(session_id.clone());
                     }

@@ -17,6 +17,17 @@ pub struct SpawnValidationResult {
     pub spawn_timeout: Option<u64>,
 }
 
+/// Status of a child session tracked by the parent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChildSessionStatus {
+    /// Child session is currently active.
+    Active,
+    /// Child session has completed successfully.
+    Completed,
+    /// Child session has been terminated.
+    Terminated,
+}
+
 /// Metadata for a child session tracked by the parent.
 #[derive(Debug, Clone)]
 pub struct ChildSessionInfo {
@@ -25,6 +36,7 @@ pub struct ChildSessionInfo {
     pub agent_id: String,
     pub depth: u32,
     pub mode: SpawnMode,
+    pub status: ChildSessionStatus,
 }
 
 /// Spawn mode for child sessions.

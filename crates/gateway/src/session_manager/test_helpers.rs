@@ -5,7 +5,7 @@
 //! `session_manager` level so other test modules (e.g. future
 //! `flush_tests` extensions) can reuse it without circular imports.
 
-use super::spawn::{ChildSessionInfo, SpawnMode};
+use super::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use super::SessionManager;
 use chrono::Utc;
 use closeclaw_common::BootstrapMode;
@@ -198,6 +198,7 @@ pub(super) async fn register_child_only(
             agent_id: agent_id.to_string(),
             depth: 1,
             mode,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;

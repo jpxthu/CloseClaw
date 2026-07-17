@@ -45,7 +45,7 @@ mod stop_graceful;
 mod yield_timeout;
 use closeclaw_session::run_health::PersistenceMetaStore;
 use closeclaw_session::spawn::SpawnTree;
-pub use spawn::{ChildSessionInfo, SpawnMode};
+pub use spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 pub use spawn_controller::SpawnController;
 /// SessionManager holds all session state previously belonging to Gateway.
 /// It provides find_or_create to lookup or create a session by channel + message.

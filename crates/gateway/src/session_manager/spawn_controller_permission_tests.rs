@@ -26,6 +26,19 @@ use closeclaw_permission::rules::RuleSetBuilder;
 // Helpers (duplicated from spawn_controller_tests.rs to keep modules self-contained)
 // ---------------------------------------------------------------------------
 
+/// Write a permission JSON file for the given agent into the ConfigManager's
+/// agents root directory, so LazyAgentPermissions can load it.
+/// LazyAgentPermissions uses `config_dir.parent()` as its root, so the file
+/// must be written to `<parent_of_config_dir>/agents/<agent_id>/permissions.json`.
+fn write_permission_file(cm: &ConfigManager, agent_id: &str, permissions: &AgentPermissions) {
+    let agents_root = cm.config_dir.parent().unwrap_or(&cm.config_dir);
+    let dir = agents_root.join("agents").join(agent_id);
+    std::fs::create_dir_all(&dir).expect("create agents dir");
+    let path = dir.join("permissions.json");
+    let json = serde_json::to_string_pretty(permissions).expect("serialize permissions");
+    std::fs::write(&path, json).expect("write permissions.json");
+}
+
 fn test_config() -> GatewayConfig {
     GatewayConfig {
         name: "test".to_string(),
@@ -43,9 +56,14 @@ fn make_session_manager() -> SessionManager {
     SessionManager::new(&test_config(), None, None, ReasoningLevel::default())
 }
 
-fn make_config_manager() -> ConfigManager {
-    let tmp = tempfile::tempdir().expect("tempdir should be created");
-    ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed")
+fn make_config_manager() -> (ConfigManager, tempfile::TempDir) {
+    // Use a unique parent dir so LazyAgentPermissions looks in an isolated
+    // agents/ subdirectory instead of the shared /tmp/agents/.
+    let parent = tempfile::tempdir().expect("parent tempdir");
+    let config_dir = parent.path().join("config");
+    std::fs::create_dir_all(&config_dir).expect("create config dir");
+    let cm = ConfigManager::new(config_dir).expect("ConfigManager::new should succeed");
+    (cm, parent)
 }
 
 fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
@@ -122,7 +140,8 @@ fn make_perms(agent_id: &str, allowed_dims: &[&str]) -> AgentPermissions {
 #[tokio::test]
 async fn test_validate_permission_denied_child_fully_denied() {
     let ar = Arc::new(AgentRegistry::new());
-    let cm = Arc::new(make_config_manager());
+    let (cm, _tmpdir) = make_config_manager();
+    let cm = Arc::new(cm);
     let sm = Arc::new(make_session_manager());
     let controller = SpawnController::new(
         Arc::clone(&ar),
@@ -145,6 +164,27 @@ async fn test_validate_permission_denied_child_fully_denied() {
     cm.restore_agents(agents);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
+
+    // Write permission files so LazyAgentPermissions can load them.
+    // Parent: all permissions allowed.
+    write_permission_file(
+        &cm,
+        "parent",
+        &make_perms(
+            "parent",
+            &[
+                "command",
+                "file_read",
+                "file_write",
+                "network",
+                "spawn",
+                "tool_call",
+                "config_write",
+            ],
+        ),
+    );
+    // Child: all permissions denied.
+    write_permission_file(&cm, "child", &make_perms("child", &[]));
 
     let err = controller
         .validate(&parent_id, Some("child"))
@@ -169,7 +209,8 @@ async fn test_validate_permission_denied_child_fully_denied() {
 #[tokio::test]
 async fn test_validate_permission_denied_parent_denies_all() {
     let ar = Arc::new(AgentRegistry::new());
-    let cm = Arc::new(make_config_manager());
+    let (cm, _tmpdir) = make_config_manager();
+    let cm = Arc::new(cm);
     let sm = Arc::new(make_session_manager());
     let controller = SpawnController::new(
         Arc::clone(&ar),
@@ -194,6 +235,27 @@ async fn test_validate_permission_denied_parent_denies_all() {
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
+    // Write permission files so LazyAgentPermissions can load them.
+    // Parent: all permissions denied.
+    write_permission_file(&cm, "parent", &make_perms("parent", &[]));
+    // Child: all permissions allowed.
+    write_permission_file(
+        &cm,
+        "child",
+        &make_perms(
+            "child",
+            &[
+                "command",
+                "file_read",
+                "file_write",
+                "network",
+                "spawn",
+                "tool_call",
+                "config_write",
+            ],
+        ),
+    );
+
     let err = controller
         .validate(&parent_id, Some("child"))
         .await
@@ -217,7 +279,8 @@ async fn test_validate_permission_denied_parent_denies_all() {
 #[tokio::test]
 async fn test_validate_permission_allowed_partial_overlap() {
     let ar = Arc::new(AgentRegistry::new());
-    let cm = Arc::new(make_config_manager());
+    let (cm, _tmpdir) = make_config_manager();
+    let cm = Arc::new(cm);
     let sm = Arc::new(make_session_manager());
     let controller = SpawnController::new(
         Arc::clone(&ar),
@@ -257,7 +320,8 @@ async fn test_validate_permission_allowed_partial_overlap() {
 #[tokio::test]
 async fn test_validate_no_permissions_configured() {
     let ar = Arc::new(AgentRegistry::new());
-    let cm = Arc::new(make_config_manager());
+    let (cm, _tmpdir) = make_config_manager();
+    let cm = Arc::new(cm);
     let sm = Arc::new(make_session_manager());
     let controller = SpawnController::new(
         Arc::clone(&ar),
