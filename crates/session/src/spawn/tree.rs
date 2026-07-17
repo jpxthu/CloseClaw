@@ -11,7 +11,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use super::types::ChildSessionInfo;
+use super::types::{ChildSessionInfo, ChildSessionStatus};
 
 /// Spawn tree: maintains parent-child relationships between sessions.
 pub struct SpawnTree {
@@ -89,6 +89,19 @@ impl SpawnTree {
             .entry(parent_id.to_string())
             .or_default()
             .push(info);
+    }
+
+    /// Update the status of a child session by its session ID.
+    ///
+    /// Returns `true` if the child was found and updated, `false` otherwise.
+    pub fn mark_child_status(&mut self, child_id: &str, status: ChildSessionStatus) -> bool {
+        for list in self.inner.values_mut() {
+            if let Some(info) = list.iter_mut().find(|i| i.session_id == child_id) {
+                info.status = status;
+                return true;
+            }
+        }
+        false
     }
 
     /// Iterate all parent → children entries.

@@ -282,25 +282,36 @@ mod tests {
         assert!(demoted.contains(&"orphan".to_string()));
     }
     #[test]
+    fn test_build_spawn_tree_demoted_effective_max_spawn_depth_reset() {
+        let mut cp = create_test_checkpoint("orphan-budget");
+        cp.parent_session_id = Some("missing_parent".to_string());
+        cp.depth = 2;
+        cp.effective_max_spawn_depth = Some(1);
+        let mut cps = HashMap::new();
+        cps.insert("orphan-budget".to_string(), cp);
+        let (tree, demoted) = SessionRecoveryService::<MemoryStorage>::build_spawn_tree(
+            &mut cps,
+            &["orphan-budget".to_string()],
+        );
+        assert!(tree.is_root("orphan-budget") && cps["orphan-budget"].depth == 0);
+        assert_eq!(cps["orphan-budget"].effective_max_spawn_depth, None);
+        assert!(demoted.contains(&"orphan-budget".to_string()));
+    }
+    #[test]
     fn test_build_spawn_tree_edge_cases() {
-        // empty
         let (tree, demoted) =
             SessionRecoveryService::<MemoryStorage>::build_spawn_tree(&mut HashMap::new(), &[]);
-        assert!(tree.roots.is_empty());
-        assert!(tree.children.is_empty());
-        assert!(demoted.is_empty());
-        // partial recovery: parent recovered, child not
-        let mut checkpoints = HashMap::new();
-        let mut parent_cp = create_test_checkpoint("parent");
-        parent_cp.parent_session_id = None;
-        checkpoints.insert("parent".to_string(), parent_cp);
-        let (tree2, demoted2) = SessionRecoveryService::<MemoryStorage>::build_spawn_tree(
-            &mut checkpoints,
+        assert!(tree.roots.is_empty() && tree.children.is_empty() && demoted.is_empty());
+        let mut cp = create_test_checkpoint("parent");
+        cp.parent_session_id = None;
+        let mut cps = HashMap::new();
+        cps.insert("parent".to_string(), cp);
+        let (t2, d2) = SessionRecoveryService::<MemoryStorage>::build_spawn_tree(
+            &mut cps,
             &["parent".to_string()],
         );
-        assert_eq!(tree2.roots, vec!["parent".to_string()]);
-        assert!(tree2.children.is_empty());
-        assert!(demoted2.is_empty());
+        assert_eq!(t2.roots, vec!["parent".to_string()]);
+        assert!(t2.children.is_empty() && d2.is_empty());
     }
     #[tokio::test]
     async fn test_recovery_notifications_and_tool_failures() {

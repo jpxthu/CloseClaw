@@ -11,7 +11,7 @@
 use super::communication::{
     check_communication_allowed, CommunicationCheckResult, CommunicationConfig, CommunicationError,
 };
-use super::spawn::{ChildSessionInfo, SpawnMode};
+use super::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
 use closeclaw_common::BootstrapMode;
@@ -284,6 +284,7 @@ async fn test_steer_child_denied_by_communication_check() {
             agent_id: "child-agent".to_string(),
             depth: 1,
             mode: SpawnMode::Session,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;
@@ -345,6 +346,7 @@ async fn test_announce_denied_by_communication_check() {
             agent_id: "child-agent".to_string(),
             depth: 1,
             mode: SpawnMode::Run,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;

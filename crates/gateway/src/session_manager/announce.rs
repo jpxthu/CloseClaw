@@ -18,6 +18,7 @@ use chrono::Utc;
 use closeclaw_common::{ChildCompletionStatus, ChildSessionState, SessionExecStatus};
 use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSession};
 use closeclaw_session::run_health::AnnounceSweepTarget;
+use closeclaw_session::spawn::types::ChildSessionStatus;
 use closeclaw_tasks::NotificationPriority;
 use tracing::{debug, warn};
 
@@ -428,6 +429,17 @@ impl SessionManager {
                 error = %e,
                 "try_push_announce: push_announce failed"
             );
+        }
+
+        // Step 1.3: Mark child session as Completed in SpawnTree.
+        {
+            let mut children = self.children.write().await;
+            if !children.mark_child_status(child_session_id, ChildSessionStatus::Completed) {
+                warn!(
+                    child_session_id = %child_session_id,
+                    "try_push_announce: child not found in SpawnTree for status update"
+                );
+            }
         }
 
         // ── Notify DreamingScheduler for immediate mining (design doc §触发 1).

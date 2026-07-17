@@ -9,11 +9,11 @@ use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_session::persistence::ReasoningLevel;
-use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint};
+use closeclaw_session::persistence::SessionCheckpoint;
 use closeclaw_session::storage::memory::MemoryStorage;
 
 use crate::session_manager::spawn_controller::{SpawnController, SpawnError};
-use crate::session_manager::{ChildSessionInfo, SpawnMode};
+use crate::session_manager::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use crate::{GatewayConfig, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
@@ -30,12 +30,10 @@ fn test_config() -> GatewayConfig {
         ..Default::default()
     }
 }
-
 fn make_config_manager() -> ConfigManager {
     let tmp = tempfile::tempdir().expect("tempdir should be created");
     ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed")
 }
-
 fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
     ResolvedAgentConfig {
         id: id.to_string(),
@@ -54,7 +52,6 @@ fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
         source: ConfigSource::User,
     }
 }
-
 async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
     let msg = crate::Message {
         id: format!("msg-{}", agent_id),
@@ -70,7 +67,6 @@ async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
         .await
         .expect("find_or_create should succeed")
 }
-
 fn inject_agents(ar: &AgentRegistry, cm: &ConfigManager, agents: Vec<(&str, ResolvedAgentConfig)>) {
     let mut map = cm.agents.write().expect("agents RwLock poisoned");
     let mut configs = Vec::new();
@@ -80,7 +76,6 @@ fn inject_agents(ar: &AgentRegistry, cm: &ConfigManager, agents: Vec<(&str, Reso
     }
     ar.populate(configs);
 }
-
 fn make_session_manager_with_memory_storage() -> (Arc<SessionManager>, Arc<MemoryStorage>) {
     let storage = Arc::new(MemoryStorage::new());
     let mgr = Arc::new(SessionManager::new(
@@ -91,9 +86,8 @@ fn make_session_manager_with_memory_storage() -> (Arc<SessionManager>, Arc<Memor
     ));
     (mgr, storage)
 }
-
 async fn save_checkpoint_with_budget(
-    storage: &MemoryStorage,
+    sm: &SessionManager,
     session_id: &str,
     depth: u32,
     effective_budget: Option<u32>,
@@ -105,19 +99,17 @@ async fn save_checkpoint_with_budget(
     if let Some(pid) = parent_session_id {
         cp = cp.with_parent_session_id(pid.to_string());
     }
-    storage.save_checkpoint(&cp).await.unwrap();
+    let cm = sm.checkpoint_manager.read().await;
+    if let Some(cm) = cm.as_ref() {
+        cm.save_raw(&cp).await.unwrap();
+    }
 }
-
-// ══════════════════════════════════════════════════════════════════════
-// Step 1.5: Depth budget propagation tests
-// ══════════════════════════════════════════════════════════════════════
-
 /// Verify effective budget read from checkpoint vs config fallback.
 #[tokio::test]
 async fn test_depth_budget_checkpoint_vs_config_fallback() {
     let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
-    let (sm, mem_storage) = make_session_manager_with_memory_storage();
+    let (sm, _mem_storage) = make_session_manager_with_memory_storage();
     let controller = SpawnController::new(
         Arc::clone(&ar),
         cm.clone(),
@@ -147,7 +139,7 @@ async fn test_depth_budget_checkpoint_vs_config_fallback() {
     assert_eq!(result.effective_max_spawn_depth, 1);
 
     // Now save a checkpoint with effective budget = 1
-    save_checkpoint_with_budget(&mem_storage, &root_id, 0, Some(1), None).await;
+    save_checkpoint_with_budget(&sm, &root_id, 0, Some(1), None).await;
 
     // effective = min(1, 1-1) = 0, parent budget=1 > 0 → can create
     // Per design doc: effective=0 means child exists but cannot spawn further.
@@ -157,7 +149,6 @@ async fn test_depth_budget_checkpoint_vs_config_fallback() {
         .expect("should pass: parent budget > 0, child created with effective=0");
     assert_eq!(result2.effective_max_spawn_depth, 0);
 }
-
 /// Spawn allowed when parent effective budget > 0 (child effective budget
 /// may be 0). Root(maxSpawnDepth=3) → child1(effective=1) →
 /// child2(effective=0, exists but cannot spawn further).
@@ -165,7 +156,7 @@ async fn test_depth_budget_checkpoint_vs_config_fallback() {
 async fn test_depth_budget_allowed_when_effective_zero() {
     let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
-    let (sm, mem_storage) = make_session_manager_with_memory_storage();
+    let (sm, _mem_storage) = make_session_manager_with_memory_storage();
     let controller = SpawnController::new(
         Arc::clone(&ar),
         cm.clone(),
@@ -179,7 +170,7 @@ async fn test_depth_budget_allowed_when_effective_zero() {
     root_sub.max_spawn_depth = Some(3);
     let root = make_agent("root", root_sub);
     let root_id = setup_parent_session(&sm, "root").await;
-    save_checkpoint_with_budget(&mem_storage, &root_id, 0, Some(3), None).await;
+    save_checkpoint_with_budget(&sm, &root_id, 0, Some(3), None).await;
 
     // child1 at depth=1, effective budget=1 (only allows one more level)
     let mut child1_sub = SubagentsConfig::default();
@@ -214,10 +205,11 @@ async fn test_depth_budget_allowed_when_effective_zero() {
             agent_id: "child1".to_string(),
             depth: 1,
             mode: SpawnMode::Run,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;
-    save_checkpoint_with_budget(&mem_storage, child1_session_id, 1, Some(1), Some(&root_id)).await;
+    save_checkpoint_with_budget(&sm, child1_session_id, 1, Some(1), Some(&root_id)).await;
 
     // child2 attempt: effective = min(1, 1-1) = 0
     // Per design doc: child with effective=0 can be created (exists in tree)
@@ -233,14 +225,13 @@ async fn test_depth_budget_allowed_when_effective_zero() {
         .expect("should pass: parent budget > 0, child created with effective=0");
     assert_eq!(result2.effective_max_spawn_depth, 0);
 }
-
 /// Child maxSpawnDepth narrows via min: parent has large budget but
 /// child's config limits it.
 #[tokio::test]
 async fn test_depth_budget_child_narrows_via_min() {
     let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
-    let (sm, mem_storage) = make_session_manager_with_memory_storage();
+    let (sm, _mem_storage) = make_session_manager_with_memory_storage();
     let controller = SpawnController::new(
         Arc::clone(&ar),
         cm.clone(),
@@ -254,7 +245,7 @@ async fn test_depth_budget_child_narrows_via_min() {
     root_sub.max_spawn_depth = Some(5);
     let root = make_agent("root", root_sub);
     let root_id = setup_parent_session(&sm, "root").await;
-    save_checkpoint_with_budget(&mem_storage, &root_id, 0, Some(5), None).await;
+    save_checkpoint_with_budget(&sm, &root_id, 0, Some(5), None).await;
 
     // child: maxSpawnDepth=2 — effective = min(2, 5-1) = 2
     let mut child_sub = SubagentsConfig::default();
@@ -289,10 +280,11 @@ async fn test_depth_budget_child_narrows_via_min() {
             agent_id: "narrow-child".to_string(),
             depth: 1,
             mode: SpawnMode::Session,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;
-    save_checkpoint_with_budget(&mem_storage, child_session_id, 1, Some(2), Some(&root_id)).await;
+    save_checkpoint_with_budget(&sm, child_session_id, 1, Some(2), Some(&root_id)).await;
 
     // grandchild: maxSpawnDepth=5 — effective = min(5, 2-1) = 1
     // Per design doc: child with effective=1 can be created and exists in tree.
@@ -307,14 +299,13 @@ async fn test_depth_budget_child_narrows_via_min() {
         .expect("should pass: parent budget > 0, child created with effective=1");
     assert_eq!(result2.effective_max_spawn_depth, 1);
 }
-
 /// Full multi-level spawn tree from design doc:
 /// root(3) → child1(5,eff=2) → child2(5,eff=1) → child3(1,eff=0)
 #[tokio::test]
 async fn test_depth_budget_full_multilevel_tree() {
     let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
-    let (sm, mem_storage) = make_session_manager_with_memory_storage();
+    let (sm, _mem_storage) = make_session_manager_with_memory_storage();
     let controller = SpawnController::new(
         Arc::clone(&ar),
         cm.clone(),
@@ -329,7 +320,7 @@ async fn test_depth_budget_full_multilevel_tree() {
     root_sub.max_spawn_depth = Some(3);
     let root = make_agent("root", root_sub);
     let root_id = setup_parent_session(&sm, "root").await;
-    save_checkpoint_with_budget(&mem_storage, &root_id, 0, Some(3), None).await;
+    save_checkpoint_with_budget(&sm, &root_id, 0, Some(3), None).await;
 
     // child1: maxSpawnDepth=5 — effective = min(5, 3-1) = 2
     let mut child1_sub = SubagentsConfig::default();
@@ -363,10 +354,11 @@ async fn test_depth_budget_full_multilevel_tree() {
             agent_id: "child1".to_string(),
             depth: 1,
             mode: SpawnMode::Session,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;
-    save_checkpoint_with_budget(&mem_storage, child1_sid, 1, Some(2), Some(&root_id)).await;
+    save_checkpoint_with_budget(&sm, child1_sid, 1, Some(2), Some(&root_id)).await;
 
     // child2: maxSpawnDepth=5 — effective = min(5, 2-1) = 1
     let mut child2_sub = SubagentsConfig::default();
@@ -400,10 +392,11 @@ async fn test_depth_budget_full_multilevel_tree() {
             agent_id: "child2".to_string(),
             depth: 2,
             mode: SpawnMode::Session,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;
-    save_checkpoint_with_budget(&mem_storage, child2_sid, 2, Some(1), Some(child1_sid)).await;
+    save_checkpoint_with_budget(&sm, child2_sid, 2, Some(1), Some(child1_sid)).await;
 
     // child3: maxSpawnDepth=1 — effective = min(1, 1-1) = 0
     // Per design doc: child3 exists in tree but cannot spawn further.
@@ -438,10 +431,11 @@ async fn test_depth_budget_full_multilevel_tree() {
             agent_id: "child3".to_string(),
             depth: 3,
             mode: SpawnMode::Run,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;
-    save_checkpoint_with_budget(&mem_storage, child3_sid, 3, Some(0), Some(child2_sid)).await;
+    save_checkpoint_with_budget(&sm, child3_sid, 3, Some(0), Some(child2_sid)).await;
 
     // child3 has effective budget = 0 → cannot spawn further
     let mut child4_sub = SubagentsConfig::default();
@@ -461,7 +455,6 @@ async fn test_depth_budget_full_multilevel_tree() {
         other => panic!("expected DepthExceeded, got {:?}", other),
     }
 }
-
 // ══════════════════════════════════════════════════════════════════════
 // Step 1.5: Kill all-mode tests
 // ══════════════════════════════════════════════════════════════════════
@@ -529,6 +522,7 @@ async fn test_kill_run_mode_child_succeeds() {
             agent_id: "child-agent".to_string(),
             depth: 1,
             mode: SpawnMode::Run,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;
@@ -541,7 +535,6 @@ async fn test_kill_run_mode_child_succeeds() {
     assert!(mgr.get_conversation_session(child_id).await.is_none());
     assert_eq!(mgr.count_active_children(parent_id).await, 0);
 }
-
 /// Kill a session-mode child session — should succeed (regression test).
 #[tokio::test]
 async fn test_kill_session_mode_child_succeeds() {
@@ -605,6 +598,7 @@ async fn test_kill_session_mode_child_succeeds() {
             agent_id: "child-agent".to_string(),
             depth: 1,
             mode: SpawnMode::Session,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;
@@ -617,7 +611,6 @@ async fn test_kill_session_mode_child_succeeds() {
     assert!(mgr.get_conversation_session(child_id).await.is_none());
     assert_eq!(mgr.count_active_children(parent_id).await, 0);
 }
-
 // ══════════════════════════════════════════════════════════════════════
 // Step 1.5: Cascade termination on parent finish_llm
 // ══════════════════════════════════════════════════════════════════════
@@ -692,11 +685,11 @@ async fn test_cascade_terminate_all_children_simulation() {
                 agent_id: "child-agent".to_string(),
                 depth: 1,
                 mode: mode.clone(),
+                status: ChildSessionStatus::Active,
             },
         )
         .await;
     }
-
     assert_eq!(mgr.count_active_children(parent_id).await, 3);
 
     // Simulate finish_llm cascade pattern
@@ -707,14 +700,12 @@ async fn test_cascade_terminate_all_children_simulation() {
             .await
             .expect("kill_child should succeed in cascade");
     }
-
     assert_eq!(mgr.count_active_children(parent_id).await, 0);
     for (child_id, _) in &children {
         assert!(!mgr.has_session(child_id).await);
         assert!(mgr.get_conversation_session(child_id).await.is_none());
     }
 }
-
 /// When a parent session has no children, finish_llm cascade is a no-op.
 #[tokio::test]
 async fn test_cascade_terminate_no_children_noop() {
@@ -748,7 +739,6 @@ async fn test_cascade_terminate_no_children_noop() {
     }
     assert!(mgr.get_conversation_session(parent_id).await.is_some());
 }
-
 // ══════════════════════════════════════════════════════════════════════
 // Step 1.5: effective_max_spawn_depth persistence roundtrip
 // ══════════════════════════════════════════════════════════════════════
@@ -779,24 +769,22 @@ fn test_effective_max_spawn_depth_roundtrip() {
     let parsed_old: SessionCheckpoint = serde_json::from_str(&old_json_str).unwrap();
     assert_eq!(parsed_old.effective_max_spawn_depth, None);
 }
-
 /// Verify get_effective_max_spawn_depth reads from checkpoint correctly.
 #[tokio::test]
 async fn test_get_effective_max_spawn_depth_from_checkpoint() {
-    let (sm, mem_storage) = make_session_manager_with_memory_storage();
+    let (sm, _mem_storage) = make_session_manager_with_memory_storage();
 
     // No checkpoint → returns None
     assert_eq!(sm.get_effective_max_spawn_depth("nonexistent").await, None);
 
     // Save checkpoint with budget
-    save_checkpoint_with_budget(&mem_storage, "s1", 0, Some(5), None).await;
+    save_checkpoint_with_budget(&sm, "s1", 0, Some(5), None).await;
     assert_eq!(sm.get_effective_max_spawn_depth("s1").await, Some(5));
 
     // Save checkpoint without budget
-    save_checkpoint_with_budget(&mem_storage, "s2", 0, None, None).await;
+    save_checkpoint_with_budget(&sm, "s2", 0, None, None).await;
     assert_eq!(sm.get_effective_max_spawn_depth("s2").await, None);
 }
-
 /// Verify validate_child_ownership works for both modes without
 /// the old SpawnMode::Session filter.
 #[tokio::test]
@@ -826,6 +814,7 @@ async fn test_validate_child_ownership_all_modes() {
             agent_id: "child-agent".to_string(),
             depth: 1,
             mode: SpawnMode::Run,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;
@@ -840,6 +829,7 @@ async fn test_validate_child_ownership_all_modes() {
             agent_id: "child-agent".to_string(),
             depth: 1,
             mode: SpawnMode::Session,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;
@@ -859,7 +849,6 @@ async fn test_validate_child_ownership_all_modes() {
         .await;
     assert!(unknown.is_none());
 }
-
 /// Verify kill_child cascades token to grandchild sessions
 /// (parent → child → grandchild, kill child cascade-stops grandchild token).
 #[tokio::test]
@@ -919,6 +908,7 @@ async fn test_kill_child_cascades_to_grandchild() {
             agent_id: "child-agent".to_string(),
             depth: 1,
             mode: SpawnMode::Session,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;
@@ -953,6 +943,7 @@ async fn test_kill_child_cascades_to_grandchild() {
             agent_id: "grandchild-agent".to_string(),
             depth: 2,
             mode: SpawnMode::Run,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;
