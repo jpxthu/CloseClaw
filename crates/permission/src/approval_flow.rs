@@ -33,7 +33,9 @@ use crate::engine::engine_types::{
 };
 use crate::user_registry::UserRegistry;
 use closeclaw_common::permission_op::{InitialPermissionSet, UserCreationRequest};
-use closeclaw_common::{PendingMessage, PlanPhase, PlanStatus, SessionLookup, SessionMode};
+use closeclaw_common::{
+    ModeTransition, PendingMessage, PlanPhase, PlanStatus, SessionLookup, SessionMode,
+};
 
 use closeclaw_session::plan_file;
 
@@ -621,6 +623,10 @@ impl ApprovalFlow {
 
                             // Switch session mode: Plan → Auto
                             sm.set_session_mode(&session_id, SessionMode::Auto).await;
+
+                            // Inject ExitPlan mode transition into next system prompt
+                            sm.set_pending_mode_transition(&session_id, ModeTransition::ExitPlan)
+                                .await;
 
                             // Push mode switch notification
                             let mode_msg = PendingMessage::with_role(

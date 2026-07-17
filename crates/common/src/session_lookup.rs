@@ -4,6 +4,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::ModeTransition;
+
 /// Pending Message — 未最终确认的消息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PendingMessage {
@@ -97,4 +99,7 @@ pub trait SessionLookup: Send + Sync {
 
     /// Switch the session mode (e.g. plan → auto).
     async fn set_session_mode(&self, session_id: &str, mode: crate::SessionMode);
+
+    /// Set a pending mode transition to be injected into the next system prompt.
+    async fn set_pending_mode_transition(&self, session_id: &str, transition: ModeTransition);
 }

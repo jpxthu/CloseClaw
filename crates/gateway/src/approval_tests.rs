@@ -41,6 +41,12 @@ impl SessionLookup for MockLookup {
     }
     async fn set_plan_state(&self, _session_id: &str, _state: PlanState) {}
     async fn set_session_mode(&self, _session_id: &str, _mode: SessionMode) {}
+    async fn set_pending_mode_transition(
+        &self,
+        _session_id: &str,
+        _transition: closeclaw_common::ModeTransition,
+    ) {
+    }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
