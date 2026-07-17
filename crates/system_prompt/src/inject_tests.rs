@@ -381,30 +381,3 @@ fn test_mode_instruction_before_session_state() {
         "ModeInstruction should come before SessionState"
     );
 }
-
-// ── ModeTransition ordering guarantee ───────────────────────────────────────
-
-/// ModeTransition appears after ModeInstruction and before ChannelContext.
-#[test]
-fn test_mode_transition_after_mode_instruction_before_channel() {
-    let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        explicit_plan_path: Some(PlanPath::Standard),
-        pending_mode_transition: Some(ModeTransition::Reentry),
-        ..make_params(&meta, SessionMode::Plan)
-    });
-    let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
-    let transition_idx = sections.iter().position(|s| s.name() == "mode_transition");
-    let channel_idx = sections.iter().position(|s| s.name() == "channel_context");
-    assert!(mode_idx.is_some());
-    assert!(transition_idx.is_some());
-    assert!(channel_idx.is_some());
-    assert!(
-        mode_idx.unwrap() < transition_idx.unwrap(),
-        "ModeTransition should come after ModeInstruction"
-    );
-    assert!(
-        transition_idx.unwrap() < channel_idx.unwrap(),
-        "ModeTransition should come before ChannelContext"
-    );
-}

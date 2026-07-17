@@ -42,17 +42,7 @@ pub struct DynamicSectionsParams<'a> {
 /// Build dynamic sections from metadata and session state.
 ///
 /// Constructs ChannelContext, SessionState, and optionally WorkingDirectory,
-/// GitStatus, and AppendSection.
-///
-/// When `overrides` is provided and contains a non-None priority prompt,
-/// the resolution order is:
-///   1. `override_prompt` — highest priority
-///   2. `agent_prompt`    — agent-level prompt
-///   3. `custom_prompt`   — user-defined custom prompt
-///
-/// On a priority hit the matched prompt **replaces** the static layer and
-/// dynamic layers (ChannelContext / SessionState / GitStatus) are **not**
-/// injected — only `AppendSection` entries are appended.
+/// GitStatus, and AppendSection based on the provided parameters.
 pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
 
