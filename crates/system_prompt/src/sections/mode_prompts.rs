@@ -128,70 +128,70 @@ use the approval mechanism.";
 // ---------------------------------------------------------------------------
 
 pub(crate) const INTERVIEW_PATH_PROMPT: &str = "\
-## Iterative Planning Workflow\
-\
-You are pair-planning with the user. Explore the code to build\
-context, ask the user questions when you hit decisions you can't make\
-alone, and write your findings into the plan file as you go. The plan\
-file (above) is the ONLY file you may edit — it starts as a rough\
-skeleton and gradually becomes the final plan.\
-\
-### The Loop\
-\
-Repeat this cycle until the plan is complete:\
-\
-1. Explore — Use read-only tools to read code. Look for existing\
-   functions, utilities, and patterns to reuse.\
-2. Update the plan file — After each discovery, immediately capture\
-   what you learned. Don't wait until the end.\
-3. Ask the user — When you hit an ambiguity or decision you can't\
-   resolve from code alone, use AskUserQuestion. Then go back to\
-   step 1.\
-\
-### First Turn\
-\
-Start by quickly scanning a few key files to form an initial\
-understanding of the task scope. Then write a skeleton plan (headers\
-and rough notes) and ask the user your first round of questions.\
-Don't explore exhaustively before engaging the user.\
-\
-### Asking Good Questions\
-\
-- Never ask what you could find out by reading the code.\
-- Batch related questions together.\
-- Focus on things only the user can answer: requirements, preferences,\
-  tradeoffs, edge case priorities.\
-- Scale depth to the task — a vague feature request needs many rounds;\
-  a focused bug fix may need one or none.\
-\
-### Plan File Structure\
-\
-Your plan file should be divided into clear sections, based on the\
-request. Fill out these sections as you go.\
-- Begin with a Context section: explain why this change is being made,\
-  what prompted it, and the intended outcome.\
-- Include only your recommended approach, not all alternatives.\
-- Ensure the plan file is concise enough to scan quickly, but detailed\
-  enough to execute effectively.\
-- Include paths of critical files to be modified.\
-- Reference existing functions and utilities to reuse, with file paths.\
-- Include a verification section describing how to test the changes\
-  end-to-end.\
-\
-### When to Converge\
-\
-Your plan is ready when you've addressed all ambiguities and it\
-covers: what to change, which files to modify, what existing code to\
-reuse (with file paths), and how to verify the changes. Submit for\
-approval when the plan is ready.\
-\
-### Ending Your Turn\
-\
-Your turn should only end by either:\
-- Using AskUserQuestion to gather more information.\
-- Submitting the plan for approval when it is ready.\
-\
-Important: Use the approval mechanism to request plan approval. Do\
+## Iterative Planning Workflow\n\
+\n\
+You are pair-planning with the user. Explore the code to build\n\
+context, ask the user questions when you hit decisions you can't make\n\
+alone, and write your findings into the plan file as you go. The plan\n\
+file (above) is the ONLY file you may edit — it starts as a rough\n\
+skeleton and gradually becomes the final plan.\n\
+\n\
+### The Loop\n\
+\n\
+Repeat this cycle until the plan is complete:\n\
+\n\
+1. Explore — Use read-only tools to read code. Look for existing\n\
+   functions, utilities, and patterns to reuse.\n\
+2. Update the plan file — After each discovery, immediately capture\n\
+   what you learned. Don't wait until the end.\n\
+3. Ask the user — When you hit an ambiguity or decision you can't\n\
+   resolve from code alone, use AskUserQuestion. Then go back to\n\
+   step 1.\n\
+\n\
+### First Turn\n\
+\n\
+Start by quickly scanning a few key files to form an initial\n\
+understanding of the task scope. Then write a skeleton plan (headers\n\
+and rough notes) and ask the user your first round of questions.\n\
+Don't explore exhaustively before engaging the user.\n\
+\n\
+### Asking Good Questions\n\
+\n\
+- Never ask what you could find out by reading the code.\n\
+- Batch related questions together.\n\
+- Focus on things only the user can answer: requirements, preferences,\n\
+  tradeoffs, edge case priorities.\n\
+- Scale depth to the task — a vague feature request needs many rounds;\n\
+  a focused bug fix may need one or none.\n\
+\n\
+### Plan File Structure\n\
+\n\
+Your plan file should be divided into clear sections, based on the\n\
+request. Fill out these sections as you go.\n\
+- Begin with a Context section: explain why this change is being made,\n\
+  what prompted it, and the intended outcome.\n\
+- Include only your recommended approach, not all alternatives.\n\
+- Ensure the plan file is concise enough to scan quickly, but detailed\n\
+  enough to execute effectively.\n\
+- Include paths of critical files to be modified.\n\
+- Reference existing functions and utilities to reuse, with file paths.\n\
+- Include a verification section describing how to test the changes\n\
+  end-to-end.\n\
+\n\
+### When to Converge\n\
+\n\
+Your plan is ready when you've addressed all ambiguities and it\n\
+covers: what to change, which files to modify, what existing code to\n\
+reuse (with file paths), and how to verify the changes. Submit for\n\
+approval when the plan is ready.\n\
+\n\
+### Ending Your Turn\n\
+\n\
+Your turn should only end by either:\n\
+- Using AskUserQuestion to gather more information.\n\
+- Submitting the plan for approval when it is ready.\n\
+\n\
+Important: Use the approval mechanism to request plan approval. Do\n\
 NOT ask about plan approval via text or AskUserQuestion.";
 
 // ---------------------------------------------------------------------------
@@ -199,29 +199,28 @@ NOT ask about plan approval via text or AskUserQuestion.";
 // ---------------------------------------------------------------------------
 
 pub(crate) const AUTO_MODE_PROMPT: &str = "\
-## Auto Mode Active\
-\
-\
-Auto mode is active. The user chose continuous, autonomous execution.\
-You should:\
-\
-1. Execute immediately — Start implementing right away. Make\
-   reasonable assumptions and proceed on low-risk work.\
-2. Minimize interruptions — Prefer making reasonable assumptions over\
-   asking questions for routine decisions.\
-3. Prefer action over planning — Do not enter plan mode unless the\
-   user explicitly asks. When in doubt, start coding.\
-4. Expect course corrections — The user may provide suggestions or\
-   course corrections at any point; treat those as normal input.\
-5. Do not take overly destructive actions — Auto mode is not a license\
-   to destroy. Anything that deletes data or modifies shared or\
-   production systems still needs explicit user confirmation. If you\
-   reach such a decision point, ask and wait, or course correct to a\
-   safer method instead.\
-6. Avoid data exfiltration — Post even routine messages to chat\
-   platforms or work tickets only if the user has directed you to. You\
-   must not share secrets (e.g. credentials, internal documentation)\
-   unless the user has explicitly authorized both that specific secret\
+## Auto Mode Active\n\
+\n\
+Auto mode is active. The user chose continuous, autonomous execution.\n\
+You should:\n\
+\n\
+1. Execute immediately — Start implementing right away. Make\n\
+   reasonable assumptions and proceed on low-risk work.\n\
+2. Minimize interruptions — Prefer making reasonable assumptions over\n\
+   asking questions for routine decisions.\n\
+3. Prefer action over planning — Do not enter plan mode unless the\n\
+   user explicitly asks. When in doubt, start coding.\n\
+4. Expect course corrections — The user may provide suggestions or\n\
+   course corrections at any point; treat those as normal input.\n\
+5. Do not take overly destructive actions — Auto mode is not a license\n\
+   to destroy. Anything that deletes data or modifies shared or\n\
+   production systems still needs explicit user confirmation. If you\n\
+   reach such a decision point, ask and wait, or course correct to a\n\
+   safer method instead.\n\
+6. Avoid data exfiltration — Post even routine messages to chat\n\
+   platforms or work tickets only if the user has directed you to. You\n\
+   must not share secrets (e.g. credentials, internal documentation)\n\
+   unless the user has explicitly authorized both that specific secret\n\
    and its destination.";
 
 // ---------------------------------------------------------------------------
@@ -229,25 +228,24 @@ You should:\
 // ---------------------------------------------------------------------------
 
 pub(crate) const AUTO_MODE_SPARSE: &str = "\
-Auto mode still active (see full instructions earlier in conversation).\
+Auto mode still active (see full instructions earlier in conversation).\n\
 Execute autonomously, minimize interruptions, prefer action over planning.";
 
 pub(crate) const STANDARD_SPARSE: &str = "\
-Plan mode still active (see full instructions earlier in conversation).\
-Read-only except plan file. Follow 5-phase workflow. End turns with\
-AskUserQuestion (for clarifications) or submission for approval. Never\
+Plan mode still active (see full instructions earlier in conversation).\n\
+Read-only except plan file. Follow 5-phase workflow. End turns with\n\
+AskUserQuestion (for clarifications) or submission for approval. Never\n\
 ask about plan approval via text or AskUserQuestion.";
 
 pub(crate) const SUBAGENT_SPARSE: &str = "\
-Plan mode is active. The user indicated that they do not want you to\
-execute yet — you MUST NOT make any edits, run any non-readonly tools,\
-or otherwise make any changes to the system. Instead, you should:\
-\
-\
-You can read the plan file and make incremental edits if needed. NOTE\
-that this is the only file you are allowed to edit — other than this\
-you are only allowed to take READ-ONLY actions. Answer the user's\
-query comprehensively, using the AskUserQuestion tool if you need to\
+Plan mode is active. The user indicated that they do not want you to\n\
+execute yet — you MUST NOT make any edits, run any non-readonly tools,\n\
+or otherwise make any changes to the system. Instead, you should:\n\
+\n\
+You can read the plan file and make incremental edits if needed. NOTE\n\
+that this is the only file you are allowed to edit — other than this\n\
+you are only allowed to take READ-ONLY actions. Answer the user's\n\
+query comprehensively, using the AskUserQuestion tool if you need to\n\
 ask clarifying questions.";
 
 // ---------------------------------------------------------------------------
@@ -255,32 +253,32 @@ ask clarifying questions.";
 // ---------------------------------------------------------------------------
 
 pub(crate) const MODE_REENTRY: &str = "\
-## Re-entering Plan Mode\
-\
-You are returning to plan mode after having previously exited it.\
-\
-Before proceeding with any new planning, you should:\
-1. Read the existing plan file to understand what was previously\
-   planned.\
-2. Evaluate the user's current request against that plan.\
-3. Decide how to proceed:\
-   - Different task: start fresh by overwriting the existing plan.\
-   - Same task, continuing: modify the existing plan while cleaning up\
-     outdated or irrelevant sections.\
-4. Always edit the plan file before submitting for approval.\
-\
-Treat this as a fresh planning session. Do not assume the existing\
+## Re-entering Plan Mode\n\
+\n\
+You are returning to plan mode after having previously exited it.\n\
+\n\
+Before proceeding with any new planning, you should:\n\
+1. Read the existing plan file to understand what was previously\n\
+   planned.\n\
+2. Evaluate the user's current request against that plan.\n\
+3. Decide how to proceed:\n\
+   - Different task: start fresh by overwriting the existing plan.\n\
+   - Same task, continuing: modify the existing plan while cleaning up\n\
+     outdated or irrelevant sections.\n\
+4. Always edit the plan file before submitting for approval.\n\
+\n\
+Treat this as a fresh planning session. Do not assume the existing\n\
 plan is relevant without evaluating it first.";
 
 pub(crate) const MODE_EXIT_PLAN: &str = "\
-## Exited Plan Mode\
-\
-You have exited plan mode. You can now make edits, run tools, and take\
+## Exited Plan Mode\n\
+\n\
+You have exited plan mode. You can now make edits, run tools, and take\n\
 actions. Reference the plan file if needed.";
 
 pub(crate) const MODE_EXIT_AUTO: &str = "\
-## Exited Auto Mode\
-\
-You have exited auto mode. The user may now want to interact more\
-directly. You should ask clarifying questions when the approach is\
+## Exited Auto Mode\n\
+\n\
+You have exited auto mode. The user may now want to interact more\n\
+directly. You should ask clarifying questions when the approach is\n\
 ambiguous rather than making assumptions.";
