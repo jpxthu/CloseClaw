@@ -201,7 +201,7 @@ impl SessionManager {
         }
 
         // Retain the cancel token for the optional spawn timeout.
-        let timeout_token = {
+        let _timeout_token = {
             let guard = child_cs_arc.read().await;
             guard.cancel_token.clone()
         };
@@ -282,18 +282,53 @@ impl SessionManager {
         )
         .await;
 
-        // Apply spawn timeout.
+        // Apply spawn timeout: cascade-stop child + descendants,
+        // then inject a timeout notification into the parent's
+        // announce queue so the agent sees the timeout.
+        //
+        // We grab the parent's ConversationSession Arc *before*
+        // spawning so the task can push the announce directly
+        // without needing &self (which cannot escape the method).
+        let parent_cs_for_timeout = self.get_conversation_session(parent_session_id).await;
         if let Some(timeout_secs) = spawn_timeout {
-            let token = timeout_token;
             let child_id = child_session_id.clone();
+            let child_cs = child_cs_arc.clone();
+            let parent_cs = parent_cs_for_timeout.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(timeout_secs)).await;
                 tracing::info!(
                     session_id = %child_id,
                     timeout_secs,
-                    "spawn timeout expired, cancelling child session"
+                    "spawn timeout expired, cascading stop on child session"
                 );
-                token.cancel();
+                // Cascade stop: terminate child and all descendants.
+                {
+                    let guard = child_cs.read().await;
+                    guard
+                        .stop(true, closeclaw_common::ShutdownMode::Forceful)
+                        .await;
+                }
+                // Inject timeout notification into parent's announce queue.
+                if let Some(parent) = parent_cs {
+                    let event = closeclaw_session::llm_session::AnnounceEvent {
+                        child_session_id: child_id.clone(),
+                        child_agent_id: String::new(),
+                        result_text: format!(
+                            "spawn timeout: child {} exceeded {}s limit, \
+                             cascaded stop applied to all descendants",
+                            child_id, timeout_secs
+                        ),
+                        completed_at: chrono::Utc::now(),
+                        priority: closeclaw_tasks::background::NotificationPriority::Next,
+                        status: closeclaw_common::session_state::ChildCompletionStatus::Terminated,
+                    };
+                    parent.write().await.push_announce_to_queue(event);
+                } else {
+                    tracing::warn!(
+                        parent = %child_id,
+                        "spawn timeout: parent session not found, cannot inject announce"
+                    );
+                }
             });
         }
 

@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use tokio::sync::RwLock;
 
-use super::super::session_handles::GracefulStopResult;
+use super::super::session_handles::{CascadeStopInfo, GracefulStopResult};
 use super::super::KillHandle;
 use super::super::*;
 use closeclaw_common::shutdown::ShutdownMode;
@@ -701,4 +701,136 @@ async fn test_cascade_runs_grandchild_stop_even_if_already_cancelled() {
         "grandchild tool handle must be killed by the cascade even though \
          its cancel_token is already triggered"
     );
+}
+
+// ── Step 1.3: CascadeStopInfo unit tests ─────────────────────────────
+
+#[test]
+fn test_cascade_stop_info_default_is_empty() {
+    let info = CascadeStopInfo::default();
+    assert!(info.timed_out_children.is_empty());
+}
+
+#[test]
+fn test_cascade_stop_info_merge() {
+    let mut info = CascadeStopInfo::default();
+    info.timed_out_children
+        .push(("child-1".into(), Duration::from_secs(5)));
+
+    let mut other = CascadeStopInfo::default();
+    other
+        .timed_out_children
+        .push(("child-2".into(), Duration::from_secs(3)));
+    other
+        .timed_out_children
+        .push(("child-3".into(), Duration::from_secs(7)));
+
+    info.merge(other);
+    assert_eq!(info.timed_out_children.len(), 3);
+    assert_eq!(info.timed_out_children[0].0, "child-1");
+    assert_eq!(info.timed_out_children[1].0, "child-2");
+    assert_eq!(info.timed_out_children[2].0, "child-3");
+}
+
+#[test]
+fn test_cascade_stop_info_merge_empty() {
+    let mut info = CascadeStopInfo::default();
+    info.timed_out_children
+        .push(("c1".into(), Duration::from_secs(1)));
+    info.merge(CascadeStopInfo::default());
+    assert_eq!(info.timed_out_children.len(), 1);
+}
+
+#[test]
+fn test_cascade_stop_info_merge_into_empty() {
+    let mut info = CascadeStopInfo::default();
+    let mut other = CascadeStopInfo::default();
+    other
+        .timed_out_children
+        .push(("c1".into(), Duration::from_secs(1)));
+    info.merge(other);
+    assert_eq!(info.timed_out_children.len(), 1);
+}
+
+// ── Step 1.3: stop() returns CascadeStopInfo ─────────────────────────
+
+#[tokio::test]
+async fn test_stop_returns_cascade_stop_info_empty_when_no_children() {
+    let cs = make_session("s_info_empty");
+    let info = cs.read().await.stop(true, ShutdownMode::Forceful).await;
+    assert!(info.timed_out_children.is_empty());
+}
+
+#[tokio::test]
+async fn test_stop_returns_cascade_stop_info_with_children() {
+    let parent = make_session("s_info_parent");
+    let child = make_session("s_info_child");
+    parent
+        .read()
+        .await
+        .register_child_handle("s_info_child", Arc::downgrade(&child));
+
+    let info = parent.read().await.stop(true, ShutdownMode::Forceful).await;
+    // Child didn't timeout (no in-flight ops), so empty
+    assert!(info.timed_out_children.is_empty());
+    assert!(child.read().await.is_stopped());
+}
+
+// ── Step 1.3: Multi-child CascadeStopInfo merge ──────────────────────
+
+#[tokio::test]
+async fn test_stop_multi_child_all_stopped() {
+    let parent = make_session("s_multi_parent");
+    let child1 = make_session("s_multi_c1");
+    let child2 = make_session("s_multi_c2");
+    let child3 = make_session("s_multi_c3");
+
+    parent
+        .read()
+        .await
+        .register_child_handle("c1", Arc::downgrade(&child1));
+    parent
+        .read()
+        .await
+        .register_child_handle("c2", Arc::downgrade(&child2));
+    parent
+        .read()
+        .await
+        .register_child_handle("c3", Arc::downgrade(&child3));
+
+    let info = parent.read().await.stop(true, ShutdownMode::Forceful).await;
+    assert!(info.timed_out_children.is_empty());
+    assert!(child1.read().await.is_stopped());
+    assert!(child2.read().await.is_stopped());
+    assert!(child3.read().await.is_stopped());
+}
+
+// ── Step 1.3: Nested cascade propagation ─────────────────────────────
+
+#[tokio::test]
+async fn test_nested_cascade_propagation() {
+    let root = make_session("s_nested_root");
+    let mid = make_session("s_nested_mid");
+    let leaf = make_session("s_nested_leaf");
+
+    let leaf_handle = Arc::new(MockKillHandle::new());
+    let leaf_kill_count = leaf_handle.kill_count();
+    leaf.read()
+        .await
+        .register_tool_handle("leaf-tool", leaf_handle as Arc<dyn KillHandle>);
+
+    root.read()
+        .await
+        .register_child_handle("mid", Arc::downgrade(&mid));
+    mid.read()
+        .await
+        .register_child_handle("leaf", Arc::downgrade(&leaf));
+
+    let info = root.read().await.stop(true, ShutdownMode::Forceful).await;
+
+    assert!(root.read().await.is_stopped());
+    assert!(mid.read().await.is_stopped());
+    assert!(leaf.read().await.is_stopped());
+    assert_eq!(leaf_kill_count.load(Ordering::SeqCst), 1);
+    assert!(info.timed_out_children.is_empty());
 }
