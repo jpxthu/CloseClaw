@@ -470,7 +470,9 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
     ) {
-        session_manager.try_push_announce(session_id).await;
+        session_manager
+            .try_push_announce(session_id, NotificationPriority::Next)
+            .await;
     }
 
     /// Step 1.4: drain Now-priority announces before user message processing.

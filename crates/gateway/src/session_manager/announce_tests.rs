@@ -117,7 +117,8 @@ async fn test_try_push_announce_run_mode() {
     )
     .await;
 
-    mgr.try_push_announce(&child_id).await;
+    mgr.try_push_announce(&child_id, NotificationPriority::Next)
+        .await;
 
     let drained = mgr.drain_announces(&parent_id).await;
     assert_eq!(drained.len(), 1, "expected 1 announce event");
@@ -168,7 +169,8 @@ async fn test_try_push_announce_session_mode_noop() {
     )
     .await;
 
-    mgr.try_push_announce(&child_id).await;
+    mgr.try_push_announce(&child_id, NotificationPriority::Next)
+        .await;
 
     let drained = mgr.drain_announces(&parent_id).await;
     assert!(
@@ -194,12 +196,16 @@ async fn test_try_push_announce_non_child_noop() {
     let other_parent = setup_parent_with_conv(&mgr, "parent-other").await;
     register_child_only(&mgr, &other_parent, "real-child", "agent-x", SpawnMode::Run).await;
 
-    mgr.try_push_announce("not-a-real-child").await;
+    mgr.try_push_announce("not-a-real-child", NotificationPriority::Next)
+        .await;
     assert!(mgr.drain_announces(&parent_id).await.is_empty());
     assert!(mgr.drain_announces(&other_parent).await.is_empty());
 
-    mgr.try_push_announce("00000000-0000-0000-0000-000000000000")
-        .await;
+    mgr.try_push_announce(
+        "00000000-0000-0000-0000-000000000000",
+        NotificationPriority::Next,
+    )
+    .await;
     assert!(mgr.drain_announces(&parent_id).await.is_empty());
 }
 
@@ -303,7 +309,8 @@ async fn test_thinking_blocks_excluded() {
     )
     .await;
 
-    mgr.try_push_announce(&child_id).await;
+    mgr.try_push_announce(&child_id, NotificationPriority::Next)
+        .await;
 
     let drained = mgr.drain_announces(&parent_id).await;
     assert_eq!(drained.len(), 1);
@@ -348,7 +355,8 @@ async fn test_parallel_announce_ordering() {
         let mgr2 = mgr.clone();
         let cid2 = cid.clone();
         futs.push(tokio::spawn(async move {
-            mgr2.try_push_announce(&cid2).await;
+            mgr2.try_push_announce(&cid2, NotificationPriority::Next)
+                .await;
         }));
     }
     for f in futs {
@@ -424,7 +432,8 @@ async fn test_try_push_announce_sends_mining_notification() {
     )
     .await;
 
-    mgr.try_push_announce(&child_id).await;
+    mgr.try_push_announce(&child_id, NotificationPriority::Next)
+        .await;
 
     // Verify mining notification was sent.
     let received = rx
@@ -477,7 +486,8 @@ async fn test_try_push_announce_no_notification_without_tx() {
     .await;
 
     // Should not panic even without mining_notify_tx.
-    mgr.try_push_announce(&child_id).await;
+    mgr.try_push_announce(&child_id, NotificationPriority::Next)
+        .await;
 
     // Announce should still be pushed.
     let drained = mgr.drain_announces(&parent_id).await;
@@ -528,7 +538,8 @@ async fn test_session_mode_no_mining_notification() {
     )
     .await;
 
-    mgr.try_push_announce(&child_id).await;
+    mgr.try_push_announce(&child_id, NotificationPriority::Next)
+        .await;
 
     // No mining notification should be sent for session-mode child.
     let result = tokio::time::timeout(std::time::Duration::from_millis(50), rx.recv()).await;

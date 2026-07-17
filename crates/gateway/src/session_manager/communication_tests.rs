@@ -16,6 +16,7 @@ use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
 use closeclaw_common::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
+use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -353,7 +354,8 @@ async fn test_announce_denied_by_communication_check() {
 
     // try_push_announce should return without panicking even though the
     // communication check denies. The announce is silently dropped.
-    mgr.try_push_announce("child-announce-deny").await;
+    mgr.try_push_announce("child-announce-deny", NotificationPriority::Next)
+        .await;
 
     // Verify no announce was pushed to the parent.
     let parent_cs = mgr

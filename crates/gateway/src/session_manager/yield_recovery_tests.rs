@@ -10,6 +10,7 @@ use super::test_helpers::{
 };
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use closeclaw_session::llm_session::ChatSession;
+use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
 
 // ── Helper: complete a child and remove it from the SpawnTree ──────────────
@@ -21,7 +22,8 @@ async fn complete_and_remove_child(
     blocks: Vec<closeclaw_llm::types::ContentBlock>,
 ) {
     append_assistant_to_child(mgr, child_id, blocks).await;
-    mgr.try_push_announce(child_id).await;
+    mgr.try_push_announce(child_id, NotificationPriority::Next)
+        .await;
     mgr.children.write().await.remove_child(parent_id, child_id);
 }
 
@@ -352,7 +354,8 @@ async fn test_yield_session_mode_no_block() {
         vec![closeclaw_llm::types::ContentBlock::Text("done".into())],
     )
     .await;
-    mgr.try_push_announce(&child_id).await;
+    mgr.try_push_announce(&child_id, NotificationPriority::Next)
+        .await;
     mgr.children
         .write()
         .await
