@@ -139,6 +139,8 @@ impl ConversationSession {
                 overrides: self.prompt_overrides.as_ref(),
                 user_input,
                 pending_mode_transition: pending_transition,
+                is_compacted: false,
+                is_sub_agent: false,
             };
             builder.build_prompt_parts(&context)
         } else {

@@ -85,6 +85,10 @@ pub struct DynamicPromptContext<'a> {
     /// When `Some`, the dynamic builder pushes a `Section::ModeTransition`
     /// and clears the slot (one-shot injection).
     pub pending_mode_transition: Option<ModeTransition>,
+    /// Whether the session context has been compacted (for sparse prompt injection).
+    pub is_compacted: bool,
+    /// Whether this prompt is for a sub-agent (for sub-agent sparse injection).
+    pub is_sub_agent: bool,
 }
 
 /// Builder for the dynamic portion of the system prompt.
