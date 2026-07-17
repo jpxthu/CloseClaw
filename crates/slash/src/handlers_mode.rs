@@ -9,8 +9,7 @@ use crate::handler::SlashHandler;
 use closeclaw_common::plan_state::{PlanPath, PlanStatus};
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::slash_router::SlashResult;
-use closeclaw_common::PlanPhase;
-use closeclaw_common::PlanState;
+use closeclaw_common::{ModeTransition, PlanPhase, PlanState, SessionLookup};
 use closeclaw_gateway::SessionManager;
 use closeclaw_session::plan_file;
 use tracing;
@@ -62,6 +61,16 @@ impl SlashHandler for PlanModeHandler {
                 "用法：/plan [--path standard|interview] <任务描述>\n进入 Plan Mode 进行任务规划。"
                     .to_owned(),
             );
+        }
+
+        // Check if this is a re-entry into Plan Mode (session was previously
+        // in Plan Mode and exited). If so, inject a Reentry mode transition.
+        if let Some(prev_plan_state) = self.session_manager.get_plan_state(&ctx.session_id).await {
+            if !prev_plan_state.plan_file_path.is_empty() {
+                self.session_manager
+                    .set_pending_mode_transition(&ctx.session_id, ModeTransition::Reentry)
+                    .await;
+            }
         }
 
         let plan_file_path = if let Some(conv) = self
