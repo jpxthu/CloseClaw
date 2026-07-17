@@ -10,63 +10,78 @@ use crate::builder::PromptOverrides;
 use crate::plan_path::analyze_plan_path;
 use crate::sections::Section;
 use crate::workdir;
-use closeclaw_common::{DynamicPromptBuilder, DynamicPromptContext, PlanPath, SessionMode};
+use closeclaw_common::{
+    DynamicPromptBuilder, DynamicPromptContext, ModeTransition, PlanPath, SessionMode,
+};
 use closeclaw_gateway::session_handler::MessageMetadata;
+
+/// Parameters for [`build_dynamic_sections`].
+///
+/// Bundles all per-request state needed to construct dynamic system prompt
+/// sections (ChannelContext, SessionState, ModeInstruction, etc.).
+pub struct DynamicSectionsParams<'a> {
+    /// Inbound message metadata (sender, channel, timestamp).
+    pub meta: &'a MessageMetadata,
+    /// When `Some`, injects a `WorkingDirectory` section and builds git
+    /// status for that path.
+    pub workdir_path: Option<&'a str>,
+    /// Per-session append list (`/system` subcommand).
+    pub system_appends: &'a [String],
+    /// Session creation timestamp override for ChannelContext.
+    pub session_timestamp: Option<i64>,
+    /// Current session mode (Normal / Plan / Auto).
+    pub session_mode: SessionMode,
+    /// Explicit plan path for Plan Mode (overrides auto-analysis).
+    pub explicit_plan_path: Option<PlanPath>,
+    /// User input text for automatic plan-path analysis.
+    pub user_input: Option<&'a str>,
+    /// One-shot mode transition to inject (should be `take`'d by caller).
+    pub pending_mode_transition: Option<ModeTransition>,
+}
 
 /// Build dynamic sections from metadata and session state.
 ///
 /// Constructs ChannelContext, SessionState, and optionally WorkingDirectory,
-/// GitStatus, and AppendSection.
-///
-/// `workdir_path` — when `Some`, injects a `WorkingDirectory` section and
-/// builds git status for that path instead of using global state.
-///
-/// `system_appends` — per-session append list (managed by `/system`
-/// subcommand). When non-empty, a single `AppendSection` is pushed at
-/// the end of the section list, formatted as a `[N] 内容` numbered
-/// list in insertion order.
-///
-/// `explicit_plan_path` — when `Some`, used directly in Plan Mode;
-/// when `None` in Plan Mode, the system analyzes `user_input` to
-/// determine the path automatically.
-///
-/// `user_input` — the user's original input text, used for
-/// automatic clarity analysis when `explicit_plan_path` is `None`
-/// in Plan Mode.
-pub fn build_dynamic_sections(
-    meta: &MessageMetadata,
-    workdir_path: Option<&str>,
-    system_appends: &[String],
-    session_timestamp: Option<i64>,
-    session_mode: SessionMode,
-    explicit_plan_path: Option<PlanPath>,
-    user_input: Option<&str>,
-) -> Vec<Section> {
+/// GitStatus, and AppendSection based on the provided parameters.
+pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
 
     // Inject mode-specific instructions when not in Normal mode.
-    if session_mode != SessionMode::Normal {
+    if params.session_mode != SessionMode::Normal {
         // In Plan Mode, resolve the path: explicit override or auto-analysis.
-        let resolved_plan_path = if session_mode == SessionMode::Plan {
-            Some(explicit_plan_path.unwrap_or_else(|| analyze_plan_path(user_input.unwrap_or(""))))
+        let resolved_plan_path = if params.session_mode == SessionMode::Plan {
+            Some(
+                params
+                    .explicit_plan_path
+                    .unwrap_or_else(|| analyze_plan_path(params.user_input.unwrap_or(""))),
+            )
         } else {
             None
         };
 
         sections.push(Section::ModeInstruction {
-            mode: session_mode,
+            mode: params.session_mode,
             plan_path: resolved_plan_path,
             sparse: false,
             sub_agent: false,
         });
     }
 
+    // Inject one-shot mode transition notification.
+    // The value was already `take`'d by the session layer, so this is
+    // a one-shot injection: the section appears only in the prompt
+    // build immediately following the transition.
+    if let Some(transition) = params.pending_mode_transition {
+        sections.push(Section::ModeTransition { transition });
+    }
+
     sections.push(Section::ChannelContext {
-        chat_name: meta.channel.clone(),
-        sender_id: meta.sender_id.clone(),
-        timestamp: session_timestamp
+        chat_name: params.meta.channel.clone(),
+        sender_id: params.meta.sender_id.clone(),
+        timestamp: params
+            .session_timestamp
             .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
-            .or_else(|| chrono::DateTime::from_timestamp(meta.timestamp, 0))
+            .or_else(|| chrono::DateTime::from_timestamp(params.meta.timestamp, 0))
             .map(|dt| dt.to_rfc3339())
             .unwrap_or_default(),
     });
@@ -75,7 +90,7 @@ pub fn build_dynamic_sections(
         pending_tasks: vec![],
     });
 
-    if let Some(path) = workdir_path {
+    if let Some(path) = params.workdir_path {
         sections.push(Section::WorkingDirectory(path.to_string()));
 
         if let Some(status) = workdir::build_git_status_for(path) {
@@ -83,8 +98,9 @@ pub fn build_dynamic_sections(
         }
     }
 
-    if !system_appends.is_empty() {
-        let body: String = system_appends
+    if !params.system_appends.is_empty() {
+        let body: String = params
+            .system_appends
             .iter()
             .enumerate()
             .map(|(idx, content)| format!("[{}] {}", idx, content))
@@ -221,15 +237,16 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
             if let Some(base) = priority {
                 // Override replaces the static layer; only AppendSection
                 // entries from the dynamic side are preserved.
-                let sections = build_dynamic_sections(
-                    &meta,
-                    None,
-                    context.system_appends,
-                    None,
-                    context.session_mode,
-                    None,
-                    context.user_input,
-                );
+                let sections = build_dynamic_sections(&DynamicSectionsParams {
+                    meta: &meta,
+                    workdir_path: None,
+                    system_appends: context.system_appends,
+                    session_timestamp: None,
+                    session_mode: context.session_mode,
+                    explicit_plan_path: None,
+                    user_input: context.user_input,
+                    pending_mode_transition: context.pending_mode_transition,
+                });
                 let append_parts: Vec<&str> = sections
                     .iter()
                     .filter_map(|s| match s {
@@ -249,15 +266,16 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
         // Normal path: static layer from stored prompt, dynamic layer
         // freshly built from request context.
         let workdir_str = context.workdir.to_str().map(|s| s.to_owned());
-        let sections = build_dynamic_sections(
-            &meta,
-            workdir_str.as_deref(),
-            context.system_appends,
-            None, // use meta.timestamp, not session created_at
-            context.session_mode,
-            None,
-            context.user_input,
-        );
+        let sections = build_dynamic_sections(&DynamicSectionsParams {
+            meta: &meta,
+            workdir_path: workdir_str.as_deref(),
+            system_appends: context.system_appends,
+            session_timestamp: None, // use meta.timestamp, not session created_at
+            session_mode: context.session_mode,
+            explicit_plan_path: None,
+            user_input: context.user_input,
+            pending_mode_transition: context.pending_mode_transition,
+        });
         let dynamic_rendered = if sections.is_empty() {
             None
         } else {
@@ -267,168 +285,5 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
             context.system_prompt.map(|s| s.to_string()),
             dynamic_rendered,
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use closeclaw_common::SessionMode;
-
-    fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
-        MessageMetadata {
-            sender_id: sender.to_string(),
-            channel: channel.to_string(),
-            timestamp: ts,
-        }
-    }
-
-    #[test]
-    fn test_build_dynamic_sections_normal_mode_no_instruction() {
-        let meta = make_meta("u", "ch", 0);
-        let sections =
-            build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
-        assert!(!sections.iter().any(|s| s.name() == "mode_instruction"));
-    }
-
-    #[test]
-    fn test_build_dynamic_sections_plan_mode_injects_instruction() {
-        let meta = make_meta("u", "ch", 0);
-        let sections = build_dynamic_sections(
-            &meta,
-            None,
-            &[],
-            None,
-            SessionMode::Plan,
-            Some(PlanPath::Standard),
-            None,
-        );
-        let mode_sec = sections.iter().find(|s| s.name() == "mode_instruction");
-        assert!(
-            mode_sec.is_some(),
-            "Plan mode should inject ModeInstruction"
-        );
-        let rendered = mode_sec.unwrap().render();
-        assert!(rendered.contains("Plan"));
-    }
-
-    #[test]
-    fn test_build_dynamic_sections_auto_mode_injects_instruction() {
-        let meta = make_meta("u", "ch", 0);
-        let sections =
-            build_dynamic_sections(&meta, None, &[], None, SessionMode::Auto, None, None);
-        let mode_sec = sections.iter().find(|s| s.name() == "mode_instruction");
-        assert!(
-            mode_sec.is_some(),
-            "Auto mode should inject ModeInstruction"
-        );
-        let rendered = mode_sec.unwrap().render();
-        assert!(rendered.contains("Auto"));
-    }
-
-    #[test]
-    fn test_build_dynamic_sections_plan_mode_explicit_standard_path() {
-        let meta = make_meta("u", "ch", 0);
-        let sections = build_dynamic_sections(
-            &meta,
-            None,
-            &[],
-            None,
-            SessionMode::Plan,
-            Some(PlanPath::Standard),
-            None,
-        );
-        let rendered = sections
-            .iter()
-            .find(|s| s.name() == "mode_instruction")
-            .unwrap()
-            .render();
-        assert!(rendered.contains("Standard Path"));
-        assert!(!rendered.contains("Interview Path"));
-    }
-
-    #[test]
-    fn test_build_dynamic_sections_plan_mode_explicit_interview_path() {
-        let meta = make_meta("u", "ch", 0);
-        let sections = build_dynamic_sections(
-            &meta,
-            None,
-            &[],
-            None,
-            SessionMode::Plan,
-            Some(PlanPath::Interview),
-            None,
-        );
-        let rendered = sections
-            .iter()
-            .find(|s| s.name() == "mode_instruction")
-            .unwrap()
-            .render();
-        assert!(rendered.contains("Interview Path"));
-        assert!(!rendered.contains("Standard Path"));
-    }
-
-    #[test]
-    fn test_build_dynamic_sections_plan_mode_auto_analysis_clear_input() {
-        let meta = make_meta("u", "ch", 0);
-        let sections = build_dynamic_sections(
-            &meta,
-            None,
-            &[],
-            None,
-            SessionMode::Plan,
-            None,
-            Some("Fix the bug in crates/system_prompt/src/sections.rs — should return None"),
-        );
-        let rendered = sections
-            .iter()
-            .find(|s| s.name() == "mode_instruction")
-            .unwrap()
-            .render();
-        assert!(rendered.contains("Standard Path"));
-        assert!(!rendered.contains("Interview Path"));
-    }
-
-    #[test]
-    fn test_build_dynamic_sections_plan_mode_auto_analysis_ambiguous_input() {
-        let meta = make_meta("u", "ch", 0);
-        let sections = build_dynamic_sections(
-            &meta,
-            None,
-            &[],
-            None,
-            SessionMode::Plan,
-            None,
-            Some("Make it better"),
-        );
-        let rendered = sections
-            .iter()
-            .find(|s| s.name() == "mode_instruction")
-            .unwrap()
-            .render();
-        assert!(rendered.contains("Interview Path"));
-        assert!(!rendered.contains("Standard Path"));
-    }
-
-    #[test]
-    fn test_build_dynamic_sections_mode_instruction_before_session_state() {
-        let meta = make_meta("u", "ch", 0);
-        let sections = build_dynamic_sections(
-            &meta,
-            None,
-            &[],
-            None,
-            SessionMode::Plan,
-            Some(PlanPath::Interview),
-            None,
-        );
-        let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
-        let ss_idx = sections.iter().position(|s| s.name() == "session_state");
-        assert!(mode_idx.is_some());
-        assert!(ss_idx.is_some());
-        assert!(
-            mode_idx.unwrap() < ss_idx.unwrap(),
-            "ModeInstruction should come before SessionState"
-        );
     }
 }

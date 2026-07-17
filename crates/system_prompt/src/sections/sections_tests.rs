@@ -370,3 +370,37 @@ fn test_section_render_mode_instruction_uses_flags() {
         r
     );
 }
+
+// ── ModeTransition section rendering ───────────────────────────────────────
+
+#[test]
+fn test_section_render_mode_transition_reentry() {
+    let s = Section::ModeTransition {
+        transition: ModeTransition::Reentry,
+    };
+    assert_eq!(s.name(), "mode_transition");
+    assert!(!s.is_cacheable());
+    let rendered = s.render();
+    assert!(rendered.contains("Re-entering Plan Mode"));
+    assert!(rendered.contains("Read the existing plan file"));
+}
+
+#[test]
+fn test_section_render_mode_transition_exit_plan() {
+    let s = Section::ModeTransition {
+        transition: ModeTransition::ExitPlan,
+    };
+    let rendered = s.render();
+    assert!(rendered.contains("Exited Plan Mode"));
+    assert!(rendered.contains("can now make edits"));
+}
+
+#[test]
+fn test_section_render_mode_transition_exit_auto() {
+    let s = Section::ModeTransition {
+        transition: ModeTransition::ExitAuto,
+    };
+    let rendered = s.render();
+    assert!(rendered.contains("Exited Auto Mode"));
+    assert!(rendered.contains("ask clarifying questions"));
+}

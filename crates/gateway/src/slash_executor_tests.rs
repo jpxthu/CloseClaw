@@ -50,6 +50,13 @@ impl SessionLookup for MockSessionLookup {
     async fn set_plan_state(&self, _session_id: &str, _plan_state: closeclaw_common::PlanState) {}
 
     async fn set_session_mode(&self, _session_id: &str, _mode: closeclaw_common::SessionMode) {}
+
+    async fn set_pending_mode_transition(
+        &self,
+        _session_id: &str,
+        _transition: closeclaw_common::ModeTransition,
+    ) {
+    }
 }
 
 /// Records every executor call so tests can assert on them.
