@@ -14,6 +14,7 @@ use super::SessionManager;
 use closeclaw_common::tool_session::ToolSession;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
+use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
 use std::sync::Arc;
 
@@ -177,7 +178,8 @@ async fn test_child_completion_deregisters_child_state() {
     .await;
 
     // Trigger announce push (which deregisters child_state).
-    mgr.try_push_announce(&child_id).await;
+    mgr.try_push_announce(&child_id, NotificationPriority::Next)
+        .await;
 
     // Verify child is deregistered.
     {

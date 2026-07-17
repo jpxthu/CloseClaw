@@ -291,13 +291,11 @@ impl ConversationSession {
     pub fn last_activity_at(&self) -> i64 {
         self.last_activity_at
     }
-
     /// Sets the reasoning level.
     pub fn with_reasoning_level(mut self, level: ReasoningLevel) -> Self {
         self.reasoning_level = level;
         self
     }
-
     /// Sets the session mode.
     pub fn with_session_mode(self, mode: SessionMode) -> Self {
         *self
@@ -306,39 +304,32 @@ impl ConversationSession {
             .expect("session_mode lock poisoned") = mode;
         self
     }
-
     /// Sets the communication configuration.
     pub fn with_communication_config(mut self, config: CommunicationConfig) -> Self {
         self.communication_config = Some(config);
         self
     }
-
     /// Sets the communication configuration on an existing session.
     pub fn set_communication_config(&mut self, config: CommunicationConfig) {
         self.communication_config = Some(config);
     }
-
     /// Sets the bootstrap mode for this session.
     pub fn with_bootstrap_mode(mut self, mode: crate::bootstrap::loader::BootstrapMode) -> Self {
         self.bootstrap_mode = mode;
         self
     }
-
     /// Returns the cached bootstrap mode for this session.
     pub fn bootstrap_mode(&self) -> crate::bootstrap::loader::BootstrapMode {
         self.bootstrap_mode
     }
-
     /// Returns the communication configuration, if set.
     pub fn communication_config(&self) -> Option<&CommunicationConfig> {
         self.communication_config.as_ref()
     }
-
     /// Set the shutdown handle for busy-count tracking during tool execution.
     pub fn set_shutdown_handle(&mut self, handle: Arc<dyn closeclaw_common::ShutdownSignal>) {
         self.shutdown_handle = Some(handle);
     }
-
     /// Returns a clone of the manual backgrounding signal.
     ///
     /// Callers (e.g. `BashTool::execute_command`) can await on
@@ -731,6 +722,19 @@ impl ConversationSession {
     /// Within the same priority level, FIFO insertion order is preserved
     /// (stable sort).
     pub fn push_announce_to_queue(&mut self, event: AnnounceEvent) {
+        // Deduplication: skip if an event with the same child_session_id
+        // already exists in the queue.
+        if self
+            .announce_queue
+            .iter()
+            .any(|e| e.child_session_id == event.child_session_id)
+        {
+            tracing::debug!(
+                child_session_id = %event.child_session_id,
+                "skipping duplicate announce event"
+            );
+            return;
+        }
         let pos = self
             .announce_queue
             .iter()

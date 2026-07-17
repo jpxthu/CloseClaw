@@ -338,7 +338,7 @@ impl SessionManager {
     ///
     /// Errors are logged but not propagated — announce delivery is a
     /// best-effort signal and must not block child completion.
-    pub async fn try_push_announce(&self, child_session_id: &str) {
+    pub async fn try_push_announce(&self, child_session_id: &str, priority: NotificationPriority) {
         let Some((parent_session_id, child_agent_id)) =
             self.find_run_mode_parent(child_session_id).await
         else {
@@ -420,7 +420,7 @@ impl SessionManager {
             child_session_id,
             child_agent_id,
             result_text,
-            NotificationPriority::Next,
+            priority,
             child_status,
         );
         if let Err(e) = self.push_announce(&parent_session_id, event).await {
@@ -671,7 +671,7 @@ impl SessionManager {
             session_id,
             child_agent_id.clone(),
             "任务被终止".to_string(),
-            NotificationPriority::Next,
+            NotificationPriority::Now,
             ChildCompletionStatus::Terminated,
         );
 
@@ -893,7 +893,7 @@ impl AnnounceSweepTarget for SessionManager {
         matches!(cs.exec_status(), SessionExecStatus::Idle)
     }
 
-    async fn try_push_announce(&self, session_id: &str) {
-        SessionManager::try_push_announce(self, session_id).await;
+    async fn try_push_announce(&self, session_id: &str, priority: NotificationPriority) {
+        SessionManager::try_push_announce(self, session_id, priority).await;
     }
 }

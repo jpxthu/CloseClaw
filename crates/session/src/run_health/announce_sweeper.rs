@@ -23,6 +23,8 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 use tracing::{error, info, warn};
 
+use closeclaw_tasks::NotificationPriority;
+
 /// Fixed scan interval in seconds (design doc specifies 60s).
 const ANNOUNCE_SWEEP_INTERVAL_SECS: u64 = 60;
 
@@ -48,7 +50,7 @@ pub trait AnnounceSweepTarget: Send + Sync {
     async fn is_session_idle(&self, session_id: &str) -> bool;
 
     /// Push an announce event from a completed child to its parent.
-    async fn try_push_announce(&self, session_id: &str);
+    async fn try_push_announce(&self, session_id: &str, priority: NotificationPriority);
 }
 
 /// Background sweeper that ensures completion announces from run-mode
@@ -177,7 +179,9 @@ impl AnnounceSweeper {
             child_session_id = %child_id,
             "AnnounceSweeper: child session idle but announce not delivered, pushing"
         );
-        self.target.try_push_announce(child_id).await;
+        self.target
+            .try_push_announce(child_id, NotificationPriority::Next)
+            .await;
     }
 }
 

@@ -3,6 +3,7 @@ use crate::persistence::PendingMessage;
 use crate::run_health::TranscriptOp;
 use closeclaw_common::{UnifiedResponse, UnifiedUsage};
 
+mod announce_dedup_tests;
 mod announce_queue_tests;
 mod bootstrap_mode_tests;
 mod clone_messages_tests;
