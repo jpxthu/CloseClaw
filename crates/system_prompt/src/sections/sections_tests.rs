@@ -1,0 +1,372 @@
+//! Tests for `sections` module.
+//!
+//! Extracted from the inline `#[cfg(test)] mod tests` in `sections.rs`
+//! to keep that file focused on rendering logic.
+
+use super::*;
+use tempfile::tempdir;
+
+#[test]
+fn test_section_render_role() {
+    let s = Section::RoleSection("You are a helpful assistant.".to_string());
+    let rendered = s.render();
+    assert!(rendered.contains("## Role"));
+    assert!(rendered.contains("You are a helpful assistant"));
+    assert!(s.is_cacheable());
+}
+
+#[test]
+fn test_section_render_channel_context() {
+    let s = Section::ChannelContext {
+        chat_name: "test-chat".to_string(),
+        sender_id: "ou_123".to_string(),
+        timestamp: "2026-04-10T15:00:00+08:00".to_string(),
+    };
+    let rendered = s.render();
+    assert!(rendered.contains("chat_name: test-chat"));
+    assert!(rendered.contains("sender_id: ou_123"));
+    assert!(!s.is_cacheable());
+}
+
+#[test]
+fn test_section_render_session_state() {
+    let s = Section::SessionState {
+        pending_tasks: vec!["task1".to_string(), "task2".to_string()],
+    };
+    let rendered = s.render();
+    assert!(rendered.contains("task1"));
+    assert!(!s.is_cacheable());
+}
+
+#[test]
+fn test_invalidate_section() {
+    put_cached_section("test_section", "old content".to_string(), Some(100));
+    assert_eq!(
+        get_cached_section("test_section", Some(100)),
+        Some("old content".to_string())
+    );
+
+    invalidate_section("test_section");
+    assert_eq!(get_cached_section("test_section", Some(100)), None);
+}
+
+#[test]
+fn test_cache_stale_on_mtime_change() {
+    put_cached_section("file_section", "v1".to_string(), Some(100));
+    // Same mtime → cache hit
+    assert_eq!(
+        get_cached_section("file_section", Some(100)),
+        Some("v1".to_string())
+    );
+    // Different mtime → cache stale
+    assert_eq!(get_cached_section("file_section", Some(200)), None);
+}
+
+#[test]
+fn test_load_cached_file_section_fresh() {
+    let dir = tempdir().unwrap();
+    let file_path = dir.path().join("test.txt");
+    std::fs::write(&file_path, "hello world").unwrap();
+
+    // First load — cache miss, should read from file
+    let result = load_cached_file_section("test", &file_path);
+    assert_eq!(result, Some("hello world".to_string()));
+
+    // Second load — cache hit, same content
+    let result2 = load_cached_file_section("test", &file_path);
+    assert_eq!(result2, Some("hello world".to_string()));
+
+    // Modify file — cache should be stale
+    // Sleep 1s to ensure mtime changes (filesystem mtime resolution is 1s)
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    std::fs::write(&file_path, "updated content").unwrap();
+    let result3 = load_cached_file_section("test", &file_path);
+    assert_eq!(result3, Some("updated content".to_string()));
+}
+
+#[test]
+fn test_skill_listing_section_render() {
+    let s = Section::SkillListingSection(
+        "- **foo**: desc — use when needed
+- **bar**: desc"
+            .to_string(),
+    );
+    let rendered = s.render();
+    assert!(rendered.starts_with("## Available Skills\n\n"));
+    assert!(rendered.contains("**foo**"));
+    assert!(rendered.contains(" — use when needed"));
+    // Empty renders empty
+    let empty = Section::SkillListingSection(String::new());
+    assert_eq!(empty.render(), "");
+}
+
+#[test]
+fn test_git_status_render() {
+    let s = Section::GitStatus("On branch master\n?? file.txt".to_string());
+    let rendered = s.render();
+    assert!(rendered.contains("## Git Status"));
+    assert!(rendered.contains("On branch master"));
+    assert!(!s.is_cacheable());
+}
+
+#[test]
+fn test_working_directory_section() {
+    let s = Section::WorkingDirectory("/home/user/.closeclaw/workspaces/agent1/user1/".to_string());
+    assert!(!s.is_cacheable());
+    assert_eq!(s.name(), "working_directory");
+    let rendered = s.render();
+    assert!(rendered.contains("## Working Directory"));
+    assert!(rendered.contains("~/agent1/user1/"));
+    assert!(!rendered.contains(".closeclaw"));
+}
+
+#[test]
+fn test_sanitize_workdir_path() {
+    assert_eq!(
+        sanitize_workdir_path("/home/user/.closeclaw/workspaces/a/u/"),
+        "~/a/u/"
+    );
+    assert_eq!(
+        sanitize_workdir_path("/some/random/path"),
+        "/some/random/path"
+    );
+    assert_eq!(sanitize_workdir_path(""), "");
+}
+
+#[test]
+fn test_invalidate_skill_listing() {
+    // Pre-populate the skill_listing cache with known content
+    put_cached_section("skill_listing", "old skill content".to_string(), Some(999));
+    // Verify it's cached
+    assert_eq!(
+        get_cached_section("skill_listing", Some(999)),
+        Some("old skill content".to_string())
+    );
+
+    // Invalidate via the public API
+    invalidate_skill_listing();
+
+    // Cache should be cleared
+    assert_eq!(get_cached_section("skill_listing", Some(999)), None);
+}
+
+// -----------------------------------------------------------------------
+// Coverage for all remaining Section variants after WorkspaceSection removal
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_section_variants_name_and_cacheable() {
+    // Declare sections as owned values first to avoid temporary drops.
+    let sections: Vec<Section> = vec![
+        Section::RoleSection("r".into()),
+        Section::ToolsSection("t".into()),
+        Section::MemorySection("m".into()),
+        Section::HeartbeatSection("h".into()),
+        Section::SkillListingSection("s".into()),
+        Section::ChannelContext {
+            chat_name: "c".into(),
+            sender_id: "s".into(),
+            timestamp: "t".into(),
+        },
+        Section::SessionState {
+            pending_tasks: vec![],
+        },
+        Section::AppendSection("a".into()),
+        Section::GitStatus("g".into()),
+        Section::WorkingDirectory("/x/workspaces/a/b/".into()),
+        Section::ModeInstruction {
+            mode: SessionMode::Plan,
+            plan_path: Some(PlanPath::Standard),
+            sparse: false,
+            sub_agent: false,
+        },
+        Section::ModeTransition {
+            transition: ModeTransition::Reentry,
+        },
+    ];
+    let expected: Vec<(&str, bool)> = vec![
+        ("role", true),
+        ("tools", false),
+        ("memory", true),
+        ("heartbeat", true),
+        ("skill_listing", false),
+        ("channel_context", false),
+        ("session_state", false),
+        ("append", false),
+        ("git_status", false),
+        ("working_directory", false),
+        ("mode_instruction", false),
+        ("mode_transition", false),
+    ];
+    for (sec, (expected_name, expected_cacheable)) in sections.iter().zip(expected.iter()) {
+        assert_eq!(sec.name(), *expected_name);
+        assert_eq!(sec.is_cacheable(), *expected_cacheable);
+    }
+}
+
+// -----------------------------------------------------------------------
+// ModeInstruction tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_mode_instruction_basics_and_auto() {
+    let s = Section::ModeInstruction {
+        mode: SessionMode::Normal,
+        plan_path: None,
+        sparse: false,
+        sub_agent: false,
+    };
+    assert_eq!(s.name(), "mode_instruction");
+    assert!(!s.is_cacheable());
+    assert_eq!(s.render(), "");
+    // Auto mode renders all 6 rules
+    let rendered = render_mode_instruction(SessionMode::Auto, None);
+    assert!(rendered.contains("Auto Mode Active"));
+    assert!(rendered.contains("Execute immediately"));
+    assert!(rendered.contains("Minimize interruptions"));
+    assert!(rendered.contains("Prefer action over planning"));
+    assert!(rendered.contains("Expect course corrections"));
+    assert!(rendered.contains("Do not take overly destructive actions"));
+    assert!(rendered.contains("Avoid data exfiltration"));
+    // Default PlanPath is Interview
+    let s = Section::ModeInstruction {
+        mode: SessionMode::Plan,
+        plan_path: None,
+        sparse: false,
+        sub_agent: false,
+    };
+    assert!(s.render().contains("Interview Path"));
+}
+
+#[test]
+fn test_mode_instruction_plan_standard_and_interview() {
+    let std = Section::ModeInstruction {
+        mode: SessionMode::Plan,
+        plan_path: Some(PlanPath::Standard),
+        sparse: false,
+        sub_agent: false,
+    };
+    let r = std.render();
+    assert!(r.contains("## Mode: Plan \u{2014} Standard Path"));
+    assert!(r.contains("This supercedes any other instructions"));
+    assert!(r.contains("Phase 5: Submit for Approval"));
+    assert!(r.contains("Do not stop unless it's for these 2 reasons"));
+    // Verify all 5 phases are present (completeness check)
+    assert!(r.contains("Phase 1: Initial Understanding"));
+    assert!(r.contains("Phase 2: Design"));
+    assert!(r.contains("Phase 3: Review"));
+    assert!(r.contains("Phase 4: Final Plan"));
+    assert!(r.contains("Phase 5: Submit for Approval"));
+    assert!(!r.contains("Interview Path"));
+    let intv = Section::ModeInstruction {
+        mode: SessionMode::Plan,
+        plan_path: Some(PlanPath::Interview),
+        sparse: false,
+        sub_agent: false,
+    };
+    let r = intv.render();
+    assert!(r.contains("## Mode: Plan \u{2014} Interview Path"));
+    assert!(r.contains("pair-planning"));
+    assert!(r.contains("Don't explore exhaustively before engaging the user"));
+    assert!(r.contains("Never ask what you could find out by reading the code"));
+    assert!(r.contains("When to Converge"));
+    assert!(r.contains("The Loop"));
+    assert!(!r.contains("Standard Path"));
+}
+
+#[test]
+fn test_mode_transition_renders_correct_text() {
+    let reentry = Section::ModeTransition {
+        transition: ModeTransition::Reentry,
+    };
+    assert_eq!(reentry.name(), "mode_transition");
+    assert!(!reentry.is_cacheable());
+    let r = reentry.render();
+    assert!(r.contains("## Re-entering Plan Mode"));
+    assert!(r.contains("returning to plan mode"));
+    assert!(r.contains("Read the existing plan file"));
+
+    let exit_plan = Section::ModeTransition {
+        transition: ModeTransition::ExitPlan,
+    };
+    let r = exit_plan.render();
+    assert!(r.contains("## Exited Plan Mode"));
+    assert!(r.contains("can now make edits, run tools"));
+
+    let exit_auto = Section::ModeTransition {
+        transition: ModeTransition::ExitAuto,
+    };
+    let r = exit_auto.render();
+    assert!(r.contains("## Exited Auto Mode"));
+    assert!(r.contains("ask clarifying questions"));
+}
+
+// -----------------------------------------------------------------------
+// Sparse / sub-agent variant tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_mode_instruction_sparse_and_sub_agent() {
+    // Plan sparse → Standard Sparse text
+    let rendered = render_mode_instruction_with_flags(
+        SessionMode::Plan,
+        Some(PlanPath::Standard),
+        true,
+        false,
+    );
+    assert!(rendered.contains("Plan mode still active"));
+    assert!(rendered.contains("Read-only except plan file"));
+    // Auto sparse → Auto Sparse text
+    let rendered = render_mode_instruction_with_flags(SessionMode::Auto, None, true, false);
+    assert!(rendered.contains("Auto mode still active"));
+    assert!(rendered.contains("Execute autonomously"));
+    // Sub-agent → Sub-agent Sparse text
+    let rendered = render_mode_instruction_with_flags(
+        SessionMode::Plan,
+        Some(PlanPath::Standard),
+        false,
+        true,
+    );
+    assert!(rendered.contains("Plan mode is active"));
+    assert!(rendered.contains("incremental edits"));
+    // sub_agent takes precedence over sparse
+    let rendered =
+        render_mode_instruction_with_flags(SessionMode::Plan, Some(PlanPath::Standard), true, true);
+    assert!(rendered.contains("incremental edits"));
+    assert!(!rendered.contains("Plan mode still active"));
+}
+
+// -----------------------------------------------------------------------
+// Bug fix verification: Section::render() ModeInstruction with flags
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_section_render_mode_instruction_uses_flags() {
+    // When sparse=true, render() should output Standard Sparse text
+    let s = Section::ModeInstruction {
+        mode: SessionMode::Plan,
+        plan_path: Some(PlanPath::Standard),
+        sparse: true,
+        sub_agent: false,
+    };
+    let r = s.render();
+    assert!(
+        r.contains("Plan mode still active"),
+        "Expected Standard Sparse text from render(), got: {}",
+        r
+    );
+
+    // When sub_agent=true, render() should output Sub-agent Sparse text
+    let s = Section::ModeInstruction {
+        mode: SessionMode::Plan,
+        plan_path: Some(PlanPath::Standard),
+        sparse: false,
+        sub_agent: true,
+    };
+    let r = s.render();
+    assert!(
+        r.contains("Plan mode is active"),
+        "Expected Sub-agent Sparse text from render(), got: {}",
+        r
+    );
+}
