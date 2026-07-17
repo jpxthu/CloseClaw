@@ -282,6 +282,86 @@ mod tests {
         assert!(demoted.contains(&"orphan".to_string()));
     }
     #[test]
+    fn test_build_spawn_tree_demoted_effective_max_spawn_depth_reset() {
+        // orphan child with depth=2 and effective_max_spawn_depth=Some(1)
+        // should be demoted to root with effective_max_spawn_depth=None
+        let mut checkpoints = HashMap::new();
+        let mut orphan_cp = create_test_checkpoint("orphan-budget");
+        orphan_cp.parent_session_id = Some("missing_parent".to_string());
+        orphan_cp.depth = 2;
+        orphan_cp.effective_max_spawn_depth = Some(1);
+        checkpoints.insert("orphan-budget".to_string(), orphan_cp);
+        let recovered = vec!["orphan-budget".to_string()];
+        let (tree, demoted) =
+            SessionRecoveryService::<MemoryStorage>::build_spawn_tree(&mut checkpoints, &recovered);
+        assert!(tree.is_root("orphan-budget"));
+        assert_eq!(checkpoints["orphan-budget"].depth, 0);
+        assert_eq!(
+            checkpoints["orphan-budget"].effective_max_spawn_depth, None,
+            "demoted orphan should have effective_max_spawn_depth reset to None"
+        );
+        assert!(demoted.contains(&"orphan-budget".to_string()));
+    }
+
+    #[test]
+    fn test_spawn_tree_mark_child_status_and_active_count() {
+        use crate::spawn::tree::SpawnTree;
+        use crate::spawn::types::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
+
+        let mut tree = SpawnTree::new();
+
+        // Register two children
+        tree.register_child(
+            "parent",
+            ChildSessionInfo {
+                session_id: "child-1".to_string(),
+                parent_session_id: "parent".to_string(),
+                agent_id: "agent-a".to_string(),
+                depth: 1,
+                mode: SpawnMode::Run,
+                status: ChildSessionStatus::Active,
+            },
+        );
+        tree.register_child(
+            "parent",
+            ChildSessionInfo {
+                session_id: "child-2".to_string(),
+                parent_session_id: "parent".to_string(),
+                agent_id: "agent-b".to_string(),
+                depth: 1,
+                mode: SpawnMode::Session,
+                status: ChildSessionStatus::Active,
+            },
+        );
+
+        // Both active
+        let children = tree.list_children("parent");
+        let active_count = children.iter().filter(|c| c.status == ChildSessionStatus::Active).count();
+        assert_eq!(active_count, 2, "both children should be active initially");
+
+        // Mark child-1 as Completed
+        let updated = tree.mark_child_status("child-1", ChildSessionStatus::Completed);
+        assert!(updated, "mark_child_status should return true for existing child");
+
+        // Now only child-2 is active
+        let children = tree.list_children("parent");
+        let active_count = children.iter().filter(|c| c.status == ChildSessionStatus::Active).count();
+        assert_eq!(active_count, 1, "only child-2 should be active after child-1 completed");
+        assert_eq!(children[0].status, ChildSessionStatus::Completed);
+        assert_eq!(children[1].status, ChildSessionStatus::Active);
+
+        // Mark child-2 as Terminated
+        tree.mark_child_status("child-2", ChildSessionStatus::Terminated);
+        let children = tree.list_children("parent");
+        let active_count = children.iter().filter(|c| c.status == ChildSessionStatus::Active).count();
+        assert_eq!(active_count, 0, "no children should be active after both marked");
+
+        // mark_child_status for non-existent child returns false
+        let not_found = tree.mark_child_status("nonexistent", ChildSessionStatus::Completed);
+        assert!(!not_found, "mark_child_status should return false for unknown child");
+    }
+
+    #[test]
     fn test_build_spawn_tree_edge_cases() {
         // empty
         let (tree, demoted) =
