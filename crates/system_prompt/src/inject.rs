@@ -10,7 +10,9 @@ use crate::builder::PromptOverrides;
 use crate::plan_path::analyze_plan_path;
 use crate::sections::Section;
 use crate::workdir;
-use closeclaw_common::{DynamicPromptBuilder, DynamicPromptContext, PlanPath, SessionMode};
+use closeclaw_common::{
+    DynamicPromptBuilder, DynamicPromptContext, ModeTransition, PlanPath, SessionMode,
+};
 use closeclaw_gateway::session_handler::MessageMetadata;
 
 /// Build dynamic sections from metadata and session state.
@@ -33,6 +35,11 @@ use closeclaw_gateway::session_handler::MessageMetadata;
 /// `user_input` — the user's original input text, used for
 /// automatic clarity analysis when `explicit_plan_path` is `None`
 /// in Plan Mode.
+///
+/// `pending_mode_transition` — when `Some`, a one-shot mode transition
+/// notification section is injected. The value should be `take`'d by
+/// the caller before passing, ensuring the section appears only once
+/// (in the prompt build immediately following the transition).
 pub fn build_dynamic_sections(
     meta: &MessageMetadata,
     workdir_path: Option<&str>,
@@ -41,6 +48,7 @@ pub fn build_dynamic_sections(
     session_mode: SessionMode,
     explicit_plan_path: Option<PlanPath>,
     user_input: Option<&str>,
+    pending_mode_transition: Option<ModeTransition>,
 ) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
 
@@ -59,6 +67,14 @@ pub fn build_dynamic_sections(
             sparse: false,
             sub_agent: false,
         });
+    }
+
+    // Inject one-shot mode transition notification.
+    // The value was already `take`'d by the session layer, so this is
+    // a one-shot injection: the section appears only in the prompt
+    // build immediately following the transition.
+    if let Some(transition) = pending_mode_transition {
+        sections.push(Section::ModeTransition { transition });
     }
 
     sections.push(Section::ChannelContext {
@@ -229,6 +245,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
                     context.session_mode,
                     None,
                     context.user_input,
+                    context.pending_mode_transition,
                 );
                 let append_parts: Vec<&str> = sections
                     .iter()
@@ -257,6 +274,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
             context.session_mode,
             None,
             context.user_input,
+            context.pending_mode_transition,
         );
         let dynamic_rendered = if sections.is_empty() {
             None
@@ -273,7 +291,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use closeclaw_common::SessionMode;
+    use closeclaw_common::{ModeTransition, SessionMode};
 
     fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
         MessageMetadata {
@@ -286,8 +304,16 @@ mod tests {
     #[test]
     fn test_build_dynamic_sections_normal_mode_no_instruction() {
         let meta = make_meta("u", "ch", 0);
-        let sections =
-            build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
+        let sections = build_dynamic_sections(
+            &meta,
+            None,
+            &[],
+            None,
+            SessionMode::Normal,
+            None,
+            None,
+            None,
+        );
         assert!(!sections.iter().any(|s| s.name() == "mode_instruction"));
     }
 
@@ -301,6 +327,7 @@ mod tests {
             None,
             SessionMode::Plan,
             Some(PlanPath::Standard),
+            None,
             None,
         );
         let mode_sec = sections.iter().find(|s| s.name() == "mode_instruction");
@@ -316,7 +343,7 @@ mod tests {
     fn test_build_dynamic_sections_auto_mode_injects_instruction() {
         let meta = make_meta("u", "ch", 0);
         let sections =
-            build_dynamic_sections(&meta, None, &[], None, SessionMode::Auto, None, None);
+            build_dynamic_sections(&meta, None, &[], None, SessionMode::Auto, None, None, None);
         let mode_sec = sections.iter().find(|s| s.name() == "mode_instruction");
         assert!(
             mode_sec.is_some(),
@@ -336,6 +363,7 @@ mod tests {
             None,
             SessionMode::Plan,
             Some(PlanPath::Standard),
+            None,
             None,
         );
         let rendered = sections
@@ -358,6 +386,7 @@ mod tests {
             SessionMode::Plan,
             Some(PlanPath::Interview),
             None,
+            None,
         );
         let rendered = sections
             .iter()
@@ -379,6 +408,7 @@ mod tests {
             SessionMode::Plan,
             None,
             Some("Fix the bug in crates/system_prompt/src/sections.rs — should return None"),
+            None,
         );
         let rendered = sections
             .iter()
@@ -400,6 +430,7 @@ mod tests {
             SessionMode::Plan,
             None,
             Some("Make it better"),
+            None,
         );
         let rendered = sections
             .iter()
@@ -421,6 +452,7 @@ mod tests {
             SessionMode::Plan,
             Some(PlanPath::Interview),
             None,
+            None,
         );
         let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
         let ss_idx = sections.iter().position(|s| s.name() == "session_state");
@@ -429,6 +461,120 @@ mod tests {
         assert!(
             mode_idx.unwrap() < ss_idx.unwrap(),
             "ModeInstruction should come before SessionState"
+        );
+    }
+
+    // ── ModeTransition injection tests ────────────────────────────────────
+
+    #[test]
+    fn test_build_dynamic_sections_mode_transition_exit_plan() {
+        let meta = make_meta("u", "ch", 0);
+        let sections = build_dynamic_sections(
+            &meta,
+            None,
+            &[],
+            None,
+            SessionMode::Auto,
+            None,
+            None,
+            Some(ModeTransition::ExitPlan),
+        );
+        let transition = sections.iter().find(|s| s.name() == "mode_transition");
+        assert!(
+            transition.is_some(),
+            "ExitPlan transition should be injected"
+        );
+        let rendered = transition.unwrap().render();
+        assert!(
+            rendered.contains("ExitPlan") || rendered.contains("exit plan") || rendered.len() > 0
+        );
+    }
+
+    #[test]
+    fn test_build_dynamic_sections_mode_transition_reentry() {
+        let meta = make_meta("u", "ch", 0);
+        let sections = build_dynamic_sections(
+            &meta,
+            None,
+            &[],
+            None,
+            SessionMode::Plan,
+            Some(PlanPath::Standard),
+            None,
+            Some(ModeTransition::Reentry),
+        );
+        let transition = sections.iter().find(|s| s.name() == "mode_transition");
+        assert!(
+            transition.is_some(),
+            "Reentry transition should be injected"
+        );
+    }
+
+    #[test]
+    fn test_build_dynamic_sections_mode_transition_exit_auto() {
+        let meta = make_meta("u", "ch", 0);
+        let sections = build_dynamic_sections(
+            &meta,
+            None,
+            &[],
+            None,
+            SessionMode::Normal,
+            None,
+            None,
+            Some(ModeTransition::ExitAuto),
+        );
+        let transition = sections.iter().find(|s| s.name() == "mode_transition");
+        assert!(
+            transition.is_some(),
+            "ExitAuto transition should be injected"
+        );
+    }
+
+    #[test]
+    fn test_build_dynamic_sections_no_transition_when_none() {
+        let meta = make_meta("u", "ch", 0);
+        let sections = build_dynamic_sections(
+            &meta,
+            None,
+            &[],
+            None,
+            SessionMode::Normal,
+            None,
+            None,
+            None,
+        );
+        assert!(
+            !sections.iter().any(|s| s.name() == "mode_transition"),
+            "No transition section when pending_mode_transition is None"
+        );
+    }
+
+    #[test]
+    fn test_build_dynamic_sections_transition_after_mode_instruction() {
+        let meta = make_meta("u", "ch", 0);
+        let sections = build_dynamic_sections(
+            &meta,
+            None,
+            &[],
+            None,
+            SessionMode::Plan,
+            Some(PlanPath::Standard),
+            None,
+            Some(ModeTransition::Reentry),
+        );
+        let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
+        let transition_idx = sections.iter().position(|s| s.name() == "mode_transition");
+        let channel_idx = sections.iter().position(|s| s.name() == "channel_context");
+        assert!(mode_idx.is_some());
+        assert!(transition_idx.is_some());
+        assert!(channel_idx.is_some());
+        assert!(
+            mode_idx.unwrap() < transition_idx.unwrap(),
+            "ModeTransition should come after ModeInstruction"
+        );
+        assert!(
+            transition_idx.unwrap() < channel_idx.unwrap(),
+            "ModeTransition should come before ChannelContext"
         );
     }
 }

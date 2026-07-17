@@ -79,6 +79,7 @@ fn test_build_dynamic_sections_session_timestamp_override() {
         SessionMode::Normal,
         None,
         None,
+        None,
     );
     let cc = sections
         .iter()
@@ -276,6 +277,7 @@ fn test_build_dynamic_sections_working_directory() {
         SessionMode::Normal,
         None,
         None,
+        None,
     );
     let wd = sections.iter().find(|s| s.name() == "working_directory");
     assert!(
@@ -300,6 +302,7 @@ fn test_build_dynamic_sections_git_status_with_path() {
         SessionMode::Normal,
         None,
         None,
+        None,
     );
     let has_wd = sections.iter().any(|s| s.name() == "working_directory");
     let has_git = sections.iter().any(|s| s.name() == "git_status");
@@ -318,6 +321,7 @@ fn test_build_dynamic_sections_no_git_for_non_repo() {
         &[],
         None,
         SessionMode::Normal,
+        None,
         None,
         None,
     );
@@ -339,6 +343,7 @@ fn test_working_directory_render_sanitization() {
         &[],
         None,
         SessionMode::Normal,
+        None,
         None,
         None,
     );
