@@ -15,7 +15,9 @@ use tokio_util::sync::CancellationToken;
 use crate::persistence::{PendingOperationDetail, ReasoningLevel, SessionMode};
 use crate::run_health::{RunHealthChecker, RuntimeSnapshotManager};
 use crate::spawn::CommunicationConfig;
-use closeclaw_common::{ChildCompletionStatus, ChildSessionState, LlmState, ToolExecState};
+use closeclaw_common::{
+    ChildCompletionStatus, ChildSessionState, LlmState, ModeTransition, ToolExecState,
+};
 use closeclaw_common::{ContentBlock, UnifiedUsage};
 use closeclaw_common::{LlmCaller, PromptOverrides, SystemPromptBuilder};
 use closeclaw_common::{RunningStats, StreamingSink, TurnCounter, VerbosityLevel};
@@ -158,6 +160,10 @@ pub struct ConversationSession {
     /// Session mode controlling session-level behavior constraints.
     /// Orthogonal to `ReasoningMode` — see [`SessionMode`] docs.
     session_mode: Arc<Mutex<SessionMode>>,
+    /// Pending mode transition notification. When set, the next
+    /// system prompt build will include a `Section::ModeTransition`
+    /// and then clear this slot (one-shot injection).
+    pending_mode_transition: Arc<Mutex<Option<ModeTransition>>>,
     /// Per-request context for dynamic-layer injection.
     request_context: Arc<Mutex<closeclaw_common::RequestContext>>,
     /// LLM caller injected by Gateway for delegating LLM requests.
@@ -224,6 +230,7 @@ impl ConversationSession {
             shutdown_handle: None,
             verbosity_level: VerbosityLevel::default(),
             session_mode: Arc::new(Mutex::new(SessionMode::default())),
+            pending_mode_transition: Arc::new(Mutex::new(None)),
             request_context: Arc::new(Mutex::new(closeclaw_common::RequestContext::default())),
             progress_appends: Arc::new(Mutex::new(Vec::new())),
             llm_caller: None,
@@ -428,6 +435,24 @@ impl ConversationSession {
             .session_mode
             .lock()
             .expect("session_mode lock poisoned") = mode;
+    }
+
+    /// Set a pending mode transition to be injected into the next
+    /// system prompt build. Overwrites any previously pending transition.
+    pub fn set_pending_mode_transition(&self, transition: ModeTransition) {
+        *self
+            .pending_mode_transition
+            .lock()
+            .expect("pending_mode_transition lock poisoned") = Some(transition);
+    }
+
+    /// Take the pending mode transition, clearing the slot.
+    /// Returns `None` if no transition was pending.
+    pub fn take_pending_mode_transition(&self) -> Option<ModeTransition> {
+        self.pending_mode_transition
+            .lock()
+            .expect("pending_mode_transition lock poisoned")
+            .take()
     }
 
     /// Set per-request context for dynamic-layer injection.
@@ -922,6 +947,13 @@ impl std::fmt::Debug for ConversationSession {
                     .session_mode
                     .lock()
                     .expect("session_mode lock poisoned"),
+            )
+            .field(
+                "pending_mode_transition",
+                &*self
+                    .pending_mode_transition
+                    .lock()
+                    .expect("pending_mode_transition lock poisoned"),
             )
             .field(
                 "memory_injection",

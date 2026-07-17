@@ -18,13 +18,15 @@ pub mod tools_section;
 pub mod workdir;
 
 #[cfg(test)]
+pub mod inject_tests;
+#[cfg(test)]
 pub mod plan_path_tests;
 
 pub use builder::{
     build_from_workspace, build_system_prompt, PromptOverrides, WorkspaceBuildConfig,
 };
 pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
-pub use inject::SystemPromptDynamicBuilder;
+pub use inject::{DynamicSectionsParams, SystemPromptDynamicBuilder};
 pub use providers::bootstrap::BootstrapFragmentProvider;
 pub use providers::memory::MemoryFragmentProvider;
 pub use providers::skills::SkillsFragmentProvider;

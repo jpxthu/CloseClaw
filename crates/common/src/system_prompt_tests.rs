@@ -86,6 +86,7 @@ fn test_dynamic_prompt_context_fields() {
         session_mode: super::SessionMode::Normal,
         overrides: None,
         user_input: None,
+        pending_mode_transition: None,
     };
     assert_eq!(dpctx.system_prompt, Some("static"));
     assert_eq!(dpctx.ctx.sender_id, "ou_test");
@@ -113,6 +114,7 @@ fn test_dynamic_prompt_context_with_appends_and_overrides() {
         session_mode: super::SessionMode::Plan,
         overrides: Some(&overrides),
         user_input: Some("fix the bug"),
+        pending_mode_transition: None,
     };
     assert!(dpctx.system_prompt.is_none());
     assert_eq!(dpctx.system_appends.len(), 2);
