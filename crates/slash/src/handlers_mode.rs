@@ -63,9 +63,27 @@ impl SlashHandler for PlanModeHandler {
             );
         }
 
-        // Check if this is a re-entry into Plan Mode (session was previously
-        // in Plan Mode and exited). If so, inject a Reentry mode transition.
-        if let Some(prev_plan_state) = self.session_manager.get_plan_state(&ctx.session_id).await {
+        // Check current mode to determine the right mode transition.
+        // - Auto Mode exit → ExitAuto (priority: leaving Auto is more important
+        //   than reentry notification)
+        // - Plan Mode re-entry (from Normal or other) → Reentry
+        let exiting_auto = if let Some(conv) = self
+            .session_manager
+            .get_conversation_session(&ctx.session_id)
+            .await
+        {
+            conv.read().await.session_mode() == SessionMode::Auto
+        } else {
+            false
+        };
+        if exiting_auto {
+            // Exiting Auto Mode via /plan — inject ExitAuto transition.
+            self.session_manager
+                .set_pending_mode_transition(&ctx.session_id, ModeTransition::ExitAuto)
+                .await;
+        } else if let Some(prev_plan_state) =
+            self.session_manager.get_plan_state(&ctx.session_id).await
+        {
             if !prev_plan_state.plan_file_path.is_empty() {
                 self.session_manager
                     .set_pending_mode_transition(&ctx.session_id, ModeTransition::Reentry)
@@ -417,7 +435,12 @@ impl SlashHandler for PauseHandler {
             .set_plan_state(&ctx.session_id, plan_state)
             .await;
 
-        // Step 6: Switch session mode back to Plan Mode
+        // Step 6: Inject ExitAuto transition (leaving Auto Mode).
+        self.session_manager
+            .set_pending_mode_transition(&ctx.session_id, ModeTransition::ExitAuto)
+            .await;
+
+        // Step 7: Switch session mode back to Plan Mode
         SlashResult::SetMode {
             mode: "plan".to_owned(),
             plan_file_path: Some(std::path::PathBuf::from(&path_clone)),
@@ -491,23 +514,31 @@ impl SlashHandler for ModeHandler {
             ));
         };
 
+        // Read current mode for approval gate and ExitAuto detection.
+        let current_mode = self
+            .session_manager
+            .get_conversation_session(&ctx.session_id)
+            .await;
+        let current_mode = if let Some(conv) = current_mode {
+            Some(conv.read().await.session_mode())
+        } else {
+            None
+        };
+
         // Approval gate: `/mode normal` from Plan Mode is forbidden.
-        if target_mode == SessionMode::Normal {
-            let Some(conv) = self
-                .session_manager
-                .get_conversation_session(&ctx.session_id)
-                .await
-            else {
-                return SlashResult::Reply("当前会话未激活".to_owned());
-            };
-            let cs = conv.read().await;
-            if cs.session_mode() == SessionMode::Plan {
-                return SlashResult::Reply(
-                    "Plan Mode 下不能直接切换到 Normal Mode。".to_owned()
-                        + "请使用 plan_approval 工具提交审批，"
-                        + "审批通过后方可退出 Plan Mode。",
-                );
-            }
+        if target_mode == SessionMode::Normal && current_mode == Some(SessionMode::Plan) {
+            return SlashResult::Reply(
+                "Plan Mode 下不能直接切换到 Normal Mode。".to_owned()
+                    + "请使用 plan_approval 工具提交审批，"
+                    + "审批通过后方可退出 Plan Mode。",
+            );
+        }
+
+        // Inject ExitAuto transition when leaving Auto Mode.
+        if current_mode == Some(SessionMode::Auto) && target_mode != SessionMode::Auto {
+            self.session_manager
+                .set_pending_mode_transition(&ctx.session_id, ModeTransition::ExitAuto)
+                .await;
         }
 
         SlashResult::SetMode {
