@@ -69,6 +69,10 @@ pub struct ChildSessionCreationParams<'a> {
     pub parent_subagents_model: Option<&'a str>,
     /// Effective maximum spawn depth for the child.
     pub max_spawn_depth: u32,
+    /// Optional prompt template text to inject into the child's system prompt
+    /// tail (before the task message). Per design doc §9, the template goes
+    /// into the system prompt, not the user message.
+    pub prompt_template_prefix: Option<&'a str>,
 }
 
 /// Create a child `ConversationSession` for a spawned sub-agent.
@@ -232,7 +236,14 @@ async fn configure_spawn_behavior(
             Some(behavior.bootstrap_mode),
         )
         .await;
-    cs.replace_system_prompt(format!("{}\n{}", base_prompt, behavior.spawn_context));
+    let mut system_prompt = format!("{}\n{}", base_prompt, behavior.spawn_context);
+    // Inject prompt template into system prompt tail (design doc §9).
+    // The template text goes into the system prompt, not the user message.
+    if let Some(tpl_prefix) = params.prompt_template_prefix {
+        system_prompt.push_str("\n");
+        system_prompt.push_str(tpl_prefix);
+    }
+    cs.replace_system_prompt(system_prompt);
 
     // Mark as sub-agent so the sub-agent sparse prompt variant
     // is injected on subsequent LLM calls (design doc §5, §8).

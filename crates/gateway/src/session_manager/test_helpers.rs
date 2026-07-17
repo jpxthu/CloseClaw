@@ -232,6 +232,7 @@ pub(super) async fn spawn_n_run_children(
                 3,    // max_spawn_depth
                 None, // spawn_timeout,
                 None, // label
+                None, // prompt_template_prefix
             )
             .await
             .expect("create_child_session should succeed");

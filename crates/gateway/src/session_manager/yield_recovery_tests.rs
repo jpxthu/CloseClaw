@@ -53,6 +53,7 @@ async fn test_yield_recovery_single_child() {
             3,
             None,
             None,
+            None, // prompt_template_prefix
         )
         .await
         .unwrap();
@@ -159,6 +160,7 @@ async fn test_yield_recovery_injects_announce() {
             3,
             None,
             None,
+            None, // prompt_template_prefix
         )
         .await
         .unwrap();
@@ -275,6 +277,7 @@ async fn test_yield_recovery_drains_announce_queue() {
             3,
             None,
             None,
+            None, // prompt_template_prefix
         )
         .await
         .unwrap();
@@ -331,6 +334,7 @@ async fn test_yield_session_mode_no_block() {
             3,
             None,
             None,
+            None, // prompt_template_prefix
         )
         .await
         .unwrap();
@@ -391,6 +395,7 @@ async fn test_yield_no_recovery_while_child_registered() {
             3,
             None,
             None,
+            None, // prompt_template_prefix
         )
         .await
         .unwrap();

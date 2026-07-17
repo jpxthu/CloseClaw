@@ -131,6 +131,7 @@ async fn test_task_injected_with_user_role() {
         model_override: None,
         parent_subagents_model: None,
         max_spawn_depth: 3,
+        prompt_template_prefix: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -167,6 +168,7 @@ async fn test_task_content_forwarded() {
         model_override: None,
         parent_subagents_model: None,
         max_spawn_depth: 3,
+        prompt_template_prefix: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -201,6 +203,7 @@ async fn test_pending_message_id_format() {
         model_override: None,
         parent_subagents_model: None,
         max_spawn_depth: 3,
+        prompt_template_prefix: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -242,6 +245,7 @@ async fn test_task_role_user_in_session_mode() {
         model_override: None,
         parent_subagents_model: None,
         max_spawn_depth: 3,
+        prompt_template_prefix: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)

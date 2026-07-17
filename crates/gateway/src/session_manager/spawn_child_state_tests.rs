@@ -60,6 +60,7 @@ async fn test_spawn_registers_child_state_in_checkpoint() {
             3,
             None,
             None,
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -145,6 +146,7 @@ async fn test_child_completion_deregisters_child_state() {
             3,
             None,
             None,
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");

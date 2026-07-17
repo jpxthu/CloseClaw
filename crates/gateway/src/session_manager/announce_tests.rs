@@ -105,6 +105,7 @@ async fn test_try_push_announce_run_mode() {
             3,    // max_spawn_depth
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -155,6 +156,7 @@ async fn test_try_push_announce_session_mode_noop() {
             3,    // max_spawn_depth
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -283,6 +285,7 @@ async fn test_thinking_blocks_excluded() {
             3,    // max_spawn_depth
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -409,6 +412,7 @@ async fn test_try_push_announce_sends_mining_notification() {
             3,    // max_spawn_depth
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -460,6 +464,7 @@ async fn test_try_push_announce_no_notification_without_tx() {
             3,    // max_spawn_depth
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -511,6 +516,7 @@ async fn test_session_mode_no_mining_notification() {
             3,    // max_spawn_depth
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
