@@ -234,6 +234,10 @@ async fn configure_spawn_behavior(
         .await;
     cs.replace_system_prompt(format!("{}\n{}", base_prompt, behavior.spawn_context));
 
+    // Mark as sub-agent so the sub-agent sparse prompt variant
+    // is injected on subsequent LLM calls (design doc §5, §8).
+    cs.set_sub_agent(true);
+
     // Apply communication config: child may only communicate with parent.
     cs = cs.with_communication_config(comm_config.clone());
 

@@ -33,6 +33,17 @@ impl ConversationSession {
         self.is_compacted
     }
 
+    /// Mark this session as a sub-agent so that the sub-agent
+    /// sparse prompt variant is injected on subsequent LLM calls.
+    pub fn set_sub_agent(&mut self, is_sub_agent: bool) {
+        self.is_sub_agent = is_sub_agent;
+    }
+
+    /// Returns whether this session is a sub-agent.
+    pub fn is_sub_agent(&self) -> bool {
+        self.is_sub_agent
+    }
+
     /// Make a non-streaming LLM call via the injected [`LlmCaller`].
     ///
     /// Builds an [`InternalRequest`], consuming any pending
@@ -151,7 +162,7 @@ impl ConversationSession {
                 user_input,
                 pending_mode_transition: pending_transition,
                 is_compacted: self.is_compacted,
-                is_sub_agent: false,
+                is_sub_agent: self.is_sub_agent,
             };
             builder.build_prompt_parts(&context)
         } else {
