@@ -63,19 +63,25 @@ impl SlashHandler for PlanModeHandler {
             );
         }
 
-        // Check current mode to determine the right mode transition.
-        // - Auto Mode exit → ExitAuto (priority: leaving Auto is more important
-        //   than reentry notification)
-        // - Plan Mode re-entry (from Normal or other) → Reentry
-        let exiting_auto = if let Some(conv) = self
+        // Read conversation session once to get both mode and workdir,
+        // avoiding a second async read lock acquisition.
+        let (exiting_auto, workdir) = if let Some(conv) = self
             .session_manager
             .get_conversation_session(&ctx.session_id)
             .await
         {
-            conv.read().await.session_mode() == SessionMode::Auto
+            let cs = conv.read().await;
+            let exiting_auto = cs.session_mode() == SessionMode::Auto;
+            let workdir = cs.workdir().to_path_buf();
+            (exiting_auto, Some(workdir))
         } else {
-            false
+            (false, None)
         };
+
+        // Inject mode transition based on prior state.
+        // - Auto Mode exit → ExitAuto (priority: leaving Auto is more important
+        //   than reentry notification)
+        // - Plan Mode re-entry (from Normal or other) → Reentry
         if exiting_auto {
             // Exiting Auto Mode via /plan — inject ExitAuto transition.
             self.session_manager
@@ -91,14 +97,8 @@ impl SlashHandler for PlanModeHandler {
             }
         }
 
-        let plan_file_path = if let Some(conv) = self
-            .session_manager
-            .get_conversation_session(&ctx.session_id)
-            .await
-        {
-            let cs = conv.read().await;
-            let workdir = cs.workdir().to_path_buf();
-            match plan_file::create_plan_file(&workdir, title) {
+        let plan_file_path = if let Some(ref workdir) = workdir {
+            match plan_file::create_plan_file(workdir, title) {
                 Ok(path) => Some(path),
                 Err(e) => {
                     tracing::warn!(
