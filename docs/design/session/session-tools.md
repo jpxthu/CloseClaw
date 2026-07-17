@@ -35,16 +35,18 @@ Session 模块向 ToolRegistry 注册三个工具，供 agent 在其生命周期
 | `workspace` | 独立工作目录 | 否 | spawn 参数指定 → 目标 agent.workspace → 父 Agent 工作目录 |
 | `label` | 子 session 简短标签 | 否 | 自动生成 |
 | `lightContext` | 是否使用 minimal bootstrap | 否 | `false` |
-| `promptTemplate` | 注入的 prompt 模板（`explore` / `validation`） | 否 | 无 |
+| `promptTemplate` | 注入的 prompt 模板（`explore` / `plan` / `executor` / `validation`） | 否 | 无 |
 | `allowedTools` | 限制子 session 可用的工具白名单 | 否 | 目标 agent 配置中的工具集 |
 
 `lightContext` 复用 session 模块已有的 `bootstrapMode: "minimal"` 机制。spawn 时指定 `lightContext: true`，子 session 以 minimal bootstrap 启动。
 
 `promptTemplate` 为框架提供嵌入式 prompt 模板：
 - `explore`：注入"只做研究不修改文件"的行为约束
+- `plan`：注入架构设计 persona，要求只读探索后输出设计方案和关键文件列表
+- `executor`：注入自主执行模式的行为指令
 - `validation`：注入"逐条校验并报告差异"的结构化输出要求
 
-模板不影响 agent 配置，仅在 spawn 调用时作为 prompt 前缀注入。
+各模板的完整 prompt 内容定义见 [mode/references/prompts.md](../mode/references/prompts.md) 第 7 节。模板不影响 agent 配置，仅在 spawn 调用时作为 prompt 前缀注入。
 
 `model` 参数解析优先级（未指定时按以下顺序回退，直到找到非空值）：
 
@@ -68,7 +70,7 @@ Session 模块向 ToolRegistry 注册三个工具，供 agent 在其生命周期
 
 ### sessions_kill
 
-终止存活中的 `mode="session"` 子 session，释放资源，session 对话历史保留。系统在执行前通过 Permission 引擎的「跨 Agent 通信」维度校验发起方 agent 是否有权 kill 目标 agent。
+终止子 session 及其所有后代（级联），释放资源，session 对话历史保留。对所有 mode（run / session）有效。系统在执行前通过 Permission 引擎的「跨 Agent 通信」维度校验发起方 agent 是否有权 kill 目标 agent。
 
 参数：
 
