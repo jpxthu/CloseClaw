@@ -904,6 +904,7 @@ impl std::fmt::Debug for ConversationSession {
             .field("model", &self.model)
             .field("compaction_state", &self.compaction_state)
             .field("is_compacted", &self.is_compacted)
+            .field("is_sub_agent", &self.is_sub_agent)
             .field("pending_messages", &self.pending_messages)
             .field("reasoning_level", &self.reasoning_level)
             .field("workdir", &self.workdir)
