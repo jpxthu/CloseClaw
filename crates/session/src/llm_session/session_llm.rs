@@ -22,6 +22,17 @@ impl ConversationSession {
         self.dynamic_prompt_builder = Some(b);
     }
 
+    /// Mark this session as compacted so that sparse prompt variants
+    /// are injected on subsequent LLM calls.
+    pub fn mark_compacted(&mut self) {
+        self.is_compacted = true;
+    }
+
+    /// Returns whether this session has been compacted.
+    pub fn is_compacted(&self) -> bool {
+        self.is_compacted
+    }
+
     /// Make a non-streaming LLM call via the injected [`LlmCaller`].
     ///
     /// Builds an [`InternalRequest`], consuming any pending
@@ -139,7 +150,7 @@ impl ConversationSession {
                 overrides: self.prompt_overrides.as_ref(),
                 user_input,
                 pending_mode_transition: pending_transition,
-                is_compacted: false,
+                is_compacted: self.is_compacted,
                 is_sub_agent: false,
             };
             builder.build_prompt_parts(&context)

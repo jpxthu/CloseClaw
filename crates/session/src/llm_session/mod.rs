@@ -97,6 +97,10 @@ pub struct ConversationSession {
     turn_counter: TurnCounter,
     model: String,
     compaction_state: Option<String>,
+    /// Whether the session has been compacted (context summarized).
+    /// When `true`, sparse prompt variants are injected instead of
+    /// the full mode instruction. See design doc §8.
+    is_compacted: bool,
     is_llm_busy: Arc<AtomicBool>,
     pending_messages: VecDeque<crate::persistence::PendingMessage>,
     reasoning_level: ReasoningLevel,
@@ -203,6 +207,7 @@ impl ConversationSession {
             turn_counter: TurnCounter::new(),
             model,
             compaction_state: None,
+            is_compacted: false,
             is_llm_busy: Arc::new(AtomicBool::new(false)),
             pending_messages: VecDeque::new(),
             reasoning_level: ReasoningLevel::default(),
@@ -893,6 +898,7 @@ impl std::fmt::Debug for ConversationSession {
             .field("turn_counter", &self.turn_counter)
             .field("model", &self.model)
             .field("compaction_state", &self.compaction_state)
+            .field("is_compacted", &self.is_compacted)
             .field("pending_messages", &self.pending_messages)
             .field("reasoning_level", &self.reasoning_level)
             .field("workdir", &self.workdir)
