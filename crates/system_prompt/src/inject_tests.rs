@@ -260,3 +260,151 @@ fn test_exit_auto_from_auto_to_normal() {
         "ExitAuto should render correct content"
     );
 }
+
+// ── ModeInstruction basic tests (migrated from inject.rs) ──────────────────
+
+/// Plan mode injects a ModeInstruction section with "Plan" content.
+#[test]
+fn test_plan_mode_injects_instruction() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        explicit_plan_path: Some(PlanPath::Standard),
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let mode_sec = sections.iter().find(|s| s.name() == "mode_instruction");
+    assert!(
+        mode_sec.is_some(),
+        "Plan mode should inject ModeInstruction"
+    );
+    let rendered = mode_sec.unwrap().render();
+    assert!(rendered.contains("Plan"));
+}
+
+/// Auto mode injects a ModeInstruction section with "Auto" content.
+#[test]
+fn test_auto_mode_injects_instruction() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Auto));
+    let mode_sec = sections.iter().find(|s| s.name() == "mode_instruction");
+    assert!(
+        mode_sec.is_some(),
+        "Auto mode should inject ModeInstruction"
+    );
+    let rendered = mode_sec.unwrap().render();
+    assert!(rendered.contains("Auto"));
+}
+
+/// Plan mode with explicit Standard path renders "Standard Path".
+#[test]
+fn test_plan_mode_explicit_standard_path() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        explicit_plan_path: Some(PlanPath::Standard),
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let rendered = sections
+        .iter()
+        .find(|s| s.name() == "mode_instruction")
+        .unwrap()
+        .render();
+    assert!(rendered.contains("Standard Path"));
+    assert!(!rendered.contains("Interview Path"));
+}
+
+/// Plan mode with explicit Interview path renders "Interview Path".
+#[test]
+fn test_plan_mode_explicit_interview_path() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        explicit_plan_path: Some(PlanPath::Interview),
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let rendered = sections
+        .iter()
+        .find(|s| s.name() == "mode_instruction")
+        .unwrap()
+        .render();
+    assert!(rendered.contains("Interview Path"));
+    assert!(!rendered.contains("Standard Path"));
+}
+
+/// Plan mode auto-analysis with a clear bug-fix input selects Standard Path.
+#[test]
+fn test_plan_mode_auto_analysis_clear_input() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        user_input: Some(
+            "Fix the bug in crates/system_prompt/src/sections.rs — should return None",
+        ),
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let rendered = sections
+        .iter()
+        .find(|s| s.name() == "mode_instruction")
+        .unwrap()
+        .render();
+    assert!(rendered.contains("Standard Path"));
+    assert!(!rendered.contains("Interview Path"));
+}
+
+/// Plan mode auto-analysis with an ambiguous input selects Interview Path.
+#[test]
+fn test_plan_mode_auto_analysis_ambiguous_input() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        user_input: Some("Make it better"),
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let rendered = sections
+        .iter()
+        .find(|s| s.name() == "mode_instruction")
+        .unwrap()
+        .render();
+    assert!(rendered.contains("Interview Path"));
+    assert!(!rendered.contains("Standard Path"));
+}
+
+/// ModeInstruction appears before SessionState in dynamic sections.
+#[test]
+fn test_mode_instruction_before_session_state() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        explicit_plan_path: Some(PlanPath::Interview),
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
+    let ss_idx = sections.iter().position(|s| s.name() == "session_state");
+    assert!(mode_idx.is_some());
+    assert!(ss_idx.is_some());
+    assert!(
+        mode_idx.unwrap() < ss_idx.unwrap(),
+        "ModeInstruction should come before SessionState"
+    );
+}
+
+// ── ModeTransition ordering guarantee ───────────────────────────────────────
+
+/// ModeTransition appears after ModeInstruction and before ChannelContext.
+#[test]
+fn test_mode_transition_after_mode_instruction_before_channel() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        explicit_plan_path: Some(PlanPath::Standard),
+        pending_mode_transition: Some(ModeTransition::Reentry),
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
+    let transition_idx = sections.iter().position(|s| s.name() == "mode_transition");
+    let channel_idx = sections.iter().position(|s| s.name() == "channel_context");
+    assert!(mode_idx.is_some());
+    assert!(transition_idx.is_some());
+    assert!(channel_idx.is_some());
+    assert!(
+        mode_idx.unwrap() < transition_idx.unwrap(),
+        "ModeTransition should come after ModeInstruction"
+    );
+    assert!(
+        transition_idx.unwrap() < channel_idx.unwrap(),
+        "ModeTransition should come before ChannelContext"
+    );
+}
