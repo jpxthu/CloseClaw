@@ -15,6 +15,8 @@ use closeclaw_common::{PlanPath, SessionMode};
 mod mode_prompts;
 
 #[cfg(test)]
+mod mode_prompts_tests;
+#[cfg(test)]
 mod sections_tests;
 
 use self::mode_prompts::*;
