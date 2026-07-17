@@ -13,7 +13,7 @@ use serde_json::json;
 use crate::builtin::sessions_kill::SessionsKillTool;
 use crate::builtin::sessions_steer::SessionsSteerTool;
 use crate::{Tool, ToolCallError, ToolContext};
-use closeclaw_gateway::session_manager::{ChildSessionInfo, SpawnMode};
+use closeclaw_gateway::session_manager::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use closeclaw_gateway::{GatewayConfig, Message, Session, SessionManager};
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
@@ -222,6 +222,7 @@ async fn setup_child_session(
             agent_id: "child-agent".to_string(),
             depth: 1,
             mode,
+            status: ChildSessionStatus::Active,
         },
     )
     .await;

@@ -144,20 +144,24 @@ fn test_prefixes_all_non_empty() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_validation_prefix_mentions_audit_mode() {
+fn test_validation_prefix_mentions_verification_specialist() {
     let prefix = PromptTemplate::Validation.prefix();
     assert!(
-        prefix.contains("VALIDATION/AUDIT"),
-        "Validation prefix must mention VALIDATION/AUDIT mode"
+        prefix.contains("verification specialist"),
+        "Validation prefix must mention verification specialist"
     );
 }
 
 #[test]
-fn test_validation_prefix_mentions_item_by_item() {
+fn test_validation_prefix_mentions_verdict() {
     let prefix = PromptTemplate::Validation.prefix();
     assert!(
-        prefix.contains("item-by-item"),
-        "Validation prefix must mention item-by-item validation"
+        prefix.contains("VERDICT: PASS"),
+        "Validation prefix must mention VERDICT: PASS"
+    );
+    assert!(
+        prefix.contains("VERDICT: FAIL"),
+        "Validation prefix must mention VERDICT: FAIL"
     );
 }
 
@@ -175,10 +179,88 @@ fn test_validation_prefix_mentions_pass_fail() {
 }
 
 #[test]
-fn test_validation_prefix_is_read_only() {
+fn test_validation_prefix_mentions_do_not_modify() {
     let prefix = PromptTemplate::Validation.prefix();
-    // Validation mode should not claim full toolset
-    assert!(!prefix.contains("full toolset"));
-    // But should mention structured output
-    assert!(prefix.contains("structured"));
+    assert!(
+        prefix.contains("DO NOT MODIFY"),
+        "Validation prefix must mention DO NOT MODIFY"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Explore prefix design doc marker tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_explore_prefix_mentions_file_search_specialist() {
+    let prefix = PromptTemplate::Explore.prefix();
+    assert!(prefix.contains("file search specialist"));
+}
+
+#[test]
+fn test_explore_prefix_read_only_mode() {
+    let prefix = PromptTemplate::Explore.prefix();
+    assert!(prefix.contains("READ-ONLY MODE"));
+    assert!(prefix.contains("NO FILE MODIFICATIONS"));
+}
+
+#[test]
+fn test_explore_prefix_communicate_final_report() {
+    let prefix = PromptTemplate::Explore.prefix();
+    assert!(prefix.contains("Communicate your final report directly"));
+}
+
+// ---------------------------------------------------------------------------
+// Plan prefix design doc marker tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_plan_prefix_mentions_software_architect() {
+    let prefix = PromptTemplate::Plan.prefix();
+    assert!(prefix.contains("software architect"));
+}
+
+#[test]
+fn test_plan_prefix_critical_files() {
+    let prefix = PromptTemplate::Plan.prefix();
+    assert!(prefix.contains("Critical Files for Implementation"));
+}
+
+#[test]
+fn test_plan_prefix_read_only() {
+    let prefix = PromptTemplate::Plan.prefix();
+    assert!(prefix.contains("READ-ONLY"));
+}
+
+// ---------------------------------------------------------------------------
+// Executor prefix design doc marker tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_executor_prefix_mentions_autonomous_execution() {
+    let prefix = PromptTemplate::Executor.prefix();
+    assert!(prefix.contains("autonomous execution mode"));
+}
+
+#[test]
+fn test_executor_prefix_execute_immediately() {
+    let prefix = PromptTemplate::Executor.prefix();
+    assert!(prefix.contains("Execute immediately"));
+}
+
+#[test]
+fn test_executor_prefix_avoid_data_exfiltration() {
+    let prefix = PromptTemplate::Executor.prefix();
+    assert!(prefix.contains("Avoid data exfiltration"));
+}
+
+#[test]
+fn test_executor_prefix_all_six_rules() {
+    let prefix = PromptTemplate::Executor.prefix();
+    assert!(prefix.contains("1. Execute immediately"));
+    assert!(prefix.contains("2. Minimize interruptions"));
+    assert!(prefix.contains("3. Prefer action over planning"));
+    assert!(prefix.contains("4. Expect course corrections"));
+    assert!(prefix.contains("5. Do not take overly destructive actions"));
+    assert!(prefix.contains("6. Avoid data exfiltration"));
 }

@@ -145,13 +145,13 @@ mod tests {
         let disk_registry = Arc::new(closeclaw_skills::DiskSkillRegistry::new(vec![]));
 
         // Register tools via the new Registrar pattern.
-        let permission_engine = Arc::new(
+        let permission_engine = Arc::new(tokio::sync::RwLock::new(
             closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(
                 closeclaw_permission::rules::RuleSetBuilder::new()
                     .build()
                     .unwrap(),
             ),
-        );
+        ));
         let tmp = tempfile::tempdir().unwrap();
         let cfg_mgr =
             Arc::new(closeclaw_config::ConfigManager::new(tmp.path().to_path_buf()).unwrap());
@@ -180,6 +180,7 @@ mod tests {
             closeclaw_permission::approval_flow::ApprovalFlow::new(
                 Arc::clone(&session_manager) as Arc<dyn closeclaw_common::SessionLookup>,
                 Arc::new(|_| {}),
+                Arc::new(|_: &str| {}),
                 tokio::runtime::Handle::current(),
                 closeclaw_permission::approval_flow::HeartbeatApprovalMode::default(),
                 tmp.path().to_path_buf(),

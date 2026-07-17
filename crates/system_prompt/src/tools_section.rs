@@ -120,9 +120,9 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
 
-    fn test_permission_engine() -> Arc<PermissionEngine> {
-        Arc::new(PermissionEngine::new_with_default_data_root(
-            RuleSetBuilder::new().build().unwrap(),
+    fn test_permission_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
+        Arc::new(tokio::sync::RwLock::new(
+            PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
         ))
     }
 
@@ -132,6 +132,7 @@ mod tests {
         Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
             Arc::clone(session_manager) as Arc<dyn closeclaw_common::SessionLookup>,
             Arc::new(|_| {}),
+            Arc::new(|_: &str| {}),
             tokio::runtime::Handle::current(),
             HeartbeatApprovalMode::default(),
             std::env::temp_dir(),
@@ -169,8 +170,10 @@ mod tests {
             Arc::clone(&agent_registry),
             Arc::clone(&cfg_mgr),
             Arc::clone(&session_manager),
-            Arc::new(PermissionEngine::new_with_default_data_root(
-                RuleSetBuilder::new().build().unwrap(),
+            Arc::new(tokio::sync::RwLock::new(
+                PermissionEngine::new_with_default_data_root(
+                    RuleSetBuilder::new().build().unwrap(),
+                ),
             )),
         ));
         (spawn_controller, session_manager, cfg_mgr, agent_registry)
