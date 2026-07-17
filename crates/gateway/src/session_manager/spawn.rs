@@ -526,6 +526,23 @@ impl SessionManager {
                     s.depth = 0;
                 }
             }
+            drop(sessions);
+
+            // Reset effective_max_spawn_depth for demoted orphans
+            // and persist the updated checkpoint.
+            for orphan_id in &orphan_ids {
+                if let Ok(Some(mut cp)) = cm_arc.load(orphan_id).await {
+                    cp.depth = 0;
+                    cp.effective_max_spawn_depth = None;
+                    if let Err(e) = cm_arc.save_raw(&cp).await {
+                        warn!(
+                            session_id = %orphan_id,
+                            error = %e,
+                            "failed to persist demoted orphan checkpoint"
+                        );
+                    }
+                }
+            }
         }
 
         tracing::info!(rebuilt, "spawn_tree rebuilt from checkpoints");
