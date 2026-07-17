@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 use std::sync::RwLock;
 use std::time::SystemTime;
 
-use closeclaw_common::{PlanPath, SessionMode};
+use closeclaw_common::{ModeTransition, PlanPath, SessionMode};
 
 mod mode_prompts;
 
@@ -55,17 +55,6 @@ pub enum Section {
     ModeTransition {
         transition: ModeTransition,
     },
-}
-
-/// Mode transition type — design doc section 6.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ModeTransition {
-    /// Re-entering Plan Mode after having previously exited it.
-    Reentry,
-    /// Exited Plan Mode (approval passed).
-    ExitPlan,
-    /// Exited Auto Mode.
-    ExitAuto,
 }
 
 impl Section {

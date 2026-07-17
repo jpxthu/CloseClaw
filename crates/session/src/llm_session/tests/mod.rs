@@ -691,3 +691,72 @@ fn test_build_api_request_no_tool_result_preserves_original_behavior() {
     assert_eq!(req.messages[0].content, "Hello");
     assert!(req.messages[0].tool_call_id.is_none());
 }
+
+// ── pending_mode_transition ────────────────────────────────────────────────
+
+#[test]
+fn test_pending_mode_transition_initial_none() {
+    let session = ConversationSession::new("sess_mt".into(), "gpt-4o".into(), tmp_path());
+    assert_eq!(session.take_pending_mode_transition(), None);
+}
+
+#[test]
+fn test_set_and_take_pending_mode_transition() {
+    let session = ConversationSession::new("sess_mt".into(), "gpt-4o".into(), tmp_path());
+    session.set_pending_mode_transition(ModeTransition::ExitPlan);
+    assert_eq!(
+        session.take_pending_mode_transition(),
+        Some(ModeTransition::ExitPlan)
+    );
+    // Second take returns None (one-shot)
+    assert_eq!(session.take_pending_mode_transition(), None);
+}
+
+#[test]
+fn test_set_overwrites_previous_transition() {
+    let session = ConversationSession::new("sess_mt".into(), "gpt-4o".into(), tmp_path());
+    session.set_pending_mode_transition(ModeTransition::Reentry);
+    session.set_pending_mode_transition(ModeTransition::ExitAuto);
+    assert_eq!(
+        session.take_pending_mode_transition(),
+        Some(ModeTransition::ExitAuto)
+    );
+}
+
+#[test]
+fn test_pending_mode_transition_all_variants() {
+    let session = ConversationSession::new("sess_mt".into(), "gpt-4o".into(), tmp_path());
+
+    session.set_pending_mode_transition(ModeTransition::Reentry);
+    assert_eq!(
+        session.take_pending_mode_transition(),
+        Some(ModeTransition::Reentry)
+    );
+
+    session.set_pending_mode_transition(ModeTransition::ExitPlan);
+    assert_eq!(
+        session.take_pending_mode_transition(),
+        Some(ModeTransition::ExitPlan)
+    );
+
+    session.set_pending_mode_transition(ModeTransition::ExitAuto);
+    assert_eq!(
+        session.take_pending_mode_transition(),
+        Some(ModeTransition::ExitAuto)
+    );
+}
+
+#[test]
+fn test_pending_mode_transition_independent_of_session_mode() {
+    let mut session = ConversationSession::new("sess_mt".into(), "gpt-4o".into(), tmp_path());
+    // Set mode to Plan, then set a transition — they are independent
+    session.set_session_mode(SessionMode::Plan);
+    session.set_pending_mode_transition(ModeTransition::ExitPlan);
+    assert_eq!(session.session_mode(), SessionMode::Plan);
+    assert_eq!(
+        session.take_pending_mode_transition(),
+        Some(ModeTransition::ExitPlan)
+    );
+    // Mode is unchanged after taking the transition
+    assert_eq!(session.session_mode(), SessionMode::Plan);
+}
