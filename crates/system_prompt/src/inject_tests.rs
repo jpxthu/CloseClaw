@@ -32,6 +32,8 @@ fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSect
         explicit_plan_path: None,
         user_input: None,
         pending_mode_transition: None,
+        is_compacted: false,
+        is_sub_agent: false,
     }
 }
 

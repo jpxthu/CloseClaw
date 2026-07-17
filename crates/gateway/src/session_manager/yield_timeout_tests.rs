@@ -129,6 +129,7 @@ async fn test_yield_timeout_fires_and_resumes() {
             3,
             None,
             None,
+            None, // prompt_template_prefix
         )
         .await
         .unwrap();
@@ -197,6 +198,7 @@ async fn test_yield_timeout_default_value_in_notification() {
             3,
             None,
             None,
+            None, // prompt_template_prefix
         )
         .await
         .unwrap();

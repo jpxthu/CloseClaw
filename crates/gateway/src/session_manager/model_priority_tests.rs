@@ -173,6 +173,7 @@ async fn test_model_priority_target_agent_model() {
             3,    // max_spawn_depth
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");
@@ -211,6 +212,7 @@ async fn test_model_priority_system_default() {
             3,    // max_spawn_depth
             None, // spawn_timeout,
             None, // label
+            None, // prompt_template_prefix
         )
         .await
         .expect("create_child_session should succeed");

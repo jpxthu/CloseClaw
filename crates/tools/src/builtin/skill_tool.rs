@@ -200,6 +200,7 @@ impl Tool for SkillTool {
                         1,    // max_spawn_depth (skill tool doesn't spawn)
                         None, // spawn_timeout (skill tool doesn't set timeout)
                         None, // label
+                        None, // prompt_template_prefix
                     )
                     .await
                     .map_err(|e| {

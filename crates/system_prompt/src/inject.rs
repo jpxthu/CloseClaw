@@ -37,6 +37,10 @@ pub struct DynamicSectionsParams<'a> {
     pub user_input: Option<&'a str>,
     /// One-shot mode transition to inject (should be `take`'d by caller).
     pub pending_mode_transition: Option<ModeTransition>,
+    /// Whether the session context has been compacted (for sparse prompt injection).
+    pub is_compacted: bool,
+    /// Whether this prompt is for a sub-agent (for sub-agent sparse injection).
+    pub is_sub_agent: bool,
 }
 
 /// Build dynamic sections from metadata and session state.
@@ -62,8 +66,8 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
         sections.push(Section::ModeInstruction {
             mode: params.session_mode,
             plan_path: resolved_plan_path,
-            sparse: false,
-            sub_agent: false,
+            sparse: params.is_compacted,
+            sub_agent: params.is_sub_agent,
         });
     }
 
@@ -246,6 +250,8 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
                     explicit_plan_path: None,
                     user_input: context.user_input,
                     pending_mode_transition: context.pending_mode_transition,
+                    is_compacted: context.is_compacted,
+                    is_sub_agent: context.is_sub_agent,
                 });
                 let append_parts: Vec<&str> = sections
                     .iter()
@@ -275,6 +281,8 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
             explicit_plan_path: None,
             user_input: context.user_input,
             pending_mode_transition: context.pending_mode_transition,
+            is_compacted: context.is_compacted,
+            is_sub_agent: context.is_sub_agent,
         });
         let dynamic_rendered = if sections.is_empty() {
             None

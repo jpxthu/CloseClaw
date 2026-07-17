@@ -135,6 +135,7 @@ impl SessionsSpawnTool {
         max_spawn_depth: u32,
         spawn_timeout: Option<u64>,
         label: Option<&str>,
+        prompt_template_prefix: Option<&str>,
     ) -> Result<String, ToolCallError> {
         self.session_manager
             .create_child_session(
@@ -152,6 +153,7 @@ impl SessionsSpawnTool {
                 max_spawn_depth,
                 spawn_timeout,
                 label,
+                prompt_template_prefix,
             )
             .await
             .map_err(|e| {
@@ -337,18 +339,16 @@ impl Tool for SessionsSpawnTool {
             .get_session_depth(parent_session_id)
             .await
             .unwrap_or(0);
-        // Prepend prompt template prefix to task if specified
-        let effective_task = match spawn_args.prompt_template {
-            Some(tpl) => format!("{}\n\n{}", tpl.prefix(), spawn_args.task),
-            None => spawn_args.task.clone(),
-        };
+        // Prompt template prefix goes into the child's system prompt,
+        // not the user message (design doc §9).
+        let prompt_template_prefix = spawn_args.prompt_template.as_ref().map(|tpl| tpl.prefix());
 
         let child_session_id = self
             .create_child(
                 &config,
                 parent_session_id,
                 parent_depth,
-                &effective_task,
+                &spawn_args.task,
                 spawn_args.light_context,
                 spawn_args.workspace.as_deref(),
                 spawn_args.mode,
@@ -359,6 +359,7 @@ impl Tool for SessionsSpawnTool {
                 effective_max_spawn_depth,
                 spawn_timeout,
                 spawn_args.label.as_deref(),
+                prompt_template_prefix,
             )
             .await?;
         Ok(ToolResult {

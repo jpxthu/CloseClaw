@@ -558,6 +558,7 @@ pub(crate) async fn apply_compact_result(
     {
         let mut cs = cs.write().await;
         cs.apply_transcript_op(TranscriptOp::Rewrite, vec![boundary]);
+        cs.mark_compacted();
     }
     // Rebuild system prompt after compaction so skills stay fresh.
     // The write guard above is now dropped, so we can safely acquire
