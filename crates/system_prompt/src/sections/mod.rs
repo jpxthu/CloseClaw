@@ -227,8 +227,8 @@ fn render_standard_path_instruction() -> String {
 /// Content verbatim from design doc section 3.
 fn render_interview_path_instruction() -> String {
     format!(
-        "## Mode: Plan \u{2014} Interview Path\n\n{}\n",
-        INTERVIEW_PATH_PROMPT
+        "## Mode: Plan \u{2014} Interview Path\n\n{}\n\n{}\n",
+        PLAN_MODE_CONSTRAINT, INTERVIEW_PATH_PROMPT
     )
 }
 
