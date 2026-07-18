@@ -291,6 +291,17 @@ impl PlanState {
             });
         }
 
+        let current = &self.execution_steps[step_index].status;
+
+        // Skipped → InProgress: skip the step-order check so that a
+        // previously-skipped step can be resumed even when current_step
+        // has already advanced past it.
+        if *current == ExecutionStepStatus::Skipped
+            && new_status == &ExecutionStepStatus::InProgress
+        {
+            return Ok(());
+        }
+
         // Skip-step check: step_index must == current_step (if set) or == 0
         if let Some(cur) = self.current_step {
             if step_index != cur {
@@ -305,13 +316,13 @@ impl PlanState {
                 got: step_index,
             });
         }
-
-        let current = &self.execution_steps[step_index].status;
         let valid = match new_status {
             ExecutionStepStatus::InProgress => {
                 matches!(
                     current,
-                    ExecutionStepStatus::Pending | ExecutionStepStatus::Failed
+                    ExecutionStepStatus::Pending
+                        | ExecutionStepStatus::Failed
+                        | ExecutionStepStatus::Skipped
                 )
             }
             ExecutionStepStatus::Completed => {
@@ -343,6 +354,7 @@ impl PlanState {
         new_status: ExecutionStepStatus,
     ) -> Result<(), TransitionError> {
         self.validate_transition(step_index, &new_status)?;
+        let old_status = self.execution_steps[step_index].status.clone();
         self.execution_steps[step_index].status = new_status;
 
         // Update current_step based on new status
@@ -354,9 +366,13 @@ impl PlanState {
             if next < self.execution_steps.len() {
                 self.current_step = Some(next);
             }
+        } else if new_status == ExecutionStepStatus::InProgress
+            && old_status == ExecutionStepStatus::Skipped
+        {
+            // When resuming from Skipped, point current_step back to this step
+            self.current_step = Some(step_index);
         }
-        // Failed: keep current_step unchanged
-        // InProgress: current_step stays at step_index (already set or will be by caller)
+        // Failed / Pending→InProgress: keep current_step unchanged
 
         Ok(())
     }
@@ -504,12 +520,14 @@ impl DefaultPlanStateWriter {
 /// - `Completed` → `[x]`
 /// - `InProgress` → `[-]`
 /// - `Failed` → `[!]`
-/// - `Pending` / `Skipped` → `[ ]`
+/// - `Pending` → `[ ]`
+/// - `Skipped` → `[~]`
 pub(crate) fn step_status_to_marker(status: &ExecutionStepStatus) -> String {
     match status {
         ExecutionStepStatus::Completed => "[x]".to_string(),
         ExecutionStepStatus::InProgress => "[-]".to_string(),
         ExecutionStepStatus::Failed => "[!]".to_string(),
-        ExecutionStepStatus::Pending | ExecutionStepStatus::Skipped => "[ ]".to_string(),
+        ExecutionStepStatus::Pending => "[ ]".to_string(),
+        ExecutionStepStatus::Skipped => "[~]".to_string(),
     }
 }

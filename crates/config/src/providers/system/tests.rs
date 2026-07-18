@@ -3,7 +3,8 @@
 use super::{
     AuthProfileEntryConfig, AuthProfilesConfig, BrowserConfig, CommandsConfig, CronConfig,
     HookEntryConfig, HooksConfig, HooksInternalConfig, LlmConfig, MessagesConfig, MetaConfig,
-    SessionConfig, SessionMaintenanceConfig, SystemConfigData, UpdateConfig, WizardConfig,
+    PlanArchiveConfig, SessionConfig, SessionMaintenanceConfig, SystemConfigData, UpdateConfig,
+    WizardConfig,
 };
 use crate::ConfigProvider;
 use closeclaw_common::ReasoningLevel;
@@ -79,6 +80,7 @@ fn full_config() -> SystemConfigData {
         auth: Some(AuthProfilesConfig { profiles }),
         llm: None,
         rejection_log: None,
+        plan_archive: None,
     }
 }
 
@@ -324,6 +326,7 @@ fn test_is_default_true_when_all_sub_structs_are_default() {
         auth: None,
         llm: None,
         rejection_log: None,
+        plan_archive: None,
     };
     assert!(cfg.is_default());
 }
@@ -454,4 +457,75 @@ fn test_llm_config_serde_roundtrip() {
     let json = serde_json::to_string(&config).unwrap();
     let parsed: LlmConfig = serde_json::from_str(&json).unwrap();
     assert_eq!(config, parsed);
+}
+
+// ── PlanArchiveConfig tests ─────────────────────────────────────────────
+
+#[test]
+fn test_plan_archive_config_default() {
+    let cfg = PlanArchiveConfig::default();
+    assert_eq!(cfg.threshold_days, 7);
+}
+
+#[test]
+fn test_plan_archive_config_custom() {
+    let cfg = PlanArchiveConfig { threshold_days: 14 };
+    assert_eq!(cfg.threshold_days, 14);
+}
+
+#[test]
+fn test_system_config_plan_archive_present() {
+    let json = r#"{"planArchive": {"thresholdDays": 14}}"#;
+    let config: SystemConfigData = serde_json::from_str(json).unwrap();
+    let pa = config.plan_archive.expect("plan_archive should be present");
+    assert_eq!(pa.threshold_days, 14);
+}
+
+#[test]
+fn test_system_config_plan_archive_absent() {
+    let json = r#"{}"#;
+    let config: SystemConfigData = serde_json::from_str(json).unwrap();
+    assert!(config.plan_archive.is_none());
+}
+
+#[test]
+fn test_system_config_plan_archive_default_value() {
+    let json = r#"{"planArchive": {}}"#;
+    let config: SystemConfigData = serde_json::from_str(json).unwrap();
+    let pa = config.plan_archive.expect("plan_archive should be present");
+    assert_eq!(pa.threshold_days, 7, "should use default value of 7");
+}
+
+#[test]
+fn test_plan_archive_config_serde_roundtrip() {
+    let cfg = PlanArchiveConfig { threshold_days: 21 };
+    let json = serde_json::to_string(&cfg).unwrap();
+    let parsed: PlanArchiveConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(cfg, parsed);
+}
+
+#[test]
+fn test_system_config_is_default_with_plan_archive_absent() {
+    let config = SystemConfigData::default();
+    assert!(config.is_default(), "default config should be is_default");
+}
+
+#[test]
+fn test_system_config_is_default_with_plan_archive_matching_default() {
+    let json = r#"{"planArchive": {"thresholdDays": 7}}"#;
+    let config: SystemConfigData = serde_json::from_str(json).unwrap();
+    assert!(
+        config.is_default(),
+        "plan_archive matching default should still be is_default"
+    );
+}
+
+#[test]
+fn test_system_config_not_default_with_plan_archive_custom() {
+    let json = r#"{"planArchive": {"thresholdDays": 30}}"#;
+    let config: SystemConfigData = serde_json::from_str(json).unwrap();
+    assert!(
+        !config.is_default(),
+        "custom plan_archive should make config non-default"
+    );
 }

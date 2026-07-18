@@ -6,7 +6,7 @@
 use crate::engine::ExecutionEngine;
 use crate::error::ExecutionError;
 use crate::spawn::SpawnAdapter;
-use crate::types::{ExecutionConfig, ExecutionMode, RetryStrategy, SubAgentResult, VerifyTrigger};
+use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 use async_trait::async_trait;
 use closeclaw_common::{ExecutionStepStatus, NoopNotifier, PlanState};
 use std::sync::{Arc, Mutex};
@@ -44,8 +44,6 @@ impl SpawnAdapter for MockAdapter {
 fn default_config() -> ExecutionConfig {
     ExecutionConfig {
         mode: ExecutionMode::SpawnPerStep,
-        max_retries: 3,
-        retry_strategy: RetryStrategy::Fresh,
         verify_trigger: VerifyTrigger::NonTrivial,
         step_selection: None,
     }
@@ -203,7 +201,6 @@ async fn test_step_selection_preserves_failure_behavior() {
         }),
     ]);
     let config = ExecutionConfig {
-        max_retries: 0,
         step_selection: Some(vec![0, 1]),
         ..default_config()
     };

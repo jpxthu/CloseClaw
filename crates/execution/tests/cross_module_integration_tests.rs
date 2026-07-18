@@ -8,14 +8,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use closeclaw_common::{ExecutionStepStatus, PlanState, PlanStateNotifier};
+use closeclaw_common::{ExecutionStepStatus, NoopNotifier, PlanState, PlanStateNotifier};
 use closeclaw_execution::error::ExecutionError;
 use closeclaw_execution::event::ExecutionEvent;
 use closeclaw_execution::hook::{HookError, HookResult, HookRunner, NotifyHook, StepHook};
 use closeclaw_execution::spawn::SpawnAdapter;
-use closeclaw_execution::types::{
-    ExecutionConfig, ExecutionMode, RetryStrategy, SubAgentResult, VerifyTrigger,
-};
+use closeclaw_execution::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 use closeclaw_execution::{ExecutionEngine, StepResult};
 
 // ── Mock adapters ────────────────────────────────────────────────────────
@@ -196,11 +194,9 @@ impl PlanStateNotifier for TrackingNotifier {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-fn spawn_per_step_config(max_retries: u32) -> ExecutionConfig {
+fn spawn_per_step_config() -> ExecutionConfig {
     ExecutionConfig {
         mode: ExecutionMode::SpawnPerStep,
-        max_retries,
-        retry_strategy: RetryStrategy::Fresh,
         verify_trigger: VerifyTrigger::NonTrivial,
         step_selection: None,
     }
@@ -216,6 +212,7 @@ fn success_result(index: usize, summary: &str) -> SubAgentResult {
     }
 }
 
+#[allow(dead_code)]
 fn failed_result(index: usize, msg: &str) -> SubAgentResult {
     SubAgentResult {
         step_index: index,
@@ -224,6 +221,14 @@ fn failed_result(index: usize, msg: &str) -> SubAgentResult {
         changed_files: vec![],
         error_message: Some(msg.to_string()),
     }
+}
+
+fn new_engine_with_config(
+    adapter: impl SpawnAdapter + 'static,
+    config: ExecutionConfig,
+) -> ExecutionEngine<impl SpawnAdapter> {
+    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None)
 }
 
 // ===========================================================================
@@ -254,7 +259,7 @@ async fn test_full_flow_completed_hook_notifies_system_prompt() {
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state.clone(),
-        spawn_per_step_config(3),
+        spawn_per_step_config(),
         adapter,
         notifier,
         runner,
@@ -310,7 +315,7 @@ async fn test_full_flow_completed_hook_notifies_system_prompt() {
 // ===========================================================================
 
 #[tokio::test]
-async fn test_retry_hook_only_fires_on_final_completed() {
+async fn test_hook_fires_on_each_completed_step() {
     let hook_count = Arc::new(AtomicUsize::new(0));
     let hook_indices: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
     let hook = RecordingHook {
@@ -324,17 +329,16 @@ async fn test_retry_hook_only_fires_on_final_completed() {
     let system_appends = Arc::new(MockSystemAppends::new());
     let notifier: Arc<dyn PlanStateNotifier> = system_appends.clone();
 
-    // Step 0: fails first, then succeeds on retry
+    // Both steps succeed on first attempt
     let adapter = SequenceMock::new(vec![
-        Ok(failed_result(0, "transient error")),
-        Ok(success_result(0, "recovered")),
-        Ok(success_result(1, "all done")),
+        Ok(success_result(0, "step 0 done")),
+        Ok(success_result(1, "step 1 done")),
     ]);
 
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state.clone(),
-        spawn_per_step_config(3),
+        spawn_per_step_config(),
         adapter,
         notifier,
         runner,
@@ -342,14 +346,13 @@ async fn test_retry_hook_only_fires_on_final_completed() {
     );
 
     let report = engine
-        .execute(&["flaky step".into(), "reliable step".into()])
+        .execute(&["step 0".into(), "step 1".into()])
         .await
         .unwrap();
 
     assert!(report.all_completed);
 
-    // Hook only fired for completed steps, NOT for the failed intermediate attempt
-    // Step 0 completed on retry (attempt 2), step 1 completed on first attempt
+    // Hook fired for each completed step
     assert_eq!(hook_count.load(Ordering::SeqCst), 2);
     let indices = hook_indices.lock().unwrap();
     assert_eq!(*indices, vec![0, 1]);
@@ -391,7 +394,7 @@ async fn test_hook_and_notifier_coordination() {
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state,
-        spawn_per_step_config(3),
+        spawn_per_step_config(),
         adapter,
         tracking_notifier,
         runner,
@@ -429,7 +432,7 @@ async fn test_hook_failure_does_not_block_notifier() {
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state,
-        spawn_per_step_config(3),
+        spawn_per_step_config(),
         adapter,
         notifier,
         runner,
@@ -493,7 +496,7 @@ async fn test_nontrivial_hook_with_progress_tracking() {
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state,
-        spawn_per_step_config(3),
+        spawn_per_step_config(),
         adapter,
         notifier,
         runner,
@@ -528,22 +531,19 @@ async fn test_nontrivial_hook_with_progress_tracking() {
 // ===========================================================================
 
 #[tokio::test]
-async fn test_retry_with_hook_failure_still_completes() {
+async fn test_hook_failure_does_not_prevent_step_completion() {
     let mut runner = HookRunner::new(VerifyTrigger::Always);
     runner.register(Box::new(BlockingHook));
 
     let system_appends = Arc::new(MockSystemAppends::new());
     let notifier: Arc<dyn PlanStateNotifier> = system_appends.clone();
 
-    let adapter = SequenceMock::new(vec![
-        Ok(failed_result(0, "transient")),
-        Ok(success_result(0, "recovered")),
-    ]);
+    let adapter = SequenceMock::new(vec![Ok(success_result(0, "done"))]);
 
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state.clone(),
-        spawn_per_step_config(3),
+        spawn_per_step_config(),
         adapter,
         notifier,
         runner,
@@ -552,9 +552,9 @@ async fn test_retry_with_hook_failure_still_completes() {
 
     let report = engine.execute(&["step".into()]).await.unwrap();
 
-    // Step completed despite hook failure
+    // Step completed despite hook blocking
     assert!(report.all_completed);
-    // Hook was called (on final completed) and blocked
+    // Hook was called and blocked
     assert!(report
         .events
         .iter()
@@ -591,7 +591,7 @@ async fn test_multi_step_mixed_hook_results() {
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state,
-        spawn_per_step_config(3),
+        spawn_per_step_config(),
         adapter,
         notifier,
         runner,
@@ -634,4 +634,141 @@ async fn test_multi_step_mixed_hook_results() {
     let appends = system_appends.appends();
     assert_eq!(appends.len(), 1);
     assert!(appends[0].contains("Step 1/2: completed"));
+}
+
+// ===========================================================================
+// Integration Test 8: Sub-agent Skipped status → treated as failure
+// When a sub-agent returns Skipped, the engine converts it to Failed
+// and stops execution (same as any non-Completed result).
+// ===========================================================================
+
+#[tokio::test]
+async fn test_sub_agent_skipped_treated_as_failure() {
+    let adapter = SequenceMock::new(vec![
+        Ok(SubAgentResult {
+            step_index: 0,
+            status: ExecutionStepStatus::Skipped,
+            summary: "skipped".into(),
+            changed_files: vec![],
+            error_message: None,
+        }),
+        // Step 1 should never be reached
+    ]);
+    let engine = new_engine_with_config(adapter, spawn_per_step_config());
+    let report = engine
+        .execute(&["step 0".into(), "step 1".into()])
+        .await
+        .unwrap();
+
+    // Skipped is treated as failure — execution stops
+    assert!(!report.all_completed);
+    assert_eq!(report.failed_step, Some(0));
+    assert_eq!(report.steps.len(), 1);
+    assert!(matches!(
+        report.steps[0].status,
+        ExecutionStepStatus::Failed
+    ));
+    assert_eq!(report.steps[0].attempts, 1);
+}
+
+// ===========================================================================
+// Integration Test 9: No retry on failure — attempts always 1
+// Verifies that after a step fails, no automatic retry occurs and
+// the step result always shows exactly 1 attempt.
+// ===========================================================================
+
+#[tokio::test]
+async fn test_no_retry_attempts_always_one() {
+    let adapter = SequenceMock::new(vec![
+        Ok(success_result(0, "step 0")),
+        Ok(failed_result(1, "step 1 failed")),
+        // Step 2 should never be reached
+    ]);
+    let engine = new_engine_with_config(adapter, spawn_per_step_config());
+    let report = engine
+        .execute(&["s0".into(), "s1".into(), "s2".into()])
+        .await
+        .unwrap();
+
+    assert!(!report.all_completed);
+    assert_eq!(report.failed_step, Some(1));
+    assert_eq!(report.steps.len(), 2);
+
+    // Both steps show exactly 1 attempt (no retry)
+    for step in &report.steps {
+        assert_eq!(step.attempts, 1, "attempts should always be 1");
+    }
+}
+
+// ===========================================================================
+// Integration Test 10: Mixed statuses with hooks
+// Steps: Completed, Skipped (from sub-agent → treated as Failed), Completed
+// Hook fires for Completed steps; Skipped sub-agent stops execution.
+// ===========================================================================
+
+#[tokio::test]
+async fn test_sub_agent_skipped_stops_execution() {
+    let hook_count = Arc::new(AtomicUsize::new(0));
+    let hook_indices: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
+    let hook = RecordingHook {
+        call_count: hook_count.clone(),
+        step_indices: hook_indices.clone(),
+    };
+
+    let mut runner = HookRunner::new(VerifyTrigger::Always);
+    runner.register(Box::new(hook));
+
+    let adapter = SequenceMock::new(vec![
+        Ok(success_result(0, "done")),
+        Ok(SubAgentResult {
+            step_index: 1,
+            status: ExecutionStepStatus::Skipped,
+            summary: "skipped".into(),
+            changed_files: vec![],
+            error_message: None,
+        }),
+        // Step 2 should never be reached
+    ]);
+
+    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let engine = ExecutionEngine::with_hook_runner(
+        plan_state.clone(),
+        spawn_per_step_config(),
+        adapter,
+        Arc::new(NoopNotifier),
+        runner,
+        None,
+    );
+
+    let report = engine
+        .execute(&["s0".into(), "s1".into(), "s2".into()])
+        .await
+        .unwrap();
+
+    // Step 0 completed, step 1 skipped (treated as failure), execution stops
+    assert!(!report.all_completed);
+    assert_eq!(report.failed_step, Some(1));
+    assert_eq!(report.steps.len(), 2);
+    assert!(matches!(
+        report.steps[0].status,
+        ExecutionStepStatus::Completed
+    ));
+    assert!(matches!(
+        report.steps[1].status,
+        ExecutionStepStatus::Failed
+    ));
+
+    // Hook fired only for completed step 0 (skipped step 1 is treated as failure)
+    assert_eq!(hook_count.load(Ordering::SeqCst), 1);
+    let indices = hook_indices.lock().unwrap();
+    assert_eq!(*indices, vec![0]);
+
+    // Plan state: step 0 Completed, step 1 stays InProgress (fail_step doesn't update plan state)
+    let state = plan_state.lock().unwrap();
+    assert!(matches!(
+        state.execution_steps[0].status,
+        ExecutionStepStatus::Completed
+    ));
+    // fail_step doesn't call mark_step_status, so plan state stays InProgress
+    // even though the StepResult shows Failed
 }
