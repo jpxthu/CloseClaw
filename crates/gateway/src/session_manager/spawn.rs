@@ -298,7 +298,11 @@ impl SessionManager {
                 {
                     let guard = child_cs.read().await;
                     guard
-                        .stop(true, closeclaw_common::ShutdownMode::Forceful)
+                        .stop(
+                            true,
+                            closeclaw_common::ShutdownMode::Forceful,
+                            std::time::Duration::ZERO,
+                        )
                         .await;
                 }
                 // Inject timeout notification into parent's announce queue.
@@ -386,7 +390,10 @@ impl SessionManager {
 
         for id in &descendant_ids {
             if let Some(cs) = self.get_conversation_session(id).await {
-                cs.read().await.stop(true, ShutdownMode::Forceful).await;
+                cs.read()
+                    .await
+                    .stop(true, ShutdownMode::Forceful, std::time::Duration::ZERO)
+                    .await;
             }
             self.conversation_sessions.write().await.remove(id);
             if let Some(info) = self.children.read().await.find_child(id) {
@@ -409,7 +416,10 @@ impl SessionManager {
         }
 
         if let Some(cs) = self.get_conversation_session(child_id).await {
-            cs.read().await.stop(true, ShutdownMode::Forceful).await;
+            cs.read()
+                .await
+                .stop(true, ShutdownMode::Forceful, std::time::Duration::ZERO)
+                .await;
         }
         self.conversation_sessions.write().await.remove(child_id);
         if let Some(pcs) = self.conversation_sessions.read().await.get(parent_id) {
