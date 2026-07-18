@@ -406,11 +406,23 @@ impl ConversationSession {
     /// - **Forceful**: cancel token, cascade with forceful mode, kill
     ///   tool handles immediately. Existing behavior preserved.
     ///
+    /// `timeout` is the overall time budget for the cascade stop.
+    /// In **Graceful** mode it is shared across all child sessions
+    /// via a deadline — no child can exceed the remaining budget.
+    /// In **Forceful** mode it should be `Duration::ZERO` since
+    /// kills are immediate (no waiting).
+    ///
     /// Idempotency: subsequent calls are no-ops once `stopped` has
     /// been set, so the caller does not need to guard.
     ///
     /// Returns [`CascadeStopInfo`] with any timed-out children from
-    pub async fn stop(&self, cascade: bool, mode: ShutdownMode) -> CascadeStopInfo {
+    /// the cascade.
+    pub async fn stop(
+        &self,
+        cascade: bool,
+        mode: ShutdownMode,
+        timeout: Duration,
+    ) -> CascadeStopInfo {
         match mode {
             ShutdownMode::Graceful => {
                 // Cascade children with the same Graceful mode,
@@ -427,7 +439,7 @@ impl ConversationSession {
                         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst);
                 let mut cascade_info = CascadeStopInfo::default();
                 if cascade {
-                    cascade_info = self.cascade_stop_children(mode).await;
+                    cascade_info = self.cascade_stop_children(mode, timeout).await;
                 }
                 // NOTE: clear_exec_state() is intentionally NOT called
                 // here. The caller (stop_single_session) needs the
@@ -454,7 +466,7 @@ impl ConversationSession {
                 self.cancel_token.cancel();
                 // Cascade children with Forceful mode.
                 if cascade {
-                    self.cascade_stop_children(mode).await;
+                    self.cascade_stop_children(mode, timeout).await;
                 }
                 // Kill every registered tool handle.
                 self.kill_tool_handles().await;
@@ -482,6 +494,7 @@ impl ConversationSession {
     fn cascade_stop_children<'a>(
         &'a self,
         mode: ShutdownMode,
+        overall_timeout: Duration,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = CascadeStopInfo> + Send + 'a>> {
         Box::pin(async move {
             let mut info = CascadeStopInfo::default();
@@ -496,16 +509,31 @@ impl ConversationSession {
                 map.values().cloned().collect()
             };
 
+            // Shared deadline across all children.
+            let deadline = tokio::time::Instant::now() + overall_timeout;
+
             for weak in snapshot {
+                // Compute remaining budget. When overall_timeout is
+                // Duration::ZERO the deadline equals now; use direct
+                // comparison so Duration::ZERO yields 0 remaining time
+                // (children are still cascade-stopped with zero timeout)
+                // instead of breaking the loop.
+                let now = tokio::time::Instant::now();
+                let remaining_time = if now >= deadline {
+                    Duration::ZERO
+                } else {
+                    deadline - now
+                };
+
                 let Some(child_arc) = weak.upgrade() else {
                     // Child already dropped — nothing to do.
                     continue;
                 };
-                // Per-child wall-clock budget. If the child's own stop
-                // path hangs (e.g. a kill handle that ignores timeouts),
-                // we abandon the wait and move on. The orphan process
-                // is a known-acceptable cost; the cascade must make
-                // progress.
+                // Per-child wall-clock budget. Use the minimum of
+                // the remaining time in the overall budget and
+                // STOP_KILL_TIMEOUT so no single child can exceed
+                // either limit.
+                let per_child_timeout = remaining_time.min(STOP_KILL_TIMEOUT);
                 let child_start = tokio::time::Instant::now();
                 let stop_fut = async {
                     let guard = child_arc.read().await;
@@ -515,20 +543,29 @@ impl ConversationSession {
                     // (or time out) before we proceed to the next
                     // sibling.
                     if mode == ShutdownMode::Graceful {
-                        let _ = guard.graceful_stop(STOP_KILL_TIMEOUT, None).await;
+                        let _ = guard.graceful_stop(per_child_timeout, None).await;
                     }
-                    guard.stop(true, mode).await;
+                    guard.stop(true, mode, per_child_timeout).await;
                 };
-                if tokio::time::timeout(STOP_KILL_TIMEOUT, stop_fut)
-                    .await
-                    .is_err()
-                {
+                let timed_out = if per_child_timeout.is_zero() {
+                    // Duration::ZERO: tokio::time::timeout fires
+                    // immediately at the first .await inside stop_fut,
+                    // so the child's stop() would never actually run.
+                    // Skip the timeout wrapper and await directly.
+                    let _ = stop_fut.await;
+                    false
+                } else {
+                    tokio::time::timeout(per_child_timeout, stop_fut)
+                        .await
+                        .is_err()
+                };
+                if timed_out {
                     let elapsed = child_start.elapsed();
                     tracing::warn!(
                         child = ?child_arc,
                         elapsed = ?elapsed,
                         "cascade_stop_children: child stop() timed out after {:?}",
-                        STOP_KILL_TIMEOUT
+                        per_child_timeout
                     );
                     // Collect timeout info for the caller.
                     let child_id = {
