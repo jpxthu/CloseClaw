@@ -146,6 +146,19 @@ fn test_transition_pending_to_in_progress() {
 }
 
 #[test]
+fn test_pending_to_in_progress_preserves_current_step() {
+    // Regression: Pending→InProgress must NOT overwrite current_step.
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    state.current_step = Some(0);
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    // current_step must remain unchanged
+    assert_eq!(state.current_step, Some(0));
+}
+
+#[test]
 fn test_transition_in_progress_to_completed() {
     let mut state = PlanState::new();
     state.init_execution_steps(vec!["step1".into(), "step2".into()]);

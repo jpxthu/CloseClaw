@@ -345,6 +345,7 @@ impl PlanState {
         new_status: ExecutionStepStatus,
     ) -> Result<(), TransitionError> {
         self.validate_transition(step_index, &new_status)?;
+        let old_status = self.execution_steps[step_index].status.clone();
         self.execution_steps[step_index].status = new_status;
 
         // Update current_step based on new status
@@ -356,11 +357,13 @@ impl PlanState {
             if next < self.execution_steps.len() {
                 self.current_step = Some(next);
             }
-        } else if new_status == ExecutionStepStatus::InProgress {
+        } else if new_status == ExecutionStepStatus::InProgress
+            && old_status == ExecutionStepStatus::Skipped
+        {
             // When resuming from Skipped, point current_step back to this step
             self.current_step = Some(step_index);
         }
-        // Failed: keep current_step unchanged
+        // Failed / Pending→InProgress: keep current_step unchanged
 
         Ok(())
     }
