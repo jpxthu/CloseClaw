@@ -2,16 +2,16 @@
 
 ## 概述
 
-Run Health 和 Checkpoint 构成 Session 执行层的运行时安全网——确保 session 的每一次 compact、LLM request、tool 调用、spawn 都不会静默失败。
+Run Health 和运行快照（Runtime Snapshot）构成 Session 执行层的运行时安全网——确保 session 的每一次 compact、LLM request、tool 调用、spawn 都不会静默失败。
 
 - **Run Health**：每次 turn 结束后，系统用硬规则和可选的质量门禁判定 session 当前是否健康。
 - **运行快照（Runtime Snapshot）**：对 transcript 的毁坏性操作前，创建可回滚的快照。检测到异常后，系统可回滚到上一个安全状态。与持久化层的 SessionCheckpoint（元数据 + transcript 持久化）是不同概念。
 
-二者互补：Health 负责检测异常，运行快照负责保全现场。合在一起，session 在任何时刻都能回答两个问题——"我还健康吗"和"出事了能回去吗"。
+二者互补：Health 负责检测异常并触发自动响应，运行快照负责保全现场并提供独立的可选回滚能力。合在一起，session 在任何时刻都能回答两个问题——"我还健康吗"和"出事了能回去吗"。
 
 ## 架构
 
-Run Health 和 Checkpoint 嵌入 session 执行循环，在 turn 边界工作：
+Run Health 和运行快照（Runtime Snapshot）嵌入 session 执行循环，在 turn 边界工作：
 
 ```
 Session turn 执行
@@ -22,7 +22,7 @@ Session turn 执行
   ↓
 判决：healthy / unhealthy
   ↓
-unhealthy → 按失败类别处理（退避重试 / 通知用户 / 回滚快照）
+unhealthy → 按失败类别处理（退避重试 / 通知用户）
 ```
 
 核心组件：
@@ -58,7 +58,7 @@ Hook 是可选的轻量 LLM 质量门禁，按 agent 配置选择性启用：
 - **挂载点**：session turn 结束、硬规则通过后
 - **执行方式**：低温度、固定 prompt、1 turn 上限、0 工具
 - **隔离**：不进入 transcript，不影响主对话的 system prompt
-- **配置粒度**：agent 级别。agent 配置中定义启用的 hook 列表及其参数
+- **配置粒度**：agent 级别。agent 配置中定义启用的 hook 类型列表
 
 | Hook 类型 | 检测目标 | 触发条件 |
 |----------|---------|---------|
