@@ -114,7 +114,7 @@ impl Sandbox {
     /// Spawn the permission engine as a child process.
     ///
     /// The engine binary is the current process itself, started with the
-    /// environment variable `SANDBOX_ENGINE=1` and `--engine` flag.
+    /// environment variable `SANDBOX_ENGINE=1`.
     ///
     /// After spawning, the function waits up to [`ENGINE_SPAWN_TIMEOUT_MS`] for the
     /// engine to become responsive on the IPC socket.
@@ -141,7 +141,6 @@ impl Sandbox {
         let mut child = Command::new(std::env::current_exe()?)
             .env("SANDBOX_ENGINE", "1")
             .env("SANDBOX_IPC_PATH", &self.ipc_path)
-            .arg("--engine")
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .stdin(Stdio::null())
