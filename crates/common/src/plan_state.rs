@@ -291,6 +291,17 @@ impl PlanState {
             });
         }
 
+        let current = &self.execution_steps[step_index].status;
+
+        // Skipped → InProgress: skip the step-order check so that a
+        // previously-skipped step can be resumed even when current_step
+        // has already advanced past it.
+        if *current == ExecutionStepStatus::Skipped
+            && new_status == &ExecutionStepStatus::InProgress
+        {
+            return Ok(());
+        }
+
         // Skip-step check: step_index must == current_step (if set) or == 0
         if let Some(cur) = self.current_step {
             if step_index != cur {
@@ -305,8 +316,6 @@ impl PlanState {
                 got: step_index,
             });
         }
-
-        let current = &self.execution_steps[step_index].status;
         let valid = match new_status {
             ExecutionStepStatus::InProgress => {
                 matches!(

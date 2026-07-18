@@ -289,8 +289,8 @@ fn test_transition_skipped_to_in_progress() {
     assert_eq!(state.current_step, Some(1));
 
     // Resume step 0: Skipped → InProgress
-    // First set current_step back to 0 so the SkippedStep check passes
-    state.current_step = Some(0);
+    // No need to manually set current_step — Skipped→InProgress
+    // bypasses the step-order check automatically.
     assert!(state
         .validate_transition(0, &ExecutionStepStatus::InProgress)
         .is_ok());
@@ -314,12 +314,39 @@ fn test_skipped_to_in_progress_current_step_points_to_step() {
         .unwrap();
     assert_eq!(state.current_step, Some(2));
 
-    // Resume step 1
-    state.current_step = Some(1);
+    // Resume step 1 without manually setting current_step.
     state
         .apply_transition(1, ExecutionStepStatus::InProgress)
         .unwrap();
     assert_eq!(state.current_step, Some(1));
+}
+
+#[test]
+fn test_skipped_to_in_progress_no_preset_current_step() {
+    // Regression: Skipped→InProgress must work without pre-setting
+    // current_step, matching the production caller (progress.rs).
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["a".into(), "b".into(), "c".into()]);
+    state.current_step = Some(0);
+    // Skip step 0, advance to step 1
+    state
+        .apply_transition(0, ExecutionStepStatus::Skipped)
+        .unwrap();
+    assert_eq!(state.current_step, Some(1));
+
+    // Resume step 0 — current_step is still 1, not manually set.
+    // Skipped→InProgress must bypass the step-order check.
+    assert!(state
+        .validate_transition(0, &ExecutionStepStatus::InProgress)
+        .is_ok());
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    assert_eq!(state.current_step, Some(0));
+    assert_eq!(
+        state.get_step_status(0),
+        Some(&ExecutionStepStatus::InProgress)
+    );
 }
 
 #[test]
