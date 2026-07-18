@@ -265,11 +265,9 @@ text or AskUserQuestion.
 ```
 Plan mode is active. The user indicated that they do not want you to
 execute yet — you MUST NOT make any edits, run any non-readonly tools,
-or otherwise make any changes to the system. Instead, you should:
+or otherwise make any changes to the system.
 
-You can read the plan file and make incremental edits if needed. NOTE
-that this is the only file you are allowed to edit — other than this
-you are only allowed to take READ-ONLY actions. Answer the user's
+You are only allowed to take READ-ONLY actions. Answer the user's
 query comprehensively, using the AskUserQuestion tool if you need to
 ask clarifying questions.
 ```
