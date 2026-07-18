@@ -151,6 +151,11 @@ pub struct PlanState {
     /// 显式指定的 plan 路径（None 表示由系统自动判断）
     #[serde(default)]
     pub explicit_path: Option<PlanPath>,
+    /// Optional step selection (0-based indices) for partial execution.
+    /// `None` means execute all steps; `Some(indices)` means execute
+    /// only the specified steps.
+    #[serde(default)]
+    pub step_selection: Option<Vec<usize>>,
 }
 
 impl PlanState {

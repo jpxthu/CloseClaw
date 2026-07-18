@@ -1,9 +1,6 @@
 //! Core execution engine — orchestrates step-by-step execution with
-//! retry logic and state management.
-//!
-//! The engine drives the main loop: take a pending step, mark it
-//! in-progress, dispatch via a [`SpawnAdapter`], update state, and
-//! repeat. Retries are controlled by [`ExecutionConfig`].
+//! retry logic and state management. Retries are controlled by
+//! [`ExecutionConfig`].
 
 use std::sync::{Arc, Mutex};
 
@@ -54,9 +51,7 @@ pub struct ExecutionReport {
 }
 
 /// Core execution engine — drives the step-by-step scheduling loop.
-///
-/// Generic over `S: SpawnAdapter` so the actual dispatch mechanism can
-/// be swapped (real spawn, mock, inline).
+/// Generic over `S: SpawnAdapter` so the dispatch mechanism can be swapped.
 pub struct ExecutionEngine<S> {
     /// Shared plan state, protected by a mutex for interior mutability.
     plan_state: Arc<Mutex<PlanState>>,
@@ -71,11 +66,7 @@ pub struct ExecutionEngine<S> {
     /// Optional permission checker — called before each step dispatch.
     permission: Option<Arc<dyn ExecutionPermissionCheck>>,
 }
-
-// ---------------------------------------------------------------------------
 // Public interface
-// ---------------------------------------------------------------------------
-
 impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// Create a new execution engine.
     ///
@@ -134,19 +125,45 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
     }
 
     /// Execute all provided steps sequentially and return a report.
+    ///
+    /// When `config.step_selection` is `Some`, only the steps at the
+    /// specified indices are executed. Indices are validated against the
+    /// provided step list; invalid indices are rejected with
+    /// [`ExecutionError::InvalidStepSelection`].
     pub async fn execute(&self, steps: &[String]) -> Result<ExecutionReport, ExecutionError> {
-        let steps_owned: Vec<String> = steps.to_vec();
+        let filtered = self.filter_steps(steps)?;
 
         {
             let mut state = self.plan_state.lock().expect("plan state lock poisoned");
-            state.init_execution_steps(steps_owned.clone());
+            state.init_execution_steps(filtered.clone());
         }
 
         match self.config.mode {
-            ExecutionMode::SpawnAllSteps => self.execute_spawn_all(&steps_owned).await,
+            ExecutionMode::SpawnAllSteps => self.execute_spawn_all(&filtered).await,
             ExecutionMode::SpawnPerStep | ExecutionMode::Inline => {
-                self.execute_step_by_step(&steps_owned).await
+                self.execute_step_by_step(&filtered).await
             }
+        }
+    }
+
+    /// Filter steps based on `step_selection` config.
+    fn filter_steps(&self, steps: &[String]) -> Result<Vec<String>, ExecutionError> {
+        match &self.config.step_selection {
+            Some(indices) if indices.is_empty() => Ok(Vec::new()),
+            Some(indices) => {
+                let mut selected = Vec::with_capacity(indices.len());
+                for &idx in indices {
+                    if idx >= steps.len() {
+                        return Err(ExecutionError::InvalidStepSelection {
+                            index: idx,
+                            total: steps.len(),
+                        });
+                    }
+                    selected.push(steps[idx].clone());
+                }
+                Ok(selected)
+            }
+            None => Ok(steps.to_vec()),
         }
     }
 
@@ -175,11 +192,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         &self.adapter
     }
 }
-
-// ---------------------------------------------------------------------------
 // Step-by-step execution (SpawnPerStep / Inline)
-// ---------------------------------------------------------------------------
-
 impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// Execute steps one at a time; stop on first failure.
     async fn execute_step_by_step(
@@ -229,11 +242,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         })
     }
 }
-
-// ---------------------------------------------------------------------------
 // SpawnAllSteps execution
-// ---------------------------------------------------------------------------
-
 impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// Execute all steps in a single spawn (SpawnAllSteps mode).
     async fn execute_spawn_all(
@@ -529,11 +538,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         })
     }
 }
-
-// ---------------------------------------------------------------------------
 // Single-step retry execution
-// ---------------------------------------------------------------------------
-
 /// Outcome of a non-final dispatch attempt (retryable).
 enum RetryableOutcome {
     /// Sub-agent returned a failed status with an optional error message.
@@ -898,11 +903,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
-
 impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// Run hooks for a completed step if a hook runner is configured.
     ///

@@ -93,6 +93,7 @@ fn spawn_per_step_config(max_retries: u32) -> ExecutionConfig {
         max_retries,
         retry_strategy: RetryStrategy::Fresh,
         verify_trigger: VerifyTrigger::NonTrivial,
+        step_selection: None,
     }
 }
 
@@ -102,6 +103,7 @@ fn spawn_all_config(max_retries: u32) -> ExecutionConfig {
         max_retries,
         retry_strategy: RetryStrategy::Fresh,
         verify_trigger: VerifyTrigger::NonTrivial,
+        step_selection: None,
     }
 }
 

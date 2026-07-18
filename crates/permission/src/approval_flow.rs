@@ -657,6 +657,8 @@ impl ApprovalFlow {
                                 }
                                 // Update plan state: phase → FinalPlan
                                 plan_state.phase = PlanPhase::FinalPlan;
+                                plan_state.step_selection =
+                                    plan_meta.as_ref().and_then(|m| m.step_selection.clone());
                                 sm.set_plan_state(&session_id, plan_state).await;
                             } else {
                                 // Same-session path: transition current session to Auto Mode.
@@ -707,6 +709,8 @@ impl ApprovalFlow {
 
                                 // Update plan state: phase → FinalPlan
                                 plan_state.phase = PlanPhase::FinalPlan;
+                                plan_state.step_selection =
+                                    plan_meta.as_ref().and_then(|m| m.step_selection.clone());
                                 sm.set_plan_state(&session_id, plan_state).await;
 
                                 // Switch session mode: Plan → Auto

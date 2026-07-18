@@ -54,6 +54,10 @@ pub struct ExecutionConfig {
     pub retry_strategy: RetryStrategy,
     /// When to trigger step verification.
     pub verify_trigger: VerifyTrigger,
+    /// Optional step selection (0-based indices). When `Some`, only the
+    /// specified steps are executed. When `None`, all steps run.
+    #[serde(default)]
+    pub step_selection: Option<Vec<usize>>,
 }
 
 impl Default for ExecutionConfig {
@@ -63,6 +67,7 @@ impl Default for ExecutionConfig {
             max_retries: 3,
             retry_strategy: RetryStrategy::Fresh,
             verify_trigger: VerifyTrigger::NonTrivial,
+            step_selection: None,
         }
     }
 }
