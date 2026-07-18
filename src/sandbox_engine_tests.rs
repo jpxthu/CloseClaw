@@ -7,7 +7,7 @@
 //! These tests do NOT start any real subprocess; they only verify the
 //! decision logic. The process environment is never modified.
 
-use closeclaw::sandbox_engine::detect_engine_mode_inner;
+use super::detect_engine_mode_inner;
 
 // --- Normal path: engine mode activated ---
 

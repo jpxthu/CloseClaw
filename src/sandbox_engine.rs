@@ -30,10 +30,13 @@ pub fn detect_engine_mode_inner(
             )));
         }
     };
-    let ipc_path = PathBuf::from(path_str);
     let rules = RuleSet::default();
-    Some(Ok((ipc_path, rules)))
+    Some(Ok((PathBuf::from(path_str), rules)))
 }
+
+#[cfg(test)]
+#[path = "sandbox_engine_tests.rs"]
+mod sandbox_engine_tests;
 
 /// Try to run as sandbox engine subprocess.
 ///
