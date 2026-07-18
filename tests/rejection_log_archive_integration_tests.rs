@@ -206,7 +206,7 @@ fn test_rejection_log_e2e_config_write_entry() {
 fn test_rejection_log_e2e_records_session_mode() {
     let logger = Arc::new(InMemoryLogger::new());
     let mode_query: Arc<dyn SessionModeQuery> =
-        Arc::new(MockModeQuery::new().with_mode("agent-4", SessionMode::Plan));
+        Arc::new(MockModeQuery::new().with_mode("agent-4", SessionMode::Auto));
     let engine = deny_all_engine_with_logger(logger.clone()).with_session_mode_query(mode_query);
 
     let resp = engine.evaluate(
@@ -220,7 +220,7 @@ fn test_rejection_log_e2e_records_session_mode() {
 
     assert!(matches!(resp, PermissionResponse::Denied { .. }));
     let entry = &logger.entries()[0];
-    assert_eq!(entry.session_mode, Some(SessionMode::Plan));
+    assert_eq!(entry.session_mode, Some(SessionMode::Auto));
 }
 
 /// No rejection logger: engine still works, denials just not logged.
