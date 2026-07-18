@@ -25,6 +25,12 @@ use closeclaw_permission::sandbox::{
 };
 
 /// Creates a minimal permissive ruleset for testing.
+///
+/// This ruleset only contains agent-phase defaults (no user-phase rules).
+/// When used with `PermissionRequest::WithCaller`, the caller must have
+/// `user_id: "owner"` to bypass user-phase rules and let agent-phase
+/// defaults take effect. Without Owner exemption, the engine falls back
+/// to `user_defaults` (full Deny), causing all requests to be rejected.
 fn make_permissive_ruleset() -> RuleSet {
     RuleSetBuilder::new()
         .rule(
@@ -151,7 +157,7 @@ async fn test_ipc_channel_protocol_sandbox_request_serde() {
     // Verify SandboxRequest serializes correctly for IPC protocol
     let request = SandboxRequest::Ping;
     let json = serde_json::to_vec(&request).unwrap();
-    assert!(json.len() > 0);
+    assert!(!json.is_empty());
 
     // Verify we can deserialize it back
     let parsed: SandboxRequest = serde_json::from_slice(&json).unwrap();
@@ -180,7 +186,7 @@ async fn test_ipc_channel_protocol_evaluate_request_serde() {
     };
 
     let json = serde_json::to_vec(&request).unwrap();
-    assert!(json.len() > 0);
+    assert!(!json.is_empty());
 
     let parsed: SandboxRequest = serde_json::from_slice(&json).unwrap();
     match parsed {
@@ -358,7 +364,7 @@ async fn test_sandbox_evaluate_permission_request() {
         let test_file = tmpdir.path().join("test.txt");
         let request = PermissionRequest::WithCaller {
             caller: Caller {
-                user_id: "test-user".to_string(),
+                user_id: "owner".to_string(),
                 agent: "test-agent".to_string(),
                 creator_id: String::new(),
             },
