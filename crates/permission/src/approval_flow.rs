@@ -22,8 +22,13 @@
 //!         └─ lookup session_id → queue.deny() → spawn push "已拒绝" to session
 //! ```
 
+#[path = "approval_flow_user_creation.rs"]
+mod approval_flow_user_creation;
+
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::engine::engine_eval::PermissionEngine;
@@ -31,7 +36,6 @@ use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse, RuleSet,
 };
-use crate::user_registry::UserRegistry;
 use closeclaw_common::permission_op::{InitialPermissionSet, UserCreationRequest};
 use closeclaw_common::{
     ModeTransition, PendingMessage, PlanPhase, PlanStatus, SessionLookup, SessionMode,
@@ -94,6 +98,29 @@ fn is_heartbeat_operation(request: &PermissionRequestBody) -> bool {
     )
 }
 
+/// Callback type for creating a child session (new-session execution path).
+///
+/// The daemon layer injects this callback to provide session creation
+/// capability without introducing a direct dependency from the permission
+/// crate on the gateway crate.
+///
+/// # Arguments
+/// * `parent_session_id` — ID of the session that requested plan execution.
+/// * `plan_content` — Full content of the plan file to inject as initial context.
+/// * `step_selection` — Optional step indices to execute (passed through to plan state).
+///
+/// # Returns
+/// `Ok(new_session_id)` on success, `Err(message)` on failure.
+pub type CreateChildSessionFn = Arc<
+    dyn Fn(
+            String,
+            String,
+            Option<Vec<usize>>,
+        ) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send>>
+        + Send
+        + Sync,
+>;
+
 /// Metadata for a plan execution approval request.
 ///
 /// Stored by [`ApprovalFlow::set_plan_exec_metadata`] and consumed by
@@ -148,6 +175,12 @@ pub struct ApprovalFlow {
     /// `step_selection`). Consumed by `approve_request` when the approval
     /// decision is made.
     plan_exec_metadata: HashMap<String, PlanExecMetadata>,
+    /// Callback for creating child sessions (new-session execution path).
+    ///
+    /// Injected by the daemon layer to provide session creation capability
+    /// without a direct dependency on `SessionManager`. When `None`,
+    /// the new-session execution path falls back to same-session behavior.
+    create_child_session_fn: Option<CreateChildSessionFn>,
 }
 
 impl std::fmt::Debug for ApprovalFlow {
@@ -194,6 +227,7 @@ impl ApprovalFlow {
             current_rules: initial_rules,
             force_deny: false,
             plan_exec_metadata: HashMap::new(),
+            create_child_session_fn: None,
         }
     }
 
@@ -223,6 +257,7 @@ impl ApprovalFlow {
             current_rules: initial_rules,
             force_deny: true,
             plan_exec_metadata: HashMap::new(),
+            create_child_session_fn: None,
         }
     }
 
@@ -239,6 +274,14 @@ impl ApprovalFlow {
     /// Used by the Daemon to inject the permission engine reload logic.
     pub fn set_whitelist_callback(&mut self, cb: Arc<dyn Fn(&str) + Send + Sync>) {
         self.on_whitelist_updated = cb;
+    }
+
+    /// Set the callback for creating child sessions.
+    ///
+    /// Called by the daemon layer to inject session creation capability
+    /// for the new-session execution path.
+    pub fn set_create_child_session_fn(&mut self, cb: CreateChildSessionFn) {
+        self.create_child_session_fn = Some(cb);
     }
 
     /// Store plan execution metadata for a pending approval request.
@@ -682,10 +725,11 @@ impl ApprovalFlow {
         let handle = self.runtime_handle.clone();
         let rid = request_id.to_string();
         let plan_meta = self.plan_exec_metadata.remove(&rid);
+        let create_child_fn = self.create_child_session_fn.clone();
 
         handle.spawn(async move {
             Self::push_approval_result(&sm, &session_id, &rid).await;
-            Self::transition_plan_to_auto(&sm, &session_id, plan_meta).await;
+            Self::transition_plan_to_auto(&sm, &session_id, plan_meta, &create_child_fn).await;
         });
     }
 
@@ -711,6 +755,7 @@ impl ApprovalFlow {
         sm: &Arc<dyn SessionLookup>,
         session_id: &str,
         plan_meta: Option<PlanExecMetadata>,
+        create_child_session_fn: &Option<CreateChildSessionFn>,
     ) {
         let mut plan_state = match sm.get_plan_state(session_id).await {
             Some(ps) => ps,
@@ -721,38 +766,107 @@ impl ApprovalFlow {
         }
         let is_new_session = plan_meta.as_ref().map(|m| m.new_session).unwrap_or(false);
         if is_new_session {
-            Self::handle_new_session_path(sm, session_id, &mut plan_state, &plan_meta).await;
+            Self::handle_new_session_path(
+                sm,
+                session_id,
+                &mut plan_state,
+                &plan_meta,
+                create_child_session_fn,
+            )
+            .await;
         } else {
             Self::handle_same_session_path(sm, session_id, &mut plan_state, &plan_meta).await;
         }
     }
 
-    /// Handle new-session execution path: update plan file status only.
+    /// Handle new-session execution path: create a child session with plan
+    /// content injected as initial context, then enter Auto Mode.
+    ///
+    /// Falls back to same-session behavior (update plan state only) when
+    /// no `create_child_session_fn` callback is configured.
     async fn handle_new_session_path(
         sm: &Arc<dyn SessionLookup>,
         session_id: &str,
         plan_state: &mut closeclaw_common::PlanState,
         plan_meta: &Option<PlanExecMetadata>,
+        create_child_session_fn: &Option<CreateChildSessionFn>,
     ) {
         let plan_file_path = plan_state.plan_file_path.clone();
-        if std::path::Path::new(&plan_file_path).exists() {
-            let pf_path = plan_file_path.clone();
-            let result = tokio::task::spawn_blocking(move || {
-                if let Err(e) = plan_file::update_plan_status(&pf_path, &PlanStatus::Executing) {
-                    tracing::warn!(
-                        plan_file = %plan_file_path,
-                        error = %e,
-                        "failed to update plan file status"
-                    );
-                }
-            });
-            if let Err(e) = result.await {
-                tracing::warn!(error = %e, "spawn_blocking for plan file update panicked");
+
+        // Read plan file content for injection into child session.
+        let plan_content = match tokio::fs::read_to_string(&plan_file_path).await {
+            Ok(content) => content,
+            Err(e) => {
+                tracing::warn!(
+                    plan_file = %plan_file_path,
+                    error = %e,
+                    "failed to read plan file for new session injection"
+                );
+                return;
             }
+        };
+
+        // Create child session via the injected callback.
+        let new_session_id = match create_child_session_fn {
+            Some(ref create_fn) => {
+                let step_selection = plan_meta.as_ref().and_then(|m| m.step_selection.clone());
+                match create_fn(session_id.to_string(), plan_content, step_selection).await {
+                    Ok(id) => id,
+                    Err(e) => {
+                        tracing::warn!(
+                            parent_session = %session_id,
+                            error = %e,
+                            "failed to create child session for plan execution"
+                        );
+                        return;
+                    }
+                }
+            }
+            None => {
+                tracing::info!(
+                    parent_session = %session_id,
+                    "no create_child_session_fn configured, falling back to same-session plan state update"
+                );
+                // Fallback: update plan state on the parent session (same-session behavior).
+                plan_state.phase = PlanPhase::FinalPlan;
+                plan_state.step_selection =
+                    plan_meta.as_ref().and_then(|m| m.step_selection.clone());
+                sm.set_plan_state(session_id, plan_state.clone()).await;
+                return;
+            }
+        };
+
+        // Update plan file status to Executing.
+        Self::update_plan_file_executing(&plan_file_path).await;
+
+        // Set plan state on the new child session.
+        let mut child_plan_state = closeclaw_common::PlanState::new();
+        child_plan_state.plan_file_path = plan_file_path;
+        child_plan_state.phase = PlanPhase::FinalPlan;
+        child_plan_state.step_selection = plan_meta.as_ref().and_then(|m| m.step_selection.clone());
+        let _ = child_plan_state.transition_status(PlanStatus::Confirmed);
+        let _ = child_plan_state.transition_status(PlanStatus::Executing);
+        sm.set_plan_state(&new_session_id, child_plan_state).await;
+
+        // Set new session to Auto Mode.
+        sm.set_session_mode(&new_session_id, SessionMode::Auto)
+            .await;
+        sm.set_pending_mode_transition(&new_session_id, ModeTransition::ExitPlan)
+            .await;
+
+        // Push mode switch notification to the new session.
+        let mode_msg = PendingMessage::with_role(
+            format!("approval-mode-{}", chrono::Utc::now().timestamp_millis()),
+            "✅ Plan approved, entering Auto Mode (new session)".to_string(),
+            "assistant".to_string(),
+        );
+        if let Err(e) = sm.push_pending_message(&new_session_id, mode_msg).await {
+            tracing::warn!(
+                session_id = %new_session_id,
+                error = %e,
+                "failed to push mode switch notification to new session"
+            );
         }
-        plan_state.phase = PlanPhase::FinalPlan;
-        plan_state.step_selection = plan_meta.as_ref().and_then(|m| m.step_selection.clone());
-        sm.set_plan_state(session_id, plan_state.clone()).await;
     }
 
     /// Handle same-session execution path: transition to Auto Mode.
@@ -804,157 +918,6 @@ impl ApprovalFlow {
         if let Err(e) = result.await {
             tracing::warn!(error = %e, "spawn_blocking for plan file update panicked");
         }
-    }
-}
-
-// ── User creation persistence helpers ───────────────────────────────────────
-
-impl ApprovalFlow {
-    /// Handle a user creation approval: register the user and persist rules.
-    ///
-    /// Returns `true` if the user was successfully registered.
-    async fn approve_user_creation(&mut self, request: &UserCreationRequest) -> bool {
-        let user_id = &request.user_id;
-        let channel = &request.im_channel;
-        let initial_perms = &request.initial_permissions;
-
-        // Load or create the in-memory registry (async, non-blocking).
-        let registry_path = self.config_dir.join("users.json");
-        let mut registry = {
-            let path = registry_path.clone();
-            let handle = self.runtime_handle.clone();
-            let read_result = handle
-                .spawn_blocking(move || {
-                    if path.exists() {
-                        std::fs::read_to_string(&path)
-                    } else {
-                        Err(std::io::Error::new(
-                            std::io::ErrorKind::NotFound,
-                            "registry file does not exist",
-                        ))
-                    }
-                })
-                .await;
-            match read_result {
-                Ok(Ok(data)) => serde_json::from_str::<UserRegistry>(&data).unwrap_or_default(),
-                _ => UserRegistry::new(),
-            }
-        };
-
-        // Register user and generate permission rules.
-        let ruleset = match registry.register_user(user_id, channel, initial_perms) {
-            Ok(rs) => rs,
-            Err(crate::user_registry::RegistryError::AlreadyRegistered(_)) => {
-                tracing::warn!(
-                    user_id = %user_id,
-                    "user already registered, skipping"
-                );
-                return false;
-            }
-        };
-
-        // Persist user registry.
-        self.persist_user_registry(&registry_path, &registry);
-
-        // Persist initial permission rules to agent's permissions.json.
-        self.persist_initial_permission_rules(user_id, &ruleset);
-
-        // Trigger permission engine hot-reload.
-        (self.on_whitelist_updated)(user_id);
-
-        true
-    }
-
-    /// Persist the user registry to disk (async, non-blocking).
-    fn persist_user_registry(&self, registry_path: &std::path::Path, registry: &UserRegistry) {
-        let registry_path = registry_path.to_path_buf();
-        let json = match serde_json::to_string_pretty(registry) {
-            Ok(j) => j,
-            Err(e) => {
-                tracing::warn!(error = %e, "failed to serialize user registry");
-                return;
-            }
-        };
-        let handle = self.runtime_handle.clone();
-        handle.spawn_blocking(move || {
-            if let Some(parent) = registry_path.parent() {
-                if let Err(e) = std::fs::create_dir_all(parent) {
-                    tracing::warn!(
-                        path = %parent.display(),
-                        error = %e,
-                        "failed to create registry directory"
-                    );
-                    return;
-                }
-            }
-            if let Err(e) = std::fs::write(&registry_path, json) {
-                tracing::warn!(
-                    path = %registry_path.display(),
-                    error = %e,
-                    "failed to write user registry"
-                );
-            }
-        });
-    }
-
-    /// Persist initial permission rules to the agent's permissions.json
-    /// (async, non-blocking).
-    fn persist_initial_permission_rules(
-        &self,
-        user_id: &str,
-        new_rules: &crate::engine::engine_types::RuleSet,
-    ) {
-        let path = self
-            .config_dir
-            .join("agents")
-            .join(user_id)
-            .join("permissions.json");
-        let new_rules = new_rules.clone();
-        let handle = self.runtime_handle.clone();
-        handle.spawn_blocking(move || {
-            if let Some(parent) = path.parent() {
-                if let Err(e) = std::fs::create_dir_all(parent) {
-                    tracing::warn!(
-                        path = %parent.display(),
-                        error = %e,
-                        "failed to create agent permissions directory"
-                    );
-                    return;
-                }
-            }
-
-            // Read existing rules or start fresh.
-            let mut ruleset: crate::engine::engine_types::RuleSet = if path.exists() {
-                std::fs::read_to_string(&path)
-                    .ok()
-                    .and_then(|data| serde_json::from_str(&data).ok())
-                    .unwrap_or_default()
-            } else {
-                crate::engine::engine_types::RuleSet::default()
-            };
-
-            // Append new rules.
-            ruleset.rules.extend(new_rules.rules);
-
-            // Write back.
-            match serde_json::to_string_pretty(&ruleset) {
-                Ok(json) => {
-                    if let Err(e) = std::fs::write(&path, json) {
-                        tracing::warn!(
-                            path = %path.display(),
-                            error = %e,
-                            "failed to write permissions.json for user"
-                        );
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "failed to serialize permissions.json"
-                    );
-                }
-            }
-        });
     }
 }
 
