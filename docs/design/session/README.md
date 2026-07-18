@@ -219,13 +219,13 @@ active-searcher 写入槽位（tool role 摘要 + 位置模式）
 
 - **System Prompt Builder**：注入链路依赖此模块完成 bootstrap/tools/skills 的组装。
 - **LLM Client（UnifiedChatClient）**：ConversationSession 构建 API 请求发送给 LLM Client，经内部五层链路（CacheAdapter → Plugin → Protocol → Provider）完成调用；stop 时通过 cancel token 取消进行中的请求。
-- **ToolRegistry**：通过 [ToolRegistrar](../common/core-traits.md#toolregistrar) trait 向 ToolRegistry 注册 sessions 分组工具（sessions_spawn / sessions_steer / sessions_kill）；注入时获取工具列表和 skill 列表。
+- **ToolRegistry**：通过 [ToolRegistrar](../common/core-traits.md#toolregistrar) trait 向 ToolRegistry 注册 sessions 分组工具（sessions_spawn / sessions_steer / sessions_kill）；注入时获取工具列表（ToolsSection）。skill 清单由 Session 每 turn 从 DiskSkillRegistry 获取，不经过 system prompt 注入。
 - **PersistenceService**：CheckpointManager 通过此 trait 调用具体存储后端。
 - **Permission 模块**：Session 向 ToolRegistry 注册 sessions 分组工具（sessions_spawn / sessions_steer / sessions_kill）。工具调用时，tools 模块解析操作上下文后调用 Permission 引擎完成权限检查（详见 session-tools.md）。
 - **Config 模块**：sweeper 和 compaction 读取 SessionConfigProvider 获取会话配置参数（idle 超时、compact 阈值等）。
 - **Agent 模块**：session 创建时读取 Agent 配置档案，分发 model/workspace/tools/skills/subagents 等字段。sessions_spawn 等工具执行时读取 subagents 和 communication 配置做前置检查。
 - **Processor Chain（出站）**：Session 产出的 LLM 响应 ContentBlock[] 经 Gateway 调度进入出站 Processor Chain 做 DSL 解析。出站日志由 Gateway 在链后统一记录。非直接调用，属数据流下游依赖。
-- **Memory 模块**：sub-agent session 结束时通过 hook 触发 memory-miner 记忆挖掘；为每条消息 spawn active-searcher 子 session 进行记忆搜索；在消息组装时消费 `memory_injection` 槽位中的 tool role 记忆摘要。
+- **Memory 模块**：sub-agent session 结束时通过 hook 触发 memory-miner 记忆挖掘；为每条消息 spawn active-searcher 子 session 进行记忆搜索；写入 `memory_injection` 槽位（tool role 记忆摘要），由 Session 在消息组装时消费。
 
 ### 无关
 
