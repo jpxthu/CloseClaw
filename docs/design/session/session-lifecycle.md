@@ -14,7 +14,7 @@
 - 出站定向字段：thread_id（话题 ID，可选。不参与 session_key 计算，仅用于出站时定向回复到正确的话题线）
 - 生命周期状态：status（active / archived）、created_at
 - 未完成操作：pending_operations（操作发起前持久化、完成后清除。详见 [session-recovery.md](session-recovery.md)）
-- 运行时快照：pending_messages（transcript，含消息列表）、mode（对话模式：direct/plan/stream）、mode_state（推理步骤状态）
+- 运行时快照：pending_messages（transcript，含消息列表）、mode（对话模式：default/plan/auto）、mode_state（推理步骤状态）
 - system prompt 追加区：system_appends（由 `/system` 斜杠指令增删的追加条目列表。持久化在 checkpoint 中，归档/恢复时完整保留。追加区独立于对话消息流，不参与 compaction）
 - 统计：last_message_at（最后消息时间，Sweeper 用来判断 idle）、message_count
 - 其他：ttl_seconds、updated_at（最后 checkpoint 更新时间）

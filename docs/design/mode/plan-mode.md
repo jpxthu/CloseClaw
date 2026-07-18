@@ -32,7 +32,7 @@ Plan Mode 将任务规划与代码执行强制分离——规划阶段 Agent 只
 
 ### Agent 类型
 
-Plan Mode 各阶段通过 spawn 子 Agent + 特定 system prompt 实现不同角色。每种 Agent 类型对应 Agent 模块的一套固定 prompt 模板和工具白名单：
+Plan Mode 各阶段通过 spawn 子 Agent + 特定 system prompt 实现不同角色。每种 Agent 类型由 Agent 模块提供 spawn 注入框架，具体 prompt 模板由 mode 模块定义（详见 [references/prompts.md](references/prompts.md) §7），工具白名单由模式系统自身执行：
 
 | 类型 | 阶段 | 能力 | 职责 |
 |------|------|------|------|
@@ -64,7 +64,7 @@ Plan Mode 下的工具限制由模式系统自身执行——写工具中仅 pla
 
 - 任务标题、创建和更新时间
 - Context 节：背景、约束、已确认决策
-- Tasks 节：有序步骤列表，每步带完成标记（`[ ]` 未开始 / `[-]` 进行中 / `[x]` 已完成）
+- Tasks 节：有序步骤列表，每步带完成标记（`[ ]` 未开始 / `[-]` 进行中 / `[x]` 已完成 / `[!]` 失败 / `[~]` 已跳过）
 - Verification 节：端到端验证方式
 - Notes 节：执行备注
 
@@ -77,7 +77,7 @@ plan 本身无全局状态——只有步骤级别状态。已完成若干步后
 | 层级 | 机制 | 说明 |
 |------|------|------|
 | 工具过滤 | 模式系统自身执行 | Plan Mode 下仅 plan 文件写工具可见 |
-| 执行确认 | 执行触发工具弹出确认 | User 确认后才退出 Plan Mode 进入执行 |
+| 执行确认 | 自然语言触发时通过执行触发工具弹出确认；/execute 斜杠指令由 Gateway 直接切换，无需确认 | User 确认或斜杠指令触发后才退出 Plan Mode 进入执行 |
 
 ### 多路径恢复
 
@@ -130,10 +130,18 @@ Plan 内容在以下场景丢失时按优先级恢复（任一可用即可）：
 
 ### 触发执行
 
-1. User 满意 → /execute 或自然语言触发
+**通过 `/execute` 指令**：
+
+1. SlashDispatcher 接收 /execute → ModeSwitchHandler 切换模式
+2. session 退出 plan_mode → 标记 auto_mode
+3. 详见 [execution.md](execution.md) 同 session 执行数据流
+
+**通过自然语言触发**：
+
+1. User 自然语言要求执行
 2. Agent 调用执行触发工具 → User 确认
 3. session 退出 plan_mode → 标记 auto_mode
-4. 详见 [execution.md](execution.md)
+4. 详见 [execution.md](execution.md) 同 session 执行（自然语言触发）数据流
 
 ## 模块关系
 
@@ -156,7 +164,7 @@ Plan 内容在以下场景丢失时按优先级恢复（任一可用即可）：
 ### 模块内关系
 
 - 通过模式系统的模式切换机制进入和退出 Plan Mode
-- Agent 类型由 Agent 模块的配置系统定义，Plan Mode 消费已有配置
+- Agent 类型由 mode 模块定义 prompt 模板，Agent 模块提供 spawn 注入框架。Plan Mode 使用 Agent 模块的注入能力将模板注入子 Agent
 - Plan 文件读写由 Agent 直接执行（Plan Mode 下 plans/ 目录可写）
 
 ### 无关

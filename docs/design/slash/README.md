@@ -36,7 +36,7 @@ Handler 返回 [SlashResult](../common/shared-types.md#slashresult) 后，由 Ga
 
 | Handler | 负责指令 | Immediate |
 |---------|---------|-----------|
-| ModeSwitchHandler | plan, mode | ❌ |
+| ModeSwitchHandler | plan, mode, auto, execute | ❌ |
 | NewSessionHandler | new | ❌ |
 | StopHandler | stop | ✅ |
 | StatusHandler | status | ✅ |
@@ -53,7 +53,7 @@ Handler 返回 [SlashResult](../common/shared-types.md#slashresult) 后，由 Ga
 - [上下文压缩](compact.md) — `/compact` 触发对话历史压缩
 - [命令执行](exec.md) — `/exec` owner 特权命令执行
 - [帮助](help.md) — `/help` 动态生成帮助文本
-- [模式切换](mode-switching.md) — `/plan` 和 `/mode`，切换 Normal/Plan 模式
+- [模式切换](mode-switching.md) — `/plan`、`/mode`、`/auto`、`/execute`，切换 Normal/Plan/Auto 模式
 - [会话管理](session-management.md) — `/new` 创建新会话，`/stop` 终止当前运行
 - [推理深度控制](reasoning.md) — `/reasoning` 查询或设置推理深度
 - [信息展示等级](verbose.md) — `/verbose` 查询或设置信息展示等级

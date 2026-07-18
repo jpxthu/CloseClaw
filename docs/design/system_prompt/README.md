@@ -87,6 +87,7 @@ Archived session 被访问
 
 - **SessionManager**：在 session 创建和恢复时触发 system prompt 构建。
 - **Memory 模块**：提供 MEMORY.md，作为 static system prompt 的长期记忆段来源。
+- **Mode 模块**：提供当前 session 模式的指令内容（Plan Mode 双路径工作流指令 / Auto Mode 连续执行指令），注入动态层 ModeInstruction Section。
 - **Slash 模块**：`/system` 指令向 Session 写入 system_appends，system prompt 在每次 API 请求时从 Session 读取并拼入追加区。详细交互见 [slash/system-append](docs/design/slash/system-append.md)。
 
 ### 下游
