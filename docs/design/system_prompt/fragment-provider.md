@@ -36,7 +36,7 @@ Builder 在构建时提供的上下文，传递给每个 Provider。定义见 [s
 | ToolsFragmentProvider | 2 | ToolRegistry | ToolsSection |
 | MemoryFragmentProvider | 3 | MEMORY.md | MemorySection |
 
-BootstrapFragmentProvider 将多文件内容聚合到单 Fragment 中，每文件以 `## 文件名` 为 Section 标题，按文件名排序。MemoryFragmentProvider 根据 FragmentContext 中的 bootstrap_mode 判断——Minimal 模式（子 Agent 会话）返回空 Fragment，不暴露长期记忆；Full 模式（主 Agent 会话）读取 MEMORY.md 生成 MemorySection。各 Provider 产出与原 Builder 中硬编码的文本完全一致——仅抽象了获取方式，不改变输出内容。
+BootstrapFragmentProvider 将多文件内容聚合到单 Fragment 中，每文件以 `## 文件名` 为 Section 标题，按文件名排序。MemoryFragmentProvider 根据 FragmentContext 中的 bootstrap_mode 判断——Minimal 模式（子 Agent 会话）返回空 Fragment，不暴露长期记忆；Full 模式（主 Agent 会话）读取 MEMORY.md 生成 MemorySection（无 workspace 目录或 MEMORY.md 文件缺失时同样返回空）。各 Provider 产出与原 Builder 中硬编码的文本完全一致——仅抽象了获取方式，不改变输出内容。
 
 ### Section 级缓存
 
@@ -50,7 +50,7 @@ Builder 在请求片段前检查缓存键命中。缓存策略不变：
 ## 数据流
 
 1. SessionManager 触发构建
-2. Builder 构建 FragmentContext（agent_id + bootstrap_mode + bootstrap_dir）
+2. Builder 从 ConversationSession 获取 runtime bootstrap_mode，构建 FragmentContext（agent_id + bootstrap_mode + bootstrap_dir）
 3. 按优先级遍历注册的 Provider：
    - **BootstrapFragmentProvider**：检查缓存命中（基于 bootstrap 文件修改时间）→ Bootstrap Loader 读文件 → 聚合多文件为单 Fragment → 产出 Fragment（无 workspace 目录时返回空）
    - **ToolsFragmentProvider**：ToolRegistry 生成分组索引 → 产出 Fragment
