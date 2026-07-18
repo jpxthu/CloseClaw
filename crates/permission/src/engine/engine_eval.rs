@@ -138,7 +138,11 @@ impl PermissionEngine {
         self.rejection_logger.as_ref()
     }
 
-    /// Log a rejection if the logger is set and the response is `Denied`.
+    /// Log a rejection if the logger is set, the response is `Denied`,
+    /// and the session is in Auto Mode.
+    ///
+    /// Per design doc: rejection logs are only generated for Auto Mode
+    /// sessions (Plan/Normal/unknown modes do not produce logs).
     fn log_rejection(&self, response: &PermissionResponse, body: &PermissionRequestBody) {
         if let Some(logger) = &self.rejection_logger {
             if let PermissionResponse::Denied {
@@ -150,6 +154,10 @@ impl PermissionEngine {
                     .session_mode_query
                     .as_ref()
                     .and_then(|q| q.get_session_mode(body.agent_id()));
+                // Only record rejection logs in Auto Mode.
+                if session_mode != Some(SessionMode::Auto) {
+                    return;
+                }
                 let entry = build_rejection_log(body, reason.clone(), *risk_level, session_mode);
                 logger.log(&entry);
             }
