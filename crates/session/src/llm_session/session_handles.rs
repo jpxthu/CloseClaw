@@ -508,22 +508,20 @@ impl ConversationSession {
                 map.values().cloned().collect()
             };
 
-            // Shared deadline across all children. If overall_timeout
-            // is Duration::ZERO (Forceful mode), the deadline is now,
-            // so all children are skipped immediately.
+            // Shared deadline across all children.
             let deadline = tokio::time::Instant::now() + overall_timeout;
 
             for weak in snapshot {
-                // Skip remaining children if overall deadline has passed.
-                let remaining_time = deadline.checked_duration_since(tokio::time::Instant::now());
-                let remaining_time = match remaining_time {
-                    Some(d) => d,
-                    None => {
-                        tracing::warn!(
-                            "cascade_stop_children: overall timeout exceeded, skipping remaining children"
-                        );
-                        break;
-                    }
+                // Compute remaining budget. When overall_timeout is
+                // Duration::ZERO the deadline equals now; use direct
+                // comparison so Duration::ZERO yields 0 remaining time
+                // (children are still cascade-stopped with zero timeout)
+                // instead of breaking the loop.
+                let now = tokio::time::Instant::now();
+                let remaining_time = if now >= deadline {
+                    Duration::ZERO
+                } else {
+                    deadline - now
                 };
 
                 let Some(child_arc) = weak.upgrade() else {
