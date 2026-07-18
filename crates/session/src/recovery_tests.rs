@@ -502,7 +502,7 @@ mod tests {
 
     #[test]
     fn test_extract_tasks_from_content_chinese_heading() {
-        let content = "# Plan\n\n## 来源\n\n| 字段 | 值 |\n|------|-----|\n| source_type | design-doc |\n\n## 开发步骤\n\n### Step 1.1：测试步骤\n\n**目标**：测试目标\n\n### Step 1.2：第二步\n\n**目标**：第二个目标\n\n## 进度\n\n| | Step | 状态 |\n|------|------|------|\n| ✅ | 1.1 | |\n";
+        let content = "# Plan\n\n## 来源\n\n| 字段 | 值 |\n|------|-----|\n| source_type | design-doc |\n\n## 开发步骤\n\n### Step 1.1：测试步骤\n\n**目标**：测试目标\n\n### Step 1.2：第二步\n\n**目标**：第二个目标\n\n## 进度\n\n| | Step | 状态 |\n|------|------|------|\n| [x] | 1.1 | |\n";
         let result = extract_tasks_from_content(content).unwrap();
         assert!(result.contains("### Step 1.1"));
         assert!(result.contains("### Step 1.2"));

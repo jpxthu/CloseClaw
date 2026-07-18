@@ -1,6 +1,7 @@
 //! Tests for PlanState, PlanPhase, PlanPath, and DefaultPlanStateWriter.
 
 use super::*;
+use crate::plan_state::step_status_to_marker;
 use crate::plan_state::PlanPath;
 
 #[test]
@@ -295,6 +296,23 @@ fn test_init_then_full_flow() {
     assert_eq!(state.current_step, Some(2));
 }
 
+// --- step_status_to_marker tests ---
+
+#[test]
+fn test_step_status_to_marker_checkbox_format() {
+    assert_eq!(
+        step_status_to_marker(&ExecutionStepStatus::Completed),
+        "[x]"
+    );
+    assert_eq!(
+        step_status_to_marker(&ExecutionStepStatus::InProgress),
+        "[-]"
+    );
+    assert_eq!(step_status_to_marker(&ExecutionStepStatus::Failed), "[!]");
+    assert_eq!(step_status_to_marker(&ExecutionStepStatus::Pending), "[ ]");
+    assert_eq!(step_status_to_marker(&ExecutionStepStatus::Skipped), "[ ]");
+}
+
 // --- PlanPath tests ---
 
 #[test]
@@ -516,10 +534,7 @@ fn test_writer_updates_in_progress_marker() {
     writer.write_progress_to_plan_file(&plan_path, &ps).unwrap();
     let content = std::fs::read_to_string(&plan_path).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
-    assert!(
-        content.contains("\u{1f504}"),
-        "expected \u{1f504} marker: {content}"
-    );
+    assert!(content.contains("[-]"), "expected [-] marker: {content}");
 }
 
 #[test]
@@ -542,10 +557,7 @@ fn test_writer_updates_completed_marker() {
     writer.write_progress_to_plan_file(&plan_path, &ps).unwrap();
     let content = std::fs::read_to_string(&plan_path).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
-    assert!(
-        content.contains("\u{2705}"),
-        "expected \u{2705} marker: {content}"
-    );
+    assert!(content.contains("[x]"), "expected [x] marker: {content}");
 }
 
 #[test]
@@ -568,10 +580,7 @@ fn test_writer_updates_failed_marker() {
     writer.write_progress_to_plan_file(&plan_path, &ps).unwrap();
     let content = std::fs::read_to_string(&plan_path).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
-    assert!(
-        content.contains("\u{274c}"),
-        "expected \u{274c} marker: {content}"
-    );
+    assert!(content.contains("[!]"), "expected [!] marker: {content}");
 }
 
 #[test]
@@ -624,5 +633,5 @@ fn test_writer_preserves_non_step_content() {
     assert!(result.contains("Keep this."));
     assert!(result.contains("## Notes"));
     assert!(result.contains("More notes."));
-    assert!(result.contains("\u{2705}"));
+    assert!(result.contains("[x]"));
 }
