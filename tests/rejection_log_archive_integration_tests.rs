@@ -291,9 +291,11 @@ fn test_rejection_log_e2e_file_logger_disk() {
     let lines: Vec<&str> = content.trim().lines().collect();
     assert_eq!(lines.len(), 3, "expected 3 log lines on disk");
 
+    // Entries are prepended (newest first, reverse chronological order)
     for (i, line) in lines.iter().enumerate() {
         let parsed: RejectionLog = serde_json::from_str(line).unwrap();
-        assert_eq!(parsed.agent_id, format!("agent-{}", i));
+        // agent-2 is newest (written last, appears first), agent-0 is oldest
+        assert_eq!(parsed.agent_id, format!("agent-{}", 2 - i));
         assert_eq!(parsed.tool_name, "file");
         assert!(!parsed.timestamp.is_empty());
     }
