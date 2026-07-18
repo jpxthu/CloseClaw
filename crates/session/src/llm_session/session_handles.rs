@@ -545,7 +545,26 @@ impl ConversationSession {
 
     /// Call `kill()` on every registered tool handle, bounded by
     /// [`STOP_KILL_TIMEOUT`] per handle.
+    ///
+    /// Before killing, any tool in `RunningForeground` or
+    /// `RunningBackground` state is marked `Terminated` so the state
+    /// machine reaches a proper terminal state before cleanup.
     async fn kill_tool_handles(&self) {
+        // Set Terminated on all Running tools before killing.
+        // This ensures the state machine reaches a terminal state
+        // before the process is reaped and clear_exec_state runs.
+        {
+            let mut states = self.tool_states.write().expect("tool_states lock poisoned");
+            for (_id, (state, _)) in states.iter_mut() {
+                if matches!(
+                    *state,
+                    ToolExecState::RunningForeground | ToolExecState::RunningBackground
+                ) {
+                    *state = ToolExecState::Terminated;
+                }
+            }
+        }
+
         // Snapshot the handle set under the lock, then drop the
         // lock before the (blocking / IO) kill calls.
         let snapshot: Vec<(String, Arc<dyn KillHandle>)> = {
@@ -655,6 +674,10 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
 
     async fn deregister_tool_call(&self, call_id: String) {
         ConversationSession::deregister_tool_call(self, &call_id);
+    }
+
+    async fn update_tool_state(&self, call_id: &str, state: closeclaw_common::ToolExecState) {
+        ConversationSession::update_tool_state(self, call_id, state);
     }
 
     async fn register_child_state(&self, child_id: String, agent_id: String, task_summary: String) {
