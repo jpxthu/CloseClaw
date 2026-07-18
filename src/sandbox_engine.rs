@@ -3,7 +3,7 @@
 //! When `SANDBOX_ENGINE=1` is set, the binary acts as a permission engine
 //! subprocess instead of the normal CLI. This module encapsulates the
 //! environment-variable branching logic so that the detection logic is
-//! independently testable without `std::env::set_var`.
+//! independently testable without mutating the process environment.
 
 use std::path::PathBuf;
 
