@@ -1,11 +1,9 @@
 //! CloseClaw Binary Entry Point
 
-use std::path::PathBuf;
-
 use clap::{Parser, Subcommand};
 use closeclaw::cli::admin::*;
 use closeclaw::cli::args::*;
-use closeclaw_permission::{sandbox::run_engine_subprocess, RuleSet};
+use closeclaw::sandbox_engine::try_run_engine_subprocess;
 
 #[derive(Parser)]
 #[command(name = "closeclaw", version = env!("CARGO_PKG_VERSION"))]
@@ -52,20 +50,6 @@ enum Commands {
     },
 }
 
-/// Try to run as sandbox engine subprocess.
-///
-/// Returns `Some(Ok(()))` if the process entered engine mode and completed,
-/// or `Some(Err(..))` if engine mode was entered but failed.
-/// Returns `None` if `SANDBOX_ENGINE` is not set, meaning normal CLI flow.
-async fn try_run_engine_subprocess() -> Option<anyhow::Result<()>> {
-    if std::env::var("SANDBOX_ENGINE").ok().as_deref() != Some("1") {
-        return None;
-    }
-    let ipc_path = std::env::var("SANDBOX_IPC_PATH")
-        .expect("SANDBOX_IPC_PATH must be set when SANDBOX_ENGINE=1");
-    let rules = RuleSet::default();
-    Some(run_engine_subprocess(PathBuf::from(ipc_path), rules).await)
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
