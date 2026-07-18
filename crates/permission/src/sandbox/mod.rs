@@ -13,7 +13,7 @@ pub use security::*;
 mod ipc;
 pub use ipc::*;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
@@ -83,6 +83,8 @@ pub struct Sandbox {
     child: Option<Child>,
     channel: IpcChannel,
     state: RwLock<SandboxState>,
+    /// Optional override for the engine binary path (used by tests).
+    binary_path: Option<PathBuf>,
 }
 
 impl Sandbox {
@@ -95,12 +97,19 @@ impl Sandbox {
             child: None,
             channel: IpcChannel::new(ipc_path),
             state: RwLock::new(SandboxState::Unstarted),
+            binary_path: None,
         }
     }
 
     /// Set the security policy for the engine subprocess.
     pub fn with_policy(mut self, policy: SecurityPolicy) -> Self {
         self.policy = policy;
+        self
+    }
+
+    /// Override the engine binary path (for testing).
+    pub fn with_binary_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.binary_path = Some(path.into());
         self
     }
 
@@ -113,8 +122,14 @@ impl Sandbox {
 impl Sandbox {
     /// Spawn the permission engine as a child process.
     ///
-    /// The engine binary is the current process itself, started with the
-    /// environment variable `SANDBOX_ENGINE=1` and `--engine` flag.
+    /// The engine binary is resolved via [`resolve_engine_binary`], which
+    /// prefers an explicit test override, then `CLOSECLAW_ENGINE_BIN`, then
+    /// derives the main binary from `current_exe()` (handling the `deps/`
+    /// directory used by `cargo test`), and finally falls back to
+    /// `current_exe()` itself.
+    ///
+    /// The subprocess is started with `SANDBOX_ENGINE=1` so that the binary
+    /// enters engine mode via [`try_run_engine_subprocess`].
     ///
     /// After spawning, the function waits up to [`ENGINE_SPAWN_TIMEOUT_MS`] for the
     /// engine to become responsive on the IPC socket.
@@ -138,10 +153,10 @@ impl Sandbox {
 
     /// Create the engine subprocess and wait for its socket to appear.
     async fn spawn_child_process(&self) -> Result<Child, SandboxError> {
-        let mut child = Command::new(std::env::current_exe()?)
+        let engine_bin = resolve_engine_binary(self.binary_path.as_deref())?;
+        let mut child = Command::new(engine_bin)
             .env("SANDBOX_ENGINE", "1")
             .env("SANDBOX_IPC_PATH", &self.ipc_path)
-            .arg("--engine")
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .stdin(Stdio::null())
@@ -273,6 +288,56 @@ impl Drop for Sandbox {
         if let Some(ref mut child) = self.child {
             let _ = child.kill();
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Engine binary resolution
+// ---------------------------------------------------------------------------
+
+/// Resolve the engine binary path.
+///
+/// Priority:
+/// 1. Explicit `override_path` (injected by tests via `Sandbox::with_binary_path`)
+/// 2. `CLOSECLAW_ENGINE_BIN` env var (allows CI/test overrides)
+/// 3. Derive from `current_exe()`: if inside a `deps/` directory (cargo test),
+///    walk up to the profile root and use `closeclaw`
+/// 4. Fallback to `current_exe()` itself (normal production binary)
+fn resolve_engine_binary(override_path: Option<&Path>) -> Result<PathBuf, SandboxError> {
+    // 1. Test-injected override.
+    if let Some(p) = override_path {
+        return Ok(p.to_path_buf());
+    }
+
+    // 2. Environment variable override.
+    if let Ok(p) = std::env::var("CLOSECLAW_ENGINE_BIN") {
+        return Ok(PathBuf::from(p));
+    }
+
+    // 3. Derive from current_exe(), handling cargo test's deps/ directory.
+    let exe = std::env::current_exe()
+        .map_err(|e| SandboxError::ProcessError(format!("failed to get current exe: {e}")))?;
+
+    if let Some(resolved) = resolve_from_deps(&exe) {
+        return Ok(resolved);
+    }
+
+    // 4. Fallback: use current_exe() as-is (production binary).
+    Ok(exe)
+}
+
+/// If `exe` is inside a `deps/` directory, try to find the main binary
+/// (`closeclaw`) in the parent directory.
+///
+/// Example: `target/debug/deps/sandbox_test-abc123` → `target/debug/closeclaw`
+fn resolve_from_deps(exe: &Path) -> Option<PathBuf> {
+    let deps_idx = exe.components().position(|c| c.as_os_str() == "deps")?;
+    let profile_root: PathBuf = exe.components().take(deps_idx).collect();
+    let candidate = profile_root.join("closeclaw");
+    if candidate.exists() {
+        Some(candidate)
+    } else {
+        None
     }
 }
 
