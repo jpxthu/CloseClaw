@@ -193,8 +193,8 @@ async fn handle_connection(
                     .await
                     .evaluate(request.clone(), extra_deny_subjects.clone()),
             ),
-            SandboxRequest::ReloadRules { rules: _ } => {
-                // The engine is recreated externally; we just acknowledge.
+            SandboxRequest::ReloadRules { rules } => {
+                engine.write().await.reload_rules(rules.clone());
                 SandboxResponse::RulesReloaded
             }
             SandboxRequest::Ping => SandboxResponse::Pong,
