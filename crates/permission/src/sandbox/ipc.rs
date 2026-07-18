@@ -193,8 +193,8 @@ async fn handle_connection(
                     .await
                     .evaluate(request.clone(), extra_deny_subjects.clone()),
             ),
-            SandboxRequest::ReloadRules { rules: _ } => {
-                // The engine is recreated externally; we just acknowledge.
+            SandboxRequest::ReloadRules { rules } => {
+                engine.write().await.reload_rules(rules.clone());
                 SandboxResponse::RulesReloaded
             }
             SandboxRequest::Ping => SandboxResponse::Pong,
@@ -336,5 +336,312 @@ mod tests {
         channel.clean_up(); // should not panic
                             // Running it twice is also fine (idempotent)
         channel.clean_up();
+    }
+
+    // -----------------------------------------------------------------
+    // ReloadRules IPC integration tests
+    //
+    // These tests verify that ReloadRules actually writes rules into the
+    // engine (the fix from Step 1.1). They spin up a lightweight IPC
+    // server in-process using IpcChannel::serve + a shared
+    // PermissionEngine, then exercise the full IPC round-trip.
+    // -----------------------------------------------------------------
+
+    use crate::engine::{Action, Effect, MatchType, Rule, Subject};
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+    use tokio::time::timeout;
+
+    /// Helper: create a temp socket path using TempDir (safe, auto-cleaned).
+    fn test_socket_path() -> (std::path::PathBuf, tempfile::TempDir) {
+        let tmpdir = tempfile::TempDir::new().expect("tempdir");
+        let path = tmpdir
+            .path()
+            .join(format!("ipc-test-{}.sock", std::process::id()));
+        (path, tmpdir)
+    }
+
+    /// Start the IPC server on a temp socket, returning the IpcChannel for
+    /// the caller to use.
+    async fn start_ipc_server(
+        engine: Arc<RwLock<crate::PermissionEngine>>,
+        path: &std::path::PathBuf,
+    ) {
+        let server_channel = IpcChannel::new(path.clone());
+        let engine_clone = engine.clone();
+        tokio::spawn(async move {
+            let _ = server_channel.serve(engine_clone).await;
+        });
+        // Give the server a moment to bind.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    /// Build a FileOp permission request for a given agent.
+    fn file_read_request(agent: &str) -> crate::PermissionRequest {
+        crate::PermissionRequest::Bare(crate::PermissionRequestBody::FileOp {
+            agent: agent.to_string(),
+            path: "/tmp/test.txt".to_string(),
+            op: "read".to_string(),
+        })
+    }
+
+    /// Create an allow-all RuleSet: one rule with Subject::AgentOnly +
+    /// MatchType::Glob that allows every action.
+    fn allow_all_rules() -> crate::RuleSet {
+        crate::RuleSet {
+            rules: vec![Rule {
+                name: "allow-all".to_string(),
+                subject: Subject::AgentOnly {
+                    agent: "*".to_string(),
+                    match_type: MatchType::Glob,
+                },
+                effect: Effect::Allow,
+                actions: vec![Action::All],
+                template: None,
+                priority: 0,
+            }],
+            defaults: crate::engine::Defaults {
+                file_read: Effect::Allow,
+                file_write: Effect::Allow,
+                command: Effect::Allow,
+                network: Effect::Allow,
+                inter_agent: Effect::Allow,
+                config: Effect::Allow,
+                tool_call: Effect::Allow,
+                message: Effect::Allow,
+            },
+            user_defaults: crate::engine::Defaults::user_defaults(),
+            template_includes: vec![],
+            agent_creators: Default::default(),
+            rule_version: String::new(),
+        }
+    }
+
+    /// Create a deny-all RuleSet: one rule that denies everything.
+    fn deny_all_rules() -> crate::RuleSet {
+        crate::RuleSet {
+            rules: vec![Rule {
+                name: "deny-all".to_string(),
+                subject: Subject::AgentOnly {
+                    agent: "*".to_string(),
+                    match_type: MatchType::Glob,
+                },
+                effect: Effect::Deny,
+                actions: vec![Action::All],
+                template: None,
+                priority: 0,
+            }],
+            defaults: crate::engine::Defaults::default(),
+            user_defaults: crate::engine::Defaults::user_defaults(),
+            template_includes: vec![],
+            agent_creators: Default::default(),
+            rule_version: String::new(),
+        }
+    }
+
+    /// Create an empty RuleSet (no rules, default deny).
+    fn empty_rules() -> crate::RuleSet {
+        crate::RuleSet {
+            rules: vec![],
+            defaults: crate::engine::Defaults::default(),
+            user_defaults: crate::engine::Defaults::user_defaults(),
+            template_includes: vec![],
+            agent_creators: Default::default(),
+            rule_version: String::new(),
+        }
+    }
+
+    // -- Test 1: ReloadRules with allow-all → Evaluate returns Allowed --
+
+    #[tokio::test]
+    async fn test_ipc_reload_rules_allow_all_then_evaluate_allowed() {
+        let (socket_path, _tmpdir) = test_socket_path();
+        let _ = std::fs::remove_file(&socket_path);
+
+        // Start with empty (deny-all default) engine.
+        let engine = Arc::new(RwLock::new(
+            crate::PermissionEngine::new_with_default_data_root(empty_rules()),
+        ));
+        start_ipc_server(engine.clone(), &socket_path).await;
+
+        let client = IpcChannel::new(&socket_path);
+
+        // 1. Reload with allow-all rules.
+        let resp = timeout(
+            std::time::Duration::from_secs(3),
+            client.call(&SandboxRequest::ReloadRules {
+                rules: allow_all_rules(),
+            }),
+        )
+        .await
+        .expect("timeout")
+        .expect("IPC error");
+        assert!(matches!(resp, SandboxResponse::RulesReloaded));
+
+        // 2. Evaluate — should be Allowed because rules are now injected.
+        let resp = timeout(
+            std::time::Duration::from_secs(3),
+            client.call(&SandboxRequest::Evaluate {
+                request: file_read_request("test-agent"),
+                extra_deny_subjects: None,
+            }),
+        )
+        .await
+        .expect("timeout")
+        .expect("IPC error");
+        match resp {
+            SandboxResponse::PermissionResponse(crate::PermissionResponse::Allowed { .. }) => {}
+            other => panic!(
+                "expected Allowed after ReloadRules(allow-all), got {:?}",
+                other
+            ),
+        }
+    }
+
+    // -- Test 2: ReloadRules with deny-all → Evaluate returns Denied --
+
+    #[tokio::test]
+    async fn test_ipc_reload_rules_deny_all_then_evaluate_denied() {
+        let (socket_path, _tmpdir) = test_socket_path();
+        let _ = std::fs::remove_file(&socket_path);
+
+        // Start with allow-all rules.
+        let engine = Arc::new(RwLock::new(
+            crate::PermissionEngine::new_with_default_data_root(allow_all_rules()),
+        ));
+        start_ipc_server(engine.clone(), &socket_path).await;
+
+        let client = IpcChannel::new(&socket_path);
+
+        // 1. Verify initial state is Allowed.
+        let resp = timeout(
+            std::time::Duration::from_secs(3),
+            client.call(&SandboxRequest::Evaluate {
+                request: file_read_request("test-agent"),
+                extra_deny_subjects: None,
+            }),
+        )
+        .await
+        .expect("timeout")
+        .expect("IPC error");
+        assert!(
+            matches!(
+                resp,
+                SandboxResponse::PermissionResponse(crate::PermissionResponse::Allowed { .. })
+            ),
+            "initial state should be Allowed"
+        );
+
+        // 2. Reload with deny-all rules.
+        let resp = timeout(
+            std::time::Duration::from_secs(3),
+            client.call(&SandboxRequest::ReloadRules {
+                rules: deny_all_rules(),
+            }),
+        )
+        .await
+        .expect("timeout")
+        .expect("IPC error");
+        assert!(matches!(resp, SandboxResponse::RulesReloaded));
+
+        // 3. Evaluate — should be Denied because deny-all rules are injected.
+        let resp = timeout(
+            std::time::Duration::from_secs(3),
+            client.call(&SandboxRequest::Evaluate {
+                request: file_read_request("test-agent"),
+                extra_deny_subjects: None,
+            }),
+        )
+        .await
+        .expect("timeout")
+        .expect("IPC error");
+        match resp {
+            SandboxResponse::PermissionResponse(crate::PermissionResponse::Denied {
+                reason,
+                ..
+            }) => {
+                assert!(
+                    reason.contains("denied"),
+                    "denied reason should mention denied: {}",
+                    reason
+                );
+            }
+            other => panic!(
+                "expected Denied after ReloadRules(deny-all), got {:?}",
+                other
+            ),
+        }
+    }
+
+    // -- Test 3: ReloadRules with empty RuleSet → engine back to default Deny --
+
+    #[tokio::test]
+    async fn test_ipc_reload_rules_empty_setback_to_default_deny() {
+        let (socket_path, _tmpdir) = test_socket_path();
+        let _ = std::fs::remove_file(&socket_path);
+
+        // Start with allow-all rules.
+        let engine = Arc::new(RwLock::new(
+            crate::PermissionEngine::new_with_default_data_root(allow_all_rules()),
+        ));
+        start_ipc_server(engine.clone(), &socket_path).await;
+
+        let client = IpcChannel::new(&socket_path);
+
+        // 1. Verify initial state is Allowed.
+        let resp = timeout(
+            std::time::Duration::from_secs(3),
+            client.call(&SandboxRequest::Evaluate {
+                request: file_read_request("test-agent"),
+                extra_deny_subjects: None,
+            }),
+        )
+        .await
+        .expect("timeout")
+        .expect("IPC error");
+        assert!(
+            matches!(
+                resp,
+                SandboxResponse::PermissionResponse(crate::PermissionResponse::Allowed { .. })
+            ),
+            "initial state should be Allowed"
+        );
+
+        // 2. Reload with empty rules (back to defaults = deny).
+        let resp = timeout(
+            std::time::Duration::from_secs(3),
+            client.call(&SandboxRequest::ReloadRules {
+                rules: empty_rules(),
+            }),
+        )
+        .await
+        .expect("timeout")
+        .expect("IPC error");
+        assert!(matches!(resp, SandboxResponse::RulesReloaded));
+
+        // 3. Evaluate — should be Denied (default deny, no matching rule).
+        let resp = timeout(
+            std::time::Duration::from_secs(3),
+            client.call(&SandboxRequest::Evaluate {
+                request: file_read_request("test-agent"),
+                extra_deny_subjects: None,
+            }),
+        )
+        .await
+        .expect("timeout")
+        .expect("IPC error");
+        match resp {
+            SandboxResponse::PermissionResponse(crate::PermissionResponse::Denied {
+                reason,
+                ..
+            }) => {
+                assert!(
+                    reason.contains("no matching rule") || reason.contains("denied"),
+                    "denied reason should indicate no matching rule: {}",
+                    reason
+                );
+            }
+            other => panic!("expected Denied after ReloadRules(empty), got {:?}", other),
+        }
     }
 }
