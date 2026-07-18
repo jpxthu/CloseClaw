@@ -449,9 +449,9 @@
   },
   {
     "path": "docs/design/session/session-execution.md",
-    "commit": "832879547572ca5f7a8dc294bd77e871ab3d2f50",
-    "commit_time": "2026-07-16T03:35:31+08:00",
-    "confirmed_time": "2026-07-16T03:43:03.458358+08:00",
+    "commit": "b3a570daaaa75de5213c8aab32bf3d8b4dfd30bf",
+    "commit_time": "2026-07-18T11:20:57+08:00",
+    "confirmed_time": "2026-07-18T11:33:03.344945+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -468,6 +468,14 @@
     "commit": "5097c6f35db6690ac929066198061df3d708b07b",
     "commit_time": "2026-07-16T10:00:13+08:00",
     "confirmed_time": "2026-07-16T10:11:11.077321+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/session/session-recovery.md",
+    "commit": "9a8107f32b0077609bacfbc1b8608a5beddebf0a",
+    "commit_time": "2026-07-18T11:34:25+08:00",
+    "confirmed_time": "2026-07-18T11:45:39.134243+08:00",
     "comment": "",
     "blocked_reason": ""
   },
