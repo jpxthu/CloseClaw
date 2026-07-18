@@ -15,10 +15,11 @@ Agent 在 session 内可运行于以下模式之一，每种模式决定了 Agen
 - Auto Mode（执行模式）：Agent 连续自主执行 plan 步骤，不等 User 逐步确认，但危险操作仍需 User 审批。可直接进入，不需要先经过 Plan Mode
 
 模式切换规则：
-- User 通过斜杠指令显式进入 Plan Mode 或 Auto Mode
 - Plan Mode 与 Auto Mode 相互独立——从 Plan Mode 退出不自动进入 Auto Mode，进入 Auto Mode 也不需要先经过 Plan Mode
-- Plan Mode 下 User 通过斜杠指令或自然语言触发执行时，退出 Plan Mode 并进入 Auto Mode
+- Plan Mode 下 User 通过 `/execute` 命令或自然语言触发执行时，退出 Plan Mode 并进入 Auto Mode
 - Auto Mode 下所有任务完成后自动退出并恢复默认模式
+
+> **交叉引用**：模式切换指令的完整语法和参数由 F14（模式切换指令）定义。指令拦截和分派由 [slash §F1](slash.md)（斜杠指令入口）定义。
 
 ### F2. Plan Mode — 标准路径
 
@@ -86,7 +87,7 @@ plan 本身没有 draft/confirmed/completed 等全局状态——只有步骤级
 
 步骤的状态流转：未开始 → 进行中 → 已完成 / 失败 / 已跳过。失败后 User 可决定重试（失败 → 进行中）。已完成不允许回退。已完成若干步后 User 发现设计有问题，可以回 Plan Mode 修改未完成的步骤，不影响已完成步骤。
 
-plan 文件命名需包含任务识别信息，格式由 User 在时间戳格式（如 `20260717-0153-任务名`）和随机词组格式间选择。
+plan 文件命名需包含任务识别信息，格式由 User 在时间戳格式（如 `20260718-2006-任务名`）和随机词组格式之间选择。
 
 > **交叉引用**：执行方式详见 F10。
 
@@ -160,6 +161,20 @@ Plan 写完后，执行方式完全由 User 通过自然语言指令决定，没
 ### F13. plan 归档
 
 已完成的 plan 文件在最后访问超过一定天数后自动归档，避免 plans 目录无限增长。User 可以配置归档天数。
+
+### F14. 模式切换指令
+
+User 通过以下斜杠指令查询或切换会话运行模式：
+
+- `/plan [描述]`：切换到 Plan Mode。可选描述参数在模式切换后作为下一条用户消息注入 LLM 对话——效果等价于先执行 `/plan`、再发送该描述文本。不带描述时仅切换模式
+- `/mode`（无参数）：查询当前模式
+- `/mode plan [描述]`：等价于 `/plan [描述]`
+- `/mode normal`：切换到默认模式
+- `/mode <非法值>`：提示错误，模式不变
+
+模式切换不立即变更 system prompt——切换仅标记会话状态，下一条用户消息进入 LLM 前生效。
+
+> **交叉引用**：Plan Mode 下的 Agent 行为约束见 F2（标准路径）和 F3（Interview 路径）。Auto Mode 的行为约束见 F7。
 
 ## 关联设计文档
 
