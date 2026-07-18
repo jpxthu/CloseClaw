@@ -221,13 +221,10 @@ ask about plan approval via text or AskUserQuestion.";
 pub(crate) const SUBAGENT_SPARSE: &str = "\
 Plan mode is active. The user indicated that they do not want you to\n\
 execute yet — you MUST NOT make any edits, run any non-readonly tools,\n\
-or otherwise make any changes to the system. Instead, you should:\n\
+or otherwise make any changes to the system.\n\
 \n\
-You can read the plan file and make incremental edits if needed. NOTE\n\
-that this is the only file you are allowed to edit — other than this\n\
-you are only allowed to take READ-ONLY actions. Answer the user's\n\
-query comprehensively, using the AskUserQuestion tool if you need to\n\
-ask clarifying questions.";
+You are only allowed to take READ-ONLY actions. Answer the spawning\n\
+agent's query comprehensively, using the available read-only tools.";
 
 // ---------------------------------------------------------------------------
 // Mode Transition prompts — design doc section 6.

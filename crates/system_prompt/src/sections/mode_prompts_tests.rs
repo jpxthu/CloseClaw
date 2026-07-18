@@ -210,18 +210,22 @@ fn test_subagent_sparse_content_integrity() {
         "SUBAGENT_SPARSE: missing opening"
     );
     assert!(
-        SUBAGENT_SPARSE.contains("You can read the plan file"),
-        "SUBAGENT_SPARSE: missing plan file reference"
+        SUBAGENT_SPARSE.contains("READ-ONLY actions"),
+        "SUBAGENT_SPARSE: missing READ-ONLY constraint"
+    );
+    assert!(
+        SUBAGENT_SPARSE.contains("Answer the spawning"),
+        "SUBAGENT_SPARSE: missing spawning agent reference"
+    );
+    // Should NOT contain plan file write permission
+    assert!(
+        !SUBAGENT_SPARSE.contains("incremental edits"),
+        "SUBAGENT_SPARSE: should not allow plan file edits"
     );
     // Verify the "to execute" fix — space between "to" and "execute"
     assert!(
         SUBAGENT_SPARSE.contains("to\nexecute"),
         "SUBAGENT_SPARSE: 'to execute' should be split across lines"
-    );
-    // Should NOT have the old glue
-    assert!(
-        !SUBAGENT_SPARSE.contains("to\\execute"),
-        "SUBAGENT_SPARSE: should not have 'to\\execute' (no backslash without newline)"
     );
 }
 
@@ -229,7 +233,7 @@ fn test_subagent_sparse_content_integrity() {
 fn test_subagent_sparse_paragraph_break() {
     // Two logical paragraphs separated by a blank line (\n\n)
     assert!(
-        SUBAGENT_SPARSE.contains("the system. Instead, you should:\n\nYou can read"),
+        SUBAGENT_SPARSE.contains("the system.\n\nYou are only"),
         "SUBAGENT_SPARSE: should have paragraph break between two sections"
     );
 }

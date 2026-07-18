@@ -322,11 +322,11 @@ fn test_mode_instruction_sparse_and_sub_agent() {
         true,
     );
     assert!(rendered.contains("Plan mode is active"));
-    assert!(rendered.contains("incremental edits"));
+    assert!(rendered.contains("READ-ONLY actions"));
     // sub_agent takes precedence over sparse
     let rendered =
         render_mode_instruction_with_flags(SessionMode::Plan, Some(PlanPath::Standard), true, true);
-    assert!(rendered.contains("incremental edits"));
+    assert!(rendered.contains("READ-ONLY actions"));
     assert!(!rendered.contains("Plan mode still active"));
 }
 
@@ -500,8 +500,8 @@ fn test_sub_agent_true_outputs_subagent_sparse() {
         "Sub-agent should output SUBAGENT_SPARSE, got: {}",
         output
     );
-    assert!(output.contains("incremental edits"));
     assert!(output.contains("READ-ONLY actions"));
+    assert!(!output.contains("incremental edits"));
 }
 
 /// is_sub_agent = false → normal mode instruction (not sub-agent sparse)
@@ -527,7 +527,7 @@ fn test_sub_agent_precedence_over_sparse() {
         true, // sub-agent
     );
     assert!(
-        output.contains("incremental edits"),
+        output.contains("READ-ONLY actions"),
         "Sub-agent should take precedence over sparse"
     );
     assert!(!output.contains("Plan mode still active"));
