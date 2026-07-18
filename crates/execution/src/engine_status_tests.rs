@@ -1,10 +1,10 @@
-//! Tests for ExecutionEngine plan status transitions (Step 1.2).
+//! Tests for ExecutionEngine step execution behavior.
 
 use crate::engine::ExecutionEngine;
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 use async_trait::async_trait;
-use closeclaw_common::{ExecutionStepStatus, NoopNotifier, PlanState, PlanStatus};
+use closeclaw_common::{ExecutionStepStatus, NoopNotifier, PlanState};
 use std::sync::{Arc, Mutex};
 
 use crate::error::ExecutionError;
@@ -47,14 +47,11 @@ fn default_config() -> ExecutionConfig {
     }
 }
 
-/// Create an engine with a pre-configured plan state status.
-fn engine_with_status(
+/// Create an engine with a default plan state.
+fn engine_with_default(
     adapter: MockAdapter,
-    status: PlanStatus,
 ) -> (ExecutionEngine<MockAdapter>, Arc<Mutex<PlanState>>) {
-    let mut plan_state = PlanState::new();
-    plan_state.status = status;
-    let plan_state = Arc::new(Mutex::new(plan_state));
+    let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::new(
         plan_state.clone(),
         default_config(),
@@ -68,7 +65,7 @@ fn engine_with_status(
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn test_all_steps_succeed_transitions_to_completed() {
+async fn test_all_steps_succeed() {
     let adapter = MockAdapter::new(vec![
         Ok(SubAgentResult {
             step_index: 0,
@@ -85,7 +82,7 @@ async fn test_all_steps_succeed_transitions_to_completed() {
             error_message: None,
         }),
     ]);
-    let (engine, plan_state) = engine_with_status(adapter, PlanStatus::Executing);
+    let (engine, _plan_state) = engine_with_default(adapter);
     let report = engine
         .execute(&["step A".into(), "step B".into()])
         .await
@@ -93,12 +90,10 @@ async fn test_all_steps_succeed_transitions_to_completed() {
 
     assert!(report.all_completed);
     assert!(report.failed_step.is_none());
-    let state = plan_state.lock().unwrap();
-    assert_eq!(state.status, PlanStatus::Completed);
 }
 
 #[tokio::test]
-async fn test_step_failure_keeps_status_executing() {
+async fn test_step_failure_stops_execution() {
     let adapter = MockAdapter::new(vec![
         Ok(SubAgentResult {
             step_index: 0,
@@ -115,18 +110,7 @@ async fn test_step_failure_keeps_status_executing() {
             error_message: Some("broken".into()),
         }),
     ]);
-    let plan_state = Arc::new(Mutex::new({
-        let mut ps = PlanState::new();
-        ps.status = PlanStatus::Executing;
-        ps
-    }));
-    let engine = ExecutionEngine::new(
-        plan_state.clone(),
-        default_config(),
-        adapter,
-        Arc::new(NoopNotifier),
-        None,
-    );
+    let (engine, _plan_state) = engine_with_default(adapter);
     let report = engine
         .execute(&["step A".into(), "step B".into()])
         .await
@@ -134,36 +118,15 @@ async fn test_step_failure_keeps_status_executing() {
 
     assert!(!report.all_completed);
     assert_eq!(report.failed_step, Some(1));
-    let state = plan_state.lock().unwrap();
-    assert_eq!(state.status, PlanStatus::Executing);
 }
 
 #[tokio::test]
-async fn test_empty_steps_transitions_to_completed() {
+async fn test_empty_steps_succeed() {
     let adapter = MockAdapter::new(vec![]);
-    let (engine, plan_state) = engine_with_status(adapter, PlanStatus::Executing);
+    let (engine, _plan_state) = engine_with_default(adapter);
     let report = engine.execute(&[]).await.unwrap();
 
     assert!(report.all_completed);
     assert!(report.failed_step.is_none());
     assert!(report.steps.is_empty());
-    let state = plan_state.lock().unwrap();
-    assert_eq!(state.status, PlanStatus::Completed);
-}
-
-#[tokio::test]
-async fn test_already_completed_no_panic() {
-    let adapter = MockAdapter::new(vec![Ok(SubAgentResult {
-        step_index: 0,
-        status: ExecutionStepStatus::Completed,
-        summary: "done".into(),
-        changed_files: vec![],
-        error_message: None,
-    })]);
-    let (engine, plan_state) = engine_with_status(adapter, PlanStatus::Completed);
-    let report = engine.execute(&["step".into()]).await.unwrap();
-
-    assert!(report.all_completed);
-    let state = plan_state.lock().unwrap();
-    assert_eq!(state.status, PlanStatus::Completed);
 }

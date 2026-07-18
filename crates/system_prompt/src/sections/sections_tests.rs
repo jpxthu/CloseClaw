@@ -249,14 +249,8 @@ fn test_mode_instruction_plan_standard_and_interview() {
     let r = std.render();
     assert!(r.contains("## Mode: Plan \u{2014} Standard Path"));
     assert!(r.contains("This supercedes any other instructions"));
-    assert!(r.contains("Phase 5: Submit for Approval"));
-    assert!(r.contains("Do not stop unless it's for these 2 reasons"));
-    // Verify all 5 phases are present (completeness check)
-    assert!(r.contains("Phase 1: Initial Understanding"));
-    assert!(r.contains("Phase 2: Design"));
-    assert!(r.contains("Phase 3: Review"));
     assert!(r.contains("Phase 4: Final Plan"));
-    assert!(r.contains("Phase 5: Submit for Approval"));
+    assert!(!r.contains("Phase 5"));
     assert!(!r.contains("Interview Path"));
     let intv = Section::ModeInstruction {
         mode: SessionMode::Plan,
@@ -328,11 +322,11 @@ fn test_mode_instruction_sparse_and_sub_agent() {
         true,
     );
     assert!(rendered.contains("Plan mode is active"));
-    assert!(rendered.contains("incremental edits"));
+    assert!(rendered.contains("READ-ONLY actions"));
     // sub_agent takes precedence over sparse
     let rendered =
         render_mode_instruction_with_flags(SessionMode::Plan, Some(PlanPath::Standard), true, true);
-    assert!(rendered.contains("incremental edits"));
+    assert!(rendered.contains("READ-ONLY actions"));
     assert!(!rendered.contains("Plan mode still active"));
 }
 
@@ -506,8 +500,8 @@ fn test_sub_agent_true_outputs_subagent_sparse() {
         "Sub-agent should output SUBAGENT_SPARSE, got: {}",
         output
     );
-    assert!(output.contains("incremental edits"));
     assert!(output.contains("READ-ONLY actions"));
+    assert!(!output.contains("incremental edits"));
 }
 
 /// is_sub_agent = false → normal mode instruction (not sub-agent sparse)
@@ -533,7 +527,7 @@ fn test_sub_agent_precedence_over_sparse() {
         true, // sub-agent
     );
     assert!(
-        output.contains("incremental edits"),
+        output.contains("READ-ONLY actions"),
         "Sub-agent should take precedence over sparse"
     );
     assert!(!output.contains("Plan mode still active"));

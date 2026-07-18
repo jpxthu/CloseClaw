@@ -319,20 +319,10 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
     /// If the session has no `plan_state` or the plan file cannot be read,
     /// the checkpoint is left unchanged (graceful degradation).
     fn inject_plan_tasks(&self, session_id: &str, checkpoint: &mut SessionCheckpoint) {
-        use closeclaw_common::PlanStatus;
-
         let plan_state = match &checkpoint.plan_state {
             Some(ps) => ps,
             None => return,
         };
-
-        // Only inject for Executing or Paused sessions
-        if !matches!(
-            plan_state.status,
-            PlanStatus::Executing | PlanStatus::Paused
-        ) {
-            return;
-        }
 
         let plan_file_path = &plan_state.plan_file_path;
         if plan_file_path.is_empty() {

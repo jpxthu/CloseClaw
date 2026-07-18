@@ -37,11 +37,7 @@ use crate::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse, RuleSet,
 };
 use closeclaw_common::permission_op::{InitialPermissionSet, UserCreationRequest};
-use closeclaw_common::{
-    ModeTransition, PendingMessage, PlanPhase, PlanStatus, SessionLookup, SessionMode,
-};
-
-use closeclaw_session::plan_file;
+use closeclaw_common::{ModeTransition, PendingMessage, PlanPhase, SessionLookup, SessionMode};
 
 use super::approval::{
     ApprovalMode, ApprovalQueue, ApproveOrDeny, EnqueueRequest, RejectWhitelistReason,
@@ -823,8 +819,6 @@ impl ApprovalFlow {
         state.plan_file_path = path.to_string();
         state.phase = PlanPhase::FinalPlan;
         state.step_selection = meta.as_ref().and_then(|m| m.step_selection.clone());
-        let _ = state.transition_status(PlanStatus::Confirmed);
-        let _ = state.transition_status(PlanStatus::Executing);
         state
     }
 
@@ -926,7 +920,6 @@ impl ApprovalFlow {
             }
         };
 
-        Self::update_plan_file_executing(&plan_file_path).await;
         let child_plan_state = Self::setup_child_plan_state(&plan_file_path, plan_meta);
         sm.set_plan_state(&new_session_id, child_plan_state).await;
         sm.set_session_mode(&new_session_id, SessionMode::Auto)
@@ -947,9 +940,6 @@ impl ApprovalFlow {
         plan_state: &mut closeclaw_common::PlanState,
         plan_meta: &Option<PlanExecMetadata>,
     ) {
-        let _ = plan_state.transition_status(PlanStatus::Confirmed);
-        let _ = plan_state.transition_status(PlanStatus::Executing);
-        Self::update_plan_file_executing(&plan_state.plan_file_path).await;
         plan_state.phase = PlanPhase::FinalPlan;
         plan_state.step_selection = plan_meta.as_ref().and_then(|m| m.step_selection.clone());
         sm.set_plan_state(session_id, plan_state.clone()).await;
@@ -972,29 +962,6 @@ impl ApprovalFlow {
 }
 
 // ── Plan file update ─────────────────────────────────────────────────────
-
-impl ApprovalFlow {
-    /// Update plan file status to Executing (blocking, spawn-safe).
-    async fn update_plan_file_executing(plan_file_path: &str) {
-        if !std::path::Path::new(plan_file_path).exists() {
-            return;
-        }
-        let pf_path = plan_file_path.to_string();
-        let file_path = plan_file_path.to_string();
-        let result = tokio::task::spawn_blocking(move || {
-            if let Err(e) = plan_file::update_plan_status(&pf_path, &PlanStatus::Executing) {
-                tracing::warn!(
-                    plan_file = %file_path,
-                    error = %e,
-                    "failed to update plan file status"
-                );
-            }
-        });
-        if let Err(e) = result.await {
-            tracing::warn!(error = %e, "spawn_blocking for plan file update panicked");
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests;

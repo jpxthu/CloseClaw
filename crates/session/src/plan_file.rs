@@ -4,31 +4,9 @@
 //! in the `plans/` directory of a workspace.
 
 use chrono::Local;
-use closeclaw_common::plan_state::PlanStatus;
 use closeclaw_config::IdentifierFormat;
 use rand::seq::SliceRandom;
 use std::path::{Path, PathBuf};
-
-/// Parse `PlanStatus` from a plan file's content.
-///
-/// Scans the file for the `| 状态 | <status> |` line and converts it
-/// to the corresponding [`PlanStatus`] variant.
-pub fn parse_plan_status_from_file(content: &str) -> Option<PlanStatus> {
-    for line in content.lines() {
-        if let Some(rest) = line.strip_prefix("| 状态 | ") {
-            let status_str = rest.strip_suffix(" |")?.trim();
-            return match status_str {
-                "draft" => Some(PlanStatus::Draft),
-                "confirmed" => Some(PlanStatus::Confirmed),
-                "executing" => Some(PlanStatus::Executing),
-                "paused" => Some(PlanStatus::Paused),
-                "completed" => Some(PlanStatus::Completed),
-                _ => None,
-            };
-        }
-    }
-    None
-}
 
 /// Adjective word list for random identifiers (50 words).
 const ADJECTIVES: &[&str] = &[
@@ -50,14 +28,13 @@ const NOUNS: &[&str] = &[
 
 /// Standard plan file template.
 ///
-/// Contains placeholders for title and timestamp, draft status marker,
+/// Contains placeholders for title and timestamp,
 /// and skeleton section headers.
 pub const PLAN_TEMPLATE: &str = "\
 # {title}
 
 | 字段 | 值 |
 |------|-----|
-| 状态 | draft |
 | 创建时间 | {timestamp} |
 | 更新时间 | {timestamp} |
 
@@ -147,41 +124,6 @@ pub fn create_plan_file_with_format(
     Ok(file_path)
 }
 
-/// Update the status field in a plan file.
-///
-/// Replaces `| 状态 | xxx |` with `| 状态 | {status} |` and also
-/// updates the `| 更新时间 | xxx |` field to the current time.
-///
-/// # Errors
-/// Returns an error if the file cannot be read or written, or if
-/// the status line is not found.
-pub fn update_plan_status(plan_file_path: &str, status: &PlanStatus) -> Result<(), std::io::Error> {
-    let path = Path::new(plan_file_path);
-    if !path.exists() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("plan file not found: {plan_file_path}"),
-        ));
-    }
-
-    let content = std::fs::read_to_string(path)?;
-    let new_timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let status_str = status.to_string();
-
-    let status_replaced = replace_status_line(&content, &status_str).ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("status line not found in plan file: {plan_file_path}"),
-        )
-    })?;
-
-    // Update timestamp if the line exists; skip gracefully if not.
-    let new_content =
-        replace_update_time_line(&status_replaced, &new_timestamp).unwrap_or(status_replaced);
-
-    std::fs::write(path, new_content)
-}
-
 /// Update only the update timestamp field in a plan file.
 ///
 /// Replaces `| 更新时间 | xxx |` with the current time.
@@ -207,30 +149,6 @@ pub fn update_plan_timestamp(plan_file_path: &str) -> Result<(), std::io::Error>
             std::io::ErrorKind::InvalidData,
             format!("update time line not found in plan file: {plan_file_path}"),
         )),
-    }
-}
-
-/// Replace the `| 状态 | xxx |` line with the given status.
-fn replace_status_line(content: &str, new_status: &str) -> Option<String> {
-    let prefix = "| 状态 | ";
-    let suffix = " |";
-    let lines: Vec<&str> = content.lines().collect();
-    let mut result = Vec::with_capacity(lines.len());
-    let mut found = false;
-
-    for line in &lines {
-        if line.contains("| 状态 | ") && line.ends_with(" |") {
-            result.push(format!("{prefix}{new_status}{suffix}"));
-            found = true;
-        } else {
-            result.push((*line).to_string());
-        }
-    }
-
-    if found {
-        Some(result.join("\n"))
-    } else {
-        None
     }
 }
 

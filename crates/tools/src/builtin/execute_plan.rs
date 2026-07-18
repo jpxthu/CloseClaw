@@ -14,10 +14,9 @@
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 use async_trait::async_trait;
-use closeclaw_common::{PlanStatus, SessionMode};
+use closeclaw_common::SessionMode;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
-use closeclaw_session::plan_file::parse_plan_status_from_file;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
@@ -122,9 +121,6 @@ impl Tool for ExecutePlanTool {
         let plan_file_path = Self::parse_plan_file_path(&args);
         let plan_state = self.load_plan_state(session_id).await?;
         let effective_path = Self::resolve_plan_path(&plan_file_path, &plan_state)?;
-        self.validate_plan_status(&effective_path, &plan_state)
-            .await?;
-
         let step_selection = Self::parse_step_selection(&args);
         let new_session = Self::parse_new_session(&args);
 
@@ -214,35 +210,6 @@ impl ExecutePlanTool {
                 }
                 Ok(plan_state.plan_file_path.clone())
             }
-        }
-    }
-
-    /// Read the plan file and validate that its status is Confirmed or Paused.
-    async fn validate_plan_status(
-        &self,
-        effective_path: &str,
-        plan_state: &closeclaw_common::PlanState,
-    ) -> Result<(), ToolCallError> {
-        let content = tokio::fs::read_to_string(effective_path)
-            .await
-            .map_err(|e| ToolCallError::ExecutionFailed(format!("无法读取 plan 文件：{}", e)))?;
-
-        let file_status = parse_plan_status_from_file(&content).ok_or_else(|| {
-            ToolCallError::ExecutionFailed("Plan 文件中未找到有效的状态字段。".to_string())
-        })?;
-
-        let effective_status = if plan_state.status != PlanStatus::Draft {
-            plan_state.status
-        } else {
-            file_status
-        };
-
-        match effective_status {
-            PlanStatus::Confirmed | PlanStatus::Paused => Ok(()),
-            _ => Err(ToolCallError::InvalidArgs(
-                "当前 plan 未就绪。请先使用 plan_approval 工具提交审批，或先暂停再恢复执行。"
-                    .to_string(),
-            )),
         }
     }
 
