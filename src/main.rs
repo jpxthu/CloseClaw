@@ -50,7 +50,6 @@ enum Commands {
     },
 }
 
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     closeclaw::init();

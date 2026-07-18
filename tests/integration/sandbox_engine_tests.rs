@@ -5,7 +5,7 @@
 //! `SANDBOX_ENGINE` and `SANDBOX_IPC_PATH` values.
 //!
 //! These tests do NOT start any real subprocess; they only verify the
-//! decision logic. `std::env::set_var` / `remove_var` are NOT used.
+//! decision logic. The process environment is never modified.
 
 use closeclaw::sandbox_engine::detect_engine_mode_inner;
 
@@ -24,7 +24,10 @@ fn test_engine_mode_active_with_valid_ipc_path() {
 #[test]
 fn test_no_engine_flag_returns_none() {
     let result = detect_engine_mode_inner(None, Some("/tmp/test.sock"));
-    assert!(result.is_none(), "None engine flag should yield None (normal CLI)");
+    assert!(
+        result.is_none(),
+        "None engine flag should yield None (normal CLI)"
+    );
 }
 
 #[test]
@@ -89,9 +92,7 @@ fn test_both_unset_returns_none() {
 #[test]
 fn test_engine_mode_returns_default_ruleset() {
     let result = detect_engine_mode_inner(Some("1"), Some("/tmp/test.sock"));
-    let (_ipc_path, rules) = result
-        .expect("should return Some")
-        .expect("should be Ok");
+    let (_ipc_path, rules) = result.expect("should return Some").expect("should be Ok");
     // Default RuleSet should have no explicit rules
     assert!(
         rules.rules.is_empty(),

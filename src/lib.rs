@@ -6,18 +6,18 @@
 //! - **Gateway**: IM protocol adapters (Feishu, Wecom, QQ, DingTalk, etc.)
 //! - **Config System**: Hot-reloadable JSON configs with validation and rollback
 
+pub mod bridge;
+pub mod sandbox_engine;
+
 pub use closeclaw_agent as agent;
 pub use closeclaw_cli as cli;
 pub use closeclaw_daemon as daemon;
+pub use closeclaw_memory as memory;
 pub use closeclaw_platform as platform;
 pub use closeclaw_processor_chain as processor_chain;
 pub use closeclaw_slash as slash;
 pub use closeclaw_system_prompt as system_prompt;
 pub use closeclaw_tasks as tasks;
-
-pub mod bridge;
-pub mod sandbox_engine;
-pub use closeclaw_memory as memory;
 
 use tracing::info;
 
