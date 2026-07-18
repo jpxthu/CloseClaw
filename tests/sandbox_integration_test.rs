@@ -151,7 +151,7 @@ async fn test_ipc_channel_protocol_sandbox_request_serde() {
     // Verify SandboxRequest serializes correctly for IPC protocol
     let request = SandboxRequest::Ping;
     let json = serde_json::to_vec(&request).unwrap();
-    assert!(json.len() > 0);
+    assert!(!json.is_empty());
 
     // Verify we can deserialize it back
     let parsed: SandboxRequest = serde_json::from_slice(&json).unwrap();
@@ -180,7 +180,7 @@ async fn test_ipc_channel_protocol_evaluate_request_serde() {
     };
 
     let json = serde_json::to_vec(&request).unwrap();
-    assert!(json.len() > 0);
+    assert!(!json.is_empty());
 
     let parsed: SandboxRequest = serde_json::from_slice(&json).unwrap();
     match parsed {
