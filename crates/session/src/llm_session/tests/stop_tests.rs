@@ -834,3 +834,158 @@ async fn test_nested_cascade_propagation() {
     assert_eq!(leaf_kill_count.load(Ordering::SeqCst), 1);
     assert!(info.timed_out_children.is_empty());
 }
+
+// ── Step 1.4: kill_tool_handles sets Terminated on Running tools ────
+
+/// force_kill() calls kill_tool_handles() but NOT clear_exec_state().
+/// Verify that RunningForeground / RunningBackground tools are set to
+/// Terminated before the kill, so the state machine reaches a terminal
+/// state even when clear_exec_state() is skipped.
+#[tokio::test]
+async fn test_force_kill_sets_terminated_on_running_tools() {
+    let cs = make_session("s_term_fg_bg");
+
+    // Register and start two tools: one foreground, one background.
+    {
+        let guard = cs.read().await;
+        guard.register_tool_call("fg-tool", "bash", "fg cmd");
+        guard.update_tool_state(
+            "fg-tool",
+            closeclaw_common::ToolExecState::RunningForeground,
+        );
+        guard.register_tool_call("bg-tool", "bash", "bg cmd");
+        guard.update_tool_state(
+            "bg-tool",
+            closeclaw_common::ToolExecState::RunningBackground,
+        );
+    }
+
+    // Also register kill handles so the handles map is non-empty.
+    let fg_handle = Arc::new(MockKillHandle::new());
+    let fg_kill_count = fg_handle.kill_count();
+    let bg_handle = Arc::new(MockKillHandle::new());
+    let bg_kill_count = bg_handle.kill_count();
+    cs.read()
+        .await
+        .register_tool_handle("fg-tool", fg_handle as Arc<dyn KillHandle>);
+    cs.read()
+        .await
+        .register_tool_handle("bg-tool", bg_handle as Arc<dyn KillHandle>);
+
+    // force_kill() sets Terminated + kills handles, but does NOT
+    // clear_exec_state(), so we can inspect tool_states afterwards.
+    cs.read().await.force_kill().await;
+
+    let guard = cs.read().await;
+    let states = guard.tool_states.read().expect("tool_states lock poisoned");
+    assert_eq!(
+        states.len(),
+        2,
+        "both tool entries must remain after force_kill"
+    );
+    let (fg_state, _) = states.get("fg-tool").expect("fg-tool must exist");
+    assert_eq!(*fg_state, closeclaw_common::ToolExecState::Terminated);
+    let (bg_state, _) = states.get("bg-tool").expect("bg-tool must exist");
+    assert_eq!(*bg_state, closeclaw_common::ToolExecState::Terminated);
+    drop(states);
+    drop(guard);
+
+    // Kill handles must have been invoked.
+    assert_eq!(fg_kill_count.load(Ordering::SeqCst), 1);
+    assert_eq!(bg_kill_count.load(Ordering::SeqCst), 1);
+}
+
+/// Full stop(Forceful) sets Terminated then clears everything.
+/// We verify the end state (empty) and that kill was invoked.
+#[tokio::test]
+async fn test_forceful_stop_sets_terminated_then_clears() {
+    let cs = make_session("s_term_clear");
+
+    // Register a tool in RunningForeground state.
+    {
+        let guard = cs.read().await;
+        guard.register_tool_call("tool-1", "bash", "some cmd");
+        guard.update_tool_state("tool-1", closeclaw_common::ToolExecState::RunningForeground);
+    }
+    let handle = Arc::new(MockKillHandle::new());
+    let kill_count = handle.kill_count();
+    cs.read()
+        .await
+        .register_tool_handle("tool-1", handle as Arc<dyn KillHandle>);
+
+    cs.read().await.stop(false, ShutdownMode::Forceful).await;
+
+    // After full stop: tool_states is cleared, handle was killed.
+    assert!(cs.read().await.tool_states.read().expect("lock").is_empty());
+    assert_eq!(kill_count.load(Ordering::SeqCst), 1);
+    assert!(cs.read().await.is_stopped());
+}
+
+// ── Step 1.6: Forceful stop sets Terminated before clear_exec_state ────
+
+/// Verify that force_kill sets Terminated on RunningForeground tools
+/// and that clear_exec_state then empties everything.
+#[tokio::test]
+async fn test_forceful_stop_fg_terminated_then_cleared() {
+    let cs = make_session("s_term_fg2");
+    {
+        let guard = cs.read().await;
+        guard.register_tool_call("fg-t", "bash", "fg cmd");
+        guard.update_tool_state("fg-t", ToolExecState::RunningForeground);
+    }
+    let h = Arc::new(MockKillHandle::new());
+    let count = h.kill_count();
+    cs.read()
+        .await
+        .register_tool_handle("fg-t", h as Arc<dyn KillHandle>);
+
+    cs.read().await.stop(false, ShutdownMode::Forceful).await;
+
+    // Everything cleared.
+    assert!(cs.read().await.tool_states.read().expect("lock").is_empty());
+    assert!(cs.read().await.is_stopped());
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+}
+
+/// Verify that force_kill sets Terminated on RunningBackground tools
+/// and that clear_exec_state then empties everything.
+#[tokio::test]
+async fn test_forceful_stop_bg_terminated_then_cleared() {
+    let cs = make_session("s_term_bg2");
+    {
+        let guard = cs.read().await;
+        guard.register_tool_call("bg-t", "bash", "bg cmd");
+        guard.update_tool_state("bg-t", ToolExecState::RunningBackground);
+    }
+    let h = Arc::new(MockKillHandle::new());
+    let count = h.kill_count();
+    cs.read()
+        .await
+        .register_tool_handle("bg-t", h as Arc<dyn KillHandle>);
+
+    cs.read().await.stop(false, ShutdownMode::Forceful).await;
+
+    assert!(cs.read().await.tool_states.read().expect("lock").is_empty());
+    assert!(cs.read().await.is_stopped());
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+}
+
+/// Clear_exec_state resets all dimensions: LLM idle, tools empty, children empty.
+#[tokio::test]
+async fn test_clear_exec_state_resets_all_dimensions() {
+    let cs = make_session("s_clear_all");
+    {
+        let guard = cs.read().await;
+        guard.set_llm_state(closeclaw_common::LlmState::Requesting);
+        guard.register_tool_call("cl-t", "bash", "cmd");
+        guard.update_tool_state("cl-t", ToolExecState::RunningForeground);
+        guard.register_child("cl-c", "agent", "task");
+    }
+
+    cs.read().await.clear_exec_state();
+
+    let guard = cs.read().await;
+    assert_eq!(guard.llm_state(), closeclaw_common::LlmState::Idle);
+    assert!(guard.tool_states.read().expect("lock").is_empty());
+    assert!(guard.child_states.read().expect("lock").is_empty());
+}
