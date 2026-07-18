@@ -238,6 +238,23 @@ pub struct LlmConfig {
     pub reasoning_level: ReasoningLevel,
 }
 
+/// Rejection log configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RejectionLogConfig {
+    /// Maximum number of log entries to retain. `None` means unlimited.
+    #[serde(default)]
+    pub max_entries: Option<usize>,
+}
+
+impl Default for RejectionLogConfig {
+    fn default() -> Self {
+        Self {
+            max_entries: Some(1000),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // SystemConfigData
 // ---------------------------------------------------------------------------
@@ -272,6 +289,8 @@ pub struct SystemConfigData {
     pub auth: Option<AuthProfilesConfig>,
     #[serde(default)]
     pub llm: Option<LlmConfig>,
+    #[serde(default)]
+    pub rejection_log: Option<RejectionLogConfig>,
 }
 
 impl SystemConfigData {
@@ -343,5 +362,9 @@ impl ConfigProvider for SystemConfigData {
                 .is_none_or(|b| b == &BrowserConfig::default())
             && self.auth.is_none()
             && self.llm.as_ref().is_none_or(|l| l == &LlmConfig::default())
+            && self
+                .rejection_log
+                .as_ref()
+                .is_none_or(|r| r == &RejectionLogConfig::default())
     }
 }

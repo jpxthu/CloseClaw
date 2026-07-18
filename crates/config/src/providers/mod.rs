@@ -15,7 +15,7 @@ pub use gateway::GatewayConfigData;
 pub use memory::MemoryConfigData;
 pub use models::ModelsConfigData;
 pub use plugins::PluginsConfigData;
-pub use system::SystemConfigData;
+pub use system::{RejectionLogConfig, SystemConfigData};
 
 /// Configuration provider trait for extensible config management
 pub trait ConfigProvider {

@@ -78,6 +78,7 @@ fn full_config() -> SystemConfigData {
         }),
         auth: Some(AuthProfilesConfig { profiles }),
         llm: None,
+        rejection_log: None,
     }
 }
 
@@ -322,6 +323,7 @@ fn test_is_default_true_when_all_sub_structs_are_default() {
         browser: Some(BrowserConfig::default()),
         auth: None,
         llm: None,
+        rejection_log: None,
     };
     assert!(cfg.is_default());
 }
