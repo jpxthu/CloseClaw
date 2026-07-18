@@ -255,6 +255,30 @@ impl Default for RejectionLogConfig {
     }
 }
 
+/// Plan archive configuration.
+///
+/// Controls automatic archival of completed plan files.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanArchiveConfig {
+    /// Number of days after last modification before a completed plan
+    /// is archived.
+    #[serde(default = "default_plan_archive_threshold_days")]
+    pub threshold_days: u64,
+}
+
+fn default_plan_archive_threshold_days() -> u64 {
+    7
+}
+
+impl Default for PlanArchiveConfig {
+    fn default() -> Self {
+        Self {
+            threshold_days: default_plan_archive_threshold_days(),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // SystemConfigData
 // ---------------------------------------------------------------------------
@@ -291,6 +315,8 @@ pub struct SystemConfigData {
     pub llm: Option<LlmConfig>,
     #[serde(default)]
     pub rejection_log: Option<RejectionLogConfig>,
+    #[serde(default)]
+    pub plan_archive: Option<PlanArchiveConfig>,
 }
 
 impl SystemConfigData {
@@ -366,5 +392,9 @@ impl ConfigProvider for SystemConfigData {
                 .rejection_log
                 .as_ref()
                 .is_none_or(|r| r == &RejectionLogConfig::default())
+            && self
+                .plan_archive
+                .as_ref()
+                .is_none_or(|p| p == &PlanArchiveConfig::default())
     }
 }

@@ -19,16 +19,6 @@ pub enum ExecutionMode {
     SpawnAllSteps,
 }
 
-/// Retry strategy after a step failure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RetryStrategy {
-    /// Spawn a fresh sub-agent with clean context.
-    Fresh,
-    /// Continue in the same sub-agent context, preserving error history.
-    Continue,
-}
-
 /// Verification trigger policy — when to spawn a verification agent
 /// after a step completes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,16 +32,12 @@ pub enum VerifyTrigger {
     Always,
 }
 
-/// Execution configuration — controls scheduling behavior, retry, and
+/// Execution configuration — controls scheduling behavior and
 /// verification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionConfig {
     /// Execution mode (inline, spawn per step, spawn all steps).
     pub mode: ExecutionMode,
-    /// Maximum number of retries per failed step.
-    pub max_retries: u32,
-    /// Strategy for retries (fresh or continue).
-    pub retry_strategy: RetryStrategy,
     /// When to trigger step verification.
     pub verify_trigger: VerifyTrigger,
     /// Optional step selection (0-based indices). When `Some`, only the
@@ -64,8 +50,6 @@ impl Default for ExecutionConfig {
     fn default() -> Self {
         Self {
             mode: ExecutionMode::Inline,
-            max_retries: 3,
-            retry_strategy: RetryStrategy::Fresh,
             verify_trigger: VerifyTrigger::NonTrivial,
             step_selection: None,
         }

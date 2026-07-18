@@ -2,7 +2,7 @@ use crate::engine::{ExecutionEngine, StepResult};
 use crate::error::ExecutionError;
 use crate::hook::{HookResult, HookRunner, StepHook};
 use crate::spawn::SpawnAdapter;
-use crate::types::{ExecutionConfig, ExecutionMode, RetryStrategy, SubAgentResult, VerifyTrigger};
+use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 use async_trait::async_trait;
 use closeclaw_common::{ExecutionStepStatus, NoopNotifier, PlanState};
 use std::sync::{Arc, Mutex};
@@ -36,51 +36,9 @@ impl SpawnAdapter for MockSpawnAdapter {
     }
 }
 
-/// Mock spawn adapter that records the context string passed to each spawn_run call.
-struct ContextRecordingAdapter {
-    results: Mutex<Vec<Result<SubAgentResult, ExecutionError>>>,
-    /// Context strings passed to each spawn_run invocation, in order.
-    contexts: Mutex<Vec<String>>,
-}
-
-impl ContextRecordingAdapter {
-    fn new(results: Vec<Result<SubAgentResult, ExecutionError>>) -> Self {
-        Self {
-            results: Mutex::new(results),
-            contexts: Mutex::new(Vec::new()),
-        }
-    }
-
-    fn recorded_contexts(&self) -> Vec<String> {
-        self.contexts.lock().expect("mock lock poisoned").clone()
-    }
-}
-
-#[async_trait]
-impl SpawnAdapter for ContextRecordingAdapter {
-    async fn spawn_run(
-        &self,
-        _task: &str,
-        context: &str,
-    ) -> Result<SubAgentResult, ExecutionError> {
-        self.contexts
-            .lock()
-            .expect("mock lock poisoned")
-            .push(context.to_string());
-        let mut queue = self.results.lock().expect("mock lock poisoned");
-        queue.remove(0)
-    }
-
-    async fn spawn_session(&self, _task: &str, _context: &str) -> Result<String, ExecutionError> {
-        Ok("mock-session".to_string())
-    }
-}
-
 fn default_config() -> ExecutionConfig {
     ExecutionConfig {
         mode: ExecutionMode::SpawnPerStep,
-        max_retries: 3,
-        retry_strategy: RetryStrategy::Fresh,
         verify_trigger: VerifyTrigger::NonTrivial,
         step_selection: None,
     }
@@ -150,73 +108,7 @@ async fn test_all_steps_succeed() {
 }
 
 #[tokio::test]
-async fn test_single_step_failure_then_retry_success() {
-    let adapter = MockSpawnAdapter::new(vec![
-        // First attempt fails
-        Ok(SubAgentResult {
-            step_index: 0,
-            status: ExecutionStepStatus::Failed,
-            summary: "oops".to_string(),
-            changed_files: vec![],
-            error_message: Some("flaky".into()),
-        }),
-        // Second attempt succeeds
-        Ok(SubAgentResult {
-            step_index: 0,
-            status: ExecutionStepStatus::Completed,
-            summary: "fixed".to_string(),
-            changed_files: vec!["fixed.rs".into()],
-            error_message: None,
-        }),
-    ]);
-    let engine = new_engine(adapter);
-    let report = engine.execute(&["flaky step".into()]).await.unwrap();
-
-    assert!(report.all_completed);
-    assert!(report.failed_step.is_none());
-    assert_eq!(report.steps.len(), 1);
-    assert_eq!(report.steps[0].attempts, 2);
-    assert_eq!(report.steps[0].summary, "fixed");
-}
-
-#[tokio::test]
-async fn test_spawn_error_exhausts_retries() {
-    let config = ExecutionConfig {
-        max_retries: 2,
-        ..default_config()
-    };
-    let adapter = MockSpawnAdapter::new(vec![
-        Err(ExecutionError::SpawnFailed {
-            message: "boom".into(),
-        }),
-        Err(ExecutionError::SpawnFailed {
-            message: "boom 2".into(),
-        }),
-        Err(ExecutionError::SpawnFailed {
-            message: "boom 3".into(),
-        }),
-    ]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
-    let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None);
-    let report = engine.execute(&["doomed step".into()]).await.unwrap();
-
-    assert!(!report.all_completed);
-    assert_eq!(report.failed_step, Some(0));
-    assert_eq!(report.steps.len(), 1);
-    assert_eq!(report.steps[0].attempts, 3);
-    let actual = report.steps[0].error_message.as_deref();
-    assert!(
-        actual == Some("spawn failed: boom 3"),
-        "expected 'spawn failed: boom 3', got: {actual:?}"
-    );
-}
-
-#[tokio::test]
 async fn test_failure_stops_subsequent_steps() {
-    let config = ExecutionConfig {
-        max_retries: 0,
-        ..default_config()
-    };
     let adapter = MockSpawnAdapter::new(vec![
         Ok(SubAgentResult {
             step_index: 0,
@@ -231,7 +123,13 @@ async fn test_failure_stops_subsequent_steps() {
         }),
     ]);
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
-    let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None);
+    let engine = ExecutionEngine::new(
+        plan_state,
+        default_config(),
+        adapter,
+        Arc::new(NoopNotifier),
+        None,
+    );
     let report = engine
         .execute(&["step 0".into(), "step 1".into(), "step 2".into()])
         .await
@@ -441,188 +339,6 @@ async fn test_plan_state_updated_after_execution() {
         ExecutionStepStatus::Completed
     ));
 }
-
-// ---------------------------------------------------------------------------
-// retry_strategy tests
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn test_fresh_retry_passes_empty_context() {
-    let adapter = ContextRecordingAdapter::new(vec![
-        // First attempt fails
-        Ok(SubAgentResult {
-            step_index: 0,
-            status: ExecutionStepStatus::Failed,
-            summary: String::new(),
-            changed_files: vec![],
-            error_message: Some("flaky".into()),
-        }),
-        // Second attempt succeeds
-        Ok(SubAgentResult {
-            step_index: 0,
-            status: ExecutionStepStatus::Completed,
-            summary: "fixed".into(),
-            changed_files: vec![],
-            error_message: None,
-        }),
-    ]);
-    let config = ExecutionConfig {
-        retry_strategy: RetryStrategy::Fresh,
-        ..default_config()
-    };
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
-    let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None);
-    let report = engine.execute(&["flaky step".into()]).await.unwrap();
-
-    assert!(report.all_completed);
-    assert_eq!(report.steps[0].attempts, 2);
-
-    // Fresh mode: all context strings must be empty
-    let contexts = engine.adapter_ref().recorded_contexts();
-    assert_eq!(contexts.len(), 2, "expected 2 spawn calls");
-    assert!(
-        contexts[0].is_empty(),
-        "first attempt context should be empty"
-    );
-    assert!(
-        contexts[1].is_empty(),
-        "fresh retry context should be empty"
-    );
-}
-
-#[tokio::test]
-async fn test_continue_retry_passes_error_context() {
-    let adapter = ContextRecordingAdapter::new(vec![
-        // First attempt fails
-        Ok(SubAgentResult {
-            step_index: 0,
-            status: ExecutionStepStatus::Failed,
-            summary: String::new(),
-            changed_files: vec![],
-            error_message: Some("build error".into()),
-        }),
-        // Second attempt fails
-        Ok(SubAgentResult {
-            step_index: 0,
-            status: ExecutionStepStatus::Failed,
-            summary: String::new(),
-            changed_files: vec![],
-            error_message: Some("test failure".into()),
-        }),
-        // Third attempt succeeds
-        Ok(SubAgentResult {
-            step_index: 0,
-            status: ExecutionStepStatus::Completed,
-            summary: "done".into(),
-            changed_files: vec![],
-            error_message: None,
-        }),
-    ]);
-    let config = ExecutionConfig {
-        retry_strategy: RetryStrategy::Continue,
-        ..default_config()
-    };
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
-    let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None);
-    let report = engine.execute(&["step".into()]).await.unwrap();
-
-    assert!(report.all_completed);
-    assert_eq!(report.steps[0].attempts, 3);
-
-    let contexts = engine.adapter_ref().recorded_contexts();
-    assert_eq!(contexts.len(), 3, "expected 3 spawn calls");
-    // First attempt: no error history, empty context
-    assert!(contexts[0].is_empty(), "first attempt has no error history");
-    // Second attempt: should carry first error
-    assert!(
-        contexts[1].contains("build error"),
-        "second attempt should carry first error, got: {}",
-        contexts[1]
-    );
-    // Third attempt: should carry both previous errors
-    assert!(
-        contexts[2].contains("build error") && contexts[2].contains("test failure"),
-        "third attempt should carry both errors, got: {}",
-        contexts[2]
-    );
-}
-
-#[tokio::test]
-async fn test_continue_retry_spawn_all_passes_error_context() {
-    let adapter = ContextRecordingAdapter::new(vec![
-        // First attempt fails
-        Err(ExecutionError::SpawnFailed {
-            message: "network timeout".into(),
-        }),
-        // Second attempt succeeds
-        Ok(SubAgentResult {
-            step_index: 0,
-            status: ExecutionStepStatus::Completed,
-            summary: "done".into(),
-            changed_files: vec![],
-            error_message: None,
-        }),
-    ]);
-    let config = ExecutionConfig {
-        mode: ExecutionMode::SpawnAllSteps,
-        retry_strategy: RetryStrategy::Continue,
-        ..default_config()
-    };
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
-    let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None);
-    let report = engine
-        .execute(&["step A".into(), "step B".into()])
-        .await
-        .unwrap();
-
-    assert!(report.all_completed);
-    let contexts = engine.adapter_ref().recorded_contexts();
-    assert_eq!(contexts.len(), 2, "expected 2 spawn calls");
-    assert!(contexts[0].is_empty(), "first attempt has no error history");
-    assert!(
-        contexts[1].contains("network timeout"),
-        "continue retry should carry error context, got: {}",
-        contexts[1]
-    );
-}
-
-#[tokio::test]
-async fn test_fresh_retry_spawn_all_passes_empty_context() {
-    let adapter = ContextRecordingAdapter::new(vec![
-        Err(ExecutionError::SpawnFailed {
-            message: "boom".into(),
-        }),
-        Ok(SubAgentResult {
-            step_index: 0,
-            status: ExecutionStepStatus::Completed,
-            summary: "done".into(),
-            changed_files: vec![],
-            error_message: None,
-        }),
-    ]);
-    let config = ExecutionConfig {
-        mode: ExecutionMode::SpawnAllSteps,
-        retry_strategy: RetryStrategy::Fresh,
-        ..default_config()
-    };
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
-    let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None);
-    let report = engine
-        .execute(&["step A".into(), "step B".into()])
-        .await
-        .unwrap();
-
-    assert!(report.all_completed);
-    let contexts = engine.adapter_ref().recorded_contexts();
-    assert_eq!(contexts.len(), 2, "expected 2 spawn calls");
-    assert!(contexts[0].is_empty());
-    assert!(
-        contexts[1].is_empty(),
-        "fresh retry context should be empty"
-    );
-}
-
-// ---------------------------------------------------------------------------
 // verify_trigger auto-construction tests (G3)
 // ---------------------------------------------------------------------------
 

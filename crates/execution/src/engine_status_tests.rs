@@ -2,7 +2,7 @@
 
 use crate::engine::ExecutionEngine;
 use crate::spawn::SpawnAdapter;
-use crate::types::{ExecutionConfig, ExecutionMode, RetryStrategy, SubAgentResult, VerifyTrigger};
+use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 use async_trait::async_trait;
 use closeclaw_common::{ExecutionStepStatus, NoopNotifier, PlanState, PlanStatus};
 use std::sync::{Arc, Mutex};
@@ -42,8 +42,6 @@ impl SpawnAdapter for MockAdapter {
 fn default_config() -> ExecutionConfig {
     ExecutionConfig {
         mode: ExecutionMode::SpawnPerStep,
-        max_retries: 3,
-        retry_strategy: RetryStrategy::Fresh,
         verify_trigger: VerifyTrigger::NonTrivial,
         step_selection: None,
     }
@@ -101,10 +99,6 @@ async fn test_all_steps_succeed_transitions_to_completed() {
 
 #[tokio::test]
 async fn test_step_failure_keeps_status_executing() {
-    let config = ExecutionConfig {
-        max_retries: 0,
-        ..default_config()
-    };
     let adapter = MockAdapter::new(vec![
         Ok(SubAgentResult {
             step_index: 0,
@@ -128,7 +122,7 @@ async fn test_step_failure_keeps_status_executing() {
     }));
     let engine = ExecutionEngine::new(
         plan_state.clone(),
-        config,
+        default_config(),
         adapter,
         Arc::new(NoopNotifier),
         None,
