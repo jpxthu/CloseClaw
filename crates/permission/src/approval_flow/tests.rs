@@ -3,7 +3,7 @@ use crate::approval::WhitelistTarget;
 use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
 use crate::mock_session_lookup::MockSessionLookup;
-use closeclaw_common::{PlanPhase, PlanState, PlanStatus, SessionMode};
+use closeclaw_common::{PlanPhase, PlanState, SessionMode};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -596,7 +596,6 @@ async fn test_approve_request_enters_auto_mode() {
     let sm: Arc<dyn SessionLookup> = mock_arc.clone() as Arc<dyn SessionLookup>;
     let initial_plan = PlanState {
         phase: PlanPhase::FinalPlan,
-        status: PlanStatus::Confirmed,
         plan_file_path: "/tmp/test-plan.md".to_string(),
         ..PlanState::new()
     };
@@ -625,8 +624,6 @@ async fn test_approve_request_enters_auto_mode() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     let plan = mock_arc.get_tracked_plan_state("session_1");
     assert!(plan.is_some(), "plan_state set");
-    let plan = plan.unwrap();
-    assert_eq!(plan.status, PlanStatus::Executing, "plan Executing");
     let mode = mock_arc.get_tracked_session_mode("session_1");
     assert!(mode.is_some(), "session_mode set");
     assert_eq!(mode.unwrap(), SessionMode::Auto, "session Auto");
@@ -923,7 +920,6 @@ async fn ns_flow() -> (
         "s1",
         PlanState {
             phase: PlanPhase::FinalPlan,
-            status: PlanStatus::Confirmed,
             plan_file_path: ps.clone(),
             ..PlanState::new()
         },
@@ -961,7 +957,6 @@ async fn test_new_session_creates_child() {
     assert_eq!(c.load(Ordering::SeqCst), 1);
     assert_eq!(m.get_tracked_session_mode("c1").unwrap(), SessionMode::Auto);
     let p = m.get_tracked_plan_state("c1").unwrap();
-    assert_eq!(p.status, PlanStatus::Executing);
     assert_eq!(p.step_selection, Some(vec![0, 2]));
     drop(d);
 }
@@ -994,6 +989,5 @@ async fn test_new_session_step_selection_metadata() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     let p = m.get_tracked_plan_state("s1").unwrap();
     assert_eq!(p.step_selection, Some(vec![1, 3]));
-    assert_eq!(p.status, PlanStatus::Executing);
     drop(d);
 }

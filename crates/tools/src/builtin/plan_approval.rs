@@ -57,7 +57,7 @@ impl Tool for PlanApprovalTool {
          exit from Plan Mode to Auto Mode. The owner will review the plan \
          summary and approve or reject it. \
          \n\nApproval transitions the session to Auto Mode for execution. \
-         Rejection keeps the plan in draft status for further editing."
+         Rejection keeps the plan in Plan Mode for further editing."
             .to_string()
     }
 

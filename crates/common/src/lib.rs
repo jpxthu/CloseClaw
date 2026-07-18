@@ -26,8 +26,6 @@ pub mod permission_op_tests;
 pub mod plan_state;
 #[cfg(test)]
 pub mod plan_state_tests;
-#[cfg(test)]
-pub mod plan_status_tests;
 pub mod processor;
 #[cfg(test)]
 pub mod processor_tests;
@@ -89,7 +87,7 @@ pub use permission_op::{
 };
 pub use plan_state::{
     DefaultPlanStateWriter, ExecutionStep, ExecutionStepStatus, PlanPath, PlanPhase, PlanState,
-    PlanStateWriter, PlanStatus, StatusTransitionError, TransitionError,
+    PlanStateWriter, TransitionError,
 };
 pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
