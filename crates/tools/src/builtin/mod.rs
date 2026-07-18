@@ -41,6 +41,9 @@ pub use skill_creator::SkillCreatorTool;
 pub use skill_tool::SkillTool;
 
 #[cfg(test)]
+mod execute_plan_tests;
+
+#[cfg(test)]
 mod plan_approval_tests;
 
 #[cfg(test)]
