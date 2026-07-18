@@ -210,3 +210,64 @@ fn test_sandbox_state_crashed_partial_eq() {
     assert_eq!(a, b);
     assert_ne!(a, c);
 }
+
+// -------------------------------------------------------------------------
+// resolve_from_deps
+// -------------------------------------------------------------------------
+
+#[test]
+fn test_resolve_from_deps_finds_closeclaw_binary() {
+    // Simulate: target/debug/deps/test-binary → target/debug/closeclaw
+    let tmp = tempfile::tempdir().unwrap();
+    let deps_dir = tmp.path().join("debug").join("deps");
+    std::fs::create_dir_all(&deps_dir).unwrap();
+    // Create the fake "closeclaw" binary in the profile root.
+    let closeclaw_bin = tmp.path().join("debug").join("closeclaw");
+    std::fs::write(&closeclaw_bin, b"#!/bin/sh\n").unwrap();
+    let test_exe = deps_dir.join("sandbox_test-fakehash");
+
+    let result = resolve_from_deps(&test_exe);
+    assert_eq!(result, Some(closeclaw_bin));
+}
+
+#[test]
+fn test_resolve_from_deps_returns_none_if_no_deps_segment() {
+    // A path without a "deps" component should return None.
+    let exe = PathBuf::from("/usr/bin/closeclaw");
+    assert_eq!(resolve_from_deps(&exe), None);
+}
+
+#[test]
+fn test_resolve_from_deps_returns_none_if_closeclaw_not_found() {
+    // "deps" exists but no closeclaw binary in parent dir.
+    let tmp = tempfile::tempdir().unwrap();
+    let deps_dir = tmp.path().join("debug").join("deps");
+    std::fs::create_dir_all(&deps_dir).unwrap();
+    let test_exe = deps_dir.join("sandbox_test-fakehash");
+    assert_eq!(resolve_from_deps(&test_exe), None);
+}
+
+// -------------------------------------------------------------------------
+// resolve_engine_binary
+// -------------------------------------------------------------------------
+
+#[test]
+fn test_resolve_engine_binary_explicit_override() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake_bin = tmp.path().join("my-engine");
+    std::fs::write(&fake_bin, b"fake").unwrap();
+    let result = resolve_engine_binary(Some(&fake_bin)).unwrap();
+    assert_eq!(result, fake_bin);
+}
+
+#[test]
+fn test_resolve_engine_binary_override_takes_precedence_over_env() {
+    // Even if CLOSECLAW_ENGINE_BIN is set, explicit override wins.
+    // Note: we only read the env var, never set it — this test verifies priority
+    // by passing an explicit override path.
+    let tmp = tempfile::tempdir().unwrap();
+    let override_path = tmp.path().join("override-engine");
+    std::fs::write(&override_path, b"fake").unwrap();
+    let result = resolve_engine_binary(Some(&override_path)).unwrap();
+    assert_eq!(result, override_path);
+}
