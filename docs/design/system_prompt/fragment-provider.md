@@ -50,7 +50,7 @@ Builder 在请求片段前检查缓存键命中。缓存策略不变：
 ## 数据流
 
 1. SessionManager 触发构建
-2. Builder 从 ConversationSession 获取 runtime bootstrap_mode，构建 FragmentContext（agent_id + bootstrap_mode + bootstrap_dir）
+2. Builder 根据 SessionManager 传入的 agent_id 查询 agent 配置确定 bootstrap_dir，从 ConversationSession 获取 runtime bootstrap_mode，构建 FragmentContext（agent_id + bootstrap_mode + bootstrap_dir）
 3. 按优先级遍历注册的 Provider：
    - **BootstrapFragmentProvider**：检查缓存命中（基于 bootstrap 文件修改时间）→ Bootstrap Loader 读文件 → 聚合多文件为单 Fragment → 产出 Fragment（无 workspace 目录时返回空）
    - **ToolsFragmentProvider**：ToolRegistry 生成分组索引 → 产出 Fragment
@@ -67,7 +67,7 @@ Builder 在请求片段前检查缓存键命中。缓存策略不变：
 
 ### 上游
 
-- **SessionManager**：在 session 创建、archive 恢复、compaction 完成时触发构建，传入 agent_id（builder 据此查询 agent 配置确定 bootstrap_dir 默认值）。Builder 启动时持有 ToolRegistry 引用。
+- **SessionManager**：在 session 创建、archive 恢复、compaction 完成时触发构建，传入 agent_id（builder 据此查询 agent 配置确定 bootstrap_dir）。Builder 启动时持有 ToolRegistry 引用。
 - **ConversationSession**：提供 agent 的 runtime bootstrap_mode（创建时从 agent 配置继承，后可由 `/mode` 切换覆盖）。Builder 以此运行时值构建 FragmentContext。
 
 ### 下游
