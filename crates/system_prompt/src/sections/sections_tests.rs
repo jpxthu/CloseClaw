@@ -249,14 +249,8 @@ fn test_mode_instruction_plan_standard_and_interview() {
     let r = std.render();
     assert!(r.contains("## Mode: Plan \u{2014} Standard Path"));
     assert!(r.contains("This supercedes any other instructions"));
-    assert!(r.contains("Phase 5: Submit for Approval"));
-    assert!(r.contains("Do not stop unless it's for these 2 reasons"));
-    // Verify all 5 phases are present (completeness check)
-    assert!(r.contains("Phase 1: Initial Understanding"));
-    assert!(r.contains("Phase 2: Design"));
-    assert!(r.contains("Phase 3: Review"));
     assert!(r.contains("Phase 4: Final Plan"));
-    assert!(r.contains("Phase 5: Submit for Approval"));
+    assert!(!r.contains("Phase 5"));
     assert!(!r.contains("Interview Path"));
     let intv = Section::ModeInstruction {
         mode: SessionMode::Plan,

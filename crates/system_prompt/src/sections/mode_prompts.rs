@@ -19,7 +19,7 @@ any changes to the system. This supercedes \
 any other instructions you have received.";
 
 // ---------------------------------------------------------------------------
-// Standard Path 5-phase workflow — design doc section 2.
+// Standard Path 4-phase workflow — design doc section 2.
 // ---------------------------------------------------------------------------
 
 pub(crate) const STANDARD_PATH_PHASES: &str = "\
@@ -102,26 +102,7 @@ Goal: Write your final plan to the plan file \
   found that should be reused, with their file \
   paths.\n\
 - Include a verification section describing how to \
-  test the changes end-to-end.\n\
-### Phase 5: Submit for Approval\n\
-At the very end of your turn, once you have asked \
-the user questions and are happy with your final \
-plan file — you should always submit the plan \
-for approval to indicate that you are done \
-planning.\n\
-This is critical — your turn should only end with \
-either using the AskUserQuestion tool OR submitting \
-the plan for approval. Do not stop unless it's \
-for these 2 reasons.\n\
-Important: Use AskUserQuestion ONLY to clarify \
-requirements or choose between approaches. Use the \
-approval mechanism to request plan approval. Do NOT \
-ask about plan approval in any other way — no \
-text questions, no AskUserQuestion. Phrases like \
-\"Is this plan okay?\", \"Should I proceed?\", \
-\"How does this plan look?\", \
-\"Any changes before we start?\", or similar MUST \
-use the approval mechanism.";
+  test the changes end-to-end.\n";
 
 // ---------------------------------------------------------------------------
 // Interview Path prompt — design doc section 3.
@@ -233,7 +214,7 @@ Execute autonomously, minimize interruptions, prefer action over planning.";
 
 pub(crate) const STANDARD_SPARSE: &str = "\
 Plan mode still active (see full instructions earlier in conversation).\n\
-Read-only except plan file. Follow 5-phase workflow. End turns with\n\
+Read-only except plan file. Follow 4-phase workflow. End turns with\n\
 AskUserQuestion (for clarifications) or submission for approval. Never\n\
 ask about plan approval via text or AskUserQuestion.";
 

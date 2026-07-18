@@ -358,7 +358,7 @@ any other instructions you have received.";
 /// Known-good snapshot of STANDARD_PATH_PHASES first & last lines.
 const STANDARD_PATH_PHASES_START: &str = "\
 ### Phase 1: Initial Understanding";
-const STANDARD_PATH_PHASES_END: &str = "use the approval mechanism.";
+const STANDARD_PATH_PHASES_END: &str = "test the changes end-to-end.\n";
 
 #[test]
 fn test_plan_mode_constraint_regression() {
@@ -378,13 +378,12 @@ fn test_standard_path_phases_regression() {
         STANDARD_PATH_PHASES.ends_with(STANDARD_PATH_PHASES_END),
         "STANDARD_PATH_PHASES: end changed — regression detected"
     );
-    // Should contain all 5 phases
+    // Should contain all 4 phases
     for phase in &[
         "Phase 1: Initial Understanding",
         "Phase 2: Design",
         "Phase 3: Review",
         "Phase 4: Final Plan",
-        "Phase 5: Submit for Approval",
     ] {
         assert!(
             STANDARD_PATH_PHASES.contains(phase),
