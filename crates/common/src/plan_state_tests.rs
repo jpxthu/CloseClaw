@@ -261,6 +261,96 @@ fn test_transition_skipped_from_pending() {
 }
 
 #[test]
+fn test_transition_skipped_to_in_progress() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into(), "step2".into()]);
+    state.current_step = Some(0);
+    // Skip step 0
+    state
+        .apply_transition(0, ExecutionStepStatus::Skipped)
+        .unwrap();
+    assert_eq!(
+        state.get_step_status(0),
+        Some(&ExecutionStepStatus::Skipped)
+    );
+    assert_eq!(state.current_step, Some(1));
+
+    // Resume step 0: Skipped → InProgress
+    // First set current_step back to 0 so the SkippedStep check passes
+    state.current_step = Some(0);
+    assert!(state
+        .validate_transition(0, &ExecutionStepStatus::InProgress)
+        .is_ok());
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    assert_eq!(
+        state.get_step_status(0),
+        Some(&ExecutionStepStatus::InProgress)
+    );
+    assert_eq!(state.current_step, Some(0));
+}
+
+#[test]
+fn test_skipped_to_in_progress_current_step_points_to_step() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["a".into(), "b".into(), "c".into()]);
+    state.current_step = Some(1);
+    state
+        .apply_transition(1, ExecutionStepStatus::Skipped)
+        .unwrap();
+    assert_eq!(state.current_step, Some(2));
+
+    // Resume step 1
+    state.current_step = Some(1);
+    state
+        .apply_transition(1, ExecutionStepStatus::InProgress)
+        .unwrap();
+    assert_eq!(state.current_step, Some(1));
+}
+
+#[test]
+fn test_skipped_to_completed_not_allowed() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    state.current_step = Some(0);
+    state
+        .apply_transition(0, ExecutionStepStatus::Skipped)
+        .unwrap();
+    state.current_step = Some(0);
+    let err = state.validate_transition(0, &ExecutionStepStatus::Completed);
+    assert!(err.is_err());
+}
+
+#[test]
+fn test_completed_to_in_progress_not_allowed() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    state.current_step = Some(0);
+    state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .unwrap();
+    state
+        .apply_transition(0, ExecutionStepStatus::Completed)
+        .unwrap();
+    let err = state.validate_transition(0, &ExecutionStepStatus::InProgress);
+    assert!(err.is_err());
+}
+
+#[test]
+fn test_skipped_to_skipped_not_allowed() {
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    state.current_step = Some(0);
+    state
+        .apply_transition(0, ExecutionStepStatus::Skipped)
+        .unwrap();
+    state.current_step = Some(0);
+    let err = state.validate_transition(0, &ExecutionStepStatus::Skipped);
+    assert!(err.is_err());
+}
+
+#[test]
 fn test_init_then_full_flow() {
     let mut state = PlanState::new();
     state.init_execution_steps(vec!["step1".into(), "step2".into(), "step3".into()]);

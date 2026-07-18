@@ -311,7 +311,9 @@ impl PlanState {
             ExecutionStepStatus::InProgress => {
                 matches!(
                     current,
-                    ExecutionStepStatus::Pending | ExecutionStepStatus::Failed
+                    ExecutionStepStatus::Pending
+                        | ExecutionStepStatus::Failed
+                        | ExecutionStepStatus::Skipped
                 )
             }
             ExecutionStepStatus::Completed => {
@@ -354,9 +356,11 @@ impl PlanState {
             if next < self.execution_steps.len() {
                 self.current_step = Some(next);
             }
+        } else if new_status == ExecutionStepStatus::InProgress {
+            // When resuming from Skipped, point current_step back to this step
+            self.current_step = Some(step_index);
         }
         // Failed: keep current_step unchanged
-        // InProgress: current_step stays at step_index (already set or will be by caller)
 
         Ok(())
     }
