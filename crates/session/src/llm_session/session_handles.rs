@@ -416,6 +416,7 @@ impl ConversationSession {
     /// been set, so the caller does not need to guard.
     ///
     /// Returns [`CascadeStopInfo`] with any timed-out children from
+    /// the cascade.
     pub async fn stop(
         &self,
         cascade: bool,
@@ -546,10 +547,19 @@ impl ConversationSession {
                     }
                     guard.stop(true, mode, per_child_timeout).await;
                 };
-                if tokio::time::timeout(per_child_timeout, stop_fut)
-                    .await
-                    .is_err()
-                {
+                let timed_out = if per_child_timeout.is_zero() {
+                    // Duration::ZERO: tokio::time::timeout fires
+                    // immediately at the first .await inside stop_fut,
+                    // so the child's stop() would never actually run.
+                    // Skip the timeout wrapper and await directly.
+                    let _ = stop_fut.await;
+                    false
+                } else {
+                    tokio::time::timeout(per_child_timeout, stop_fut)
+                        .await
+                        .is_err()
+                };
+                if timed_out {
                     let elapsed = child_start.elapsed();
                     tracing::warn!(
                         child = ?child_arc,
