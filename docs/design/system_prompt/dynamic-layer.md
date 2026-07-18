@@ -6,17 +6,18 @@
 
 ## 架构
 
-动态层由三个 Section 组成，每次 API 请求时由 ConversationSession 直接构建（不走 System Prompt Builder）：
+动态层由四个 Section 组成，每次 API 请求时由 ConversationSession 直接构建（不走 System Prompt Builder）：
 
 | Section | 内容 | 来源 |
 |---------|------|------|
 | ChannelContext | 当前会话名称（chat_name） | 入站消息元数据 |
 | WorkingDirectory | 当前 session 的工作目录路径 | ConversationSession 运行时字段 |
+| ModeInstruction | 当前模式的行为指令。Plan Mode 时注入双路径工作流指引（标准 4 阶段 或 Interview 循环），Auto Mode 时注入连续执行指令，默认模式时不注入 | session 运行时 mode 字段 + mode 模块的 prompt 模板 |
 | GitStatus | 从 workdir 路径派生的 git 分支和变更状态（可通过 `session.git_status` 配置开关控制，默认关闭不注入；非 git 仓库时不注入） | session/working-directory 模块 |
 
 动态层位于静态层和追加区之间，通过边界标记与静态层分隔。
 
-ChannelContext 由 Gateway 以入站上下文结构体传入，不依赖原始 payload。WorkingDirectory 由 ConversationSession 从自身运行时字段读取。GitStatus 由配置开关控制，默认关闭。
+ChannelContext 由 Gateway 以入站上下文结构体传入，不依赖原始 payload。WorkingDirectory 由 ConversationSession 从自身运行时字段读取。ModeInstruction 由 ConversationSession 根据当前 mode 字段查询 mode 模块获取对应 prompt 模板（具体模板内容定义见 [mode/references/prompts](../mode/references/prompts.md)）。GitStatus 由配置开关控制，默认关闭。
 
 ### KV Cache 稳定性
 
@@ -28,10 +29,11 @@ ChannelContext 由 Gateway 以入站上下文结构体传入，不依赖原始 p
 API 请求到达
   →
   ConversationSession 从自身运行时字段读取 WorkingDirectory
+  ConversationSession 读取当前 mode 字段 → 查询 mode 模块获取 ModeInstruction
   检查 GitStatus 配置开关 → 开启时派生 git 分支和变更状态
   Gateway 提供入站上下文（chat_name）
   →
-  即时组装动态层：ChannelContext + WorkingDirectory + [GitStatus]
+  即时组装动态层：ChannelContext + WorkingDirectory + ModeInstruction + [GitStatus]
   →
   拼接到 system prompt（静态层 + 边界标记 + 动态层）
 ```
@@ -42,6 +44,7 @@ API 请求到达
 
 - **Gateway**：每次 API 请求时提供 ChannelContext 所需的 chat_name。
 - **Session Config**：提供 `session.git_status` 开关的值，控制 GitStatus 是否注入。
+- **Mode 模块**：根据当前 session 的 mode 字段（default/plan/auto）返回对应指令模板，由 ConversationSession 读取并注入 ModeInstruction Section。
 
 ### 下游
 
