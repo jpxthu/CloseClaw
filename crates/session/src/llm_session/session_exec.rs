@@ -78,12 +78,15 @@ impl ConversationSession {
         }
     }
 
-    /// Returns whether any tool call is currently running in the foreground.
+    /// Returns whether any tool call is currently active in the foreground.
+    ///
+    /// A tool is considered foreground-active when it is in `Pending`
+    /// (just registered, about to execute) or `RunningForeground` state.
     pub(crate) fn has_active_foreground_tool(&self) -> bool {
         let states = self.tool_states.read().expect("tool_states lock poisoned");
         states
             .values()
-            .any(|(s, _)| matches!(s, ToolExecState::RunningForeground))
+            .any(|(s, _)| matches!(s, ToolExecState::Pending | ToolExecState::RunningForeground))
     }
 
     /// Returns whether any tool call is currently running in the background.
@@ -183,10 +186,14 @@ impl ConversationSession {
         drop(llm);
 
         // 2. Tool dimension.
+        //    Pending and RunningForeground both count as foreground-active
+        //    tools.  Pending is the transient state between register and
+        //    the first update; it is treated as foreground because the tool
+        //    is about to execute and should block the session.
         let tools = self.tool_states.read().expect("tool_states lock poisoned");
         if tools
             .values()
-            .any(|(s, _)| matches!(s, ToolExecState::RunningForeground))
+            .any(|(s, _)| matches!(s, ToolExecState::Pending | ToolExecState::RunningForeground))
         {
             return SessionExecStatus::Busy;
         }

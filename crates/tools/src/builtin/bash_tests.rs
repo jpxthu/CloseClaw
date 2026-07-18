@@ -526,15 +526,19 @@ async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
     // Use a tiny bg_timeout so the auto-background path is triggered
     // almost immediately. This is the exact branch Step 1.2 unlocked:
     // `backgroundize(child, command)` is now called WITHOUT a cwd arg.
-    let result = handle_foreground_result(
+    let outcome = handle_foreground_result(
         child_arc,
         "sleep 5",
         std::time::Duration::from_millis(100),
         &bg_trait,
         None,
     )
-    .await
-    .expect("auto-background path should succeed");
+    .await;
+
+    let result = match outcome {
+        ForegroundOutcome::AutoBackground(r, _) => r,
+        other => panic!("expected AutoBackground, got: {:?}", other),
+    };
 
     let task_id = result.data["backgroundTaskId"]
         .as_str()
@@ -573,15 +577,19 @@ async fn test_handle_foreground_result_returns_foreground_on_success() {
     // extracts stdout/stderr and then takes the child for `wait()`.
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
 
-    let result = handle_foreground_result(
+    let outcome = handle_foreground_result(
         child_arc,
         "true",
         std::time::Duration::from_secs(5),
         &bg_trait,
         None,
     )
-    .await
-    .expect("foreground path should succeed");
+    .await;
+
+    let result = match outcome {
+        ForegroundOutcome::Completed(r) => r,
+        other => panic!("expected Completed, got: {:?}", other),
+    };
 
     assert_eq!(
         result.data["exitCode"],
@@ -833,15 +841,18 @@ async fn test_handle_foreground_result_manual_background_signal() {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         signal_clone.notify_waiters();
     });
-    let result = handle_foreground_result(
+    let outcome = handle_foreground_result(
         child_arc,
         "sleep 5",
         std::time::Duration::from_secs(5),
         &bg_trait,
         Some(&signal),
     )
-    .await
-    .expect("manual-background path should succeed");
+    .await;
+    let result = match outcome {
+        ForegroundOutcome::AutoBackground(r, _) => r,
+        other => panic!("expected AutoBackground (manual bg), got: {:?}", other),
+    };
     assert_eq!(
         result.data["backgroundedByUser"],
         json!(true),
@@ -870,15 +881,18 @@ async fn test_handle_foreground_result_normal_foreground_no_signal() {
     let tmp = TempDir::new().unwrap();
     let child = spawn_sh_command("true", tmp.path().to_str().unwrap()).expect("spawn true");
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
-    let result = handle_foreground_result(
+    let outcome = handle_foreground_result(
         child_arc,
         "true",
         std::time::Duration::from_secs(5),
         &bg_trait,
         None,
     )
-    .await
-    .expect("foreground path should succeed");
+    .await;
+    let result = match outcome {
+        ForegroundOutcome::Completed(r) => r,
+        other => panic!("expected Completed, got: {:?}", other),
+    };
     assert_eq!(result.data["exitCode"], json!(0));
     assert!(
         result.data["backgroundTaskId"].is_null(),
@@ -909,15 +923,18 @@ async fn test_handle_foreground_result_manual_signal_preferred_over_auto() {
     tokio::spawn(async move {
         signal_clone.notify_waiters();
     });
-    let result = handle_foreground_result(
+    let outcome = handle_foreground_result(
         child_arc,
         "sleep 10",
         std::time::Duration::from_millis(100),
         &bg_trait,
         Some(&signal),
     )
-    .await
-    .expect("signal-preferred path should succeed");
+    .await;
+    let result = match outcome {
+        ForegroundOutcome::AutoBackground(r, _) => r,
+        other => panic!("expected AutoBackground (manual signal), got: {:?}", other),
+    };
     assert_eq!(
         result.data["backgroundedByUser"],
         json!(true),

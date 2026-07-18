@@ -77,6 +77,12 @@ pub trait ToolSession: Send + Sync {
     /// the tool from its pending-operation set.
     async fn deregister_tool_call(&self, _call_id: String) {}
 
+    /// Updates the state of a registered tool call.
+    ///
+    /// Called to transition a tool through its lifecycle states
+    /// (e.g. `Pending → RunningForeground → Completed`).
+    async fn update_tool_state(&self, _call_id: &str, _state: crate::ToolExecState) {}
+
     /// Register a child session for pending-operation tracking.
     ///
     /// Called before a child session starts processing. The session records

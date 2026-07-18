@@ -1,4 +1,4 @@
-//! Built-in BashTool — provides shell command execution capability for agents.
+//! Built-in BashTool - provides shell command execution capability for agents.
 //! Implements timeout control, output truncation with head-preservation,
 //! output persistence, and command classification.
 //!
@@ -16,6 +16,7 @@ use crate::permission_check::{
 };
 use crate::security::{BashSecurityAnalyzer, TrustLevel};
 use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use closeclaw_common::ToolExecState;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
@@ -32,6 +33,23 @@ use tokio::sync::Mutex as TokioMutex;
 use super::bash_kill::{
     build_result, process_output, read_pipe, BackgroundKillHandle, BashKillHandle,
 };
+
+/// Outcome of foreground tool execution, distinguishing between
+/// normal completion and auto-backgroundizing on timeout.
+///
+/// Used by [`execute_command`] to determine whether to set
+/// `Completed`/`Failed` (and deregister) or `RunningBackground`
+/// (and retain the tool state entry) after the foreground wait.
+#[derive(Debug)]
+enum ForegroundOutcome {
+    /// Tool completed normally (success or non-zero exit).
+    Completed(ToolResult),
+    /// Tool execution error (e.g. spawn failure, wait failure).
+    Failed(String),
+    /// Tool was auto-backgroundized on timeout.
+    /// Contains the ToolResult and the background task ID.
+    AutoBackground(ToolResult, String),
+}
 
 /// Auto-backgroundize timeout (15 seconds).
 const AUTO_BG_TIMEOUT_MS: u64 = 15_000;
@@ -100,7 +118,7 @@ impl Tool for BashTool {
          (threshold 30,000 chars), and output persistence to disk when \
          output exceeds threshold. Supports run_in_background for async \
          execution. Commands exceeding 15s are auto-backgrounded. \
-         Background tasks notify automatically on completion — do not poll. \
+         Background tasks notify automatically on completion - do not poll. \
          Use run_in_background for commands expected to exceed 10 seconds."
             .to_string()
     }
@@ -175,7 +193,7 @@ fn truncate_summary(command: &str) -> String {
         command.to_string()
     } else {
         let end = command.floor_char_boundary(MAX_SUMMARY_LEN);
-        format!("{}…", &command[..end])
+        format!("{}...", &command[..end])
     }
 }
 
@@ -255,17 +273,18 @@ async fn backgroundize_child(
     command: &str,
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
     by_user: bool,
-) -> Result<ToolResult, String> {
+) -> Result<(ToolResult, String), String> {
     child.stdout = stdout_handle;
     child.stderr = stderr_handle;
     let task = bg_manager
         .backgroundize_task(child, command, true)
         .await
         .map_err(|e| format!("failed to backgroundize command: {}", e))?;
+    let task_id = task.id.clone();
     if by_user {
-        Ok(build_manual_background_result(&task))
+        Ok((build_manual_background_result(&task), task_id))
     } else {
-        Ok(build_auto_background_result(&task))
+        Ok((build_auto_background_result(&task), task_id))
     }
 }
 
@@ -280,7 +299,7 @@ async fn wait_child(
     stderr_handle: Option<tokio::process::ChildStderr>,
     command: &str,
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
-) -> Result<ToolResult, String> {
+) -> ForegroundOutcome {
     match wait_result {
         Ok(Ok(status)) => {
             let exit_code = status.code().unwrap_or(-1);
@@ -288,11 +307,13 @@ async fn wait_child(
             let stderr_raw = read_pipe(stderr_handle).await;
             let stdout_p = process_output(&stdout_raw);
             let stderr_p = process_output(&stderr_raw);
-            Ok(build_result(command, stdout_p, stderr_p, exit_code, false))
+            ForegroundOutcome::Completed(build_result(
+                command, stdout_p, stderr_p, exit_code, false,
+            ))
         }
-        Ok(Err(e)) => Err(format!("failed to wait on command: {}", e)),
+        Ok(Err(e)) => ForegroundOutcome::Failed(format!("failed to wait on command: {}", e)),
         Err(_elapsed) => {
-            backgroundize_child(
+            auto_backgroundize_foreground(
                 child,
                 stdout_handle,
                 stderr_handle,
@@ -302,6 +323,32 @@ async fn wait_child(
             )
             .await
         }
+    }
+}
+
+/// Auto-backgroundize a foreground child and return a [`ForegroundOutcome`].
+///
+/// On failure, returns [`ForegroundOutcome::Failed`].
+async fn auto_backgroundize_foreground(
+    child: tokio::process::Child,
+    stdout_handle: Option<tokio::process::ChildStdout>,
+    stderr_handle: Option<tokio::process::ChildStderr>,
+    command: &str,
+    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
+    by_user: bool,
+) -> ForegroundOutcome {
+    match backgroundize_child(
+        child,
+        stdout_handle,
+        stderr_handle,
+        command,
+        bg_manager,
+        by_user,
+    )
+    .await
+    {
+        Ok((result, task_id)) => ForegroundOutcome::AutoBackground(result, task_id),
+        Err(e) => ForegroundOutcome::Failed(e),
     }
 }
 
@@ -325,7 +372,7 @@ async fn handle_foreground_result(
     bg_timeout: Duration,
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
     manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
-) -> Result<ToolResult, String> {
+) -> ForegroundOutcome {
     let (stdout_handle, stderr_handle) = {
         let mut guard = child_arc.lock().expect("child mutex poisoned");
         let child = guard.as_mut().expect("child present after spawn");
@@ -339,7 +386,7 @@ async fn handle_foreground_result(
     tokio::select! {
         biased;
         _ = notify_or_pending(manual_bg_signal) => {
-            backgroundize_child(
+            auto_backgroundize_foreground(
                 child, stdout_handle, stderr_handle, command, bg_manager, true,
             ).await
         }
@@ -429,7 +476,7 @@ async fn execute_bash_call(
     }
     analyze_security(command)?;
 
-    // Level 1: ToolCall — verify agent may invoke Bash tool
+    // Level 1: ToolCall - verify agent may invoke Bash tool
     if let Some(r) = check_tool_permission(deps, ctx, "bash", "call").await? {
         return Ok(r);
     }
@@ -440,7 +487,7 @@ async fn execute_bash_call(
 
     let dangerously_disable = args.get("dangerouslyDisableSandbox") == Some(&Value::Bool(true));
 
-    // Level 2: CommandExec — verify specific command is permitted.
+    // Level 2: CommandExec - verify specific command is permitted.
     // Denied commands are routed to the sandbox (not rejected outright).
     let (approval_result, sandbox_already_applied) = check_command_permission_and_route(
         deps,
@@ -481,6 +528,164 @@ async fn execute_bash_call(
     .map_err(ToolCallError::ExecutionFailed)
 }
 
+/// Spawn a monitor task that polls a background task for terminal state.
+///
+/// On terminal state, sets the final tool state and deregisters the tool.
+/// Shared by the explicit-background path and the auto-background path
+/// to avoid code duplication.
+fn spawn_bg_monitor(
+    session: &Arc<dyn closeclaw_common::tool_session::ToolSession>,
+    call_id: &str,
+    task_id: String,
+    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
+) {
+    let bg = Arc::clone(bg_manager);
+    let s = Arc::clone(session);
+    let cid = call_id.to_string();
+    tokio::spawn(async move {
+        let task_id = task_id;
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            match bg.get_task(&task_id).await {
+                Some(bt) => match bt.state {
+                    closeclaw_tasks::TaskState::Completed { .. } => {
+                        s.update_tool_state(&cid, ToolExecState::Completed).await;
+                        s.deregister_tool_call(cid).await;
+                        s.persist_pending_checkpoint().await;
+                        return;
+                    }
+                    closeclaw_tasks::TaskState::Failed { .. } => {
+                        s.update_tool_state(&cid, ToolExecState::Failed).await;
+                        s.deregister_tool_call(cid).await;
+                        s.persist_pending_checkpoint().await;
+                        return;
+                    }
+                    closeclaw_tasks::TaskState::Killed => {
+                        s.update_tool_state(&cid, ToolExecState::Terminated).await;
+                        s.deregister_tool_call(cid).await;
+                        s.persist_pending_checkpoint().await;
+                        return;
+                    }
+                    closeclaw_tasks::TaskState::Running { .. } => {
+                        // Still running — continue polling.
+                    }
+                },
+                None => {
+                    // Task removed from manager (cleanup or unknown).
+                    // Deregister to avoid stale entry.
+                    s.deregister_tool_call(cid).await;
+                    s.persist_pending_checkpoint().await;
+                    return;
+                }
+            }
+        }
+    });
+}
+
+/// Execute a shell command in the background path.
+///
+/// Registers the tool call, spawns the background task, registers the
+/// kill handle, transitions to `RunningBackground`, and spawns a monitor
+/// for terminal-state detection.
+async fn execute_background_command(
+    command: &str,
+    cwd: &str,
+    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
+    session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
+    call_id: Option<&str>,
+) -> Result<ToolResult, String> {
+    let mut registered_call_id = None;
+    if let (Some(s), Some(cid)) = (session, call_id) {
+        let summary = truncate_summary(command);
+        s.register_tool_call(cid.to_string(), "bash".to_string(), summary)
+            .await;
+        registered_call_id = Some(cid.to_string());
+        s.persist_pending_checkpoint().await;
+    }
+    // Per #762 design: `spawn_task()` is the "self-cold-start" path.
+    let task = bg_manager
+        .spawn_task(command, Path::new(cwd), false)
+        .await
+        .map_err(|e| {
+            if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
+                let s = Arc::clone(s);
+                let cid = cid.to_string();
+                tokio::spawn(async move {
+                    s.update_tool_state(&cid, ToolExecState::Failed).await;
+                    s.deregister_tool_call(cid).await;
+                    s.persist_pending_checkpoint().await;
+                });
+            }
+            format!("failed to spawn background task: {}", e)
+        })?;
+    // Register BackgroundKillHandle so cascade-stop can find the task.
+    if let (Some(s), Some(cid)) = (session, call_id) {
+        let handle: Arc<dyn closeclaw_common::tool_session::KillHandle> =
+            Arc::new(BackgroundKillHandle {
+                bg_manager: Arc::clone(bg_manager),
+                task_id: task.id.clone(),
+            });
+        s.register_tool_handle(cid.to_string(), handle).await;
+    }
+    // Transition to RunningBackground: retain entry for exec_status().
+    if let (Some(s), Some(cid)) = (session, call_id) {
+        s.update_tool_state(cid, ToolExecState::RunningBackground)
+            .await;
+        s.persist_pending_checkpoint().await;
+        spawn_bg_monitor(s, cid, task.id.clone(), bg_manager);
+    }
+    Ok(build_background_result(&task))
+}
+
+/// Execute a foreground command and return its [`ForegroundOutcome`].
+///
+/// Registers the tool call, spawns the child, registers the kill handle,
+/// waits for completion, and returns the outcome. Caller is responsible
+/// for setting the final tool state and deregistering.
+async fn execute_foreground_command(
+    command: &str,
+    cwd: &str,
+    timeout_ms: u64,
+    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
+    session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
+    call_id: Option<&str>,
+    manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
+) -> Result<(ForegroundOutcome, Option<String>), String> {
+    let mut registered_call_id = None;
+    if let (Some(s), Some(cid)) = (session, call_id) {
+        let summary = truncate_summary(command);
+        s.register_tool_call(cid.to_string(), "bash".to_string(), summary)
+            .await;
+        registered_call_id = Some(cid.to_string());
+        s.persist_pending_checkpoint().await;
+    }
+
+    let child = spawn_sh_command(command, cwd)?;
+    let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
+
+    if let (Some(s), Some(cid)) = (session, call_id) {
+        let handle: Arc<dyn closeclaw_common::tool_session::KillHandle> =
+            Arc::new(BashKillHandle {
+                child: Arc::clone(&child_arc),
+            });
+        s.register_tool_handle(cid.to_string(), handle).await;
+        s.update_tool_state(cid, ToolExecState::RunningForeground)
+            .await;
+    }
+
+    let bg_timeout = if auto_backgroundize_excluded(command) {
+        Duration::from_millis(timeout_ms)
+    } else {
+        Duration::from_millis(AUTO_BG_TIMEOUT_MS)
+    };
+
+    let outcome =
+        handle_foreground_result(child_arc, command, bg_timeout, bg_manager, manual_bg_signal)
+            .await;
+
+    Ok((outcome, registered_call_id))
+}
+
 /// Execute a shell command via `sh -c` with timeout.
 ///
 /// When `run_in_background` is true, immediately spawns a background
@@ -491,7 +696,7 @@ async fn execute_bash_call(
 /// integration from Step 1.4 of issue #858: the foreground path
 /// registers a [`BashKillHandle`] for the duration of the wait, the
 /// background path registers a [`BackgroundKillHandle`] for the
-/// lifetime of the task. Both are `None`-safe — tool invocations
+/// lifetime of the task. Both are `None`-safe - tool invocations
 /// outside a tracked session (CLI, tests, prompt generation) skip
 /// registration entirely.
 #[allow(clippy::too_many_arguments)]
@@ -506,106 +711,46 @@ async fn execute_command(
     manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
 ) -> Result<ToolResult, String> {
     if run_in_background {
-        // ── Pending-operation tracking ──────────────────────────────────
-        // Register the tool call before spawning so that a crash
-        // after spawn but before completion is recoverable.
-        let mut registered_call_id = None;
-        if let (Some(s), Some(cid)) = (session, call_id) {
-            let summary = truncate_summary(command);
-            s.register_tool_call(cid.to_string(), "bash".to_string(), summary)
-                .await;
-            registered_call_id = Some(cid.to_string());
-            s.persist_pending_checkpoint().await;
+        return execute_background_command(command, cwd, bg_manager, session, call_id).await;
+    }
+
+    let (outcome, registered_call_id) = execute_foreground_command(
+        command,
+        cwd,
+        timeout_ms,
+        bg_manager,
+        session,
+        call_id,
+        manual_bg_signal,
+    )
+    .await?;
+    match outcome {
+        ForegroundOutcome::Completed(result) => {
+            if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
+                s.update_tool_state(cid, ToolExecState::Completed).await;
+                s.deregister_tool_call(cid.to_string()).await;
+                s.persist_pending_checkpoint().await;
+            }
+            Ok(result)
         }
-
-        // Per #762 design: `spawn_task()` is the "self-cold-start" path; do not
-        // pre-spawn a Child and pass it through `backgroundize_task()` here.
-        let task = bg_manager
-            .spawn_task(command, Path::new(cwd), false)
-            .await
-            .map_err(|e| {
-                // Deregister on spawn failure.
-                if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
-                    // Fire-and-forget deregister; spawn failure is the primary error.
-                    let s = Arc::clone(s);
-                    let cid = cid.to_string();
-                    tokio::spawn(async move {
-                        s.deregister_tool_call(cid).await;
-                        s.persist_pending_checkpoint().await;
-                    });
-                }
-                format!("failed to spawn background task: {}", e)
-            })?;
-
-        // Register BackgroundKillHandle so cascade-stop can find the
-        // task. No unregister — background tasks run independently
-        // of the tool invocation, and the handle is naturally
-        // reaped when the entry is removed from the manager.
-        if let (Some(s), Some(cid)) = (session, call_id) {
-            let handle: Arc<dyn closeclaw_common::tool_session::KillHandle> =
-                Arc::new(BackgroundKillHandle {
-                    bg_manager: Arc::clone(bg_manager),
-                    task_id: task.id.clone(),
-                });
-            s.register_tool_handle(cid.to_string(), handle).await;
+        ForegroundOutcome::Failed(e) => {
+            if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
+                s.update_tool_state(cid, ToolExecState::Failed).await;
+                s.deregister_tool_call(cid.to_string()).await;
+                s.persist_pending_checkpoint().await;
+            }
+            Err(e)
         }
-
-        // Deregister the pending-operation entry: the background task
-        // runs independently of the tool invocation.
-        if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
-            s.deregister_tool_call(cid.to_string()).await;
-            s.persist_pending_checkpoint().await;
+        ForegroundOutcome::AutoBackground(result, task_id) => {
+            if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
+                s.update_tool_state(cid, ToolExecState::RunningBackground)
+                    .await;
+                s.persist_pending_checkpoint().await;
+                spawn_bg_monitor(s, cid, task_id, bg_manager);
+            }
+            Ok(result)
         }
-
-        return Ok(build_background_result(&task));
     }
-
-    // ── Pending-operation tracking (foreground) ──────────────────────────
-    // Register before spawning so a crash during execution is
-    // detectable by the recovery service.
-    let mut registered_call_id = None;
-    if let (Some(s), Some(cid)) = (session, call_id) {
-        let summary = truncate_summary(command);
-        s.register_tool_call(cid.to_string(), "bash".to_string(), summary)
-            .await;
-        registered_call_id = Some(cid.to_string());
-        s.persist_pending_checkpoint().await;
-    }
-
-    // Foreground path: spawn, wrap child in a shared slot, register
-    // the kill handle, wait, then unregister.
-    let child = spawn_sh_command(command, cwd)?;
-    let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
-
-    if let (Some(s), Some(cid)) = (session, call_id) {
-        let handle: Arc<dyn closeclaw_common::tool_session::KillHandle> =
-            Arc::new(BashKillHandle {
-                child: Arc::clone(&child_arc),
-            });
-        s.register_tool_handle(cid.to_string(), handle).await;
-    }
-
-    let bg_timeout = if auto_backgroundize_excluded(command) {
-        Duration::from_millis(timeout_ms)
-    } else {
-        Duration::from_millis(AUTO_BG_TIMEOUT_MS)
-    };
-
-    let result =
-        handle_foreground_result(child_arc, command, bg_timeout, bg_manager, manual_bg_signal)
-            .await;
-
-    // ── Deregister pending operation ─────────────────────────────────────
-    if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
-        s.deregister_tool_call(cid.to_string()).await;
-        s.persist_pending_checkpoint().await;
-    }
-
-    // The kill handle's `Arc` is dropped here; if the foreground wait
-    // consumed the child, the slot was already `None` and the drop is a no-op.
-    // No explicit unregister needed — handle lifecycle is tied to the Arc.
-
-    result
 }
 
 /// Build a [`ToolResult`] for an explicitly backgrounded command.
