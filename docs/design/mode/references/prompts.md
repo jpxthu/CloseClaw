@@ -1,6 +1,6 @@
 # 模式 Prompt 参考
 
-> 定义各模式下注入 Agent 系统上下文的 prompt 内容与结构约束。各 prompt 内容来自成熟 CLI Agent 工具经过大量用户验证的版本，已适配 CloseClaw 术语体系。
+> 定义各模式下注入 Agent 系统上下文的 prompt 内容与结构约束。
 
 ---
 
@@ -267,9 +267,8 @@ Plan mode is active. The user indicated that they do not want you to
 execute yet — you MUST NOT make any edits, run any non-readonly tools,
 or otherwise make any changes to the system.
 
-You are only allowed to take READ-ONLY actions. Answer the user's
-query comprehensively, using the AskUserQuestion tool if you need to
-ask clarifying questions.
+You are only allowed to take READ-ONLY actions. Answer the spawning
+agent's query comprehensively, using the available read-only tools.
 ```
 
 ---
@@ -529,7 +528,7 @@ a bug." If you can run the check, you must decide PASS or FAIL.
 | 注入时机 | 触发条件 | 注入内容 |
 |---------|---------|---------|
 | Plan Mode 激活 | 用户执行进入 Plan Mode 的斜杠命令 | 第 1 节全局约束 + 第 2 节标准路径 或 第 3 节 Interview 路径（由命令参数或任务特征决定） |
-| Plan Mode Sparse | Plan Mode 下上下文压缩后 | 第 5 节精简版 |
+| Plan Mode Sparse | Plan Mode 下上下文压缩后 | 第 5 节「标准路径 Sparse」 |
 | Plan Mode Sub-agent | Plan Mode 中 spawn 子 Agent | 第 5 节 Sub-agent 版 + 第 7 节对应 Agent 类型模板 |
 | Plan Mode Re-entry | 同一 session 中再次进入 Plan Mode | 第 6 节 Re-entry |
 | Plan Mode Exit | 用户触发执行（/execute 或自然语言）时退出 Plan Mode | 第 6 节 Exit |
