@@ -174,7 +174,12 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
         Arc::clone(ctx.session_manager),
     );
     let im_adapter_registrar = closeclaw_im_adapter::ImAdapterToolsRegistrar::new();
-    let plan_registrar = PlanToolsRegistrar::new(Arc::new(Mutex::new(PlanState::new())));
+    let plan_registrar = PlanToolsRegistrar::new(
+        Arc::new(Mutex::new(PlanState::new())),
+        Arc::clone(ctx.session_manager),
+        Arc::clone(ctx.agent_registry) as Arc<dyn closeclaw_agent::AgentConfigLookup>,
+        Arc::clone(ctx.approval_flow),
+    );
 
     let registrars: Vec<Box<dyn ToolRegistrar>> = vec![
         Box::new(core_registrar),

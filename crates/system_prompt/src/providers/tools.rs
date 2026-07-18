@@ -205,11 +205,14 @@ mod tests {
             Box::new(closeclaw_tools::SkillsToolsRegistrar::new(
                 disk_registry,
                 spawn_controller as Arc<dyn closeclaw_tools::SpawnValidator>,
-                session_manager,
+                session_manager.clone(),
             )),
-            Box::new(closeclaw_tools::PlanToolsRegistrar::new(Arc::new(
-                std::sync::Mutex::new(closeclaw_common::PlanState::new()),
-            ))),
+            Box::new(closeclaw_tools::PlanToolsRegistrar::new(
+                Arc::new(std::sync::Mutex::new(closeclaw_common::PlanState::new())),
+                session_manager.clone(),
+                agent_registry.clone() as Arc<dyn closeclaw_agent::AgentConfigLookup>,
+                approval_flow.clone(),
+            )),
         ];
         registry.register_all(registrars).await.unwrap();
 

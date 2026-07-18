@@ -207,11 +207,14 @@ mod tests {
             Box::new(SkillsToolsRegistrar::new(
                 disk_registry,
                 spawn_controller as Arc<dyn closeclaw_tools::SpawnValidator>,
-                session_manager,
+                session_manager.clone(),
             )),
-            Box::new(PlanToolsRegistrar::new(Arc::new(Mutex::new(
-                PlanState::new(),
-            )))),
+            Box::new(PlanToolsRegistrar::new(
+                Arc::new(Mutex::new(PlanState::new())),
+                session_manager.clone(),
+                agent_registry.clone() as Arc<dyn closeclaw_agent::AgentConfigLookup>,
+                approval_flow.clone(),
+            )),
         ]
     }
 
