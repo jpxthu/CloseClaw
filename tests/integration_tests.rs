@@ -117,9 +117,11 @@ fn make_test_ruleset() -> RuleSet {
 /// [`AgentConfig`], wraps it with [`ConfigSource::User`], and returns
 /// a fully resolved configuration suitable for [`SharedAgentRegistry::populate`].
 fn make_resolved_config(id: &str, parent_id: Option<&str>) -> ResolvedAgentConfig {
-    let mut cfg = AgentConfig::default();
-    cfg.id = id.to_string();
-    cfg.parent_id = parent_id.map(String::from);
+    let cfg = AgentConfig {
+        id: id.to_string(),
+        parent_id: parent_id.map(String::from),
+        ..Default::default()
+    };
     ResolvedAgentConfig::from_single(cfg, ConfigSource::User, "<test>", None).unwrap()
 }
 
