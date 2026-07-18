@@ -555,7 +555,7 @@ impl ConversationSession {
         // before the process is reaped and clear_exec_state runs.
         {
             let mut states = self.tool_states.write().expect("tool_states lock poisoned");
-            for (_id, (state, _)) in states.iter_mut() {
+            for (state, _) in states.values_mut() {
                 if matches!(
                     *state,
                     ToolExecState::RunningForeground | ToolExecState::RunningBackground
