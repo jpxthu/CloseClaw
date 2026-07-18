@@ -13,7 +13,7 @@
 | [daemon](daemon/README.md) | 进程入口和组件胶水层：依赖驱动启动、后台任务管理、graceful/forceful 双模关闭 |
 | [gateway](gateway/README.md) | 消息路由中枢：管理 IM 插件、调度 Processor Chain、路由决策（slash vs normal）、选择平台插件完成出站渲染与发送 |
 | [llm](llm/README.md) | 统一多供应商 LLM 调用与模型发现：五层分离架构、Provider/Protocol/Interpreter 分层、内容块归一化、缓存适配、Provider 配置向导 |
-| [mode](mode/README.md) | Session 运行模式管理：Plan Mode（规划/执行分离、双路径、审批栅栏）和 Auto Mode（连续自主执行），通过工具过滤和权限边界约束 agent 行为 |
+| [mode](mode/README.md) | Session 运行模式管理：Plan Mode（规划/执行分离、双路径）和 Auto Mode（连续自主执行），Plan/Auto 相互独立，通过工具过滤和 Permission 审查约束 Agent 行为 |
 | [permission](permission/README.md) | 系统级身份型访问控制：交集模型、七类权限维度、审批工作流与配置管理 |
 | [platform](platform/README.md) | 操作系统抽象层：进程管理、信号处理、配置目录、终端 I/O 的平台差异封装 |
 | [processor_chain](processor_chain/README.md) | 统一出入站消息处理：入站纯变换链（审计日志、session_key 计算、文本标准化）、出站 DSL 解析、ContentBlock[] 传递 |
