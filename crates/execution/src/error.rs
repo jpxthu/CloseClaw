@@ -45,4 +45,13 @@ pub enum ExecutionError {
         /// Reason for the denial.
         reason: String,
     },
+
+    /// Step selection index out of bounds.
+    #[error("step index {index} out of range (total {total})")]
+    InvalidStepSelection {
+        /// The invalid index.
+        index: usize,
+        /// Total number of available steps.
+        total: usize,
+    },
 }

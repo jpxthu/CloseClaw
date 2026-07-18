@@ -1,6 +1,6 @@
 //! Core types for the execution engine.
 
-use closeclaw_common::ExecutionStepStatus;
+use closeclaw_common::{ExecutionStepStatus, PlanState};
 use serde::{Deserialize, Serialize};
 
 /// Execution mode — determines how steps are dispatched.
@@ -54,6 +54,10 @@ pub struct ExecutionConfig {
     pub retry_strategy: RetryStrategy,
     /// When to trigger step verification.
     pub verify_trigger: VerifyTrigger,
+    /// Optional step selection (0-based indices). When `Some`, only the
+    /// specified steps are executed. When `None`, all steps run.
+    #[serde(default)]
+    pub step_selection: Option<Vec<usize>>,
 }
 
 impl Default for ExecutionConfig {
@@ -63,6 +67,18 @@ impl Default for ExecutionConfig {
             max_retries: 3,
             retry_strategy: RetryStrategy::Fresh,
             verify_trigger: VerifyTrigger::NonTrivial,
+            step_selection: None,
+        }
+    }
+}
+
+impl From<&PlanState> for ExecutionConfig {
+    /// Create an `ExecutionConfig` from a [`PlanState`], transferring
+    /// `step_selection` so partial execution works end-to-end.
+    fn from(plan: &PlanState) -> Self {
+        Self {
+            step_selection: plan.step_selection.clone(),
+            ..Self::default()
         }
     }
 }

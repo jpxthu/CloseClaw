@@ -45,6 +45,7 @@ fn default_config() -> ExecutionConfig {
         max_retries: 3,
         retry_strategy: RetryStrategy::Fresh,
         verify_trigger: VerifyTrigger::NonTrivial,
+        step_selection: None,
     }
 }
 

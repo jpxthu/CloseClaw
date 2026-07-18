@@ -22,6 +22,45 @@ use tracing::warn;
 use closeclaw_session::spawn::creation::build_spawn_context as build_spawn_context_inner;
 pub use closeclaw_session::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 
+/// Configuration for creating a child session.
+///
+/// Groups the many parameters of [`SessionManager::create_child_session`]
+/// into a single struct to keep the API ergonomic and within the
+/// project's 6-parameter function limit.
+#[derive(Debug, Clone)]
+pub struct ChildSessionConfig {
+    /// Resolved agent configuration.
+    pub config: ResolvedAgentConfig,
+    /// Parent session ID.
+    pub parent_session_id: String,
+    /// Spawn depth (parent depth + 1).
+    pub depth: u32,
+    /// Task description / initial prompt.
+    pub task: String,
+    /// Whether to use a lightweight context.
+    pub light_context: bool,
+    /// Optional workspace path override.
+    pub workspace: Option<String>,
+    /// Spawn mode (Run / DryRun).
+    pub mode: SpawnMode,
+    /// Whether to fork from parent session.
+    pub fork: bool,
+    /// Optional tool whitelist.
+    pub allowed_tools: Option<Vec<String>>,
+    /// Optional model override.
+    pub model_override: Option<String>,
+    /// Optional parent sub-agents model.
+    pub parent_subagents_model: Option<String>,
+    /// Maximum spawn depth.
+    pub max_spawn_depth: u32,
+    /// Optional spawn timeout in seconds.
+    pub spawn_timeout: Option<u64>,
+    /// Optional label for the child session.
+    pub label: Option<String>,
+    /// Optional prompt template prefix.
+    pub prompt_template_prefix: Option<String>,
+}
+
 impl SessionManager {
     /// Get the depth of a session. Returns None if session does not exist.
     pub async fn get_session_depth(&self, session_id: &str) -> Option<u32> {
@@ -90,6 +129,47 @@ impl SessionManager {
     /// Delegates core ConversationSession creation to the session crate,
     /// then handles gateway-specific registration (maps, checkpoint,
     /// spawn tree, timeout).
+    pub async fn create_child_session_with_config(
+        &self,
+        child_config: ChildSessionConfig,
+    ) -> Result<String, String> {
+        let ChildSessionConfig {
+            ref config,
+            ref parent_session_id,
+            depth,
+            ref task,
+            light_context,
+            ref workspace,
+            mode,
+            fork,
+            ref allowed_tools,
+            ref model_override,
+            ref parent_subagents_model,
+            max_spawn_depth,
+            spawn_timeout,
+            ref label,
+            ref prompt_template_prefix,
+        } = child_config;
+        self.create_child_session(
+            config,
+            parent_session_id,
+            depth,
+            task,
+            light_context,
+            workspace.as_deref(),
+            mode,
+            fork,
+            allowed_tools.clone(),
+            model_override.as_deref(),
+            parent_subagents_model.as_deref(),
+            max_spawn_depth,
+            spawn_timeout,
+            label.as_deref(),
+            prompt_template_prefix.as_deref(),
+        )
+        .await
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn create_child_session(
         &self,

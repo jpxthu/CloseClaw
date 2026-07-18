@@ -462,7 +462,81 @@ impl Daemon {
             }
         });
 
-        let approval_flow = Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
+        // Build the child-session creation callback for the new-session
+        // execution path. The callback captures SessionManager and
+        // ConfigManager to resolve agent config at call time.
+        let sm_for_spawn = Arc::clone(session_manager);
+        let cm_for_spawn = Arc::clone(config_manager);
+        let create_child_fn: closeclaw_permission::approval_flow::CreateChildSessionFn = Arc::new(
+            move |parent_session_id: String,
+                  plan_content: String,
+                  step_selection: Option<Vec<usize>>|
+                  -> std::pin::Pin<
+                Box<dyn std::future::Future<Output = Result<String, String>> + Send>,
+            > {
+                let sm = Arc::clone(&sm_for_spawn);
+                let cm = Arc::clone(&cm_for_spawn);
+                Box::pin(async move {
+                    // Resolve the parent session's agent_id.
+                    let agent_id = sm.get_chat_id(&parent_session_id).await.unwrap_or_default();
+
+                    // Resolve agent config from ConfigManager.
+                    let config = {
+                        let agents = cm.agents.read().unwrap();
+                        agents.get(&agent_id).cloned()
+                    }
+                    .ok_or_else(|| format!("agent config not found for agent_id={}", agent_id))?;
+
+                    // Determine parent session depth.
+                    let depth = sm.get_session_depth(&parent_session_id).await.unwrap_or(0);
+
+                    // Build task description and inject plan content as initial context.
+                    let task = format!(
+                        "Execute plan (new session). Step selection: {:?}",
+                        step_selection
+                    );
+                    // Inject the full plan file content into the system prompt
+                    // so the new session has complete plan context from the start.
+                    let prompt_prefix = format!(
+                        "## Plan Content (auto-injected for new session execution)\n\n{}",
+                        plan_content
+                    );
+
+                    // Determine max_spawn_depth from parent session.
+                    let max_spawn_depth = sm
+                        .get_effective_max_spawn_depth(&parent_session_id)
+                        .await
+                        .unwrap_or(3);
+
+                    use closeclaw_gateway::session_manager::{ChildSessionConfig, SpawnMode};
+                    let child_config = ChildSessionConfig {
+                        config,
+                        parent_session_id,
+                        depth: depth + 1,
+                        task,
+                        light_context: false,
+                        workspace: None,
+                        mode: SpawnMode::Run,
+                        fork: false,
+                        allowed_tools: None,
+                        model_override: None,
+                        parent_subagents_model: None,
+                        max_spawn_depth,
+                        spawn_timeout: None,
+                        label: Some("plan-execution".to_string()),
+                        prompt_template_prefix: Some(prompt_prefix),
+                    };
+                    let child_id = sm.create_child_session_with_config(child_config).await?;
+
+                    // The child session is created in Run mode by default.
+                    // The approval flow's handle_new_session_path will set
+                    // Auto Mode and plan state after this callback returns.
+                    Ok(child_id)
+                })
+            },
+        );
+
+        let mut af = ApprovalFlow::new(
             Arc::clone(session_manager) as Arc<dyn SessionLookup>,
             Arc::new(|_| {}),
             whitelist_cb,
@@ -470,7 +544,9 @@ impl Daemon {
             HeartbeatApprovalMode::default(),
             std::path::PathBuf::from(config_dir),
             RuleSet::default(),
-        )));
+        );
+        af.set_create_child_session_fn(create_child_fn);
+        let approval_flow = Arc::new(tokio::sync::Mutex::new(af));
         // Wire the approval flow into the whitelist callback so hot-reload
         // updates the snapshot too (see OnceLock in the callback above).
         let _ = af_ref.set(Arc::clone(&approval_flow));

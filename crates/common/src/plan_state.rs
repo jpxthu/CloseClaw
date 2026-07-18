@@ -151,6 +151,11 @@ pub struct PlanState {
     /// 显式指定的 plan 路径（None 表示由系统自动判断）
     #[serde(default)]
     pub explicit_path: Option<PlanPath>,
+    /// Optional step selection (0-based indices) for partial execution.
+    /// `None` means execute all steps; `Some(indices)` means execute
+    /// only the specified steps.
+    #[serde(default)]
+    pub step_selection: Option<Vec<usize>>,
 }
 
 impl PlanState {
@@ -399,7 +404,7 @@ pub trait PlanStateWriter: Send + Sync {
 
 /// Default implementation of [`PlanStateWriter`] that reads a plan markdown
 /// file, locates the "## 进度" progress table, and updates status markers
-/// (`✅` / `🔄` / `❌` / empty) in the first column of each step row.
+/// (`[x]` / `[-]` / `[!]` / `[ ]`) in the first column of each step row.
 pub struct DefaultPlanStateWriter;
 
 impl DefaultPlanStateWriter {
@@ -458,7 +463,7 @@ impl PlanStateWriter for DefaultPlanStateWriter {
 impl DefaultPlanStateWriter {
     /// Update a single table row with the matching step's status marker.
     fn update_step_row(&self, line: &str, plan_state: &PlanState) -> Option<String> {
-        // Match table rows like: | ✅ | 1.1 | ... | or | | 1.1 | ... |
+        // Match table rows like: | [-] | 1.1 | ... | or | [ ] | 1.1 | ... |
         let parts: Vec<&str> = line.split('|').collect();
         if parts.len() < 3 {
             return None;
@@ -494,11 +499,17 @@ impl DefaultPlanStateWriter {
 }
 
 /// Map an [`ExecutionStepStatus`] to the corresponding plan file marker.
-fn step_status_to_marker(status: &ExecutionStepStatus) -> String {
+///
+/// Uses GitHub-flavored Markdown checkbox syntax per design doc:
+/// - `Completed` → `[x]`
+/// - `InProgress` → `[-]`
+/// - `Failed` → `[!]`
+/// - `Pending` / `Skipped` → `[ ]`
+pub(crate) fn step_status_to_marker(status: &ExecutionStepStatus) -> String {
     match status {
-        ExecutionStepStatus::Completed => "✅".to_string(),
-        ExecutionStepStatus::InProgress => "🔄".to_string(),
-        ExecutionStepStatus::Failed => "❌".to_string(),
-        ExecutionStepStatus::Pending | ExecutionStepStatus::Skipped => String::new(),
+        ExecutionStepStatus::Completed => "[x]".to_string(),
+        ExecutionStepStatus::InProgress => "[-]".to_string(),
+        ExecutionStepStatus::Failed => "[!]".to_string(),
+        ExecutionStepStatus::Pending | ExecutionStepStatus::Skipped => "[ ]".to_string(),
     }
 }
