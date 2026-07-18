@@ -274,7 +274,11 @@ impl SlashHandler for ExecuteHandler {
             .set_plan_state(&ctx.session_id, plan_state)
             .await;
 
-        // Plan exists — switch to Auto Mode
+        // Plan exists — inject ExitPlan transition notification before switching to Auto Mode.
+        self.session_manager
+            .set_pending_mode_transition(&ctx.session_id, ModeTransition::ExitPlan)
+            .await;
+
         SlashResult::SetMode {
             mode: "auto".to_owned(),
             plan_file_path: Some(plan_file_path),
