@@ -426,6 +426,73 @@ fn test_init_then_full_flow() {
     assert_eq!(state.current_step, Some(2));
 }
 
+// --- Additional apply_transition / validate_transition tests (Step 1.2) ---
+
+#[test]
+fn test_pending_to_completed_direct_invalid() {
+    // Direct Pending → Completed must fail (must go through InProgress).
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    state.current_step = Some(0);
+    let err = state.apply_transition(0, ExecutionStepStatus::Completed);
+    assert!(err.is_err());
+    assert!(matches!(
+        err.unwrap_err(),
+        TransitionError::InvalidTransition { from, to }
+            if from == ExecutionStepStatus::Pending
+                && to == ExecutionStepStatus::Completed
+    ));
+}
+
+#[test]
+fn test_pending_to_failed_direct_invalid() {
+    // Direct Pending → Failed must fail (must go through InProgress).
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["step1".into()]);
+    state.current_step = Some(0);
+    let err = state.apply_transition(0, ExecutionStepStatus::Failed);
+    assert!(err.is_err());
+    assert!(matches!(
+        err.unwrap_err(),
+        TransitionError::InvalidTransition { from, to }
+            if from == ExecutionStepStatus::Pending
+                && to == ExecutionStepStatus::Failed
+    ));
+}
+
+#[test]
+fn test_apply_transition_returns_ok_for_valid_chain() {
+    // Full happy-path chain: Pending → InProgress → Completed.
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["s1".into(), "s2".into()]);
+    state.current_step = Some(0);
+
+    assert!(state
+        .apply_transition(0, ExecutionStepStatus::InProgress)
+        .is_ok());
+    assert!(state
+        .apply_transition(0, ExecutionStepStatus::Completed)
+        .is_ok());
+    assert_eq!(state.current_step, Some(1));
+    assert_eq!(
+        state.get_step_status(0),
+        Some(&ExecutionStepStatus::Completed)
+    );
+}
+
+#[test]
+fn test_out_of_bounds_apply_transition_fails() {
+    // apply_transition respects bounds like validate_transition.
+    let mut state = PlanState::new();
+    state.init_execution_steps(vec!["s1".into()]);
+    let err = state.apply_transition(99, ExecutionStepStatus::InProgress);
+    assert!(err.is_err());
+    assert!(matches!(
+        err.unwrap_err(),
+        TransitionError::OutOfBounds { index: 99, len: 1 }
+    ));
+}
+
 // --- step_status_to_marker tests ---
 
 #[test]

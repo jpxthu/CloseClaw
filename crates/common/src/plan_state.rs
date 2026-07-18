@@ -354,7 +354,7 @@ impl PlanState {
         new_status: ExecutionStepStatus,
     ) -> Result<(), TransitionError> {
         self.validate_transition(step_index, &new_status)?;
-        let old_status = self.execution_steps[step_index].status.clone();
+        let old_status = self.execution_steps[step_index].status;
         self.execution_steps[step_index].status = new_status;
 
         // Update current_step based on new status
