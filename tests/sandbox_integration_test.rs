@@ -25,6 +25,12 @@ use closeclaw_permission::sandbox::{
 };
 
 /// Creates a minimal permissive ruleset for testing.
+///
+/// This ruleset only contains agent-phase defaults (no user-phase rules).
+/// When used with `PermissionRequest::WithCaller`, the caller must have
+/// `user_id: "owner"` to bypass user-phase rules and let agent-phase
+/// defaults take effect. Without Owner exemption, the engine falls back
+/// to `user_defaults` (full Deny), causing all requests to be rejected.
 fn make_permissive_ruleset() -> RuleSet {
     RuleSetBuilder::new()
         .rule(
