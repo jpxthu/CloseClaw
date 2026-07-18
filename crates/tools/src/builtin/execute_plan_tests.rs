@@ -9,8 +9,6 @@
 //! the dimensions specified in the plan.
 
 use crate::{Tool, ToolCallError, ToolContext};
-use closeclaw_agent::lookup::AgentConfigInfo;
-use closeclaw_agent::AgentConfigLookup;
 use closeclaw_common::SessionMode;
 use closeclaw_gateway::GatewayConfig;
 use closeclaw_gateway::SessionManager;
@@ -19,17 +17,6 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
-
-// ── Mock AgentConfigLookup ──────────────────────────────────────────────────
-
-struct MockAgentConfigLookup;
-
-#[async_trait::async_trait]
-impl AgentConfigLookup for MockAgentConfigLookup {
-    async fn lookup_agent_config(&self, _agent_id: &str) -> Option<AgentConfigInfo> {
-        None
-    }
-}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -88,7 +75,7 @@ fn make_tool(
     sm: Arc<SessionManager>,
     af: Arc<TokioMutex<ApprovalFlow>>,
 ) -> crate::builtin::execute_plan::ExecutePlanTool {
-    crate::builtin::execute_plan::ExecutePlanTool::new(sm, Arc::new(MockAgentConfigLookup), af)
+    crate::builtin::execute_plan::ExecutePlanTool::new(sm, af)
 }
 
 // ── Tool metadata tests ─────────────────────────────────────────────────────

@@ -131,27 +131,6 @@ impl SlashHandler for PlanModeHandler {
     }
 }
 
-/// Parse `PlanStatus` from a plan file's content.
-///
-/// Scans the file for the `| 状态 | <status> |` line and converts it
-/// to the corresponding `PlanStatus` variant.
-pub(crate) fn parse_plan_status_from_file(content: &str) -> Option<PlanStatus> {
-    for line in content.lines() {
-        if let Some(rest) = line.strip_prefix("| 状态 | ") {
-            let status_str = rest.strip_suffix(" |")?.trim();
-            return match status_str {
-                "draft" => Some(PlanStatus::Draft),
-                "confirmed" => Some(PlanStatus::Confirmed),
-                "executing" => Some(PlanStatus::Executing),
-                "paused" => Some(PlanStatus::Paused),
-                "completed" => Some(PlanStatus::Completed),
-                _ => None,
-            };
-        }
-    }
-    None
-}
-
 /// Parse `--path` argument from the `/plan` command.
 ///
 /// Returns `(Some(PlanPath), remaining_title)` when `--path standard` or
@@ -294,7 +273,7 @@ impl SlashHandler for ExecuteHandler {
         //         Prefer the in-memory PlanStatus if already set (authoritative);
         //         fall back to parsing the plan file for backward compatibility.
         let file_status = match std::fs::read_to_string(&plan_state.plan_file_path) {
-            Ok(content) => parse_plan_status_from_file(&content),
+            Ok(content) => plan_file::parse_plan_status_from_file(&content),
             Err(e) => {
                 tracing::warn!(
                     plan_file = %plan_state.plan_file_path,

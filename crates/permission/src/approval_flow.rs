@@ -521,231 +521,14 @@ impl ApprovalFlow {
             )
         });
 
-        // Step: Re-evaluate with snapshotted rules to check if the snapshot
-        // rules already allow the operation (owner decision not needed).
         let effective_mode =
-            if let Some((_, ref caller, ref request, ref snapshotted_rules, ref _rule_version)) =
-                pending_info
-            {
-                let temp_engine =
-                    PermissionEngine::new_with_default_data_root(snapshotted_rules.clone());
-                let perm_request = PermissionRequest::WithCaller {
-                    caller: caller.clone(),
-                    request: request.clone(),
-                };
-                let re_result = temp_engine.evaluate(perm_request, None);
-                match re_result {
-                    PermissionResponse::Allowed { .. } => {
-                        // Design rationale: when the snapshotted rules already allow
-                        // the operation, the operation itself no longer requires
-                        // approval — the rules have already granted permission.
-                        // Owner intervention is unnecessary for an action that the
-                        // rules explicitly permit, so we auto-pass and log for
-                        // observability.
-                        tracing::info!(
-                            request_id = %request_id,
-                            "规则已变更，操作已自动放行"
-                        );
-                        Some(ApprovalMode::Once)
-                    }
-                    _ => {
-                        // Denied → owner decision takes effect.
-                        None
-                    }
-                }
-            } else {
-                None
-            };
-
+            self.reevaluate_with_snapshotted_rules(request_id, &pending_info, mode);
         let final_mode = effective_mode.unwrap_or(mode);
         let result = self.queue.approve(request_id, final_mode)?;
 
-        // Whitelist persistence: best-effort write after approve succeeds.
-        let target_opt = match final_mode {
-            ApprovalMode::WithWhitelist { target } => Some(target),
-            _ => None,
-        };
-        if let (Some(target), true) = (target_opt, result) {
-            if let Some((_, caller, request, _, ref rule_version)) = &pending_info {
-                let name = format!(
-                    "whitelist-{}-{}",
-                    chrono::Utc::now().timestamp_millis(),
-                    rule_version
-                );
-                if let Some(rule) =
-                    crate::whitelist::build_whitelist_rule(caller, request, &name, target)
-                {
-                    if let Err(e) = crate::whitelist::append_whitelist_rule(
-                        &self.config_dir,
-                        &caller.agent,
-                        rule,
-                    ) {
-                        tracing::warn!(
-                            request_id = %request_id,
-                            agent = %caller.agent,
-                            error = %e,
-                            "failed to persist whitelist rule (best-effort)"
-                        );
-                    } else {
-                        // Trigger permission engine hot-reload (best-effort).
-                        (self.on_whitelist_updated)(&caller.agent);
-                    }
-                }
-            }
-        }
-
-        if result {
-            if let Some((session_id, _, _, _, _)) = pending_info {
-                let sm = Arc::clone(&self.session_manager);
-                let handle = self.runtime_handle.clone();
-                let rid = request_id.to_string();
-
-                // Extract plan exec metadata before spawning (self won't be
-                // available inside the async block).
-                let plan_meta = self.plan_exec_metadata.remove(&rid);
-
-                handle.spawn(async move {
-                    // 1. Push approval result message
-                    let content = format!("[审批 {}] 操作已批准", rid);
-                    let msg = PendingMessage::with_role(
-                        format!("approval-{}", chrono::Utc::now().timestamp_millis()),
-                        content,
-                        "assistant".to_string(),
-                    );
-                    if let Err(e) = sm.push_pending_message(&session_id, msg).await {
-                        tracing::warn!(
-                            session_id = %session_id,
-                            error = %e,
-                            "failed to push approval result to session"
-                        );
-                    }
-
-                    // 2. Check if there's an active plan and switch to Auto Mode
-                    if let Some(mut plan_state) = sm.get_plan_state(&session_id).await {
-                        if !plan_state.plan_file_path.is_empty() {
-                            // Check if this is a new-session execution request.
-                            // If so, skip the current-session transition — the caller
-                            // (daemon layer) is responsible for creating the new session
-                            // and injecting the plan context.
-                            let is_new_session =
-                                plan_meta.as_ref().map(|m| m.new_session).unwrap_or(false);
-
-                            if is_new_session {
-                                // New session path: only update plan file status;
-                                // session creation is handled by the caller.
-                                let plan_file_path = plan_state.plan_file_path.clone();
-                                if std::path::Path::new(&plan_file_path).exists() {
-                                    let pf_path = plan_file_path.clone();
-                                    let result = tokio::task::spawn_blocking(move || {
-                                        if let Err(e) = plan_file::update_plan_status(
-                                            &pf_path,
-                                            &PlanStatus::Executing,
-                                        ) {
-                                            tracing::warn!(
-                                                plan_file = %plan_file_path,
-                                                error = %e,
-                                                "failed to update plan file status"
-                                            );
-                                        }
-                                    });
-                                    if let Err(e) = result.await {
-                                        tracing::warn!(
-                                            error = %e,
-                                            "spawn_blocking for plan file update panicked"
-                                        );
-                                    }
-                                }
-                                // Update plan state: phase → FinalPlan
-                                plan_state.phase = PlanPhase::FinalPlan;
-                                plan_state.step_selection =
-                                    plan_meta.as_ref().and_then(|m| m.step_selection.clone());
-                                sm.set_plan_state(&session_id, plan_state).await;
-                            } else {
-                                // Same-session path: transition current session to Auto Mode.
-
-                                // Transition plan status: draft → confirmed
-                                if let Err(e) = plan_state.transition_status(PlanStatus::Confirmed)
-                                {
-                                    tracing::warn!(
-                                        session_id = %session_id,
-                                        error = %e,
-                                        "failed to transition plan status to confirmed"
-                                    );
-                                }
-
-                                // Transition plan status: confirmed → executing
-                                if let Err(e) = plan_state.transition_status(PlanStatus::Executing)
-                                {
-                                    tracing::warn!(
-                                        session_id = %session_id,
-                                        error = %e,
-                                        "failed to transition plan status to executing"
-                                    );
-                                }
-
-                                // Update plan file: confirmed → executing (type-safe)
-                                let plan_file_path = plan_state.plan_file_path.clone();
-                                if std::path::Path::new(&plan_file_path).exists() {
-                                    let pf_path = plan_file_path.clone();
-                                    let result = tokio::task::spawn_blocking(move || {
-                                        if let Err(e) = plan_file::update_plan_status(
-                                            &pf_path,
-                                            &PlanStatus::Executing,
-                                        ) {
-                                            tracing::warn!(
-                                                plan_file = %plan_file_path,
-                                                error = %e,
-                                                "failed to update plan file status"
-                                            );
-                                        }
-                                    });
-                                    if let Err(e) = result.await {
-                                        tracing::warn!(
-                                            error = %e,
-                                            "spawn_blocking for plan file update panicked"
-                                        );
-                                    }
-                                }
-
-                                // Update plan state: phase → FinalPlan
-                                plan_state.phase = PlanPhase::FinalPlan;
-                                plan_state.step_selection =
-                                    plan_meta.as_ref().and_then(|m| m.step_selection.clone());
-                                sm.set_plan_state(&session_id, plan_state).await;
-
-                                // Switch session mode: Plan → Auto
-                                sm.set_session_mode(&session_id, SessionMode::Auto).await;
-
-                                // Inject ExitPlan mode transition into next system prompt
-                                sm.set_pending_mode_transition(
-                                    &session_id,
-                                    ModeTransition::ExitPlan,
-                                )
-                                .await;
-
-                                // Push mode switch notification
-                                let mode_msg = PendingMessage::with_role(
-                                    format!(
-                                        "approval-mode-{}",
-                                        chrono::Utc::now().timestamp_millis()
-                                    ),
-                                    "✅ Plan approved, entering Auto Mode".to_string(),
-                                    "assistant".to_string(),
-                                );
-                                if let Err(e) = sm.push_pending_message(&session_id, mode_msg).await
-                                {
-                                    tracing::warn!(
-                                        session_id = %session_id,
-                                        error = %e,
-                                        "failed to push mode switch notification"
-                                    );
-                                }
-                            }
-                        }
-                    }
-                });
-            }
-        }
+        self.persist_whitelist(request_id, &pending_info, final_mode, result);
+        self.handle_plan_approval(request_id, &pending_info, result)
+            .await;
 
         Ok(result)
     }
@@ -800,6 +583,227 @@ impl ApprovalFlow {
     /// All pending requests are denied with callbacks triggered.
     pub fn clear(&mut self) {
         self.queue.clear();
+    }
+}
+
+// ── Approval helpers ───────────────────────────────────────────────────────
+
+type PendingInfo = (
+    String,                // session_resume
+    Caller,                // caller
+    PermissionRequestBody, // request
+    RuleSet,               // snapshotted_rules
+    String,                // rule_version
+);
+
+impl ApprovalFlow {
+    /// Re-evaluate with snapshotted rules to check if the snapshot
+    /// rules already allow the operation (owner decision not needed).
+    fn reevaluate_with_snapshotted_rules(
+        &self,
+        request_id: &str,
+        pending_info: &Option<PendingInfo>,
+        _mode: ApprovalMode,
+    ) -> Option<ApprovalMode> {
+        let (_, ref caller, ref request, ref snapshotted_rules, _) = pending_info.as_ref()?;
+        let temp_engine = PermissionEngine::new_with_default_data_root(snapshotted_rules.clone());
+        let perm_request = PermissionRequest::WithCaller {
+            caller: caller.clone(),
+            request: request.clone(),
+        };
+        let re_result = temp_engine.evaluate(perm_request, None);
+        match re_result {
+            PermissionResponse::Allowed { .. } => {
+                tracing::info!(
+                    request_id = %request_id,
+                    "规则已变更，操作已自动放行"
+                );
+                Some(ApprovalMode::Once)
+            }
+            _ => None,
+        }
+    }
+
+    /// Persist whitelist rule after approval (best-effort).
+    fn persist_whitelist(
+        &self,
+        request_id: &str,
+        pending_info: &Option<PendingInfo>,
+        final_mode: ApprovalMode,
+        result: bool,
+    ) {
+        let target = match final_mode {
+            ApprovalMode::WithWhitelist { target } => target,
+            _ => return,
+        };
+        if !result {
+            return;
+        }
+        if let Some((_, ref caller, ref request, _, ref rule_version)) = pending_info {
+            let name = format!(
+                "whitelist-{}-{}",
+                chrono::Utc::now().timestamp_millis(),
+                rule_version
+            );
+            if let Some(rule) =
+                crate::whitelist::build_whitelist_rule(caller, request, &name, target)
+            {
+                if let Err(e) =
+                    crate::whitelist::append_whitelist_rule(&self.config_dir, &caller.agent, rule)
+                {
+                    tracing::warn!(
+                        request_id = %request_id,
+                        agent = %caller.agent,
+                        error = %e,
+                        "failed to persist whitelist rule (best-effort)"
+                    );
+                } else {
+                    (self.on_whitelist_updated)(&caller.agent);
+                }
+            }
+        }
+    }
+
+    /// Handle plan approval: push result and transition session to Auto Mode.
+    async fn handle_plan_approval(
+        &mut self,
+        request_id: &str,
+        pending_info: &Option<PendingInfo>,
+        result: bool,
+    ) {
+        if !result {
+            return;
+        }
+        let session_id = match pending_info {
+            Some((sid, _, _, _, _)) => sid.clone(),
+            None => return,
+        };
+        let sm = Arc::clone(&self.session_manager);
+        let handle = self.runtime_handle.clone();
+        let rid = request_id.to_string();
+        let plan_meta = self.plan_exec_metadata.remove(&rid);
+
+        handle.spawn(async move {
+            Self::push_approval_result(&sm, &session_id, &rid).await;
+            Self::transition_plan_to_auto(&sm, &session_id, plan_meta).await;
+        });
+    }
+
+    /// Push the approval result message to the session.
+    async fn push_approval_result(sm: &Arc<dyn SessionLookup>, session_id: &str, rid: &str) {
+        let content = format!("[审批 {}] 操作已批准", rid);
+        let msg = PendingMessage::with_role(
+            format!("approval-{}", chrono::Utc::now().timestamp_millis()),
+            content,
+            "assistant".to_string(),
+        );
+        if let Err(e) = sm.push_pending_message(session_id, msg).await {
+            tracing::warn!(
+                session_id = %session_id,
+                error = %e,
+                "failed to push approval result to session"
+            );
+        }
+    }
+
+    /// Transition the plan session to Auto Mode (same-session or new-session).
+    async fn transition_plan_to_auto(
+        sm: &Arc<dyn SessionLookup>,
+        session_id: &str,
+        plan_meta: Option<PlanExecMetadata>,
+    ) {
+        let mut plan_state = match sm.get_plan_state(session_id).await {
+            Some(ps) => ps,
+            None => return,
+        };
+        if plan_state.plan_file_path.is_empty() {
+            return;
+        }
+        let is_new_session = plan_meta.as_ref().map(|m| m.new_session).unwrap_or(false);
+        if is_new_session {
+            Self::handle_new_session_path(sm, session_id, &mut plan_state, &plan_meta).await;
+        } else {
+            Self::handle_same_session_path(sm, session_id, &mut plan_state, &plan_meta).await;
+        }
+    }
+
+    /// Handle new-session execution path: update plan file status only.
+    async fn handle_new_session_path(
+        sm: &Arc<dyn SessionLookup>,
+        session_id: &str,
+        plan_state: &mut closeclaw_common::PlanState,
+        plan_meta: &Option<PlanExecMetadata>,
+    ) {
+        let plan_file_path = plan_state.plan_file_path.clone();
+        if std::path::Path::new(&plan_file_path).exists() {
+            let pf_path = plan_file_path.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                if let Err(e) = plan_file::update_plan_status(&pf_path, &PlanStatus::Executing) {
+                    tracing::warn!(
+                        plan_file = %plan_file_path,
+                        error = %e,
+                        "failed to update plan file status"
+                    );
+                }
+            });
+            if let Err(e) = result.await {
+                tracing::warn!(error = %e, "spawn_blocking for plan file update panicked");
+            }
+        }
+        plan_state.phase = PlanPhase::FinalPlan;
+        plan_state.step_selection = plan_meta.as_ref().and_then(|m| m.step_selection.clone());
+        sm.set_plan_state(session_id, plan_state.clone()).await;
+    }
+
+    /// Handle same-session execution path: transition to Auto Mode.
+    async fn handle_same_session_path(
+        sm: &Arc<dyn SessionLookup>,
+        session_id: &str,
+        plan_state: &mut closeclaw_common::PlanState,
+        plan_meta: &Option<PlanExecMetadata>,
+    ) {
+        let _ = plan_state.transition_status(PlanStatus::Confirmed);
+        let _ = plan_state.transition_status(PlanStatus::Executing);
+        Self::update_plan_file_executing(&plan_state.plan_file_path).await;
+        plan_state.phase = PlanPhase::FinalPlan;
+        plan_state.step_selection = plan_meta.as_ref().and_then(|m| m.step_selection.clone());
+        sm.set_plan_state(session_id, plan_state.clone()).await;
+        sm.set_session_mode(session_id, SessionMode::Auto).await;
+        sm.set_pending_mode_transition(session_id, ModeTransition::ExitPlan)
+            .await;
+        let mode_msg = PendingMessage::with_role(
+            format!("approval-mode-{}", chrono::Utc::now().timestamp_millis()),
+            "✅ Plan approved, entering Auto Mode".to_string(),
+            "assistant".to_string(),
+        );
+        if let Err(e) = sm.push_pending_message(session_id, mode_msg).await {
+            tracing::warn!(
+                session_id = %session_id,
+                error = %e,
+                "failed to push mode switch notification"
+            );
+        }
+    }
+
+    /// Update plan file status to Executing (blocking, spawn-safe).
+    async fn update_plan_file_executing(plan_file_path: &str) {
+        if !std::path::Path::new(plan_file_path).exists() {
+            return;
+        }
+        let pf_path = plan_file_path.to_string();
+        let file_path = plan_file_path.to_string();
+        let result = tokio::task::spawn_blocking(move || {
+            if let Err(e) = plan_file::update_plan_status(&pf_path, &PlanStatus::Executing) {
+                tracing::warn!(
+                    plan_file = %file_path,
+                    error = %e,
+                    "failed to update plan file status"
+                );
+            }
+        });
+        if let Err(e) = result.await {
+            tracing::warn!(error = %e, "spawn_blocking for plan file update panicked");
+        }
     }
 }
 

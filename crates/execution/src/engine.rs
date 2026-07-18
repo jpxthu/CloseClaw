@@ -66,7 +66,7 @@ pub struct ExecutionEngine<S> {
     /// Optional permission checker — called before each step dispatch.
     permission: Option<Arc<dyn ExecutionPermissionCheck>>,
 }
-// Public interface
+// --- Public interface ---
 impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// Create a new execution engine.
     ///
@@ -192,7 +192,8 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         &self.adapter
     }
 }
-// Step-by-step execution (SpawnPerStep / Inline)
+
+// --- Step-by-step execution (SpawnPerStep / Inline) ---
 impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// Execute steps one at a time; stop on first failure.
     async fn execute_step_by_step(
@@ -242,7 +243,8 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         })
     }
 }
-// SpawnAllSteps execution
+
+// --- SpawnAllSteps execution ---
 impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// Execute all steps in a single spawn (SpawnAllSteps mode).
     async fn execute_spawn_all(
@@ -538,7 +540,8 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         })
     }
 }
-// Single-step retry execution
+
+// --- Single-step retry execution ---
 /// Outcome of a non-final dispatch attempt (retryable).
 enum RetryableOutcome {
     /// Sub-agent returned a failed status with an optional error message.
@@ -903,7 +906,8 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         }
     }
 }
-// Helpers
+
+// --- Helpers ---
 impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// Run hooks for a completed step if a hook runner is configured.
     ///

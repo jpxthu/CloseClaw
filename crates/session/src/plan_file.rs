@@ -9,6 +9,27 @@ use closeclaw_config::IdentifierFormat;
 use rand::seq::SliceRandom;
 use std::path::{Path, PathBuf};
 
+/// Parse `PlanStatus` from a plan file's content.
+///
+/// Scans the file for the `| 状态 | <status> |` line and converts it
+/// to the corresponding [`PlanStatus`] variant.
+pub fn parse_plan_status_from_file(content: &str) -> Option<PlanStatus> {
+    for line in content.lines() {
+        if let Some(rest) = line.strip_prefix("| 状态 | ") {
+            let status_str = rest.strip_suffix(" |")?.trim();
+            return match status_str {
+                "draft" => Some(PlanStatus::Draft),
+                "confirmed" => Some(PlanStatus::Confirmed),
+                "executing" => Some(PlanStatus::Executing),
+                "paused" => Some(PlanStatus::Paused),
+                "completed" => Some(PlanStatus::Completed),
+                _ => None,
+            };
+        }
+    }
+    None
+}
+
 /// Adjective word list for random identifiers (50 words).
 const ADJECTIVES: &[&str] = &[
     "calm", "bright", "deep", "swift", "soft", "bold", "clear", "dawn", "fair", "glad", "high",

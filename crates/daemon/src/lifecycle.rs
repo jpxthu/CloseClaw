@@ -1,6 +1,8 @@
 //! Daemon lifecycle: start, run, and shutdown phases.
 
 use super::{Daemon, Phase5Deps};
+use closeclaw_config::SystemConfigData;
+use closeclaw_permission::engine::rejection_log::FileRejectionLogger;
 use closeclaw_permission::{Defaults, PermissionEngine, RuleSet};
 use std::sync::Arc;
 use tracing::info;
@@ -529,6 +531,10 @@ impl Daemon {
     }
 
     /// Build permission engine, loading templates from config_dir/templates/ if present.
+    ///
+    /// When a `rejection_log` section is present in `system.json`, a
+    /// [`FileRejectionLogger`] with the configured `max_entries` limit is
+    /// injected via [`PermissionEngine::with_rejection_logger`].
     pub(crate) fn build_permission_engine(
         config_dir: &str,
     ) -> Arc<tokio::sync::RwLock<PermissionEngine>> {
@@ -557,8 +563,50 @@ impl Daemon {
                 }
             }
         }
+        // Inject rejection log logger if configured in system.json.
+        let engine = Self::wire_rejection_logger(engine, config_dir);
         info!("Permission engine initialized");
         Arc::new(tokio::sync::RwLock::new(engine))
+    }
+
+    /// Read `rejection_log` config from `system.json` and inject the
+    /// logger into the permission engine.
+    fn wire_rejection_logger(mut engine: PermissionEngine, config_dir: &str) -> PermissionEngine {
+        let system_path = std::path::Path::new(config_dir).join("system.json");
+        if !system_path.exists() {
+            return engine;
+        }
+        match SystemConfigData::from_file(&system_path) {
+            Ok(sys_cfg) => {
+                if let Some(rejection_cfg) = sys_cfg.rejection_log {
+                    let log_path = std::path::Path::new(config_dir)
+                        .join("logs")
+                        .join("rejection.log");
+                    match FileRejectionLogger::new_with_limit(log_path, rejection_cfg.max_entries) {
+                        Ok(logger) => {
+                            engine = engine.with_rejection_logger(Arc::new(logger));
+                            info!(
+                                max_entries = ?rejection_cfg.max_entries,
+                                "Rejection log logger configured"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                error = %e,
+                                "Failed to create rejection log logger — continuing without"
+                            );
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::debug!(
+                    error = %e,
+                    "system.json not found or invalid — skipping rejection log config"
+                );
+            }
+        }
+        engine
     }
 
     /// Migrate legacy openclaw.json if present (non-fatal on error).

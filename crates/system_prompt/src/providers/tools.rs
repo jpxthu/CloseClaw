@@ -210,7 +210,6 @@ mod tests {
             Box::new(closeclaw_tools::PlanToolsRegistrar::new(
                 Arc::new(std::sync::Mutex::new(closeclaw_common::PlanState::new())),
                 session_manager.clone(),
-                agent_registry.clone() as Arc<dyn closeclaw_agent::AgentConfigLookup>,
                 approval_flow.clone(),
             )),
         ];

@@ -212,7 +212,6 @@ mod tests {
             Box::new(PlanToolsRegistrar::new(
                 Arc::new(Mutex::new(PlanState::new())),
                 session_manager.clone(),
-                agent_registry.clone() as Arc<dyn closeclaw_agent::AgentConfigLookup>,
                 approval_flow.clone(),
             )),
         ]

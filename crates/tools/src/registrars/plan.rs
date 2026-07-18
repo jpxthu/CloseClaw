@@ -7,7 +7,6 @@
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 
-use closeclaw_agent::AgentConfigLookup;
 use closeclaw_common::{PlanState, PlanStateWriter};
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
@@ -27,7 +26,6 @@ pub struct PlanToolsRegistrar {
     plan_state: Arc<Mutex<PlanState>>,
     writer: Option<Arc<dyn PlanStateWriter>>,
     session_manager: Arc<SessionManager>,
-    agent_config_lookup: Arc<dyn AgentConfigLookup>,
     approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
 }
 
@@ -36,14 +34,12 @@ impl PlanToolsRegistrar {
     pub fn new(
         plan_state: Arc<Mutex<PlanState>>,
         session_manager: Arc<SessionManager>,
-        agent_config_lookup: Arc<dyn AgentConfigLookup>,
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     ) -> Self {
         Self {
             plan_state,
             writer: None,
             session_manager,
-            agent_config_lookup,
             approval_flow,
         }
     }
@@ -54,14 +50,12 @@ impl PlanToolsRegistrar {
         plan_state: Arc<Mutex<PlanState>>,
         writer: Arc<dyn PlanStateWriter>,
         session_manager: Arc<SessionManager>,
-        agent_config_lookup: Arc<dyn AgentConfigLookup>,
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     ) -> Self {
         Self {
             plan_state,
             writer: Some(writer),
             session_manager,
-            agent_config_lookup,
             approval_flow,
         }
     }
@@ -92,7 +86,6 @@ impl ToolRegistrar for PlanToolsRegistrar {
         try_register!(registry, registered, plan_approval, r);
         let execute_plan = ExecutePlanTool::new(
             Arc::clone(&self.session_manager),
-            Arc::clone(&self.agent_config_lookup),
             Arc::clone(&self.approval_flow),
         );
         try_register!(registry, registered, execute_plan, r);
