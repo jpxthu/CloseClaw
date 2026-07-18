@@ -358,7 +358,7 @@ async fn test_sandbox_evaluate_permission_request() {
         let test_file = tmpdir.path().join("test.txt");
         let request = PermissionRequest::WithCaller {
             caller: Caller {
-                user_id: "test-user".to_string(),
+                user_id: "owner".to_string(),
                 agent: "test-agent".to_string(),
                 creator_id: String::new(),
             },
