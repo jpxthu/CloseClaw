@@ -5,7 +5,6 @@ use std::sync::Arc;
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
 use crate::handlers_mode::PauseHandler;
-use closeclaw_common::plan_state::PlanStatus;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_gateway::session_manager::SessionManager;
 
@@ -221,7 +220,6 @@ async fn test_pause_handler_auto_mode_empty_plan_file_path() {
         &sid,
         closeclaw_common::PlanState {
             phase: closeclaw_common::PlanPhase::FinalPlan,
-            status: PlanStatus::Executing,
             plan_file_path: String::new(),
             ..closeclaw_common::PlanState::new()
         },
@@ -260,7 +258,6 @@ async fn test_pause_handler_auto_mode_executing_plan_success() {
         &sid,
         closeclaw_common::PlanState {
             phase: closeclaw_common::PlanPhase::FinalPlan,
-            status: PlanStatus::Executing,
             plan_file_path: plan_file.to_str().unwrap().to_string(),
             ..closeclaw_common::PlanState::new()
         },
@@ -276,12 +273,6 @@ async fn test_pause_handler_auto_mode_executing_plan_success() {
         }
         other => panic!("expected SetMode, got {other:?}"),
     }
-
-    let content = fs::read_to_string(&plan_file).unwrap();
-    assert!(
-        content.contains("| 状态 | paused |"),
-        "plan file should show paused status, got: {content}"
-    );
 }
 
 #[tokio::test]
@@ -302,7 +293,6 @@ async fn test_pause_handler_auto_mode_confirmed_plan_success() {
         &sid,
         closeclaw_common::PlanState {
             phase: closeclaw_common::PlanPhase::FinalPlan,
-            status: PlanStatus::Confirmed,
             plan_file_path: plan_file.to_str().unwrap().to_string(),
             ..closeclaw_common::PlanState::new()
         },
@@ -317,50 +307,5 @@ async fn test_pause_handler_auto_mode_confirmed_plan_success() {
             assert_eq!(mode, "plan", "should switch back to plan mode");
         }
         other => panic!("expected SetMode, got {other:?}"),
-    }
-
-    let content = fs::read_to_string(&plan_file).unwrap();
-    assert!(
-        content.contains("| 状态 | paused |"),
-        "plan file should show paused status, got: {content}"
-    );
-}
-
-#[tokio::test]
-async fn test_pause_handler_already_paused_rejected() {
-    use std::fs;
-
-    let tmp = tempfile::tempdir().unwrap();
-    let plan_file = tmp.path().join("test-plan.md");
-    fs::write(
-        &plan_file,
-        "# Test Plan\n\n| 字段 | 值 |\n| 状态 | paused |\n",
-    )
-    .unwrap();
-
-    let sm = make_session_manager_with_storage();
-    let sid = create_session_with_auto_mode(&sm).await;
-    sm.set_plan_state(
-        &sid,
-        closeclaw_common::PlanState {
-            phase: closeclaw_common::PlanPhase::FinalPlan,
-            status: PlanStatus::Paused,
-            plan_file_path: plan_file.to_str().unwrap().to_string(),
-            ..closeclaw_common::PlanState::new()
-        },
-    )
-    .await;
-
-    let h = PauseHandler::new(Arc::clone(&sm));
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid;
-    match h.handle("", &ctx).await {
-        SlashResult::Reply(text) => {
-            assert!(
-                text.contains("无法暂停 plan"),
-                "should reject pausing already paused plan, got: {text}"
-            );
-        }
-        other => panic!("expected Reply, got {other:?}"),
     }
 }

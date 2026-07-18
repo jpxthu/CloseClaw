@@ -3,8 +3,7 @@
 //! Provides the Plan Mode approval gate — the exclusive exit from Plan Mode
 //! to Auto Mode. When the agent calls this tool with a plan summary, the
 //! framework presents a user confirmation dialog. Approval transitions the
-//! session from Plan Mode to Auto Mode; rejection keeps the plan in draft
-//! status.
+//! session from Plan Mode to Auto Mode; rejection keeps the plan in Plan Mode for further editing.
 
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
@@ -22,7 +21,7 @@ use serde_json::Value;
 /// to display a user confirmation dialog.
 ///
 /// - **Approval** → the session transitions from Plan Mode to Auto Mode.
-/// - **Rejection** → the plan remains in draft; the agent continues editing.
+/// - **Rejection** → the plan remains in Plan Mode for further editing.
 pub struct PlanApprovalTool;
 
 impl PlanApprovalTool {
@@ -57,7 +56,7 @@ impl Tool for PlanApprovalTool {
          exit from Plan Mode to Auto Mode. The owner will review the plan \
          summary and approve or reject it. \
          \n\nApproval transitions the session to Auto Mode for execution. \
-         Rejection keeps the plan in draft status for further editing."
+         Rejection keeps the plan in Plan Mode for further editing."
             .to_string()
     }
 

@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
-use closeclaw_common::plan_state::{PlanPath, PlanStatus};
+use closeclaw_common::plan_state::PlanPath;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_common::{ModeTransition, PlanPhase, PlanState, SessionLookup};
@@ -202,12 +202,7 @@ pub(crate) fn parse_step_selection_arg(args: &str) -> Option<Vec<usize>> {
 
 /// `/execute` — transition from Plan Mode to Auto Mode execution.
 ///
-/// Accepts plans in `Confirmed` (ready to execute) or `Paused` (resume)
-/// status. For `Confirmed` plans, transitions through to `Executing`.
-/// For `Paused` plans, resumes directly to `Executing`.
-///
-/// If the plan is not approved or paused, replies with a hint to use
-/// the approval tool or `/pause` first.
+/// Validates that a plan file exists, then switches to Auto Mode.
 pub struct ExecuteHandler {
     session_manager: Arc<SessionManager>,
 }
@@ -269,83 +264,7 @@ impl SlashHandler for ExecuteHandler {
             return SlashResult::Reply("当前 plan 没有关联的 plan 文件，无法执行。".to_owned());
         }
 
-        // Step 3: Read the plan file and resolve status from file or in-memory state.
-        //         Prefer the in-memory PlanStatus if already set (authoritative);
-        //         fall back to parsing the plan file for backward compatibility.
-        let file_status = match std::fs::read_to_string(&plan_state.plan_file_path) {
-            Ok(content) => plan_file::parse_plan_status_from_file(&content),
-            Err(e) => {
-                tracing::warn!(
-                    plan_file = %plan_state.plan_file_path,
-                    error = %e,
-                    "Failed to read plan file for /execute"
-                );
-                return SlashResult::Reply(format!(
-                    "无法读取 plan 文件：{}",
-                    plan_state.plan_file_path
-                ));
-            }
-        };
-
-        // Use in-memory status if non-default; otherwise trust file-parsed status.
-        let effective_status = if plan_state.status != PlanStatus::Draft {
-            plan_state.status
-        } else {
-            match file_status {
-                Some(s) => s,
-                None => {
-                    return SlashResult::Reply("Plan 文件中未找到有效的状态字段。".to_owned());
-                }
-            }
-        };
-
-        // Sync in-memory status with effective status (may have been resolved from file)
-        plan_state.status = effective_status;
-
-        match effective_status {
-            PlanStatus::Confirmed => {
-                // Step 4a: Confirmed → Executing
-                if let Err(e) = plan_state.transition_status(PlanStatus::Confirmed) {
-                    tracing::debug!(
-                        error = %e,
-                        "transition to Confirmed skipped (already confirmed)"
-                    );
-                }
-                if let Err(e) = plan_state.transition_status(PlanStatus::Executing) {
-                    tracing::warn!(
-                        error = %e,
-                        "Failed to transition plan status to Executing"
-                    );
-                    return SlashResult::Reply(format!("无法将 plan 状态转换为 executing：{}", e));
-                }
-            }
-            PlanStatus::Paused => {
-                // Step 4b: Paused → Executing (resume)
-                if let Err(e) = plan_state.transition_status(PlanStatus::Executing) {
-                    tracing::warn!(
-                        error = %e,
-                        "Failed to resume plan from Paused to Executing"
-                    );
-                    return SlashResult::Reply(format!("无法从暂停状态恢复执行：{}", e));
-                }
-            }
-            _ => {
-                return SlashResult::Reply(
-                    "当前 plan 未就绪。请先使用 plan_approval 工具提交审批，".to_owned()
-                        + "或先暂停再恢复执行。",
-                );
-            }
-        }
-
-        let path_clone = plan_state.plan_file_path.clone();
         let plan_file_path = std::path::PathBuf::from(&plan_state.plan_file_path);
-        if let Err(e) = plan_file::update_plan_status(&path_clone, &PlanStatus::Executing) {
-            tracing::warn!(
-                plan_file = %path_clone,
-                error = %e,
-                "Failed to update plan file status to executing"
-            );
-        }
 
         // Store step_selection in plan_state for the execution engine.
         plan_state.step_selection = step_selection;
@@ -355,7 +274,11 @@ impl SlashHandler for ExecuteHandler {
             .set_plan_state(&ctx.session_id, plan_state)
             .await;
 
-        // Plan is approved and executing — switch to Auto Mode
+        // Plan exists — inject ExitPlan transition notification before switching to Auto Mode.
+        self.session_manager
+            .set_pending_mode_transition(&ctx.session_id, ModeTransition::ExitPlan)
+            .await;
+
         SlashResult::SetMode {
             mode: "auto".to_owned(),
             plan_file_path: Some(plan_file_path),
@@ -367,8 +290,7 @@ impl SlashHandler for ExecuteHandler {
 
 /// `/pause` — pause an actively executing plan.
 ///
-/// Switches the session from Auto Mode back to Plan Mode and updates
-/// the plan status from `Executing` (or `Confirmed`) to `Paused`.
+/// Switches the session from Auto Mode back to Plan Mode.
 pub struct PauseHandler {
     session_manager: Arc<SessionManager>,
 }
@@ -413,7 +335,7 @@ impl SlashHandler for PauseHandler {
         }
 
         // Step 2: Load plan state
-        let mut plan_state = match self.session_manager.get_plan_state(&ctx.session_id).await {
+        let plan_state = match self.session_manager.get_plan_state(&ctx.session_id).await {
             Some(ps) => ps,
             None => {
                 return SlashResult::Reply("当前没有活跃的 plan。".to_owned());
@@ -424,35 +346,21 @@ impl SlashHandler for PauseHandler {
             return SlashResult::Reply("当前 plan 没有关联的 plan 文件，无法暂停。".to_owned());
         }
 
-        // Step 3: Transition status to Paused
-        if let Err(e) = plan_state.transition_status(PlanStatus::Paused) {
-            return SlashResult::Reply(format!("无法暂停 plan：{}", e));
-        }
-
-        // Step 4: Update plan file status to paused
-        let path_clone = plan_state.plan_file_path.clone();
-        if let Err(e) = plan_file::update_plan_status(&path_clone, &PlanStatus::Paused) {
-            tracing::warn!(
-                plan_file = %path_clone,
-                error = %e,
-                "Failed to update plan file status to paused"
-            );
-        }
-
-        // Step 5: Persist updated plan state
+        // Step 3: Persist plan state as-is (no status transition needed)
+        let plan_file_path = std::path::PathBuf::from(&plan_state.plan_file_path);
         self.session_manager
             .set_plan_state(&ctx.session_id, plan_state)
             .await;
 
-        // Step 6: Inject ExitAuto transition (leaving Auto Mode).
+        // Inject Reentry transition (re-entering Plan Mode).
         self.session_manager
-            .set_pending_mode_transition(&ctx.session_id, ModeTransition::ExitAuto)
+            .set_pending_mode_transition(&ctx.session_id, ModeTransition::Reentry)
             .await;
 
-        // Step 7: Switch session mode back to Plan Mode
+        // Step 4: Switch session mode back to Plan Mode
         SlashResult::SetMode {
             mode: "plan".to_owned(),
-            plan_file_path: Some(std::path::PathBuf::from(&path_clone)),
+            plan_file_path: Some(plan_file_path),
         }
     }
 }

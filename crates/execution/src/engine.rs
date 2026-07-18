@@ -4,7 +4,7 @@
 use std::sync::{Arc, Mutex};
 
 use closeclaw_common::{
-    ExecutionPermissionCheck, ExecutionStepStatus, PlanState, PlanStateNotifier, PlanStatus,
+    ExecutionPermissionCheck, ExecutionStepStatus, PlanState, PlanStateNotifier,
 };
 
 use crate::error::ExecutionError;
@@ -209,7 +209,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
 
         if all_completed {
             tracing::info!("all {} steps completed successfully", steps_owned.len());
-            self.transition_plan_to_completed();
             events.push(ExecutionEvent::AllCompleted);
             self.notifier.on_plan_completed().await;
         } else if let Some(idx) = failed_step {
@@ -328,7 +327,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         let all_completed = failed_step.is_none() && results.len() == steps_owned.len();
         let hook_blocked = results.iter().any(|r| r.hook_blocked.is_some());
         if all_completed {
-            self.transition_plan_to_completed();
             events.push(ExecutionEvent::AllCompleted);
             self.notifier.on_plan_completed().await;
         }
@@ -768,22 +766,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         self.notifier.on_progress_changed(&summary).await;
 
         Ok(())
-    }
-
-    /// Transition the plan state status to Completed.
-    ///
-    /// Called when all steps complete successfully. If the transition fails
-    /// (e.g. status is already Completed or not in Executing), a warning is
-    /// logged but execution continues normally.
-    fn transition_plan_to_completed(&self) {
-        let mut state = self.plan_state.lock().expect("plan state lock poisoned");
-        if let Err(e) = state.transition_status(PlanStatus::Completed) {
-            tracing::warn!(
-                current_status = ?state.status,
-                error = %e,
-                "failed to transition plan status to Completed"
-            );
-        }
     }
 
     /// Emit an execution event — logs it and appends to the events list.
