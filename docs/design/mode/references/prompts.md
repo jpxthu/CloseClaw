@@ -23,7 +23,7 @@ the system. This supercedes any other instructions you have received.
 
 ---
 
-## 2. 标准 5 阶段工作流
+## 2. 标准 4 阶段工作流
 
 Plan Mode 默认路径，适用于任务描述中含明确文件/接口引用和可量化验收条件的场景。
 
@@ -123,32 +123,6 @@ edit).
   end-to-end.
 ```
 
-### Phase 5: 审批提交
-
-```
-### Phase 5: Submit for Approval
-
-At the very end of your turn, once you have asked the user questions
-and are happy with your final plan file — you should always submit
-the plan for approval to indicate that you are done planning.
-
-This is critical — your turn should only end with either using the
-AskUserQuestion tool OR submitting the plan for approval. Do not
-stop unless it's for these 2 reasons.
-
-Important: Use AskUserQuestion ONLY to clarify requirements or choose
-between approaches. Use the approval mechanism to request plan
-approval. Do NOT ask about plan approval in any other way — no text
-questions, no AskUserQuestion. Phrases like "Is this plan okay?",
-"Should I proceed?", "How does this plan look?", "Any changes before
-we start?", or similar MUST use the approval mechanism.
-```
-
-**关键设计点**：
-
-- 回合只能以 AskUserQuestion 或审批提交结束 — 防止 agent 停留在"说完了但没提交"的状态
-- 列举了禁止的文本审批表述，防止 agent 用文本绕过审批工具
-
 ---
 
 ## 3. Interview 路径（迭代探索）
@@ -210,17 +184,21 @@ request. Fill out these sections as you go.
 
 Your plan is ready when you've addressed all ambiguities and it
 covers: what to change, which files to modify, what existing code to
-reuse (with file paths), and how to verify the changes. Submit for
-approval when the plan is ready.
+reuse (with file paths), and how to verify the changes. Present the
+completed plan to the user and wait for the user to decide whether to
+execute.
 
 ### Ending Your Turn
 
 Your turn should only end by either:
 - Using AskUserQuestion to gather more information.
-- Submitting the plan for approval when it is ready.
+- Presenting the completed plan and asking the user for their decision
+  (execute, modify, or continue discussion).
 
-Important: Use the approval mechanism to request plan approval. Do
-NOT ask about plan approval via text or AskUserQuestion.
+Important: Plan Mode has no approval gate — the user decides when to
+trigger execution via /execute or natural language. Do not invent a
+formal "approval" barrier. Simply present the plan and let the user
+respond naturally.
 ```
 
 **关键设计点**：
@@ -277,9 +255,9 @@ Execute autonomously, minimize interruptions, prefer action over planning.
 
 ```
 Plan mode still active (see full instructions earlier in conversation).
-Read-only except plan file. Follow 5-phase workflow. End turns with
-AskUserQuestion (for clarifications) or submission for approval. Never
-ask about plan approval via text or AskUserQuestion.
+Read-only except plan file. Follow 4-phase workflow. End turns with
+AskUserQuestion (for clarifications). Never ask about plan approval via
+text or AskUserQuestion.
 ```
 
 ### Sub-agent Sparse（子 Agent 进入 Plan Mode 时）
@@ -552,12 +530,12 @@ a bug." If you can run the check, you must decide PASS or FAIL.
 
 | 注入时机 | 触发条件 | 注入内容 |
 |---------|---------|---------|
-| Plan Mode 激活 | 用户执行进入 Plan Mode 的斜杠命令 | 第 2 节标准路径 或 第 3 节 Interview 路径（由命令参数或任务特征决定） |
+| Plan Mode 激活 | 用户执行进入 Plan Mode 的斜杠命令 | 第 1 节全局约束 + 第 2 节标准路径 或 第 3 节 Interview 路径（由命令参数或任务特征决定） |
 | Plan Mode Sparse | Plan Mode 下上下文压缩后 | 第 5 节精简版 |
 | Plan Mode Sub-agent | Plan Mode 中 spawn 子 Agent | 第 5 节 Sub-agent 版 + 第 7 节对应 Agent 类型模板 |
 | Plan Mode Re-entry | 同一 session 中再次进入 Plan Mode | 第 6 节 Re-entry |
-| Plan Mode Exit | 审批通过后退出 Plan Mode | 第 6 节 Exit |
-| Auto Mode 激活 | Plan Mode 审批通过后自动进入 | 第 4 节 Auto Mode 指令 |
+| Plan Mode Exit | 用户触发执行（/execute 或自然语言）时退出 Plan Mode | 第 6 节 Exit |
+| Auto Mode 激活 | 用户通过 /auto 直接进入，或 /execute 从 Plan Mode 退出后进入 | 第 4 节 Auto Mode 指令 |
 | Auto Mode Sparse | Auto Mode 下上下文压缩后 | 第 4 节 Sparse 版 |
 | Auto Mode Exit | Auto Mode 完成后自动退出 | 第 6 节 Auto Mode Exit |
 

@@ -98,6 +98,7 @@ Bash 工具的详细设计见 [bash-tool.md](bash-tool.md)。Git 操作组中状
 
 | 注册模块 | 分组 | 工具 | 加载策略 |
 |---------|------|------|---------|
+| [Mode](../mode/README.md) | mode | ModeExecutionTrigger | 始终加载 |
 | [Session](../session/README.md) | sessions | sessions_spawn、sessions_steer、sessions_kill | 始终加载 |
 | [Skills](../skills/README.md) | skills | SkillTool | 始终加载 |
 | [Skills](../skills/README.md) | skill_creator | SkillCreator | 延迟加载 |
