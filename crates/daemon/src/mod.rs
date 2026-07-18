@@ -508,26 +508,25 @@ impl Daemon {
                         .await
                         .unwrap_or(3);
 
-                    use closeclaw_gateway::session_manager::SpawnMode;
-                    let child_id = sm
-                        .create_child_session(
-                            &config,
-                            &parent_session_id,
-                            depth + 1,
-                            &task,
-                            false, // light_context
-                            None,  // workspace
-                            SpawnMode::Run,
-                            false, // fork
-                            None,  // allowed_tools
-                            None,  // model_override
-                            None,  // parent_subagents_model
-                            max_spawn_depth,
-                            None,                   // spawn_timeout
-                            Some("plan-execution"), // label
-                            Some(&prompt_prefix),   // prompt_template_prefix
-                        )
-                        .await?;
+                    use closeclaw_gateway::session_manager::{ChildSessionConfig, SpawnMode};
+                    let child_config = ChildSessionConfig {
+                        config,
+                        parent_session_id,
+                        depth: depth + 1,
+                        task,
+                        light_context: false,
+                        workspace: None,
+                        mode: SpawnMode::Run,
+                        fork: false,
+                        allowed_tools: None,
+                        model_override: None,
+                        parent_subagents_model: None,
+                        max_spawn_depth,
+                        spawn_timeout: None,
+                        label: Some("plan-execution".to_string()),
+                        prompt_template_prefix: Some(prompt_prefix),
+                    };
+                    let child_id = sm.create_child_session_with_config(child_config).await?;
 
                     // The child session is created in Run mode by default.
                     // The approval flow's handle_new_session_path will set

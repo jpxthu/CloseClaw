@@ -260,7 +260,11 @@ impl ApprovalFlow {
             create_child_session_fn: None,
         }
     }
+}
 
+// ── Callback setters ──────────────────────────────────────────────────────
+
+impl ApprovalFlow {
     /// Replace the owner notification callback.
     ///
     /// Used by the Gateway to inject a callback that sends notifications
@@ -397,7 +401,11 @@ impl ApprovalFlow {
             }
         }
     }
+}
 
+// ── Denial submission ────────────────────────────────────────────────────
+
+impl ApprovalFlow {
     /// Submit a denied operation for owner approval.
     ///
     /// # Behavior
@@ -575,7 +583,11 @@ impl ApprovalFlow {
 
         Ok(result)
     }
+}
 
+// ── Deny and clear ────────────────────────────────────────────────────────
+
+impl ApprovalFlow {
     /// Deny a pending approval request.
     ///
     /// Delegates to [`ApprovalQueue::deny`]. On success, a "已拒绝" message
@@ -706,7 +718,11 @@ impl ApprovalFlow {
             }
         }
     }
+}
 
+// ── Plan approval flow ────────────────────────────────────────────────────
+
+impl ApprovalFlow {
     /// Handle plan approval: push result and transition session to Auto Mode.
     async fn handle_plan_approval(
         &mut self,
@@ -778,12 +794,105 @@ impl ApprovalFlow {
             Self::handle_same_session_path(sm, session_id, &mut plan_state, &plan_meta).await;
         }
     }
+}
 
+// ── Plan session path helpers ─────────────────────────────────────────────
+
+impl ApprovalFlow {
+    /// Read plan file content for injection into a child session.
+    async fn read_plan_file_for_injection(path: &str) -> Option<String> {
+        match tokio::fs::read_to_string(path).await {
+            Ok(content) => Some(content),
+            Err(e) => {
+                tracing::warn!(
+                    plan_file = %path,
+                    error = %e,
+                    "failed to read plan file for new session injection"
+                );
+                None
+            }
+        }
+    }
+
+    /// Create a [`PlanState`] configured for the child session.
+    fn setup_child_plan_state(
+        path: &str,
+        meta: &Option<PlanExecMetadata>,
+    ) -> closeclaw_common::PlanState {
+        let mut state = closeclaw_common::PlanState::new();
+        state.plan_file_path = path.to_string();
+        state.phase = PlanPhase::FinalPlan;
+        state.step_selection = meta.as_ref().and_then(|m| m.step_selection.clone());
+        let _ = state.transition_status(PlanStatus::Confirmed);
+        let _ = state.transition_status(PlanStatus::Executing);
+        state
+    }
+
+    /// Fallback when no `create_child_session_fn` is configured.
+    /// Updates plan state on the parent session (same-session behavior).
+    async fn handle_new_session_fallback(
+        sm: &Arc<dyn SessionLookup>,
+        session_id: &str,
+        plan_state: &mut closeclaw_common::PlanState,
+        plan_meta: &Option<PlanExecMetadata>,
+    ) {
+        tracing::info!(
+            parent_session = %session_id,
+            "no create_child_session_fn, fallback to same-session"
+        );
+        plan_state.phase = PlanPhase::FinalPlan;
+        plan_state.step_selection = plan_meta.as_ref().and_then(|m| m.step_selection.clone());
+        sm.set_plan_state(session_id, plan_state.clone()).await;
+    }
+
+    /// Push the mode-switch notification to the new child session.
+    async fn notify_new_session_mode_switch(sm: &Arc<dyn SessionLookup>, new_session_id: &str) {
+        let mode_msg = PendingMessage::with_role(
+            format!("approval-mode-{}", chrono::Utc::now().timestamp_millis()),
+            "✅ Plan approved, entering Auto Mode (new session)".to_string(),
+            "assistant".to_string(),
+        );
+        if let Err(e) = sm.push_pending_message(new_session_id, mode_msg).await {
+            tracing::warn!(
+                session_id = %new_session_id,
+                error = %e,
+                "failed to push mode switch notification"
+            );
+        }
+    }
+}
+// ── Child session creation callback ───────────────────────────────────────
+impl ApprovalFlow {
+    /// Create a child session via the injected callback.
+    ///
+    /// Returns `Ok(new_session_id)` on success, `Err` with logging
+    /// on failure.
+    async fn invoke_create_child_session(
+        create_fn: &CreateChildSessionFn,
+        parent_session_id: &str,
+        plan_content: String,
+        plan_meta: &Option<PlanExecMetadata>,
+    ) -> Result<String, ()> {
+        let step_selection = plan_meta.as_ref().and_then(|m| m.step_selection.clone());
+        create_fn(parent_session_id.to_string(), plan_content, step_selection)
+            .await
+            .map_err(|e| {
+                tracing::warn!(
+                    parent_session = %parent_session_id,
+                    error = %e,
+                    "failed to create child session"
+                );
+            })
+    }
+}
+
+// ── New session path ──────────────────────────────────────────────────────
+
+impl ApprovalFlow {
     /// Handle new-session execution path: create a child session with plan
     /// content injected as initial context, then enter Auto Mode.
     ///
-    /// Falls back to same-session behavior (update plan state only) when
-    /// no `create_child_session_fn` callback is configured.
+    /// Falls back to same-session behavior when no callback is configured.
     async fn handle_new_session_path(
         sm: &Arc<dyn SessionLookup>,
         session_id: &str,
@@ -792,83 +901,45 @@ impl ApprovalFlow {
         create_child_session_fn: &Option<CreateChildSessionFn>,
     ) {
         let plan_file_path = plan_state.plan_file_path.clone();
-
-        // Read plan file content for injection into child session.
-        let plan_content = match tokio::fs::read_to_string(&plan_file_path).await {
-            Ok(content) => content,
-            Err(e) => {
-                tracing::warn!(
-                    plan_file = %plan_file_path,
-                    error = %e,
-                    "failed to read plan file for new session injection"
-                );
-                return;
-            }
+        let plan_content = match Self::read_plan_file_for_injection(&plan_file_path).await {
+            Some(c) => c,
+            None => return,
         };
 
-        // Create child session via the injected callback.
         let new_session_id = match create_child_session_fn {
             Some(ref create_fn) => {
-                let step_selection = plan_meta.as_ref().and_then(|m| m.step_selection.clone());
-                match create_fn(session_id.to_string(), plan_content, step_selection).await {
+                let r = Self::invoke_create_child_session(
+                    create_fn,
+                    session_id,
+                    plan_content,
+                    plan_meta,
+                )
+                .await;
+                match r {
                     Ok(id) => id,
-                    Err(e) => {
-                        tracing::warn!(
-                            parent_session = %session_id,
-                            error = %e,
-                            "failed to create child session for plan execution"
-                        );
-                        return;
-                    }
+                    Err(()) => return,
                 }
             }
             None => {
-                tracing::info!(
-                    parent_session = %session_id,
-                    "no create_child_session_fn configured, falling back to same-session plan state update"
-                );
-                // Fallback: update plan state on the parent session (same-session behavior).
-                plan_state.phase = PlanPhase::FinalPlan;
-                plan_state.step_selection =
-                    plan_meta.as_ref().and_then(|m| m.step_selection.clone());
-                sm.set_plan_state(session_id, plan_state.clone()).await;
+                Self::handle_new_session_fallback(sm, session_id, plan_state, plan_meta).await;
                 return;
             }
         };
 
-        // Update plan file status to Executing.
         Self::update_plan_file_executing(&plan_file_path).await;
-
-        // Set plan state on the new child session.
-        let mut child_plan_state = closeclaw_common::PlanState::new();
-        child_plan_state.plan_file_path = plan_file_path;
-        child_plan_state.phase = PlanPhase::FinalPlan;
-        child_plan_state.step_selection = plan_meta.as_ref().and_then(|m| m.step_selection.clone());
-        let _ = child_plan_state.transition_status(PlanStatus::Confirmed);
-        let _ = child_plan_state.transition_status(PlanStatus::Executing);
+        let child_plan_state = Self::setup_child_plan_state(&plan_file_path, plan_meta);
         sm.set_plan_state(&new_session_id, child_plan_state).await;
-
-        // Set new session to Auto Mode.
         sm.set_session_mode(&new_session_id, SessionMode::Auto)
             .await;
         sm.set_pending_mode_transition(&new_session_id, ModeTransition::ExitPlan)
             .await;
-
-        // Push mode switch notification to the new session.
-        let mode_msg = PendingMessage::with_role(
-            format!("approval-mode-{}", chrono::Utc::now().timestamp_millis()),
-            "✅ Plan approved, entering Auto Mode (new session)".to_string(),
-            "assistant".to_string(),
-        );
-        if let Err(e) = sm.push_pending_message(&new_session_id, mode_msg).await {
-            tracing::warn!(
-                session_id = %new_session_id,
-                error = %e,
-                "failed to push mode switch notification to new session"
-            );
-        }
+        Self::notify_new_session_mode_switch(sm, &new_session_id).await;
     }
+}
 
+// ── Session path transitions ──────────────────────────────────────────────
+
+impl ApprovalFlow {
     /// Handle same-session execution path: transition to Auto Mode.
     async fn handle_same_session_path(
         sm: &Arc<dyn SessionLookup>,
@@ -898,7 +969,11 @@ impl ApprovalFlow {
             );
         }
     }
+}
 
+// ── Plan file update ─────────────────────────────────────────────────────
+
+impl ApprovalFlow {
     /// Update plan file status to Executing (blocking, spawn-safe).
     async fn update_plan_file_executing(plan_file_path: &str) {
         if !std::path::Path::new(plan_file_path).exists() {
