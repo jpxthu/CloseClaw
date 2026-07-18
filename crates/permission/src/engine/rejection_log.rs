@@ -7,7 +7,7 @@ use super::engine_types::PermissionRequestBody;
 use closeclaw_common::session_mode::SessionMode;
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -96,6 +96,8 @@ impl FileRejectionLogger {
     }
 
     /// Truncate old entries, keeping the newest `keep` lines.
+    /// Since entries are stored in reverse chronological order (newest first),
+    /// this keeps the first `keep` lines.
     fn truncate_old_entries(path: &PathBuf, keep: usize) {
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
@@ -105,28 +107,24 @@ impl FileRejectionLogger {
         if lines.len() <= keep {
             return;
         }
-        let kept: String = lines
-            .iter()
-            .skip(lines.len() - keep)
-            .map(|l| format!("{l}\n"))
-            .collect();
+        let kept: String = lines.iter().take(keep).map(|l| format!("{l}\n")).collect();
         let _ = std::fs::write(path, kept);
     }
 
-    /// Write a single entry to the log file.
+    /// Write a single entry to the log file, prepending it so the newest
+    /// entry is always at the top (reverse chronological order).
     fn write_entry(&self, entry: &RejectionLog) {
-        let mut file = match OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)
-        {
-            Ok(f) => f,
+        let new_line = match serde_json::to_vec(entry) {
+            Ok(mut line) => {
+                line.push(b'\n');
+                line
+            }
             Err(_) => return,
         };
-        if let Ok(mut line) = serde_json::to_vec(entry) {
-            line.push(b'\n');
-            let _ = file.write_all(&line);
-        }
+        let existing = std::fs::read_to_string(&self.path).unwrap_or_default();
+        let mut combined = new_line;
+        combined.extend_from_slice(existing.as_bytes());
+        let _ = std::fs::write(&self.path, combined);
     }
 }
 
@@ -302,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn test_file_logger_appends_multiple() {
+    fn test_file_logger_prepends_multiple() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("rejections.log");
         let logger = FileRejectionLogger::new(path.clone()).unwrap();
@@ -323,9 +321,10 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = content.trim().lines().collect();
         assert_eq!(lines.len(), 3);
+        // Newest first (reverse chronological order)
         for (i, line) in lines.iter().enumerate() {
             let parsed: RejectionLog = serde_json::from_str(line).unwrap();
-            assert_eq!(parsed.agent_id, format!("agent-{}", i));
+            assert_eq!(parsed.agent_id, format!("agent-{}", 2 - i));
         }
     }
 
@@ -435,7 +434,7 @@ mod tests {
         let path = dir.path().join("rejections.log");
         let logger = FileRejectionLogger::new_with_limit(path.clone(), Some(3)).unwrap();
 
-        // Write 5 entries, should keep only latest 3
+        // Write 5 entries, should keep only latest 3 (first 3 lines)
         for i in 0..5 {
             logger.log(&make_entry(i));
         }
@@ -443,13 +442,14 @@ mod tests {
         let count = FileRejectionLogger::count_entries(&path);
         assert_eq!(count, 3);
 
-        // Verify the remaining entries are the newest
+        // Verify the remaining entries are the newest (first 3 lines)
         let content = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = content.trim().lines().collect();
         assert_eq!(lines.len(), 3);
+        // Newest first: agent-4, agent-3, agent-2
         for (i, line) in lines.iter().enumerate() {
             let parsed: RejectionLog = serde_json::from_str(line).unwrap();
-            assert_eq!(parsed.agent_id, format!("agent-{}", i + 2));
+            assert_eq!(parsed.agent_id, format!("agent-{}", 4 - i));
         }
     }
 
@@ -469,10 +469,15 @@ mod tests {
         logger.log(&make_entry(3));
         assert_eq!(FileRejectionLogger::count_entries(&path), 3);
 
-        // Verify oldest was dropped
+        // Verify oldest was dropped, newest first
         let content = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = content.trim().lines().collect();
+        // Newest first: agent-3, agent-2, agent-1
         let parsed: RejectionLog = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(parsed.agent_id, "agent-3");
+        let parsed: RejectionLog = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(parsed.agent_id, "agent-2");
+        let parsed: RejectionLog = serde_json::from_str(lines[2]).unwrap();
         assert_eq!(parsed.agent_id, "agent-1");
     }
 
@@ -490,9 +495,10 @@ mod tests {
         let lines: Vec<&str> = content.trim().lines().collect();
         assert_eq!(lines.len(), 2);
 
+        // Newest first: agent-2, agent-1
         let first: RejectionLog = serde_json::from_str(lines[0]).unwrap();
-        assert_eq!(first.agent_id, "agent-1");
+        assert_eq!(first.agent_id, "agent-2");
         let second: RejectionLog = serde_json::from_str(lines[1]).unwrap();
-        assert_eq!(second.agent_id, "agent-2");
+        assert_eq!(second.agent_id, "agent-1");
     }
 }
