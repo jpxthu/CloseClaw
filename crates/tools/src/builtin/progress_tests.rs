@@ -408,8 +408,8 @@ async fn test_progress_tool_with_writer_syncs_plan_file() {
     // Verify the plan file was updated
     let content = std::fs::read_to_string(&plan_path).unwrap();
     assert!(
-        content.contains("🔄"),
-        "expected 🔄 marker after in_progress: {content}"
+        content.contains("[-]"),
+        "expected [-] marker after in_progress: {content}"
     );
 
     // Complete step 0
@@ -420,12 +420,12 @@ async fn test_progress_tool_with_writer_syncs_plan_file() {
 
     let content = std::fs::read_to_string(&plan_path).unwrap();
     assert!(
-        content.contains("✅"),
-        "expected ✅ marker after completed: {content}"
+        content.contains("[x]"),
+        "expected [x] marker after completed: {content}"
     );
     assert!(
-        !content.contains("🔄"),
-        "should not contain 🔄 after completed: {content}"
+        !content.contains("[-]"),
+        "should not contain [-] after completed: {content}"
     );
 }
 
@@ -511,7 +511,7 @@ fn test_default_plan_state_writer_marker_mapping() {
         .write_progress_to_plan_file(plan_path.to_str().unwrap(), &ps)
         .unwrap();
     let content = std::fs::read_to_string(&plan_path).unwrap();
-    assert!(content.contains("🔄"));
+    assert!(content.contains("[-]"));
 }
 
 #[test]
@@ -543,7 +543,7 @@ fn test_default_plan_state_writer_completed_marker() {
         .write_progress_to_plan_file(plan_path.to_str().unwrap(), &ps)
         .unwrap();
     let content = std::fs::read_to_string(&plan_path).unwrap();
-    assert!(content.contains("\u{2705}"));
+    assert!(content.contains("[x]"));
 }
 
 #[test]
@@ -575,7 +575,7 @@ fn test_default_plan_state_writer_failed_marker() {
         .write_progress_to_plan_file(plan_path.to_str().unwrap(), &ps)
         .unwrap();
     let content = std::fs::read_to_string(&plan_path).unwrap();
-    assert!(content.contains("\u{274c}"));
+    assert!(content.contains("[!]"));
 }
 
 #[test]
@@ -641,6 +641,6 @@ fn test_default_plan_state_writer_preserves_other_content() {
     assert!(result.contains("## Steps"));
     assert!(result.contains("## Notes"));
     assert!(result.contains("Keep this section."));
-    assert!(result.contains("\u{2705}"));
-    assert!(result.contains("\u{1f504}"));
+    assert!(result.contains("[x]"));
+    assert!(result.contains("[-]"));
 }

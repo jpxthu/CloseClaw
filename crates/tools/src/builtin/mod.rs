@@ -9,6 +9,7 @@ pub mod bash;
 pub mod bash_classify;
 pub mod bash_kill;
 pub mod coding_agent;
+pub mod execute_plan;
 pub mod file_ops;
 pub mod git_ops;
 pub mod permission;
@@ -25,6 +26,7 @@ pub mod skill_tool;
 
 pub use bash::BashTool;
 pub use coding_agent::CodingAgentTool;
+pub use execute_plan::ExecutePlanTool;
 pub use file_ops::{EditTool, GrepTool, LsTool, ReadTool, WriteTool};
 pub use git_ops::{GitCommitTool, GitLogTool, GitPullTool, GitPushTool, GitStatusTool};
 pub use permission::PermissionQueryTool;
@@ -37,6 +39,9 @@ pub use sessions_steer::SessionsSteerTool;
 pub use sessions_yield::SessionsYieldTool;
 pub use skill_creator::SkillCreatorTool;
 pub use skill_tool::SkillTool;
+
+#[cfg(test)]
+mod execute_plan_tests;
 
 #[cfg(test)]
 mod plan_approval_tests;

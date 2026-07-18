@@ -4,12 +4,11 @@ use std::sync::Arc;
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
-use crate::handlers_mode::{
-    parse_plan_path_arg, parse_plan_status_from_file, ExecuteHandler, ModeHandler, PlanModeHandler,
-};
+use crate::handlers_mode::{parse_plan_path_arg, ExecuteHandler, ModeHandler, PlanModeHandler};
 use closeclaw_common::plan_state::{PlanPath, PlanStatus};
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_gateway::session_manager::SessionManager;
+use closeclaw_session::plan_file::parse_plan_status_from_file;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 

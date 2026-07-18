@@ -131,27 +131,6 @@ impl SlashHandler for PlanModeHandler {
     }
 }
 
-/// Parse `PlanStatus` from a plan file's content.
-///
-/// Scans the file for the `| 状态 | <status> |` line and converts it
-/// to the corresponding `PlanStatus` variant.
-pub(crate) fn parse_plan_status_from_file(content: &str) -> Option<PlanStatus> {
-    for line in content.lines() {
-        if let Some(rest) = line.strip_prefix("| 状态 | ") {
-            let status_str = rest.strip_suffix(" |")?.trim();
-            return match status_str {
-                "draft" => Some(PlanStatus::Draft),
-                "confirmed" => Some(PlanStatus::Confirmed),
-                "executing" => Some(PlanStatus::Executing),
-                "paused" => Some(PlanStatus::Paused),
-                "completed" => Some(PlanStatus::Completed),
-                _ => None,
-            };
-        }
-    }
-    None
-}
-
 /// Parse `--path` argument from the `/plan` command.
 ///
 /// Returns `(Some(PlanPath), remaining_title)` when `--path standard` or
@@ -195,6 +174,30 @@ pub(crate) fn parse_plan_path_arg(args: &str) -> (Option<PlanPath>, &str) {
     }
 }
 
+/// Parse optional step selection from `/execute` args.
+///
+/// Accepts comma-separated 0-based step indices (e.g., `"0,1,2"`) or
+/// an empty string (returns `None` for all steps). Returns `None` if
+/// the args are empty or contain only whitespace.
+pub(crate) fn parse_step_selection_arg(args: &str) -> Option<Vec<usize>> {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let indices: Vec<usize> = trimmed
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.parse::<usize>())
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    if indices.is_empty() {
+        None
+    } else {
+        Some(indices)
+    }
+}
+
 // ── ExecuteHandler ────────────────────────────────────────────────────────
 
 /// `/execute` — transition from Plan Mode to Auto Mode execution.
@@ -230,7 +233,10 @@ impl SlashHandler for ExecuteHandler {
         false
     }
 
-    async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
+    async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
+        // Parse optional step_selection from args (e.g., "/execute 0,1,2")
+        let step_selection = parse_step_selection_arg(args.trim());
+
         // Step 1: Check session is in Plan Mode
         let Some(conv) = self
             .session_manager
@@ -267,7 +273,7 @@ impl SlashHandler for ExecuteHandler {
         //         Prefer the in-memory PlanStatus if already set (authoritative);
         //         fall back to parsing the plan file for backward compatibility.
         let file_status = match std::fs::read_to_string(&plan_state.plan_file_path) {
-            Ok(content) => parse_plan_status_from_file(&content),
+            Ok(content) => plan_file::parse_plan_status_from_file(&content),
             Err(e) => {
                 tracing::warn!(
                     plan_file = %plan_state.plan_file_path,
@@ -340,6 +346,9 @@ impl SlashHandler for ExecuteHandler {
                 "Failed to update plan file status to executing"
             );
         }
+
+        // Store step_selection in plan_state for the execution engine.
+        plan_state.step_selection = step_selection;
 
         // Persist updated plan state
         self.session_manager

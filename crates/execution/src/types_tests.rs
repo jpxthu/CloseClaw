@@ -7,6 +7,7 @@ fn test_execution_config_default() {
     assert_eq!(config.max_retries, 3);
     assert_eq!(config.retry_strategy, RetryStrategy::Fresh);
     assert_eq!(config.verify_trigger, VerifyTrigger::NonTrivial);
+    assert_eq!(config.step_selection, None);
 }
 
 #[test]
