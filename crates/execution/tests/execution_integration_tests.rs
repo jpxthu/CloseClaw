@@ -1,6 +1,6 @@
 //! Integration tests for the execution engine.
 //!
-//! Tests the full lifecycle: step dispatch, retry, event emission,
+//! Tests the full lifecycle: step dispatch, event emission,
 //! and mode-specific behavior (SpawnAllSteps batching).
 
 use std::sync::{Arc, Mutex};
@@ -10,9 +10,7 @@ use closeclaw_common::{ExecutionStepStatus, NoopNotifier, PlanState};
 use closeclaw_execution::error::ExecutionError;
 use closeclaw_execution::event::ExecutionEvent;
 use closeclaw_execution::spawn::SpawnAdapter;
-use closeclaw_execution::types::{
-    ExecutionConfig, ExecutionMode, RetryStrategy, SubAgentResult, VerifyTrigger,
-};
+use closeclaw_execution::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 use closeclaw_execution::ExecutionEngine;
 
 // ---------------------------------------------------------------------------
@@ -87,21 +85,17 @@ impl SpawnAdapter for CallRecordingMock {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn spawn_per_step_config(max_retries: u32) -> ExecutionConfig {
+fn spawn_per_step_config() -> ExecutionConfig {
     ExecutionConfig {
         mode: ExecutionMode::SpawnPerStep,
-        max_retries,
-        retry_strategy: RetryStrategy::Fresh,
         verify_trigger: VerifyTrigger::NonTrivial,
         step_selection: None,
     }
 }
 
-fn spawn_all_config(max_retries: u32) -> ExecutionConfig {
+fn spawn_all_config() -> ExecutionConfig {
     ExecutionConfig {
         mode: ExecutionMode::SpawnAllSteps,
-        max_retries,
-        retry_strategy: RetryStrategy::Fresh,
         verify_trigger: VerifyTrigger::NonTrivial,
         step_selection: None,
     }
@@ -146,7 +140,7 @@ async fn test_full_3step_success() {
         Ok(success_result(1, "step 1 done")),
         Ok(success_result(2, "step 2 done")),
     ]);
-    let engine = new_engine_with_config(adapter, spawn_per_step_config(3));
+    let engine = new_engine_with_config(adapter, spawn_per_step_config());
     let report = engine
         .execute(&["step A".into(), "step B".into(), "step C".into()])
         .await
@@ -169,47 +163,17 @@ async fn test_full_3step_success() {
 }
 
 // ---------------------------------------------------------------------------
-// Tests: Middle step failure + retry success
+// Tests: Failure stops subsequent steps
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_middle_failure_then_retry() {
+async fn test_failure_stops_subsequent_steps() {
     let adapter = SequenceMock::new(vec![
         Ok(success_result(0, "ok")),
-        // Step 1 fails first
-        Ok(failed_result(1, "flaky")),
-        // Step 1 succeeds on retry
-        Ok(success_result(1, "recovered")),
-        Ok(success_result(2, "done")),
+        // Step 1 fails, step 2 should not be called
+        Ok(failed_result(1, "fail")),
     ]);
-    let engine = new_engine_with_config(adapter, spawn_per_step_config(3));
-    let report = engine
-        .execute(&["s0".into(), "s1".into(), "s2".into()])
-        .await
-        .unwrap();
-
-    assert!(report.all_completed);
-    assert_eq!(report.steps.len(), 3);
-    // Step 1 had 2 attempts
-    assert_eq!(report.steps[1].attempts, 2);
-    assert_eq!(report.steps[1].summary, "recovered");
-}
-
-// ---------------------------------------------------------------------------
-// Tests: Retry exhaustion — stops after max retries
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn test_retry_exhaustion_stops() {
-    let adapter = SequenceMock::new(vec![
-        Ok(success_result(0, "ok")),
-        // Step 1 fails, retries exhausted
-        Ok(failed_result(1, "fail 1")),
-        Ok(failed_result(1, "fail 2")),
-        Ok(failed_result(1, "fail 3")),
-        // Step 2 should never be called
-    ]);
-    let engine = new_engine_with_config(adapter, spawn_per_step_config(2));
+    let engine = new_engine_with_config(adapter, spawn_per_step_config());
     let report = engine
         .execute(&["s0".into(), "s1".into(), "s2".into()])
         .await
@@ -227,7 +191,7 @@ async fn test_retry_exhaustion_stops() {
         report.steps[1].status,
         ExecutionStepStatus::Failed
     ));
-    assert_eq!(report.steps[1].attempts, 3);
+    assert_eq!(report.steps[1].attempts, 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -241,7 +205,7 @@ async fn test_spawn_all_steps_single_spawn() {
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::new(
         plan_state,
-        spawn_all_config(3),
+        spawn_all_config(),
         adapter,
         Arc::new(NoopNotifier),
         None,
@@ -264,21 +228,19 @@ async fn test_spawn_all_steps_single_spawn() {
 }
 
 #[tokio::test]
-async fn test_spawn_all_steps_failure_triggers_retry() {
-    let adapter = SequenceMock::new(vec![
-        Err(ExecutionError::SpawnFailed {
-            message: "batch fail".into(),
-        }),
-        Ok(success_result(0, "batch ok")),
-    ]);
-    let engine = new_engine_with_config(adapter, spawn_all_config(3));
+async fn test_spawn_all_steps_failure_returns_failed_report() {
+    let adapter = SequenceMock::new(vec![Err(ExecutionError::SpawnFailed {
+        message: "batch fail".into(),
+    })]);
+    let engine = new_engine_with_config(adapter, spawn_all_config());
     let report = engine.execute(&["s0".into(), "s1".into()]).await.unwrap();
 
-    assert!(report.all_completed);
+    // SpawnAllSteps failure returns report with all steps failed
+    assert!(!report.all_completed);
     assert_eq!(report.steps.len(), 2);
-    // Both steps should be completed
     for step in &report.steps {
-        assert!(matches!(step.status, ExecutionStepStatus::Completed));
+        assert!(matches!(step.status, ExecutionStepStatus::Failed));
+        assert_eq!(step.attempts, 1);
     }
 }
 
@@ -292,7 +254,7 @@ async fn test_event_sequence_all_success() {
         Ok(success_result(0, "done")),
         Ok(success_result(1, "done")),
     ]);
-    let engine = new_engine_with_config(adapter, spawn_per_step_config(3));
+    let engine = new_engine_with_config(adapter, spawn_per_step_config());
     let report = engine.execute(&["s0".into(), "s1".into()]).await.unwrap();
 
     assert!(report.all_completed);
@@ -322,91 +284,23 @@ async fn test_event_sequence_all_success() {
 }
 
 #[tokio::test]
-async fn test_event_sequence_failure_with_retry() {
+async fn test_event_sequence_failure_no_retry() {
     let adapter = SequenceMock::new(vec![
-        // Step 0 fails, retries, then succeeds
         Ok(failed_result(0, "oops")),
-        Ok(success_result(0, "fixed")),
-        // Step 1 succeeds
-        Ok(success_result(1, "ok")),
+        // Step 1 should not be called
     ]);
-    let engine = new_engine_with_config(adapter, spawn_per_step_config(3));
+    let engine = new_engine_with_config(adapter, spawn_per_step_config());
     let report = engine.execute(&["s0".into(), "s1".into()]).await.unwrap();
-
-    assert!(report.all_completed);
-
-    let events = &report.events;
-    // Expected: StepStarted(0), RetryTriggered(0,2),
-    //           StepStarted(0), StepCompleted(0),
-    //           StepStarted(1), StepCompleted(1), AllCompleted
-    // StepStarted(0) on first attempt, RetryTriggered(0,2),
-    // StepStarted(0) on retry, StepCompleted(0),
-    // StepStarted(1), StepCompleted(1), AllCompleted
-    assert_eq!(events.len(), 6);
-
-    assert_eq!(events[0], ExecutionEvent::StepStarted { step_index: 0 });
-    assert_eq!(
-        events[1],
-        ExecutionEvent::RetryTriggered {
-            step_index: 0,
-            attempt: 2
-        }
-    );
-    // StepStarted(0) is NOT emitted on retry (only on first attempt)
-    assert_eq!(
-        events[2],
-        ExecutionEvent::StepCompleted {
-            step_index: 0,
-            summary: "fixed".into()
-        }
-    );
-    assert_eq!(events[3], ExecutionEvent::StepStarted { step_index: 1 });
-    assert_eq!(
-        events[4],
-        ExecutionEvent::StepCompleted {
-            step_index: 1,
-            summary: "ok".into()
-        }
-    );
-    assert_eq!(events[5], ExecutionEvent::AllCompleted);
-}
-
-#[tokio::test]
-async fn test_event_sequence_retry_exhaustion() {
-    let adapter = SequenceMock::new(vec![
-        Ok(failed_result(0, "fail 1")),
-        Ok(failed_result(0, "fail 2")),
-        Ok(failed_result(0, "fail 3")),
-    ]);
-    let engine = new_engine_with_config(adapter, spawn_per_step_config(2));
-    let report = engine.execute(&["s0".into()]).await.unwrap();
 
     assert!(!report.all_completed);
 
     let events = &report.events;
-    // Expected: StepStarted(0), RetryTriggered(0,2),
-    //           StepStarted(0), RetryTriggered(0,3),
-    //           StepStarted(0), StepFailed(0, ...)
-    // StepStarted(0), RetryTriggered(0,2), RetryTriggered(0,3), StepFailed(0)
-    assert_eq!(events.len(), 4);
+    // Expected: StepStarted(0), StepFailed(0, ...)
+    assert_eq!(events.len(), 2);
 
     assert_eq!(events[0], ExecutionEvent::StepStarted { step_index: 0 });
-    assert_eq!(
-        events[1],
-        ExecutionEvent::RetryTriggered {
-            step_index: 0,
-            attempt: 2
-        }
-    );
-    assert_eq!(
-        events[2],
-        ExecutionEvent::RetryTriggered {
-            step_index: 0,
-            attempt: 3
-        }
-    );
     assert!(matches!(
-        &events[3],
+        &events[1],
         ExecutionEvent::StepFailed { step_index: 0, .. }
     ));
 }
@@ -414,7 +308,7 @@ async fn test_event_sequence_retry_exhaustion() {
 #[tokio::test]
 async fn test_event_sequence_spawn_all_success() {
     let adapter = SequenceMock::new(vec![Ok(success_result(0, "batch done"))]);
-    let engine = new_engine_with_config(adapter, spawn_all_config(3));
+    let engine = new_engine_with_config(adapter, spawn_all_config());
     let report = engine.execute(&["s0".into(), "s1".into()]).await.unwrap();
 
     assert!(report.all_completed);
@@ -444,7 +338,7 @@ async fn test_event_sequence_spawn_all_success() {
 #[tokio::test]
 async fn test_empty_steps() {
     let adapter = SequenceMock::new(vec![]);
-    let engine = new_engine_with_config(adapter, spawn_per_step_config(3));
+    let engine = new_engine_with_config(adapter, spawn_per_step_config());
     let report = engine.execute(&[]).await.unwrap();
 
     assert!(report.all_completed);
@@ -457,7 +351,7 @@ async fn test_empty_steps() {
 #[tokio::test]
 async fn test_single_step_success() {
     let adapter = SequenceMock::new(vec![Ok(success_result(0, "only"))]);
-    let engine = new_engine_with_config(adapter, spawn_per_step_config(3));
+    let engine = new_engine_with_config(adapter, spawn_per_step_config());
     let report = engine.execute(&["single".into()]).await.unwrap();
 
     assert!(report.all_completed);
@@ -475,7 +369,7 @@ async fn test_plan_state_updated_after_full_execution() {
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::new(
         plan_state.clone(),
-        spawn_per_step_config(3),
+        spawn_per_step_config(),
         adapter,
         Arc::new(NoopNotifier),
         None,
@@ -495,25 +389,26 @@ async fn test_plan_state_updated_after_full_execution() {
 }
 
 #[tokio::test]
-async fn test_spawn_error_retries_then_succeeds() {
-    let adapter = SequenceMock::new(vec![
-        Err(ExecutionError::SpawnFailed {
-            message: "transient".into(),
-        }),
-        Ok(success_result(0, "recovered")),
-    ]);
-    let engine = new_engine_with_config(adapter, spawn_per_step_config(3));
+async fn test_spawn_error_fails_immediately() {
+    let adapter = SequenceMock::new(vec![Err(ExecutionError::SpawnFailed {
+        message: "transient".into(),
+    })]);
+    let engine = new_engine_with_config(adapter, spawn_per_step_config());
     let report = engine.execute(&["step".into()]).await.unwrap();
 
-    assert!(report.all_completed);
-    assert_eq!(report.steps[0].attempts, 2);
-    assert_eq!(report.steps[0].summary, "recovered");
+    assert!(!report.all_completed);
+    assert_eq!(report.steps.len(), 1);
+    assert_eq!(report.steps[0].attempts, 1);
+    assert!(matches!(
+        report.steps[0].status,
+        ExecutionStepStatus::Failed
+    ));
 }
 
 #[tokio::test]
-async fn test_max_retries_zero_no_retry() {
+async fn test_failure_no_retry() {
     let adapter = SequenceMock::new(vec![Ok(failed_result(0, "fail"))]);
-    let engine = new_engine_with_config(adapter, spawn_per_step_config(0));
+    let engine = new_engine_with_config(adapter, spawn_per_step_config());
     let report = engine.execute(&["step".into()]).await.unwrap();
 
     assert!(!report.all_completed);

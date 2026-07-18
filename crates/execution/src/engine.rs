@@ -1,6 +1,5 @@
 //! Core execution engine — orchestrates step-by-step execution with
-//! retry logic and state management. Retries are controlled by
-//! [`ExecutionConfig`].
+//! state management.
 
 use std::sync::{Arc, Mutex};
 
@@ -12,7 +11,7 @@ use crate::error::ExecutionError;
 use crate::event::ExecutionEvent;
 use crate::hook::HookRunner;
 use crate::spawn::SpawnAdapter;
-use crate::types::{ExecutionConfig, ExecutionMode, RetryStrategy, SubAgentResult};
+use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult};
 
 /// Result of executing a single step.
 #[derive(Debug, Clone)]
@@ -109,21 +108,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         }
     }
 
-    /// Build context string for continue-mode retries.
-    ///
-    /// In continue mode, the previous error is injected so the
-    /// sub-agent can see error history and adapt.
-    fn continue_error_context(error_history: &[String]) -> String {
-        if error_history.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "[continue retry] Previous errors:\n{}",
-                error_history.join("\n")
-            )
-        }
-    }
-
     /// Execute all provided steps sequentially and return a report.
     ///
     /// When `config.step_selection` is `Some`, only the steps at the
@@ -205,9 +189,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         let mut failed_step: Option<usize> = None;
 
         for (i, description) in steps_owned.iter().enumerate() {
-            let step_result = self
-                .execute_step_with_retries(i, description, &results, &mut events)
-                .await?;
+            let step_result = self.execute_step_once(i, description, &mut events).await?;
             let is_failed = matches!(step_result.status, ExecutionStepStatus::Failed);
             let is_hook_blocked = step_result.hook_blocked.is_some();
             results.push(step_result);
@@ -253,9 +235,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
     ) -> Result<ExecutionReport, ExecutionError> {
         let mut events: Vec<ExecutionEvent> = Vec::new();
         let task = steps_owned.join("\n");
-        let mut attempt: u32 = 0;
-        let max_attempts = self.config.max_retries + 1;
-        let mut error_history: Vec<String> = Vec::new();
 
         for i in 0..steps_owned.len() {
             Self::emit_event(&mut events, ExecutionEvent::StepStarted { step_index: i });
@@ -284,7 +263,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
                         summary: String::new(),
                         changed_files: Vec::new(),
                         error_message: Some(format!("permission denied: {reason}")),
-                        attempts: 0,
+                        attempts: 1,
                         hook_blocked: None,
                     }
                 })
@@ -298,41 +277,17 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             });
         }
 
-        loop {
-            attempt += 1;
-            self.mark_step_status(0, ExecutionStepStatus::InProgress)
-                .await?;
+        self.mark_step_status(0, ExecutionStepStatus::InProgress)
+            .await?;
 
-            let context = if self.config.retry_strategy == RetryStrategy::Continue {
-                Self::continue_error_context(&error_history)
-            } else {
-                String::new()
-            };
-
-            match self.adapter.spawn_run(&task, &context).await {
-                Ok(sub_result) => {
-                    return self
-                        .handle_spawn_all_success(steps_owned, sub_result, attempt, &mut events)
-                        .await;
-                }
-                Err(e) => {
-                    if attempt < max_attempts {
-                        error_history.push(e.to_string());
-                        self.mark_step_status(0, ExecutionStepStatus::Failed)
-                            .await?;
-                        Self::emit_event(
-                            &mut events,
-                            ExecutionEvent::RetryTriggered {
-                                step_index: 0,
-                                attempt: attempt + 1,
-                            },
-                        );
-                        continue;
-                    }
-                    return self
-                        .handle_spawn_all_retries_exhausted(steps_owned, e, attempt, &mut events)
-                        .await;
-                }
+        match self.adapter.spawn_run(&task, "").await {
+            Ok(sub_result) => {
+                self.handle_spawn_all_success(steps_owned, sub_result, 1, &mut events)
+                    .await
+            }
+            Err(e) => {
+                self.handle_spawn_all_failure(steps_owned, e, &mut events)
+                    .await
             }
         }
     }
@@ -497,12 +452,11 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         }
     }
 
-    /// Return a failure report when all SpawnAllSteps retries are exhausted.
-    async fn handle_spawn_all_retries_exhausted(
+    /// Return a failure report when SpawnAllSteps dispatch fails.
+    async fn handle_spawn_all_failure(
         &self,
         steps_owned: &[String],
         error: ExecutionError,
-        attempt: u32,
         events: &mut Vec<ExecutionEvent>,
     ) -> Result<ExecutionReport, ExecutionError> {
         self.mark_step_status(0, ExecutionStepStatus::Failed)
@@ -525,7 +479,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
                     summary: String::new(),
                     changed_files: Vec::new(),
                     error_message: Some(error.to_string()),
-                    attempts: attempt,
+                    attempts: 1,
                     hook_blocked: None,
                 }
             })
@@ -541,97 +495,47 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
     }
 }
 
-// --- Single-step retry execution ---
-/// Outcome of a non-final dispatch attempt (retryable).
-enum RetryableOutcome {
-    /// Sub-agent returned a failed status with an optional error message.
-    SubAgentFailed(Option<String>),
-    /// Spawn itself failed with an error message.
-    SpawnError(String),
-}
-
+// --- Single-step execution ---
 impl<S: SpawnAdapter> ExecutionEngine<S> {
-    /// Execute a single step, retrying on failure up to `max_retries`.
-    async fn execute_step_with_retries(
+    /// Execute a single step (no retry — agent decides failure).
+    async fn execute_step_once(
         &self,
         step_index: usize,
         description: &str,
-        _previous: &[StepResult],
         events: &mut Vec<ExecutionEvent>,
     ) -> Result<StepResult, ExecutionError> {
-        let mut attempt: u32 = 0;
-        let max_attempts = self.config.max_retries + 1;
-        let mut error_history: Vec<String> = Vec::new();
+        Self::emit_event(events, ExecutionEvent::StepStarted { step_index });
+        self.mark_step_status(step_index, ExecutionStepStatus::InProgress)
+            .await?;
+        tracing::info!(step_index, "dispatching step");
 
-        loop {
-            attempt += 1;
-            if attempt == 1 {
-                Self::emit_event(events, ExecutionEvent::StepStarted { step_index });
-            }
-            self.mark_step_status(step_index, ExecutionStepStatus::InProgress)
-                .await?;
-            tracing::info!(step_index, attempt, max_attempts, "dispatching step");
-
-            let context = if self.config.retry_strategy == RetryStrategy::Continue {
-                Self::continue_error_context(&error_history)
-            } else {
-                String::new()
-            };
-
-            let (final_result, retryable) = match self
-                .dispatch_step_with_context(
+        match self.dispatch_step(step_index, description, events).await {
+            Ok(result) => Ok(result),
+            Err(ExecutionError::PermissionDenied { reason, .. }) => {
+                tracing::warn!(
                     step_index,
-                    description,
-                    &context,
-                    attempt,
-                    max_attempts,
+                    reason,
+                    "permission denied — marking step as failed"
+                );
+                Self::emit_event(
                     events,
-                )
-                .await
-            {
-                Ok(tuple) => tuple,
-                Err(ExecutionError::PermissionDenied { reason, .. }) => {
-                    tracing::warn!(
+                    ExecutionEvent::StepFailed {
                         step_index,
-                        reason,
-                        "permission denied — marking step as failed"
-                    );
-                    let denial_msg = format!("permission denied: {reason}");
-                    Self::emit_event(
-                        events,
-                        ExecutionEvent::StepFailed {
-                            step_index,
-                            error_message: denial_msg.clone(),
-                        },
-                    );
-                    return Ok(StepResult {
-                        step_index,
-                        description: description.to_string(),
-                        status: ExecutionStepStatus::Failed,
-                        summary: String::new(),
-                        changed_files: Vec::new(),
-                        error_message: Some(format!("permission denied: {reason}")),
-                        attempts: 1,
-                        hook_blocked: None,
-                    });
-                }
-                Err(e) => return Err(e),
-            };
-            if let Some(final_result) = final_result {
-                return Ok(final_result);
+                        error_message: format!("permission denied: {reason}"),
+                    },
+                );
+                Ok(StepResult {
+                    step_index,
+                    description: description.to_string(),
+                    status: ExecutionStepStatus::Failed,
+                    summary: String::new(),
+                    changed_files: Vec::new(),
+                    error_message: Some(format!("permission denied: {reason}")),
+                    attempts: 1,
+                    hook_blocked: None,
+                })
             }
-            // Non-final failure — record error for continue mode.
-            if self.config.retry_strategy == RetryStrategy::Continue {
-                if let Some(outcome) = retryable {
-                    let err_msg = match outcome {
-                        RetryableOutcome::SubAgentFailed(msg) => {
-                            msg.unwrap_or_else(|| "unknown error".into())
-                        }
-                        RetryableOutcome::SpawnError(msg) => msg,
-                    };
-                    error_history.push(err_msg);
-                }
-            }
+            Err(e) => Err(e),
         }
     }
 }
@@ -660,62 +564,30 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         }
     }
 
-    /// Dispatch a single step attempt and process the result.
-    ///
-    /// `context` is passed through to [`SpawnAdapter::spawn_run`],
-    /// allowing retry strategies to inject error history.
-    ///
-    /// Returns `(final_result, retryable_outcome)`. If the step
-    /// succeeded or retries are exhausted, `final_result` is `Some`.
-    /// Otherwise `retryable_outcome` carries the error for continue mode.
-    async fn dispatch_step_with_context(
+    /// Dispatch a single step and process the result.
+    async fn dispatch_step(
         &self,
         step_index: usize,
         description: &str,
-        context: &str,
-        attempt: u32,
-        max_attempts: u32,
         events: &mut Vec<ExecutionEvent>,
-    ) -> Result<(Option<StepResult>, Option<RetryableOutcome>), ExecutionError> {
+    ) -> Result<StepResult, ExecutionError> {
         // Check permission before dispatching — permission denial is not retryable.
         self.check_permission(step_index, description).await?;
 
-        match self.adapter.spawn_run(description, context).await {
+        match self.adapter.spawn_run(description, "").await {
             Ok(sub_result) => {
-                let final_result = self
-                    .handle_step_spawn_result(
-                        step_index,
-                        description,
-                        sub_result.clone(),
-                        attempt,
-                        max_attempts,
-                        events,
-                    )
-                    .await?;
-                let retryable = if final_result.is_none() {
-                    Some(RetryableOutcome::SubAgentFailed(sub_result.error_message))
-                } else {
-                    None
-                };
-                Ok((final_result, retryable))
+                self.process_step_result(step_index, description, sub_result, events)
+                    .await
             }
             Err(e) => {
-                let final_result = self
-                    .handle_step_spawn_error(
+                Self::emit_event(
+                    events,
+                    ExecutionEvent::StepFailed {
                         step_index,
-                        description,
-                        e.clone(),
-                        attempt,
-                        max_attempts,
-                        events,
-                    )
-                    .await?;
-                let retryable = if final_result.is_none() {
-                    Some(RetryableOutcome::SpawnError(e.to_string()))
-                } else {
-                    None
-                };
-                Ok((final_result, retryable))
+                        error_message: e.to_string(),
+                    },
+                );
+                Ok(self.build_failed_step_result(step_index, description, &e))
             }
         }
     }
@@ -723,42 +595,21 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
 
 impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// Process a spawn result for a single step.
-    ///
-    /// Returns `Some(StepResult)` when the step is final (success or retries
-    /// exhausted). Returns `Err` only on fatal errors (e.g. state transition
-    /// failure).
-    async fn handle_step_spawn_result(
+    async fn process_step_result(
         &self,
         step_index: usize,
         description: &str,
         sub_result: SubAgentResult,
-        attempt: u32,
-        max_attempts: u32,
         events: &mut Vec<ExecutionEvent>,
-    ) -> Result<Option<StepResult>, ExecutionError> {
+    ) -> Result<StepResult, ExecutionError> {
         if matches!(sub_result.status, ExecutionStepStatus::Completed) {
             return self
-                .complete_step(step_index, description, &sub_result, attempt, events)
+                .complete_step(step_index, description, &sub_result, events)
                 .await;
         }
 
-        tracing::warn!(step_index, attempt, "step failed per sub-agent result");
-
-        if attempt < max_attempts {
-            Self::emit_event(
-                events,
-                ExecutionEvent::RetryTriggered {
-                    step_index,
-                    attempt: attempt + 1,
-                },
-            );
-            self.mark_step_status(step_index, ExecutionStepStatus::Failed)
-                .await?;
-            return Ok(None);
-        }
-
-        self.fail_step_final(step_index, &sub_result, attempt, events)
-            .await
+        tracing::warn!(step_index, "step failed per sub-agent result");
+        self.fail_step(step_index, &sub_result, events).await
     }
 }
 
@@ -769,9 +620,8 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         step_index: usize,
         description: &str,
         sub_result: &SubAgentResult,
-        attempt: u32,
         events: &mut Vec<ExecutionEvent>,
-    ) -> Result<Option<StepResult>, ExecutionError> {
+    ) -> Result<StepResult, ExecutionError> {
         self.mark_step_status(step_index, ExecutionStepStatus::Completed)
             .await?;
         tracing::info!(step_index, "step completed");
@@ -783,28 +633,22 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             },
         );
 
-        let mut step_result = self.build_step_result(
-            step_index,
-            description,
-            sub_result.status,
-            sub_result,
-            attempt,
-        );
+        let mut step_result =
+            self.build_step_result(step_index, description, sub_result.status, sub_result);
 
         let block_reason = self.run_hooks_for_step(&step_result, events).await;
         step_result.hook_blocked = block_reason;
 
-        Ok(Some(step_result))
+        Ok(step_result)
     }
 
-    /// Emit final failure event and build failed result.
-    async fn fail_step_final(
+    /// Emit failure event and build failed result.
+    async fn fail_step(
         &self,
         step_index: usize,
         sub_result: &SubAgentResult,
-        attempt: u32,
         events: &mut Vec<ExecutionEvent>,
-    ) -> Result<Option<StepResult>, ExecutionError> {
+    ) -> Result<StepResult, ExecutionError> {
         Self::emit_event(
             events,
             ExecutionEvent::StepFailed {
@@ -812,55 +656,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
                 error_message: sub_result.error_message.clone().unwrap_or_default(),
             },
         );
-        Ok(Some(self.build_step_result(
-            step_index,
-            "",
-            ExecutionStepStatus::Failed,
-            sub_result,
-            attempt,
-        )))
-    }
-}
-
-impl<S: SpawnAdapter> ExecutionEngine<S> {
-    /// Process a spawn error (network/fault) for a single step.
-    async fn handle_step_spawn_error(
-        &self,
-        step_index: usize,
-        description: &str,
-        error: ExecutionError,
-        attempt: u32,
-        max_attempts: u32,
-        events: &mut Vec<ExecutionEvent>,
-    ) -> Result<Option<StepResult>, ExecutionError> {
-        tracing::error!(step_index, attempt, error = %error, "spawn error");
-
-        if attempt < max_attempts {
-            Self::emit_event(
-                events,
-                ExecutionEvent::RetryTriggered {
-                    step_index,
-                    attempt: attempt + 1,
-                },
-            );
-            self.mark_step_status(step_index, ExecutionStepStatus::Failed)
-                .await?;
-            return Ok(None); // allow retry
-        }
-
-        Self::emit_event(
-            events,
-            ExecutionEvent::StepFailed {
-                step_index,
-                error_message: error.to_string(),
-            },
-        );
-        Ok(Some(self.build_failed_step_result(
-            step_index,
-            description,
-            &error,
-            attempt,
-        )))
+        Ok(self.build_step_result(step_index, "", ExecutionStepStatus::Failed, sub_result))
     }
 }
 
@@ -872,7 +668,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         description: &str,
         status: ExecutionStepStatus,
         sub_result: &SubAgentResult,
-        attempts: u32,
     ) -> StepResult {
         StepResult {
             step_index,
@@ -881,7 +676,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             summary: sub_result.summary.clone(),
             changed_files: sub_result.changed_files.clone(),
             error_message: sub_result.error_message.clone(),
-            attempts,
+            attempts: 1,
             hook_blocked: None,
         }
     }
@@ -892,7 +687,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         step_index: usize,
         description: &str,
         error: &ExecutionError,
-        attempts: u32,
     ) -> StepResult {
         StepResult {
             step_index,
@@ -901,7 +695,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             summary: String::new(),
             changed_files: Vec::new(),
             error_message: Some(error.to_string()),
-            attempts,
+            attempts: 1,
             hook_blocked: None,
         }
     }

@@ -6,7 +6,7 @@ use crate::engine::ExecutionEngine;
 use crate::error::ExecutionError;
 use crate::event::ExecutionEvent;
 use crate::spawn::SpawnAdapter;
-use crate::types::{ExecutionConfig, ExecutionMode, RetryStrategy, SubAgentResult, VerifyTrigger};
+use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 use async_trait::async_trait;
 use closeclaw_common::{
     ExecutionPermissionCheck, ExecutionStepStatus, NoopNotifier, PermissionDenied, PlanState,
@@ -47,8 +47,6 @@ impl SpawnAdapter for MockSpawnAdapter {
 fn default_config() -> ExecutionConfig {
     ExecutionConfig {
         mode: ExecutionMode::SpawnPerStep,
-        max_retries: 3,
-        retry_strategy: RetryStrategy::Fresh,
         verify_trigger: VerifyTrigger::NonTrivial,
         step_selection: None,
     }
@@ -236,8 +234,8 @@ async fn test_permission_deny_spawn_all_marks_all_steps_failed() {
             .unwrap()
             .contains("permission denied"));
     }
-    // No retries attempted
+    // Permission denial is not retryable — single attempt
     for step in &report.steps {
-        assert_eq!(step.attempts, 0);
+        assert_eq!(step.attempts, 1);
     }
 }

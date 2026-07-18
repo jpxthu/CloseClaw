@@ -13,9 +13,7 @@ use closeclaw_execution::error::ExecutionError;
 use closeclaw_execution::event::ExecutionEvent;
 use closeclaw_execution::hook::{HookError, HookResult, HookRunner, NotifyHook, StepHook};
 use closeclaw_execution::spawn::SpawnAdapter;
-use closeclaw_execution::types::{
-    ExecutionConfig, ExecutionMode, RetryStrategy, SubAgentResult, VerifyTrigger,
-};
+use closeclaw_execution::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 use closeclaw_execution::{ExecutionEngine, StepResult};
 
 // ── Mock adapters ────────────────────────────────────────────────────────
@@ -196,11 +194,9 @@ impl PlanStateNotifier for TrackingNotifier {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-fn spawn_per_step_config(max_retries: u32) -> ExecutionConfig {
+fn spawn_per_step_config() -> ExecutionConfig {
     ExecutionConfig {
         mode: ExecutionMode::SpawnPerStep,
-        max_retries,
-        retry_strategy: RetryStrategy::Fresh,
         verify_trigger: VerifyTrigger::NonTrivial,
         step_selection: None,
     }
@@ -216,6 +212,7 @@ fn success_result(index: usize, summary: &str) -> SubAgentResult {
     }
 }
 
+#[allow(dead_code)]
 fn failed_result(index: usize, msg: &str) -> SubAgentResult {
     SubAgentResult {
         step_index: index,
@@ -254,7 +251,7 @@ async fn test_full_flow_completed_hook_notifies_system_prompt() {
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state.clone(),
-        spawn_per_step_config(3),
+        spawn_per_step_config(),
         adapter,
         notifier,
         runner,
@@ -310,7 +307,7 @@ async fn test_full_flow_completed_hook_notifies_system_prompt() {
 // ===========================================================================
 
 #[tokio::test]
-async fn test_retry_hook_only_fires_on_final_completed() {
+async fn test_hook_fires_on_each_completed_step() {
     let hook_count = Arc::new(AtomicUsize::new(0));
     let hook_indices: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
     let hook = RecordingHook {
@@ -324,17 +321,16 @@ async fn test_retry_hook_only_fires_on_final_completed() {
     let system_appends = Arc::new(MockSystemAppends::new());
     let notifier: Arc<dyn PlanStateNotifier> = system_appends.clone();
 
-    // Step 0: fails first, then succeeds on retry
+    // Both steps succeed on first attempt
     let adapter = SequenceMock::new(vec![
-        Ok(failed_result(0, "transient error")),
-        Ok(success_result(0, "recovered")),
-        Ok(success_result(1, "all done")),
+        Ok(success_result(0, "step 0 done")),
+        Ok(success_result(1, "step 1 done")),
     ]);
 
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state.clone(),
-        spawn_per_step_config(3),
+        spawn_per_step_config(),
         adapter,
         notifier,
         runner,
@@ -342,14 +338,13 @@ async fn test_retry_hook_only_fires_on_final_completed() {
     );
 
     let report = engine
-        .execute(&["flaky step".into(), "reliable step".into()])
+        .execute(&["step 0".into(), "step 1".into()])
         .await
         .unwrap();
 
     assert!(report.all_completed);
 
-    // Hook only fired for completed steps, NOT for the failed intermediate attempt
-    // Step 0 completed on retry (attempt 2), step 1 completed on first attempt
+    // Hook fired for each completed step
     assert_eq!(hook_count.load(Ordering::SeqCst), 2);
     let indices = hook_indices.lock().unwrap();
     assert_eq!(*indices, vec![0, 1]);
@@ -391,7 +386,7 @@ async fn test_hook_and_notifier_coordination() {
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state,
-        spawn_per_step_config(3),
+        spawn_per_step_config(),
         adapter,
         tracking_notifier,
         runner,
@@ -429,7 +424,7 @@ async fn test_hook_failure_does_not_block_notifier() {
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state,
-        spawn_per_step_config(3),
+        spawn_per_step_config(),
         adapter,
         notifier,
         runner,
@@ -493,7 +488,7 @@ async fn test_nontrivial_hook_with_progress_tracking() {
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state,
-        spawn_per_step_config(3),
+        spawn_per_step_config(),
         adapter,
         notifier,
         runner,
@@ -528,22 +523,19 @@ async fn test_nontrivial_hook_with_progress_tracking() {
 // ===========================================================================
 
 #[tokio::test]
-async fn test_retry_with_hook_failure_still_completes() {
+async fn test_hook_failure_does_not_prevent_step_completion() {
     let mut runner = HookRunner::new(VerifyTrigger::Always);
     runner.register(Box::new(BlockingHook));
 
     let system_appends = Arc::new(MockSystemAppends::new());
     let notifier: Arc<dyn PlanStateNotifier> = system_appends.clone();
 
-    let adapter = SequenceMock::new(vec![
-        Ok(failed_result(0, "transient")),
-        Ok(success_result(0, "recovered")),
-    ]);
+    let adapter = SequenceMock::new(vec![Ok(success_result(0, "done"))]);
 
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state.clone(),
-        spawn_per_step_config(3),
+        spawn_per_step_config(),
         adapter,
         notifier,
         runner,
@@ -552,9 +544,9 @@ async fn test_retry_with_hook_failure_still_completes() {
 
     let report = engine.execute(&["step".into()]).await.unwrap();
 
-    // Step completed despite hook failure
+    // Step completed despite hook blocking
     assert!(report.all_completed);
-    // Hook was called (on final completed) and blocked
+    // Hook was called and blocked
     assert!(report
         .events
         .iter()
@@ -591,7 +583,7 @@ async fn test_multi_step_mixed_hook_results() {
     let plan_state = Arc::new(Mutex::new(PlanState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state,
-        spawn_per_step_config(3),
+        spawn_per_step_config(),
         adapter,
         notifier,
         runner,
