@@ -380,7 +380,7 @@ impl SessionManager {
             );
             // Cascade to children (recursive forceful stop), cancel token,
             // kill tool handles, and clear exec state.
-            cs.read().await.stop(cascade, mode).await;
+            cs.read().await.stop(cascade, mode, Duration::ZERO).await;
 
             // Notify parent about forced termination of run-mode child.
             self.notify_child_forced_termination(session_id).await;
@@ -428,7 +428,7 @@ impl SessionManager {
         // child.stop(true, Graceful) — each child's in-flight ops are
         // waited on via graceful_stop() before the next sibling is
         // processed. Returns info about any children that timed out.
-        let cascade_info = cs.read().await.stop(cascade, mode).await;
+        let cascade_info = cs.read().await.stop(cascade, mode, timeout).await;
 
         // Wait for THIS session's in-flight ops (after cascade
         // completes, so children's in-flight ops have been handled).
@@ -522,10 +522,17 @@ impl SessionManager {
         // Notify parent about forced termination of run-mode child.
         self.notify_child_forced_termination(session_id).await;
 
+        // Clear exec state first (LLM state → Idle), then collect
+        // pending operations. The design doc requires clear_exec_state
+        // before collect so the Idle state is visible in any post-stop
+        // observation.
+        cs.read().await.clear_exec_state();
+
         let pending_ops = {
             let guard = cs.read().await;
             guard.collect_pending_operations()
         };
+
         match self
             .persist_checkpoint_with_pending(session_id, pending_ops)
             .await

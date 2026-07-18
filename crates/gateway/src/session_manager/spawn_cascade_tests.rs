@@ -13,6 +13,7 @@ use closeclaw_session::llm_session::ConversationSession;
 use serial_test::serial;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 
 /// Helper: register a `ConversationSession` in the manager's
@@ -223,7 +224,10 @@ async fn test_kill_child_completed_session_skips_stop() {
             .get_conversation_session(&child_id)
             .await
             .expect("conversation session should exist");
-        cs.read().await.stop(true, ShutdownMode::Forceful).await; // mark as stopped
+        cs.read()
+            .await
+            .stop(true, ShutdownMode::Forceful, Duration::ZERO)
+            .await; // mark as stopped
     }
     // Verify the stopped flag is now set.
     {
