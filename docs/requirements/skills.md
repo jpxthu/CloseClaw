@@ -45,7 +45,7 @@ SKILL.md 正文（frontmatter 之后的指令文本）支持变量替换，User 
 Session 启动时，系统向 Agent 注入一份技能清单（名称、描述、决策提示、成本估算），让 Agent 在对话开始时就知道有哪些技能可用。清单中仅包含已声明 user-invocable 的技能（声明了 paths 的技能的例外，见 F6）。
 
 **增量注入**：后续 session turn 中若有新技能被激活或既有技能元数据变更（条件激活、热重载等），仅增量注入变更条目，不重发全量清单。增量注入须保持与初始注入相同的格式与位置，确保不破坏 Agent 对话上下文的连续性。
-> **交叉引用**：技能清单由 session 模块作为 per-turn attachment 在每个 turn 注入 instruction block，不进入 system prompt 静态层。详见 [session §F2](session.md)（Agent 角色与能力配置）。
+> **交叉引用**：技能清单由 session 模块作为 per-turn attachment 在每个 turn 注入 instruction block，不进入 System Prompt 静态层。详见 [session §F2](session.md)（Agent 角色与能力配置）。
 
 清单按技能来源优先级排序（高优先级在前），同来源内按名称字母序排列。技能清单为空时不注入。
 
