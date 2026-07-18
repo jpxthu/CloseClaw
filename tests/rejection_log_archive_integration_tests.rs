@@ -73,21 +73,6 @@ impl RejectionLogger for InMemoryLogger {
     }
 }
 
-/// Build an allow-all engine with mode query injected.
-fn allow_all_engine_with_mode(mode: SessionMode) -> PermissionEngine {
-    let ruleset = RuleSetBuilder::new()
-        .default_file_read(Effect::Allow)
-        .default_command(Effect::Allow)
-        .default_network(Effect::Allow)
-        .default_inter_agent(Effect::Allow)
-        .default_config(Effect::Allow)
-        .build()
-        .unwrap();
-    let query: Arc<dyn SessionModeQuery> =
-        Arc::new(MockModeQuery::new().with_mode("test-agent", mode));
-    PermissionEngine::new_with_default_data_root(ruleset).with_session_mode_query(query)
-}
-
 /// Build a deny-all engine (no mode query, no rejection logger).
 fn deny_all_engine() -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
@@ -101,7 +86,7 @@ fn deny_all_engine() -> PermissionEngine {
     PermissionEngine::new_with_default_data_root(ruleset)
 }
 
-/// Build a deny-all engine with rejection logger.
+/// Build a deny-all engine with rejection logger and Auto Mode session query.
 fn deny_all_engine_with_logger(logger: Arc<dyn RejectionLogger>) -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Deny)
@@ -111,7 +96,19 @@ fn deny_all_engine_with_logger(logger: Arc<dyn RejectionLogger>) -> PermissionEn
         .default_config(Effect::Deny)
         .build()
         .unwrap();
-    PermissionEngine::new_with_default_data_root(ruleset).with_rejection_logger(logger)
+    let query: Arc<dyn SessionModeQuery> = Arc::new(
+        MockModeQuery::new()
+            .with_mode("agent-1", SessionMode::Auto)
+            .with_mode("agent-2", SessionMode::Auto)
+            .with_mode("agent-3", SessionMode::Auto)
+            .with_mode("a", SessionMode::Auto)
+            .with_mode("b", SessionMode::Auto)
+            .with_mode("c", SessionMode::Auto)
+            .with_mode("agent-0", SessionMode::Auto),
+    );
+    PermissionEngine::new_with_default_data_root(ruleset)
+        .with_rejection_logger(logger)
+        .with_session_mode_query(query)
 }
 
 // ============================================================================
@@ -194,7 +191,7 @@ fn test_rejection_log_e2e_config_write_entry() {
 fn test_rejection_log_e2e_records_session_mode() {
     let logger = Arc::new(InMemoryLogger::new());
     let mode_query: Arc<dyn SessionModeQuery> =
-        Arc::new(MockModeQuery::new().with_mode("agent-4", SessionMode::Plan));
+        Arc::new(MockModeQuery::new().with_mode("agent-4", SessionMode::Auto));
     let engine = deny_all_engine_with_logger(logger.clone()).with_session_mode_query(mode_query);
 
     let resp = engine.evaluate(
@@ -208,7 +205,7 @@ fn test_rejection_log_e2e_records_session_mode() {
 
     assert!(matches!(resp, PermissionResponse::Denied { .. }));
     let entry = &logger.entries()[0];
-    assert_eq!(entry.session_mode, Some(SessionMode::Plan));
+    assert_eq!(entry.session_mode, Some(SessionMode::Auto));
 }
 
 /// No rejection logger: engine still works, denials just not logged.
@@ -324,13 +321,21 @@ fn test_rejection_log_e2e_file_logger_creates_dirs() {
     assert_eq!(parsed.agent_id, "a");
 }
 
-/// Plan mode denial → rejection log records session_mode = Plan.
+/// Plan mode denial → rejection log NOT recorded (only Auto Mode logs).
 #[test]
 fn test_rejection_log_e2e_plan_mode_denial_logged() {
     let logger = Arc::new(InMemoryLogger::new());
     let mode_query: Arc<dyn SessionModeQuery> =
         Arc::new(MockModeQuery::new().with_mode("plan-agent", SessionMode::Plan));
-    let engine = allow_all_engine_with_mode(SessionMode::Plan)
+    let ruleset = RuleSetBuilder::new()
+        .default_file_read(Effect::Deny)
+        .default_command(Effect::Deny)
+        .default_network(Effect::Deny)
+        .default_inter_agent(Effect::Deny)
+        .default_config(Effect::Deny)
+        .build()
+        .unwrap();
+    let engine = PermissionEngine::new_with_default_data_root(ruleset)
         .with_rejection_logger(logger.clone())
         .with_session_mode_query(mode_query);
 
@@ -344,10 +349,11 @@ fn test_rejection_log_e2e_plan_mode_denial_logged() {
     );
 
     assert!(matches!(resp, PermissionResponse::Denied { .. }));
-    assert_eq!(logger.count(), 1);
-    let entry = &logger.entries()[0];
-    assert_eq!(entry.session_mode, Some(SessionMode::Plan));
-    assert!(entry.reason.contains("Plan mode"));
+    assert_eq!(
+        logger.count(),
+        0,
+        "Plan mode should not produce rejection logs"
+    );
 }
 
 // ============================================================================
