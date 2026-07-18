@@ -352,17 +352,12 @@ impl SlashHandler for PauseHandler {
             .set_plan_state(&ctx.session_id, plan_state)
             .await;
 
-        // Step 4: Inject ExitAuto transition (leaving Auto Mode).
-        self.session_manager
-            .set_pending_mode_transition(&ctx.session_id, ModeTransition::ExitAuto)
-            .await;
-
-        // Step 5: Inject Reentry transition (re-entering Plan Mode).
+        // Inject Reentry transition (re-entering Plan Mode).
         self.session_manager
             .set_pending_mode_transition(&ctx.session_id, ModeTransition::Reentry)
             .await;
 
-        // Step 6: Switch session mode back to Plan Mode
+        // Step 4: Switch session mode back to Plan Mode
         SlashResult::SetMode {
             mode: "plan".to_owned(),
             plan_file_path: Some(plan_file_path),
