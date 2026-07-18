@@ -101,7 +101,7 @@ fn deny_all_engine() -> PermissionEngine {
     PermissionEngine::new_with_default_data_root(ruleset)
 }
 
-/// Build a deny-all engine with rejection logger.
+/// Build a deny-all engine with rejection logger and Auto Mode session query.
 fn deny_all_engine_with_logger(logger: Arc<dyn RejectionLogger>) -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Deny)
@@ -111,7 +111,19 @@ fn deny_all_engine_with_logger(logger: Arc<dyn RejectionLogger>) -> PermissionEn
         .default_config(Effect::Deny)
         .build()
         .unwrap();
-    PermissionEngine::new_with_default_data_root(ruleset).with_rejection_logger(logger)
+    let query: Arc<dyn SessionModeQuery> = Arc::new(
+        MockModeQuery::new()
+            .with_mode("agent-1", SessionMode::Auto)
+            .with_mode("agent-2", SessionMode::Auto)
+            .with_mode("agent-3", SessionMode::Auto)
+            .with_mode("a", SessionMode::Auto)
+            .with_mode("b", SessionMode::Auto)
+            .with_mode("c", SessionMode::Auto)
+            .with_mode("agent-0", SessionMode::Auto),
+    );
+    PermissionEngine::new_with_default_data_root(ruleset)
+        .with_rejection_logger(logger)
+        .with_session_mode_query(query)
 }
 
 // ============================================================================
