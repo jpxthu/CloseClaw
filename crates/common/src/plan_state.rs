@@ -504,12 +504,14 @@ impl DefaultPlanStateWriter {
 /// - `Completed` → `[x]`
 /// - `InProgress` → `[-]`
 /// - `Failed` → `[!]`
-/// - `Pending` / `Skipped` → `[ ]`
+/// - `Pending` → `[ ]`
+/// - `Skipped` → `[~]`
 pub(crate) fn step_status_to_marker(status: &ExecutionStepStatus) -> String {
     match status {
         ExecutionStepStatus::Completed => "[x]".to_string(),
         ExecutionStepStatus::InProgress => "[-]".to_string(),
         ExecutionStepStatus::Failed => "[!]".to_string(),
-        ExecutionStepStatus::Pending | ExecutionStepStatus::Skipped => "[ ]".to_string(),
+        ExecutionStepStatus::Pending => "[ ]".to_string(),
+        ExecutionStepStatus::Skipped => "[~]".to_string(),
     }
 }

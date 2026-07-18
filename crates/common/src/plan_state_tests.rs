@@ -310,7 +310,7 @@ fn test_step_status_to_marker_checkbox_format() {
     );
     assert_eq!(step_status_to_marker(&ExecutionStepStatus::Failed), "[!]");
     assert_eq!(step_status_to_marker(&ExecutionStepStatus::Pending), "[ ]");
-    assert_eq!(step_status_to_marker(&ExecutionStepStatus::Skipped), "[ ]");
+    assert_eq!(step_status_to_marker(&ExecutionStepStatus::Skipped), "[~]");
 }
 
 // --- PlanPath tests ---
