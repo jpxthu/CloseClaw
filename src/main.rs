@@ -3,6 +3,7 @@
 use clap::{Parser, Subcommand};
 use closeclaw::cli::admin::*;
 use closeclaw::cli::args::*;
+use closeclaw::sandbox_engine::try_run_engine_subprocess;
 
 #[derive(Parser)]
 #[command(name = "closeclaw", version = env!("CARGO_PKG_VERSION"))]
@@ -52,6 +53,9 @@ enum Commands {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     closeclaw::init();
+    if let Some(result) = try_run_engine_subprocess().await {
+        return result;
+    }
     let cli = Cli::parse();
     match cli.command {
         Commands::Agent { action } => handle_agent(action, cli.json).await?,
