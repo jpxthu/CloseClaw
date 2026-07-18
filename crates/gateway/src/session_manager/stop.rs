@@ -522,10 +522,17 @@ impl SessionManager {
         // Notify parent about forced termination of run-mode child.
         self.notify_child_forced_termination(session_id).await;
 
+        // Collect pending operations before clearing exec state
+        // so we can observe what was in flight.
         let pending_ops = {
             let guard = cs.read().await;
             guard.collect_pending_operations()
         };
+
+        // Explicitly set LLM state to Idle, matching the graceful
+        // path's clear_exec_state call (both before persist).
+        cs.read().await.clear_exec_state();
+
         match self
             .persist_checkpoint_with_pending(session_id, pending_ops)
             .await
