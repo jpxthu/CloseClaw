@@ -446,11 +446,6 @@ mod tests {
             "context_modifier should mention clarification only, got: {}",
             cm
         );
-        assert!(
-            cm.contains("plan_approval"),
-            "context_modifier should mention plan_approval, got: {}",
-            cm
-        );
     }
 
     #[tokio::test]

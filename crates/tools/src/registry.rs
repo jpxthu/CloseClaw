@@ -83,7 +83,7 @@ impl Default for ToolRegistryImpl {
 /// In Plan Mode, only read-only tools and plan-specific tools are visible.
 /// Write-capable tools (Write, Edit, Bash, Git commit/push/diff, etc.) are
 /// hidden from the agent's tool list. Plan-specific tools (ProgressTool,
-/// PlanApproval) remain visible for plan tracking and approval.
+/// execute_plan) remain visible for plan tracking and execution.
 ///
 /// Tools that are `is_read_only` are always visible.
 /// Tools in the `PLAN_MODE_ALWAYS_VISIBLE` set are always visible.

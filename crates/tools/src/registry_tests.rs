@@ -587,60 +587,6 @@ fn test_registry_error_debug() {
 }
 
 // =========================================================================
-// PlanApprovalTool registration and query tests
-// =========================================================================
-
-use crate::builtin::plan_approval::PlanApprovalTool;
-use closeclaw_common::ToolRegistryQuery;
-
-#[tokio::test]
-async fn test_plan_approval_tool_register_and_query() {
-    let reg = ToolRegistry::new();
-    let tool = PlanApprovalTool::new();
-    let name = tool.name().to_string();
-    assert_eq!(name, "plan_approval");
-
-    reg.register(tool).await.unwrap();
-
-    assert!(reg.has_tool(&name).await);
-    assert!(!reg.has_tool("nonexistent").await);
-
-    let detail = reg.get_detail(&name).await.unwrap();
-    assert!(detail.contains("Plan Mode"));
-    assert!(detail.contains("Auto Mode"));
-}
-
-#[tokio::test]
-async fn test_plan_approval_tool_in_list_by_group() {
-    let reg = ToolRegistry::new();
-    reg.register(PlanApprovalTool::new()).await.unwrap();
-
-    let plan_tools = reg.list_by_group("plan").await;
-    assert!(
-        plan_tools.contains(&"plan_approval".to_string()),
-        "plan_approval should be in plan group, got: {:?}",
-        plan_tools
-    );
-}
-
-#[tokio::test]
-async fn test_plan_approval_tool_descriptor_fields() {
-    let reg = ToolRegistry::new();
-    reg.register(PlanApprovalTool::new()).await.unwrap();
-
-    let ctx = make_ctx();
-    let descriptors = reg.list_descriptors(&ctx).await;
-    let desc = descriptors
-        .iter()
-        .find(|d| d.name == "plan_approval")
-        .expect("plan_approval descriptor should exist");
-
-    assert_eq!(desc.group, "plan");
-    assert!(!desc.is_deferred);
-    assert!(desc.summary.contains("plan"));
-}
-
-// =========================================================================
 // Plan Mode tool visibility filtering tests
 // =========================================================================
 
@@ -714,15 +660,24 @@ async fn test_plan_mode_filters_write_tools() {
 #[tokio::test]
 async fn test_plan_mode_keeps_plan_specific_tools() {
     let reg = ToolRegistry::new();
-    // Register a plan_approval tool (non-read-only but always visible in Plan mode).
-    reg.register(PlanApprovalTool::new()).await.unwrap();
+    // Register execute_plan (non-read-only but always visible in Plan mode).
+    reg.register(DummyTool {
+        name: "execute_plan".to_string(),
+        group: "plan".to_string(),
+        summary_text: "Execute plan".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
 
     let ctx = make_plan_mode_ctx();
     let section = reg.build_tools_section(&ctx).await;
 
     assert!(
-        section.contains("plan_approval"),
-        "plan_approval should be visible in Plan mode"
+        section.contains("execute_plan"),
+        "execute_plan should be visible in Plan mode"
     );
 }
 
