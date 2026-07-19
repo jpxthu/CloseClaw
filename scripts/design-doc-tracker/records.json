@@ -329,9 +329,9 @@
   },
   {
     "path": "docs/design/mode/plan-mode.md",
-    "commit": "4785a4aabbdea471086447600cc9f4c0e1e6065b",
-    "commit_time": "2026-07-09T00:36:08+08:00",
-    "confirmed_time": "2026-07-09T00:43:43.504648+08:00",
+    "commit": "5080e425773f7f95b17765dfe05d74fb77ffb5d0",
+    "commit_time": "2026-07-19T09:54:59+08:00",
+    "confirmed_time": "2026-07-19T10:02:59.946007+08:00",
     "comment": "",
     "blocked_reason": ""
   },
