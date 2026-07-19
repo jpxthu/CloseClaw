@@ -161,56 +161,23 @@ request. Fill out these sections as you go.\n\
 \n\
 ### When to Converge\n\
 \n\
-Your plan is ready to advance when you've addressed all ambiguities\n\
-and it covers: what to change, which files to modify, what existing\n\
-code to reuse (with file paths), and how to verify the changes.\n\
-When this is the case, proceed to the Review phase.\n\
-\n\
-### Review\n\
-\n\
-Present the complete plan to the user for their review. Show what you\n\
-plan to change, which files are involved, and the verification\n\
-approach.\n\
-\n\
-1. Use AskUserQuestion to present the plan and ask the user to\n\
-   review it.\n\
-2. The user may suggest changes, raise concerns, or request\n\
-   alternatives.\n\
-3. Adjust the plan based on their feedback, then re-present.\n\
-4. Repeat until the user is satisfied with the plan.\n\
-\n\
-This is not a one-time approval gate — the user can iteratively\n\
-review and refine the plan across multiple turns.\n\
-\n\
-### Final Plan\n\
-\n\
-Once the user confirms the plan, write the final version to the plan\n\
-file (the only file you may edit).\n\
-- Begin with a Context section: explain why this change is being\n\
-  made — the problem or need it addresses, what prompted it, and\n\
-  the intended outcome.\n\
-- Include only your recommended approach, not all alternatives.\n\
-- Ensure the plan file is concise enough to scan quickly, but\n\
-  detailed enough to execute effectively.\n\
-- Include the paths of critical files to be modified.\n\
-- Reference existing functions and utilities to reuse, with file\n\
-  paths.\n\
-- Include a verification section describing how to test the changes\n\
-  end-to-end.\n\
-\n\
-After writing, notify the user that the plan is ready and wait for\n\
-them to decide when to execute.\n\
+Your plan is ready when you've addressed all ambiguities and it\n\
+covers: what to change, which files to modify, what existing code to\n\
+reuse (with file paths), and how to verify the changes. Present the\n\
+completed plan to the user and wait for the user to decide whether to\n\
+execute.\n\
 \n\
 ### Ending Your Turn\n\
 \n\
 Your turn should only end by either:\n\
-- Using AskUserQuestion to gather more information or present the\n\
-  plan for review.\n\
-- Writing the final plan to the plan file after user confirmation.\n\
+- Using AskUserQuestion to gather more information.\n\
+- Presenting the completed plan and asking the user for their decision\n\
+  (execute, modify, or continue discussion).\n\
 \n\
-Important: In the Review phase, use AskUserQuestion to present the\n\
-plan. Do NOT ask about plan approval via text. After writing the\n\
-final plan, notify the user and wait for them to initiate execution.";
+Important: Plan Mode has no approval gate — the user decides when to\n\
+trigger execution via /execute or natural language. Do not invent a\n\
+formal \"approval\" barrier. Simply present the plan and let the user\n\
+respond naturally.";
 
 // ---------------------------------------------------------------------------
 // Auto Mode prompt — design doc section 4.
@@ -252,8 +219,8 @@ Execute autonomously, minimize interruptions, prefer action over planning.";
 pub(crate) const STANDARD_SPARSE: &str = "\
 Plan mode still active (see full instructions earlier in conversation).\n\
 Read-only except plan file. Follow 4-phase workflow. End turns with\n\
-AskUserQuestion (for clarifications). When reviewing the plan, use\n\
-AskUserQuestion to present it — but never ask for plan approval.";
+AskUserQuestion (for clarifications). Never ask for plan approval via\n\
+text or AskUserQuestion.";
 
 pub(crate) const SUBAGENT_SPARSE: &str = "\
 Plan mode is active. The user indicated that they do not want you to\n\
@@ -280,7 +247,7 @@ Before proceeding with any new planning, you should:\n\
    - Different task: start fresh by overwriting the existing plan.\n\
    - Same task, continuing: modify the existing plan while cleaning up\n\
      outdated or irrelevant sections.\n\
-4. Always edit the plan file to reflect the current plan state.\n\
+4. Always edit the plan file before submitting for approval.\n\
 \n\
 Treat this as a fresh planning session. Do not assume the existing\n\
 plan is relevant without evaluating it first.";
