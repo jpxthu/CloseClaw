@@ -366,8 +366,8 @@ impl PlanStateWriter for DefaultPlanStateWriter {
         let mut in_tasks_section = false;
 
         for line in &lines {
-            if line.trim_start().starts_with("## Tasks") {
-                in_tasks_section = true;
+            if line.trim_start().starts_with("## ") {
+                in_tasks_section = line.trim_start().starts_with("## Tasks");
             }
 
             if in_tasks_section && line.contains('|') {
