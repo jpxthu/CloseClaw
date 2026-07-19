@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
-use crate::handlers_mode::{parse_plan_path_arg, ExecuteHandler, ModeHandler, PlanModeHandler};
+use crate::handlers_mode::{
+    parse_plan_path_arg, AutoModeHandler, ExecuteHandler, ModeHandler, PlanModeHandler,
+};
 use closeclaw_common::plan_state::PlanPath;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_gateway::session_manager::SessionManager;
@@ -39,6 +41,10 @@ fn make_session_manager() -> Arc<SessionManager> {
 
 fn make_plan_handler() -> PlanModeHandler {
     PlanModeHandler::new(make_session_manager())
+}
+
+fn make_auto_handler() -> AutoModeHandler {
+    AutoModeHandler::new(make_session_manager())
 }
 
 async fn create_test_session(sm: &SessionManager) -> String {
@@ -192,12 +198,8 @@ async fn test_mode_handler_auto_blocked() {
     match h.handle("auto", &ctx).await {
         SlashResult::Reply(text) => {
             assert!(
-                text.contains("不能直接"),
-                "should explain auto cannot be entered directly, got: {text}"
-            );
-            assert!(
-                text.contains("/execute"),
-                "should mention /execute as the correct path, got: {text}"
+                text.contains("请使用 /auto 命令直接进入 Auto Mode"),
+                "should mention /auto command, got: {text}"
             );
         }
         other => panic!("expected Reply blocking auto mode, got {other:?}"),
@@ -635,5 +637,133 @@ async fn test_mode_handler_plan_from_plan_mode_allowed() {
     match h.handle("plan", &ctx).await {
         SlashResult::SetMode { mode, .. } => assert_eq!(mode, "plan"),
         other => panic!("expected SetMode for /mode plan from Plan Mode, got {other:?}"),
+    }
+}
+
+// ── AutoModeHandler tests ─────────────────────────────────────────────────
+
+#[test]
+fn test_auto_mode_handler_commands_and_description() {
+    let h = make_auto_handler();
+    assert_eq!(h.commands(), &["auto"]);
+    assert_eq!(h.description(), "直接进入 Auto Mode");
+}
+
+#[test]
+fn test_auto_mode_handler_not_immediate() {
+    let h = make_auto_handler();
+    assert!(!h.immediate("auto"));
+}
+
+#[tokio::test]
+async fn test_auto_no_args_enters_auto_mode() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_test_session(&sm).await;
+    let h = AutoModeHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::SetMode {
+            mode,
+            plan_file_path,
+        } => {
+            assert_eq!(mode, "auto");
+            assert!(plan_file_path.is_none(), "no plan file expected");
+        }
+        other => panic!("expected SetMode{{mode: \"auto\", ..}}, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_auto_with_plan_file_enters_auto_mode() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_test_session(&sm).await;
+    let h = AutoModeHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    let tmp = tempfile::tempdir().unwrap();
+    let plan_file = tmp.path().join("test-plan.md");
+    std::fs::write(&plan_file, "# Test Plan").unwrap();
+    match h.handle(plan_file.to_str().unwrap(), &ctx).await {
+        SlashResult::SetMode {
+            mode,
+            plan_file_path,
+        } => {
+            assert_eq!(mode, "auto");
+            assert!(plan_file_path.is_some(), "should have plan_file_path");
+            assert_eq!(plan_file_path.unwrap(), plan_file);
+        }
+        other => {
+            panic!("expected SetMode{{mode: \"auto\", plan_file_path: Some(..)}}, got {other:?}")
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_auto_sets_plan_state_with_file() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_test_session(&sm).await;
+    let h = AutoModeHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid.clone();
+    let tmp = tempfile::tempdir().unwrap();
+    let plan_file = tmp.path().join("plan-state-test.md");
+    std::fs::write(&plan_file, "# Plan").unwrap();
+    h.handle(plan_file.to_str().unwrap(), &ctx).await;
+    let plan_state = sm.get_plan_state(&sid).await;
+    assert!(plan_state.is_some(), "PlanState should be set");
+    let ps = plan_state.unwrap();
+    assert_eq!(ps.plan_file_path, plan_file.to_str().unwrap());
+    assert_eq!(ps.phase, closeclaw_common::PlanPhase::FinalPlan);
+}
+
+#[tokio::test]
+async fn test_auto_from_plan_mode_injects_exit_plan() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_plan_mode(&sm).await;
+    let h = AutoModeHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid.clone();
+    match h.handle("", &ctx).await {
+        SlashResult::SetMode { mode, .. } => {
+            assert_eq!(mode, "auto");
+            let conv = sm.get_conversation_session(&sid).await.unwrap();
+            let transition = conv.read().await.take_pending_mode_transition();
+            assert!(
+                matches!(transition, Some(closeclaw_common::ModeTransition::ExitPlan)),
+                "should inject ExitPlan transition, got {transition:?}"
+            );
+        }
+        other => panic!("expected SetMode from Plan Mode, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_auto_already_in_auto_mode() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_auto_mode(&sm).await;
+    let h = AutoModeHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(text) => {
+            assert!(text.contains("已在 Auto Mode"), "got: {text}");
+        }
+        other => panic!("expected Reply already in Auto Mode, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_auto_nonexistent_file() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_test_session(&sm).await;
+    let h = AutoModeHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("/nonexistent/path/plan.md", &ctx).await {
+        SlashResult::Reply(text) => {
+            assert!(text.contains("plan 文件不存在"), "got: {text}");
+        }
+        other => panic!("expected Reply for nonexistent file, got {other:?}"),
     }
 }
