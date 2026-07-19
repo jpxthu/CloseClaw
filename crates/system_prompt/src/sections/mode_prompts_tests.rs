@@ -49,6 +49,8 @@ fn test_interview_path_titles_have_newlines() {
         "### Asking Good Questions",
         "### Plan File Structure",
         "### When to Converge",
+        "### Review",
+        "### Final Plan",
         "### Ending Your Turn",
     ];
     for title in &titles {
@@ -72,6 +74,16 @@ fn test_interview_path_content_integrity() {
     assert!(
         INTERVIEW_PATH_PROMPT.contains("concise enough to scan quickly, but detailed\nenough to"),
         "INTERVIEW_PATH_PROMPT: multi-line item should have newline continuation"
+    );
+    // Review phase content
+    assert!(
+        INTERVIEW_PATH_PROMPT.contains("Present the complete plan"),
+        "INTERVIEW_PATH_PROMPT: Review phase should contain 'Present the complete plan'"
+    );
+    // Final Plan phase content
+    assert!(
+        INTERVIEW_PATH_PROMPT.contains("write the final version"),
+        "INTERVIEW_PATH_PROMPT: Final Plan phase should contain 'write the final version'"
     );
 }
 
