@@ -200,8 +200,8 @@ fn test_standard_sparse_content_integrity() {
         "STANDARD_SPARSE: first sentence should end with newline"
     );
     assert!(
-        STANDARD_SPARSE.contains("via\ntext or AskUserQuestion."),
-        "STANDARD_SPARSE: last part should have newline before 'text or AskUserQuestion'"
+        STANDARD_SPARSE.contains("plan approval."),
+        "STANDARD_SPARSE: should end with plan approval prohibition"
     );
 }
 
