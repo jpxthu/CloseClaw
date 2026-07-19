@@ -582,25 +582,18 @@ async fn create_session_with_auto_mode(sm: &SessionManager) -> String {
 }
 
 #[tokio::test]
-async fn test_mode_handler_normal_from_plan_mode_rejected() {
+async fn test_mode_handler_normal_from_plan_mode_allowed() {
     let sm = make_session_manager_with_storage();
     let sid = create_session_with_plan_mode(&sm).await;
     let h = ModeHandler::new(Arc::clone(&sm));
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("normal", &ctx).await {
-        SlashResult::Reply(text) => {
-            assert!(
-                text.contains("Plan Mode"),
-                "should mention Plan Mode, got: {text}"
-            );
-            assert!(
-                text.contains("plan_approval"),
-                "should guide user to plan_approval tool, got: {text}"
-            );
+        SlashResult::SetMode { mode, .. } => {
+            assert_eq!(mode, "normal");
         }
         other => {
-            panic!("expected Reply rejecting /mode normal from Plan Mode, got {other:?}")
+            panic!("expected SetMode switching from Plan to Normal, got {other:?}")
         }
     }
 }
