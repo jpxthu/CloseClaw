@@ -139,26 +139,72 @@ pub fn archive_completed_plans_with_threshold(
     PlanArchiver::new(threshold_days).archive(workdir)
 }
 
-/// Parse a plan file's status from its content.
+/// Step marker state extracted from a plan's Tasks section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StepState {
+    /// `[x]` — completed
+    Done,
+    /// `[ ]` — not started
+    Pending,
+    /// `[-]` — in progress
+    InProgress,
+    /// `[!]` — failed
+    Failed,
+    /// `[~]` — skipped
+    Skipped,
+}
+
+/// Extract all step markers from a plan file's Tasks section.
 ///
-/// The status line follows the format: `| 状态 | <value> |`
-/// Returns the trimmed status string, or None if not found.
-pub(crate) fn parse_plan_status(content: &str) -> Option<String> {
+/// Looks for lines starting with `- [` or `* [` (with optional
+/// leading whitespace) anywhere in the file. Each marker is
+/// classified into one of [`StepState`] variants.
+///
+/// Returns an empty vec if no step markers are found.
+pub(crate) fn parse_step_markers(content: &str) -> Vec<StepState> {
+    let mut states = Vec::new();
+
     for line in content.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("| 状态 |") {
-            let status = rest.trim_end_matches('|').trim();
-            if !status.is_empty() {
-                return Some(status.to_string());
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("- [") || trimmed.starts_with("* [") {
+            let bracket_start = trimmed.find('[').unwrap() + 1;
+            let bracket_end = trimmed[bracket_start..].find(']');
+            if let Some(end) = bracket_end {
+                let marker = &trimmed[bracket_start..bracket_start + end];
+                let state = match marker {
+                    "x" => StepState::Done,
+                    " " => StepState::Pending,
+                    "-" => StepState::InProgress,
+                    "!" => StepState::Failed,
+                    "~" => StepState::Skipped,
+                    _ => continue,
+                };
+                states.push(state);
             }
         }
     }
-    None
+
+    states
 }
 
-/// Check if a plan file content has `completed` status.
+/// Check if a plan is considered completed.
+///
+/// A plan is completed when the Tasks section contains at least one
+/// step marker and **all** steps are in a terminal state:
+/// - `[x]` (done) or `[~]` (skipped) — considered completed.
+/// - `[ ]`, `[-]`, `[!]` — plan is still active or failed, not
+///   eligible for archival.
+///
+/// An empty Tasks section (no step markers) is **not** treated as
+/// completed to avoid archiving empty/plans that were never started.
 fn is_completed_plan(content: &str) -> bool {
-    matches!(parse_plan_status(content).as_deref(), Some("completed"))
+    let states = parse_step_markers(content);
+    if states.is_empty() {
+        return false;
+    }
+    states
+        .iter()
+        .all(|s| matches!(s, StepState::Done | StepState::Skipped))
 }
 
 /// Errors that can occur during plan archival.
