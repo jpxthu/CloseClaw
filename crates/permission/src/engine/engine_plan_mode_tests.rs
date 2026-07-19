@@ -714,8 +714,8 @@ fn test_plan_mode_ask_user_question_allowed_with_context_modifier() {
                 msg
             );
             assert!(
-                msg.contains("plan_approval"),
-                "context modifier should mention plan_approval, got: {}",
+                !msg.contains("plan_approval"),
+                "context modifier should NOT mention plan_approval (removed), got: {}",
                 msg
             );
         }

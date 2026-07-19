@@ -40,7 +40,7 @@ pub struct ProgressToolCallRecord {
 /// layers (PlanState persistence, plan file disk) are unavailable.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ApprovalToolCallRecord {
-    /// Tool name (e.g. "plan_approval").
+    /// Tool name (e.g. "execute_plan").
     pub tool_name: String,
     /// Plan summary submitted for approval.
     pub plan_summary: String,

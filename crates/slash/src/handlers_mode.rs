@@ -523,7 +523,7 @@ impl SlashHandler for ModeHandler {
             ));
         };
 
-        // Read current mode for approval gate and ExitAuto detection.
+        // Read current mode for ExitAuto detection.
         let current_mode = self
             .session_manager
             .get_conversation_session(&ctx.session_id)
@@ -533,15 +533,6 @@ impl SlashHandler for ModeHandler {
         } else {
             None
         };
-
-        // Approval gate: `/mode normal` from Plan Mode is forbidden.
-        if target_mode == SessionMode::Normal && current_mode == Some(SessionMode::Plan) {
-            return SlashResult::Reply(
-                "Plan Mode 下不能直接切换到 Normal Mode。".to_owned()
-                    + "请使用 plan_approval 工具提交审批，"
-                    + "审批通过后方可退出 Plan Mode。",
-            );
-        }
 
         // Inject ExitAuto transition when leaving Auto Mode.
         if current_mode == Some(SessionMode::Auto) && target_mode != SessionMode::Auto {

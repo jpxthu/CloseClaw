@@ -574,7 +574,7 @@ impl ApprovalFlow {
         let result = self.queue.approve(request_id, final_mode)?;
 
         self.persist_whitelist(request_id, &pending_info, final_mode, result);
-        self.handle_plan_approval(request_id, &pending_info, result)
+        self.handle_plan_exec_approval(request_id, &pending_info, result)
             .await;
 
         Ok(result)
@@ -719,8 +719,8 @@ impl ApprovalFlow {
 // ── Plan approval flow ────────────────────────────────────────────────────
 
 impl ApprovalFlow {
-    /// Handle plan approval: push result and transition session to Auto Mode.
-    async fn handle_plan_approval(
+    /// Handle execute plan approval: push result and transition session to Auto Mode.
+    async fn handle_plan_exec_approval(
         &mut self,
         request_id: &str,
         pending_info: &Option<PendingInfo>,
