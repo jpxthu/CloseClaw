@@ -27,8 +27,9 @@ impl Default for ArchiveConfig {
 
 /// Handles automatic archival of completed plan files.
 ///
-/// Scans `plans/` for `.md` files with `completed` status and moves
-/// those older than the configured threshold to `plans/archive/`.
+/// Scans `plans/` for `.md` files where all step markers are in
+/// terminal state (`[x]` done or `[~]` skipped), and moves those
+/// older than the configured threshold to `plans/archive/`.
 #[derive(Debug)]
 pub struct PlanArchiver {
     config: ArchiveConfig,
