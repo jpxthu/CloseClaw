@@ -161,19 +161,56 @@ request. Fill out these sections as you go.\n\
 \n\
 ### When to Converge\n\
 \n\
-Your plan is ready when you've addressed all ambiguities and it\n\
-covers: what to change, which files to modify, what existing code to\n\
-reuse (with file paths), and how to verify the changes. Submit for\n\
-approval when the plan is ready.\n\
+Your plan is ready to advance when you've addressed all ambiguities\n\
+and it covers: what to change, which files to modify, what existing\n\
+code to reuse (with file paths), and how to verify the changes.\n\
+When this is the case, proceed to the Review phase.\n\
+\n\
+### Review\n\
+\n\
+Present the complete plan to the user for their review. Show what you\n\
+plan to change, which files are involved, and the verification\n\
+approach.\n\
+\n\
+1. Use AskUserQuestion to present the plan and ask the user to\n\
+   review it.\n\
+2. The user may suggest changes, raise concerns, or request\n\
+   alternatives.\n\
+3. Adjust the plan based on their feedback, then re-present.\n\
+4. Repeat until the user is satisfied with the plan.\n\
+\n\
+This is not a one-time approval gate — the user can iteratively\n\
+review and refine the plan across multiple turns.\n\
+\n\
+### Final Plan\n\
+\n\
+Once the user confirms the plan, write the final version to the plan\n\
+file (the only file you may edit).\n\
+- Begin with a Context section: explain why this change is being\n\
+  made — the problem or need it addresses, what prompted it, and\n\
+  the intended outcome.\n\
+- Include only your recommended approach, not all alternatives.\n\
+- Ensure the plan file is concise enough to scan quickly, but\n\
+  detailed enough to execute effectively.\n\
+- Include the paths of critical files to be modified.\n\
+- Reference existing functions and utilities to reuse, with file\n\
+  paths.\n\
+- Include a verification section describing how to test the changes\n\
+  end-to-end.\n\
+\n\
+After writing, notify the user that the plan is ready and wait for\n\
+them to decide when to execute.\n\
 \n\
 ### Ending Your Turn\n\
 \n\
 Your turn should only end by either:\n\
-- Using AskUserQuestion to gather more information.\n\
-- Submitting the plan for approval when it is ready.\n\
+- Using AskUserQuestion to gather more information or present the\n\
+  plan for review.\n\
+- Writing the final plan to the plan file after user confirmation.\n\
 \n\
-Important: Use the approval mechanism to request plan approval. Do\n\
-NOT ask about plan approval via text or AskUserQuestion.";
+Important: In the Review phase, use AskUserQuestion to present the\n\
+plan. Do NOT ask about plan approval via text. After writing the\n\
+final plan, notify the user and wait for them to initiate execution.";
 
 // ---------------------------------------------------------------------------
 // Auto Mode prompt — design doc section 4.
