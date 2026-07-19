@@ -48,6 +48,9 @@ mod engine_spawn_tests;
 mod engine_plan_mode_tests;
 
 #[cfg(test)]
+mod engine_auto_mode_tests;
+
+#[cfg(test)]
 mod engine_rejection_log_tests;
 
 #[cfg(test)]

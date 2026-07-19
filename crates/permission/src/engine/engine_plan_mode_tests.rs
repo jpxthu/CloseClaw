@@ -363,11 +363,11 @@ fn test_auto_mode_config_write_allowed_by_rules() {
 }
 
 // ---------------------------------------------------------------------------
-// Auto mode: risk gate removed — high/critical risk allowed by rules
+// Auto mode: high/critical risk → denied by auto mode filter
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_auto_mode_high_risk_git_path_allowed() {
+fn test_auto_mode_high_risk_git_path_denied() {
     let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
     let engine = make_permissive_engine(query);
     let resp = engine.evaluate(
@@ -378,15 +378,17 @@ fn test_auto_mode_high_risk_git_path_allowed() {
         }),
         None,
     );
-    assert!(
-        matches!(resp, PermissionResponse::Allowed { .. }),
-        "Auto mode + high risk should be allowed (risk gate removed), got: {:?}",
-        resp
-    );
+    match resp {
+        PermissionResponse::Denied { reason, rule, .. } => {
+            assert!(reason.contains("Auto Mode"), "reason: {}", reason);
+            assert_eq!(rule, "<auto_mode_filter>");
+        }
+        other => panic!("expected Denied for Auto mode high risk, got: {:?}", other),
+    }
 }
 
 #[test]
-fn test_auto_mode_high_risk_bare_rm_rf_allowed() {
+fn test_auto_mode_high_risk_bare_rm_rf_denied() {
     let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
     let engine = make_permissive_engine(query);
     let resp = engine.evaluate(
@@ -397,15 +399,20 @@ fn test_auto_mode_high_risk_bare_rm_rf_allowed() {
         }),
         None,
     );
-    assert!(
-        matches!(resp, PermissionResponse::Allowed { .. }),
-        "Auto mode + high risk (rm -rf) should be allowed (risk gate removed), got: {:?}",
-        resp
-    );
+    match resp {
+        PermissionResponse::Denied { reason, rule, .. } => {
+            assert!(reason.contains("Auto Mode"), "reason: {}", reason);
+            assert_eq!(rule, "<auto_mode_filter>");
+        }
+        other => panic!(
+            "expected Denied for Auto mode high risk (rm -rf), got: {:?}",
+            other
+        ),
+    }
 }
 
 #[test]
-fn test_auto_mode_critical_risk_permissions_json_allowed() {
+fn test_auto_mode_critical_risk_permissions_json_denied() {
     let query = Arc::new(MockModeQuery::new().with_mode("a", SessionMode::Auto));
     let engine = make_permissive_engine(query);
     let resp = engine.evaluate(
@@ -416,11 +423,16 @@ fn test_auto_mode_critical_risk_permissions_json_allowed() {
         }),
         None,
     );
-    assert!(
-        matches!(resp, PermissionResponse::Allowed { .. }),
-        "Auto mode + critical risk should be allowed (risk gate removed), got: {:?}",
-        resp
-    );
+    match resp {
+        PermissionResponse::Denied { reason, rule, .. } => {
+            assert!(reason.contains("Auto Mode"), "reason: {}", reason);
+            assert_eq!(rule, "<auto_mode_filter>");
+        }
+        other => panic!(
+            "expected Denied for Auto mode critical risk, got: {:?}",
+            other
+        ),
+    }
 }
 
 #[test]
