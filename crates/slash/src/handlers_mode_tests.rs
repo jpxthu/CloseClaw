@@ -192,12 +192,8 @@ async fn test_mode_handler_auto_blocked() {
     match h.handle("auto", &ctx).await {
         SlashResult::Reply(text) => {
             assert!(
-                text.contains("不能直接"),
-                "should explain auto cannot be entered directly, got: {text}"
-            );
-            assert!(
-                text.contains("/execute"),
-                "should mention /execute as the correct path, got: {text}"
+                text.contains("/auto"),
+                "should mention /auto command as the entry point, got: {text}"
             );
         }
         other => panic!("expected Reply blocking auto mode, got {other:?}"),
