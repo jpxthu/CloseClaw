@@ -701,7 +701,7 @@ fn test_progress_summary_no_current_step() {
 
 fn make_plan_file(dir: &std::path::Path, step_names: &[&str]) -> String {
     let path = dir.join("plan.md");
-    let mut content = String::from("# Plan\n\n## 进度\n\n");
+    let mut content = String::from("# Plan\n\n## Tasks\n\n");
     content.push_str("| | Step | Status |\n");
     content.push_str("|---|---|---|\n");
     for name in step_names {
@@ -791,16 +791,14 @@ fn test_writer_file_not_found() {
 
 #[test]
 fn test_writer_preserves_non_step_content() {
-    let dir = std::env::temp_dir().join("cc_test_writer_preserve");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("plan.md");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("plan.md");
     let content = concat!(
         "# Plan\n",
         "\n",
         "Keep this.\n",
         "\n",
-        "## \u{8fdb}\u{5ea6}\n",
+        "## Tasks\n",
         "\n",
         "| | Step | Status |\n",
         "|---|---|---|\n",
@@ -825,10 +823,82 @@ fn test_writer_preserves_non_step_content() {
 
     writer.write_progress_to_plan_file(&plan_path, &ps).unwrap();
     let result = std::fs::read_to_string(&plan_path).unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(result.contains("# Plan"));
     assert!(result.contains("Keep this."));
     assert!(result.contains("## Notes"));
     assert!(result.contains("More notes."));
     assert!(result.contains("[x]"));
+}
+
+#[test]
+fn test_writer_updates_tasks_section_marker() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("plan.md");
+    let content = concat!(
+        "# Plan\n",
+        "\n",
+        "## Context\n",
+        "\n",
+        "Background info.\n",
+        "\n",
+        "## Tasks\n",
+        "\n",
+        "| | Step | Description |\n",
+        "|---|---|---|\n",
+        "| [ ] | 1.1 | First step |\n",
+        "| [ ] | 2.1 | Second step |\n",
+        "| [ ] | 3.1 | Third step |\n",
+        "\n",
+        "## Verification\n",
+        "\n",
+        "Run tests.\n",
+    );
+    std::fs::write(&path, content).unwrap();
+    let plan_path = path.to_str().unwrap().to_string();
+
+    let writer = DefaultPlanStateWriter::new();
+    let mut ps = PlanState::new();
+    ps.plan_file_path = plan_path.clone();
+    ps.execution_steps = vec![
+        ExecutionStep {
+            step_index: 0,
+            status: ExecutionStepStatus::Completed,
+            summary: "First step".into(),
+            error_message: None,
+        },
+        ExecutionStep {
+            step_index: 1,
+            status: ExecutionStepStatus::InProgress,
+            summary: "Second step".into(),
+            error_message: None,
+        },
+        ExecutionStep {
+            step_index: 2,
+            status: ExecutionStepStatus::Pending,
+            summary: "Third step".into(),
+            error_message: None,
+        },
+    ];
+
+    writer.write_progress_to_plan_file(&plan_path, &ps).unwrap();
+    let result = std::fs::read_to_string(&plan_path).unwrap();
+    // Verify markers are updated correctly
+    assert!(
+        result.contains("|[x]| 1.1 |"),
+        "step 1.1 should be [x]: {result}"
+    );
+    assert!(
+        result.contains("|[-]| 2.1 |"),
+        "step 2.1 should be [-]: {result}"
+    );
+    assert!(
+        result.contains("|[ ]| 3.1 |"),
+        "step 3.1 should be [ ]: {result}"
+    );
+    // Verify surrounding content is preserved
+    assert!(result.contains("## Context"));
+    assert!(result.contains("Background info."));
+    assert!(result.contains("## Tasks"));
+    assert!(result.contains("## Verification"));
+    assert!(result.contains("Run tests."));
 }
