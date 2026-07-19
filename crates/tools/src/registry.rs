@@ -99,7 +99,6 @@ fn plan_mode_tool_visible(tool: &Arc<dyn Tool>) -> bool {
 const PLAN_MODE_ALWAYS_VISIBLE: &[&str] = &[
     "sessions_spawn", // spawn Explore/Plan agents
     "progress",       // plan progress tracking
-    "plan_approval",  // approval gate (exit from Plan Mode)
     "execute_plan",   // trigger execution from Plan Mode
 ];
 
