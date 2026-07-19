@@ -2,120 +2,326 @@ use super::plan_archive::*;
 use std::fs;
 use std::path::Path;
 
-fn create_plan_file(dir: &Path, name: &str, status: &str) -> std::path::PathBuf {
+// ---------------------------------------------------------------------------
+// Helper: create a plan file with step markers in the Tasks section
+// ---------------------------------------------------------------------------
+
+fn create_plan_file(dir: &Path, name: &str, steps: &[&str]) -> std::path::PathBuf {
     let plans_dir = dir.join("plans");
     fs::create_dir_all(&plans_dir).unwrap();
     let path = plans_dir.join(name);
-    let content = format!(
-        "# Test Plan\n\n| 字段 | 值 |\n|------|-----|\n| 状态 | {status} |\n\n## Tasks\n\n- [x] Done\n"
-    );
+    let tasks_block = steps.join("\n");
+    let content = format!("# Test Plan\n\n## Tasks\n\n{tasks_block}\n");
     fs::write(&path, content).unwrap();
     path
 }
 
+// ===========================================================================
+// parse_step_markers tests
+// ===========================================================================
+
 #[test]
-fn test_parse_plan_status_completed() {
-    let content = "# Title\n\n| 字段 | 值 |\n| 状态 | completed |\n";
-    assert_eq!(parse_plan_status(content).as_deref(), Some("completed"));
+fn test_parse_step_markers_all_done() {
+    let content = "## Tasks\n\n- [x] Step one\n- [x] Step two\n";
+    let states = parse_step_markers(content);
+    assert_eq!(states.len(), 2);
+    assert!(states.iter().all(|s| *s == StepState::Done));
 }
 
 #[test]
-fn test_parse_plan_status_draft() {
-    let content = "# Title\n\n| 字段 | 值 |\n| 状态 | draft |\n";
-    assert_eq!(parse_plan_status(content).as_deref(), Some("draft"));
+fn test_parse_step_markers_mixed_done_and_skipped() {
+    let content = "## Tasks\n\n- [x] Done\n- [~] Skipped\n";
+    let states = parse_step_markers(content);
+    assert_eq!(states, vec![StepState::Done, StepState::Skipped]);
 }
 
 #[test]
-fn test_parse_plan_status_missing() {
-    let content = "# Title\n\nNo status here.\n";
-    assert_eq!(parse_plan_status(content), None);
+fn test_parse_step_markers_pending() {
+    let content = "## Tasks\n\n- [ ] Not started\n";
+    let states = parse_step_markers(content);
+    assert_eq!(states, vec![StepState::Pending]);
 }
 
 #[test]
-fn test_parse_plan_status_executing() {
-    let content = "# Title\n\n| 状态 | executing |\n";
-    assert_eq!(parse_plan_status(content).as_deref(), Some("executing"));
+fn test_parse_step_markers_in_progress() {
+    let content = "## Tasks\n\n- [-] Doing it\n";
+    let states = parse_step_markers(content);
+    assert_eq!(states, vec![StepState::InProgress]);
 }
 
 #[test]
-fn test_parse_plan_status_completed_with_surrounding_content() {
-    let content =
-        "# Title\n\n| 字段 | 值 |\n|------|-----|\n| 状态 | completed |\n\n## Context\n\nDone.\n";
-    assert_eq!(parse_plan_status(content).as_deref(), Some("completed"));
+fn test_parse_step_markers_failed() {
+    let content = "## Tasks\n\n- [!] Broken\n";
+    let states = parse_step_markers(content);
+    assert_eq!(states, vec![StepState::Failed]);
 }
 
 #[test]
-fn test_archiver_skips_when_not_old_enough() {
-    let dir = tempfile::TempDir::new().unwrap();
-    create_plan_file(dir.path(), "plan1.md", "completed");
-
-    let archiver = PlanArchiver::new(7);
-    let count = archiver.archive(dir.path()).unwrap();
-    assert_eq!(count, 0);
-    assert!(
-        dir.path().join("plans/plan1.md").exists(),
-        "file should remain in plans/"
-    );
+fn test_parse_step_markers_asterisk_prefix() {
+    let content = "## Tasks\n\n* [x] Star bullet\n* [ ] Pending star\n";
+    let states = parse_step_markers(content);
+    assert_eq!(states, vec![StepState::Done, StepState::Pending]);
 }
 
 #[test]
-fn test_archiver_moves_when_old_enough() {
-    let dir = tempfile::TempDir::new().unwrap();
-    let path = create_plan_file(dir.path(), "plan-old.md", "completed");
+fn test_parse_step_markers_indented() {
+    let content = "## Tasks\n\n  - [x] Indented done\n    - [ ] Deep pending\n";
+    let states = parse_step_markers(content);
+    assert_eq!(states, vec![StepState::Done, StepState::Pending]);
+}
 
+#[test]
+fn test_parse_step_markers_no_markers() {
+    let content = "## Tasks\n\nJust some plain text.\n";
+    let states = parse_step_markers(content);
+    assert!(states.is_empty());
+}
+
+#[test]
+fn test_parse_step_markers_unknown_marker_ignored() {
+    let content = "## Tasks\n\n- [x] Done\n- [z] Unknown\n- [~] Skipped\n";
+    let states = parse_step_markers(content);
+    assert_eq!(states, vec![StepState::Done, StepState::Skipped]);
+}
+
+#[test]
+fn test_parse_step_markers_single_done() {
+    let content = "- [x] Only step\n";
+    let states = parse_step_markers(content);
+    assert_eq!(states, vec![StepState::Done]);
+}
+
+#[test]
+fn test_parse_step_markers_single_pending() {
+    let content = "- [ ] Only step\n";
+    let states = parse_step_markers(content);
+    assert_eq!(states, vec![StepState::Pending]);
+}
+
+// ===========================================================================
+// is_completed_plan tests
+// ===========================================================================
+
+// --- Normal path ---
+
+#[test]
+fn test_is_completed_all_done() {
+    let content = "## Tasks\n\n- [x] Step 1\n- [x] Step 2\n";
+    assert!(is_completed_plan(content));
+}
+
+#[test]
+fn test_is_completed_done_and_skipped() {
+    let content = "## Tasks\n\n- [x] Step 1\n- [~] Step 2\n";
+    assert!(is_completed_plan(content));
+}
+
+#[test]
+fn test_is_completed_all_skipped() {
+    let content = "## Tasks\n\n- [~] Step 1\n- [~] Step 2\n";
+    assert!(is_completed_plan(content));
+}
+
+// --- Error path ---
+
+#[test]
+fn test_is_not_completed_has_failed() {
+    let content = "## Tasks\n\n- [x] Step 1\n- [!] Step 2 failed\n";
+    assert!(!is_completed_plan(content));
+}
+
+#[test]
+fn test_is_not_completed_has_in_progress() {
+    let content = "## Tasks\n\n- [x] Step 1\n- [-] Step 2 in progress\n";
+    assert!(!is_completed_plan(content));
+}
+
+#[test]
+fn test_is_not_completed_has_pending() {
+    let content = "## Tasks\n\n- [x] Step 1\n- [ ] Step 2 not started\n";
+    assert!(!is_completed_plan(content));
+}
+
+#[test]
+fn test_is_not_completed_single_in_progress() {
+    let content = "## Tasks\n\n- [-] Only step\n";
+    assert!(!is_completed_plan(content));
+}
+
+// --- Boundary values ---
+
+#[test]
+fn test_is_not_completed_empty_tasks() {
+    let content = "## Tasks\n\nNothing here.\n";
+    assert!(!is_completed_plan(content));
+}
+
+#[test]
+fn test_is_not_completed_no_tasks_section() {
+    let content = "# Plan\n\nSome content without tasks.\n";
+    assert!(!is_completed_plan(content));
+}
+
+#[test]
+fn test_is_completed_single_done() {
+    let content = "## Tasks\n\n- [x] Only step\n";
+    assert!(is_completed_plan(content));
+}
+
+#[test]
+fn test_is_not_completed_single_pending() {
+    let content = "## Tasks\n\n- [ ] Only step\n";
+    assert!(!is_completed_plan(content));
+}
+
+#[test]
+fn test_is_not_completed_single_failed() {
+    let content = "## Tasks\n\n- [!] Only step\n";
+    assert!(!is_completed_plan(content));
+}
+
+// --- State transition: simulating plan from active to complete ---
+
+#[test]
+fn test_transition_pending_to_in_progress() {
+    let s1 = "## Tasks\n\n- [ ] Step 1\n";
+    let s2 = "## Tasks\n\n- [-] Step 1\n";
+    assert!(!is_completed_plan(s1));
+    assert!(!is_completed_plan(s2));
+}
+
+#[test]
+fn test_transition_in_progress_to_done() {
+    let s1 = "## Tasks\n\n- [-] Step 1\n";
+    let s2 = "## Tasks\n\n- [x] Step 1\n";
+    assert!(!is_completed_plan(s1));
+    assert!(is_completed_plan(s2));
+}
+
+#[test]
+fn test_transition_full_lifecycle() {
+    // Simulate a plan with 3 steps going through full lifecycle
+    let pending = "## Tasks\n\n- [ ] A\n- [ ] B\n- [ ] C\n";
+    let progress = "## Tasks\n\n- [x] A\n- [-] B\n- [ ] C\n";
+    let almost = "## Tasks\n\n- [x] A\n- [x] B\n- [ ] C\n";
+    let done = "## Tasks\n\n- [x] A\n- [x] B\n- [x] C\n";
+
+    assert!(!is_completed_plan(pending));
+    assert!(!is_completed_plan(progress));
+    assert!(!is_completed_plan(almost));
+    assert!(is_completed_plan(done));
+}
+
+// --- Format compatibility ---
+
+#[test]
+fn test_format_asterisk_bullets() {
+    let content = "## Tasks\n\n* [x] One\n* [x] Two\n";
+    assert!(is_completed_plan(content));
+}
+
+#[test]
+fn test_format_mixed_dash_and_asterisk() {
+    let content = "## Tasks\n\n- [x] Dash\n* [x] Star\n";
+    assert!(is_completed_plan(content));
+}
+
+#[test]
+fn test_format_indented_markers() {
+    let content = "## Tasks\n\n  - [x] Indented one\n    - [x] Deep two\n";
+    assert!(is_completed_plan(content));
+}
+
+// ===========================================================================
+// Integration: PlanArchiver::archive with step-marker-based plans
+// ===========================================================================
+
+fn set_old_mtime(path: &Path) {
     let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10 * 86400);
-    filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(old_time)).unwrap();
+    filetime::set_file_mtime(path, filetime::FileTime::from_system_time(old_time)).unwrap();
+}
+
+#[test]
+fn test_archiver_archives_completed_step_plan() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = create_plan_file(dir.path(), "done.md", &["- [x] Step 1", "- [x] Step 2"]);
+    set_old_mtime(&path);
 
     let archiver = PlanArchiver::new(7);
     let count = archiver.archive(dir.path()).unwrap();
     assert_eq!(count, 1);
+    assert!(!path.exists());
     assert!(
-        !dir.path().join("plans/plan-old.md").exists(),
-        "file should be moved out of plans/"
-    );
-    assert!(
-        dir.path().join("plans/archive/plan-old.md").exists(),
-        "file should be in plans/archive/"
+        dir.path().join("plans/archive/done.md").exists(),
+        "archived file should be in plans/archive/"
     );
 }
 
 #[test]
-fn test_archiver_skips_draft_status() {
+fn test_archiver_skips_active_step_plan() {
     let dir = tempfile::TempDir::new().unwrap();
-    let path = create_plan_file(dir.path(), "draft-plan.md", "draft");
-
-    let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10 * 86400);
-    filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(old_time)).unwrap();
+    let path = create_plan_file(dir.path(), "active.md", &["- [x] Step 1", "- [ ] Step 2"]);
+    set_old_mtime(&path);
 
     let archiver = PlanArchiver::new(7);
     let count = archiver.archive(dir.path()).unwrap();
     assert_eq!(count, 0);
-    assert!(
-        dir.path().join("plans/draft-plan.md").exists(),
-        "draft plan should not be archived"
-    );
+    assert!(path.exists());
 }
 
 #[test]
-fn test_archiver_no_plans_dir() {
+fn test_archiver_skips_failed_step_plan() {
     let dir = tempfile::TempDir::new().unwrap();
+    let path = create_plan_file(
+        dir.path(),
+        "failed.md",
+        &["- [x] Step 1", "- [!] Step 2 broke"],
+    );
+    set_old_mtime(&path);
+
     let archiver = PlanArchiver::new(7);
     let count = archiver.archive(dir.path()).unwrap();
     assert_eq!(count, 0);
+    assert!(path.exists());
+}
+
+#[test]
+fn test_archiver_archives_done_and_skipped_mix() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = create_plan_file(dir.path(), "mix.md", &["- [x] Done", "- [~] Skipped"]);
+    set_old_mtime(&path);
+
+    let archiver = PlanArchiver::new(7);
+    let count = archiver.archive(dir.path()).unwrap();
+    assert_eq!(count, 1);
+    assert!(!path.exists());
+}
+
+#[test]
+fn test_archiver_skips_empty_tasks_plan() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let plans_dir = dir.path().join("plans");
+    fs::create_dir_all(&plans_dir).unwrap();
+    let path = plans_dir.join("empty.md");
+    fs::write(&path, "# Plan\n\n## Tasks\n\nNothing.\n").unwrap();
+    set_old_mtime(&path);
+
+    let archiver = PlanArchiver::new(7);
+    let count = archiver.archive(dir.path()).unwrap();
+    assert_eq!(count, 0);
+    assert!(path.exists());
 }
 
 #[test]
 fn test_archiver_content_intact_after_archive() {
     let dir = tempfile::TempDir::new().unwrap();
-    let content = "# My Plan\n\n| 状态 | completed |\n\n## Tasks\n\n- [x] Do thing\n";
+    let content = "# My Plan\n\n## Tasks\n\n- [x] Do thing\n- [x] Done\n";
 
     let plans_dir = dir.path().join("plans");
     fs::create_dir_all(&plans_dir).unwrap();
     let path = plans_dir.join("content-test.md");
-    fs::write(&path, &content).unwrap();
-
-    let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10 * 86400);
-    filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(old_time)).unwrap();
+    fs::write(&path, content).unwrap();
+    set_old_mtime(&path);
 
     let archiver = PlanArchiver::new(7);
     archiver.archive(dir.path()).unwrap();
@@ -127,72 +333,29 @@ fn test_archiver_content_intact_after_archive() {
 }
 
 #[test]
-fn test_archiver_skips_non_md_files() {
+fn test_archiver_multiple_files_mixed_step_status() {
     let dir = tempfile::TempDir::new().unwrap();
     let plans_dir = dir.path().join("plans");
     fs::create_dir_all(&plans_dir).unwrap();
 
-    let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10 * 86400);
+    // All done, old → should archive
+    let path1 = plans_dir.join("done-old.md");
+    fs::write(&path1, "# P1\n\n## Tasks\n\n- [x] A\n- [x] B\n").unwrap();
+    set_old_mtime(&path1);
 
-    let txt_path = plans_dir.join("notes.txt");
-    fs::write(&txt_path, "not a plan").unwrap();
-    filetime::set_file_mtime(&txt_path, filetime::FileTime::from_system_time(old_time)).unwrap();
+    // All done, new → should NOT archive (not old enough)
+    let path2 = plans_dir.join("done-new.md");
+    fs::write(&path2, "# P2\n\n## Tasks\n\n- [x] A\n").unwrap();
 
-    let archiver = PlanArchiver::new(7);
-    let count = archiver.archive(dir.path()).unwrap();
-    assert_eq!(count, 0);
-    assert!(txt_path.exists(), "non-md files should not be moved");
-}
+    // Has pending, old → should NOT archive
+    let path3 = plans_dir.join("pending-old.md");
+    fs::write(&path3, "# P3\n\n## Tasks\n\n- [x] A\n- [ ] B\n").unwrap();
+    set_old_mtime(&path3);
 
-#[test]
-fn test_archiver_skips_archive_subdir() {
-    let dir = tempfile::TempDir::new().unwrap();
-    let plans_dir = dir.path().join("plans");
-    let archive_dir = plans_dir.join("archive");
-    fs::create_dir_all(&archive_dir).unwrap();
-
-    let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10 * 86400);
-
-    let archived_path = archive_dir.join("already-archived.md");
-    fs::write(&archived_path, "# Old\n\n| 状态 | completed |\n").unwrap();
-    filetime::set_file_mtime(
-        &archived_path,
-        filetime::FileTime::from_system_time(old_time),
-    )
-    .unwrap();
-
-    let archiver = PlanArchiver::new(7);
-    let count = archiver.archive(dir.path()).unwrap();
-    assert_eq!(count, 0);
-    assert!(archived_path.exists());
-}
-
-#[test]
-fn test_archiver_multiple_files_mixed_status() {
-    let dir = tempfile::TempDir::new().unwrap();
-    let plans_dir = dir.path().join("plans");
-    fs::create_dir_all(&plans_dir).unwrap();
-
-    let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10 * 86400);
-
-    // completed, old → should archive
-    let path1 = plans_dir.join("completed-old.md");
-    fs::write(&path1, "# P1\n\n| 状态 | completed |\n").unwrap();
-    filetime::set_file_mtime(&path1, filetime::FileTime::from_system_time(old_time)).unwrap();
-
-    // completed, new → should NOT archive
-    let path2 = plans_dir.join("completed-new.md");
-    fs::write(&path2, "# P2\n\n| 状态 | completed |\n").unwrap();
-
-    // draft, old → should NOT archive
-    let path3 = plans_dir.join("draft-old.md");
-    fs::write(&path3, "# P3\n\n| 状态 | draft |\n").unwrap();
-    filetime::set_file_mtime(&path3, filetime::FileTime::from_system_time(old_time)).unwrap();
-
-    // executing, old → should NOT archive
-    let path4 = plans_dir.join("executing-old.md");
-    fs::write(&path4, "# P4\n\n| 状态 | executing |\n").unwrap();
-    filetime::set_file_mtime(&path4, filetime::FileTime::from_system_time(old_time)).unwrap();
+    // Has failed, old → should NOT archive
+    let path4 = plans_dir.join("failed-old.md");
+    fs::write(&path4, "# P4\n\n## Tasks\n\n- [x] A\n- [!] B\n").unwrap();
+    set_old_mtime(&path4);
 
     let archiver = PlanArchiver::new(7);
     let count = archiver.archive(dir.path()).unwrap();
@@ -204,89 +367,43 @@ fn test_archiver_multiple_files_mixed_status() {
 }
 
 #[test]
-fn test_convenience_function() {
+fn test_archiver_no_plans_dir() {
     let dir = tempfile::TempDir::new().unwrap();
-    let path = create_plan_file(dir.path(), "convenience.md", "completed");
-
-    let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10 * 86400);
-    filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(old_time)).unwrap();
-
-    let count = archive_completed_plans(dir.path()).unwrap();
-    assert_eq!(count, 1);
-    assert!(dir.path().join("plans/archive/convenience.md").exists());
-}
-
-#[test]
-fn test_convenience_function_with_threshold() {
-    let dir = tempfile::TempDir::new().unwrap();
-    let path = create_plan_file(dir.path(), "threshold.md", "completed");
-
-    let three_days_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3 * 86400);
-    filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(three_days_ago)).unwrap();
-
-    // Threshold 7 days → should NOT archive
-    let count = archive_completed_plans_with_threshold(dir.path(), 7).unwrap();
-    assert_eq!(count, 0);
-    assert!(path.exists());
-
-    // Threshold 2 days → should archive
-    let count = archive_completed_plans_with_threshold(dir.path(), 2).unwrap();
-    assert_eq!(count, 1);
-    assert!(!path.exists());
-}
-
-#[test]
-fn test_archiver_skips_executing_status() {
-    let dir = tempfile::TempDir::new().unwrap();
-    let path = create_plan_file(dir.path(), "exec-plan.md", "executing");
-
-    let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10 * 86400);
-    filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(old_time)).unwrap();
-
     let archiver = PlanArchiver::new(7);
     let count = archiver.archive(dir.path()).unwrap();
     assert_eq!(count, 0);
-    assert!(path.exists());
 }
 
 #[test]
-fn test_archiver_skips_paused_status() {
-    let dir = tempfile::TempDir::new().unwrap();
-    let path = create_plan_file(dir.path(), "paused-plan.md", "paused");
-
-    let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10 * 86400);
-    filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(old_time)).unwrap();
-
-    let archiver = PlanArchiver::new(7);
-    let count = archiver.archive(dir.path()).unwrap();
-    assert_eq!(count, 0);
-    assert!(path.exists());
-}
-
-#[test]
-fn test_archiver_empty_plans_dir() {
+fn test_archiver_skips_non_md_files() {
     let dir = tempfile::TempDir::new().unwrap();
     let plans_dir = dir.path().join("plans");
     fs::create_dir_all(&plans_dir).unwrap();
 
+    let txt_path = plans_dir.join("notes.txt");
+    fs::write(&txt_path, "not a plan").unwrap();
+    set_old_mtime(&txt_path);
+
     let archiver = PlanArchiver::new(7);
     let count = archiver.archive(dir.path()).unwrap();
     assert_eq!(count, 0);
+    assert!(txt_path.exists());
 }
 
 #[test]
-fn test_archiver_default_threshold() {
-    // Verify default threshold works: a plan 8 days old should archive
+fn test_archiver_skips_archive_subdir() {
     let dir = tempfile::TempDir::new().unwrap();
-    let path = create_plan_file(dir.path(), "default-thresh.md", "completed");
+    let archive_dir = dir.path().join("plans/archive");
+    fs::create_dir_all(&archive_dir).unwrap();
 
-    let eight_days_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(8 * 86400);
-    filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(eight_days_ago)).unwrap();
+    let archived_path = archive_dir.join("already-archived.md");
+    fs::write(&archived_path, "# Old\n\n## Tasks\n\n- [x] Done\n").unwrap();
+    set_old_mtime(&archived_path);
 
-    let archiver = PlanArchiver::with_defaults();
+    let archiver = PlanArchiver::new(7);
     let count = archiver.archive(dir.path()).unwrap();
-    assert_eq!(count, 1);
-    assert!(!path.exists());
+    assert_eq!(count, 0);
+    assert!(archived_path.exists());
 }
 
 #[test]

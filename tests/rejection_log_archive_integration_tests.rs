@@ -461,7 +461,7 @@ fn test_plan_archive_e2e_multiple_old_completed() {
 
     for i in 0..5 {
         let path = plans_dir.join(format!("plan-{}.md", i));
-        std::fs::write(&path, format!("# Plan {}\n\n| 状态 | completed |\n", i)).unwrap();
+        std::fs::write(&path, format!("# Plan {}\n\n## Tasks\n- [x] Done\n", i)).unwrap();
         filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(old_time)).unwrap();
     }
 
