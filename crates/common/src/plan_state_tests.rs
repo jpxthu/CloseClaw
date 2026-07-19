@@ -791,10 +791,8 @@ fn test_writer_file_not_found() {
 
 #[test]
 fn test_writer_preserves_non_step_content() {
-    let dir = std::env::temp_dir().join("cc_test_writer_preserve");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("plan.md");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("plan.md");
     let content = concat!(
         "# Plan\n",
         "\n",
@@ -825,7 +823,6 @@ fn test_writer_preserves_non_step_content() {
 
     writer.write_progress_to_plan_file(&plan_path, &ps).unwrap();
     let result = std::fs::read_to_string(&plan_path).unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(result.contains("# Plan"));
     assert!(result.contains("Keep this."));
     assert!(result.contains("## Notes"));
