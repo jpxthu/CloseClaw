@@ -513,8 +513,8 @@ fn test_step_status_to_marker_checkbox_format() {
 // --- PlanPath tests ---
 
 #[test]
-fn test_plan_path_default_is_interview() {
-    assert_eq!(PlanPath::default(), PlanPath::Interview);
+fn test_plan_path_default_is_standard() {
+    assert_eq!(PlanPath::default(), PlanPath::Standard);
 }
 
 #[test]
