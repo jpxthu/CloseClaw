@@ -219,7 +219,7 @@ Execute autonomously, minimize interruptions, prefer action over planning.";
 pub(crate) const STANDARD_SPARSE: &str = "\
 Plan mode still active (see full instructions earlier in conversation).\n\
 Read-only except plan file. Follow 4-phase workflow. End turns with\n\
-AskUserQuestion (for clarifications). Never ask for plan approval via\n\
+AskUserQuestion (for clarifications). Never ask about plan approval via\n\
 text or AskUserQuestion.";
 
 pub(crate) const SUBAGENT_SPARSE: &str = "\
