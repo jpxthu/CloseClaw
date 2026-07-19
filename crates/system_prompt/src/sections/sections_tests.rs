@@ -228,14 +228,14 @@ fn test_mode_instruction_basics_and_auto() {
     assert!(rendered.contains("Expect course corrections"));
     assert!(rendered.contains("Do not take overly destructive actions"));
     assert!(rendered.contains("Avoid data exfiltration"));
-    // Default PlanPath is Interview
+    // Default PlanPath is now Standard
     let s = Section::ModeInstruction {
         mode: SessionMode::Plan,
         plan_path: None,
         sparse: false,
         sub_agent: false,
     };
-    assert!(s.render().contains("Interview Path"));
+    assert!(s.render().contains("Standard Path"));
 }
 
 #[test]

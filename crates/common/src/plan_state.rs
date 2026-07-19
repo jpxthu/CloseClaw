@@ -11,9 +11,9 @@ use thiserror::Error;
 #[serde(rename_all = "snake_case")]
 pub enum PlanPath {
     /// 标准路径：需求明确，4 阶段工作流
+    #[default]
     Standard,
     /// Interview 路径：需求模糊，循环探索
-    #[default]
     Interview,
 }
 
