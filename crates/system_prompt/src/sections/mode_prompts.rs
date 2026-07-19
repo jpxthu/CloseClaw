@@ -280,7 +280,7 @@ Before proceeding with any new planning, you should:\n\
    - Different task: start fresh by overwriting the existing plan.\n\
    - Same task, continuing: modify the existing plan while cleaning up\n\
      outdated or irrelevant sections.\n\
-4. Always edit the plan file before submitting for approval.\n\
+4. Always edit the plan file to reflect the current plan state.\n\
 \n\
 Treat this as a fresh planning session. Do not assume the existing\n\
 plan is relevant without evaluating it first.";
