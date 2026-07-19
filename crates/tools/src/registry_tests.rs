@@ -910,3 +910,46 @@ fn test_plan_mode_tool_visible_execute_plan() {
     let tool: Arc<dyn Tool> = Arc::new(tool);
     assert!(plan_mode_tool_visible(&tool));
 }
+
+// ── plan_approval removed from Plan Mode visibility ────────────────────────
+
+/// `plan_approval` is NOT in PLAN_MODE_ALWAYS_VISIBLE, so a non-read-only
+/// tool with that name should be hidden in Plan Mode.
+#[test]
+fn test_plan_mode_tool_not_visible_plan_approval() {
+    let tool = DummyTool {
+        name: "plan_approval".to_string(),
+        group: "plan".to_string(),
+        summary_text: "approve plan".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    };
+    let tool: Arc<dyn Tool> = Arc::new(tool);
+    assert!(!plan_mode_tool_visible(&tool));
+}
+
+/// `plan_approval` should NOT appear in Plan Mode tool section even if
+/// registered (it was removed in Step 1.1).
+#[tokio::test]
+async fn test_plan_mode_hides_plan_approval_tool() {
+    let reg = ToolRegistry::new();
+    reg.register(DummyTool {
+        name: "plan_approval".to_string(),
+        group: "plan".to_string(),
+        summary_text: "approve plan".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
+
+    let ctx = make_plan_mode_ctx();
+    let section = reg.build_tools_section(&ctx).await;
+
+    assert!(
+        !section.contains("plan_approval"),
+        "plan_approval should be hidden in Plan mode, got: {section}"
+    );
+}
