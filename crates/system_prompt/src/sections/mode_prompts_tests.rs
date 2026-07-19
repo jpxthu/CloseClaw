@@ -76,7 +76,9 @@ fn test_interview_path_content_integrity() {
     // When to Converge content — design doc verbatim
     assert!(
         INTERVIEW_PATH_PROMPT.contains(
-            "Present the\ncompleted plan to the user and wait for the user to decide whether to\nexecute."
+            "Present the\ncompleted plan to the user \
+             and wait for the user to decide \
+             whether to\nexecute."
         ),
         "INTERVIEW_PATH_PROMPT: When to Converge should contain doc verbatim"
     );
