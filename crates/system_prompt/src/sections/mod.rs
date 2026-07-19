@@ -208,11 +208,10 @@ fn render_mode_transition(transition: &ModeTransition) -> String {
     }
 }
 
-/// Render Standard Path instructions (5 Phases).
+/// Render Standard Path instructions (4 Phases).
 ///
 /// Uses verbatim prompt content from design doc section 1 (global
-/// constraint) and section 2 (Phase 1–5 including Submit for
-/// Approval).
+/// constraint) and section 2 (Phase 1–4).
 fn render_standard_path_instruction() -> String {
     format!(
         "## Mode: Plan \u{2014} Standard Path\n\n{}\n\n{}\n",
