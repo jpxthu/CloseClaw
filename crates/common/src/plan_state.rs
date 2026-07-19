@@ -329,7 +329,7 @@ pub trait PlanStateWriter: Send + Sync {
 }
 
 /// Default implementation of [`PlanStateWriter`] that reads a plan markdown
-/// file, locates the "## 进度" progress table, and updates status markers
+/// file, locates the "## Tasks" section, and updates status markers
 /// (`[x]` / `[-]` / `[!]` / `[ ]`) in the first column of each step row.
 pub struct DefaultPlanStateWriter;
 
@@ -366,7 +366,7 @@ impl PlanStateWriter for DefaultPlanStateWriter {
         let mut in_progress_table = false;
 
         for line in &lines {
-            if line.trim_start().starts_with("## 进度") {
+            if line.trim_start().starts_with("## Tasks") {
                 in_progress_table = true;
             }
 
