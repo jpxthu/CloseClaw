@@ -15,7 +15,9 @@ pub use dispatcher::{parse_slash, SlashDispatcher};
 pub use handler::SlashHandler;
 pub use handlers::{ClearHandler, CompactHandler, ExecHandler, HelpHandler};
 pub use handlers_bg::BackgroundHandler;
-pub use handlers_mode::{ExecuteHandler, ModeHandler, PauseHandler, PlanModeHandler};
+pub use handlers_mode::{
+    AutoModeHandler, ExecuteHandler, ModeHandler, PauseHandler, PlanModeHandler,
+};
 pub use handlers_permission::PermissionSlashHandler;
 pub use handlers_session::{NewSessionHandler, StatusHandler, StopHandler, VerboseHandler};
 pub use handlers_user::UserSlashHandler;
