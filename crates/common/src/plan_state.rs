@@ -329,7 +329,7 @@ pub trait PlanStateWriter: Send + Sync {
 }
 
 /// Default implementation of [`PlanStateWriter`] that reads a plan markdown
-/// file, locates the "## 进度" progress table, and updates status markers
+/// file, locates the "## Tasks" section, and updates status markers
 /// (`[x]` / `[-]` / `[!]` / `[ ]`) in the first column of each step row.
 pub struct DefaultPlanStateWriter;
 
@@ -363,14 +363,14 @@ impl PlanStateWriter for DefaultPlanStateWriter {
         let content = fs::read_to_string(path)?;
         let lines: Vec<&str> = content.lines().collect();
         let mut result = Vec::with_capacity(lines.len());
-        let mut in_progress_table = false;
+        let mut in_tasks_section = false;
 
         for line in &lines {
-            if line.trim_start().starts_with("## 进度") {
-                in_progress_table = true;
+            if line.trim_start().starts_with("## ") {
+                in_tasks_section = line.trim_start().starts_with("## Tasks");
             }
 
-            if in_progress_table && line.contains('|') {
+            if in_tasks_section && line.contains('|') {
                 if let Some(updated) = self.update_step_row(line, plan_state) {
                     result.push(updated);
                     continue;

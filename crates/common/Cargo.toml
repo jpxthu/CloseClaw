@@ -17,4 +17,5 @@ thiserror = "2.0"
 tokio = { version = "=1.35.0", features = ["sync", "process"] }
 
 [dev-dependencies]
+tempfile = "3.10"
 tokio = { version = "=1.35.0", features = ["rt", "rt-multi-thread", "macros"] }

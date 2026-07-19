@@ -918,3 +918,40 @@ async fn test_budget_none_keeps_sessions_spawn() {
         "sessions_spawn should be visible when budget is unknown"
     );
 }
+
+#[tokio::test]
+async fn test_plan_mode_keeps_execute_plan() {
+    let reg = ToolRegistry::new();
+    reg.register(DummyTool {
+        name: "execute_plan".to_string(),
+        group: "plan".to_string(),
+        summary_text: "trigger execution from plan mode".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
+
+    let ctx = make_plan_mode_ctx();
+    let section = reg.build_tools_section(&ctx).await;
+
+    assert!(
+        section.contains("execute_plan"),
+        "execute_plan should be visible in Plan mode"
+    );
+}
+
+#[test]
+fn test_plan_mode_tool_visible_execute_plan() {
+    let tool = DummyTool {
+        name: "execute_plan".to_string(),
+        group: "plan".to_string(),
+        summary_text: "trigger execution".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    };
+    let tool: Arc<dyn Tool> = Arc::new(tool);
+    assert!(plan_mode_tool_visible(&tool));
+}
