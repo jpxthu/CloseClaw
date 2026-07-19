@@ -197,7 +197,7 @@ pub(crate) fn parse_step_markers(content: &str) -> Vec<StepState> {
 ///
 /// An empty Tasks section (no step markers) is **not** treated as
 /// completed to avoid archiving empty/plans that were never started.
-fn is_completed_plan(content: &str) -> bool {
+pub(crate) fn is_completed_plan(content: &str) -> bool {
     let states = parse_step_markers(content);
     if states.is_empty() {
         return false;
