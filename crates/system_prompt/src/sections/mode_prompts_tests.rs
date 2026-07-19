@@ -49,8 +49,6 @@ fn test_interview_path_titles_have_newlines() {
         "### Asking Good Questions",
         "### Plan File Structure",
         "### When to Converge",
-        "### Review",
-        "### Final Plan",
         "### Ending Your Turn",
     ];
     for title in &titles {
@@ -75,15 +73,20 @@ fn test_interview_path_content_integrity() {
         INTERVIEW_PATH_PROMPT.contains("concise enough to scan quickly, but detailed\nenough to"),
         "INTERVIEW_PATH_PROMPT: multi-line item should have newline continuation"
     );
-    // Review phase content
+    // When to Converge content — design doc verbatim
     assert!(
-        INTERVIEW_PATH_PROMPT.contains("Present the complete plan"),
-        "INTERVIEW_PATH_PROMPT: Review phase should contain 'Present the complete plan'"
+        INTERVIEW_PATH_PROMPT.contains("Present the\ncompleted plan to the user and wait for the user to decide whether to\nexecute."),
+        "INTERVIEW_PATH_PROMPT: When to Converge should contain doc verbatim"
     );
-    // Final Plan phase content
+    // Ending Your Turn content — design doc verbatim
     assert!(
-        INTERVIEW_PATH_PROMPT.contains("write the final version"),
-        "INTERVIEW_PATH_PROMPT: Final Plan phase should contain 'write the final version'"
+        INTERVIEW_PATH_PROMPT
+            .contains("Presenting the completed plan and asking the user for their decision"),
+        "INTERVIEW_PATH_PROMPT: Ending Your Turn should contain design doc text"
+    );
+    assert!(
+        INTERVIEW_PATH_PROMPT.contains("Plan Mode has no approval gate"),
+        "INTERVIEW_PATH_PROMPT: Important section should mention no approval gate"
     );
 }
 
@@ -200,8 +203,8 @@ fn test_standard_sparse_content_integrity() {
         "STANDARD_SPARSE: first sentence should end with newline"
     );
     assert!(
-        STANDARD_SPARSE.contains("plan approval."),
-        "STANDARD_SPARSE: should end with plan approval prohibition"
+        STANDARD_SPARSE.contains("Never ask for plan approval via\ntext or AskUserQuestion."),
+        "STANDARD_SPARSE: should contain doc原文 approval prohibition"
     );
 }
 
@@ -300,6 +303,11 @@ fn test_mode_reentry_content_integrity() {
     assert!(
         MODE_REENTRY.contains("- Same task"),
         "MODE_REENTRY: missing 'Same task' bullet"
+    );
+    // Design doc verbatim for step 4
+    assert!(
+        MODE_REENTRY.contains("before submitting for approval"),
+        "MODE_REENTRY: step 4 should contain 'before submitting for approval'"
     );
 }
 
@@ -406,6 +414,75 @@ fn test_standard_path_phases_regression() {
             phase
         );
     }
+}
+
+// ===========================================================================
+// 9. Design doc alignment — Step 1.2 verification
+// ===========================================================================
+
+/// Verify INTERVIEW_PATH_PROMPT does NOT contain the removed subsections.
+#[test]
+fn test_interview_path_no_review_subsection() {
+    assert!(
+        !INTERVIEW_PATH_PROMPT.contains("### Review"),
+        "INTERVIEW_PATH_PROMPT: '### Review' subsection must be removed per design doc"
+    );
+}
+
+#[test]
+fn test_interview_path_no_final_plan_subsection() {
+    assert!(
+        !INTERVIEW_PATH_PROMPT.contains("### Final Plan"),
+        "INTERVIEW_PATH_PROMPT: '### Final Plan' subsection must be removed per design doc"
+    );
+}
+
+/// Verify INTERVIEW_PATH_PROMPT does NOT contain the old converge text.
+#[test]
+fn test_interview_path_no_old_converge() {
+    assert!(
+        !INTERVIEW_PATH_PROMPT.contains("proceed to the Review phase"),
+        "INTERVIEW_PATH_PROMPT: old converge text 'proceed to the Review phase' must be removed"
+    );
+}
+
+/// Verify INTERVIEW_PATH_PROMPT contains key phrases from design doc.
+#[test]
+fn test_interview_path_key_phrases() {
+    assert!(
+        INTERVIEW_PATH_PROMPT.contains("wait for the user to decide whether to\nexecute"),
+        "INTERVIEW_PATH_PROMPT: When to Converge must contain design doc key phrase"
+    );
+    assert!(
+        INTERVIEW_PATH_PROMPT.contains("execute, modify, or continue discussion"),
+        "INTERVIEW_PATH_PROMPT: Ending Your Turn must contain design doc key phrase"
+    );
+    assert!(
+        INTERVIEW_PATH_PROMPT.contains("Do not invent a\nformal \"approval\" barrier."),
+        "INTERVIEW_PATH_PROMPT: Important must contain design doc key phrase"
+    );
+}
+
+/// Verify STANDARD_SPARSE contains the design doc prohibition.
+#[test]
+fn test_standard_sparse_approval_prohibition() {
+    assert!(
+        STANDARD_SPARSE.contains("Never ask for plan approval via\ntext or AskUserQuestion."),
+        "STANDARD_SPARSE: must contain design doc approval prohibition"
+    );
+}
+
+/// Verify MODE_REENTRY step 4 matches design doc.
+#[test]
+fn test_mode_reentry_step4_alignment() {
+    assert!(
+        MODE_REENTRY.contains("before submitting for approval"),
+        "MODE_REENTRY: step 4 must match design doc 'before submitting for approval'"
+    );
+    assert!(
+        !MODE_REENTRY.contains("to reflect the current plan state"),
+        "MODE_REENTRY: old step 4 text must be removed"
+    );
 }
 
 // ===========================================================================
