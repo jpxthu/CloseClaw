@@ -10,9 +10,13 @@ fn create_plan_file(dir: &Path, agent: &str, user: &str, name: &str, status: &st
     let plans_dir = dir.join("workspaces").join(agent).join(user).join("plans");
     fs::create_dir_all(&plans_dir).unwrap();
     let path = plans_dir.join(name);
-    let content = format!(
-        "# Plan\n\n| 字段 | 值 |\n|------|-----|\n| 状态 | {status} |\n\n## Tasks\n\n- [x] Done\n"
-    );
+    let step_marker = match status {
+        "draft" => "- [ ] Pending",
+        "executing" => "- [-] InProgress",
+        "completed" => "- [x] Done",
+        _ => "- [ ] Pending",
+    };
+    let content = format!("# Plan\n\n## Tasks\n\n{step_marker}\n");
     fs::write(&path, content).unwrap();
 }
 
