@@ -198,6 +198,103 @@ pub(crate) fn parse_step_selection_arg(args: &str) -> Option<Vec<usize>> {
     }
 }
 
+// ── AutoModeHandler ──────────────────────────────────────────────────────
+
+/// `/auto` — directly enter Auto Mode.
+///
+/// - Without arguments: switches to Auto Mode without a plan file.
+/// - With a plan file path: validates the file exists, initializes
+///   `PlanState`, and switches to Auto Mode.
+/// - If already in Auto Mode: replies with a notification.
+/// - If in Plan Mode: injects `ExitPlan` transition before switching.
+pub struct AutoModeHandler {
+    session_manager: Arc<SessionManager>,
+}
+
+impl AutoModeHandler {
+    /// Create a new AutoModeHandler with access to session state.
+    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+        Self { session_manager }
+    }
+}
+
+#[async_trait::async_trait]
+impl SlashHandler for AutoModeHandler {
+    fn commands(&self) -> &[&str] {
+        &["auto"]
+    }
+
+    fn description(&self) -> &str {
+        "直接进入 Auto Mode"
+    }
+
+    fn immediate(&self, _cmd: &str) -> bool {
+        false
+    }
+
+    async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
+        let Some(conv) = self
+            .session_manager
+            .get_conversation_session(&ctx.session_id)
+            .await
+        else {
+            return SlashResult::Reply("当前会话未激活".to_owned());
+        };
+
+        // Read current mode and workdir in a single lock acquisition.
+        let (current_mode, workdir) = {
+            let cs = conv.read().await;
+            (cs.session_mode(), cs.workdir().to_path_buf())
+        };
+
+        if current_mode == SessionMode::Auto {
+            return SlashResult::Reply("已在 Auto Mode".to_owned());
+        }
+
+        let plan_arg = args.trim();
+        let plan_file_path = if plan_arg.is_empty() {
+            None
+        } else {
+            let path = std::path::PathBuf::from(plan_arg);
+            if !path.exists() {
+                return SlashResult::Reply(format!("plan 文件不存在：{}", path.display()));
+            }
+            Some(path)
+        };
+
+        // Initialize PlanState when a plan file is provided.
+        if let Some(ref path) = plan_file_path {
+            let mut plan_state = PlanState::new();
+            plan_state.plan_file_path = path.to_string_lossy().to_string();
+            plan_state.phase = PlanPhase::FinalPlan;
+            self.session_manager
+                .set_plan_state(&ctx.session_id, plan_state)
+                .await;
+        }
+
+        // Inject ExitPlan transition when leaving Plan Mode.
+        if current_mode == SessionMode::Plan {
+            self.session_manager
+                .set_pending_mode_transition(&ctx.session_id, ModeTransition::ExitPlan)
+                .await;
+        }
+
+        let plan_file_path_for_result = plan_file_path.map(|p| {
+            // Ensure the path is absolute for persistence.
+            if p.is_absolute() {
+                p
+            } else {
+                workdir.join(p)
+            }
+        });
+
+        SlashResult::SetMode {
+            mode: "auto".to_owned(),
+            plan_file_path: plan_file_path_for_result,
+        }
+    }
+}
+
 // ── ExecuteHandler ────────────────────────────────────────────────────────
 
 /// `/execute` — transition from Plan Mode to Auto Mode execution.
