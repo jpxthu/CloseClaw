@@ -2,10 +2,10 @@
 
 use super::engine_helpers::{generate_token, get_agent_deny_subjects, resolve_template_actions};
 use super::engine_matching::action_matches_request;
-use super::engine_risk::assess_risk_level;
+use super::engine_risk::{assess_risk_level, RiskLevel};
 use super::engine_types::{
-    Defaults, Effect, PermissionRequest, PermissionRequestBody, PermissionResponse, Rule, RuleSet,
-    Subject,
+    Defaults, Effect, MessageDirection, PermissionRequest, PermissionRequestBody,
+    PermissionResponse, Rule, RuleSet, Subject,
 };
 use super::engine_workspace;
 use super::rejection_log::{build_rejection_log, RejectionLogger};
@@ -226,6 +226,15 @@ impl PermissionEngine {
             return denied;
         }
 
+        // Step 0.1: Auto Mode runtime dangerous-operation review
+        let is_owner = caller.user_id == "owner";
+        if !is_owner {
+            if let Some(denied) = self.check_auto_mode_filter(&request, &agent_id) {
+                self.log_rejection(&denied, request.body());
+                return denied;
+            }
+        }
+
         // Step 0.4: Config dir forced deny (hardcoded rule)
         // Permission config directory access is unconditionally denied for
         // agents, regardless of rules or defaults.
@@ -277,8 +286,6 @@ impl PermissionEngine {
             request_type = ?request.body(),
             "permission check initiated"
         );
-
-        let is_owner = caller.user_id == "owner";
 
         // Step 0: Creator rule (highest priority)
         if let Some(response) = self.check_creator_rule(&caller, &agent_id) {
@@ -541,6 +548,68 @@ impl PermissionEngine {
             }
             _ => None,
         }
+    }
+
+    /// Auto Mode runtime dangerous-operation review.
+    ///
+    /// Design doc: "Auto Mode 下完整工具集可见，但危险操作需运行时审查" and
+    /// "不擅自向外部平台发送消息". Dangerous operations (High/Critical risk)
+    /// and outgoing MessageSend are denied in Auto Mode.
+    ///
+    /// Owner is exempt — Owner has the highest privilege level.
+    ///
+    /// Returns `Some(Denied)` if the operation should be blocked, `None` to
+    /// proceed with normal evaluation.
+    fn check_auto_mode_filter(
+        &self,
+        request: &PermissionRequest,
+        agent_id: &str,
+    ) -> Option<PermissionResponse> {
+        let query = self.session_mode_query.as_ref()?;
+        let mode = query.get_session_mode(agent_id)?;
+        if mode != SessionMode::Auto {
+            return None;
+        }
+
+        let body = request.body();
+
+        // High/Critical risk operations require approval in Auto Mode
+        let risk = assess_risk_level(body);
+        if risk.is_high_or_critical() {
+            info!(
+                agent = agent_id,
+                result = "denied",
+                reason = "auto_mode_risk_gate",
+                risk_level = ?risk,
+                "permission check completed"
+            );
+            return Some(PermissionResponse::Denied {
+                reason: "Auto Mode: dangerous operation requires user approval".to_string(),
+                rule: "<auto_mode_filter>".to_string(),
+                risk_level: risk,
+            });
+        }
+
+        // Auto Mode must not proactively send messages to external platforms
+        if let PermissionRequestBody::MessageSend {
+            direction: MessageDirection::Send,
+            ..
+        } = body
+        {
+            info!(
+                agent = agent_id,
+                result = "denied",
+                reason = "auto_mode_message_send_denied",
+                "permission check completed"
+            );
+            return Some(PermissionResponse::Denied {
+                reason: "Auto Mode: proactive message sending is not allowed".to_string(),
+                rule: "<auto_mode_filter>".to_string(),
+                risk_level: RiskLevel::Low,
+            });
+        }
+
+        None
     }
 
     /// Step 0: Check creator rule — if the caller is the agent's creator, allow immediately.
