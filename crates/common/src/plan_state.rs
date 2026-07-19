@@ -363,14 +363,14 @@ impl PlanStateWriter for DefaultPlanStateWriter {
         let content = fs::read_to_string(path)?;
         let lines: Vec<&str> = content.lines().collect();
         let mut result = Vec::with_capacity(lines.len());
-        let mut in_progress_table = false;
+        let mut in_tasks_section = false;
 
         for line in &lines {
             if line.trim_start().starts_with("## Tasks") {
-                in_progress_table = true;
+                in_tasks_section = true;
             }
 
-            if in_progress_table && line.contains('|') {
+            if in_tasks_section && line.contains('|') {
                 if let Some(updated) = self.update_step_row(line, plan_state) {
                     result.push(updated);
                     continue;
