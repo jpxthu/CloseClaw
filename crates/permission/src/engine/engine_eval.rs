@@ -534,7 +534,7 @@ impl PermissionEngine {
                     context_modifier: Some(
                         "[plan_mode_context] AskUserQuestion is for requirement \
                          clarification only. Do NOT use it as an approval \
-                         substitute. Use plan_approval tool for approval."
+                         substitute."
                             .to_string(),
                     ),
                 })
