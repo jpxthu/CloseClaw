@@ -14,6 +14,7 @@ mod manual_background_tests;
 mod rebuild_system_prompt_tests;
 mod recent_tool_calls_tests;
 mod session_llm_tests;
+mod skill_listing_tests;
 mod stop_tests;
 mod streaming_tests;
 mod system_appends_tests;

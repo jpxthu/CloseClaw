@@ -1,10 +1,13 @@
 //! Tests for PromptBuilder: priority sorting, cache behaviour, and fallback.
 
+use crate::builder::PromptBuilder;
 use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
 use crate::sections::{
     get_cached_section, invalidate_all_sections, invalidate_section, put_cached_section,
 };
 use async_trait::async_trait;
+use closeclaw_tools::ToolRegistry;
+use std::sync::Arc;
 
 const DEFAULT_PROMPT: &str = "You are CloseClaw, a helpful AI assistant.";
 
@@ -294,4 +297,21 @@ async fn build_from_mocks(mut providers: Vec<Box<dyn PromptFragmentProvider>>) -
     } else {
         fragments.join("\n")
     }
+}
+
+// ---------------------------------------------------------------------------
+// Skill listing removed from system prompt static layer (Step 1.1)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_prompt_builder_no_skill_listing_in_output() {
+    invalidate_all_sections();
+    let tool_reg = Arc::new(ToolRegistry::new());
+    let builder = PromptBuilder::new(tool_reg, None, None, None);
+    let ctx = FragmentContext::test_default();
+    let result = builder.build(&ctx).await;
+    assert!(
+        !result.contains("## Available Skills"),
+        "system prompt should not contain skill listing after migration to per-turn injection"
+    );
 }

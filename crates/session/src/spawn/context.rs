@@ -57,6 +57,9 @@ pub trait SpawnCreationContext: Send + Sync {
     /// Get the dynamic prompt builder for per-request injection.
     fn dynamic_prompt_builder(&self) -> Option<Arc<dyn closeclaw_common::DynamicPromptBuilder>>;
 
+    /// Get the skill listing provider for per-turn injection.
+    fn skill_listing_provider(&self) -> Option<Arc<dyn closeclaw_common::SkillListingProvider>>;
+
     /// Get the sender/user ID for a session (used for workspace path fallback).
     async fn sender_id(&self, session_id: &str) -> Option<String>;
 }
