@@ -179,7 +179,9 @@ fn render_mode_instruction(mode: SessionMode, plan_path: Option<PlanPath>) -> St
 /// Render mode instruction with sparse/sub-agent variant selection.
 ///
 /// When `sparse` is true, returns the appropriate sparse text.
-/// When `sub_agent` is true, returns the sub-agent sparse text.
+/// When `sub_agent` is true **and** `mode` is `Plan`, returns the
+/// sub-agent sparse text. For other modes, `sub_agent` is ignored and
+/// the normal mode rendering logic applies.
 /// Otherwise delegates to the full `render_mode_instruction`.
 pub(crate) fn render_mode_instruction_with_flags(
     mode: SessionMode,
@@ -187,7 +189,7 @@ pub(crate) fn render_mode_instruction_with_flags(
     sparse: bool,
     sub_agent: bool,
 ) -> String {
-    if sub_agent {
+    if sub_agent && mode == SessionMode::Plan {
         return SUBAGENT_SPARSE.to_string();
     }
     if sparse {

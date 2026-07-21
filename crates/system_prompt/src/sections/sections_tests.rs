@@ -533,6 +533,106 @@ fn test_sub_agent_precedence_over_sparse() {
     assert!(!output.contains("Plan mode still active"));
 }
 
+// ── Step 1.2: Auto Mode sub-agent tests ───────────────────────────────────
+
+/// Auto Mode + sub_agent=true, sparse=false → full Auto Mode prompt
+/// (sub_agent flag is ignored in Auto Mode, should not inject SUBAGENT_SPARSE)
+#[test]
+fn test_auto_mode_sub_agent_true_not_injecting_subagent_sparse() {
+    let output = render_mode_instruction_with_flags(
+        SessionMode::Auto,
+        None,  // plan_path irrelevant for Auto
+        false, // not compacted
+        true,  // sub-agent
+    );
+    assert!(
+        output.contains("Auto Mode Active"),
+        "Auto Mode sub_agent should render full Auto Mode prompt, got: {}",
+        output
+    );
+    assert!(
+        !output.contains("Plan mode is active"),
+        "Auto Mode sub_agent must NOT contain SUBAGENT_SPARSE text"
+    );
+    assert!(
+        !output.contains("READ-ONLY actions"),
+        "Auto Mode sub_agent must NOT contain READ-ONLY constraint"
+    );
+}
+
+/// Auto Mode + sub_agent=true, sparse=true → Auto Mode sparse text
+/// (sub_agent flag is ignored in Auto Mode, should render AUTO_MODE_SPARSE)
+#[test]
+fn test_auto_mode_sub_agent_true_sparse_outputs_auto_sparse() {
+    let output = render_mode_instruction_with_flags(
+        SessionMode::Auto,
+        None, // plan_path irrelevant for Auto
+        true, // compacted/sparse
+        true, // sub-agent
+    );
+    assert!(
+        output.contains("Auto mode still active"),
+        "Auto Mode sub_agent+sparse should output AUTO_MODE_SPARSE, got: {}",
+        output
+    );
+    assert!(
+        !output.contains("Plan mode is active"),
+        "Auto Mode sub_agent+sparse must NOT contain SUBAGENT_SPARSE text"
+    );
+    assert!(
+        !output.contains("READ-ONLY actions"),
+        "Auto Mode sub_agent+sparse must NOT contain READ-ONLY constraint"
+    );
+}
+
+/// Normal Mode + sub_agent=true → empty string (Normal Mode has no mode instruction)
+#[test]
+fn test_normal_mode_sub_agent_true_returns_empty() {
+    let output = render_mode_instruction_with_flags(
+        SessionMode::Normal,
+        None,
+        false,
+        true, // sub-agent
+    );
+    assert_eq!(
+        output, "",
+        "Normal Mode sub_agent should return empty string, got: {}",
+        output
+    );
+}
+
+/// Auto Mode + sub_agent=false → behavior unchanged (regression check)
+#[test]
+fn test_auto_mode_sub_agent_false_regression() {
+    let output = render_mode_instruction_with_flags(
+        SessionMode::Auto,
+        None,
+        false, // not compacted
+        false, // not sub-agent
+    );
+    assert!(
+        output.contains("Auto Mode Active"),
+        "Auto Mode without sub_agent should render full Auto Mode prompt"
+    );
+    assert!(!output.contains("Plan mode is active"));
+    assert!(!output.contains("READ-ONLY actions"));
+}
+
+/// Auto Mode + sub_agent=false, sparse=true → Auto Mode sparse (regression)
+#[test]
+fn test_auto_mode_sub_agent_false_sparse_regression() {
+    let output = render_mode_instruction_with_flags(
+        SessionMode::Auto,
+        None,
+        true,  // compacted/sparse
+        false, // not sub-agent
+    );
+    assert!(
+        output.contains("Auto mode still active"),
+        "Auto Mode sparse without sub_agent should output AUTO_MODE_SPARSE"
+    );
+}
+
 // ── ModeTransition section rendering ───────────────────────────────────────
 
 #[test]
