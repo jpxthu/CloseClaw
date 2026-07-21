@@ -5,14 +5,12 @@
 use crate::fragment::{FragmentContext, PromptFragmentProvider};
 use crate::providers::bootstrap::BootstrapFragmentProvider;
 use crate::providers::memory::MemoryFragmentProvider;
-use crate::providers::skills::SkillsFragmentProvider;
 use crate::providers::tools::ToolsFragmentProvider;
 use crate::sections::{get_cached_section, put_cached_section, Section};
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::BootstrapMode;
-use closeclaw_skills::DiskSkillRegistry;
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /// Re-export the common PromptOverrides type.
 pub use closeclaw_common::system_prompt::PromptOverrides;
@@ -33,10 +31,8 @@ use closeclaw_tools::ToolRegistry;
 /// fragment, sorted by priority.
 pub struct PromptBuilder {
     tool_registry: Arc<ToolRegistry>,
-    skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
     agent_tools: Option<Vec<String>>,
     agent_disallowed_tools: Option<Vec<String>>,
-    agent_skills: Option<Vec<String>>,
     session_mode: Option<SessionMode>,
 }
 
@@ -44,18 +40,14 @@ impl PromptBuilder {
     /// Create a new builder with the required registries.
     pub fn new(
         tool_registry: Arc<ToolRegistry>,
-        skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
         agent_tools: Option<Vec<String>>,
         agent_disallowed_tools: Option<Vec<String>>,
-        agent_skills: Option<Vec<String>>,
         session_mode: Option<SessionMode>,
     ) -> Self {
         Self {
             tool_registry,
-            skill_registry,
             agent_tools,
             agent_disallowed_tools,
-            agent_skills,
             session_mode,
         }
     }
@@ -66,7 +58,7 @@ impl PromptBuilder {
     /// calling `generate()`, skips `None` results, concatenates fragments,
     /// and falls back to `DEFAULT_PROMPT` when no provider contributes.
     pub async fn build(&self, ctx: &FragmentContext) -> String {
-        // Create the four standard providers.
+        // Create the three standard providers (skill listing moved to per-turn injection).
         let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
             Box::new(BootstrapFragmentProvider::new()),
             Box::new(ToolsFragmentProvider::new(
@@ -74,10 +66,6 @@ impl PromptBuilder {
                 self.agent_tools.clone(),
                 self.agent_disallowed_tools.clone(),
                 self.session_mode,
-            )),
-            Box::new(SkillsFragmentProvider::new(
-                Arc::clone(&self.skill_registry),
-                self.agent_skills.clone(),
             )),
             Box::new(MemoryFragmentProvider::new()),
         ];
@@ -203,16 +191,12 @@ fn append_append_section(base: String, append: Option<String>) -> String {
 pub struct WorkspaceBuildConfig {
     /// Tool registry for generating the ToolsSection.
     pub tool_registry: Option<Arc<ToolRegistry>>,
-    /// Skill registry for generating SkillListingSection.
-    pub skill_registry: Option<Arc<RwLock<Option<DiskSkillRegistry>>>>,
     /// Agent ID for skill listing filtering.
     pub agent_id: Option<String>,
     /// Agent-level tool whitelist from config (`tools` field).
     pub agent_tools: Option<Vec<String>>,
     /// Agent-level tool blacklist from config (`disallowedTools` field).
     pub agent_disallowed_tools: Option<Vec<String>>,
-    /// Agent-level skill whitelist from config (`skills` field).
-    pub agent_skills: Option<Vec<String>>,
     /// Additional dynamic sections to include.
     pub dynamic_sections: Vec<Section>,
     /// Content to append at the end of the prompt.
@@ -257,16 +241,11 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
     let tool_registry = config
         .tool_registry
         .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
-    let skill_registry = config
-        .skill_registry
-        .unwrap_or_else(|| Arc::new(RwLock::new(None)));
 
     let builder = PromptBuilder::new(
         tool_registry,
-        skill_registry,
         config.agent_tools,
         config.agent_disallowed_tools,
-        config.agent_skills,
         config.session_mode,
     );
 
@@ -379,11 +358,9 @@ mod tests {
     fn test_workspace_build_config_has_agent_id_field() {
         let config = WorkspaceBuildConfig {
             tool_registry: None,
-            skill_registry: None,
             agent_id: None,
             agent_tools: None,
             agent_disallowed_tools: None,
-            agent_skills: None,
             dynamic_sections: vec![],
             append_section: None,
             bootstrap_mode_override: None,
@@ -399,11 +376,9 @@ mod tests {
 
         let config = WorkspaceBuildConfig {
             tool_registry: None,
-            skill_registry: None,
             agent_id: Some("test-agent".to_string()),
             agent_tools: None,
             agent_disallowed_tools: None,
-            agent_skills: None,
             dynamic_sections: vec![],
             append_section: None,
             bootstrap_mode_override: Some(BootstrapMode::Minimal),
@@ -419,8 +394,7 @@ mod tests {
     #[test]
     fn test_prompt_builder_new() {
         let tool_reg = Arc::new(ToolRegistry::new());
-        let skill_reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(vec![]))));
-        let builder = PromptBuilder::new(tool_reg, skill_reg, None, None, None, None);
+        let builder = PromptBuilder::new(tool_reg, None, None, None);
         // Just verify construction succeeds.
         assert!(builder.agent_tools.is_none());
     }
@@ -428,12 +402,10 @@ mod tests {
     #[tokio::test]
     async fn test_prompt_builder_build_fallback_default() {
         let tool_reg = Arc::new(ToolRegistry::new());
-        let skill_reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(vec![]))));
-        let builder = PromptBuilder::new(tool_reg, skill_reg, None, None, None, None);
+        let builder = PromptBuilder::new(tool_reg, None, None, None);
 
         // No bootstrap_dir → BootstrapFragmentProvider returns None
         // Empty tool registry → ToolsFragmentProvider returns None
-        // Empty skill registry → SkillsFragmentProvider returns None
         // No bootstrap_dir → MemoryFragmentProvider returns None
         // → fallback DEFAULT_PROMPT
         let ctx = FragmentContext::test_default();
@@ -448,8 +420,7 @@ mod tests {
         std::fs::write(tmp.path().join("MEMORY.md"), "remember X").unwrap();
 
         let tool_reg = Arc::new(ToolRegistry::new());
-        let skill_reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(vec![]))));
-        let builder = PromptBuilder::new(tool_reg, skill_reg, None, None, None, None);
+        let builder = PromptBuilder::new(tool_reg, None, None, None);
 
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_path_buf(),
@@ -472,11 +443,9 @@ mod tests {
 
         let config = WorkspaceBuildConfig {
             tool_registry: None,
-            skill_registry: None,
             agent_id: Some("test-agent".into()),
             agent_tools: None,
             agent_disallowed_tools: None,
-            agent_skills: None,
             dynamic_sections: vec![],
             append_section: None,
             bootstrap_mode_override: Some(BootstrapMode::Minimal),
@@ -500,11 +469,9 @@ mod tests {
 
         let config = WorkspaceBuildConfig {
             tool_registry: None,
-            skill_registry: None,
             agent_id: Some("test-agent".into()),
             agent_tools: None,
             agent_disallowed_tools: None,
-            agent_skills: None,
             dynamic_sections: vec![],
             append_section: None,
             bootstrap_mode_override: None,
