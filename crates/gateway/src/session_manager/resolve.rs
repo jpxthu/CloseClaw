@@ -173,6 +173,16 @@ impl SessionManager {
                             if let Some(dpb) = self.get_dynamic_prompt_builder().await {
                                 conv_session.set_dynamic_prompt_builder(dpb);
                             }
+                            // Inject skill listing provider for per-turn skill attachment.
+                            if let Some(provider) = self.get_skill_listing_provider().await {
+                                conv_session.set_skill_listing_provider(provider);
+                            }
+                            // Inject agent-level skills whitelist from agent config.
+                            if let Some(config) = self.get_agent_config(&agent_id).await {
+                                if let Some(skills) = config.effective_skills() {
+                                    conv_session.set_agent_skills(skills);
+                                }
+                            }
                             // Query bootstrap mode from AgentRegistry and cache.
                             let bootstrap_mode = self
                                 .query_agent_bootstrap_mode(&agent_id)
@@ -454,6 +464,16 @@ impl SessionManager {
                             if let Some(dpb) = self.get_dynamic_prompt_builder().await {
                                 conv_session.set_dynamic_prompt_builder(dpb);
                             }
+                            // Inject skill listing provider for per-turn skill attachment.
+                            if let Some(provider) = self.get_skill_listing_provider().await {
+                                conv_session.set_skill_listing_provider(provider);
+                            }
+                            // Inject agent-level skills whitelist from agent config.
+                            if let Some(config) = self.get_agent_config(&agent_id).await {
+                                if let Some(skills) = config.effective_skills() {
+                                    conv_session.set_agent_skills(skills);
+                                }
+                            }
                             // Query bootstrap mode from AgentRegistry and cache.
                             let bootstrap_mode = self
                                 .query_agent_bootstrap_mode(&agent_id)
@@ -625,6 +645,16 @@ impl SessionManager {
         // injection (ChannelContext, SessionState, etc.).
         if let Some(dpb) = self.get_dynamic_prompt_builder().await {
             conv_session.set_dynamic_prompt_builder(dpb);
+        }
+        // Inject skill listing provider for per-turn skill attachment.
+        if let Some(provider) = self.get_skill_listing_provider().await {
+            conv_session.set_skill_listing_provider(provider);
+        }
+        // Inject agent-level skills whitelist from agent config.
+        if let Some(config) = self.get_agent_config(&agent_id).await {
+            if let Some(skills) = config.effective_skills() {
+                conv_session.set_agent_skills(skills);
+            }
         }
         // Query bootstrap mode from AgentRegistry and cache.
         let bootstrap_mode = self

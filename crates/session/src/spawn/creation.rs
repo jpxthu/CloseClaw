@@ -205,6 +205,10 @@ fn wire_session_dependencies(
     if let Some(dpb) = ctx.dynamic_prompt_builder() {
         cs.set_dynamic_prompt_builder(dpb);
     }
+    // Inject skill listing provider for per-turn skill attachment.
+    if let Some(provider) = ctx.skill_listing_provider() {
+        cs.set_skill_listing_provider(provider);
+    }
 }
 
 /// Per-call configuration for [`configure_spawn_behavior`].

@@ -642,6 +642,14 @@ impl Daemon {
             ))
                 as Arc<dyn closeclaw_common::SkillRegistryQuery>)
             .await;
+        // Inject skill listing provider so resolve() can pass it to every
+        // new ConversationSession for per-turn skill attachment injection.
+        session_manager
+            .set_skill_listing_provider(Arc::new(crate::bridge::SkillListingProviderWrapper(
+                skill_registry.clone(),
+            ))
+                as Arc<dyn closeclaw_common::SkillListingProvider>)
+            .await;
         // Inject static-layer cache invalidation callback so /system clear
         // can invalidate section caches without gateway depending on
         // closeclaw-system-prompt directly.
