@@ -337,9 +337,9 @@
   },
   {
     "path": "docs/design/mode/references/prompts.md",
-    "commit": "5ae82cc7577ae76bc388b6be2c80c81fcfd093ff",
-    "commit_time": "2026-07-18T04:50:44+08:00",
-    "confirmed_time": "2026-07-18T05:02:40.377548+08:00",
+    "commit": "ce1d55ff150f94d881d57539ac5a751030cda19e",
+    "commit_time": "2026-07-22T00:55:30+08:00",
+    "confirmed_time": "2026-07-22T01:11:34.085350+08:00",
     "comment": "",
     "blocked_reason": ""
   },
