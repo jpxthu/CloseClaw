@@ -278,14 +278,14 @@ async fn test_skill_listing_before_memory_injection() {
     let _ = session.invoke_llm("hello").await.unwrap();
 
     let req = fake_ref.last_request().unwrap();
-    // Expected order: [skill_listing, memory_injection, user]
+    // Expected order: [skill_listing, user, memory_after_current]
     assert_eq!(req.messages.len(), 3);
     assert_eq!(req.messages[0].role, "tool");
     assert_eq!(req.messages[0].content, "skill_data");
-    assert_eq!(req.messages[1].role, "tool");
-    assert_eq!(req.messages[1].content, "memory_context");
-    assert_eq!(req.messages[2].role, "user");
-    assert_eq!(req.messages[2].content, "hello");
+    assert_eq!(req.messages[1].role, "user");
+    assert_eq!(req.messages[1].content, "hello");
+    assert_eq!(req.messages[2].role, "tool");
+    assert_eq!(req.messages[2].content, "memory_context");
 }
 
 #[tokio::test]

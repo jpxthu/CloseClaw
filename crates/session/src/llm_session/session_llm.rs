@@ -130,14 +130,9 @@ impl ConversationSession {
             };
             match injection.position_mode {
                 super::InjectionPosition::AfterCurrent => {
-                    // Insert after skill listing at index 1, or at end
-                    // if skill listing was not inserted.
-                    let insert_pos = if skill_listing_inserted {
-                        1
-                    } else {
-                        messages.len()
-                    };
-                    messages.insert(insert_pos, tool_msg);
+                    // AfterCurrent means after the current (user) message,
+                    // so push to the end.
+                    messages.push(tool_msg);
                 }
                 super::InjectionPosition::BeforeNext => {
                     // Insert before user message. Skill listing occupies
