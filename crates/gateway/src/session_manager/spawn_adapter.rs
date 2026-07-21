@@ -120,6 +120,11 @@ impl SpawnCreationContext for SessionManager {
         guard.clone()
     }
 
+    fn skill_listing_provider(&self) -> Option<Arc<dyn closeclaw_common::SkillListingProvider>> {
+        let guard = self.skill_listing_provider.try_read().ok()?;
+        guard.clone()
+    }
+
     async fn sender_id(&self, session_id: &str) -> Option<String> {
         self.get_sender_id(session_id).await
     }

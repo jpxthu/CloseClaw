@@ -167,6 +167,8 @@ impl SessionManager {
         if let Some(dpb) = self.get_dynamic_prompt_builder().await {
             conv.set_dynamic_prompt_builder(dpb);
         }
+        // Inject skill listing provider and agent skills.
+        self.wire_skill_listing_deps(conv, agent_id).await;
     }
 }
 

@@ -96,6 +96,32 @@ impl closeclaw_common::skill_registry::SkillRegistryQuery for SkillRegistryWrapp
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// SkillListingProvider
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Newtype wrapper around `Arc<RwLock<Option<DiskSkillRegistry>>>` to
+/// satisfy the orphan rule when implementing `SkillListingProvider`.
+///
+/// Delegates to `DiskSkillRegistry::generate_listing` for per-turn
+/// skill listing injection into `ConversationSession`.
+pub struct SkillListingProviderWrapper(
+    pub Arc<std::sync::RwLock<Option<closeclaw_skills::DiskSkillRegistry>>>,
+);
+
+impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
+    fn generate_listing(&self, agent_id: Option<&str>, agent_skills: Option<&[String]>) -> String {
+        self.0
+            .read()
+            .ok()
+            .and_then(|g| {
+                g.as_ref()
+                    .map(|r| r.generate_listing(agent_id, agent_skills))
+            })
+            .unwrap_or_default()
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // SlashRouter adapter
 // ═══════════════════════════════════════════════════════════════════════════
 

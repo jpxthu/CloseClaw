@@ -36,6 +36,7 @@ pub mod session_mode_query;
 pub mod session_state;
 pub mod session_types;
 pub mod shutdown;
+pub mod skill_listing_provider;
 pub mod skill_registry;
 pub mod slash_router;
 #[cfg(test)]
@@ -100,6 +101,7 @@ pub use session_state::{
 };
 pub use session_types::{AgentRole, ReasoningLevel};
 pub use shutdown::{DrainStatus, ShutdownMode, ShutdownSignal, ShutdownState};
+pub use skill_listing_provider::SkillListingProvider;
 pub use skill_registry::SkillRegistryQuery;
 pub use slash_router::{
     SlashContext, SlashDispatcherTrait, SlashHandler, SlashResult, SlashRouter, SystemAppendAction,

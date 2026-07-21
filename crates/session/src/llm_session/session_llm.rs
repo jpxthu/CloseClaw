@@ -87,6 +87,13 @@ impl ConversationSession {
 
     /// Build the messages list for an LLM request, consuming any
     /// pending memory-injection slot.
+    ///
+    /// Message assembly order:
+    /// 1. Skill listing attachment (tool role, position 0) — per-turn
+    ///    injected from the [`SkillListingProvider`] when non-empty.
+    /// 2. Memory injection (tool role) — positioned per
+    ///    [`InjectionPosition::AfterCurrent`] or `BeforeNext`.
+    /// 3. User message.
     fn build_llm_messages(&self, content: &str) -> Vec<InternalMessage> {
         let mut messages = vec![InternalMessage {
             role: "user".to_string(),
@@ -94,6 +101,27 @@ impl ConversationSession {
             tool_call_id: None,
         }];
 
+        // 1. Skill listing attachment — at position 0 when non-empty.
+        let skill_listing_inserted = if let Some(provider) = self.skill_listing_provider.as_ref() {
+            let listing = provider.generate_listing(None, self.agent_skills.as_deref());
+            if !listing.is_empty() {
+                messages.insert(
+                    0,
+                    InternalMessage {
+                        role: "tool".to_string(),
+                        content: listing,
+                        tool_call_id: None,
+                    },
+                );
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        // 2. Memory injection — positioned per InjectionPosition.
         if let Some(injection) = self.take_memory_injection() {
             let tool_msg = InternalMessage {
                 role: "tool".to_string(),
@@ -102,10 +130,17 @@ impl ConversationSession {
             };
             match injection.position_mode {
                 super::InjectionPosition::AfterCurrent => {
+                    // AfterCurrent means after the current (user) message,
+                    // so push to the end.
                     messages.push(tool_msg);
                 }
                 super::InjectionPosition::BeforeNext => {
-                    messages.insert(0, tool_msg);
+                    // Insert before user message. Skill listing occupies
+                    // position 0 (if present), user message is at the end.
+                    // Insert at position 1 (after skill listing) or at 0
+                    // (before user message, no skill listing).
+                    let insert_pos = if skill_listing_inserted { 1 } else { 0 };
+                    messages.insert(insert_pos, tool_msg);
                 }
             }
         }

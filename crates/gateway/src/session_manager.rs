@@ -9,8 +9,8 @@ use closeclaw_common::processor::ProcessError;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_common::IMPlugin;
 use closeclaw_common::{
-    DynamicPromptBuilder, LlmCaller, PromptOverrides, SkillRegistryQuery, SystemPromptBuilder,
-    ToolRegistryQuery,
+    DynamicPromptBuilder, LlmCaller, PromptOverrides, SkillListingProvider, SkillRegistryQuery,
+    SystemPromptBuilder, ToolRegistryQuery,
 };
 use closeclaw_config::manager::{ConfigManager, ConfigSnapshot};
 use closeclaw_config::ConfigSection;
@@ -119,6 +119,10 @@ pub struct SessionManager {
     /// Per-session yield timeout handles (keyed by session_id).
     /// Aborted on normal recovery or timeout.
     yield_timeout_handles: RwLock<HashMap<String, tokio::task::JoinHandle<()>>>,
+    /// Skill listing provider for per-turn skill injection.
+    /// Injected by daemon (composition root) so each LLM turn can
+    /// prepend a tool-role attachment with the agent's skill listing.
+    skill_listing_provider: RwLock<Option<Arc<dyn SkillListingProvider>>>,
     /// Output channel for sending LLM responses to the user.
     /// Set via [`set_output_tx`](Self::set_output_tx) after construction.
     /// Used by [`drain_pending_for_session`](super::announce::SessionManager::drain_pending_for_session)
@@ -174,6 +178,7 @@ impl SessionManager {
             mining_notify_tx: std::sync::RwLock::new(None),
             task_manager: RwLock::new(None),
             agent_locks: Arc::new(RwLock::new(HashMap::new())),
+            skill_listing_provider: RwLock::new(None),
             yield_timeout_handles: RwLock::new(HashMap::new()),
             output_tx: RwLock::new(None),
             gateway_ref: RwLock::new(None),
@@ -421,6 +426,16 @@ impl SessionManager {
     /// Get the current skill registry, if set.
     pub async fn get_skill_registry(&self) -> Option<Arc<dyn SkillRegistryQuery>> {
         self.skill_registry.read().await.clone()
+    }
+
+    /// Set the skill listing provider for per-turn injection.
+    pub async fn set_skill_listing_provider(&self, provider: Arc<dyn SkillListingProvider>) {
+        *self.skill_listing_provider.write().await = Some(provider);
+    }
+
+    /// Get the skill listing provider, if set.
+    pub async fn get_skill_listing_provider(&self) -> Option<Arc<dyn SkillListingProvider>> {
+        self.skill_listing_provider.read().await.clone()
     }
 
     /// Register an IM adapter.

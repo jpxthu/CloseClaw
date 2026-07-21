@@ -84,6 +84,10 @@ impl SpawnCreationContext for MockCreationContext {
         None
     }
 
+    fn skill_listing_provider(&self) -> Option<Arc<dyn closeclaw_common::SkillListingProvider>> {
+        None
+    }
+
     async fn sender_id(&self, _session_id: &str) -> Option<String> {
         Some("test-user".to_string())
     }
