@@ -191,7 +191,7 @@ fn append_append_section(base: String, append: Option<String>) -> String {
 pub struct WorkspaceBuildConfig {
     /// Tool registry for generating the ToolsSection.
     pub tool_registry: Option<Arc<ToolRegistry>>,
-    /// Agent ID for skill listing filtering.
+    /// Agent ID for prompt context.
     pub agent_id: Option<String>,
     /// Agent-level tool whitelist from config (`tools` field).
     pub agent_tools: Option<Vec<String>>,

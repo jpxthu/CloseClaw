@@ -167,16 +167,8 @@ impl SessionManager {
         if let Some(dpb) = self.get_dynamic_prompt_builder().await {
             conv.set_dynamic_prompt_builder(dpb);
         }
-        // Inject skill listing provider for per-turn skill attachment.
-        if let Some(provider) = self.get_skill_listing_provider().await {
-            conv.set_skill_listing_provider(provider);
-        }
-        // Inject agent-level skills whitelist from agent config.
-        if let Some(config) = self.get_agent_config(agent_id).await {
-            if let Some(skills) = config.effective_skills() {
-                conv.set_agent_skills(skills);
-            }
-        }
+        // Inject skill listing provider and agent skills.
+        self.wire_skill_listing_deps(conv, agent_id).await;
     }
 }
 

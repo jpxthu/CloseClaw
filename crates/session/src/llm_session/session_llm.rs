@@ -90,7 +90,7 @@ impl ConversationSession {
     ///
     /// Message assembly order:
     /// 1. Skill listing attachment (tool role, position 0) — per-turn
-    ///    injected from the [`SkillListingProvider`] when available.
+    ///    injected from the [`SkillListingProvider`] when non-empty.
     /// 2. Memory injection (tool role) — positioned per
     ///    [`InjectionPosition::AfterCurrent`] or `BeforeNext`.
     /// 3. User message.
@@ -101,8 +101,8 @@ impl ConversationSession {
             tool_call_id: None,
         }];
 
-        // 1. Skill listing attachment — always at position 0 (first).
-        if let Some(provider) = self.skill_listing_provider.as_ref() {
+        // 1. Skill listing attachment — at position 0 when non-empty.
+        let skill_listing_inserted = if let Some(provider) = self.skill_listing_provider.as_ref() {
             let listing = provider.generate_listing(None, self.agent_skills.as_deref());
             if !listing.is_empty() {
                 messages.insert(
@@ -113,8 +113,13 @@ impl ConversationSession {
                         tool_call_id: None,
                     },
                 );
+                true
+            } else {
+                false
             }
-        }
+        } else {
+            false
+        };
 
         // 2. Memory injection — positioned per InjectionPosition.
         if let Some(injection) = self.take_memory_injection() {
@@ -125,9 +130,9 @@ impl ConversationSession {
             };
             match injection.position_mode {
                 super::InjectionPosition::AfterCurrent => {
-                    // Insert after skill listing (at index 1 if skill listing
-                    // was prepended, at end if not).
-                    let insert_pos = if self.skill_listing_provider.is_some() {
+                    // Insert after skill listing at index 1, or at end
+                    // if skill listing was not inserted.
+                    let insert_pos = if skill_listing_inserted {
                         1
                     } else {
                         messages.len()
@@ -135,15 +140,11 @@ impl ConversationSession {
                     messages.insert(insert_pos, tool_msg);
                 }
                 super::InjectionPosition::BeforeNext => {
-                    // Insert after skill listing but before user message.
-                    // Skill listing occupies position 0 (if present), user message
-                    // is at the end.  Insert at position 1 (after skill listing)
-                    // or at position 0 (before user message, no skill listing).
-                    let insert_pos = if self.skill_listing_provider.is_some() {
-                        1
-                    } else {
-                        messages.len() - 1
-                    };
+                    // Insert before user message. Skill listing occupies
+                    // position 0 (if present), user message is at the end.
+                    // Insert at position 1 (after skill listing) or at 0
+                    // (before user message, no skill listing).
+                    let insert_pos = if skill_listing_inserted { 1 } else { 0 };
                     messages.insert(insert_pos, tool_msg);
                 }
             }

@@ -173,16 +173,9 @@ impl SessionManager {
                             if let Some(dpb) = self.get_dynamic_prompt_builder().await {
                                 conv_session.set_dynamic_prompt_builder(dpb);
                             }
-                            // Inject skill listing provider for per-turn skill attachment.
-                            if let Some(provider) = self.get_skill_listing_provider().await {
-                                conv_session.set_skill_listing_provider(provider);
-                            }
-                            // Inject agent-level skills whitelist from agent config.
-                            if let Some(config) = self.get_agent_config(&agent_id).await {
-                                if let Some(skills) = config.effective_skills() {
-                                    conv_session.set_agent_skills(skills);
-                                }
-                            }
+                            // Inject skill listing provider and agent skills.
+                            self.wire_skill_listing_deps(&mut conv_session, &agent_id)
+                                .await;
                             // Query bootstrap mode from AgentRegistry and cache.
                             let bootstrap_mode = self
                                 .query_agent_bootstrap_mode(&agent_id)
@@ -464,16 +457,9 @@ impl SessionManager {
                             if let Some(dpb) = self.get_dynamic_prompt_builder().await {
                                 conv_session.set_dynamic_prompt_builder(dpb);
                             }
-                            // Inject skill listing provider for per-turn skill attachment.
-                            if let Some(provider) = self.get_skill_listing_provider().await {
-                                conv_session.set_skill_listing_provider(provider);
-                            }
-                            // Inject agent-level skills whitelist from agent config.
-                            if let Some(config) = self.get_agent_config(&agent_id).await {
-                                if let Some(skills) = config.effective_skills() {
-                                    conv_session.set_agent_skills(skills);
-                                }
-                            }
+                            // Inject skill listing provider and agent skills.
+                            self.wire_skill_listing_deps(&mut conv_session, &agent_id)
+                                .await;
                             // Query bootstrap mode from AgentRegistry and cache.
                             let bootstrap_mode = self
                                 .query_agent_bootstrap_mode(&agent_id)
@@ -646,16 +632,9 @@ impl SessionManager {
         if let Some(dpb) = self.get_dynamic_prompt_builder().await {
             conv_session.set_dynamic_prompt_builder(dpb);
         }
-        // Inject skill listing provider for per-turn skill attachment.
-        if let Some(provider) = self.get_skill_listing_provider().await {
-            conv_session.set_skill_listing_provider(provider);
-        }
-        // Inject agent-level skills whitelist from agent config.
-        if let Some(config) = self.get_agent_config(&agent_id).await {
-            if let Some(skills) = config.effective_skills() {
-                conv_session.set_agent_skills(skills);
-            }
-        }
+        // Inject skill listing provider and agent skills.
+        self.wire_skill_listing_deps(&mut conv_session, &agent_id)
+            .await;
         // Query bootstrap mode from AgentRegistry and cache.
         let bootstrap_mode = self
             .query_agent_bootstrap_mode(&agent_id)
@@ -709,5 +688,23 @@ impl SessionManager {
         }
 
         Ok(session_id)
+    }
+
+    /// Wire skill listing provider and agent-level skills whitelist
+    /// into a [`ConversationSession`]. Helper to avoid duplicating
+    /// this block across resolve/recovery paths.
+    pub(crate) async fn wire_skill_listing_deps(
+        &self,
+        conv: &mut ConversationSession,
+        agent_id: &str,
+    ) {
+        if let Some(provider) = self.get_skill_listing_provider().await {
+            conv.set_skill_listing_provider(provider);
+        }
+        if let Some(config) = self.get_agent_config(agent_id).await {
+            if let Some(skills) = config.effective_skills() {
+                conv.set_agent_skills(skills);
+            }
+        }
     }
 }
