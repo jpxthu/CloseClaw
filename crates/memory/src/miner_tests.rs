@@ -260,7 +260,7 @@ async fn test_mine_session_happy_path() {
     cp.mined = false;
     storage.add_checkpoint(cp);
 
-    let events = vec![make_event("error event", MiningEventCategory::Error)];
+    let events = vec![make_event("Test Entity", MiningEventCategory::Error)];
     let entities = vec![vec![make_entity("Test Entity", "subject")]];
     let config = MinerConfig {
         enabled: true,
@@ -282,7 +282,7 @@ async fn test_mine_session_happy_path() {
         .unwrap();
 
     assert_eq!(result.events.len(), 1);
-    assert_eq!(result.events[0].title, "error event");
+    assert_eq!(result.events[0].title, "Test Entity");
     assert_eq!(result.entity_names[0], vec!["Test Entity".to_string()]);
 
     let mined = storage.mined_ids();
@@ -647,7 +647,7 @@ async fn test_per_agent_isolation_different_agent_ids() {
     cp_b.mined = false;
     storage.add_checkpoint(cp_b);
 
-    let events_a = vec![make_event("agent-A event", MiningEventCategory::Error)];
+    let events_a = vec![make_event("Entity From A", MiningEventCategory::Error)];
     let entities_a = vec![vec![make_entity("Entity From A", "subject")]];
     let config = MinerConfig {
         enabled: true,
@@ -673,7 +673,7 @@ async fn test_per_agent_isolation_different_agent_ids() {
         .unwrap();
 
     // Mine a different session with agent-B producing a different entity.
-    let events_b = vec![make_event("agent-B event", MiningEventCategory::Error)];
+    let events_b = vec![make_event("Entity From B", MiningEventCategory::Error)];
     let entities_b = vec![vec![make_entity("Entity From B", "subject")]];
     let llm_b = Box::new(MockMinerLlmCaller {
         events_response: events_b,
@@ -721,11 +721,8 @@ async fn test_per_agent_empty_agent_id_no_panic() {
     cp.mined = false;
     storage.add_checkpoint(cp);
 
-    let events = vec![make_event(
-        "empty agent event",
-        MiningEventCategory::Decision,
-    )];
-    let entities = vec![vec![make_entity("Empty Agent Entity", "action")]];
+    let events = vec![make_event("Empty Agent", MiningEventCategory::Decision)];
+    let entities = vec![vec![make_entity("Empty Agent", "action")]];
     let config = MinerConfig {
         enabled: true,
         clean_rules: lenient_rules(),
@@ -751,7 +748,7 @@ async fn test_per_agent_empty_agent_id_no_panic() {
     let conn = rusqlite::Connection::open(&db_path).unwrap();
     let catalog = load_entity_catalog(&conn, "").unwrap();
     assert!(
-        catalog.contains("- Empty Agent Entity:"),
+        catalog.contains("- Empty Agent:"),
         "empty agent should have entity"
     );
 }

@@ -16,6 +16,7 @@ use closeclaw_config::agents::{
 };
 use closeclaw_session::persistence::{PersistenceError, PersistenceService};
 
+use crate::embedding::{cosine_similarity, EntityEmbedder, NgramEmbedder};
 use crate::miner_llm::{MinerLlmCaller, MinerLlmError};
 use crate::miner_transcript::clean_transcript;
 
@@ -159,6 +160,8 @@ struct DbReadData {
     memory_md: String,
     /// Entity/type catalog text for Miner 2.
     catalog: String,
+    /// Entity type → similarity_threshold mapping.
+    type_thresholds: std::collections::HashMap<String, f64>,
 }
 
 /// Memory miner — extracts structured entries from session transcripts.
@@ -309,11 +312,13 @@ impl MemoryMiner {
                 load_recent_events(&conn, &session_id_owned, &agent_id_owned, dedup_days)?;
             let memory_md = std::fs::read_to_string(&memory_md_path).unwrap_or_default();
             let catalog = load_entity_catalog(&conn, &agent_id_owned)?;
+            let type_thresholds = load_entity_type_thresholds(&conn)?;
 
             Ok(DbReadData {
                 recent_events,
                 memory_md,
                 catalog,
+                type_thresholds,
             })
         })
         .await
@@ -328,6 +333,35 @@ impl MemoryMiner {
         let mut entities = self.llm.assign_entities(&events, &db_data.catalog).await?;
         for event_entities in &mut entities {
             truncate_entity_names(event_entities);
+        }
+
+        // ── Phase 3.5: Similarity threshold filtering ─────────────
+        // Build a shared corpus so all embeddings use the same vocabulary.
+        let mut corpus: Vec<String> = Vec::new();
+        for event in &events {
+            corpus.push(format!("{} {}", event.title, event.summary));
+        }
+        for event_entities in &entities {
+            for entity in event_entities {
+                corpus.push(format!("{} {}", entity.name, entity.description));
+            }
+        }
+        let corpus_refs: Vec<&str> = corpus.iter().map(|s| s.as_str()).collect();
+        let filter_embedder = NgramEmbedder::new(&corpus_refs);
+
+        for (event, event_entities) in events.iter().zip(entities.iter_mut()) {
+            let event_text = format!("{} {}", event.title, event.summary);
+            let event_emb = filter_embedder.embed(&event_text);
+            event_entities.retain(|entity| {
+                let threshold = db_data
+                    .type_thresholds
+                    .get(&entity.entity_type)
+                    .copied()
+                    .unwrap_or(0.80);
+                let entity_text = format!("{} {}", entity.name, entity.description);
+                let entity_emb = filter_embedder.embed(&entity_text);
+                cosine_similarity(&event_emb, &entity_emb) >= threshold
+            });
         }
 
         // ── Phase 4: Blocking SQLite writes ───────────────────────
@@ -635,6 +669,30 @@ pub(crate) fn load_entity_catalog(
     }
 
     Ok(sections.join("\n\n"))
+}
+
+/// Load entity type → similarity_threshold mapping from SQLite.
+///
+/// Returns a HashMap where keys are entity type names (e.g. "time",
+/// "subject") and values are the similarity_threshold thresholds.
+pub(crate) fn load_entity_type_thresholds(
+    conn: &rusqlite::Connection,
+) -> Result<std::collections::HashMap<String, f64>, MinerError> {
+    let sql = "SELECT type, similarity_threshold FROM entity_types WHERE is_active = 1";
+    let mut stmt = conn
+        .prepare(sql)
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+        })
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    let mut map = std::collections::HashMap::new();
+    for row in rows {
+        let (typ, threshold) = row.map_err(|e| MinerError::Sqlite(e.to_string()))?;
+        map.insert(typ, threshold);
+    }
+    Ok(map)
 }
 
 /// Normalize an entity name: lowercase, replace spaces with underscores.
