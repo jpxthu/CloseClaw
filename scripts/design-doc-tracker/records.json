@@ -297,9 +297,9 @@
   },
   {
     "path": "docs/design/memory/entity-types.md",
-    "commit": "91d98a0b9676b51b877e4a0af6b14070d6053e68",
-    "commit_time": "2026-07-06T21:35:30+08:00",
-    "confirmed_time": "2026-07-06T21:42:04.318010+08:00",
+    "commit": "8670b3a58ba95f6f71980894402480291ce9da4b",
+    "commit_time": "2026-07-23T00:53:06+08:00",
+    "confirmed_time": "2026-07-23T00:59:10.503430+08:00",
     "comment": "",
     "blocked_reason": ""
   },
