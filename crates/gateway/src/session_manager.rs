@@ -336,7 +336,8 @@ impl SessionManager {
     }
 
     /// Inject a [`DynamicPromptBuilder`] into the session manager.
-    /// Called by daemon (composition root) after construction.
+    /// Called by daemon (composition root) after construction so that
+    /// `resolve()` and `force_new_for_channel()` pass it to new sessions.
     pub async fn set_dynamic_prompt_builder(&self, builder: Arc<dyn DynamicPromptBuilder>) {
         *self.dynamic_prompt_builder.write().await = Some(builder);
     }
@@ -346,13 +347,17 @@ impl SessionManager {
         self.dynamic_prompt_builder.read().await.clone()
     }
 
-    /// Initialize the consistency check timestamp after startup full scan.
+    /// Initialize the consistency check timestamp after the startup full scan.
+    /// Call this once after `run_consistency_check()` completes at startup
+    /// so incremental scans only examine records changed since this point.
     pub fn initialize_consistency_check_time(&self) {
         let now = chrono::Utc::now().timestamp();
         *self.last_consistency_check_time.lock().unwrap() = Some(now);
     }
 
     /// Swap in a new config snapshot, releasing the old one.
+    /// The old snapshot's `Arc` reference count decrements; once all
+    /// holders release it, the memory is reclaimed automatically.
     pub(crate) async fn swap_config_snapshot(&self, snapshot: ConfigSnapshot) {
         let mut guard = self.config_snapshot.write().await;
         *guard = Some(snapshot);
@@ -375,7 +380,9 @@ impl SessionManager {
     }
 
     /// Inject a [`PersistenceMetaStore`] into a conversation session's
-    /// snapshot manager for metadata persistence.
+    /// snapshot manager for metadata persistence. When persistence is
+    /// available, metadata persists to the session checkpoint; otherwise
+    /// falls back to in-memory-only mode.
     pub(crate) async fn inject_snapshot_meta_store(
         &self,
         session_id: &str,

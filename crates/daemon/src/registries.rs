@@ -117,14 +117,58 @@ fn inject_agent_registry_into_tool_registry(
 
 /// Build the tool-register callback for [`SessionManager`].
 ///
+/// Registers the 4 session tools (`SessionsSpawnTool`, `SessionsSteerTool`,
+/// `SessionsKillTool`, `SessionsYieldTool`) into the provided [`ToolRegistry`].
+///
+/// Extracted from `build_session_tool_callback` to keep that function's body
+/// within the 50-line limit.
+///
+/// **Cross-reference**: The tool construction order here must stay in sync with
+/// [`SessionToolsRegistrar::register`] in `crates/tools/src/registrars/session.rs`.
+/// If either side changes the tool set or registration order, update the other.
+async fn register_session_tools(
+    registry: &dyn closeclaw_common::tool_registry::ToolRegistry,
+    sv: &Arc<dyn closeclaw_tools::SpawnValidator>,
+    sm: &Arc<SessionManager>,
+    acl: &Arc<dyn closeclaw_agent::AgentConfigLookup>,
+    pe: &Arc<tokio::sync::RwLock<PermissionEngine>>,
+    af: &Arc<tokio::sync::Mutex<ApprovalFlow>>,
+) -> Result<(), ToolRegistrarError> {
+    let mut registered = 0usize;
+    let r = "SessionManager.register_tools";
+    closeclaw_tools::try_register!(
+        registry,
+        registered,
+        SessionsSpawnTool::new(sv.clone(), sm.clone(), acl.clone(), af.clone()),
+        r
+    );
+    closeclaw_tools::try_register!(
+        registry,
+        registered,
+        SessionsSteerTool::new(sm.clone(), pe.clone(), af.clone()),
+        r
+    );
+    closeclaw_tools::try_register!(
+        registry,
+        registered,
+        SessionsKillTool::new(sm.clone(), pe.clone(), af.clone()),
+        r
+    );
+    closeclaw_tools::try_register!(registry, registered, SessionsYieldTool::new(sm.clone()), r);
+    if registered == 0 {
+        return Err(ToolRegistrarError::Internal(
+            "all 4 session tools failed to register".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Constructs a callback that creates `SessionsSpawnTool`, `SessionsSteerTool`,
 /// `SessionsKillTool`, and `SessionsYieldTool`, then registers each into the
 /// provided [`ToolRegistry`]. Extracted from `wire_session_manager` to keep
 /// that function within the 50-line body limit.
 ///
-/// **Cross-reference**: The tool construction order here must stay in sync with
-/// [`SessionToolsRegistrar::register`] in `crates/tools/src/registrars/session.rs`.
-/// If either side changes the tool set or registration order, update the other.
+/// Delegates actual registration to [`register_session_tools`].
 fn build_session_tool_callback(
     spawn_controller: &Arc<SpawnController>,
     session_manager: &Arc<SessionManager>,
@@ -146,40 +190,7 @@ fn build_session_tool_callback(
         let acl = Arc::clone(&acl);
         let pe = Arc::clone(&pe);
         let af = Arc::clone(&af);
-        Box::pin(async move {
-            let mut registered = 0usize;
-            let r = "SessionManager.register_tools";
-            closeclaw_tools::try_register!(
-                registry,
-                registered,
-                SessionsSpawnTool::new(sv.clone(), sm.clone(), acl.clone(), af.clone()),
-                r
-            );
-            closeclaw_tools::try_register!(
-                registry,
-                registered,
-                SessionsSteerTool::new(sm.clone(), pe.clone(), af.clone()),
-                r
-            );
-            closeclaw_tools::try_register!(
-                registry,
-                registered,
-                SessionsKillTool::new(sm.clone(), pe.clone(), af.clone()),
-                r
-            );
-            closeclaw_tools::try_register!(
-                registry,
-                registered,
-                SessionsYieldTool::new(sm.clone()),
-                r
-            );
-            if registered == 0 {
-                return Err(ToolRegistrarError::Internal(
-                    "all 4 session tools failed to register".to_string(),
-                ));
-            }
-            Ok(())
-        })
+        Box::pin(async move { register_session_tools(registry, &sv, &sm, &acl, &pe, &af).await })
     })
 }
 
