@@ -465,9 +465,9 @@
   },
   {
     "path": "docs/design/session/session-lifecycle.md",
-    "commit": "5097c6f35db6690ac929066198061df3d708b07b",
-    "commit_time": "2026-07-16T10:00:13+08:00",
-    "confirmed_time": "2026-07-16T10:11:11.077321+08:00",
+    "commit": "79730fe8a8647c3c79dfc4b85917e5023f0e69f9",
+    "commit_time": "2026-07-23T04:44:30+08:00",
+    "confirmed_time": "2026-07-23T04:50:45.339599+08:00",
     "comment": "",
     "blocked_reason": ""
   },
