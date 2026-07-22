@@ -47,19 +47,28 @@ impl ConversationSession {
             Some(old_snapshot) => {
                 let old_lines: HashSet<&str> =
                     old_snapshot.lines().filter(|l| !l.is_empty()).collect();
-                let new_lines: Vec<&str> =
+                let new_lines: HashSet<&str> =
                     current_listing.lines().filter(|l| !l.is_empty()).collect();
-                let additions: Vec<String> = new_lines
-                    .iter()
-                    .filter(|l| !old_lines.contains(*l))
+                // Additions: lines in current but not in snapshot
+                let additions: Vec<String> = current_listing
+                    .lines()
+                    .filter(|l| !l.is_empty() && !old_lines.contains(*l))
                     .map(|l| l.to_string())
+                    .collect();
+                // Deletions: lines in snapshot but not in current
+                let deletions: Vec<String> = old_snapshot
+                    .lines()
+                    .filter(|l| !l.is_empty() && !new_lines.contains(*l))
+                    .map(|l| format!("- {}", l))
                     .collect();
                 // Update snapshot to reflect current state
                 let new_snapshot = current_listing;
-                if additions.is_empty() {
+                let mut diff_parts = additions;
+                diff_parts.extend(deletions);
+                if diff_parts.is_empty() {
                     (None, Some(new_snapshot))
                 } else {
-                    (Some(additions.join("\n")), Some(new_snapshot))
+                    (Some(diff_parts.join("\n")), Some(new_snapshot))
                 }
             }
         }

@@ -434,10 +434,15 @@ async fn test_removed_skill_disappears() {
     provider.set_all_listing("- **skill_a**: desc_a");
     provider.set_base_listing("- **skill_a**: desc_a");
 
-    // Turn 2: no new additions → no injection
+    // Turn 2: deletion of skill_b → injection with `- ` prefix
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req2 = fake_ref.last_request().unwrap();
-    assert_eq!(tool_messages(&req2).len(), 0);
+    let tools2 = tool_messages(&req2);
+    assert_eq!(tools2.len(), 1, "should inject deletion notification");
+    assert!(
+        tools2[0].contains("- - **skill_b**"),
+        "deletion line should start with `- - **skill_b**"
+    );
 
     // Turn 3: snapshot updated, stable
     let _ = session.invoke_llm("turn3").await.unwrap();

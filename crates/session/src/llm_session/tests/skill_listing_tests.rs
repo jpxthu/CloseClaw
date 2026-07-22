@@ -270,10 +270,14 @@ async fn test_per_turn_refresh_returns_latest_listing() {
     // Change provider content
     mock.set_listing("listing_v2");
 
-    // Second call
+    // Second call: now includes deletion of old line
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req2 = fake_ref.last_request().unwrap();
-    assert_eq!(req2.messages[0].content, "listing_v2");
+    assert!(req2.messages[0].content.contains("listing_v2"));
+    assert!(
+        req2.messages[0].content.contains("- listing_v1"),
+        "should include deletion notification for old listing"
+    );
 
     // Provider was called twice
     assert_eq!(mock.call_count(), 2);

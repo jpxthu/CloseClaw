@@ -300,41 +300,11 @@ impl DiskSkillRegistry {
         agent_id: Option<&str>,
         skills_whitelist: Option<&[String]>,
     ) -> String {
-        let use_whitelist = skills_whitelist
-            .filter(|w| !(w.len() == 1 && w[0] == "*"))
-            .map(|w| {
-                w.iter()
-                    .map(|s| s.as_str())
-                    .collect::<std::collections::HashSet<_>>()
-            });
-
-        let mut filtered: Vec<&DiskSkill> = self
-            .skills
-            .iter()
-            .filter(|s| {
-                if !s.manifest.user_invocable {
-                    return false;
-                }
-                if !s.manifest.paths.is_empty() {
-                    return false;
-                }
-                if !(s.manifest.agent_id.is_empty()
-                    || agent_id.is_none_or(|id| s.manifest.agent_id == id))
-                {
-                    return false;
-                }
-                if let Some(ref set) = use_whitelist {
-                    set.contains(s.manifest.name.as_str())
-                } else {
-                    true
-                }
-            })
-            .collect();
-
+        let mut filtered = self.filter_skills_for_listing(agent_id, skills_whitelist);
+        filtered.retain(|s| s.manifest.paths.is_empty());
         if filtered.is_empty() {
             return String::new();
         }
-
         Self::render_listing(&mut filtered)
     }
 
@@ -345,6 +315,23 @@ impl DiskSkillRegistry {
         agent_id: Option<&str>,
         skills_whitelist: Option<&[String]>,
     ) -> String {
+        let mut filtered = self.filter_skills_for_listing(agent_id, skills_whitelist);
+        if filtered.is_empty() {
+            return String::new();
+        }
+        Self::render_listing(&mut filtered)
+    }
+
+    /// Filter skills by common listing criteria: `user_invocable`,
+    /// `agent_id` match, and whitelist membership.
+    ///
+    /// The caller may apply additional filtering (e.g. excluding
+    /// conditional skills) on the returned slice.
+    fn filter_skills_for_listing<'a>(
+        &'a self,
+        agent_id: Option<&str>,
+        skills_whitelist: Option<&[String]>,
+    ) -> Vec<&'a DiskSkill> {
         let use_whitelist = skills_whitelist
             .filter(|w| !(w.len() == 1 && w[0] == "*"))
             .map(|w| {
@@ -353,8 +340,7 @@ impl DiskSkillRegistry {
                     .collect::<std::collections::HashSet<_>>()
             });
 
-        let mut filtered: Vec<&DiskSkill> = self
-            .skills
+        self.skills
             .iter()
             .filter(|s| {
                 if !s.manifest.user_invocable {
@@ -371,13 +357,7 @@ impl DiskSkillRegistry {
                     true
                 }
             })
-            .collect();
-
-        if filtered.is_empty() {
-            return String::new();
-        }
-
-        Self::render_listing(&mut filtered)
+            .collect()
     }
 }
 
@@ -419,22 +399,7 @@ impl DiskSkillRegistry {
 
         let lines: Vec<String> = skills
             .iter()
-            .map(|s| {
-                let when = if s.manifest.when_to_use.is_empty() {
-                    String::new()
-                } else {
-                    format!(" — {}", s.manifest.when_to_use)
-                };
-                let paths_anno = if s.manifest.paths.is_empty() {
-                    String::new()
-                } else {
-                    format!(" ⚡ auto-activates on: {}", s.manifest.paths.join(", "))
-                };
-                format!(
-                    "- **{}**: {}{}{}",
-                    s.manifest.name, s.manifest.description, when, paths_anno
-                )
-            })
+            .map(|s| Self::render_single_listing(s))
             .collect();
         lines.join("\n")
     }
