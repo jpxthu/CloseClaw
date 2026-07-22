@@ -480,6 +480,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/session/session-tools.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-07-23T04:59:41.560069+08:00",
+    "comment": "",
+    "blocked_reason": "文档内部矛盾: 概述和模块关系两处对工具注册调用方向描述相反, 且register_tools方法在session模块中不存在"
+  },
+  {
     "path": "docs/design/system_prompt/appends.md",
     "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
     "commit_time": "2026-07-07T01:07:02+08:00",
