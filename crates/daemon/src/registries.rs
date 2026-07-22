@@ -48,6 +48,15 @@ pub(crate) struct RegistryContext<'a> {
 
 /// Populate registries and wire them together.
 ///
+/// Registration order matters:
+/// 1. Agent & skill registries are populated from config.
+/// 2. `wire_session_manager` injects the session tool callback and calls
+///    [`SessionManager::register_tools`], registering session tools during
+///    the SessionManager initialization stage (before `register_all` freezes
+///    the registry).
+/// 3. `spawn_builtin_tools` registers all remaining builtin tools via the
+///    Registrar pattern and freezes the registry via `register_all`.
+///
 /// Returns an optional [`ConfigWatcherHandle`] for config hot-reload.
 pub(crate) async fn populate_registries(
     ctx: &RegistryContext<'_>,
@@ -219,10 +228,14 @@ fn init_config_hot_reload(
 
 /// Register builtin tools via the Registrar pattern.
 ///
-/// Constructs all four standard registrars, collects them into a
-/// `Vec<Box<dyn ToolRegistrar>>`, and calls
+/// Constructs the remaining registrars (core, skills, im_adapter, plan),
+/// collects them into a `Vec<Box<dyn ToolRegistrar>>`, and calls
 /// [`ToolRegistry::register_all`] to register everything and freeze
 /// the registry.
+///
+/// Session tools are **not** registered here — they are registered earlier
+/// during [`wire_session_manager`] via [`SessionManager::register_tools`],
+/// at the SessionManager initialization stage. See `docs/design/session/session-tools.md`.
 async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkillRegistry>) {
     let task_manager: Arc<dyn closeclaw_tasks::TaskManager> =
         Arc::new(closeclaw_tasks::BackgroundTaskManager::new());

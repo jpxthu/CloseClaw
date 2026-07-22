@@ -1,4 +1,13 @@
-//! Session tools registrar — registers sessions_spawn, sessions_steer, sessions_kill.
+//! Session tools registrar — provides tool construction logic for [`SessionManager`].
+//!
+//! In the production path, session tool registration flows through
+//! [`SessionManager::register_tools`] (called during daemon initialization in
+//! `wire_session_manager`). The daemon injects a callback that constructs
+//! these same tools and registers them into the `ToolRegistry`. This module
+//! encapsulates the construction logic used by that callback.
+//!
+//! This struct also implements [`ToolRegistrar`] for use in tests where
+//! session tools need to be registered directly into a `ToolRegistry`.
 
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -13,7 +22,12 @@ use crate::try_register;
 use crate::{SpawnValidator, Tool};
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 
-/// Session tools registrar — registers all tools from the sessions domain.
+/// Provides tool construction logic for the sessions domain.
+///
+/// In production, the daemon's `wire_session_manager` injects a callback
+/// that constructs these tools and registers them via
+/// [`SessionManager::register_tools`]. This struct encapsulates that
+/// construction logic and also implements [`ToolRegistrar`] for test use.
 ///
 /// Covers `sessions` group (4 tools):
 /// `sessions_spawn`, `sessions_steer`, `sessions_kill`, `sessions_yield`.
