@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -49,6 +49,7 @@ mod session_health;
 mod session_llm;
 mod session_pending;
 mod session_pending_queue;
+mod skill_listing;
 pub mod streaming_assembly;
 pub mod transcript_ops;
 pub use streaming_assembly::SessionStream;
@@ -160,11 +161,18 @@ pub struct ConversationSession {
     /// Skill listing provider for per-turn skill injection.
     /// Injected by Gateway at session creation. When set, each LLM turn
     /// prepends a tool-role attachment with the agent's skill listing.
-    skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
+    pub(crate) skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
+    /// Snapshot of the last skill listing (excluding conditional skills)
+    /// used for incremental diff computation. `None` on the first turn.
+    pub(crate) skill_listing_snapshot: Option<String>,
+    /// Names of conditional skills that have been activated during this
+    /// session's lifetime via file-path matching. Activated skills are
+    /// included in subsequent turn listings as incremental additions.
+    pub(crate) activated_conditional_skills: HashSet<String>,
     /// Agent-level skill whitelist filter. When set, only skills whose
     /// names appear in this list are included in the injected listing.
     /// A list containing `"*"` means no filtering.
-    agent_skills: Option<Vec<String>>,
+    pub(crate) agent_skills: Option<Vec<String>>,
     /// Shutdown handle for busy-count tracking during tool execution.
     shutdown_handle: Option<Arc<dyn closeclaw_common::ShutdownSignal>>,
     /// Runtime-only execution progress appends. Entries are tagged with
@@ -248,6 +256,8 @@ impl ConversationSession {
             memory_injection: Arc::new(Mutex::new(None)),
             last_activity_at: Utc::now().timestamp(),
             skill_listing_provider: None,
+            skill_listing_snapshot: None,
+            activated_conditional_skills: HashSet::new(),
             agent_skills: None,
             shutdown_handle: None,
             verbosity_level: VerbosityLevel::default(),
@@ -368,6 +378,18 @@ impl ConversationSession {
     pub fn agent_skills(&self) -> Option<&[String]> {
         self.agent_skills.as_deref()
     }
+    /// Returns the last skill listing snapshot, if any.
+    pub fn skill_listing_snapshot(&self) -> Option<&str> {
+        self.skill_listing_snapshot.as_deref()
+    }
+
+    /// Returns a reference to the set of activated conditional skill names.
+    pub fn activated_conditional_skills(&self) -> &HashSet<String> {
+        &self.activated_conditional_skills
+    }
+
+    /// Compute the skill listing for the current turn without
+    /// mutating session state.
     /// Returns a clone of the manual backgrounding signal.
     ///
     /// Callers (e.g. `BashTool::execute_command`) can await on
@@ -886,6 +908,11 @@ impl std::fmt::Debug for ConversationSession {
                     .skill_listing_provider
                     .as_ref()
                     .map(|_| "<SkillListingProvider>"),
+            )
+            .field("skill_listing_snapshot", &self.skill_listing_snapshot)
+            .field(
+                "activated_conditional_skills",
+                &self.activated_conditional_skills,
             )
             .field("agent_skills", &self.agent_skills)
             .field(
