@@ -67,6 +67,26 @@ impl SkillListingProvider for MockSkillListingProvider {
         ));
         self.listing.lock().unwrap().clone()
     }
+
+    fn generate_listing_excluding_conditional(
+        &self,
+        agent_id: Option<&str>,
+        agent_skills: Option<&[String]>,
+    ) -> String {
+        self.call_count.fetch_add(1, Ordering::SeqCst);
+        self.calls.lock().unwrap().push((
+            agent_id.map(|s| s.to_string()),
+            agent_skills.map(|s| s.to_vec()),
+        ));
+        self.listing.lock().unwrap().clone()
+    }
+
+    fn find_conditional_matches(
+        &self,
+        _paths: &[std::path::PathBuf],
+    ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+        Vec::new()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -250,10 +270,14 @@ async fn test_per_turn_refresh_returns_latest_listing() {
     // Change provider content
     mock.set_listing("listing_v2");
 
-    // Second call
+    // Second call: now includes deletion of old line
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req2 = fake_ref.last_request().unwrap();
-    assert_eq!(req2.messages[0].content, "listing_v2");
+    assert!(req2.messages[0].content.contains("listing_v2"));
+    assert!(
+        req2.messages[0].content.contains("- listing_v1"),
+        "should include deletion notification for old listing"
+    );
 
     // Provider was called twice
     assert_eq!(mock.call_count(), 2);

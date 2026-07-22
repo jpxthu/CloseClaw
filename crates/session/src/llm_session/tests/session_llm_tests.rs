@@ -136,7 +136,7 @@ fn canned_response(text: &str) -> UnifiedResponse {
 
 #[tokio::test]
 async fn test_invoke_llm_no_caller_returns_error() {
-    let session = ConversationSession::new("s1".into(), "gpt-4o".into(), tmp_path());
+    let mut session = ConversationSession::new("s1".into(), "gpt-4o".into(), tmp_path());
     let result: Result<UnifiedResponse, LLMError> = session.invoke_llm("hello").await;
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -247,7 +247,7 @@ fn test_set_and_get_llm_caller() {
 
 #[tokio::test]
 async fn test_invoke_llm_streaming_no_caller_returns_error() {
-    let session = ConversationSession::new("s_stream_1".into(), "gpt-4o".into(), tmp_path());
+    let mut session = ConversationSession::new("s_stream_1".into(), "gpt-4o".into(), tmp_path());
     let result = session.invoke_llm_streaming("hello").await;
     assert!(result.is_err(), "expected error when no LlmCaller injected");
 }

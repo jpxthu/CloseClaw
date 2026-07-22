@@ -53,7 +53,7 @@ impl SessionMessageHandler {
         cs.read()
             .await
             .set_request_context(_meta.to_request_context());
-        let session_stream: SessionStream = cs.read().await.invoke_llm_streaming(content).await?;
+        let session_stream: SessionStream = cs.write().await.invoke_llm_streaming(content).await?;
 
         // Retrieve the session's streaming sink (if any) for delta notifications.
         let sink: Option<Arc<dyn closeclaw_llm::streaming::StreamingSink>> =

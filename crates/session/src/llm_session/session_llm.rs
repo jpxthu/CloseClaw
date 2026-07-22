@@ -44,19 +44,62 @@ impl ConversationSession {
         self.is_sub_agent
     }
 
+    /// Prepare the skill listing for the current turn.
+    ///
+    /// Extracts file paths from the user message, finds new
+    /// conditional matches, computes the incremental listing using only
+    /// the currently activated skills (newly activated skills are
+    /// applied AFTER this turn via [`apply_skill_listing_update`]),
+    /// and returns the listing to inject plus the updated state for
+    /// the caller to apply.
+    ///
+    /// Returns `(listing, new_snapshot, newly_activated_names)`.
+    fn prepare_turn_skill_listing(
+        &self,
+        content: &str,
+    ) -> (
+        Option<String>,
+        Option<String>,
+        std::collections::HashSet<String>,
+    ) {
+        // 1. Extract file paths from user content and find newly
+        //    activated conditionals.
+        let paths = Self::extract_file_paths(content);
+        let mut newly_activated = std::collections::HashSet::new();
+        if !paths.is_empty() {
+            if let Some(provider) = self.skill_listing_provider.as_ref() {
+                let matches = provider.find_conditional_matches(&paths);
+                for m in matches {
+                    if !self.activated_conditional_skills.contains(&m.name) {
+                        newly_activated.insert(m.name);
+                    }
+                }
+            }
+        }
+
+        // 2. Compute listing using ONLY current activation set
+        //    (newly activated skills are applied after this turn)
+        let (listing, new_snapshot) = self.compute_skill_listing_for_turn();
+
+        (listing, new_snapshot, newly_activated)
+    }
+
     /// Make a non-streaming LLM call via the injected [`LlmCaller`].
     ///
     /// Builds an [`InternalRequest`], consuming any pending
     /// memory-injection slot, and delegates to the caller. Returns
     /// an error if no [`LlmCaller`] has been injected.
-    pub async fn invoke_llm(&self, content: &str) -> Result<UnifiedResponse, LLMError> {
-        let Some(caller) = self.llm_caller.as_ref() else {
+    pub async fn invoke_llm(&mut self, content: &str) -> Result<UnifiedResponse, LLMError> {
+        let Some(caller) = self.llm_caller.clone() else {
             return Err(LLMError::InvalidRequest(
                 "no LlmCaller injected into session".to_string(),
             ));
         };
 
-        let messages = self.build_llm_messages(content);
+        let (listing, new_snapshot, newly_activated) = self.prepare_turn_skill_listing(content);
+        let messages = self.build_llm_messages_with_listing(content, listing);
+        self.apply_skill_listing_update(new_snapshot, &newly_activated);
+
         let request = self.build_llm_request(messages, false);
         caller.call(request).await
     }
@@ -72,14 +115,17 @@ impl ConversationSession {
     /// The caller (Gateway) is responsible for consuming the stream
     /// for real-time rendering via
     /// [`Gateway::send_outbound_streaming`](crate::Gateway::send_outbound_streaming).
-    pub async fn invoke_llm_streaming(&self, content: &str) -> Result<SessionStream, LLMError> {
-        let Some(caller) = self.llm_caller.as_ref() else {
+    pub async fn invoke_llm_streaming(&mut self, content: &str) -> Result<SessionStream, LLMError> {
+        let Some(caller) = self.llm_caller.clone() else {
             return Err(LLMError::InvalidRequest(
                 "no LlmCaller injected into session".to_string(),
             ));
         };
 
-        let messages = self.build_llm_messages(content);
+        let (listing, new_snapshot, newly_activated) = self.prepare_turn_skill_listing(content);
+        let messages = self.build_llm_messages_with_listing(content, listing);
+        self.apply_skill_listing_update(new_snapshot, &newly_activated);
+
         let request = self.build_llm_request(messages, true);
         let raw_stream = caller.call_streaming(request).await?;
         Ok(SessionStream::new(raw_stream))
@@ -90,11 +136,19 @@ impl ConversationSession {
     ///
     /// Message assembly order:
     /// 1. Skill listing attachment (tool role, position 0) — per-turn
-    ///    injected from the [`SkillListingProvider`] when non-empty.
+    ///    incremental diff from the [`SkillListingProvider`] when
+    ///    non-empty. Prepared by [`prepare_turn_skill_listing`].
     /// 2. Memory injection (tool role) — positioned per
     ///    [`InjectionPosition::AfterCurrent`] or `BeforeNext`.
     /// 3. User message.
-    fn build_llm_messages(&self, content: &str) -> Vec<InternalMessage> {
+    ///
+    /// `skill_listing` is the pre-computed listing content to inject.
+    /// Pass `None` to skip skill listing injection.
+    fn build_llm_messages_with_listing(
+        &self,
+        content: &str,
+        skill_listing: Option<String>,
+    ) -> Vec<InternalMessage> {
         let mut messages = vec![InternalMessage {
             role: "user".to_string(),
             content: content.to_string(),
@@ -102,8 +156,7 @@ impl ConversationSession {
         }];
 
         // 1. Skill listing attachment — at position 0 when non-empty.
-        let skill_listing_inserted = if let Some(provider) = self.skill_listing_provider.as_ref() {
-            let listing = provider.generate_listing(None, self.agent_skills.as_deref());
+        let skill_listing_inserted = if let Some(listing) = skill_listing {
             if !listing.is_empty() {
                 messages.insert(
                     0,
@@ -130,15 +183,16 @@ impl ConversationSession {
             };
             match injection.position_mode {
                 super::InjectionPosition::AfterCurrent => {
-                    // AfterCurrent means after the current (user) message,
-                    // so push to the end.
+                    // AfterCurrent means after the current (user)
+                    // message, so push to the end.
                     messages.push(tool_msg);
                 }
                 super::InjectionPosition::BeforeNext => {
-                    // Insert before user message. Skill listing occupies
-                    // position 0 (if present), user message is at the end.
-                    // Insert at position 1 (after skill listing) or at 0
-                    // (before user message, no skill listing).
+                    // Insert before user message. Skill listing
+                    // occupies position 0 (if present), user message
+                    // is at the end. Insert at position 1 (after skill
+                    // listing) or at 0 (before user message, no skill
+                    // listing).
                     let insert_pos = if skill_listing_inserted { 1 } else { 0 };
                     messages.insert(insert_pos, tool_msg);
                 }
@@ -168,7 +222,8 @@ impl ConversationSession {
         }
     }
 
-    /// Derive `system_static` and `system_dynamic` for the current request.
+    /// Derive `system_static` and `system_dynamic` for the current
+    /// request.
     ///
     /// When a [`DynamicPromptBuilder`](closeclaw_common::DynamicPromptBuilder)
     /// is injected, delegates to it for per-request dynamic-layer
@@ -201,8 +256,9 @@ impl ConversationSession {
             };
             builder.build_prompt_parts(&context)
         } else {
-            // Legacy path: no builder injected — split the stored prompt
-            // so static/dynamic separation still works for cache adapters.
+            // Legacy path: no builder injected — split the stored
+            // prompt so static/dynamic separation still works for
+            // cache adapters.
             match &self.system_prompt {
                 Some(prompt) => split_static_dynamic(prompt),
                 None => (None, None),

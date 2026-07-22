@@ -164,6 +164,7 @@ impl SearcherTriggerDeps {
                             content,
                             position_mode: pos_mode,
                             injected_event_ids: event_ids,
+                            task_id: None,
                         };
                         cs.read().await.set_memory_injection(injection);
                     }
@@ -521,14 +522,14 @@ impl SessionMessageHandler {
                         "streaming enabled but no gateway/plugin; \
                          falling back to non-streaming"
                     );
-                    cs.read()
+                    cs.write()
                         .await
                         .invoke_llm(&content_for_task)
                         .await
                         .map(Into::into)
                 }
             } else {
-                cs.read()
+                cs.write()
                     .await
                     .invoke_llm(&content_for_task)
                     .await

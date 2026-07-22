@@ -808,7 +808,7 @@ impl SessionManager {
                 cs.read()
                     .await
                     .set_request_context(closeclaw_common::RequestContext::default());
-                let result = cs.read().await.invoke_llm(&pending.content).await;
+                let result = cs.write().await.invoke_llm(&pending.content).await;
                 // Clear busy state.
                 {
                     let cs_write = cs.write().await;

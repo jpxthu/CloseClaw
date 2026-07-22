@@ -278,7 +278,7 @@ impl SessionMessageHandler {
             let turn_start = Instant::now();
             let result: Result<StreamResult, closeclaw_llm::LLMError> = {
                 if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-                    cs.read()
+                    cs.write()
                         .await
                         .invoke_llm(&pending.content)
                         .await
@@ -423,7 +423,7 @@ impl SessionMessageHandler {
                 cs.read()
                     .await
                     .set_request_context(closeclaw_common::RequestContext::default());
-                cs.read().await.invoke_llm("").await.map(Into::into)
+                cs.write().await.invoke_llm("").await.map(Into::into)
             } else {
                 Err(closeclaw_llm::LLMError::InvalidRequest(
                     "session not found for retry".to_string(),
