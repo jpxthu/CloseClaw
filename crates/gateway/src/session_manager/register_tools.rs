@@ -12,8 +12,10 @@ use super::SessionManager;
 /// Injected by daemon (composition root) so that
 /// [`SessionManager::register_tools`] can delegate to the tools crate
 /// without gateway depending on it directly.
-pub(crate) type ToolRegisterFn = Arc<
-    dyn Fn(&dyn ToolRegistry) -> BoxFuture<'static, Result<(), ToolRegistrarError>> + Send + Sync,
+pub type ToolRegisterFn = Arc<
+    dyn for<'a> Fn(&'a (dyn ToolRegistry + 'a)) -> BoxFuture<'a, Result<(), ToolRegistrarError>>
+        + Send
+        + Sync,
 >;
 
 /// Set the tool-register callback.

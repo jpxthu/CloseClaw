@@ -35,7 +35,7 @@ mod compaction_helpers;
 mod consistency_check;
 mod key_registry;
 mod recovery_injection;
-mod register_tools;
+pub mod register_tools;
 mod resolve;
 mod session_helpers;
 mod session_lookup_impl;

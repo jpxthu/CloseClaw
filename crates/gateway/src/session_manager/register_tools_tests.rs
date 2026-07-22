@@ -5,9 +5,9 @@
 //! - Correct delegation when a callback is set.
 //! - Callback replacement on repeated `set_tool_register_fn` calls.
 
+use super::register_tools::ToolRegisterFn;
 use super::tests::make_test_mgr;
 use closeclaw_common::{ToolRegistrarError, ToolRegistry, ToolRegistryQuery};
-use futures::future::{self, BoxFuture};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -57,6 +57,25 @@ impl ToolRegistry for MockRegistry {
     }
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+/// Create a callback that increments `call_count` and returns `Ok(())`.
+fn ok_callback(cc: Arc<AtomicUsize>) -> ToolRegisterFn {
+    Arc::new(move |_registry: &dyn ToolRegistry| {
+        cc.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async { Ok(()) })
+    })
+}
+
+/// Create a callback that returns an error.
+fn err_callback(msg: &str) -> ToolRegisterFn {
+    let msg = msg.to_string();
+    Arc::new(move |_registry: &dyn ToolRegistry| {
+        let msg = msg.clone();
+        Box::pin(async move { Err(ToolRegistrarError::Internal(msg)) })
+    })
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 /// When no callback is set, `register_tools` returns `Ok(())` (no-op).
@@ -76,16 +95,7 @@ async fn test_register_tools_no_callback_returns_ok() {
 async fn test_register_tools_delegates_to_callback() {
     let mgr = make_test_mgr(None);
     let call_count = Arc::new(AtomicUsize::new(0));
-    let cc = Arc::clone(&call_count);
-
-    let func: Arc<
-        dyn Fn(&dyn ToolRegistry) -> BoxFuture<'static, Result<(), ToolRegistrarError>>
-            + Send
-            + Sync,
-    > = Arc::new(move |_registry: &dyn ToolRegistry| {
-        cc.fetch_add(1, Ordering::SeqCst);
-        Box::pin(future::ok(()))
-    });
+    let func = ok_callback(Arc::clone(&call_count));
 
     mgr.set_tool_register_fn(func).await;
     let registry = MockRegistry;
@@ -103,16 +113,7 @@ async fn test_register_tools_delegates_to_callback() {
 #[tokio::test]
 async fn test_register_tools_propagates_callback_error() {
     let mgr = make_test_mgr(None);
-
-    let func: Arc<
-        dyn Fn(&dyn ToolRegistry) -> BoxFuture<'static, Result<(), ToolRegistrarError>>
-            + Send
-            + Sync,
-    > = Arc::new(|_registry: &dyn ToolRegistry| {
-        Box::pin(future::err(ToolRegistrarError::Internal(
-            "test error".into(),
-        )))
-    });
+    let func = err_callback("test error");
 
     mgr.set_tool_register_fn(func).await;
     let registry = MockRegistry;
@@ -135,30 +136,16 @@ async fn test_set_tool_register_fn_replaces_previous() {
     let call_count = Arc::new(AtomicUsize::new(0));
 
     // First callback — should NOT be called after replacement.
-    let func1: Arc<
-        dyn Fn(&dyn ToolRegistry) -> BoxFuture<'static, Result<(), ToolRegistrarError>>
-            + Send
-            + Sync,
-    > = Arc::new({
+    let func1: ToolRegisterFn = {
         let cc = Arc::clone(&call_count);
-        move |_registry: &dyn ToolRegistry| {
+        Arc::new(move |_registry: &dyn ToolRegistry| {
             cc.fetch_add(100, Ordering::SeqCst); // would add 100 if called
-            Box::pin(future::ok(()))
-        }
-    });
+            Box::pin(async { Ok(()) })
+        })
+    };
 
     // Second callback — should be called.
-    let func2: Arc<
-        dyn Fn(&dyn ToolRegistry) -> BoxFuture<'static, Result<(), ToolRegistrarError>>
-            + Send
-            + Sync,
-    > = Arc::new({
-        let cc = Arc::clone(&call_count);
-        move |_registry: &dyn ToolRegistry| {
-            cc.fetch_add(1, Ordering::SeqCst); // adds 1 if called
-            Box::pin(future::ok(()))
-        }
-    });
+    let func2 = ok_callback(Arc::clone(&call_count));
 
     mgr.set_tool_register_fn(func1).await;
     mgr.set_tool_register_fn(func2).await;
