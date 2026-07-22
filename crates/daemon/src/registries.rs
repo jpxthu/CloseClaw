@@ -9,9 +9,12 @@ use closeclaw_gateway::{Gateway, SessionManager};
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_skills::DiskSkillRegistry;
+use closeclaw_tools::builtin::{
+    SessionsKillTool, SessionsSpawnTool, SessionsSteerTool, SessionsYieldTool,
+};
 use closeclaw_tools::{
-    CoreToolsRegistrar, PlanToolsRegistrar, SessionToolsRegistrar, SkillsToolsRegistrar,
-    ToolRegistrar, ToolRegistry,
+    CoreToolsRegistrar, PlanToolsRegistrar, SkillsToolsRegistrar, Tool, ToolRegistrar,
+    ToolRegistrarError, ToolRegistry,
 };
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
@@ -45,6 +48,15 @@ pub(crate) struct RegistryContext<'a> {
 
 /// Populate registries and wire them together.
 ///
+/// Registration order matters:
+/// 1. Agent & skill registries are populated from config.
+/// 2. `wire_session_manager` injects the session tool callback and calls
+///    [`SessionManager::register_tools`], registering session tools during
+///    the SessionManager initialization stage (before `register_all` freezes
+///    the registry).
+/// 3. `spawn_builtin_tools` registers all remaining builtin tools via the
+///    Registrar pattern and freezes the registry via `register_all`.
+///
 /// Returns an optional [`ConfigWatcherHandle`] for config hot-reload.
 pub(crate) async fn populate_registries(
     ctx: &RegistryContext<'_>,
@@ -53,7 +65,7 @@ pub(crate) async fn populate_registries(
     load_and_populate_agents(ctx, &disk_reg);
     inject_agent_registry_into_skill_registry(ctx.skill_registry, ctx.agent_registry);
     inject_agent_registry_into_tool_registry(ctx.tool_registry, ctx.agent_registry);
-    wire_session_manager(ctx).await;
+    wire_session_manager(ctx, ctx.tool_registry).await;
     let config_watcher = init_config_hot_reload(ctx);
     spawn_builtin_tools(ctx, &disk_reg).await;
     config_watcher
@@ -103,8 +115,93 @@ fn inject_agent_registry_into_tool_registry(
     );
 }
 
-/// Wire ConfigManager and AgentRegistry into SessionManager.
-async fn wire_session_manager(ctx: &RegistryContext<'_>) {
+/// Build the tool-register callback for [`SessionManager`].
+///
+/// Registers the 4 session tools (`SessionsSpawnTool`, `SessionsSteerTool`,
+/// `SessionsKillTool`, `SessionsYieldTool`) into the provided [`ToolRegistry`].
+///
+/// Extracted from `build_session_tool_callback` to keep that function's body
+/// within the 50-line limit.
+///
+/// **Cross-reference**: The tool construction order here must stay in sync with
+/// [`SessionToolsRegistrar::register`] in `crates/tools/src/registrars/session.rs`.
+/// If either side changes the tool set or registration order, update the other.
+async fn register_session_tools(
+    registry: &dyn closeclaw_common::tool_registry::ToolRegistry,
+    sv: &Arc<dyn closeclaw_tools::SpawnValidator>,
+    sm: &Arc<SessionManager>,
+    acl: &Arc<dyn closeclaw_agent::AgentConfigLookup>,
+    pe: &Arc<tokio::sync::RwLock<PermissionEngine>>,
+    af: &Arc<tokio::sync::Mutex<ApprovalFlow>>,
+) -> Result<(), ToolRegistrarError> {
+    let mut registered = 0usize;
+    let r = "SessionManager.register_tools";
+    closeclaw_tools::try_register!(
+        registry,
+        registered,
+        SessionsSpawnTool::new(sv.clone(), sm.clone(), acl.clone(), af.clone()),
+        r
+    );
+    closeclaw_tools::try_register!(
+        registry,
+        registered,
+        SessionsSteerTool::new(sm.clone(), pe.clone(), af.clone()),
+        r
+    );
+    closeclaw_tools::try_register!(
+        registry,
+        registered,
+        SessionsKillTool::new(sm.clone(), pe.clone(), af.clone()),
+        r
+    );
+    closeclaw_tools::try_register!(registry, registered, SessionsYieldTool::new(sm.clone()), r);
+    if registered == 0 {
+        return Err(ToolRegistrarError::Internal(
+            "all 4 session tools failed to register".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Constructs a callback that creates `SessionsSpawnTool`, `SessionsSteerTool`,
+/// `SessionsKillTool`, and `SessionsYieldTool`, then registers each into the
+/// provided [`ToolRegistry`]. Extracted from `wire_session_manager` to keep
+/// that function within the 50-line body limit.
+///
+/// Delegates actual registration to [`register_session_tools`].
+fn build_session_tool_callback(
+    spawn_controller: &Arc<SpawnController>,
+    session_manager: &Arc<SessionManager>,
+    agent_registry: &Arc<closeclaw_agent::registry::AgentRegistry>,
+    permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
+    approval_flow: &Arc<tokio::sync::Mutex<ApprovalFlow>>,
+) -> closeclaw_gateway::session_manager::register_tools::ToolRegisterFn {
+    let sv: Arc<dyn closeclaw_tools::SpawnValidator> =
+        Arc::clone(spawn_controller) as Arc<dyn closeclaw_tools::SpawnValidator>;
+    let sm = Arc::clone(session_manager);
+    let acl: Arc<dyn closeclaw_agent::AgentConfigLookup> =
+        Arc::clone(agent_registry) as Arc<dyn closeclaw_agent::AgentConfigLookup>;
+    let pe = Arc::clone(permission_engine);
+    let af = Arc::clone(approval_flow);
+
+    Arc::new(move |registry| {
+        let sv = Arc::clone(&sv);
+        let sm = Arc::clone(&sm);
+        let acl = Arc::clone(&acl);
+        let pe = Arc::clone(&pe);
+        let af = Arc::clone(&af);
+        Box::pin(async move { register_session_tools(registry, &sv, &sm, &acl, &pe, &af).await })
+    })
+}
+
+/// Wire ConfigManager, AgentRegistry, and session tool registration into SessionManager.
+///
+/// Sets the tool-register callback on `SessionManager` so that
+/// [`SessionManager::register_tools`] can delegate to the tools crate
+/// without gateway depending on it directly. Immediately invokes
+/// `register_tools` so session tools are registered during the
+/// SessionManager initialization stage (per `session-tools.md`).
+async fn wire_session_manager(ctx: &RegistryContext<'_>, tool_registry: &Arc<ToolRegistry>) {
     ctx.session_manager
         .set_config_manager(Arc::clone(ctx.config_manager))
         .await;
@@ -113,6 +210,26 @@ async fn wire_session_manager(ctx: &RegistryContext<'_>) {
             Arc::clone(ctx.agent_registry) as Arc<dyn closeclaw_agent::AgentRegistryQuery>
         )
         .await;
+
+    let callback = build_session_tool_callback(
+        &ctx.spawn_controller,
+        ctx.session_manager,
+        ctx.agent_registry,
+        ctx.permission_engine,
+        ctx.approval_flow,
+    );
+
+    ctx.session_manager.set_tool_register_fn(callback).await;
+    if let Err(e) = ctx
+        .session_manager
+        .register_tools(tool_registry.as_ref())
+        .await
+    {
+        tracing::warn!(
+            error = %e,
+            "failed to register session tools via SessionManager callback"
+        );
+    }
 }
 
 /// Initialize config hot-reload watcher.
@@ -140,10 +257,14 @@ fn init_config_hot_reload(
 
 /// Register builtin tools via the Registrar pattern.
 ///
-/// Constructs all four standard registrars, collects them into a
-/// `Vec<Box<dyn ToolRegistrar>>`, and calls
+/// Constructs the remaining registrars (core, skills, im_adapter, plan),
+/// collects them into a `Vec<Box<dyn ToolRegistrar>>`, and calls
 /// [`ToolRegistry::register_all`] to register everything and freeze
 /// the registry.
+///
+/// Session tools are **not** registered here — they are registered earlier
+/// during [`wire_session_manager`] via [`SessionManager::register_tools`],
+/// at the SessionManager initialization stage. See `docs/design/session/session-tools.md`.
 async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkillRegistry>) {
     let task_manager: Arc<dyn closeclaw_tasks::TaskManager> =
         Arc::new(closeclaw_tasks::BackgroundTaskManager::new());
@@ -161,13 +282,9 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
         Arc::clone(ctx.config_manager),
         Arc::clone(ctx.approval_flow),
     );
-    let session_registrar = SessionToolsRegistrar::new(
-        Arc::clone(&ctx.spawn_controller) as Arc<dyn closeclaw_tools::SpawnValidator>,
-        Arc::clone(ctx.session_manager),
-        Arc::clone(ctx.agent_registry) as Arc<dyn closeclaw_agent::AgentConfigLookup>,
-        Arc::clone(ctx.permission_engine),
-        Arc::clone(ctx.approval_flow),
-    );
+    // NOTE: SessionToolsRegistrar removed — session tools are now registered
+    // via SessionManager::register_tools during wire_session_manager (SessionManager
+    // initialization stage), per docs/design/session/session-tools.md.
     let skills_registrar = SkillsToolsRegistrar::new(
         Arc::clone(disk_reg),
         Arc::clone(&ctx.spawn_controller) as Arc<dyn closeclaw_tools::SpawnValidator>,
@@ -182,7 +299,6 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
 
     let registrars: Vec<Box<dyn ToolRegistrar>> = vec![
         Box::new(core_registrar),
-        Box::new(session_registrar),
         Box::new(skills_registrar),
         Box::new(im_adapter_registrar),
         Box::new(plan_registrar),
