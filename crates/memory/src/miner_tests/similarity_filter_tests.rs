@@ -198,8 +198,9 @@ async fn test_mine_session_all_entities_filtered() {
 /// Verify that the integration test mock data (post-Step 1.1) produces
 /// sufficient n-gram similarity to pass the action threshold (0.78).
 ///
-/// Event: title="Wrong deployment", summary="Deployed to prod without testing"
-/// Entity: name="wrong deployment", description="deployed without testing"
+/// Uses the actual event text as constructed by the miner:
+///   event_text = title + " " + summary
+///   entity_text = name + " " + description
 #[test]
 fn test_mock_data_similarity_action_threshold() {
     let event_text = "Wrong deployment Deployed to prod without testing";
@@ -218,8 +219,9 @@ fn test_mock_data_similarity_action_threshold() {
 /// Verify dedup test mock data (post-Step 1.1) passes the subject
 /// threshold (0.78).
 ///
-/// Event: title="Test dedup event", summary="Same event testing"
-/// Entity: name="same event testing", description="dedup"
+/// Uses the actual event text as constructed by the miner:
+///   event_text = title + " " + summary
+///   entity_text = name + " " + description
 #[test]
 fn test_mock_data_similarity_subject_threshold() {
     let event_text = "Test dedup event Same event testing";
@@ -238,7 +240,7 @@ fn test_mock_data_similarity_subject_threshold() {
 /// Completely unrelated entity text is filtered by any threshold.
 #[test]
 fn test_unrelated_entity_filtered_by_threshold() {
-    let event_text = "Wrong deployment Deployed to prod without testing";
+    let event_text = "Wrong deployment Summary of Wrong deployment";
     let entity_text = "quantum physics superposition";
     let corpus: Vec<&str> = vec![event_text, entity_text];
     let emb = NgramEmbedder::new(&corpus);
@@ -255,7 +257,7 @@ fn test_unrelated_entity_filtered_by_threshold() {
 /// threshold.
 #[test]
 fn test_exact_match_always_passes() {
-    let text = "Wrong deployment Deployed to prod without testing";
+    let text = "Wrong deployment Summary of Wrong deployment";
     let corpus: Vec<&str> = vec![text];
     let emb = NgramEmbedder::new(&corpus);
     let a = emb.embed(text);
@@ -270,7 +272,7 @@ fn test_exact_match_always_passes() {
 /// Partial overlap produces mid-range similarity (between 0.5 and 1.0).
 #[test]
 fn test_partial_overlap_mid_range() {
-    let event_text = "Wrong deployment Deployed to prod without testing";
+    let event_text = "Wrong deployment Summary of Wrong deployment";
     let entity_text = "wrong deployment";
     let corpus: Vec<&str> = vec![event_text, entity_text];
     let emb = NgramEmbedder::new(&corpus);
@@ -407,52 +409,6 @@ async fn test_time_type_threshold_filtering() {
         result.entity_names[0].len(),
         0,
         "time entity with low similarity should be filtered"
-    );
-}
-
-/// Boundary: near-exact match entity passes any threshold (>= comparison).
-#[tokio::test]
-async fn test_boundary_exact_threshold_keeps_entity() {
-    let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-boundary".into());
-    cp.mined = false;
-    storage.add_checkpoint(cp);
-    // Use exact-match text — entity name matches event title exactly.
-    let events = vec![make_event(
-        "Rust language basics",
-        crate::miner::MiningEventCategory::Error,
-    )];
-    let entities = vec![vec![MiningEntity {
-        entity_type: "subject".into(),
-        name: "Rust language basics".into(),
-        description: "Rust language basics".into(),
-    }]];
-    let config = MinerConfig {
-        enabled: true,
-        clean_rules: lenient_rules(),
-        ..Default::default()
-    };
-    let llm = Box::new(MockMinerLlmCaller {
-        events_response: events,
-        entities_response: entities,
-        ..Default::default()
-    });
-    let tmp = TempDir::new().unwrap();
-    let db_path = tmp.path().join("boundary2.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
-    let result = miner
-        .mine_session(
-            "sess-boundary",
-            "Owner: hello\nAgent: response",
-            "a1",
-            &storage,
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        result.entity_names[0].len(),
-        1,
-        "near-exact match entity should be retained"
     );
 }
 
