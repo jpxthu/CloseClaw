@@ -13,6 +13,7 @@ use tokio::time::timeout;
 use super::active_searcher_llm::{
     extract_concepts_llm, should_trigger_role, summarize_events_llm, LlmCaller,
 };
+use crate::embedding::{cosine_similarity, EntityEmbedder, NgramEmbedder};
 use closeclaw_session::llm_session::{InjectionPosition, MemoryInjection};
 
 // ── Errors ───────────────────────────────────────────────────────────────
@@ -80,6 +81,8 @@ pub struct MatchedEntity {
     pub normalized_name: String,
     /// Weight of the entity type (from `entity_types` table).
     pub weight: f64,
+    /// Similarity threshold for this entity type.
+    pub similarity_threshold: f64,
 }
 
 /// A row from the `events` table.
@@ -163,6 +166,10 @@ impl ActiveSearcher {
     ///
     /// Results are de-duplicated by entity ID and sorted by entity type
     /// weight descending (higher-weight types surface first).
+    ///
+    /// After SQL matching, entities are filtered by similarity threshold:
+    /// the cosine similarity between the entity name and the concept must
+    /// meet the type's `similarity_threshold` to be included.
     pub fn search_entities(
         &self,
         agent_id: &str,
@@ -172,7 +179,7 @@ impl ActiveSearcher {
         let mut stmt = conn
             .prepare(
                 "SELECT e.id, e.agent_id, e.type, e.name, e.normalized_name,
-                        t.weight
+                        t.weight, t.similarity_threshold
                  FROM entities e
                  JOIN entity_types t ON e.type = t.type
                  WHERE e.agent_id = ?1
@@ -183,10 +190,16 @@ impl ActiveSearcher {
             )
             .map_err(|e| ActiveSearcherError::Sqlite(e.to_string()))?;
 
+        // Build a shared embedder from lowercased concept vocabulary.
+        let lower_concepts: Vec<String> = concepts.iter().map(|c| c.to_lowercase()).collect();
+        let corpus_refs: Vec<&str> = lower_concepts.iter().map(|s| s.as_str()).collect();
+        let embedder = NgramEmbedder::new(&corpus_refs);
+
         let mut seen: HashSet<i64> = HashSet::new();
         let mut results = Vec::new();
 
-        for concept in concepts {
+        for (concept, lower_concept) in concepts.iter().zip(lower_concepts.iter()) {
+            let concept_emb = embedder.embed(lower_concept);
             let rows = stmt
                 .query_map(params![agent_id, concept], |row| {
                     Ok(MatchedEntity {
@@ -196,6 +209,7 @@ impl ActiveSearcher {
                         name: row.get(3)?,
                         normalized_name: row.get(4)?,
                         weight: row.get(5)?,
+                        similarity_threshold: row.get(6)?,
                     })
                 })
                 .map_err(|e| ActiveSearcherError::Sqlite(e.to_string()))?;
@@ -203,7 +217,13 @@ impl ActiveSearcher {
             for row in rows {
                 let entity = row.map_err(|e| ActiveSearcherError::Sqlite(e.to_string()))?;
                 if seen.insert(entity.id) {
-                    results.push(entity);
+                    // Filter by similarity threshold.
+                    let entity_lower = entity.name.to_lowercase();
+                    let entity_emb = embedder.embed(&entity_lower);
+                    let sim = cosine_similarity(&concept_emb, &entity_emb);
+                    if sim >= entity.similarity_threshold {
+                        results.push(entity);
+                    }
                 }
             }
         }
