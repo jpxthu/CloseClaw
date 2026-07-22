@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -49,6 +49,7 @@ mod session_health;
 mod session_llm;
 mod session_pending;
 mod session_pending_queue;
+mod skill_listing;
 pub mod streaming_assembly;
 pub mod transcript_ops;
 pub use streaming_assembly::SessionStream;
@@ -157,14 +158,25 @@ pub struct ConversationSession {
     memory_injection: Arc<Mutex<Option<MemoryInjection>>>,
     /// Last activity timestamp (Unix seconds) — updated on every mutation.
     last_activity_at: i64,
+    /// Task IDs already injected via memory-injection this session.
+    /// Used for session-level dedup so that the same task's results
+    /// are injected at most once per session lifetime.
+    injected_task_ids: Arc<Mutex<HashSet<String>>>,
     /// Skill listing provider for per-turn skill injection.
     /// Injected by Gateway at session creation. When set, each LLM turn
     /// prepends a tool-role attachment with the agent's skill listing.
-    skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
+    pub(crate) skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
+    /// Snapshot of the last skill listing (excluding conditional skills)
+    /// used for incremental diff computation. `None` on the first turn.
+    pub(crate) skill_listing_snapshot: Option<String>,
+    /// Names of conditional skills that have been activated during this
+    /// session's lifetime via file-path matching. Activated skills are
+    /// included in subsequent turn listings as incremental additions.
+    pub(crate) activated_conditional_skills: HashSet<String>,
     /// Agent-level skill whitelist filter. When set, only skills whose
     /// names appear in this list are included in the injected listing.
     /// A list containing `"*"` means no filtering.
-    agent_skills: Option<Vec<String>>,
+    pub(crate) agent_skills: Option<Vec<String>>,
     /// Shutdown handle for busy-count tracking during tool execution.
     shutdown_handle: Option<Arc<dyn closeclaw_common::ShutdownSignal>>,
     /// Runtime-only execution progress appends. Entries are tagged with
@@ -247,7 +259,10 @@ impl ConversationSession {
             bootstrap_mode: crate::bootstrap::loader::BootstrapMode::Full,
             memory_injection: Arc::new(Mutex::new(None)),
             last_activity_at: Utc::now().timestamp(),
+            injected_task_ids: Arc::new(Mutex::new(HashSet::new())),
             skill_listing_provider: None,
+            skill_listing_snapshot: None,
+            activated_conditional_skills: HashSet::new(),
             agent_skills: None,
             shutdown_handle: None,
             verbosity_level: VerbosityLevel::default(),
@@ -368,6 +383,18 @@ impl ConversationSession {
     pub fn agent_skills(&self) -> Option<&[String]> {
         self.agent_skills.as_deref()
     }
+    /// Returns the last skill listing snapshot, if any.
+    pub fn skill_listing_snapshot(&self) -> Option<&str> {
+        self.skill_listing_snapshot.as_deref()
+    }
+
+    /// Returns a reference to the set of activated conditional skill names.
+    pub fn activated_conditional_skills(&self) -> &HashSet<String> {
+        &self.activated_conditional_skills
+    }
+
+    /// Compute the skill listing for the current turn without
+    /// mutating session state.
     /// Returns a clone of the manual backgrounding signal.
     ///
     /// Callers (e.g. `BashTool::execute_command`) can await on
@@ -509,12 +536,35 @@ impl ConversationSession {
     }
 
     /// Write a memory-injection payload into the slot.
-    pub fn set_memory_injection(&self, injection: MemoryInjection) {
+    ///
+    /// Applies session-level dedup: if the injection carries a
+    /// `task_id` that has already been injected this session, the
+    /// write is skipped (returns `false`). Injections without a
+    /// `task_id` are always accepted.
+    ///
+    /// Returns `true` if the injection was accepted, `false` if
+    /// skipped due to dedup.
+    pub fn set_memory_injection(&self, injection: MemoryInjection) -> bool {
         let mut slot = self
             .memory_injection
             .lock()
             .expect("memory_injection lock poisoned");
+        if let Some(ref task_id) = injection.task_id {
+            let mut ids = self
+                .injected_task_ids
+                .lock()
+                .expect("injected_task_ids lock poisoned");
+            if ids.contains(task_id.as_str()) {
+                tracing::debug!(
+                    task_id,
+                    "session-level dedup: skipping already-injected task"
+                );
+                return false;
+            }
+            ids.insert(task_id.clone());
+        }
         *slot = Some(injection);
+        true
     }
 
     /// Take the current memory-injection payload, replacing the slot
@@ -887,7 +937,19 @@ impl std::fmt::Debug for ConversationSession {
                     .as_ref()
                     .map(|_| "<SkillListingProvider>"),
             )
+            .field("skill_listing_snapshot", &self.skill_listing_snapshot)
+            .field(
+                "activated_conditional_skills",
+                &self.activated_conditional_skills,
+            )
             .field("agent_skills", &self.agent_skills)
+            .field(
+                "injected_task_ids",
+                &*self
+                    .injected_task_ids
+                    .lock()
+                    .expect("injected_task_ids lock poisoned"),
+            )
             .field(
                 "memory_injection",
                 &*self

@@ -101,6 +101,7 @@ pub use session_state::{
 };
 pub use session_types::{AgentRole, ReasoningLevel};
 pub use shutdown::{DrainStatus, ShutdownMode, ShutdownSignal, ShutdownState};
+pub use skill_listing_provider::ConditionalSkillMatch;
 pub use skill_listing_provider::SkillListingProvider;
 pub use skill_registry::SkillRegistryQuery;
 pub use slash_router::{
