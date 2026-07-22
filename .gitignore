@@ -48,5 +48,5 @@ __pycache__/
 
 # EDA workspace artifacts
 plan/
-memory/
+/memory/
 run_ddt_check.sh
