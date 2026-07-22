@@ -67,6 +67,26 @@ impl SkillListingProvider for MockSkillListingProvider {
         ));
         self.listing.lock().unwrap().clone()
     }
+
+    fn generate_listing_excluding_conditional(
+        &self,
+        agent_id: Option<&str>,
+        agent_skills: Option<&[String]>,
+    ) -> String {
+        self.call_count.fetch_add(1, Ordering::SeqCst);
+        self.calls.lock().unwrap().push((
+            agent_id.map(|s| s.to_string()),
+            agent_skills.map(|s| s.to_vec()),
+        ));
+        self.listing.lock().unwrap().clone()
+    }
+
+    fn find_conditional_matches(
+        &self,
+        _paths: &[std::path::PathBuf],
+    ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+        Vec::new()
+    }
 }
 
 // ---------------------------------------------------------------------------

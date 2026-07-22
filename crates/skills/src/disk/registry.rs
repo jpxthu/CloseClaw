@@ -1,7 +1,8 @@
 //! DiskSkillRegistry - in-memory registry for disk-loaded skills.
 
 use closeclaw_agent::AgentSkillsQuery;
-use std::path::Path;
+use closeclaw_common::ConditionalSkillMatch;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::path_matcher::PathMatcher;
@@ -252,6 +253,91 @@ impl DiskSkillRegistry {
 // ---------------------------------------------------------------------------
 
 impl DiskSkillRegistry {
+    /// Generates a skill listing **excluding** conditional skills (those
+    /// with non-empty `paths`).
+    ///
+    /// Used as the base for incremental diff computation. Conditional
+    /// skills are injected separately via [`find_conditional_matches`].
+    ///
+    /// Returns an empty string if no non-conditional skills match.
+    pub fn generate_listing_excluding_conditional(
+        &self,
+        agent_id: Option<&str>,
+        skills_whitelist: Option<&[String]>,
+    ) -> String {
+        let resolved_whitelist = match skills_whitelist {
+            Some(w) => Some(w.to_vec()),
+            None => self.lookup_whitelist_from_agent_skills_query(agent_id),
+        };
+        let resolved_ref = resolved_whitelist.as_deref();
+        self.generate_listing_inner_excluding_conditional(agent_id, resolved_ref)
+    }
+
+    /// Find conditional skills whose glob patterns match the given file
+    /// paths.
+    ///
+    /// Returns each matched skill as a [`ConditionalSkillMatch`] with a
+    /// rendered listing line including the `⚡ auto-activates on:`
+    /// annotation.
+    pub fn find_conditional_matches(&self, paths: &[PathBuf]) -> Vec<ConditionalSkillMatch> {
+        let path_refs: Vec<&Path> = paths.iter().map(|p| p.as_path()).collect();
+        self.find_matching_skills(&path_refs)
+            .into_iter()
+            .map(|skill| {
+                let listing_line = Self::render_single_listing(skill);
+                ConditionalSkillMatch {
+                    name: skill.manifest.name.clone(),
+                    listing_line,
+                }
+            })
+            .collect()
+    }
+
+    /// Internal implementation that excludes conditional skills from the
+    /// listing.
+    fn generate_listing_inner_excluding_conditional(
+        &self,
+        agent_id: Option<&str>,
+        skills_whitelist: Option<&[String]>,
+    ) -> String {
+        let use_whitelist = skills_whitelist
+            .filter(|w| !(w.len() == 1 && w[0] == "*"))
+            .map(|w| {
+                w.iter()
+                    .map(|s| s.as_str())
+                    .collect::<std::collections::HashSet<_>>()
+            });
+
+        let mut filtered: Vec<&DiskSkill> = self
+            .skills
+            .iter()
+            .filter(|s| {
+                if !s.manifest.user_invocable {
+                    return false;
+                }
+                if !s.manifest.paths.is_empty() {
+                    return false;
+                }
+                if !(s.manifest.agent_id.is_empty()
+                    || agent_id.is_none_or(|id| s.manifest.agent_id == id))
+                {
+                    return false;
+                }
+                if let Some(ref set) = use_whitelist {
+                    set.contains(s.manifest.name.as_str())
+                } else {
+                    true
+                }
+            })
+            .collect();
+
+        if filtered.is_empty() {
+            return String::new();
+        }
+
+        Self::render_listing(&mut filtered)
+    }
+
     /// Internal implementation shared by `generate_listing` and
     /// `generate_listing_for_agent`.
     fn generate_listing_inner(
@@ -300,6 +386,25 @@ impl DiskSkillRegistry {
 // ---------------------------------------------------------------------------
 
 impl DiskSkillRegistry {
+    /// Render a single skill's listing line in the same format as
+    /// [`render_listing`].
+    fn render_single_listing(skill: &DiskSkill) -> String {
+        let when = if skill.manifest.when_to_use.is_empty() {
+            String::new()
+        } else {
+            format!(" — {}", skill.manifest.when_to_use)
+        };
+        let paths_anno = if skill.manifest.paths.is_empty() {
+            String::new()
+        } else {
+            format!(" ⚡ auto-activates on: {}", skill.manifest.paths.join(", "))
+        };
+        format!(
+            "- **{}**: {}{}{}",
+            skill.manifest.name, skill.manifest.description, when, paths_anno
+        )
+    }
+
     /// Render a pre-filtered, pre-sorted skill slice into a listing
     /// string. Each line is formatted as:
     ///   `- **{name}**: {description} — {when_to_use} ⚡ auto-activates on: {paths}`

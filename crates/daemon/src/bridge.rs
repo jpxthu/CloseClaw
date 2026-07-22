@@ -119,6 +119,32 @@ impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
             })
             .unwrap_or_default()
     }
+
+    fn generate_listing_excluding_conditional(
+        &self,
+        agent_id: Option<&str>,
+        agent_skills: Option<&[String]>,
+    ) -> String {
+        self.0
+            .read()
+            .ok()
+            .and_then(|g| {
+                g.as_ref()
+                    .map(|r| r.generate_listing_excluding_conditional(agent_id, agent_skills))
+            })
+            .unwrap_or_default()
+    }
+
+    fn find_conditional_matches(
+        &self,
+        paths: &[std::path::PathBuf],
+    ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+        self.0
+            .read()
+            .ok()
+            .and_then(|g| g.as_ref().map(|r| r.find_conditional_matches(paths)))
+            .unwrap_or_default()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
