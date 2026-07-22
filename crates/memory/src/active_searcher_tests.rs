@@ -11,7 +11,7 @@ use rusqlite::{params, Connection};
 use crate::active_searcher::{
     ActiveSearcher, ActiveSearcherConfig, ActiveSearcherError, EventRecord,
 };
-use crate::active_searcher_llm::LlmCaller;
+use crate::active_searcher_llm::{parse_concepts, should_trigger_role, LlmCaller};
 use closeclaw_session::llm_session::{InjectionPosition, MemoryInjection};
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -172,6 +172,23 @@ fn test_sqlite_schema_seed_data_integrity() {
     assert_eq!(types[4], "subject");
 }
 
+#[test]
+fn test_sqlite_schema_unique_constraint() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+
+    insert_entity(&conn, "agent-1", "person", "Alice", "alice");
+    let result = conn.execute(
+        "INSERT INTO entities (agent_id, type, name, normalized_name)
+         VALUES (?1, ?2, ?3, ?4)",
+        params!["agent-1", "person", "Alice Alt", "alice"],
+    );
+    assert!(
+        result.is_err(),
+        "UNIQUE constraint should prevent duplicate"
+    );
+}
+
 // ── Search logic tests ───────────────────────────────────────────────────
 
 #[test]
@@ -250,6 +267,19 @@ fn test_search_entities_type_weight_ordering() {
     assert_eq!(results[0].entity_type, "subject");
     assert_eq!(results[1].entity_type, "person");
     assert_eq!(results[2].entity_type, "tags");
+}
+
+#[test]
+fn test_search_entities_no_data_returns_empty() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _conn = create_test_db(tmp.path());
+
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+
+    let results = searcher
+        .search_entities("agent-1", &["anything".into()])
+        .unwrap();
+    assert!(results.is_empty());
 }
 
 // ── Event association tests ──────────────────────────────────────────────
@@ -331,6 +361,17 @@ fn test_find_events_top_k_truncation() {
 
     let events = searcher.find_events(&[eid]).unwrap();
     assert_eq!(events.len(), 3, "should be limited to top_k_events");
+}
+
+#[test]
+fn test_find_events_empty_entity_ids_returns_empty() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _conn = create_test_db(tmp.path());
+
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+
+    let events = searcher.find_events(&[]).unwrap();
+    assert!(events.is_empty());
 }
 
 // ── Dedup tests ──────────────────────────────────────────────────────────
@@ -451,6 +492,16 @@ fn test_memory_injection_basics() {
 }
 
 // ── Role exclusion tests ─────────────────────────────────────────────────
+
+#[test]
+fn test_role_exclusion_and_trigger() {
+    assert!(!should_trigger_role("memory-miner"));
+    assert!(!should_trigger_role("dreaming"));
+    assert!(should_trigger_role("user"));
+    assert!(should_trigger_role("assistant"));
+    assert!(!ActiveSearcher::should_trigger("memory-miner"));
+    assert!(ActiveSearcher::should_trigger("user"));
+}
 
 // ── Timeout test ─────────────────────────────────────────────────────────
 
@@ -609,7 +660,28 @@ async fn test_run_dedup_excludes_injected_events() {
 
 // ── Concept parser tests ─────────────────────────────────────────────────
 
+#[test]
+fn test_parse_concepts() {
+    let c = parse_concepts(r#"["Alice", "project X"]"#);
+    assert_eq!(c, vec!["Alice", "project X"]);
+    let c = parse_concepts(r#"Here are the concepts: ["Alice", "Bob"]"#);
+    assert_eq!(c, vec!["Alice", "Bob"]);
+    assert!(parse_concepts("[]").is_empty());
+    assert!(parse_concepts("no json here").is_empty());
+}
+
 // ── Config defaults test ─────────────────────────────────────────────────
+
+#[test]
+fn test_active_searcher_config_defaults() {
+    let config = ActiveSearcherConfig::default();
+    assert_eq!(config.timeout_ms, 3000);
+    assert_eq!(config.max_summary_chars, 500);
+    assert_eq!(config.min_entity_hits, 1);
+    assert_eq!(config.top_k_events, 3);
+    assert_eq!(config.context_turns, 5);
+    assert_eq!(config.model, "");
+}
 
 // ── from_agent_config tests ─────────────────────────────────────────────
 

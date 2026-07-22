@@ -79,6 +79,8 @@ pub struct MatchedEntity {
     pub name: String,
     /// Normalised name used for exact matching.
     pub normalized_name: String,
+    /// Entity description text.
+    pub description: String,
     /// Weight of the entity type (from `entity_types` table).
     pub weight: f64,
     /// Similarity threshold for this entity type.
@@ -178,7 +180,7 @@ impl ActiveSearcher {
         let conn = self.open()?;
         let mut stmt = conn
             .prepare(
-                "SELECT e.id, e.agent_id, e.type, e.name, e.normalized_name,
+                "SELECT e.id, e.agent_id, e.type, e.name, e.normalized_name, COALESCE(e.description, ''),
                         t.weight, t.similarity_threshold
                  FROM entities e
                  JOIN entity_types t ON e.type = t.type
@@ -208,8 +210,9 @@ impl ActiveSearcher {
                         entity_type: row.get(2)?,
                         name: row.get(3)?,
                         normalized_name: row.get(4)?,
-                        weight: row.get(5)?,
-                        similarity_threshold: row.get(6)?,
+                        description: row.get(5)?,
+                        weight: row.get(6)?,
+                        similarity_threshold: row.get(7)?,
                     })
                 })
                 .map_err(|e| ActiveSearcherError::Sqlite(e.to_string()))?;
@@ -218,7 +221,8 @@ impl ActiveSearcher {
                 let entity = row.map_err(|e| ActiveSearcherError::Sqlite(e.to_string()))?;
                 if seen.insert(entity.id) {
                     // Filter by similarity threshold.
-                    let entity_lower = entity.name.to_lowercase();
+                    let entity_lower =
+                        format!("{} {}", entity.name, entity.description).to_lowercase();
                     let entity_emb = embedder.embed(&entity_lower);
                     let sim = cosine_similarity(&concept_emb, &entity_emb);
                     if sim >= entity.similarity_threshold {
