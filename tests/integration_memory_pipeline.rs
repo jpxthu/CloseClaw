@@ -147,8 +147,8 @@ impl MockMinerLlm {
             }],
             entities: vec![vec![MiningEntity {
                 entity_type: "action".into(),
-                name: "deployment".into(),
-                description: "software deployment".into(),
+                name: "wrong deployment".into(),
+                description: "deployed without testing".into(),
             }]],
             fail_extract: false,
             fail_assign: false,
@@ -450,15 +450,15 @@ async fn test_duplicate_events_deduplicated() {
     let llm = MockMinerLlm {
         events: vec![
             MiningEvent {
-                title: "Same event".into(),
-                summary: "Same".into(),
+                title: "Test dedup event".into(),
+                summary: "Same event testing".into(),
                 body: "Same body".into(),
                 category: MiningEventCategory::Decision,
                 lesson: None,
             },
             MiningEvent {
-                title: "Same event".into(),
-                summary: "Same".into(),
+                title: "Test dedup event".into(),
+                summary: "Same event testing".into(),
                 body: "Same body".into(),
                 category: MiningEventCategory::Decision,
                 lesson: None,
@@ -467,13 +467,13 @@ async fn test_duplicate_events_deduplicated() {
         entities: vec![
             vec![MiningEntity {
                 entity_type: "subject".into(),
-                name: "dedup-test".into(),
-                description: "".into(),
+                name: "same event testing".into(),
+                description: "dedup".into(),
             }],
             vec![MiningEntity {
                 entity_type: "subject".into(),
-                name: "dedup-test".into(),
-                description: "".into(),
+                name: "same event testing".into(),
+                description: "dedup".into(),
             }],
         ],
         fail_extract: false,
