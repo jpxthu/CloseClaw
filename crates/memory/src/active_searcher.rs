@@ -13,6 +13,7 @@ use tokio::time::timeout;
 use super::active_searcher_llm::{
     extract_concepts_llm, should_trigger_role, summarize_events_llm, LlmCaller,
 };
+use crate::embedding::{cosine_similarity, EntityEmbedder, NgramEmbedder};
 use closeclaw_session::llm_session::{InjectionPosition, MemoryInjection};
 
 // ── Errors ───────────────────────────────────────────────────────────────
@@ -78,8 +79,12 @@ pub struct MatchedEntity {
     pub name: String,
     /// Normalised name used for exact matching.
     pub normalized_name: String,
+    /// Entity description text.
+    pub description: String,
     /// Weight of the entity type (from `entity_types` table).
     pub weight: f64,
+    /// Similarity threshold for this entity type.
+    pub similarity_threshold: f64,
 }
 
 /// A row from the `events` table.
@@ -163,30 +168,46 @@ impl ActiveSearcher {
     ///
     /// Results are de-duplicated by entity ID and sorted by entity type
     /// weight descending (higher-weight types surface first).
+    ///
+    /// After SQL matching, entities are filtered by similarity threshold:
+    /// the cosine similarity between the entity name+description and the
+    /// concept must meet the type's `similarity_threshold` to be included.
     pub fn search_entities(
         &self,
         agent_id: &str,
         concepts: &[String],
     ) -> Result<Vec<MatchedEntity>, ActiveSearcherError> {
         let conn = self.open()?;
+        let select_sql = concat!(
+            "SELECT e.id, e.agent_id, e.type, e.name,",
+            " e.normalized_name,",
+            " COALESCE(e.description, ''),",
+            " t.weight, t.similarity_threshold",
+            " FROM entities e",
+            " JOIN entity_types t ON e.type = t.type",
+            " WHERE e.agent_id = ?1",
+            "   AND t.is_active = 1",
+            "   AND (e.normalized_name = ?2",
+            "        OR e.normalized_name LIKE '%' || ?2 || '%')",
+            " ORDER BY t.weight DESC, t.is_default DESC",
+        );
         let mut stmt = conn
-            .prepare(
-                "SELECT e.id, e.agent_id, e.type, e.name, e.normalized_name,
-                        t.weight
-                 FROM entities e
-                 JOIN entity_types t ON e.type = t.type
-                 WHERE e.agent_id = ?1
-                   AND t.is_active = 1
-                   AND (e.normalized_name = ?2
-                        OR e.normalized_name LIKE '%' || ?2 || '%')
-                 ORDER BY t.weight DESC, t.is_default DESC",
-            )
+            .prepare(select_sql)
             .map_err(|e| ActiveSearcherError::Sqlite(e.to_string()))?;
+
+        // Build embedder from lowercased concept vocabulary.
+        // Using concepts only ensures dense embeddings; entity texts
+        // with n-grams absent from the vocabulary are still comparable
+        // because both sides share the same dimension space.
+        let lower_concepts: Vec<String> = concepts.iter().map(|c| c.to_lowercase()).collect();
+        let corpus_refs: Vec<&str> = lower_concepts.iter().map(|s| s.as_str()).collect();
+        let embedder = NgramEmbedder::new(&corpus_refs);
 
         let mut seen: HashSet<i64> = HashSet::new();
         let mut results = Vec::new();
 
-        for concept in concepts {
+        for (concept, lower) in concepts.iter().zip(lower_concepts.iter()) {
+            let concept_emb = embedder.embed(lower);
             let rows = stmt
                 .query_map(params![agent_id, concept], |row| {
                     Ok(MatchedEntity {
@@ -195,7 +216,9 @@ impl ActiveSearcher {
                         entity_type: row.get(2)?,
                         name: row.get(3)?,
                         normalized_name: row.get(4)?,
-                        weight: row.get(5)?,
+                        description: row.get(5)?,
+                        weight: row.get(6)?,
+                        similarity_threshold: row.get(7)?,
                     })
                 })
                 .map_err(|e| ActiveSearcherError::Sqlite(e.to_string()))?;
@@ -203,7 +226,13 @@ impl ActiveSearcher {
             for row in rows {
                 let entity = row.map_err(|e| ActiveSearcherError::Sqlite(e.to_string()))?;
                 if seen.insert(entity.id) {
-                    results.push(entity);
+                    let entity_lower =
+                        format!("{} {}", entity.name, entity.description).to_lowercase();
+                    let entity_emb = embedder.embed(&entity_lower);
+                    let sim = cosine_similarity(&concept_emb, &entity_emb);
+                    if sim >= entity.similarity_threshold {
+                        results.push(entity);
+                    }
                 }
             }
         }
