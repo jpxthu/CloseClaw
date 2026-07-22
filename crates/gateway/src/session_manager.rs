@@ -35,6 +35,7 @@ mod compaction_helpers;
 mod consistency_check;
 mod key_registry;
 mod recovery_injection;
+mod register_tools;
 mod resolve;
 mod session_helpers;
 mod session_lookup_impl;
@@ -128,6 +129,10 @@ pub struct SessionManager {
     /// Used by [`drain_pending_for_session`](super::announce::SessionManager::drain_pending_for_session)
     /// to send responses to the user during yield recovery.
     output_tx: RwLock<Option<crate::OutputTx>>,
+    /// Callback for registering session tools into a tool registry.
+    /// Injected by daemon (composition root) so that [`register_tools`](Self::register_tools)
+    /// can delegate tool creation to the tools crate without gateway depending on it.
+    tool_register_fn: RwLock<Option<register_tools::ToolRegisterFn>>,
     /// Back-reference to Gateway for outbound dispatch (Weak to avoid cycle).
     gateway_ref: RwLock<Option<std::sync::Weak<crate::Gateway>>>,
     /// Timestamp (Unix epoch seconds) of the last consistency scan.
@@ -181,6 +186,7 @@ impl SessionManager {
             skill_listing_provider: RwLock::new(None),
             yield_timeout_handles: RwLock::new(HashMap::new()),
             output_tx: RwLock::new(None),
+            tool_register_fn: RwLock::new(None),
             gateway_ref: RwLock::new(None),
             last_consistency_check_time: std::sync::Mutex::new(None),
         }
@@ -229,6 +235,25 @@ impl SessionManager {
     /// DreamingScheduler can trigger mining immediately.
     pub fn set_mining_notify_tx(&self, tx: tokio::sync::mpsc::Sender<String>) {
         *self.mining_notify_tx.write().unwrap() = Some(tx);
+    }
+
+    /// Inject the tool-register callback.
+    ///
+    /// Called by daemon (composition root) so that [`register_tools`](Self::register_tools)
+    /// can delegate to the tools crate without a direct dependency.
+    pub async fn set_tool_register_fn(&self, func: register_tools::ToolRegisterFn) {
+        register_tools::set_tool_register_fn(self, func).await;
+    }
+
+    /// Register session tools into the given tool registry.
+    ///
+    /// Delegates to the callback set via [`set_tool_register_fn`](Self::set_tool_register_fn).
+    /// If no callback has been registered, this is a no-op with a warning log.
+    pub async fn register_tools(
+        &self,
+        registry: &dyn closeclaw_common::ToolRegistry,
+    ) -> Result<(), closeclaw_common::ToolRegistrarError> {
+        register_tools::register_tools(self, registry).await
     }
 
     /// Set the config manager for agent-level tool/skill filtering.
@@ -311,10 +336,7 @@ impl SessionManager {
     }
 
     /// Inject a [`DynamicPromptBuilder`] into the session manager.
-    ///
-    /// Called by daemon (composition root) after construction so that
-    /// `resolve()` and `force_new_for_channel()` can pass it to every
-    /// new [`ConversationSession`].
+    /// Called by daemon (composition root) after construction.
     pub async fn set_dynamic_prompt_builder(&self, builder: Arc<dyn DynamicPromptBuilder>) {
         *self.dynamic_prompt_builder.write().await = Some(builder);
     }
@@ -324,20 +346,13 @@ impl SessionManager {
         self.dynamic_prompt_builder.read().await.clone()
     }
 
-    /// Initialize the consistency check timestamp after the startup full scan.
-    ///
-    /// Call this once after `run_consistency_check()` completes at startup
-    /// so that subsequent incremental scans only examine records that
-    /// changed since this point.
+    /// Initialize the consistency check timestamp after startup full scan.
     pub fn initialize_consistency_check_time(&self) {
         let now = chrono::Utc::now().timestamp();
         *self.last_consistency_check_time.lock().unwrap() = Some(now);
     }
 
     /// Swap in a new config snapshot, releasing the old one.
-    ///
-    /// The old snapshot's `Arc` reference count decrements; once all
-    /// holders release it, the memory is reclaimed automatically.
     pub(crate) async fn swap_config_snapshot(&self, snapshot: ConfigSnapshot) {
         let mut guard = self.config_snapshot.write().await;
         *guard = Some(snapshot);
@@ -361,11 +376,6 @@ impl SessionManager {
 
     /// Inject a [`PersistenceMetaStore`] into a conversation session's
     /// snapshot manager for metadata persistence.
-    ///
-    /// When the checkpoint manager (and thus persistence) is available,
-    /// this wires the snapshot manager to persist metadata to the
-    /// session checkpoint. When persistence is unavailable, the snapshot
-    /// manager falls back to in-memory-only mode.
     pub(crate) async fn inject_snapshot_meta_store(
         &self,
         session_id: &str,
@@ -934,6 +944,8 @@ mod graceful_stop_tests;
 mod rebuild_spawn_tree_tests;
 #[cfg(test)]
 mod recovery_injection_tests;
+#[cfg(test)]
+mod register_tools_tests;
 #[cfg(test)]
 mod resolve_archived_recovery_tests;
 #[cfg(test)]
