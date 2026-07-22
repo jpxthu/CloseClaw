@@ -707,10 +707,12 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
 
     async fn register_tool_call(&self, call_id: String, tool_name: String, args_summary: String) {
         ConversationSession::register_tool_call(self, call_id, tool_name, args_summary);
+        self.persist_pending_checkpoint().await;
     }
 
     async fn deregister_tool_call(&self, call_id: String) {
         ConversationSession::deregister_tool_call(self, &call_id);
+        self.persist_pending_checkpoint().await;
     }
 
     async fn update_tool_state(&self, call_id: &str, state: closeclaw_common::ToolExecState) {

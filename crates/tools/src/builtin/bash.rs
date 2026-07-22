@@ -551,19 +551,16 @@ fn spawn_bg_monitor(
                     closeclaw_tasks::TaskState::Completed { .. } => {
                         s.update_tool_state(&cid, ToolExecState::Completed).await;
                         s.deregister_tool_call(cid).await;
-                        s.persist_pending_checkpoint().await;
                         return;
                     }
                     closeclaw_tasks::TaskState::Failed { .. } => {
                         s.update_tool_state(&cid, ToolExecState::Failed).await;
                         s.deregister_tool_call(cid).await;
-                        s.persist_pending_checkpoint().await;
                         return;
                     }
                     closeclaw_tasks::TaskState::Killed => {
                         s.update_tool_state(&cid, ToolExecState::Terminated).await;
                         s.deregister_tool_call(cid).await;
-                        s.persist_pending_checkpoint().await;
                         return;
                     }
                     closeclaw_tasks::TaskState::Running { .. } => {
@@ -574,7 +571,6 @@ fn spawn_bg_monitor(
                     // Task removed from manager (cleanup or unknown).
                     // Deregister to avoid stale entry.
                     s.deregister_tool_call(cid).await;
-                    s.persist_pending_checkpoint().await;
                     return;
                 }
             }
@@ -600,7 +596,6 @@ async fn execute_background_command(
         s.register_tool_call(cid.to_string(), "bash".to_string(), summary)
             .await;
         registered_call_id = Some(cid.to_string());
-        s.persist_pending_checkpoint().await;
     }
     // Per #762 design: `spawn_task()` is the "self-cold-start" path.
     let task = bg_manager
@@ -613,7 +608,6 @@ async fn execute_background_command(
                 tokio::spawn(async move {
                     s.update_tool_state(&cid, ToolExecState::Failed).await;
                     s.deregister_tool_call(cid).await;
-                    s.persist_pending_checkpoint().await;
                 });
             }
             format!("failed to spawn background task: {}", e)
@@ -657,7 +651,6 @@ async fn execute_foreground_command(
         s.register_tool_call(cid.to_string(), "bash".to_string(), summary)
             .await;
         registered_call_id = Some(cid.to_string());
-        s.persist_pending_checkpoint().await;
     }
 
     let child = spawn_sh_command(command, cwd)?;
@@ -729,7 +722,6 @@ async fn execute_command(
             if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
                 s.update_tool_state(cid, ToolExecState::Completed).await;
                 s.deregister_tool_call(cid.to_string()).await;
-                s.persist_pending_checkpoint().await;
             }
             Ok(result)
         }
@@ -737,7 +729,6 @@ async fn execute_command(
             if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
                 s.update_tool_state(cid, ToolExecState::Failed).await;
                 s.deregister_tool_call(cid.to_string()).await;
-                s.persist_pending_checkpoint().await;
             }
             Err(e)
         }

@@ -550,6 +550,7 @@ fn test_build_api_request_default_reasoning_level() {
 
 mod stats_integration;
 mod thinking_clean_tests;
+mod tool_session_persist_tests;
 
 #[test]
 fn test_build_api_request_reasoning_level_medium() {
