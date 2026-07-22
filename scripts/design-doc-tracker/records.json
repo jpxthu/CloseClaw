@@ -457,9 +457,9 @@
   },
   {
     "path": "docs/design/session/session-injection.md",
-    "commit": "1d5d33b3dad313d1477a56c1a229083d67229ea0",
-    "commit_time": "2026-07-16T05:56:29+08:00",
-    "confirmed_time": "2026-07-16T06:06:48.501415+08:00",
+    "commit": "a260ad09fce4b7f665d114b98fd0520e2c02790f",
+    "commit_time": "2026-07-23T03:55:42+08:00",
+    "confirmed_time": "2026-07-23T04:04:34.875175+08:00",
     "comment": "",
     "blocked_reason": ""
   },
