@@ -72,6 +72,11 @@ impl ToolRegistrar for SessionToolsRegistrar {
         &self,
         registry: &dyn closeclaw_common::tool_registry::ToolRegistry,
     ) -> Result<(), ToolRegistrarError> {
+        // Cross-reference: the tool construction order here must stay in sync
+        // with `build_session_tool_callback` in
+        // `crates/daemon/src/registries.rs` (which sets the callback on
+        // SessionManager). If either side changes the tool set or order,
+        // update the other.
         let mut registered = 0usize;
         let r = self.name();
         try_register!(

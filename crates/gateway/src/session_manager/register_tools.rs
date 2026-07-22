@@ -34,8 +34,13 @@ pub(crate) async fn register_tools(
     sm: &SessionManager,
     registry: &dyn ToolRegistry,
 ) -> Result<(), ToolRegistrarError> {
-    let guard = sm.tool_register_fn.read().await;
-    match guard.as_ref() {
+    // Clone the Arc then release the read guard before awaiting the callback,
+    // avoiding holding the RwLock across an async call.
+    let func = {
+        let guard = sm.tool_register_fn.read().await;
+        guard.as_ref().map(Arc::clone)
+    };
+    match func {
         Some(func) => func(registry).await,
         None => {
             warn!("session_manager: register_tools called but no tool_register_fn set, skipping");
