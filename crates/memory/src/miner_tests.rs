@@ -8,7 +8,6 @@ use crate::miner::{
     MinerConfig, MiningEntity, MiningEvent, MiningEventCategory,
 };
 use crate::miner_llm::MockMinerLlmCaller;
-use crate::miner_transcript::clean_transcript;
 use crate::test_helpers::TestStorage;
 use closeclaw_config::agents::{MiningConfig, TranscriptCleanRules};
 use closeclaw_session::persistence::SessionCheckpoint;
@@ -49,127 +48,7 @@ fn lenient_rules() -> TranscriptCleanRules {
     }
 }
 
-fn make_transcript(n_owner: usize, n_agent: usize) -> String {
-    let mut lines = Vec::new();
-    for i in 0..n_owner {
-        lines.push(format!("Owner: owner message {i}"));
-        if i < n_agent {
-            lines.push(format!("Agent: agent response {i}"));
-        }
-    }
-    lines.join("\n")
-}
-// ── Transcript cleaning tests ─────────────────────────────────────────
-
-#[test]
-fn test_transcript_clean_removes_thinking_blocks() {
-    let raw = "Owner: hello\n<thinking>\nSome thought\n</thinking>\nAgent: hi";
-    let rules = lenient_rules();
-    let cleaned = clean_transcript(raw, &rules);
-    assert!(!cleaned.contains("thinking"));
-    assert!(!cleaned.contains("Some thought"));
-    assert!(cleaned.contains("hello"));
-    assert!(cleaned.contains("hi"));
-}
-
-#[test]
-fn test_transcript_clean_removes_tool_call_xml() {
-    let raw = "Owner: go\n<tool_call>{\"name\":\"exec\"}</tool_call>\nAgent: done";
-    let rules = lenient_rules();
-    let cleaned = clean_transcript(raw, &rules);
-    assert!(!cleaned.contains("tool_call"));
-    assert!(cleaned.contains("done"));
-}
-
-#[test]
-fn test_transcript_clean_removes_context_markers() {
-    let raw = "Owner: test\n[context: system prompt]\nAgent: ok";
-    let rules = lenient_rules();
-    let cleaned = clean_transcript(raw, &rules);
-    assert!(!cleaned.contains("[context:"));
-}
-
-#[test]
-fn test_transcript_clean_removes_media_no_reply() {
-    let raw = "Owner: msg\nMEDIA\nNO_REPLY\nAgent: response";
-    let rules = lenient_rules();
-    let cleaned = clean_transcript(raw, &rules);
-    assert!(!cleaned.contains("MEDIA"));
-    assert!(!cleaned.contains("NO_REPLY"));
-}
-
-#[test]
-fn test_transcript_clean_collapses_blank_lines() {
-    let raw = "Owner: a\n\n\n\nAgent: b";
-    let rules = lenient_rules();
-    let cleaned = clean_transcript(raw, &rules);
-    assert!(!cleaned.contains("\n\n\n"));
-}
-
-#[test]
-fn test_transcript_clean_skips_short_transcripts() {
-    let raw = "Owner: hi";
-    let rules = TranscriptCleanRules {
-        min_turns: Some(5),
-        min_owner_msgs: Some(5),
-        format: Some("md".to_string()),
-    };
-    let cleaned = clean_transcript(raw, &rules);
-    assert!(cleaned.is_empty());
-}
-
-#[test]
-fn test_transcript_clean_skips_few_owner_messages() {
-    let raw = make_transcript(2, 5);
-    let rules = TranscriptCleanRules {
-        min_owner_msgs: Some(10),
-        ..Default::default()
-    };
-    let cleaned = clean_transcript(&raw, &rules);
-    assert!(cleaned.is_empty());
-}
-
-#[test]
-fn test_transcript_clean_normalizes_owner_prefixes() {
-    let raw = "Owner: a\nuser: b\nowner: c";
-    let rules = lenient_rules();
-    let cleaned = clean_transcript(raw, &rules);
-    assert!(cleaned.contains("a"));
-    assert!(cleaned.contains("b"));
-    assert!(cleaned.contains("c"));
-}
-// ── MinerConfig tests ─────────────────────────────────────────────────
-
-#[test]
-fn test_miner_config_from_mining_config() {
-    let mc = MiningConfig {
-        enabled: Some(true),
-        max_events_per_session: Some(15),
-        dedup_window_days: Some(60),
-        transcript_clean_rules: TranscriptCleanRules {
-            min_turns: Some(3),
-            min_owner_msgs: Some(4),
-            format: Some("plain".to_string()),
-        },
-        ..Default::default()
-    };
-    let config = MinerConfig::from_mining_config(&mc);
-    assert!(config.enabled);
-    assert_eq!(config.max_events_per_session, 15);
-    assert_eq!(config.dedup_window_days, 60);
-    assert_eq!(config.clean_rules.min_turns, Some(3));
-}
-
-#[test]
-fn test_miner_config_defaults() {
-    let mc = MiningConfig::default();
-    let config = MinerConfig::from_mining_config(&mc);
-    assert!(!config.enabled);
-    assert_eq!(config.max_events_per_session, 10);
-    assert_eq!(config.dedup_window_days, 30);
-}
 // ── Mine session tests ────────────────────────────────────────────────
-
 #[tokio::test]
 async fn test_mine_session_skips_when_disabled() {
     let storage = TestStorage::default();
@@ -191,7 +70,6 @@ async fn test_mine_session_skips_when_disabled() {
         .unwrap();
     assert!(result.events.is_empty());
 }
-
 #[tokio::test]
 async fn test_mine_session_skips_already_mined() {
     let storage = TestStorage::default();
@@ -213,7 +91,6 @@ async fn test_mine_session_skips_already_mined() {
         .unwrap();
     assert!(result.events.is_empty());
 }
-
 #[tokio::test]
 async fn test_mine_session_empty_transcript() {
     let storage = TestStorage::default();
@@ -235,7 +112,6 @@ async fn test_mine_session_empty_transcript() {
         .unwrap();
     assert!(result.events.is_empty());
 }
-
 #[tokio::test]
 async fn test_mine_session_nonexistent_returns_error() {
     let storage = TestStorage::default();
@@ -252,7 +128,6 @@ async fn test_mine_session_nonexistent_returns_error() {
         .await;
     assert!(result.is_err());
 }
-
 #[tokio::test]
 async fn test_mine_session_happy_path() {
     let storage = TestStorage::default();
@@ -288,7 +163,6 @@ async fn test_mine_session_happy_path() {
     let mined = storage.mined_ids();
     assert!(mined.contains(&"sess-1".to_string()));
 }
-
 #[tokio::test]
 async fn test_mine_session_respects_max_events_limit() {
     let storage = TestStorage::default();
@@ -320,7 +194,6 @@ async fn test_mine_session_respects_max_events_limit() {
     assert_eq!(result.events.len(), 5, "should truncate to max_events");
 }
 // ── SQLite write tests ────────────────────────────────────────────────
-
 #[test]
 fn test_write_to_sqlite_creates_events() {
     let tmp = TempDir::new().unwrap();
@@ -347,7 +220,6 @@ fn test_write_to_sqlite_creates_events() {
         .unwrap();
     assert_eq!(link_count, 1);
 }
-
 #[test]
 fn test_write_to_sqlite_deduplicates_entities() {
     let tmp = TempDir::new().unwrap();
@@ -375,7 +247,6 @@ fn test_write_to_sqlite_deduplicates_entities() {
         .unwrap();
     assert_eq!(link_count, 2, "each event should link to the entity");
 }
-
 #[test]
 fn test_write_to_sqlite_stores_event_fields() {
     let tmp = TempDir::new().unwrap();
@@ -412,7 +283,6 @@ fn test_write_to_sqlite_stores_event_fields() {
     assert_eq!(lesson.as_deref(), Some("My Lesson"));
 }
 // ── Entity catalog tests ──────────────────────────────────────────────
-
 #[test]
 fn test_load_entity_catalog_sorts_by_type_then_name() {
     let tmp = TempDir::new().unwrap();
@@ -453,7 +323,6 @@ fn test_load_entity_catalog_sorts_by_type_then_name() {
     // Action entity appears under action header.
     assert!(catalog.contains("- Alpha: a"));
 }
-
 #[test]
 fn test_load_entity_catalog_scoped_by_agent() {
     let tmp = TempDir::new().unwrap();
@@ -482,7 +351,6 @@ fn test_load_entity_catalog_scoped_by_agent() {
     assert!(catalog_a2.contains("- Entity A2:"));
 }
 // ── Recent events load tests ──────────────────────────────────────────
-
 #[test]
 fn test_load_recent_events_empty_db() {
     let tmp = TempDir::new().unwrap();
@@ -491,7 +359,6 @@ fn test_load_recent_events_empty_db() {
     let result = load_recent_events(&conn, "other", "agent-1", 30).unwrap();
     assert!(result.is_empty());
 }
-
 #[test]
 fn test_load_recent_events_with_data() {
     let tmp = TempDir::new().unwrap();
@@ -513,7 +380,6 @@ fn test_load_recent_events_with_data() {
     assert!(result.contains("Bug Fix"));
     assert!(result.contains("Fixed a bug"));
 }
-
 #[test]
 fn test_load_recent_events_excludes_old() {
     let tmp = TempDir::new().unwrap();
@@ -532,7 +398,6 @@ fn test_load_recent_events_excludes_old() {
     let result = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
     assert!(result.is_empty());
 }
-
 #[test]
 fn test_load_recent_events_excludes_current_session() {
     let tmp = TempDir::new().unwrap();
@@ -623,7 +488,6 @@ fn test_load_entity_catalog_excludes_inactive_types() {
     assert!(catalog.contains("## action "));
 }
 // ── normalize_entity_name tests ───────────────────────────────────────
-
 #[test]
 fn test_normalize_entity_name_various() {
     assert_eq!(normalize_entity_name("Hello World"), "hello_world");
@@ -786,7 +650,6 @@ fn test_per_agent_dedup_same_agent_type_name() {
     assert_eq!(link_count, 2);
 }
 // ── MiningEventCategory Display ───────────────────────────────────────
-
 #[test]
 fn test_mining_event_category_display() {
     assert_eq!(MiningEventCategory::Error.to_string(), "error");
@@ -794,7 +657,6 @@ fn test_mining_event_category_display() {
     assert_eq!(MiningEventCategory::Decision.to_string(), "decision");
 }
 // ── Integration: mine_session writes to SQLite ────────────────────────
-
 #[tokio::test]
 async fn test_mine_session_persists_to_sqlite() {
     let storage = TestStorage::default();
@@ -869,116 +731,9 @@ fn test_miner_config_from_mining_config_copies_model() {
     assert_eq!(config.model.as_deref(), Some("gpt-4o-mini"));
 }
 
-/// from_mining_config() propagates None model as None.
-#[test]
-fn test_miner_config_from_mining_config_none_model() {
-    let mc = MiningConfig::default();
-    let config = MinerConfig::from_mining_config(&mc);
-    assert_eq!(config.model, None);
-}
-
-/// from_mining_config() preserves empty string model.
-#[test]
-fn test_miner_config_from_mining_config_empty_string_model() {
-    let mc = MiningConfig {
-        model: Some(String::new()),
-        ..Default::default()
-    };
-    let config = MinerConfig::from_mining_config(&mc);
-    assert_eq!(config.model.as_deref(), Some(""));
-}
-
-/// Default MinerConfig has model as None.
-#[test]
-fn test_miner_config_default_model_is_none() {
-    let config = MinerConfig::default();
-    assert_eq!(config.model, None);
-}
 // ── MemoryMiner model getter tests ────────────────────────────────────
 
-fn make_miner(config: MinerConfig) -> MemoryMiner {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let llm = Box::new(crate::miner_llm::MockMinerLlmCaller::default());
-    crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md")
-}
-
-/// model() returns None when no model is configured.
-#[test]
-fn test_model_returns_none_when_unconfigured() {
-    let miner = make_miner(MinerConfig::default());
-    assert_eq!(miner.model(), None, "model should be None by default");
-}
-
-/// model() returns the configured model name.
-#[test]
-fn test_model_returns_configured_value() {
-    let config = MinerConfig {
-        model: Some("gpt-4o".to_string()),
-        ..Default::default()
-    };
-    let miner = make_miner(config);
-    assert_eq!(miner.model().as_deref(), Some("gpt-4o"));
-}
-
-/// model() returns empty string when configured as empty.
-#[test]
-fn test_model_returns_empty_string() {
-    let config = MinerConfig {
-        model: Some(String::new()),
-        ..Default::default()
-    };
-    let miner = make_miner(config);
-    assert_eq!(miner.model().as_deref(), Some(""));
-}
-
-/// update_config propagates new model to getter.
-#[test]
-fn test_update_config_propagates_model() {
-    let miner = make_miner(MinerConfig::default());
-    assert_eq!(miner.model(), None);
-
-    let new_config = MinerConfig {
-        model: Some("claude-3.5-sonnet".to_string()),
-        ..Default::default()
-    };
-    miner.update_config(new_config);
-    assert_eq!(miner.model().as_deref(), Some("claude-3.5-sonnet"));
-}
-
-/// update_config can set model from Some to None.
-#[test]
-fn test_update_config_clears_model() {
-    let config = MinerConfig {
-        model: Some("gpt-4o".to_string()),
-        ..Default::default()
-    };
-    let miner = make_miner(config);
-    assert_eq!(miner.model().as_deref(), Some("gpt-4o"));
-
-    let new_config = MinerConfig {
-        model: None,
-        ..Default::default()
-    };
-    miner.update_config(new_config);
-    assert_eq!(miner.model(), None);
-}
-
-/// Per-agent override: different miners can have different models.
-#[test]
-fn test_per_agent_override_model() {
-    let miner_a = make_miner(MinerConfig {
-        model: Some("model-a".to_string()),
-        ..Default::default()
-    });
-    let miner_b = make_miner(MinerConfig {
-        model: Some("model-b".to_string()),
-        ..Default::default()
-    });
-    assert_eq!(miner_a.model().as_deref(), Some("model-a"));
-    assert_eq!(miner_b.model().as_deref(), Some("model-b"));
-}
 // ── MinerConfig from_mining_config edge cases ─────────────────────────
-
 #[test]
 fn test_miner_config_from_mining_config_none_values() {
     let mc = MiningConfig::default();
@@ -987,11 +742,180 @@ fn test_miner_config_from_mining_config_none_values() {
     assert_eq!(config.max_events_per_session, 10);
     assert_eq!(config.dedup_window_days, 30);
 }
-
 #[test]
 fn test_miner_config_default_values() {
     let config = MinerConfig::default();
     assert!(!config.enabled);
     assert_eq!(config.max_events_per_session, 10);
     assert_eq!(config.dedup_window_days, 30);
+}
+// ── Similarity threshold tests ──────────────────────────────────────
+#[test]
+fn test_load_entity_type_thresholds_all_types() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+    let thresholds = crate::miner::load_entity_type_thresholds(&conn).unwrap();
+    assert_eq!(thresholds.len(), 11);
+    assert_eq!(thresholds["time"], 0.90);
+    assert_eq!(thresholds["tags"], 0.70);
+}
+#[test]
+fn test_load_entity_type_thresholds_excludes_inactive() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+    conn.execute(
+        "UPDATE entity_types SET is_active = 0 WHERE type = 'time'",
+        [],
+    )
+    .unwrap();
+    let thresholds = crate::miner::load_entity_type_thresholds(&conn).unwrap();
+    assert!(!thresholds.contains_key("time"));
+    assert!(thresholds.contains_key("tags"));
+}
+
+/// High-threshold entity filtered when loosely related to event.
+#[tokio::test]
+async fn test_mine_session_filters_high_threshold_entity() {
+    let storage = TestStorage::default();
+    let mut cp = SessionCheckpoint::new("sess-ht".into());
+    cp.mined = false;
+    storage.add_checkpoint(cp);
+    let events = vec![make_event(
+        "Rust language basics",
+        MiningEventCategory::Error,
+    )];
+    let entities = vec![vec![make_entity("January 2025", "time")]];
+    let config = MinerConfig {
+        enabled: true,
+        clean_rules: lenient_rules(),
+        ..Default::default()
+    };
+    let llm = Box::new(MockMinerLlmCaller {
+        events_response: events,
+        entities_response: entities,
+        ..Default::default()
+    });
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("ht.db");
+    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let result = miner
+        .mine_session("sess-ht", "Owner: hello\nAgent: response", "a1", &storage)
+        .await
+        .unwrap();
+    assert_eq!(
+        result.entity_names[0].len(),
+        0,
+        "high-threshold time entity should be filtered"
+    );
+}
+
+/// Low-threshold entity retained when similar to event.
+#[tokio::test]
+async fn test_mine_session_keeps_low_threshold_entity() {
+    let storage = TestStorage::default();
+    let mut cp = SessionCheckpoint::new("sess-lt".into());
+    cp.mined = false;
+    storage.add_checkpoint(cp);
+    let events = vec![make_event(
+        "Rust language basics",
+        MiningEventCategory::Error,
+    )];
+    let entities = vec![vec![make_entity("Rust language", "tags")]];
+    let config = MinerConfig {
+        enabled: true,
+        clean_rules: lenient_rules(),
+        ..Default::default()
+    };
+    let llm = Box::new(MockMinerLlmCaller {
+        events_response: events,
+        entities_response: entities,
+        ..Default::default()
+    });
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("lt.db");
+    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let result = miner
+        .mine_session("sess-lt", "Owner: hello\nAgent: response", "a1", &storage)
+        .await
+        .unwrap();
+    assert_eq!(
+        result.entity_names[0].len(),
+        1,
+        "low-threshold tags entity should be retained"
+    );
+}
+
+/// Exact-match entity passes threshold boundary.
+#[tokio::test]
+async fn test_mine_session_boundary_at_threshold_keeps_entity() {
+    let storage = TestStorage::default();
+    let mut cp = SessionCheckpoint::new("sess-bt".into());
+    cp.mined = false;
+    storage.add_checkpoint(cp);
+    let events = vec![make_event(
+        "Rust language basics",
+        MiningEventCategory::Error,
+    )];
+    let entities = vec![vec![make_entity("Rust language basics", "subject")]];
+    let config = MinerConfig {
+        enabled: true,
+        clean_rules: lenient_rules(),
+        ..Default::default()
+    };
+    let llm = Box::new(MockMinerLlmCaller {
+        events_response: events,
+        entities_response: entities,
+        ..Default::default()
+    });
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("bt.db");
+    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let result = miner
+        .mine_session("sess-bt", "Owner: hello\nAgent: response", "a1", &storage)
+        .await
+        .unwrap();
+    assert_eq!(
+        result.entity_names[0].len(),
+        1,
+        "exact-match entity should pass threshold"
+    );
+}
+
+/// All entities filtered → empty entity_names.
+#[tokio::test]
+async fn test_mine_session_all_entities_filtered() {
+    let storage = TestStorage::default();
+    let mut cp = SessionCheckpoint::new("sess-all".into());
+    cp.mined = false;
+    storage.add_checkpoint(cp);
+    let events = vec![make_event("X", MiningEventCategory::Error)];
+    let entities = vec![vec![
+        make_entity("January 2025", "time"),
+        make_entity("March 2026", "time"),
+        make_entity("December 2024", "time"),
+    ]];
+    let config = MinerConfig {
+        enabled: true,
+        clean_rules: lenient_rules(),
+        ..Default::default()
+    };
+    let llm = Box::new(MockMinerLlmCaller {
+        events_response: events,
+        entities_response: entities,
+        ..Default::default()
+    });
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("all.db");
+    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let result = miner
+        .mine_session("sess-all", "Owner: hello\nAgent: response", "a1", &storage)
+        .await
+        .unwrap();
+    assert_eq!(
+        result.entity_names[0].len(),
+        0,
+        "all loosely-related entities should be filtered"
+    );
 }

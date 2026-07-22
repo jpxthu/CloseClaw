@@ -30,4 +30,6 @@ mod dreaming_status_tests;
 #[cfg(test)]
 mod dreaming_tests;
 #[cfg(test)]
+mod embedding_tests;
+#[cfg(test)]
 mod miner_tests;

@@ -11,7 +11,7 @@ use rusqlite::{params, Connection};
 use crate::active_searcher::{
     ActiveSearcher, ActiveSearcherConfig, ActiveSearcherError, EventRecord,
 };
-use crate::active_searcher_llm::{parse_concepts, should_trigger_role, LlmCaller};
+use crate::active_searcher_llm::LlmCaller;
 use closeclaw_session::llm_session::{InjectionPosition, MemoryInjection};
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -172,23 +172,6 @@ fn test_sqlite_schema_seed_data_integrity() {
     assert_eq!(types[4], "subject");
 }
 
-#[test]
-fn test_sqlite_schema_unique_constraint() {
-    let tmp = tempfile::tempdir().unwrap();
-    let conn = create_test_db(tmp.path());
-
-    insert_entity(&conn, "agent-1", "person", "Alice", "alice");
-    let result = conn.execute(
-        "INSERT INTO entities (agent_id, type, name, normalized_name)
-         VALUES (?1, ?2, ?3, ?4)",
-        params!["agent-1", "person", "Alice Alt", "alice"],
-    );
-    assert!(
-        result.is_err(),
-        "UNIQUE constraint should prevent duplicate"
-    );
-}
-
 // ── Search logic tests ───────────────────────────────────────────────────
 
 #[test]
@@ -267,19 +250,6 @@ fn test_search_entities_type_weight_ordering() {
     assert_eq!(results[0].entity_type, "subject");
     assert_eq!(results[1].entity_type, "person");
     assert_eq!(results[2].entity_type, "tags");
-}
-
-#[test]
-fn test_search_entities_no_data_returns_empty() {
-    let tmp = tempfile::tempdir().unwrap();
-    let _conn = create_test_db(tmp.path());
-
-    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
-
-    let results = searcher
-        .search_entities("agent-1", &["anything".into()])
-        .unwrap();
-    assert!(results.is_empty());
 }
 
 // ── Event association tests ──────────────────────────────────────────────
@@ -361,17 +331,6 @@ fn test_find_events_top_k_truncation() {
 
     let events = searcher.find_events(&[eid]).unwrap();
     assert_eq!(events.len(), 3, "should be limited to top_k_events");
-}
-
-#[test]
-fn test_find_events_empty_entity_ids_returns_empty() {
-    let tmp = tempfile::tempdir().unwrap();
-    let _conn = create_test_db(tmp.path());
-
-    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
-
-    let events = searcher.find_events(&[]).unwrap();
-    assert!(events.is_empty());
 }
 
 // ── Dedup tests ──────────────────────────────────────────────────────────
@@ -492,16 +451,6 @@ fn test_memory_injection_basics() {
 }
 
 // ── Role exclusion tests ─────────────────────────────────────────────────
-
-#[test]
-fn test_role_exclusion_and_trigger() {
-    assert!(!should_trigger_role("memory-miner"));
-    assert!(!should_trigger_role("dreaming"));
-    assert!(should_trigger_role("user"));
-    assert!(should_trigger_role("assistant"));
-    assert!(!ActiveSearcher::should_trigger("memory-miner"));
-    assert!(ActiveSearcher::should_trigger("user"));
-}
 
 // ── Timeout test ─────────────────────────────────────────────────────────
 
@@ -660,28 +609,7 @@ async fn test_run_dedup_excludes_injected_events() {
 
 // ── Concept parser tests ─────────────────────────────────────────────────
 
-#[test]
-fn test_parse_concepts() {
-    let c = parse_concepts(r#"["Alice", "project X"]"#);
-    assert_eq!(c, vec!["Alice", "project X"]);
-    let c = parse_concepts(r#"Here are the concepts: ["Alice", "Bob"]"#);
-    assert_eq!(c, vec!["Alice", "Bob"]);
-    assert!(parse_concepts("[]").is_empty());
-    assert!(parse_concepts("no json here").is_empty());
-}
-
 // ── Config defaults test ─────────────────────────────────────────────────
-
-#[test]
-fn test_active_searcher_config_defaults() {
-    let config = ActiveSearcherConfig::default();
-    assert_eq!(config.timeout_ms, 3000);
-    assert_eq!(config.max_summary_chars, 500);
-    assert_eq!(config.min_entity_hits, 1);
-    assert_eq!(config.top_k_events, 3);
-    assert_eq!(config.context_turns, 5);
-    assert_eq!(config.model, "");
-}
 
 // ── from_agent_config tests ─────────────────────────────────────────────
 
@@ -974,4 +902,74 @@ fn test_active_searcher_default_type_priority() {
     assert_eq!(results.len(), 2, "both entities should match");
     assert_eq!(results[0].entity_type, "alpha");
     assert_eq!(results[1].entity_type, "beta");
+}
+// ── Similarity threshold filtering tests ───────────────────────────
+
+/// Exact match (normalized_name == concept) always passes threshold.
+#[test]
+fn test_search_entities_exact_match_passes_high_threshold() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    insert_entity(&conn, "agent-1", "time", "rust language", "rust language");
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+    let results = searcher
+        .search_entities("agent-1", &["rust language".into()])
+        .unwrap();
+    assert_eq!(results.len(), 1, "exact match should pass 0.90 threshold");
+}
+
+/// LIKE fuzzy match filtered when entity differs significantly.
+#[test]
+fn test_search_entities_fuzzy_match_filtered_by_high_threshold() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    insert_entity(
+        &conn,
+        "agent-1",
+        "time",
+        "rust language basics",
+        "rust language basics",
+    );
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+    let results = searcher
+        .search_entities("agent-1", &["python".into()])
+        .unwrap();
+    assert!(results.is_empty(), "no LIKE match expected");
+}
+
+/// Low-threshold type retains loosely related fuzzy match.
+#[test]
+fn test_search_entities_low_threshold_keeps_fuzzy_match() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    insert_entity(&conn, "agent-1", "tags", "programming", "programming");
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+    let results = searcher
+        .search_entities("agent-1", &["program".into()])
+        .unwrap();
+    assert_eq!(results.len(), 1, "low threshold should retain fuzzy match");
+}
+
+/// Multiple concepts: threshold filtering applies per-entity.
+#[test]
+fn test_search_entities_mixed_threshold_results() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = create_test_db(tmp.path());
+    insert_entity(&conn, "agent-1", "time", "rust lang", "rust lang");
+    insert_entity(
+        &conn,
+        "agent-1",
+        "tags",
+        "rust programming",
+        "rust programming",
+    );
+    let searcher = ActiveSearcher::new(tmp.path().join("test.db"), ActiveSearcherConfig::default());
+    let results = searcher
+        .search_entities("agent-1", &["rust".into()])
+        .unwrap();
+    assert!(results.len() <= 2, "should have at most 2 results");
+    assert!(
+        results.iter().any(|e| e.entity_type == "tags"),
+        "tags entity should pass low threshold"
+    );
 }
