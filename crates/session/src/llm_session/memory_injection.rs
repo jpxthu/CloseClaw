@@ -32,6 +32,10 @@ pub struct MemoryInjection {
     /// Event IDs already injected this session — used for dedup
     /// so the same event is never injected twice.
     pub injected_event_ids: HashSet<i64>,
+    /// Optional task ID identifying the source task that produced
+    /// this injection. Used for session-level dedup so that the
+    /// same task's results are injected at most once per session.
+    pub task_id: Option<String>,
 }
 
 impl MemoryInjection {
@@ -42,6 +46,7 @@ impl MemoryInjection {
             content,
             position_mode,
             injected_event_ids: HashSet::new(),
+            task_id: None,
         }
     }
 

@@ -164,6 +164,7 @@ impl SearcherTriggerDeps {
                             content,
                             position_mode: pos_mode,
                             injected_event_ids: event_ids,
+                            task_id: None,
                         };
                         cs.read().await.set_memory_injection(injection);
                     }

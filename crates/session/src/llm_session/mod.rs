@@ -158,6 +158,10 @@ pub struct ConversationSession {
     memory_injection: Arc<Mutex<Option<MemoryInjection>>>,
     /// Last activity timestamp (Unix seconds) — updated on every mutation.
     last_activity_at: i64,
+    /// Task IDs already injected via memory-injection this session.
+    /// Used for session-level dedup so that the same task's results
+    /// are injected at most once per session lifetime.
+    injected_task_ids: Arc<Mutex<HashSet<String>>>,
     /// Skill listing provider for per-turn skill injection.
     /// Injected by Gateway at session creation. When set, each LLM turn
     /// prepends a tool-role attachment with the agent's skill listing.
@@ -255,6 +259,7 @@ impl ConversationSession {
             bootstrap_mode: crate::bootstrap::loader::BootstrapMode::Full,
             memory_injection: Arc::new(Mutex::new(None)),
             last_activity_at: Utc::now().timestamp(),
+            injected_task_ids: Arc::new(Mutex::new(HashSet::new())),
             skill_listing_provider: None,
             skill_listing_snapshot: None,
             activated_conditional_skills: HashSet::new(),
@@ -531,12 +536,35 @@ impl ConversationSession {
     }
 
     /// Write a memory-injection payload into the slot.
-    pub fn set_memory_injection(&self, injection: MemoryInjection) {
+    ///
+    /// Applies session-level dedup: if the injection carries a
+    /// `task_id` that has already been injected this session, the
+    /// write is skipped (returns `false`). Injections without a
+    /// `task_id` are always accepted.
+    ///
+    /// Returns `true` if the injection was accepted, `false` if
+    /// skipped due to dedup.
+    pub fn set_memory_injection(&self, injection: MemoryInjection) -> bool {
         let mut slot = self
             .memory_injection
             .lock()
             .expect("memory_injection lock poisoned");
+        if let Some(ref task_id) = injection.task_id {
+            let mut ids = self
+                .injected_task_ids
+                .lock()
+                .expect("injected_task_ids lock poisoned");
+            if ids.contains(task_id.as_str()) {
+                tracing::debug!(
+                    task_id,
+                    "session-level dedup: skipping already-injected task"
+                );
+                return false;
+            }
+            ids.insert(task_id.clone());
+        }
         *slot = Some(injection);
+        true
     }
 
     /// Take the current memory-injection payload, replacing the slot
@@ -915,6 +943,13 @@ impl std::fmt::Debug for ConversationSession {
                 &self.activated_conditional_skills,
             )
             .field("agent_skills", &self.agent_skills)
+            .field(
+                "injected_task_ids",
+                &*self
+                    .injected_task_ids
+                    .lock()
+                    .expect("injected_task_ids lock poisoned"),
+            )
             .field(
                 "memory_injection",
                 &*self
