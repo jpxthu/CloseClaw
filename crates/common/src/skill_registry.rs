@@ -7,9 +7,8 @@ use async_trait::async_trait;
 
 /// Trait for querying and managing skills.
 ///
-/// Implemented by `DiskSkillRegistry` and `SkillRegistry` in the skills
-/// crate; used by the gateway's session manager to list available skills
-/// without a direct dependency on the skills module.
+/// Implemented by `DiskSkillRegistry` in the skills crate; used by the gateway's
+/// session manager to list available skills without a direct dependency on the skills module.
 #[async_trait]
 pub trait SkillRegistryQuery: Send + Sync {
     /// Check if a skill with the given name exists.

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use closeclaw_gateway::SessionManager;
-use closeclaw_skills::DiskSkillRegistry;
+use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
 
 use crate::builtin::{SkillCreatorTool, SkillTool};
 use crate::try_register;
@@ -17,6 +17,7 @@ use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 /// `SkillTool`, `SkillCreatorTool`.
 pub struct SkillsToolsRegistrar {
     disk_registry: Arc<DiskSkillRegistry>,
+    builtin_registry: Arc<BuiltinSkillRegistry>,
     spawn_validator: Arc<dyn SpawnValidator>,
     session_manager: Arc<SessionManager>,
 }
@@ -25,11 +26,13 @@ impl SkillsToolsRegistrar {
     /// Create a new `SkillsToolsRegistrar` with the required dependencies.
     pub fn new(
         disk_registry: Arc<DiskSkillRegistry>,
+        builtin_registry: Arc<BuiltinSkillRegistry>,
         spawn_validator: Arc<dyn SpawnValidator>,
         session_manager: Arc<SessionManager>,
     ) -> Self {
         Self {
             disk_registry,
+            builtin_registry,
             spawn_validator,
             session_manager,
         }
@@ -57,6 +60,7 @@ impl ToolRegistrar for SkillsToolsRegistrar {
             registered,
             SkillTool::new(
                 self.disk_registry.clone(),
+                self.builtin_registry.clone(),
                 self.spawn_validator.clone(),
                 self.session_manager.clone(),
             ),
