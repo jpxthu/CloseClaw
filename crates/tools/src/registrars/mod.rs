@@ -4,5 +4,4 @@
 
 pub mod core;
 pub mod plan;
-pub mod session;
 pub mod skills;

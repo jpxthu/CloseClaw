@@ -15,12 +15,14 @@ use crate::spawn::{ChildSessionInfo, SpawnMode};
 use closeclaw_config::agents::ResolvedAgentConfig;
 
 pub mod prompt_template;
+pub mod registrar;
 pub mod sessions_kill;
 pub mod sessions_spawn;
 pub mod sessions_steer;
 pub mod sessions_yield;
 
 pub use prompt_template::PromptTemplate;
+pub use registrar::SessionToolsRegistrar;
 pub use sessions_kill::SessionsKillTool;
 pub use sessions_spawn::SessionsSpawnTool;
 pub use sessions_steer::SessionsSteerTool;
