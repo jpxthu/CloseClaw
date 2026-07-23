@@ -106,9 +106,27 @@ pub struct DiskSkill {
     pub readme_path: std::path::PathBuf,
     /// Absolute path to the skill directory.
     pub skill_dir: std::path::PathBuf,
-    /// Skill body (instruction text) extracted from the SKILL.md file.
-    /// Empty string until populated by the loader layer.
-    pub body: String,
+}
+
+impl DiskSkill {
+    /// Load the skill body (instruction text) from the SKILL.md file on disk.
+    ///
+    /// Reads the file at `self.readme_path` and parses it with [`parse_skill_md`]
+    /// to extract the body text (content after the frontmatter block).
+    ///
+    /// # Errors
+    ///
+    /// Returns an `io::Error` if the file cannot be read.
+    pub fn load_body(&self) -> std::io::Result<String> {
+        let raw = std::fs::read_to_string(&self.readme_path)?;
+        let parsed = super::parse_skill_md(&raw).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("failed to parse SKILL.md: {}", e),
+            )
+        })?;
+        Ok(parsed.body)
+    }
 }
 
 /// Result of parsing a SKILL.md frontmatter block.

@@ -82,7 +82,6 @@ mod tests {
             },
             readme_path: std::path::PathBuf::from("/tmp/test"),
             skill_dir: std::path::PathBuf::from("/tmp/test"),
-            body: String::new(),
         }
     }
 

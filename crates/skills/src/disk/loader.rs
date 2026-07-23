@@ -125,7 +125,6 @@ fn scan_layer(
             manifest,
             readme_path,
             skill_dir,
-            body: parsed.body,
         };
 
         if let Some(existing) = skills.get(&name) {
@@ -361,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scan_populates_body() {
+    fn test_load_body_populates_from_file() {
         let temp = tempfile::tempdir().unwrap();
         create_file(
             &temp.path().join("my-skill").join("SKILL.md"),
@@ -374,11 +373,14 @@ mod tests {
         };
         let skills = scan_all_skills(&config);
         assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].body, "# Hello\n\nInstructions here.");
+        assert_eq!(
+            skills[0].load_body().unwrap(),
+            "# Hello\n\nInstructions here."
+        );
     }
 
     #[test]
-    fn test_scan_body_empty_when_no_body_text() {
+    fn test_load_body_empty_when_no_body_text() {
         let temp = tempfile::tempdir().unwrap();
         create_file(
             &temp.path().join("no-body").join("SKILL.md"),
@@ -391,11 +393,11 @@ mod tests {
         };
         let skills = scan_all_skills(&config);
         assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].body, "");
+        assert_eq!(skills[0].load_body().unwrap(), "");
     }
 
     #[test]
-    fn test_scan_body_with_bom() {
+    fn test_load_body_with_bom() {
         let temp = tempfile::tempdir().unwrap();
         create_file(
             &temp.path().join("bom-skill").join("SKILL.md"),
@@ -408,11 +410,11 @@ mod tests {
         };
         let skills = scan_all_skills(&config);
         assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].body, "# Body");
+        assert_eq!(skills[0].load_body().unwrap(), "# Body");
     }
 
     #[test]
-    fn test_scan_body_preserves_multiline() {
+    fn test_load_body_preserves_multiline() {
         let temp = tempfile::tempdir().unwrap();
         create_file(
             &temp.path().join("multi").join("SKILL.md"),
@@ -425,6 +427,9 @@ mod tests {
         };
         let skills = scan_all_skills(&config);
         assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].body, "# Step 1\nDo A.\n\n# Step 2\nDo B.");
+        assert_eq!(
+            skills[0].load_body().unwrap(),
+            "# Step 1\nDo A.\n\n# Step 2\nDo B."
+        );
     }
 }

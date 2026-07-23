@@ -38,7 +38,6 @@ mod tests {
             },
             readme_path,
             skill_dir: std::path::PathBuf::new(),
-            body: String::new(),
         }
     }
 
@@ -54,8 +53,7 @@ mod tests {
             "---\ndescription: A test skill\n---\n\n# Test Skill\n\nSome skill content here.\n";
         std::fs::write(&readme_path, skill_content).unwrap();
 
-        let mut skill = make_skill("testskill", readme_path);
-        skill.body = "# Test Skill\n\nSome skill content here.".to_string();
+        let skill = make_skill("testskill", readme_path);
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
 
@@ -86,8 +84,7 @@ mod tests {
             + "# Actual Skill Body\n\nThis is the real content.\n";
         std::fs::write(&readme_path, skill_content).unwrap();
 
-        let mut skill = make_skill("testskill", readme_path);
-        skill.body = "# Actual Skill Body\n\nThis is the real content.".to_string();
+        let skill = make_skill("testskill", readme_path);
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
 
@@ -216,22 +213,35 @@ mod tests {
     // Variable substitution integration tests (via call())
     // -----------------------------------------------------------------
 
-    fn make_skill_with_body(name: &str, body: &str, skill_dir: std::path::PathBuf) -> DiskSkill {
-        DiskSkill {
-            source: SkillSource::Bundled,
-            manifest: SkillManifest {
-                name: name.into(),
-                description: format!("A test skill named {}", name),
-                when_to_use: String::new(),
-                context: SkillContext::Inline,
-                effort: SkillEffort::Small,
-                paths: vec![],
-                user_invocable: false,
+    fn make_skill_with_body(
+        name: &str,
+        body: &str,
+        skill_dir: std::path::PathBuf,
+    ) -> (DiskSkill, tempfile::TempDir) {
+        let temp = tempfile::tempdir().unwrap();
+        let readme_path = temp.path().join("SKILL.md");
+        let content = format!(
+            "---\ndescription: A test skill named {}\n---\n\n{}\n",
+            name, body
+        );
+        std::fs::write(&readme_path, content).unwrap();
+        (
+            DiskSkill {
+                source: SkillSource::Bundled,
+                manifest: SkillManifest {
+                    name: name.into(),
+                    description: format!("A test skill named {}", name),
+                    when_to_use: String::new(),
+                    context: SkillContext::Inline,
+                    effort: SkillEffort::Small,
+                    paths: vec![],
+                    user_invocable: false,
+                },
+                readme_path,
+                skill_dir,
             },
-            readme_path: std::path::PathBuf::new(),
-            skill_dir,
-            body: body.to_string(),
-        }
+            temp,
+        )
     }
 
     fn new_ctx_with_session(session_id: Option<String>) -> ToolContext {
@@ -248,7 +258,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_substitutes_skill_dir() {
-        let skill = make_skill_with_body(
+        let (skill, _temp) = make_skill_with_body(
             "test",
             "Read files in ${SKILL_DIR}",
             std::path::PathBuf::from("/home/user/.closeclaw/skills/my-skill"),
@@ -267,7 +277,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_substitutes_session_id() {
-        let skill = make_skill_with_body(
+        let (skill, _temp) = make_skill_with_body(
             "test",
             "Session: ${SESSION_ID}",
             std::path::PathBuf::from("/tmp/skill"),
@@ -284,7 +294,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_preserves_unknown_variables() {
-        let skill = make_skill_with_body(
+        let (skill, _temp) = make_skill_with_body(
             "test",
             "Hello ${UNKNOWN_VAR}",
             std::path::PathBuf::from("/tmp/skill"),
@@ -300,7 +310,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_substitute_mixed_known_and_unknown() {
-        let skill = make_skill_with_body(
+        let (skill, _temp) = make_skill_with_body(
             "test",
             "Dir: ${SKILL_DIR}, Session: ${SESSION_ID}, Unknown: ${FOO}",
             std::path::PathBuf::from("/tmp/my-skill"),
@@ -320,7 +330,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_no_context_modifier_for_disk_skill() {
-        let skill = make_skill_with_body(
+        let (skill, _temp) = make_skill_with_body(
             "test",
             "No modifier",
             std::path::PathBuf::from("/tmp/skill"),
