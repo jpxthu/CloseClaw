@@ -481,11 +481,11 @@
   },
   {
     "path": "docs/design/session/session-tools.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-07-23T05:21:36.591707+08:00",
+    "commit": "faa85059685efb7d9647332de4ee2e1c68e8e627",
+    "commit_time": "2026-07-23T07:59:58+08:00",
+    "confirmed_time": "2026-07-23T08:06:38.167008+08:00",
     "comment": "",
-    "blocked_reason": "文档内部矛盾: 注册时机和模块归属三处描述互相矛盾。概述说由tools模块在启动编排时调用, 工具清单节说注册时机为SessionManager初始化阶段, 模块关系表说Session模块在初始化时调用register()。实际由daemon模块registries.rs中SessionToolsRegistrar执行, 文档三处描述互相矛盾且均不准确"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/system_prompt/appends.md",
