@@ -65,6 +65,12 @@ impl LateBoundSessionManagerOps {
     }
 }
 
+impl Default for LateBoundSessionManagerOps {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl SessionManagerOps for LateBoundSessionManagerOps {
     async fn create_child_session(
