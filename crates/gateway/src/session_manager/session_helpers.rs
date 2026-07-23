@@ -12,9 +12,9 @@ use uuid::Uuid;
 
 /// Generate a unique session ID.
 ///
-/// Format: `{agent_id}_{YYYYMMDDhhmmss}_{8-hex}`
+/// Format: `{agent_id}_{unix_seconds}_{8-hex}`
 pub(super) fn generate_session_id(agent_id: &str) -> String {
-    let ts = chrono::Utc::now().format("%Y%m%d%H%M%S").to_string();
+    let ts = chrono::Utc::now().timestamp().to_string();
     let uuid = Uuid::new_v4();
     let hex_part = format!("{:08x}", uuid.as_fields().0);
     format!("{}_{}_{}", agent_id, ts, hex_part)
