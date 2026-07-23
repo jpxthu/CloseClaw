@@ -3,12 +3,11 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use closeclaw_gateway::SessionManager;
 use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
 
 use crate::builtin::{SkillCreatorTool, SkillTool};
 use crate::try_register;
-use crate::{SpawnValidator, Tool};
+use crate::Tool;
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 
 /// Skills tools registrar — registers all tools from the skills domain.
@@ -18,8 +17,6 @@ use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 pub struct SkillsToolsRegistrar {
     disk_registry: Arc<DiskSkillRegistry>,
     builtin_registry: Arc<BuiltinSkillRegistry>,
-    spawn_validator: Arc<dyn SpawnValidator>,
-    session_manager: Arc<SessionManager>,
 }
 
 impl SkillsToolsRegistrar {
@@ -27,14 +24,10 @@ impl SkillsToolsRegistrar {
     pub fn new(
         disk_registry: Arc<DiskSkillRegistry>,
         builtin_registry: Arc<BuiltinSkillRegistry>,
-        spawn_validator: Arc<dyn SpawnValidator>,
-        session_manager: Arc<SessionManager>,
     ) -> Self {
         Self {
             disk_registry,
             builtin_registry,
-            spawn_validator,
-            session_manager,
         }
     }
 }
@@ -58,12 +51,7 @@ impl ToolRegistrar for SkillsToolsRegistrar {
         try_register!(
             registry,
             registered,
-            SkillTool::new(
-                self.disk_registry.clone(),
-                self.builtin_registry.clone(),
-                self.spawn_validator.clone(),
-                self.session_manager.clone(),
-            ),
+            SkillTool::new(self.disk_registry.clone(), self.builtin_registry.clone(),),
             r
         );
         try_register!(registry, registered, SkillCreatorTool::new(), r);
