@@ -231,6 +231,7 @@ Forceful 模式：
 - **Gateway**：用户 `/stop` 指令触发 session 停止
 - **Daemon**：系统关闭时委托 SessionManager 统一关闭所有活跃 session（详见 daemon/README 关闭路径），Daemon 不直接操作单个 session
 - **父 session**：父 session 停止时级联触发子 session 停止
+- **Mode 模块**：Mode 通过 session 存储模式标记，切换模式时控制 session 的工具可用性、权限边界和 system prompt 注入
 
 ### 下游
 
