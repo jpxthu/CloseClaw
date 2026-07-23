@@ -700,6 +700,8 @@ mod spawn_controller_step15_tests;
 #[cfg(test)]
 mod spawn_controller_tests;
 #[cfg(test)]
+mod spawn_label_tests;
+#[cfg(test)]
 mod spawn_mode_inherit_tests;
 #[cfg(test)]
 mod spawn_tests;
