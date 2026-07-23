@@ -1,21 +1,12 @@
 //! sessions_steer tool — injects a new task into a persistent child session.
 
-use super::SessionManagerOps;
+use super::{build_approval_pending, SessionManagerOps};
 use closeclaw_common::permission_types::CallerInfo;
 use closeclaw_common::tool_trait::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::Arc;
-
-/// Build the standard `approval_pending` response payload.
-fn build_approval_pending(request_id: String) -> Value {
-    let mut m = serde_json::Map::new();
-    m.insert("status".into(), "approval_pending".into());
-    m.insert("request_id".into(), request_id.into());
-    m.insert("message".into(), "Operation pending owner approval".into());
-    Value::Object(m)
-}
 
 /// Tool that steers a persistent child session by injecting a new task
 /// into its pending message queue.

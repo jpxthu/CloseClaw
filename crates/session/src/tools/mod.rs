@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use crate::spawn::{ChildSessionInfo, SpawnMode};
 use closeclaw_config::agents::ResolvedAgentConfig;
+use serde_json::Value;
 
 pub mod prompt_template;
 pub mod registrar;
@@ -27,6 +28,15 @@ pub use sessions_kill::SessionsKillTool;
 pub use sessions_spawn::SessionsSpawnTool;
 pub use sessions_steer::SessionsSteerTool;
 pub use sessions_yield::SessionsYieldTool;
+
+/// Build the standard `approval_pending` response payload.
+pub(crate) fn build_approval_pending(request_id: String) -> Value {
+    let mut m = serde_json::Map::new();
+    m.insert("status".into(), "approval_pending".into());
+    m.insert("request_id".into(), request_id.into());
+    m.insert("message".into(), "Operation pending owner approval".into());
+    Value::Object(m)
+}
 
 /// Trait abstracting session management operations needed by session tools.
 ///
