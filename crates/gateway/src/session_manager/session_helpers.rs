@@ -29,21 +29,17 @@ pub(super) async fn compute_session_workdir(
     cm: &CheckpointManager<dyn PersistenceService>,
 ) -> Result<PathBuf, closeclaw_common::processor::ProcessError> {
     if restored {
-        let checkpoint_agent_id = {
-            match cm
-                .load(session_id)
-                .await
-                .ok()
-                .flatten()
-                .and_then(|cp| cp.agent_id)
-            {
-                Some(aid) => aid,
-                None => message.to.clone(),
-            }
-        };
-        let aid = &checkpoint_agent_id;
+        let checkpoint = cm.load(session_id).await.ok().flatten();
+        let aid = checkpoint
+            .as_ref()
+            .and_then(|cp| cp.agent_id.clone())
+            .unwrap_or_else(|| message.to.clone());
+        let uid = checkpoint
+            .as_ref()
+            .and_then(|cp| cp.sender_id.clone())
+            .unwrap_or_else(|| message.from.clone());
         if let Some(ref wd) = workspace_dir {
-            Ok(workspace::ensure_workspace_dir(wd, aid, aid)
+            Ok(workspace::ensure_workspace_dir(wd, &aid, &uid)
                 .unwrap_or_else(|_| PathBuf::from("/tmp")))
         } else {
             Ok(PathBuf::from("/tmp"))
