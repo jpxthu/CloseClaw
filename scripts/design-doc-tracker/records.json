@@ -496,6 +496,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/skills/README.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-07-23T11:53:52.448492+08:00",
+    "comment": "",
+    "blocked_reason": "设计目标不清晰：文档概述称技能以纯prompt指令方式扩展Agent能力不携带工具权限，但builtin skills具有execute执行能力且SkillManifest含allowed_tools字段；文档称BuiltinSkillRegistry编译期填充但代码为运行时HashMap+RwLock可变结构；文档称技能清单不进入system_prompt静态层但代码通过SkillsFragmentProvider注入。需明确builtin skills的架构定位。"
+  },
+  {
     "path": "docs/design/system_prompt/appends.md",
     "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
     "commit_time": "2026-07-07T01:07:02+08:00",
