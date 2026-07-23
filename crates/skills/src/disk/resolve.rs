@@ -77,8 +77,6 @@ mod tests {
                 allowed_tools: vec![],
                 when_to_use: String::new(),
                 context: super::super::types::SkillContext::default(),
-                agent: String::new(),
-                agent_id: String::new(),
                 effort: super::super::types::SkillEffort::default(),
                 paths: vec![],
                 user_invocable: false,

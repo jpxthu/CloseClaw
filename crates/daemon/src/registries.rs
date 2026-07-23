@@ -287,12 +287,8 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
     // NOTE: SessionToolsRegistrar removed — session tools are now registered
     // via SessionManager::register_tools during wire_session_manager (SessionManager
     // initialization stage), per docs/design/session/session-tools.md.
-    let skills_registrar = SkillsToolsRegistrar::new(
-        Arc::clone(disk_reg),
-        Arc::clone(ctx.builtin_registry),
-        Arc::clone(&ctx.spawn_controller) as Arc<dyn closeclaw_tools::SpawnValidator>,
-        Arc::clone(ctx.session_manager),
-    );
+    let skills_registrar =
+        SkillsToolsRegistrar::new(Arc::clone(disk_reg), Arc::clone(ctx.builtin_registry));
     let im_adapter_registrar = closeclaw_im_adapter::ImAdapterToolsRegistrar::new();
     let plan_registrar = PlanToolsRegistrar::new(
         Arc::new(Mutex::new(PlanState::new())),

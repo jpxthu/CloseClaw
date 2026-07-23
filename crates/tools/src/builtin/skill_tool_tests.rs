@@ -1,21 +1,9 @@
-//! Fork-mode integration tests for SkillTool.
-//!
-//! Extracted from `skill_tool.rs` to keep the main file under 500 lines.
-//!
-//! NOTE: Tests requiring `SpawnController` (a main-crate type) are marked
-//! `#[ignore]` until they can be moved to integration tests or the main
-//! crate test suite.
+//! Tests for SkillTool — inline-mode and builtin fallback.
 
 #[cfg(test)]
 mod tests {
     use super::super::skill_tool::SkillTool;
-    use crate::{
-        SpawnError, SpawnValidationResult, SpawnValidator, Tool, ToolCallError, ToolContext,
-    };
-    use closeclaw_common::BootstrapMode;
-    use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
-    use closeclaw_gateway::{GatewayConfig, SessionManager};
-    use closeclaw_session::persistence::ReasoningLevel;
+    use crate::{Tool, ToolCallError, ToolContext};
     use closeclaw_skills::disk::types::{
         DiskSkill, SkillContext, SkillEffort, SkillManifest, SkillSource,
     };
@@ -23,53 +11,6 @@ mod tests {
     use closeclaw_skills::BuiltinSkillRegistry;
     use std::sync::Arc;
     use tempfile::TempDir;
-
-    /// A pass-through SpawnValidator for inline/agent mode tests.
-    struct StubSpawnValidator;
-
-    #[async_trait::async_trait]
-    impl SpawnValidator for StubSpawnValidator {
-        async fn validate_spawn(
-            &self,
-            _parent_session_id: &str,
-            _target_agent_id: Option<&str>,
-        ) -> Result<SpawnValidationResult, SpawnError> {
-            Ok(SpawnValidationResult {
-                config: ResolvedAgentConfig {
-                    id: "stub-agent".to_string(),
-                    name: "stub-agent".to_string(),
-                    parent_id: None,
-                    model: None,
-                    workspace: None,
-                    agent_dir: None,
-                    bootstrap_mode: BootstrapMode::Full,
-                    skills: vec![],
-                    tools: vec![],
-                    disallowed_tools: vec![],
-                    subagents: Default::default(),
-                    memory: MemoryConfig::default(),
-                    hooks: Vec::new(),
-                    source: ConfigSource::Merged,
-                },
-                effective_max_spawn_depth: 10,
-                spawn_timeout: None,
-            })
-        }
-    }
-
-    fn make_session_manager(workspace: Option<std::path::PathBuf>) -> Arc<SessionManager> {
-        Arc::new(SessionManager::new(
-            &GatewayConfig {
-                name: "test".to_string(),
-                rate_limit_per_minute: 100,
-                max_message_size: 1024,
-                ..Default::default()
-            },
-            None,
-            workspace,
-            ReasoningLevel::default(),
-        ))
-    }
 
     fn new_ctx() -> ToolContext {
         ToolContext {
@@ -96,8 +37,6 @@ mod tests {
                 allowed_tools,
                 when_to_use: String::new(),
                 context: SkillContext::Inline,
-                agent: String::new(),
-                agent_id: String::new(),
                 effort: SkillEffort::Small,
                 paths: vec![],
                 user_invocable: false,
@@ -109,7 +48,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Inline / Agent mode tests (no SpawnController needed)
+    // Inline-mode tests
     // -----------------------------------------------------------------
 
     #[tokio::test]
@@ -123,13 +62,7 @@ mod tests {
         let mut skill = make_skill("testskill", vec![], readme_path);
         skill.body = "# Test Skill\n\nSome skill content here.".to_string();
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let sm = make_session_manager(None);
-        let tool = SkillTool::new(
-            registry,
-            Arc::new(BuiltinSkillRegistry::new()),
-            Arc::new(StubSpawnValidator),
-            sm,
-        );
+        let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
 
         let result = tool
             .call(serde_json::json!({"skill_name": "testskill"}), &new_ctx())
@@ -150,36 +83,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_call_agent_mode() {
-        let temp = TempDir::new().unwrap();
-        let readme_path = temp.path().join("SKILL.md");
-        let skill_content = "---\ndescription: An agent skill\n---\n\n# Agent Skill\n";
-        std::fs::write(&readme_path, skill_content).unwrap();
-
-        let mut skill = make_skill("agentskill", vec![], readme_path);
-        skill.body = "# Agent Skill".to_string();
-        skill.manifest.context = SkillContext::Agent {
-            agent_id: "my-agent".to_string(),
-        };
-        let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let sm = make_session_manager(None);
-        let tool = SkillTool::new(
-            registry,
-            Arc::new(BuiltinSkillRegistry::new()),
-            Arc::new(StubSpawnValidator),
-            sm,
-        );
-
-        let result = tool
-            .call(serde_json::json!({"skill_name": "agentskill"}), &new_ctx())
-            .await
-            .unwrap();
-
-        assert_eq!(result.data["execution_mode"], "agent");
-        assert_eq!(result.data["agent_id"], "my-agent");
-    }
-
-    #[tokio::test]
     async fn test_call_injects_body_only() {
         let temp = TempDir::new().unwrap();
         let readme_path = temp.path().join("SKILL.md");
@@ -191,13 +94,7 @@ mod tests {
         let mut skill = make_skill("testskill", vec![], readme_path);
         skill.body = "# Actual Skill Body\n\nThis is the real content.".to_string();
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let sm = make_session_manager(None);
-        let tool = SkillTool::new(
-            registry,
-            Arc::new(BuiltinSkillRegistry::new()),
-            Arc::new(StubSpawnValidator),
-            sm,
-        );
+        let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
 
         let result = tool
             .call(serde_json::json!({"skill_name": "testskill"}), &new_ctx())
@@ -241,13 +138,7 @@ mod tests {
         );
         skill.body = "# My Skill".to_string();
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let sm = make_session_manager(None);
-        let tool = SkillTool::new(
-            registry,
-            Arc::new(BuiltinSkillRegistry::new()),
-            Arc::new(StubSpawnValidator),
-            sm,
-        );
+        let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
 
         let result = tool
             .call(serde_json::json!({"skill_name": "tooled"}), &new_ctx())
@@ -261,32 +152,13 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Fork-mode tests (require SpawnController from main crate)
+    // Error-path tests
     // -----------------------------------------------------------------
-
-    #[tokio::test]
-    #[ignore = "requires SpawnController from main crate"]
-    async fn test_call_fork_mode_spawns_child() {
-        // Fork mode requires SpawnController which lives in the main crate.
-        // This test should be moved to integration tests or the main crate.
-    }
-
-    #[tokio::test]
-    #[ignore = "requires SpawnController from main crate"]
-    async fn test_call_fork_mode_no_allowed_tools() {
-        // Fork mode requires SpawnController which lives in the main crate.
-    }
 
     #[tokio::test]
     async fn test_call_skill_not_found() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let sm = make_session_manager(None);
-        let tool = SkillTool::new(
-            registry,
-            Arc::new(BuiltinSkillRegistry::new()),
-            Arc::new(StubSpawnValidator),
-            sm,
-        );
+        let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
         let result = tool
             .call(serde_json::json!({"skill_name": "nonexistent"}), &new_ctx())
             .await;
@@ -298,16 +170,77 @@ mod tests {
     #[tokio::test]
     async fn test_call_missing_skill_name() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let sm = make_session_manager(None);
-        let tool = SkillTool::new(
-            registry,
-            Arc::new(BuiltinSkillRegistry::new()),
-            Arc::new(StubSpawnValidator),
-            sm,
-        );
+        let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
         let result = tool.call(serde_json::json!({}), &new_ctx()).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(matches!(err, ToolCallError::InvalidArgs(_)));
+    }
+
+    // -----------------------------------------------------------------
+    // Builtin fallback tests
+    // -----------------------------------------------------------------
+
+    struct MockBuiltinSkill(String);
+
+    #[async_trait::async_trait]
+    impl closeclaw_skills::Skill for MockBuiltinSkill {
+        fn manifest(&self) -> closeclaw_skills::SkillManifest {
+            closeclaw_skills::SkillManifest {
+                name: self.0.clone(),
+                version: "1.0".into(),
+                description: "mock builtin".into(),
+                author: None,
+                dependencies: vec![],
+            }
+        }
+        fn methods(&self) -> Vec<&str> {
+            vec!["invoke"]
+        }
+        async fn execute(
+            &self,
+            _method: &str,
+            _args: serde_json::Value,
+        ) -> Result<serde_json::Value, closeclaw_skills::SkillError> {
+            Ok(serde_json::json!({"output": "builtin result"}))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_call_builtin_skill_fallback() {
+        let disk = Arc::new(DiskSkillRegistry::new(vec![]));
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
+        builtin
+            .register(Arc::new(MockBuiltinSkill("my_builtin".into())))
+            .await;
+        let tool = SkillTool::new(disk, builtin);
+        let result = tool
+            .call(serde_json::json!({"skill_name": "my_builtin"}), &new_ctx())
+            .await
+            .unwrap();
+        assert_eq!(result.data["skill_name"], "my_builtin");
+        assert_eq!(result.data["status"], "loaded");
+        assert_eq!(result.data["execution_mode"], "inline");
+        assert_eq!(result.new_messages.len(), 1);
+        assert!(result.new_messages[0].is_meta);
+        assert!(result.new_messages[0].content.contains("builtin result"));
+        assert!(result.context_modifier.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_call_disk_priority_over_builtin() {
+        let disk_skill = make_skill("shared", vec![], std::path::PathBuf::from("/tmp/test"));
+        let disk = Arc::new(DiskSkillRegistry::new(vec![disk_skill]));
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
+        builtin
+            .register(Arc::new(MockBuiltinSkill("shared".into())))
+            .await;
+        let tool = SkillTool::new(disk, builtin);
+        let result = tool
+            .call(serde_json::json!({"skill_name": "shared"}), &new_ctx())
+            .await
+            .unwrap();
+        assert_eq!(result.data["execution_mode"], "inline");
+        assert!(result.context_modifier.is_none());
     }
 }

@@ -9,9 +9,7 @@
 //! description: "What this skill does"
 //! allowed_tools: ["tool_a", "tool_b"]
 //! when_to_use: "Use this when..."
-//! context: Inline  # or Agent { agent_id: "..." }
-//! agent: "coding-agent"
-//! agent_id: ""
+//! context: Inline
 //! effort: Small
 //! paths: []
 //! user_invocable: false
@@ -137,8 +135,6 @@ pub fn parse_skill_md(raw: &str) -> Result<ParsedSkill, ParseError> {
     let description_only = !frontmatter_trimmed.contains("allowed_tools:")
         && !frontmatter_trimmed.contains("when_to_use:")
         && !frontmatter_trimmed.contains("context:")
-        && !frontmatter_trimmed.contains("agent:")
-        && !frontmatter_trimmed.contains("agent_id:")
         && !frontmatter_trimmed.contains("effort:")
         && !frontmatter_trimmed.contains("paths:")
         && !frontmatter_trimmed.contains("user_invocable:");
@@ -169,8 +165,6 @@ description: "A test skill for unit testing"
 allowed_tools: ["tool_a", "tool_b"]
 when_to_use: "Use this when you need to test things"
 context: Inline
-agent: "coding-agent"
-agent_id: ""
 effort: Small
 paths: []
 user_invocable: true
@@ -282,8 +276,6 @@ description: "Testing serde round-trip"
 allowed_tools: []
 when_to_use: ""
 context: Inline
-agent: ""
-agent_id: ""
 effort: Unknown
 paths: []
 user_invocable: false

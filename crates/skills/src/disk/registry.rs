@@ -207,8 +207,7 @@ impl DiskSkillRegistry {
     /// - Sorts by SkillSource priority
     ///   (Project > Agent > Global > ExtraDirs > Bundled)
     /// - Within the same priority, sorts by name alphabetically
-    /// - Filters: only includes skills where `agent_id` is empty or
-    ///   matches the given agent_id, and `user_invocable` is true
+    /// - Filters: only includes skills where `user_invocable` is true
     /// - When `skills_whitelist` is `Some(list)`, only skills whose
     ///   name appears in the list are included (unless the list is
     ///   `["*"]`, which means no filter).
@@ -228,7 +227,7 @@ impl DiskSkillRegistry {
             None => self.lookup_whitelist_from_agent_skills_query(agent_id),
         };
         let resolved_ref = resolved_whitelist.as_deref();
-        self.generate_listing_inner(agent_id, resolved_ref)
+        self.generate_listing_inner(resolved_ref)
     }
 
     /// Generates a skill listing by directly querying the agent skills
@@ -244,7 +243,7 @@ impl DiskSkillRegistry {
             .as_ref()
             .and_then(|q| q.get_agent_skills(agent_id));
         let resolved_ref = resolved_whitelist.as_deref();
-        self.generate_listing_inner(Some(agent_id), resolved_ref)
+        self.generate_listing_inner(resolved_ref)
     }
 }
 
@@ -270,7 +269,7 @@ impl DiskSkillRegistry {
             None => self.lookup_whitelist_from_agent_skills_query(agent_id),
         };
         let resolved_ref = resolved_whitelist.as_deref();
-        self.generate_listing_inner_excluding_conditional(agent_id, resolved_ref)
+        self.generate_listing_inner_excluding_conditional(resolved_ref)
     }
 
     /// Find conditional skills whose glob patterns match the given file
@@ -297,10 +296,9 @@ impl DiskSkillRegistry {
     /// listing.
     fn generate_listing_inner_excluding_conditional(
         &self,
-        agent_id: Option<&str>,
         skills_whitelist: Option<&[String]>,
     ) -> String {
-        let mut filtered = self.filter_skills_for_listing(agent_id, skills_whitelist);
+        let mut filtered = self.filter_skills_for_listing(skills_whitelist);
         filtered.retain(|s| s.manifest.paths.is_empty());
         if filtered.is_empty() {
             return String::new();
@@ -310,26 +308,21 @@ impl DiskSkillRegistry {
 
     /// Internal implementation shared by `generate_listing` and
     /// `generate_listing_for_agent`.
-    fn generate_listing_inner(
-        &self,
-        agent_id: Option<&str>,
-        skills_whitelist: Option<&[String]>,
-    ) -> String {
-        let mut filtered = self.filter_skills_for_listing(agent_id, skills_whitelist);
+    fn generate_listing_inner(&self, skills_whitelist: Option<&[String]>) -> String {
+        let mut filtered = self.filter_skills_for_listing(skills_whitelist);
         if filtered.is_empty() {
             return String::new();
         }
         Self::render_listing(&mut filtered)
     }
 
-    /// Filter skills by common listing criteria: `user_invocable`,
-    /// `agent_id` match, and whitelist membership.
+    /// Filter skills by common listing criteria: `user_invocable`
+    /// and whitelist membership.
     ///
     /// The caller may apply additional filtering (e.g. excluding
     /// conditional skills) on the returned slice.
     fn filter_skills_for_listing<'a>(
         &'a self,
-        agent_id: Option<&str>,
         skills_whitelist: Option<&[String]>,
     ) -> Vec<&'a DiskSkill> {
         let use_whitelist = skills_whitelist
@@ -346,11 +339,8 @@ impl DiskSkillRegistry {
                 if !s.manifest.user_invocable {
                     return false;
                 }
-                if !(s.manifest.agent_id.is_empty()
-                    || agent_id.is_none_or(|id| s.manifest.agent_id == id))
-                {
-                    return false;
-                }
+                // Agent-scoped filtering is handled by directory-based discovery
+                // (agents/<id>/skills/), not by manifest fields.
                 if let Some(ref set) = use_whitelist {
                     set.contains(s.manifest.name.as_str())
                 } else {
