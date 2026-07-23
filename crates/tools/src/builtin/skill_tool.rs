@@ -52,7 +52,6 @@ impl SkillTool {
         &self,
         skill_name: &str,
         skill: &closeclaw_skills::disk::types::DiskSkill,
-        _ctx: &ToolContext,
     ) -> Result<ToolResult, ToolCallError> {
         let body = skill.body.clone();
 
@@ -157,7 +156,7 @@ impl Tool for SkillTool {
         }
     }
 
-    async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
+    async fn call(&self, args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         // Extract skill_name from args
         let skill_name = args
             .get("skill_name")
@@ -167,7 +166,7 @@ impl Tool for SkillTool {
 
         // --- Unified routing: Disk first, Builtin fallback ---
         if let Some(skill) = self.registry.get(&skill_name) {
-            return self.call_disk_skill(&skill_name, skill, ctx).await;
+            return self.call_disk_skill(&skill_name, skill).await;
         }
 
         // Fallback: Builtin skill registry

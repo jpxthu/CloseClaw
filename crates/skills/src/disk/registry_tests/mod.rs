@@ -74,25 +74,6 @@ fn test_filter_by_source() {
     assert_eq!(r.filter_by_source(SkillSource::Agent).len(), 0);
 }
 
-fn skill_with_agent_id(name: &str, source: SkillSource, _agent_id: &str) -> DiskSkill {
-    DiskSkill {
-        source,
-        manifest: SkillManifest {
-            name: name.into(),
-            description: format!("desc of {}", name),
-            allowed_tools: vec![],
-            when_to_use: String::new(),
-            context: SkillContext::default(),
-            effort: SkillEffort::default(),
-            paths: vec![],
-            user_invocable: true,
-        },
-        readme_path: PathBuf::from(format!("/skills/{}/SKILL.md", name)),
-        skill_dir: PathBuf::from(format!("/skills/{}", name)),
-        body: String::new(),
-    }
-}
-
 fn skill_with_when_to_use(name: &str, source: SkillSource, when_to_use: &str) -> DiskSkill {
     DiskSkill {
         source,
@@ -144,16 +125,19 @@ fn test_generate_listing_sorted_by_priority_and_name() {
 }
 #[test]
 fn test_generate_listing_agent_id_filter() {
+    // Agent-scoped filtering is now handled by directory-based discovery
+    // (agents/<id>/skills/), not by manifest fields. All skills appear
+    // in the listing regardless of the agent_id parameter.
     let r = DiskSkillRegistry::new(vec![
-        skill_with_agent_id("skill_a", SkillSource::Agent, "agent1"),
-        skill_with_agent_id("skill_b", SkillSource::Agent, "agent2"),
-        skill_with_agent_id("skill_c", SkillSource::Agent, ""),
+        skill("skill_a", SkillSource::Agent),
+        skill("skill_b", SkillSource::Agent),
+        skill("skill_c", SkillSource::Agent),
     ]);
     assert_eq!(r.generate_listing(None, None).lines().count(), 3);
     let listing = r.generate_listing(Some("agent1"), None);
     assert!(listing.contains("**skill_a**"));
     assert!(listing.contains("**skill_c**"));
-    assert!(!listing.contains("**skill_b**"));
+    assert!(listing.contains("**skill_b**"));
 }
 #[test]
 fn test_generate_listing_when_to_use() {

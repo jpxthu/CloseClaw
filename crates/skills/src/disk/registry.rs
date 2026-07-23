@@ -207,8 +207,7 @@ impl DiskSkillRegistry {
     /// - Sorts by SkillSource priority
     ///   (Project > Agent > Global > ExtraDirs > Bundled)
     /// - Within the same priority, sorts by name alphabetically
-    /// - Filters: only includes skills where `agent_id` is empty or
-    ///   matches the given agent_id, and `user_invocable` is true
+    /// - Filters: only includes skills where `user_invocable` is true
     /// - When `skills_whitelist` is `Some(list)`, only skills whose
     ///   name appears in the list are included (unless the list is
     ///   `["*"]`, which means no filter).
@@ -297,10 +296,10 @@ impl DiskSkillRegistry {
     /// listing.
     fn generate_listing_inner_excluding_conditional(
         &self,
-        agent_id: Option<&str>,
+        _agent_id: Option<&str>,
         skills_whitelist: Option<&[String]>,
     ) -> String {
-        let mut filtered = self.filter_skills_for_listing(agent_id, skills_whitelist);
+        let mut filtered = self.filter_skills_for_listing(skills_whitelist);
         filtered.retain(|s| s.manifest.paths.is_empty());
         if filtered.is_empty() {
             return String::new();
@@ -312,24 +311,23 @@ impl DiskSkillRegistry {
     /// `generate_listing_for_agent`.
     fn generate_listing_inner(
         &self,
-        agent_id: Option<&str>,
+        _agent_id: Option<&str>,
         skills_whitelist: Option<&[String]>,
     ) -> String {
-        let mut filtered = self.filter_skills_for_listing(agent_id, skills_whitelist);
+        let mut filtered = self.filter_skills_for_listing(skills_whitelist);
         if filtered.is_empty() {
             return String::new();
         }
         Self::render_listing(&mut filtered)
     }
 
-    /// Filter skills by common listing criteria: `user_invocable`,
-    /// `agent_id` match, and whitelist membership.
+    /// Filter skills by common listing criteria: `user_invocable`
+    /// and whitelist membership.
     ///
     /// The caller may apply additional filtering (e.g. excluding
     /// conditional skills) on the returned slice.
     fn filter_skills_for_listing<'a>(
         &'a self,
-        _agent_id: Option<&str>,
         skills_whitelist: Option<&[String]>,
     ) -> Vec<&'a DiskSkill> {
         let use_whitelist = skills_whitelist
