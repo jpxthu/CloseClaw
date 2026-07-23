@@ -233,7 +233,7 @@ async fn test_config_validation_rejects_empty_id() {
 #[tokio::test]
 async fn test_skill_loading_and_execution_chain() {
     // Create skill registry and load built-in skills
-    let registry = Arc::new(closeclaw_skills::registry::SkillRegistry::new());
+    let registry = Arc::new(closeclaw_skills::registry::BuiltinSkillRegistry::new());
 
     for skill in closeclaw_skills::builtin::builtin_skills() {
         registry.register(skill).await;
@@ -329,7 +329,7 @@ async fn test_skill_with_permission_engine_integration() {
 
 #[tokio::test]
 async fn test_skill_unregister_and_not_found() {
-    let registry = Arc::new(closeclaw_skills::registry::SkillRegistry::new());
+    let registry = Arc::new(closeclaw_skills::registry::BuiltinSkillRegistry::new());
 
     for skill in closeclaw_skills::builtin::builtin_skills() {
         registry.register(skill).await;

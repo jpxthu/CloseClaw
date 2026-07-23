@@ -2,7 +2,7 @@
 
 use super::types::DiskSkill;
 use super::DiskSkillRegistry;
-use crate::registry::{Skill, SkillRegistry};
+use crate::registry::{BuiltinSkillRegistry, Skill};
 use std::sync::Arc;
 
 /// Result of a skill resolution attempt.
@@ -23,7 +23,7 @@ pub enum ResolvedSkill<'a> {
 pub async fn resolve_skill<'a>(
     name: &str,
     disk_registry: &'a DiskSkillRegistry,
-    skill_registry: &'a SkillRegistry,
+    skill_registry: &'a BuiltinSkillRegistry,
 ) -> Option<ResolvedSkill<'a>> {
     // Check disk registry first (synchronous)
     if let Some(skill) = disk_registry.get(name) {
@@ -39,7 +39,7 @@ pub async fn resolve_skill<'a>(
 #[cfg(test)]
 mod tests {
     use super::{resolve_skill, DiskSkillRegistry, ResolvedSkill};
-    use crate::registry::{Skill, SkillManifest, SkillRegistry};
+    use crate::registry::{BuiltinSkillRegistry, Skill, SkillManifest};
     use async_trait::async_trait;
     use std::sync::Arc;
 
@@ -92,7 +92,7 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_disk_hit() {
         let disk_reg = DiskSkillRegistry::new(vec![make_disk_skill("disk-skill")]);
-        let bundled_reg = SkillRegistry::new();
+        let bundled_reg = BuiltinSkillRegistry::new();
         bundled_reg
             .register(Arc::new(BundledMockSkill("disk-skill".into())))
             .await;
@@ -107,7 +107,7 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_bundled_hit() {
         let disk_reg = DiskSkillRegistry::new(vec![]);
-        let bundled_reg = SkillRegistry::new();
+        let bundled_reg = BuiltinSkillRegistry::new();
         bundled_reg
             .register(Arc::new(BundledMockSkill("bundled-skill".into())))
             .await;
@@ -122,7 +122,7 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_not_found() {
         let disk_reg = DiskSkillRegistry::new(vec![]);
-        let bundled_reg = SkillRegistry::new();
+        let bundled_reg = BuiltinSkillRegistry::new();
 
         let result = resolve_skill("nonexistent", &disk_reg, &bundled_reg).await;
         assert!(result.is_none());
@@ -131,7 +131,7 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_disk_priority_over_bundled() {
         let disk_reg = DiskSkillRegistry::new(vec![make_disk_skill("foo")]);
-        let bundled_reg = SkillRegistry::new();
+        let bundled_reg = BuiltinSkillRegistry::new();
         bundled_reg
             .register(Arc::new(BundledMockSkill("foo".into())))
             .await;

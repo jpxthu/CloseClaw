@@ -20,6 +20,7 @@ mod tests {
         DiskSkill, SkillContext, SkillEffort, SkillManifest, SkillSource,
     };
     use closeclaw_skills::disk::DiskSkillRegistry;
+    use closeclaw_skills::BuiltinSkillRegistry;
     use std::sync::Arc;
     use tempfile::TempDir;
 
@@ -123,7 +124,12 @@ mod tests {
         skill.body = "# Test Skill\n\nSome skill content here.".to_string();
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let sm = make_session_manager(None);
-        let tool = SkillTool::new(registry, Arc::new(StubSpawnValidator), sm);
+        let tool = SkillTool::new(
+            registry,
+            Arc::new(BuiltinSkillRegistry::new()),
+            Arc::new(StubSpawnValidator),
+            sm,
+        );
 
         let result = tool
             .call(serde_json::json!({"skill_name": "testskill"}), &new_ctx())
@@ -157,7 +163,12 @@ mod tests {
         };
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let sm = make_session_manager(None);
-        let tool = SkillTool::new(registry, Arc::new(StubSpawnValidator), sm);
+        let tool = SkillTool::new(
+            registry,
+            Arc::new(BuiltinSkillRegistry::new()),
+            Arc::new(StubSpawnValidator),
+            sm,
+        );
 
         let result = tool
             .call(serde_json::json!({"skill_name": "agentskill"}), &new_ctx())
@@ -181,7 +192,12 @@ mod tests {
         skill.body = "# Actual Skill Body\n\nThis is the real content.".to_string();
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let sm = make_session_manager(None);
-        let tool = SkillTool::new(registry, Arc::new(StubSpawnValidator), sm);
+        let tool = SkillTool::new(
+            registry,
+            Arc::new(BuiltinSkillRegistry::new()),
+            Arc::new(StubSpawnValidator),
+            sm,
+        );
 
         let result = tool
             .call(serde_json::json!({"skill_name": "testskill"}), &new_ctx())
@@ -226,7 +242,12 @@ mod tests {
         skill.body = "# My Skill".to_string();
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let sm = make_session_manager(None);
-        let tool = SkillTool::new(registry, Arc::new(StubSpawnValidator), sm);
+        let tool = SkillTool::new(
+            registry,
+            Arc::new(BuiltinSkillRegistry::new()),
+            Arc::new(StubSpawnValidator),
+            sm,
+        );
 
         let result = tool
             .call(serde_json::json!({"skill_name": "tooled"}), &new_ctx())
@@ -260,7 +281,12 @@ mod tests {
     async fn test_call_skill_not_found() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let sm = make_session_manager(None);
-        let tool = SkillTool::new(registry, Arc::new(StubSpawnValidator), sm);
+        let tool = SkillTool::new(
+            registry,
+            Arc::new(BuiltinSkillRegistry::new()),
+            Arc::new(StubSpawnValidator),
+            sm,
+        );
         let result = tool
             .call(serde_json::json!({"skill_name": "nonexistent"}), &new_ctx())
             .await;
@@ -273,7 +299,12 @@ mod tests {
     async fn test_call_missing_skill_name() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let sm = make_session_manager(None);
-        let tool = SkillTool::new(registry, Arc::new(StubSpawnValidator), sm);
+        let tool = SkillTool::new(
+            registry,
+            Arc::new(BuiltinSkillRegistry::new()),
+            Arc::new(StubSpawnValidator),
+            sm,
+        );
         let result = tool.call(serde_json::json!({}), &new_ctx()).await;
         assert!(result.is_err());
         let err = result.unwrap_err();

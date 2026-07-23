@@ -1,4 +1,4 @@
-//! Registry population: wiring AgentRegistry, SkillRegistry, ToolRegistry,
+//! Registry population: wiring AgentRegistry, BuiltinSkillRegistry, ToolRegistry,
 //! and ConfigHotReload during daemon startup.
 
 use crate::config_watcher;
@@ -8,7 +8,7 @@ use closeclaw_gateway::SpawnController;
 use closeclaw_gateway::{Gateway, SessionManager};
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
-use closeclaw_skills::DiskSkillRegistry;
+use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
 use closeclaw_tools::builtin::{
     SessionsKillTool, SessionsSpawnTool, SessionsSteerTool, SessionsYieldTool,
 };
@@ -30,6 +30,8 @@ pub(crate) struct RegistryContext<'a> {
     pub agent_registry: &'a Arc<closeclaw_agent::registry::AgentRegistry>,
     /// Shared skill registry handle (may or may not contain a DiskSkillRegistry).
     pub skill_registry: &'a Arc<RwLock<Option<DiskSkillRegistry>>>,
+    /// Builtin skill registry — compiled-in skills, not subject to hot reload.
+    pub builtin_registry: &'a Arc<BuiltinSkillRegistry>,
     /// Tool registry to be wired.
     pub tool_registry: &'a Arc<ToolRegistry>,
     /// Session manager to receive config references.
@@ -287,6 +289,7 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
     // initialization stage), per docs/design/session/session-tools.md.
     let skills_registrar = SkillsToolsRegistrar::new(
         Arc::clone(disk_reg),
+        Arc::clone(ctx.builtin_registry),
         Arc::clone(&ctx.spawn_controller) as Arc<dyn closeclaw_tools::SpawnValidator>,
         Arc::clone(ctx.session_manager),
     );

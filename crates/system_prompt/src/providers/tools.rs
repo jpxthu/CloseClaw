@@ -204,6 +204,7 @@ mod tests {
             )),
             Box::new(closeclaw_tools::SkillsToolsRegistrar::new(
                 disk_registry,
+                Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
                 spawn_controller as Arc<dyn closeclaw_tools::SpawnValidator>,
                 session_manager.clone(),
             )),

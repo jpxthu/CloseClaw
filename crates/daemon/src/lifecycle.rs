@@ -41,7 +41,7 @@ impl Daemon {
         let common_sh = crate::bridge::common_shutdown_handle(&shutdown);
         gateway.set_shutdown_handle(Arc::clone(&common_sh));
         session_manager.set_shutdown_handle(common_sh).await;
-        let approval_flow = Self::init_phase_4_wiring(
+        let (approval_flow, builtin_skill_registry) = Self::init_phase_4_wiring(
             &gateway,
             &session_manager,
             &permission_engine,
@@ -64,6 +64,7 @@ impl Daemon {
                 config_manager: &config_manager,
                 agent_registry: &agent_registry,
                 skill_registry: &skill_registry,
+                builtin_skill_registry: &builtin_skill_registry,
                 tool_registry: &tool_registry,
                 session_manager: &session_manager,
                 permission_engine: &permission_engine,
@@ -107,6 +108,7 @@ impl Daemon {
             dreaming_scheduler_shutdown_tx: dreaming_tx,
             plan_archive_shutdown_tx: plan_archive_tx,
             skill_registry,
+            builtin_skill_registry,
             _skill_watcher: Some(skill_watcher),
             _config_watcher: config_watcher,
             approval_flow,
