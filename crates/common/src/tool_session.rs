@@ -75,6 +75,11 @@ pub trait ToolSession: Send + Sync {
     ///
     /// Called after the tool result is available. The session removes
     /// the tool from its pending-operation set.
+    ///
+    /// Note: terminal `update_tool_state` calls (Completed, Failed,
+    /// Terminated, TimedOut) now auto-remove the entry from the tracking
+    /// map. This method is retained as an idempotent cleanup for edge
+    /// cases where the entry may still exist.
     async fn deregister_tool_call(&self, _call_id: String) {}
 
     /// Updates the state of a registered tool call.

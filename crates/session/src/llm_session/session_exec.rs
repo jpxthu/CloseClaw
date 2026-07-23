@@ -55,10 +55,20 @@ impl ConversationSession {
 
     /// Updates the state of a registered tool call. If the id is not
     /// registered, logs a warning and does nothing.
+    ///
+    /// When the new state is terminal ([`ToolExecState::is_terminal`]),
+    /// the entry is removed from the map immediately — terminal-state
+    /// tools no longer participate in exec-status evaluation.
     pub(crate) fn update_tool_state(&self, call_id: &str, state: ToolExecState) {
         let mut states = self.tool_states.write().expect("tool_states lock poisoned");
         match states.get_mut(call_id) {
-            Some((existing, _)) => *existing = state,
+            Some((existing, _)) => {
+                if state.is_terminal() {
+                    states.remove(call_id);
+                } else {
+                    *existing = state;
+                }
+            }
             None => tracing::warn!(
                 call_id = %call_id,
                 "update_tool_state: call_id not registered"

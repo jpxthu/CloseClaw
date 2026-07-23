@@ -368,27 +368,51 @@ impl SessionManager {
             .await
             .ok_or(StopError::Skipped)?;
 
-        // Forceful path: snapshot → stop(cascade) → persist checkpoint.
-        // `stop()` with Forceful mode handles cascade to child sessions
-        // (recursive force stop), token cancellation, tool-process kills,
-        // and exec-state cleanup — all in one call.
+        // Forceful path: manually execute the stop sequence without
+        // calling stop(), which internally calls clear_exec_state()
+        // and would wipe tool_states/child_states before we can
+        // collect pending_operations. The design doc requires pending
+        // operations to survive so recovery scan detects them as dirty.
+        //
+        // Execution order per design doc:
+        //   cascade → kill tools → cancel LLM → collect pending → cleanup
         if mode == ShutdownMode::Forceful {
             // Snapshot transcript state before stop clears exec state.
             cs.write().await.snapshot_current_state(
                 closeclaw_session::run_health::TranscriptOp::Rewrite,
                 "user-stop",
             );
-            // Cascade to children (recursive forceful stop), cancel token,
-            // kill tool handles, and clear exec state.
-            cs.read().await.stop(cascade, mode, Duration::ZERO).await;
-
-            // Notify parent about forced termination of run-mode child.
-            self.notify_child_forced_termination(session_id).await;
-
+            // Set stopped flag so Gateway's is_stopped() check rejects
+            // new messages during the cascade and kill sequence.
+            let _ = cs.read().await.stopped.compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+            );
+            // 1. Cascade to children with Forceful mode.
+            if cascade {
+                cs.read()
+                    .await
+                    .cascade_stop_children(mode, Duration::ZERO)
+                    .await;
+            }
+            // 2. Kill tool processes and cancel in-flight LLM requests.
+            cs.read().await.force_kill().await;
+            // 3. Collect pending operations NOW — after cascade stopped
+            //    children (removed stale entries) but before exec state
+            //    is cleared. Design doc requires pending_operations to
+            //    survive so recovery scan detects dirty sessions.
             let pending_ops = {
                 let guard = cs.read().await;
                 guard.collect_pending_operations()
             };
+            // 4. Clear exec state (tool_states, child_states, LLM state,
+            //    handle maps).
+            cs.read().await.clear_exec_state();
+            // 5. Notify parent about forced termination of run-mode child.
+            self.notify_child_forced_termination(session_id).await;
+            // 6. Persist checkpoint with collected pending operations.
             return match self
                 .persist_checkpoint_with_pending(session_id, pending_ops)
                 .await
@@ -522,16 +546,18 @@ impl SessionManager {
         // Notify parent about forced termination of run-mode child.
         self.notify_child_forced_termination(session_id).await;
 
-        // Clear exec state first (LLM state → Idle), then collect
-        // pending operations. The design doc requires clear_exec_state
-        // before collect so the Idle state is visible in any post-stop
-        // observation.
-        cs.read().await.clear_exec_state();
-
+        // Collect pending operations BEFORE clearing exec state.
+        // The design doc requires in-flight tool calls and child
+        // sessions to be recorded as pending_operations so that the
+        // recovery scan on next startup detects them as dirty.
+        // clear_exec_state() wipes tool_states/child_states, so it
+        // must come after the collection.
         let pending_ops = {
             let guard = cs.read().await;
             guard.collect_pending_operations()
         };
+
+        cs.read().await.clear_exec_state();
 
         match self
             .persist_checkpoint_with_pending(session_id, pending_ops)
