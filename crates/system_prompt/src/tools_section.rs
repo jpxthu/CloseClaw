@@ -111,11 +111,12 @@ mod tests {
     use closeclaw_permission::engine::engine_types::RuleSet;
     use closeclaw_permission::rules::RuleSetBuilder;
     use closeclaw_session::persistence::ReasoningLevel;
+    use closeclaw_session::tools::LateBoundSessionManagerOps;
+    use closeclaw_session::tools::SessionToolsRegistrar;
     use closeclaw_skills::DiskSkillRegistry;
     use closeclaw_tasks::BackgroundTaskManager;
     use closeclaw_tools::{
-        CoreToolsRegistrar, PlanToolsRegistrar, SessionToolsRegistrar, SkillsToolsRegistrar,
-        ToolRegistrar,
+        CoreToolsRegistrar, PlanToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar,
     };
     use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
@@ -199,7 +200,14 @@ mod tests {
             )),
             Box::new(SessionToolsRegistrar::new(
                 spawn_controller.clone() as Arc<dyn closeclaw_tools::SpawnValidator>,
-                session_manager.clone(),
+                {
+                    let lb = Arc::new(LateBoundSessionManagerOps::new());
+                    assert!(lb
+                        .set(session_manager.clone()
+                            as Arc<dyn closeclaw_session::tools::SessionManagerOps>)
+                        .is_ok());
+                    lb
+                },
                 agent_registry.clone() as Arc<dyn closeclaw_agent::AgentConfigLookup>,
                 permission_engine,
                 approval_flow.clone(),

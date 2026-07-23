@@ -10,7 +10,7 @@ use closeclaw_gateway::SpawnController;
 use closeclaw_gateway::{Gateway, SessionManager};
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
-use closeclaw_session::tools::SessionToolsRegistrar;
+use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionToolsRegistrar};
 use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
 use closeclaw_tools::{
     CoreToolsRegistrar, PlanToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar, ToolRegistry,
@@ -41,6 +41,8 @@ pub(crate) struct RegistryContext<'a> {
     pub spawn_controller: Arc<SpawnController>,
     /// Approval flow for routing permission denials.
     pub approval_flow: &'a Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    /// Late-bound session manager proxy for deferred injection.
+    pub late_bound_session_manager: Arc<LateBoundSessionManagerOps>,
     /// Path to the config subdirectory (for hot-reload).
     pub config_subdir: &'a Path,
     /// Gateway reference for sending IM notifications on config reload failures.
@@ -183,8 +185,8 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
     );
 
     // Build trait adapters for SessionToolsRegistrar dependencies.
-    let session_mgr_ops: Arc<dyn closeclaw_session::tools::SessionManagerOps> =
-        Arc::clone(ctx.session_manager) as Arc<dyn closeclaw_session::tools::SessionManagerOps>;
+    // Use the late-bound proxy so tool registration (layer 3) can proceed
+    // before SessionManager (layer 4) is created.
     let spawn_validator: Arc<dyn closeclaw_config::spawn_validation::SpawnValidator> =
         Arc::clone(&ctx.spawn_controller)
             as Arc<dyn closeclaw_config::spawn_validation::SpawnValidator>;
@@ -200,7 +202,7 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
 
     let session_registrar = SessionToolsRegistrar::new(
         spawn_validator,
-        session_mgr_ops,
+        Arc::clone(&ctx.late_bound_session_manager),
         agent_config_lookup,
         permission_evaluator,
         approval_submission,

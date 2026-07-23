@@ -14,7 +14,10 @@ use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError, ToolReg
 use closeclaw_common::tool_trait::Tool;
 use closeclaw_config::spawn_validation::SpawnValidator;
 
-use super::{SessionsKillTool, SessionsSpawnTool, SessionsSteerTool, SessionsYieldTool};
+use super::{
+    LateBoundSessionManagerOps, SessionsKillTool, SessionsSpawnTool, SessionsSteerTool,
+    SessionsYieldTool,
+};
 
 /// Register a tool and increment the counter on success.
 ///
@@ -40,7 +43,7 @@ macro_rules! try_register {
 /// `sessions_spawn`, `sessions_steer`, `sessions_kill`, `sessions_yield`.
 pub struct SessionToolsRegistrar {
     spawn_validator: Arc<dyn SpawnValidator>,
-    session_manager: Arc<dyn super::SessionManagerOps>,
+    session_manager: Arc<LateBoundSessionManagerOps>,
     agent_config_lookup: Arc<dyn AgentConfigLookup>,
     permission_engine: SharedPermissionEvaluator,
     approval_flow: SharedApprovalSubmission,
@@ -50,7 +53,7 @@ impl SessionToolsRegistrar {
     /// Create a new `SessionToolsRegistrar` with the required dependencies.
     pub fn new(
         spawn_validator: Arc<dyn SpawnValidator>,
-        session_manager: Arc<dyn super::SessionManagerOps>,
+        session_manager: Arc<LateBoundSessionManagerOps>,
         agent_config_lookup: Arc<dyn AgentConfigLookup>,
         permission_engine: SharedPermissionEvaluator,
         approval_flow: SharedApprovalSubmission,
@@ -83,7 +86,7 @@ impl ToolRegistrar for SessionToolsRegistrar {
             registered,
             SessionsSpawnTool::new(
                 self.spawn_validator.clone(),
-                self.session_manager.clone(),
+                Arc::clone(&self.session_manager) as Arc<dyn super::SessionManagerOps>,
                 self.agent_config_lookup.clone(),
                 self.approval_flow.clone(),
             ),
@@ -93,7 +96,7 @@ impl ToolRegistrar for SessionToolsRegistrar {
             registry,
             registered,
             SessionsSteerTool::new(
-                self.session_manager.clone(),
+                Arc::clone(&self.session_manager) as Arc<dyn super::SessionManagerOps>,
                 self.permission_engine.clone(),
                 self.approval_flow.clone(),
             ),
@@ -103,7 +106,7 @@ impl ToolRegistrar for SessionToolsRegistrar {
             registry,
             registered,
             SessionsKillTool::new(
-                self.session_manager.clone(),
+                Arc::clone(&self.session_manager) as Arc<dyn super::SessionManagerOps>,
                 self.permission_engine.clone(),
                 self.approval_flow.clone(),
             ),
@@ -112,7 +115,9 @@ impl ToolRegistrar for SessionToolsRegistrar {
         try_register!(
             registry,
             registered,
-            SessionsYieldTool::new(self.session_manager.clone()),
+            SessionsYieldTool::new(
+                Arc::clone(&self.session_manager) as Arc<dyn super::SessionManagerOps>
+            ),
             r
         );
         if registered == 0 {
