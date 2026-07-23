@@ -653,7 +653,7 @@ impl Daemon {
         // Inject the real SessionManager into the late-bound proxy so
         // session tools can delegate to it (layer 4 after layer 3).
         if late_bound_session_manager
-            .set(Arc::clone(&session_manager)
+            .set(Arc::clone(session_manager)
                 as Arc<dyn closeclaw_session::tools::SessionManagerOps>)
             .is_err()
         {
