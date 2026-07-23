@@ -86,3 +86,6 @@ pub trait SessionManagerOps: Send + Sync {
         timeout_secs: Option<u64>,
     );
 }
+
+#[cfg(test)]
+mod registrar_tests;
