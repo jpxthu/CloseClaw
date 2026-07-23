@@ -144,6 +144,9 @@ pub struct ScanConfig {
     pub project_root: Option<std::path::PathBuf>,
     /// Agent id used to derive the agent-specific skills directory.
     pub agent_id: Option<String>,
+    /// Explicit path to the agent-specific skills directory.
+    /// When set, takes precedence over deriving from `agent_id` + `global_dir`.
+    pub agent_skills_dir: Option<std::path::PathBuf>,
 }
 
 #[cfg(test)]
@@ -218,5 +221,6 @@ mod tests {
         assert!(cfg.global_dir.is_none());
         assert!(cfg.project_root.is_none());
         assert!(cfg.agent_id.is_none());
+        assert!(cfg.agent_skills_dir.is_none());
     }
 }
