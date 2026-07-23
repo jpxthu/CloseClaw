@@ -2,7 +2,7 @@
 //!
 //! Validates that:
 //! - `try_push_announce` uses the caller-specified priority on the event
-//! - `notify_child_forced_termination` produces `Now` priority events
+//! - `notify_child_forced_termination` produces `Next` priority events
 //! - Normal completion path still uses `Next` priority
 
 use super::spawn::SpawnMode;
@@ -173,13 +173,13 @@ async fn test_try_push_announce_normal_completion_uses_next() {
     );
 }
 
-// ── notify_child_forced_termination produces Now priority ───────────────────
+// ── notify_child_forced_termination produces Next priority ──────────────────
 
 /// When a child is force-terminated, `notify_child_forced_termination`
-/// must produce an `AnnounceEvent` with `NotificationPriority::Now`.
+/// must produce an `AnnounceEvent` with `NotificationPriority::Next`.
 #[tokio::test]
 #[serial]
-async fn test_forced_termination_produces_now_priority() {
+async fn test_forced_termination_produces_next_priority() {
     clear_global_prompt_state();
 
     let tmp = TempDir::new().unwrap();
@@ -225,8 +225,8 @@ async fn test_forced_termination_produces_now_priority() {
     );
     assert_eq!(
         drained[0].priority,
-        NotificationPriority::Now,
-        "forced termination must use Now priority"
+        NotificationPriority::Next,
+        "forced termination must use Next priority"
     );
     assert_eq!(
         drained[0].status,

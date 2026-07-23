@@ -671,7 +671,7 @@ impl SessionManager {
             session_id,
             child_agent_id.clone(),
             "任务被终止".to_string(),
-            NotificationPriority::Now,
+            NotificationPriority::Next,
             ChildCompletionStatus::Terminated,
         );
 

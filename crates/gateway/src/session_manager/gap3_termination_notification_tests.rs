@@ -387,5 +387,5 @@ async fn test_terminated_notification_text() {
         drained[0].result_text, "任务被终止",
         "result_text must be '任务被终止'"
     );
-    assert_eq!(drained[0].priority, NotificationPriority::Now);
+    assert_eq!(drained[0].priority, NotificationPriority::Next);
 }
