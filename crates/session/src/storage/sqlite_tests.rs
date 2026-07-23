@@ -19,7 +19,7 @@ mod tests {
             last_message_id: None,
             mode_state: ReasoningModeState::default(),
             outbound_pending: vec![],
-            mode: ReasoningMode::Direct,
+            reasoning_mode: ReasoningMode::Direct,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             ttl_seconds: 604800,
@@ -397,7 +397,7 @@ mod tests {
             last_message_id: None,
             mode_state: ReasoningModeState::default(),
             outbound_pending: vec![],
-            mode: ReasoningMode::Direct,
+            reasoning_mode: ReasoningMode::Direct,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             ttl_seconds: 604800,
@@ -457,7 +457,7 @@ mod tests {
             last_message_id: None,
             mode_state: ReasoningModeState::default(),
             outbound_pending: vec![],
-            mode: ReasoningMode::Direct,
+            reasoning_mode: ReasoningMode::Direct,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             ttl_seconds: 604800,
@@ -517,7 +517,7 @@ mod tests {
             last_message_id: Some("msg-abc".to_string()),
             mode_state: ReasoningModeState::default(),
             outbound_pending: vec![],
-            mode: ReasoningMode::Plan,
+            reasoning_mode: ReasoningMode::Plan,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             ttl_seconds: 86400,
@@ -562,7 +562,7 @@ mod tests {
         assert_eq!(loaded.session_id, "s-roundtrip");
         assert_eq!(loaded.agent_id, Some("my-agent".to_string()));
         assert_eq!(loaded.role, Some(AgentRole::MainAgent));
-        assert_eq!(loaded.mode, ReasoningMode::Plan);
+        assert_eq!(loaded.reasoning_mode, ReasoningMode::Plan);
         assert_eq!(loaded.message_count, 10);
 
         Ok(())

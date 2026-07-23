@@ -67,8 +67,9 @@ pub struct SessionCheckpoint {
     /// outbound messages), avoiding conflict with the design doc's use of
     /// `pending_messages` to refer to the transcript.
     pub outbound_pending: Vec<PendingMessage>,
-    /// 当前模式
-    pub mode: ReasoningMode,
+    /// 当前推理呈现模式（Direct/Plan/Stream/Hidden）
+    #[serde(alias = "mode")]
+    pub reasoning_mode: ReasoningMode,
     /// 创建时间
     pub created_at: DateTime<Utc>,
     /// 最后更新时间
@@ -270,7 +271,7 @@ impl SessionCheckpoint {
             last_message_id: None,
             mode_state: ReasoningModeState::default(),
             outbound_pending: Vec::new(),
-            mode: ReasoningMode::Direct,
+            reasoning_mode: ReasoningMode::Direct,
             created_at: now,
             updated_at: now,
             ttl_seconds: 604800, // 7 days default
@@ -324,9 +325,9 @@ impl SessionCheckpoint {
         self.last_message_id = message_id;
         self
     }
-    /// Update the mode
-    pub fn with_mode(mut self, mode: ReasoningMode) -> Self {
-        self.mode = mode;
+    /// Update the reasoning mode
+    pub fn with_reasoning_mode(mut self, mode: ReasoningMode) -> Self {
+        self.reasoning_mode = mode;
         self
     }
     /// Update the mode state

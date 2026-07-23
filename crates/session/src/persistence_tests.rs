@@ -20,7 +20,7 @@ mod tests {
 
         SessionCheckpoint::new(session_id.to_string())
             .with_last_message_id(Some("msg123".to_string()))
-            .with_mode(ReasoningMode::Plan)
+            .with_reasoning_mode(ReasoningMode::Plan)
             .with_mode_state(state)
             .add_outbound_pending(PendingMessage::new(
                 "pending1".to_string(),
@@ -48,7 +48,7 @@ mod tests {
         let loaded = loaded.unwrap();
         assert_eq!(loaded.session_id, "session1");
         assert_eq!(loaded.last_message_id, Some("msg123".to_string()));
-        assert_eq!(loaded.mode, ReasoningMode::Plan);
+        assert_eq!(loaded.reasoning_mode, ReasoningMode::Plan);
         assert_eq!(loaded.mode_state.current_step, 1);
     }
 
@@ -913,14 +913,14 @@ mod tests {
         // should not affect the other.
         let cp = SessionCheckpoint::new("s-mode-ortho".into())
             .with_session_mode(SessionMode::Auto)
-            .with_mode(ReasoningMode::Plan);
+            .with_reasoning_mode(ReasoningMode::Plan);
         assert_eq!(cp.session_mode, SessionMode::Auto);
-        assert_eq!(cp.mode, ReasoningMode::Plan);
+        assert_eq!(cp.reasoning_mode, ReasoningMode::Plan);
 
         let json = serde_json::to_string(&cp).unwrap();
         let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.session_mode, SessionMode::Auto);
-        assert_eq!(parsed.mode, ReasoningMode::Plan);
+        assert_eq!(parsed.reasoning_mode, ReasoningMode::Plan);
     }
 
     // ===================================================================
