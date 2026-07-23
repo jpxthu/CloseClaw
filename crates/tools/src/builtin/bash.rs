@@ -530,9 +530,10 @@ async fn execute_bash_call(
 
 /// Spawn a monitor task that polls a background task for terminal state.
 ///
-/// On terminal state, sets the final tool state and deregisters the tool.
-/// Shared by the explicit-background path and the auto-background path
-/// to avoid code duplication.
+/// On terminal state, sets the final tool state (which immediately
+/// removes the entry from the tracking map). Shared by the
+/// explicit-background path and the auto-background path to avoid
+/// code duplication.
 fn spawn_bg_monitor(
     session: &Arc<dyn closeclaw_common::tool_session::ToolSession>,
     call_id: &str,
@@ -550,17 +551,14 @@ fn spawn_bg_monitor(
                 Some(bt) => match bt.state {
                     closeclaw_tasks::TaskState::Completed { .. } => {
                         s.update_tool_state(&cid, ToolExecState::Completed).await;
-                        s.deregister_tool_call(cid).await;
                         return;
                     }
                     closeclaw_tasks::TaskState::Failed { .. } => {
                         s.update_tool_state(&cid, ToolExecState::Failed).await;
-                        s.deregister_tool_call(cid).await;
                         return;
                     }
                     closeclaw_tasks::TaskState::Killed => {
                         s.update_tool_state(&cid, ToolExecState::Terminated).await;
-                        s.deregister_tool_call(cid).await;
                         return;
                     }
                     closeclaw_tasks::TaskState::Running { .. } => {
@@ -569,8 +567,8 @@ fn spawn_bg_monitor(
                 },
                 None => {
                     // Task removed from manager (cleanup or unknown).
-                    // Deregister to avoid stale entry.
-                    s.deregister_tool_call(cid).await;
+                    // Entry already removed by terminal update_tool_state,
+                    // or will be cleaned up by the stop path.
                     return;
                 }
             }
@@ -607,7 +605,6 @@ async fn execute_background_command(
                 let cid = cid.to_string();
                 tokio::spawn(async move {
                     s.update_tool_state(&cid, ToolExecState::Failed).await;
-                    s.deregister_tool_call(cid).await;
                 });
             }
             format!("failed to spawn background task: {}", e)
@@ -721,14 +718,12 @@ async fn execute_command(
         ForegroundOutcome::Completed(result) => {
             if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
                 s.update_tool_state(cid, ToolExecState::Completed).await;
-                s.deregister_tool_call(cid.to_string()).await;
             }
             Ok(result)
         }
         ForegroundOutcome::Failed(e) => {
             if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
                 s.update_tool_state(cid, ToolExecState::Failed).await;
-                s.deregister_tool_call(cid.to_string()).await;
             }
             Err(e)
         }

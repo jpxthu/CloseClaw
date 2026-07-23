@@ -48,6 +48,21 @@ pub enum ToolExecState {
     TimedOut,
 }
 
+impl ToolExecState {
+    /// Returns `true` when the state is terminal (Completed, Failed,
+    /// Terminated, or TimedOut). Terminal-state tools should be
+    /// deregistered immediately from the tracking map.
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            ToolExecState::Completed
+                | ToolExecState::Failed
+                | ToolExecState::Terminated
+                | ToolExecState::TimedOut
+        )
+    }
+}
+
 /// State of a single child session tracked by this session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)] // Some variants are only constructed by future child lifecycle integration.
