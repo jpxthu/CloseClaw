@@ -195,9 +195,9 @@ mod tests {
                 cfg_mgr.clone(),
                 approval_flow.clone(),
             )),
-            Box::new(closeclaw_tools::SessionToolsRegistrar::new(
+            Box::new(closeclaw_session::tools::SessionToolsRegistrar::new(
                 spawn_controller.clone() as Arc<dyn closeclaw_tools::SpawnValidator>,
-                session_manager.clone(),
+                session_manager.clone() as Arc<dyn closeclaw_session::tools::SessionManagerOps>,
                 agent_registry.clone() as Arc<dyn closeclaw_agent::AgentConfigLookup>,
                 permission_engine,
                 approval_flow.clone(),

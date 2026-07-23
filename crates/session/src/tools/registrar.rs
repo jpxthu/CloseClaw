@@ -112,7 +112,7 @@ impl ToolRegistrar for SessionToolsRegistrar {
         try_register!(
             registry,
             registered,
-            SessionsYieldTool::new(self.session_manager.clone()),
+            SessionsYieldTool::new(self.session_manager.clone(),),
             r
         );
         if registered == 0 {

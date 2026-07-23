@@ -633,6 +633,8 @@ impl Daemon {
             Arc::clone(permission_engine),
         ));
         let config_subdir = PathBuf::from(data_dir).join("config");
+        let late_bound_session_manager =
+            Arc::new(closeclaw_session::tools::LateBoundSessionManagerOps::new());
         let ctx = registries::RegistryContext {
             config_manager,
             agent_registry,
@@ -643,10 +645,20 @@ impl Daemon {
             permission_engine,
             spawn_controller: Arc::clone(&spawn_controller),
             approval_flow,
+            late_bound_session_manager: late_bound_session_manager.clone(),
             config_subdir: &config_subdir,
             gateway,
         };
         let config_watcher = registries::populate_registries(&ctx).await;
+        // Inject the real SessionManager into the late-bound proxy so
+        // session tools can delegate to it (layer 4 after layer 3).
+        if late_bound_session_manager
+            .set(Arc::clone(&session_manager)
+                as Arc<dyn closeclaw_session::tools::SessionManagerOps>)
+            .is_err()
+        {
+            panic!("late_bound_session_manager should not be set twice");
+        }
         session_manager
             .set_tool_registry(
                 Arc::clone(tool_registry) as Arc<dyn closeclaw_common::ToolRegistryQuery>

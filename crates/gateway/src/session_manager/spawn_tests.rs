@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> ResolvedAgentConfig {
+pub(crate) fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> ResolvedAgentConfig {
     ResolvedAgentConfig {
         id: id.to_string(),
         name: id.to_string(),
@@ -47,7 +47,11 @@ fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> ResolvedAgentCo
 /// the parent is registered by `find_or_create`; tests exercise
 /// `create_child_session` in isolation and must do this setup
 /// themselves.
-async fn register_parent_session(mgr: &SessionManager, parent_id: &str, workdir: PathBuf) {
+pub(crate) async fn register_parent_session(
+    mgr: &SessionManager,
+    parent_id: &str,
+    workdir: PathBuf,
+) {
     let cs = ConversationSession::new(parent_id.to_string(), "test-model".to_string(), workdir);
     let arc = Arc::new(RwLock::new(cs));
     let mut conv = mgr.conversation_sessions.write().await;
