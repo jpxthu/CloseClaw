@@ -5,11 +5,8 @@
 //! to be injected into the agent context.
 
 use crate::{
-    ContextModifier, SpawnValidator, Tool, ToolCallError, ToolContext, ToolFlags, ToolMessage,
-    ToolResult,
+    ContextModifier, Tool, ToolCallError, ToolContext, ToolFlags, ToolMessage, ToolResult,
 };
-use closeclaw_gateway::session_manager::{SessionManager, SpawnMode};
-use closeclaw_skills::disk::types::SkillContext;
 use closeclaw_skills::disk::DiskSkillRegistry;
 use closeclaw_skills::BuiltinSkillRegistry;
 
@@ -27,18 +24,13 @@ use std::sync::Arc;
 /// [`DiskSkillRegistry`]. If not found, it falls back to the
 /// [`BuiltinSkillRegistry`].
 ///
-/// - **Disk skill — Inline / Agent**: injects `skill.body` as a meta
-///   message into the agent context, with `context_modifier` for
-///   `allowed_tools`.
-/// - **Disk skill — Fork**: creates an isolated child session via
-///   [`SessionManager`] with `task = skill.body`.
+/// - **Disk skill**: injects `skill.body` as a meta message into the
+///   agent context, with `context_modifier` for `allowed_tools`.
 /// - **Builtin skill**: calls `execute("invoke", args)` and injects the
-///   result as a meta message (always Inline mode).
+///   result as a meta message.
 pub struct SkillTool {
     registry: Arc<DiskSkillRegistry>,
     builtin_registry: Arc<BuiltinSkillRegistry>,
-    spawn_validator: Arc<dyn SpawnValidator>,
-    session_manager: Arc<SessionManager>,
 }
 
 impl SkillTool {
@@ -46,23 +38,20 @@ impl SkillTool {
     pub fn new(
         registry: Arc<DiskSkillRegistry>,
         builtin_registry: Arc<BuiltinSkillRegistry>,
-        spawn_validator: Arc<dyn SpawnValidator>,
-        session_manager: Arc<SessionManager>,
     ) -> Self {
         Self {
             registry,
             builtin_registry,
-            spawn_validator,
-            session_manager,
         }
     }
 
     /// Handle a disk-based skill lookup.
+    ///
+    /// Injects the skill body as a meta message into the agent context.
     async fn call_disk_skill(
         &self,
         skill_name: &str,
         skill: &closeclaw_skills::disk::types::DiskSkill,
-        ctx: &ToolContext,
     ) -> Result<ToolResult, ToolCallError> {
         let body = skill.body.clone();
 
@@ -74,101 +63,18 @@ impl SkillTool {
             })
         };
 
-        match &skill.manifest.context {
-            SkillContext::Inline => Ok(ToolResult {
-                data: serde_json::json!({
-                    "skill_name": skill_name,
-                    "status": "loaded",
-                    "execution_mode": "inline"
-                }),
-                new_messages: vec![ToolMessage {
-                    content: body,
-                    is_meta: true,
-                }],
-                context_modifier,
+        Ok(ToolResult {
+            data: serde_json::json!({
+                "skill_name": skill_name,
+                "status": "loaded",
+                "execution_mode": "inline"
             }),
-            SkillContext::Agent { agent_id } => Ok(ToolResult {
-                data: serde_json::json!({
-                    "skill_name": skill_name,
-                    "status": "loaded",
-                    "execution_mode": "agent",
-                    "agent_id": agent_id
-                }),
-                new_messages: vec![ToolMessage {
-                    content: body,
-                    is_meta: true,
-                }],
-                context_modifier,
-            }),
-            SkillContext::Fork => {
-                let parent_session_id = ctx.session_id.as_deref().ok_or_else(|| {
-                    ToolCallError::ExecutionFailed(
-                        "no session_id in tool context (fork requires a tracked session)".into(),
-                    )
-                })?;
-
-                let spawn_result = self
-                    .spawn_validator
-                    .validate_spawn(parent_session_id, None)
-                    .await
-                    .map_err(|e| {
-                        ToolCallError::ExecutionFailed(format!(
-                            "fork spawn validation failed: {}",
-                            e
-                        ))
-                    })?;
-                let config = spawn_result.config;
-
-                let parent_depth = self
-                    .session_manager
-                    .get_session_depth(parent_session_id)
-                    .await
-                    .unwrap_or(0);
-
-                let allowed_tools = if skill.manifest.allowed_tools.is_empty() {
-                    None
-                } else {
-                    Some(skill.manifest.allowed_tools.clone())
-                };
-                let child_session_id = self
-                    .session_manager
-                    .create_child_session(
-                        &config,
-                        parent_session_id,
-                        parent_depth + 1,
-                        &body,
-                        false,
-                        None,
-                        SpawnMode::Run,
-                        false,
-                        allowed_tools,
-                        None,
-                        None,
-                        1,
-                        None,
-                        None,
-                        None,
-                    )
-                    .await
-                    .map_err(|e| {
-                        ToolCallError::ExecutionFailed(format!(
-                            "fork child session creation failed: {}",
-                            e
-                        ))
-                    })?;
-
-                Ok(ToolResult {
-                    data: serde_json::json!({
-                        "skill_name": skill_name,
-                        "status": "spawned",
-                        "execution_mode": "fork",
-                        "child_session_id": child_session_id
-                    }),
-                    new_messages: vec![],
-                    context_modifier,
-                })
-            }
-        }
+            new_messages: vec![ToolMessage {
+                content: body,
+                is_meta: true,
+            }],
+            context_modifier,
+        })
     }
 
     /// Handle a builtin skill lookup.
@@ -250,7 +156,7 @@ impl Tool for SkillTool {
         }
     }
 
-    async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
+    async fn call(&self, args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         // Extract skill_name from args
         let skill_name = args
             .get("skill_name")
@@ -260,7 +166,7 @@ impl Tool for SkillTool {
 
         // --- Unified routing: Disk first, Builtin fallback ---
         if let Some(skill) = self.registry.get(&skill_name) {
-            return self.call_disk_skill(&skill_name, skill, ctx).await;
+            return self.call_disk_skill(&skill_name, skill).await;
         }
 
         // Fallback: Builtin skill registry
@@ -275,61 +181,12 @@ impl Tool for SkillTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{SpawnError, SpawnValidationResult, SpawnValidator, ToolContext};
-    use closeclaw_common::BootstrapMode;
-    use closeclaw_config::agents::MemoryConfig;
-    use closeclaw_session::persistence::ReasoningLevel;
+    use crate::ToolContext;
     use closeclaw_skills::disk::types::{
         DiskSkill, SkillContext, SkillEffort, SkillManifest, SkillSource,
     };
     use closeclaw_skills::BuiltinSkillRegistry;
     use std::sync::Arc;
-
-    struct MockSpawnValidator;
-
-    #[async_trait::async_trait]
-    impl SpawnValidator for MockSpawnValidator {
-        async fn validate_spawn(
-            &self,
-            _parent_session_id: &str,
-            _target_agent_id: Option<&str>,
-        ) -> Result<SpawnValidationResult, SpawnError> {
-            Ok(SpawnValidationResult {
-                config: closeclaw_config::agents::ResolvedAgentConfig {
-                    id: "mock-agent".to_string(),
-                    name: "mock-agent".to_string(),
-                    parent_id: None,
-                    model: None,
-                    workspace: None,
-                    agent_dir: None,
-                    bootstrap_mode: BootstrapMode::Full,
-                    skills: vec![],
-                    tools: vec![],
-                    disallowed_tools: vec![],
-                    subagents: Default::default(),
-                    memory: MemoryConfig::default(),
-                    hooks: Vec::new(),
-                    source: closeclaw_config::agents::ConfigSource::Merged,
-                },
-                effective_max_spawn_depth: 10,
-                spawn_timeout: None,
-            })
-        }
-    }
-
-    fn make_session_manager() -> Arc<closeclaw_gateway::SessionManager> {
-        Arc::new(closeclaw_gateway::SessionManager::new(
-            &closeclaw_gateway::GatewayConfig {
-                name: "test".to_string(),
-                rate_limit_per_minute: 100,
-                max_message_size: 1024,
-                ..Default::default()
-            },
-            None,
-            None,
-            ReasoningLevel::default(),
-        ))
-    }
 
     #[allow(dead_code)]
     fn make_skill(
@@ -345,8 +202,6 @@ mod tests {
                 allowed_tools,
                 when_to_use: String::new(),
                 context: SkillContext::Inline,
-                agent: String::new(),
-                agent_id: String::new(),
                 effort: SkillEffort::Small,
                 paths: vec![],
                 user_invocable: false,
@@ -373,12 +228,7 @@ mod tests {
     fn test_skill_tool_name() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let tool = SkillTool::new(
-            registry,
-            builtin,
-            Arc::new(MockSpawnValidator),
-            make_session_manager(),
-        );
+        let tool = SkillTool::new(registry, builtin);
         assert_eq!(tool.name(), "SkillTool");
     }
 
@@ -390,12 +240,7 @@ mod tests {
     async fn test_call_skill_not_found() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let tool = SkillTool::new(
-            registry,
-            builtin,
-            Arc::new(MockSpawnValidator),
-            make_session_manager(),
-        );
+        let tool = SkillTool::new(registry, builtin);
         let result = tool
             .call(serde_json::json!({"skill_name": "nonexistent"}), &new_ctx())
             .await;
@@ -408,12 +253,7 @@ mod tests {
     async fn test_call_missing_skill_name() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let tool = SkillTool::new(
-            registry,
-            builtin,
-            Arc::new(MockSpawnValidator),
-            make_session_manager(),
-        );
+        let tool = SkillTool::new(registry, builtin);
         let result = tool.call(serde_json::json!({}), &new_ctx()).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -456,12 +296,7 @@ mod tests {
         builtin
             .register(Arc::new(MockBuiltinSkill("my_builtin".into())))
             .await;
-        let tool = SkillTool::new(
-            disk,
-            builtin,
-            Arc::new(MockSpawnValidator),
-            make_session_manager(),
-        );
+        let tool = SkillTool::new(disk, builtin);
         let result = tool
             .call(serde_json::json!({"skill_name": "my_builtin"}), &new_ctx())
             .await
@@ -484,12 +319,7 @@ mod tests {
         builtin
             .register(Arc::new(MockBuiltinSkill("shared".into())))
             .await;
-        let tool = SkillTool::new(
-            disk,
-            builtin,
-            Arc::new(MockSpawnValidator),
-            make_session_manager(),
-        );
+        let tool = SkillTool::new(disk, builtin);
         let result = tool
             .call(serde_json::json!({"skill_name": "shared"}), &new_ctx())
             .await
