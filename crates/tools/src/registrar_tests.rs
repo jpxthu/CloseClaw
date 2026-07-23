@@ -89,7 +89,7 @@ impl ToolRegistrar for TestRegistrar {
                 is_deferred: *deferred,
             };
             let boxed: Box<dyn std::any::Any + Send + Sync> =
-                Box::new(crate::registry::ToolBox(Arc::new(tool)));
+                Box::new(closeclaw_common::tool_registry::ToolBox(Arc::new(tool)));
             registry
                 .register_any(boxed, &self.name)
                 .await
@@ -339,7 +339,7 @@ impl ToolRegistrar for PartiallyFailingRegistrar {
                 is_deferred: *deferred,
             };
             let boxed: Box<dyn std::any::Any + Send + Sync> =
-                Box::new(crate::registry::ToolBox(Arc::new(tool)));
+                Box::new(closeclaw_common::tool_registry::ToolBox(Arc::new(tool)));
             registry
                 .register_any(boxed, &self.name)
                 .await

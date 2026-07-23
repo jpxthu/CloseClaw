@@ -122,7 +122,7 @@ pub use system_prompt::{
 };
 // TaskManager, TaskState, BackgroundTask, BackgroundTaskError migrated to closeclaw-tasks
 pub use tool_registry::{
-    RegistryError, ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry,
+    RegistryError, ToolBox, ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry,
     ToolRegistryQuery,
 };
 pub use tool_session::{KillHandle, ToolSession};
