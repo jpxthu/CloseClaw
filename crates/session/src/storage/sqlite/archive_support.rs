@@ -278,7 +278,8 @@ pub fn load_checkpoint_inner(
             .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("{}")).ok())
             .unwrap_or_default();
         mode_val = v
-            .get("mode")
+            .get("reasoning_mode")
+            .or_else(|| v.get("mode"))
             .and_then(|x| x.as_str().map(|s| s.to_string()))
             .unwrap_or_else(|| "direct".to_string());
         system_appends = v
@@ -309,7 +310,7 @@ pub fn load_checkpoint_inner(
         last_message_id,
         mode_state: mode_state_val,
         outbound_pending,
-        mode: match mode_val.as_str() {
+        reasoning_mode: match mode_val.as_str() {
             "plan" => crate::persistence::ReasoningMode::Plan,
             "stream" => crate::persistence::ReasoningMode::Stream,
             "hidden" => crate::persistence::ReasoningMode::Hidden,

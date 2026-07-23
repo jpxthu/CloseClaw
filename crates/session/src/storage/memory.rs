@@ -311,7 +311,7 @@ mod tests {
                 is_complete: false,
             },
             outbound_pending: Vec::new(),
-            mode: ReasoningMode::Plan,
+            reasoning_mode: ReasoningMode::Plan,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             ttl_seconds: 604800,
@@ -363,7 +363,7 @@ mod tests {
         let loaded = loaded.unwrap();
         assert_eq!(loaded.session_id, "session1");
         assert_eq!(loaded.last_message_id, Some("msg123".to_string()));
-        assert_eq!(loaded.mode, ReasoningMode::Plan);
+        assert_eq!(loaded.reasoning_mode, ReasoningMode::Plan);
     }
 
     #[tokio::test]

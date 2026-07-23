@@ -19,7 +19,7 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
             is_complete: false,
         },
         outbound_pending: Vec::new(),
-        mode: ReasoningMode::Plan,
+        reasoning_mode: ReasoningMode::Plan,
         created_at: Utc::now(),
         updated_at: Utc::now(),
         ttl_seconds: 604800,
@@ -92,7 +92,7 @@ async fn test_load_system_appends_backward_compat() {
         let db_path = tmp.path().join("sessions.sqlite");
         let conn = Connection::open(&db_path).unwrap();
         let metadata_without_appends = json!({
-            "mode": mode_to_db(&checkpoint.mode),
+            "reasoning_mode": mode_to_db(&checkpoint.reasoning_mode),
             "mode_state":
                 serde_json::to_string(&checkpoint.mode_state).unwrap(),
             "outbound_pending":
@@ -499,7 +499,7 @@ async fn test_load_session_mode_backward_compat_missing_key() {
         let db_path = tmp.path().join("sessions.sqlite");
         let conn = Connection::open(&db_path).unwrap();
         let metadata_without_mode = json!({
-            "mode": mode_to_db(&cp.mode),
+            "reasoning_mode": mode_to_db(&cp.reasoning_mode),
             "mode_state":
                 serde_json::to_string(&cp.mode_state).unwrap(),
             "outbound_pending":
@@ -574,7 +574,7 @@ async fn test_load_session_mode_invalid_value_fallback() {
         let db_path = tmp.path().join("sessions.sqlite");
         let conn = Connection::open(&db_path).unwrap();
         let metadata_bad = json!({
-            "mode": mode_to_db(&cp.mode),
+            "reasoning_mode": mode_to_db(&cp.reasoning_mode),
             "mode_state":
                 serde_json::to_string(&cp.mode_state).unwrap(),
             "outbound_pending":

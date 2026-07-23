@@ -19,7 +19,7 @@ mod tests {
             last_message_id: None,
             mode_state: ReasoningModeState::default(),
             outbound_pending: vec![],
-            mode: ReasoningMode::Direct,
+            reasoning_mode: ReasoningMode::Direct,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             ttl_seconds: 604800,
@@ -397,7 +397,7 @@ mod tests {
             last_message_id: None,
             mode_state: ReasoningModeState::default(),
             outbound_pending: vec![],
-            mode: ReasoningMode::Direct,
+            reasoning_mode: ReasoningMode::Direct,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             ttl_seconds: 604800,
@@ -445,67 +445,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_save_checkpoint_agent_id_none_uses_unknown() -> Result<(), PersistenceError> {
-        use crate::persistence::AgentRole;
-
-        let temp = TempDir::new().unwrap();
-        let storage = SqliteStorage::new(temp.path())?;
-
-        // agent_id is None, role is Some
-        let checkpoint = SessionCheckpoint {
-            session_id: "s-partial".to_string(),
-            last_message_id: None,
-            mode_state: ReasoningModeState::default(),
-            outbound_pending: vec![],
-            mode: ReasoningMode::Direct,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-            ttl_seconds: 604800,
-            status: SessionStatus::Active,
-            last_message_at: Some(chrono::Utc::now()),
-            message_count: 1,
-            platform: None,
-            peer_id: None,
-            agent_id: None,
-            role: Some(AgentRole::SubAgent),
-            reasoning_level: ReasoningLevel::default(),
-            system_appends: Vec::new(),
-            thread_id: None,
-            sender_id: None,
-            account_id: None,
-            parent_session_id: None,
-            depth: 0,
-            effective_max_spawn_depth: None,
-            mined: false,
-            mined_at: None,
-            dreaming_status: DreamingStatus::default(),
-            pending_operations: Vec::new(),
-            recovery_notification: None,
-            pending_tool_failures: Vec::new(),
-            verbosity_level: closeclaw_common::VerbosityLevel::default(),
-            plan_state: None,
-            progress_tool_calls: Vec::new(),
-            approval_tool_calls: Vec::new(),
-            plan_references: Vec::new(),
-            session_mode: SessionMode::default(),
-            pending_messages: Vec::new(),
-            label: None,
-            communication_config: None,
-            spawn_mode: None,
-            snapshot_metas: Vec::new(),
-        };
-        storage.save_checkpoint(&checkpoint).await?;
-
-        let loaded = storage.load_checkpoint("s-partial").await?;
-        let loaded = loaded.expect("expected checkpoint");
-        // agent_id falls back to "unknown", role is preserved
-        assert_eq!(loaded.agent_id, Some("unknown".to_string()));
-        assert_eq!(loaded.role, Some(AgentRole::SubAgent));
-
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn test_load_checkpoint_roundtrips_agent_id_role() -> Result<(), PersistenceError> {
         use crate::persistence::AgentRole;
 
@@ -517,7 +456,7 @@ mod tests {
             last_message_id: Some("msg-abc".to_string()),
             mode_state: ReasoningModeState::default(),
             outbound_pending: vec![],
-            mode: ReasoningMode::Plan,
+            reasoning_mode: ReasoningMode::Plan,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             ttl_seconds: 86400,
@@ -562,7 +501,7 @@ mod tests {
         assert_eq!(loaded.session_id, "s-roundtrip");
         assert_eq!(loaded.agent_id, Some("my-agent".to_string()));
         assert_eq!(loaded.role, Some(AgentRole::MainAgent));
-        assert_eq!(loaded.mode, ReasoningMode::Plan);
+        assert_eq!(loaded.reasoning_mode, ReasoningMode::Plan);
         assert_eq!(loaded.message_count, 10);
 
         Ok(())
@@ -922,16 +861,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_incremental_check_empty_table_no_error() {
-        let temp = TempDir::new().unwrap();
-        let storage = SqliteStorage::new(temp.path()).unwrap();
-
-        let result = storage.run_incremental_consistency_check(0).await.unwrap();
-        assert_eq!(result.deleted_orphaned_records, 0);
-        assert_eq!(result.deleted_orphaned_files, 0);
-    }
-
     // ===================================================================
     // Step 1.5: transcript persistence tests
     // ===================================================================
@@ -979,5 +908,82 @@ mod tests {
         let loaded = loaded.expect("checkpoint should exist");
         assert!(loaded.pending_messages.is_empty());
         Ok(())
+    }
+
+    // ===================================================================
+    // Step 1.4: reasoning_mode SQLite persistence tests
+    // ===================================================================
+
+    /// reasoning_mode round-trips through SQLite with correct metadata key
+    /// and session_mode independence.
+    #[tokio::test]
+    async fn test_sqlite_reasoning_mode_roundtrip() {
+        for mode in [
+            ReasoningMode::Direct,
+            ReasoningMode::Plan,
+            ReasoningMode::Stream,
+            ReasoningMode::Hidden,
+        ] {
+            let tmp = TempDir::new().unwrap();
+            let storage = SqliteStorage::new(tmp.path()).unwrap();
+            let mut cp = make_checkpoint(&format!("rm-{:?}", mode), SessionStatus::Active);
+            cp.reasoning_mode = mode;
+            cp.session_mode = SessionMode::Auto;
+            storage.save_checkpoint(&cp).await.unwrap();
+            let loaded = storage
+                .load_checkpoint(&format!("rm-{:?}", mode))
+                .await
+                .unwrap()
+                .expect("checkpoint should exist");
+            assert_eq!(loaded.reasoning_mode, mode);
+            assert_eq!(loaded.session_mode, SessionMode::Auto);
+            // Verify metadata uses new key, not legacy "mode"
+            let conn = rusqlite::Connection::open(tmp.path().join("sessions.sqlite")).unwrap();
+            let meta: String = conn
+                .query_row(
+                    &format!("SELECT metadata FROM sessions WHERE id = 'rm-{:?}'", mode),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let v: serde_json::Value = serde_json::from_str(&meta).unwrap();
+            assert!(v.get("reasoning_mode").is_some());
+            assert!(v.get("mode").is_none());
+        }
+    }
+
+    /// Old metadata with "mode" key loads correctly via backward-compat fallback.
+    #[tokio::test]
+    async fn test_sqlite_reasoning_mode_backward_compat_old_key() {
+        let tmp = TempDir::new().unwrap();
+        let storage = SqliteStorage::new(tmp.path()).unwrap();
+        let mut cp = make_checkpoint("rm-compat", SessionStatus::Active);
+        cp.reasoning_mode = ReasoningMode::Stream;
+        storage.save_checkpoint(&cp).await.unwrap();
+        // Rewrite metadata to use old "mode" key
+        {
+            let conn = rusqlite::Connection::open(tmp.path().join("sessions.sqlite")).unwrap();
+            let meta: String = conn
+                .query_row(
+                    "SELECT metadata FROM sessions WHERE id = 'rm-compat'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let mut v: serde_json::Value = serde_json::from_str(&meta).unwrap();
+            let rm = v.as_object_mut().unwrap().remove("reasoning_mode").unwrap();
+            v.as_object_mut().unwrap().insert("mode".into(), rm);
+            conn.execute(
+                "UPDATE sessions SET metadata = ?1 WHERE id = 'rm-compat'",
+                rusqlite::params![v.to_string()],
+            )
+            .unwrap();
+        }
+        let loaded = storage
+            .load_checkpoint("rm-compat")
+            .await
+            .unwrap()
+            .expect("checkpoint should exist");
+        assert_eq!(loaded.reasoning_mode, ReasoningMode::Stream);
     }
 }

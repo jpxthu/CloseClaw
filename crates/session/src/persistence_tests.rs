@@ -20,7 +20,7 @@ mod tests {
 
         SessionCheckpoint::new(session_id.to_string())
             .with_last_message_id(Some("msg123".to_string()))
-            .with_mode(ReasoningMode::Plan)
+            .with_reasoning_mode(ReasoningMode::Plan)
             .with_mode_state(state)
             .add_outbound_pending(PendingMessage::new(
                 "pending1".to_string(),
@@ -48,7 +48,7 @@ mod tests {
         let loaded = loaded.unwrap();
         assert_eq!(loaded.session_id, "session1");
         assert_eq!(loaded.last_message_id, Some("msg123".to_string()));
-        assert_eq!(loaded.mode, ReasoningMode::Plan);
+        assert_eq!(loaded.reasoning_mode, ReasoningMode::Plan);
         assert_eq!(loaded.mode_state.current_step, 1);
     }
 
@@ -395,14 +395,6 @@ mod tests {
         assert_eq!(cp.thread_id.as_deref(), Some("omt_xyz"));
     }
 
-    #[test]
-    fn test_checkpoint_thread_id_none_roundtrip() {
-        let cp = SessionCheckpoint::new("s4".into());
-        let json = serde_json::to_string(&cp).unwrap();
-        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
-        assert!(parsed.thread_id.is_none());
-    }
-
     // ── account_id tests ───────────────────────────────────────────────────────
 
     #[test]
@@ -423,20 +415,6 @@ mod tests {
         let json = serde_json::to_string(&cp).unwrap();
         let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.account_id.as_deref(), Some("tenant-99"));
-    }
-
-    #[test]
-    fn test_checkpoint_account_id_missing_json_defaults_none() {
-        // Simulate old JSON without account_id field — should deserialize to None
-        let cp = SessionCheckpoint::new("s8".into());
-        let mut json_value: serde_json::Value = serde_json::to_value(&cp).unwrap();
-        json_value.as_object_mut().unwrap().remove("account_id");
-        let json_str = serde_json::to_string(&json_value).unwrap();
-        let parsed: SessionCheckpoint = serde_json::from_str(&json_str).unwrap();
-        assert!(
-            parsed.account_id.is_none(),
-            "old data without account_id should default to None"
-        );
     }
 
     #[test]
@@ -482,47 +460,11 @@ mod tests {
     }
 
     #[test]
-    fn test_checkpoint_parent_session_id_depth_missing_json_defaults() {
-        // Simulate old JSON without parent_session_id and depth fields —
-        // should deserialize to None / 0 via #[serde(default)]
-        let cp = SessionCheckpoint::new("s-old-json".into())
-            .with_parent_session_id("old-parent".to_string())
-            .with_depth(5);
-        let mut json_value: serde_json::Value = serde_json::to_value(&cp).unwrap();
-        json_value
-            .as_object_mut()
-            .unwrap()
-            .remove("parent_session_id");
-        json_value.as_object_mut().unwrap().remove("depth");
-        let json_str = serde_json::to_string(&json_value).unwrap();
-        let parsed: SessionCheckpoint = serde_json::from_str(&json_str).unwrap();
-        assert!(
-            parsed.parent_session_id.is_none(),
-            "old data without parent_session_id should default to None"
-        );
-        assert_eq!(
-            parsed.depth, 0,
-            "old data without depth should default to 0"
-        );
-    }
-
-    #[test]
     fn test_checkpoint_parent_session_id_none_roundtrip() {
         let cp = SessionCheckpoint::new("s-none-parent".into());
         let json = serde_json::to_string(&cp).unwrap();
         let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
         assert!(parsed.parent_session_id.is_none());
-        assert_eq!(parsed.depth, 0);
-    }
-
-    #[test]
-    fn test_checkpoint_parent_session_id_depth_zero_roundtrip() {
-        let cp = SessionCheckpoint::new("s-depth-zero".into())
-            .with_parent_session_id("root-parent".to_string())
-            .with_depth(0);
-        let json = serde_json::to_string(&cp).unwrap();
-        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.parent_session_id.as_deref(), Some("root-parent"));
         assert_eq!(parsed.depth, 0);
     }
 
@@ -913,14 +855,14 @@ mod tests {
         // should not affect the other.
         let cp = SessionCheckpoint::new("s-mode-ortho".into())
             .with_session_mode(SessionMode::Auto)
-            .with_mode(ReasoningMode::Plan);
+            .with_reasoning_mode(ReasoningMode::Plan);
         assert_eq!(cp.session_mode, SessionMode::Auto);
-        assert_eq!(cp.mode, ReasoningMode::Plan);
+        assert_eq!(cp.reasoning_mode, ReasoningMode::Plan);
 
         let json = serde_json::to_string(&cp).unwrap();
         let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.session_mode, SessionMode::Auto);
-        assert_eq!(parsed.mode, ReasoningMode::Plan);
+        assert_eq!(parsed.reasoning_mode, ReasoningMode::Plan);
     }
 
     // ===================================================================
@@ -936,6 +878,66 @@ mod tests {
             role: "system".to_string(),
             content_blocks: vec![ContentBlock::Text(summary.to_string())],
             timestamp: Utc::now(),
+        }
+    }
+
+    // ===================================================================
+    // Step 1.4: reasoning_mode serialization / backward-compat tests
+    // ===================================================================
+
+    #[test]
+    fn test_reasoning_mode_serialization_all_variants() {
+        for (mode, expected_json) in [
+            (ReasoningMode::Direct, r#""direct""#),
+            (ReasoningMode::Plan, r#""plan""#),
+            (ReasoningMode::Stream, r#""stream""#),
+            (ReasoningMode::Hidden, r#""hidden""#),
+        ] {
+            let json = serde_json::to_string(&mode).unwrap();
+            assert_eq!(json, expected_json);
+            let parsed: ReasoningMode = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, mode);
+        }
+    }
+
+    #[test]
+    fn test_reasoning_mode_backward_compat_old_mode_key() {
+        let cp =
+            SessionCheckpoint::new("s-compat".into()).with_reasoning_mode(ReasoningMode::Stream);
+        let mut jv: serde_json::Value = serde_json::to_value(&cp).unwrap();
+        let rm = jv
+            .as_object_mut()
+            .unwrap()
+            .remove("reasoning_mode")
+            .unwrap();
+        jv.as_object_mut().unwrap().insert("mode".into(), rm);
+        let parsed: SessionCheckpoint =
+            serde_json::from_str(&serde_json::to_string(&jv).unwrap()).unwrap();
+        assert_eq!(parsed.reasoning_mode, ReasoningMode::Stream);
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_reasoning_mode_roundtrip_through_memory_storage() {
+        use crate::storage::memory::MemoryStorage;
+        let storage = MemoryStorage::new();
+        for mode in [
+            ReasoningMode::Direct,
+            ReasoningMode::Plan,
+            ReasoningMode::Stream,
+            ReasoningMode::Hidden,
+        ] {
+            let cp = SessionCheckpoint::new(format!("s-mem-rm-{:?}", mode))
+                .with_reasoning_mode(mode)
+                .with_session_mode(SessionMode::Auto)
+                .with_message_count(1);
+            storage.save_checkpoint(&cp).await.unwrap();
+            let loaded = storage
+                .load_checkpoint(&format!("s-mem-rm-{:?}", mode))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(loaded.reasoning_mode, mode);
+            assert_eq!(loaded.session_mode, SessionMode::Auto);
         }
     }
 

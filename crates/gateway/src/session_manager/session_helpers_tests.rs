@@ -1,6 +1,6 @@
 //! Tests for `session_helpers::compute_session_workdir`.
 
-use super::session_helpers::compute_session_workdir;
+use super::session_helpers::{compute_session_workdir, generate_session_id};
 use crate::Message;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
@@ -213,4 +213,100 @@ async fn test_restored_no_checkpoint_fallback_to_message() {
         "no checkpoint → user_id from message.from: {:?}",
         result
     );
+}
+
+// ===================================================================
+// Step 1.4: generate_session_id format tests
+// ===================================================================
+
+#[test]
+fn test_generate_session_id_format() {
+    let id = generate_session_id("my-agent");
+    let parts: Vec<&str> = id.split('_').collect();
+    assert_eq!(
+        parts.len(),
+        3,
+        "session_id should have 3 parts separated by '_': {:?}",
+        id
+    );
+    assert_eq!(parts[0], "my-agent", "first part should be agent_id");
+}
+
+#[test]
+fn test_generate_session_id_hex_is_8_lowercase() {
+    let id = generate_session_id("agent");
+    let hex_part = id.rsplit('_').next().unwrap();
+    assert_eq!(
+        hex_part.len(),
+        8,
+        "hex part should be 8 chars: {:?}",
+        hex_part
+    );
+    assert!(
+        hex_part.chars().all(|c| c.is_ascii_hexdigit()),
+        "hex part should be all hex digits: {:?}",
+        hex_part
+    );
+    assert_eq!(
+        hex_part,
+        hex_part.to_lowercase(),
+        "hex part should be lowercase: {:?}",
+        hex_part
+    );
+}
+
+#[test]
+fn test_generate_session_id_timestamp_is_valid_unix_seconds() {
+    let id = generate_session_id("agent");
+    let parts: Vec<&str> = id.split('_').collect();
+    let ts: i64 = parts[1]
+        .parse()
+        .expect("timestamp part should be a valid integer");
+    // Should be after 2020-01-01 (1577836800) and before year 2100
+    assert!(ts > 1_577_836_800, "timestamp should be after 2020: {}", ts);
+    assert!(
+        ts < 4_102_444_800,
+        "timestamp should be before 2100: {}",
+        ts
+    );
+}
+
+#[test]
+fn test_generate_session_id_unique() {
+    let id1 = generate_session_id("agent");
+    let id2 = generate_session_id("agent");
+    assert_ne!(id1, id2, "two calls should produce different IDs");
+}
+
+#[test]
+fn test_generate_session_id_preserves_agent_id() {
+    let id = generate_session_id("eda");
+    assert!(
+        id.starts_with("eda_"),
+        "session_id should start with agent_id: {:?}",
+        id
+    );
+
+    let id2 = generate_session_id("my-long-agent-name");
+    assert!(
+        id2.starts_with("my-long-agent-name_"),
+        "session_id should preserve full agent_id: {:?}",
+        id2
+    );
+}
+
+#[test]
+fn test_generate_session_id_hex_parts_are_unique() {
+    // Generate multiple IDs and verify hex parts differ
+    let ids: Vec<String> = (0..10).map(|_| generate_session_id("a")).collect();
+    let hex_parts: Vec<&str> = ids
+        .iter()
+        .map(|id| id.rsplit('_').next().unwrap())
+        .collect();
+    // All 10 hex parts should be distinct (collision probability is negligible)
+    let unique_count = hex_parts
+        .iter()
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+    assert_eq!(unique_count, 10, "all hex parts should be unique");
 }
