@@ -197,14 +197,7 @@ mod tests {
             )),
             Box::new(closeclaw_session::tools::SessionToolsRegistrar::new(
                 spawn_controller.clone() as Arc<dyn closeclaw_tools::SpawnValidator>,
-                {
-                    let lb = Arc::new(closeclaw_session::tools::LateBoundSessionManagerOps::new());
-                    assert!(lb
-                        .set(session_manager.clone()
-                            as Arc<dyn closeclaw_session::tools::SessionManagerOps>)
-                        .is_ok());
-                    lb
-                },
+                session_manager.clone() as Arc<dyn closeclaw_session::tools::SessionManagerOps>,
                 agent_registry.clone() as Arc<dyn closeclaw_agent::AgentConfigLookup>,
                 permission_engine,
                 approval_flow.clone(),

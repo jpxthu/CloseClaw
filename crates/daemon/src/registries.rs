@@ -202,7 +202,8 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
 
     let session_registrar = SessionToolsRegistrar::new(
         spawn_validator,
-        Arc::clone(&ctx.late_bound_session_manager),
+        Arc::clone(&ctx.late_bound_session_manager)
+            as Arc<dyn closeclaw_session::tools::SessionManagerOps>,
         agent_config_lookup,
         permission_evaluator,
         approval_submission,

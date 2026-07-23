@@ -16,7 +16,7 @@ use closeclaw_common::tool_registry::{
     ToolRegistryQuery,
 };
 
-use super::{LateBoundSessionManagerOps, SessionManagerOps, SessionToolsRegistrar};
+use super::{SessionManagerOps, SessionToolsRegistrar};
 
 // ---------------------------------------------------------------------------
 // Mock ToolRegistry for testing
@@ -240,11 +240,9 @@ fn mock_permission_engine() -> closeclaw_common::permission_types::SharedPermiss
 }
 
 fn make_registrar() -> SessionToolsRegistrar {
-    let late_bound = Arc::new(LateBoundSessionManagerOps::new());
-    assert!(late_bound.set(Arc::new(MockSessionManagerOps)).is_ok());
     SessionToolsRegistrar::new(
         Arc::new(MockSpawnValidator),
-        late_bound,
+        Arc::new(MockSessionManagerOps),
         Arc::new(MockAgentConfigLookup),
         mock_permission_engine(),
         mock_approval_flow(),
