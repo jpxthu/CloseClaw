@@ -15,8 +15,6 @@ fn skill_with_invocable(name: &str, source: SkillSource, user_invocable: bool) -
             allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: String::new(),
             effort: SkillEffort::default(),
             paths: vec![],
             user_invocable,
@@ -36,8 +34,6 @@ fn skill(name: &str, source: SkillSource) -> DiskSkill {
             allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: String::new(),
             effort: SkillEffort::default(),
             paths: vec![],
             user_invocable: true,
@@ -48,7 +44,7 @@ fn skill(name: &str, source: SkillSource) -> DiskSkill {
     }
 }
 
-fn skill_with_agent_id(name: &str, source: SkillSource, agent_id: &str) -> DiskSkill {
+fn skill_with_agent_id(name: &str, source: SkillSource, _agent_id: &str) -> DiskSkill {
     DiskSkill {
         source,
         manifest: SkillManifest {
@@ -57,8 +53,6 @@ fn skill_with_agent_id(name: &str, source: SkillSource, agent_id: &str) -> DiskS
             allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: agent_id.into(),
             effort: SkillEffort::default(),
             paths: vec![],
             user_invocable: true,
@@ -78,8 +72,6 @@ fn skill_with_paths(name: &str, source: SkillSource, paths: Vec<String>) -> Disk
             allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: String::new(),
             effort: SkillEffort::default(),
             paths,
             user_invocable: true,

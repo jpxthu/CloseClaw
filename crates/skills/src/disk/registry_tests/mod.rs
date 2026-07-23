@@ -14,8 +14,6 @@ fn skill(name: &str, source: SkillSource) -> DiskSkill {
             allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: String::new(),
             effort: SkillEffort::default(),
             paths: vec![],
             user_invocable: true,
@@ -76,7 +74,7 @@ fn test_filter_by_source() {
     assert_eq!(r.filter_by_source(SkillSource::Agent).len(), 0);
 }
 
-fn skill_with_agent_id(name: &str, source: SkillSource, agent_id: &str) -> DiskSkill {
+fn skill_with_agent_id(name: &str, source: SkillSource, _agent_id: &str) -> DiskSkill {
     DiskSkill {
         source,
         manifest: SkillManifest {
@@ -85,8 +83,6 @@ fn skill_with_agent_id(name: &str, source: SkillSource, agent_id: &str) -> DiskS
             allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: agent_id.into(),
             effort: SkillEffort::default(),
             paths: vec![],
             user_invocable: true,
@@ -106,8 +102,6 @@ fn skill_with_when_to_use(name: &str, source: SkillSource, when_to_use: &str) ->
             allowed_tools: vec![],
             when_to_use: when_to_use.into(),
             context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: String::new(),
             effort: SkillEffort::default(),
             paths: vec![],
             user_invocable: true,
@@ -183,8 +177,6 @@ fn skill_with_paths(name: &str, source: SkillSource, paths: Vec<String>) -> Disk
             allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: String::new(),
             effort: SkillEffort::default(),
             paths,
             user_invocable: true,
@@ -343,29 +335,18 @@ fn test_generate_listing_conditional_annotation_mixed() {
 }
 #[test]
 fn test_generate_listing_conditional_with_agent_id_filter() {
-    let mut s1 = skill_with_paths("agent1-cond", SkillSource::Agent, vec!["**/*.rs".into()]);
-    s1.manifest.agent_id = "agent1".into();
+    // Agent-scoped filtering is now handled by directory-based discovery
+    // (agents/<id>/skills/), not by manifest fields. All skills appear
+    // in the listing regardless of the agent_id parameter.
+    let s1 = skill_with_paths("agent1-cond", SkillSource::Agent, vec!["**/*.rs".into()]);
     let s2 = skill_with_paths("any-cond", SkillSource::Agent, vec!["**/*.md".into()]);
-    let mut s3 = skill_with_paths("agent2-cond", SkillSource::Agent, vec!["**/*.toml".into()]);
-    s3.manifest.agent_id = "agent2".into();
+    let s3 = skill_with_paths("agent2-cond", SkillSource::Agent, vec!["**/*.toml".into()]);
     let r = DiskSkillRegistry::new(vec![s1, s2, s3, skill("plain", SkillSource::Agent)]);
     let listing = r.generate_listing(Some("agent1"), None);
     assert!(listing.contains("**agent1-cond**"));
     assert!(listing.contains("**any-cond**"));
+    assert!(listing.contains("**agent2-cond**"));
     assert!(listing.contains("**plain**"));
-    assert!(!listing.contains("**agent2-cond**"));
-    let a1 = listing
-        .lines()
-        .find(|l| l.contains("**agent1-cond**"))
-        .unwrap();
-    assert!(a1.contains("⚡ auto-activates on: **/*.rs"));
-    let a2 = listing
-        .lines()
-        .find(|l| l.contains("**any-cond**"))
-        .unwrap();
-    assert!(a2.contains("⚡ auto-activates on: **/*.md"));
-    let pl = listing.lines().find(|l| l.contains("**plain**")).unwrap();
-    assert!(!pl.contains("⚡"));
 }
 
 #[test]

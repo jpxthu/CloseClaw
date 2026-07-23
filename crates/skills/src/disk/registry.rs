@@ -329,7 +329,7 @@ impl DiskSkillRegistry {
     /// conditional skills) on the returned slice.
     fn filter_skills_for_listing<'a>(
         &'a self,
-        agent_id: Option<&str>,
+        _agent_id: Option<&str>,
         skills_whitelist: Option<&[String]>,
     ) -> Vec<&'a DiskSkill> {
         let use_whitelist = skills_whitelist
@@ -346,11 +346,8 @@ impl DiskSkillRegistry {
                 if !s.manifest.user_invocable {
                     return false;
                 }
-                if !(s.manifest.agent_id.is_empty()
-                    || agent_id.is_none_or(|id| s.manifest.agent_id == id))
-                {
-                    return false;
-                }
+                // Agent-scoped filtering is handled by directory-based discovery
+                // (agents/<id>/skills/), not by manifest fields.
                 if let Some(ref set) = use_whitelist {
                     set.contains(s.manifest.name.as_str())
                 } else {
