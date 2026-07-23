@@ -369,9 +369,13 @@ impl DiskSkillRegistry {
         } else {
             format!(" ⚡ auto-activates on: {}", skill.manifest.paths.join(", "))
         };
+        let effort_anno = match skill.manifest.effort {
+            super::types::SkillEffort::Unknown => String::new(),
+            effort => format!(" [effort: {}]", effort),
+        };
         format!(
-            "- **{}**: {}{}{}",
-            skill.manifest.name, skill.manifest.description, when, paths_anno
+            "- **{}**: {}{}{}{}",
+            skill.manifest.name, skill.manifest.description, when, paths_anno, effort_anno,
         )
     }
 

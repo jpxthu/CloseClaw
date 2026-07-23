@@ -54,6 +54,18 @@ pub enum SkillEffort {
     Unknown,
 }
 
+impl fmt::Display for SkillEffort {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SkillEffort::Trivial => write!(f, "trivial"),
+            SkillEffort::Small => write!(f, "small"),
+            SkillEffort::Medium => write!(f, "medium"),
+            SkillEffort::Large => write!(f, "large"),
+            SkillEffort::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
 /// Manifest parsed from a SKILL.md frontmatter block.
 ///
 /// Differs from [`crate::registry::SkillManifest`] which is the runtime
