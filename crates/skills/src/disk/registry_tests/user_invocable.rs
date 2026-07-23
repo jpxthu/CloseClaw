@@ -44,7 +44,7 @@ fn skill(name: &str, source: SkillSource) -> DiskSkill {
     }
 }
 
-fn skill_with_agent_id(name: &str, source: SkillSource, _agent_id: &str) -> DiskSkill {
+fn skill_with_name(name: &str, source: SkillSource) -> DiskSkill {
     DiskSkill {
         source,
         manifest: SkillManifest {
@@ -137,22 +137,18 @@ fn test_user_invocable_false_still_gettable() {
     assert!(!found.unwrap().manifest.user_invocable);
 }
 #[test]
-fn test_user_invocable_false_with_agent_id_cross_filter() {
-    let mut hidden = skill_with_agent_id("hidden_agent", SkillSource::Agent, "agent1");
+fn test_user_invocable_false_with_name_cross_filter() {
+    let mut hidden = skill_with_name("hidden_agent", SkillSource::Agent);
     hidden.manifest.user_invocable = false;
     let r = DiskSkillRegistry::new(vec![
         hidden,
-        skill_with_agent_id("visible_agent", SkillSource::Agent, "agent1"),
+        skill_with_name("visible_agent", SkillSource::Agent),
         skill("always_visible", SkillSource::Bundled),
     ]);
-    let listing = r.generate_listing(Some("agent1"), None);
+    let listing = r.generate_listing(None, None);
     assert!(listing.contains("**visible_agent**"));
     assert!(listing.contains("**always_visible**"));
     assert!(!listing.contains("**hidden_agent**"));
-    let listing_all = r.generate_listing(None, None);
-    assert!(listing_all.contains("**visible_agent**"));
-    assert!(listing_all.contains("**always_visible**"));
-    assert!(!listing_all.contains("**hidden_agent**"));
 }
 #[test]
 fn test_user_invocable_false_still_findable_by_paths() {

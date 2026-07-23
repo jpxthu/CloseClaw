@@ -227,7 +227,7 @@ impl DiskSkillRegistry {
             None => self.lookup_whitelist_from_agent_skills_query(agent_id),
         };
         let resolved_ref = resolved_whitelist.as_deref();
-        self.generate_listing_inner(agent_id, resolved_ref)
+        self.generate_listing_inner(resolved_ref)
     }
 
     /// Generates a skill listing by directly querying the agent skills
@@ -243,7 +243,7 @@ impl DiskSkillRegistry {
             .as_ref()
             .and_then(|q| q.get_agent_skills(agent_id));
         let resolved_ref = resolved_whitelist.as_deref();
-        self.generate_listing_inner(Some(agent_id), resolved_ref)
+        self.generate_listing_inner(resolved_ref)
     }
 }
 
@@ -269,7 +269,7 @@ impl DiskSkillRegistry {
             None => self.lookup_whitelist_from_agent_skills_query(agent_id),
         };
         let resolved_ref = resolved_whitelist.as_deref();
-        self.generate_listing_inner_excluding_conditional(agent_id, resolved_ref)
+        self.generate_listing_inner_excluding_conditional(resolved_ref)
     }
 
     /// Find conditional skills whose glob patterns match the given file
@@ -296,7 +296,6 @@ impl DiskSkillRegistry {
     /// listing.
     fn generate_listing_inner_excluding_conditional(
         &self,
-        _agent_id: Option<&str>,
         skills_whitelist: Option<&[String]>,
     ) -> String {
         let mut filtered = self.filter_skills_for_listing(skills_whitelist);
@@ -309,11 +308,7 @@ impl DiskSkillRegistry {
 
     /// Internal implementation shared by `generate_listing` and
     /// `generate_listing_for_agent`.
-    fn generate_listing_inner(
-        &self,
-        _agent_id: Option<&str>,
-        skills_whitelist: Option<&[String]>,
-    ) -> String {
+    fn generate_listing_inner(&self, skills_whitelist: Option<&[String]>) -> String {
         let mut filtered = self.filter_skills_for_listing(skills_whitelist);
         if filtered.is_empty() {
             return String::new();
