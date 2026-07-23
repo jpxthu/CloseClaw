@@ -7,7 +7,6 @@
 //! ---
 //! name: "skill-name"
 //! description: "What this skill does"
-//! allowed_tools: ["tool_a", "tool_b"]
 //! when_to_use: "Use this when..."
 //! context: Inline
 //! effort: Small
@@ -132,8 +131,7 @@ pub fn parse_skill_md(raw: &str) -> Result<ParsedSkill, ParseError> {
     }
 
     // description_only = true when no fields beyond description are present
-    let description_only = !frontmatter_trimmed.contains("allowed_tools:")
-        && !frontmatter_trimmed.contains("when_to_use:")
+    let description_only = !frontmatter_trimmed.contains("when_to_use:")
         && !frontmatter_trimmed.contains("context:")
         && !frontmatter_trimmed.contains("effort:")
         && !frontmatter_trimmed.contains("paths:")
@@ -162,7 +160,6 @@ mod tests {
         let input = r#"---
 name: "test-skill"
 description: "A test skill for unit testing"
-allowed_tools: ["tool_a", "tool_b"]
 when_to_use: "Use this when you need to test things"
 context: Inline
 effort: Small
@@ -176,7 +173,6 @@ user_invocable: true
         let result = parse_skill_md(input).expect("should parse");
         assert_eq!(result.manifest.name, "test-skill");
         assert_eq!(result.manifest.description, "A test skill for unit testing");
-        assert_eq!(result.manifest.allowed_tools, &["tool_a", "tool_b"]);
         assert!(!result.description_only);
     }
 
@@ -273,7 +269,6 @@ description: ""
         let input = r#"---
 name: "serde-skill"
 description: "Testing serde round-trip"
-allowed_tools: []
 when_to_use: ""
 context: Inline
 effort: Unknown

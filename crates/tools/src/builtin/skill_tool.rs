@@ -4,9 +4,7 @@
 //! reading its SKILL.md file, and returning the content as a meta message
 //! to be injected into the agent context.
 
-use crate::{
-    ContextModifier, Tool, ToolCallError, ToolContext, ToolFlags, ToolMessage, ToolResult,
-};
+use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolMessage, ToolResult};
 use closeclaw_skills::disk::DiskSkillRegistry;
 use closeclaw_skills::BuiltinSkillRegistry;
 
@@ -25,7 +23,7 @@ use std::sync::Arc;
 /// [`BuiltinSkillRegistry`].
 ///
 /// - **Disk skill**: injects `skill.body` as a meta message into the
-///   agent context, with `context_modifier` for `allowed_tools`.
+///   agent context.
 /// - **Builtin skill**: calls `execute("invoke", args)` and injects the
 ///   result as a meta message.
 pub struct SkillTool {
@@ -57,14 +55,6 @@ impl SkillTool {
     ) -> Result<ToolResult, ToolCallError> {
         let body = Self::substitute_variables(&skill.body, skill, ctx);
 
-        let context_modifier = if skill.manifest.allowed_tools.is_empty() {
-            None
-        } else {
-            Some(ContextModifier {
-                allowed_tools: skill.manifest.allowed_tools.clone(),
-            })
-        };
-
         Ok(ToolResult {
             data: serde_json::json!({
                 "skill_name": skill_name,
@@ -75,7 +65,7 @@ impl SkillTool {
                 content: body,
                 is_meta: true,
             }],
-            context_modifier,
+            context_modifier: None,
         })
     }
 
@@ -213,17 +203,12 @@ mod tests {
     use std::sync::Arc;
 
     #[allow(dead_code)]
-    fn make_skill(
-        name: &str,
-        allowed_tools: Vec<String>,
-        readme_path: std::path::PathBuf,
-    ) -> DiskSkill {
+    fn make_skill(name: &str, readme_path: std::path::PathBuf) -> DiskSkill {
         DiskSkill {
             source: SkillSource::Bundled,
             manifest: SkillManifest {
                 name: name.into(),
                 description: format!("A test skill named {}", name),
-                allowed_tools,
                 when_to_use: String::new(),
                 context: SkillContext::Inline,
                 effort: SkillEffort::Small,
@@ -242,7 +227,6 @@ mod tests {
             manifest: SkillManifest {
                 name: name.into(),
                 description: format!("A test skill named {}", name),
-                allowed_tools: vec![],
                 when_to_use: String::new(),
                 context: SkillContext::Inline,
                 effort: SkillEffort::Small,
@@ -360,7 +344,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_disk_priority_over_builtin() {
-        let disk_skill = make_skill("shared", vec![], std::path::PathBuf::from("/tmp/test"));
+        let disk_skill = make_skill("shared", std::path::PathBuf::from("/tmp/test"));
         let disk = Arc::new(DiskSkillRegistry::new(vec![disk_skill]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         builtin
@@ -373,7 +357,7 @@ mod tests {
             .unwrap();
         // Disk skill returns execution_mode "inline" from SkillContext::Inline
         assert_eq!(result.data["execution_mode"], "inline");
-        // Disk skill has no allowed_tools → no context_modifier
+        // Disk skill has no context_modifier (skills don't carry tool permissions)
         assert!(result.context_modifier.is_none());
     }
 

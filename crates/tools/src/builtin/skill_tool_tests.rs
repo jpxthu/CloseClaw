@@ -24,17 +24,12 @@ mod tests {
         }
     }
 
-    fn make_skill(
-        name: &str,
-        allowed_tools: Vec<String>,
-        readme_path: std::path::PathBuf,
-    ) -> DiskSkill {
+    fn make_skill(name: &str, readme_path: std::path::PathBuf) -> DiskSkill {
         DiskSkill {
             source: SkillSource::Bundled,
             manifest: SkillManifest {
                 name: name.into(),
                 description: format!("A test skill named {}", name),
-                allowed_tools,
                 when_to_use: String::new(),
                 context: SkillContext::Inline,
                 effort: SkillEffort::Small,
@@ -59,7 +54,7 @@ mod tests {
             "---\ndescription: A test skill\n---\n\n# Test Skill\n\nSome skill content here.\n";
         std::fs::write(&readme_path, skill_content).unwrap();
 
-        let mut skill = make_skill("testskill", vec![], readme_path);
+        let mut skill = make_skill("testskill", readme_path);
         skill.body = "# Test Skill\n\nSome skill content here.".to_string();
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
@@ -91,7 +86,7 @@ mod tests {
             + "# Actual Skill Body\n\nThis is the real content.\n";
         std::fs::write(&readme_path, skill_content).unwrap();
 
-        let mut skill = make_skill("testskill", vec![], readme_path);
+        let mut skill = make_skill("testskill", readme_path);
         skill.body = "# Actual Skill Body\n\nThis is the real content.".to_string();
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
@@ -122,33 +117,6 @@ mod tests {
             content.contains("This is the real content."),
             "content should contain body text"
         );
-    }
-
-    #[tokio::test]
-    async fn test_call_normal_with_allowed_tools() {
-        let temp = TempDir::new().unwrap();
-        let readme_path = temp.path().join("SKILL.md");
-        let skill_content = "---\ndescription: Skill with allowed tools\n---\n\n# My Skill\n";
-        std::fs::write(&readme_path, skill_content).unwrap();
-
-        let mut skill = make_skill(
-            "tooled",
-            vec!["ReadTool".into(), "WriteTool".into()],
-            readme_path,
-        );
-        skill.body = "# My Skill".to_string();
-        let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
-
-        let result = tool
-            .call(serde_json::json!({"skill_name": "tooled"}), &new_ctx())
-            .await
-            .unwrap();
-
-        assert!(result.context_modifier.is_some());
-        let cm = result.context_modifier.unwrap();
-        assert_eq!(cm.allowed_tools, vec!["ReadTool", "WriteTool"]);
-        assert_eq!(result.data["execution_mode"], "inline");
     }
 
     // -----------------------------------------------------------------
@@ -229,7 +197,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_disk_priority_over_builtin() {
-        let disk_skill = make_skill("shared", vec![], std::path::PathBuf::from("/tmp/test"));
+        let disk_skill = make_skill("shared", std::path::PathBuf::from("/tmp/test"));
         let disk = Arc::new(DiskSkillRegistry::new(vec![disk_skill]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         builtin

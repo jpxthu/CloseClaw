@@ -12,7 +12,6 @@ fn skill_with_invocable(name: &str, source: SkillSource, user_invocable: bool) -
         manifest: SkillManifest {
             name: name.into(),
             description: format!("desc of {}", name),
-            allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
             effort: SkillEffort::default(),
@@ -31,7 +30,6 @@ fn skill(name: &str, source: SkillSource) -> DiskSkill {
         manifest: SkillManifest {
             name: name.into(),
             description: format!("desc of {}", name),
-            allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
             effort: SkillEffort::default(),
@@ -50,7 +48,6 @@ fn skill_with_paths(name: &str, source: SkillSource, paths: Vec<String>) -> Disk
         manifest: SkillManifest {
             name: name.into(),
             description: format!("desc of {}", name),
-            allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
             effort: SkillEffort::default(),

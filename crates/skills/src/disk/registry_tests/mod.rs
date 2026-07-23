@@ -11,7 +11,6 @@ fn skill(name: &str, source: SkillSource) -> DiskSkill {
         manifest: SkillManifest {
             name: name.into(),
             description: format!("desc of {}", name),
-            allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
             effort: SkillEffort::default(),
@@ -80,7 +79,6 @@ fn skill_with_when_to_use(name: &str, source: SkillSource, when_to_use: &str) ->
         manifest: SkillManifest {
             name: name.into(),
             description: format!("desc of {}", name),
-            allowed_tools: vec![],
             when_to_use: when_to_use.into(),
             context: SkillContext::default(),
             effort: SkillEffort::default(),
@@ -158,7 +156,6 @@ fn skill_with_paths(name: &str, source: SkillSource, paths: Vec<String>) -> Disk
         manifest: SkillManifest {
             name: name.into(),
             description: format!("desc of {}", name),
-            allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
             effort: SkillEffort::default(),
@@ -572,7 +569,6 @@ fn skill_with_effort(name: &str, source: SkillSource, effort: SkillEffort) -> Di
         manifest: SkillManifest {
             name: name.into(),
             description: format!("desc of {}", name),
-            allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
             effort,

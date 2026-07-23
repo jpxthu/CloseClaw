@@ -78,9 +78,6 @@ pub struct SkillManifest {
     /// Human-readable description.
     #[serde(default)]
     pub description: String,
-    /// Tools the skill is allowed to use.
-    #[serde(default)]
-    pub allowed_tools: Vec<String>,
     /// When to use this skill.
     #[serde(default)]
     pub when_to_use: String,
@@ -198,7 +195,6 @@ mod tests {
         let m = SkillManifest {
             name: "test".to_string(),
             description: "a test skill".to_string(),
-            allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::Inline,
             effort: SkillEffort::default(),
