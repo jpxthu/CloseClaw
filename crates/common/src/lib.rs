@@ -23,6 +23,7 @@ pub mod permission_check;
 pub mod permission_op;
 #[cfg(test)]
 pub mod permission_op_tests;
+pub mod permission_types;
 pub mod plan_state;
 #[cfg(test)]
 pub mod plan_state_tests;

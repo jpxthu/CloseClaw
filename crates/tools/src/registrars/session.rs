@@ -13,14 +13,14 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use closeclaw_agent::AgentConfigLookup;
-use closeclaw_gateway::SessionManager;
-use closeclaw_permission::approval_flow::ApprovalFlow;
-use closeclaw_permission::engine::engine_eval::PermissionEngine;
 
-use crate::builtin::{SessionsKillTool, SessionsSpawnTool, SessionsSteerTool, SessionsYieldTool};
 use crate::try_register;
 use crate::{SpawnValidator, Tool};
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
+use closeclaw_session::tools::SessionManagerOps;
+use closeclaw_session::tools::{
+    SessionsKillTool, SessionsSpawnTool, SessionsSteerTool, SessionsYieldTool,
+};
 
 /// Provides tool construction logic for the sessions domain.
 ///
@@ -33,20 +33,20 @@ use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 /// `sessions_spawn`, `sessions_steer`, `sessions_kill`, `sessions_yield`.
 pub struct SessionToolsRegistrar {
     spawn_validator: Arc<dyn SpawnValidator>,
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SessionManagerOps>,
     agent_config_lookup: Arc<dyn AgentConfigLookup>,
-    permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
-    approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    permission_engine: closeclaw_common::permission_types::SharedPermissionEvaluator,
+    approval_flow: closeclaw_common::permission_types::SharedApprovalSubmission,
 }
 
 impl SessionToolsRegistrar {
     /// Create a new `SessionToolsRegistrar` with the required dependencies.
     pub fn new(
         spawn_validator: Arc<dyn SpawnValidator>,
-        session_manager: Arc<SessionManager>,
+        session_manager: Arc<dyn SessionManagerOps>,
         agent_config_lookup: Arc<dyn AgentConfigLookup>,
-        permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
-        approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+        permission_engine: closeclaw_common::permission_types::SharedPermissionEvaluator,
+        approval_flow: closeclaw_common::permission_types::SharedApprovalSubmission,
     ) -> Self {
         Self {
             spawn_validator,
