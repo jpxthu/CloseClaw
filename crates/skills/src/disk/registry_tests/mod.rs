@@ -11,7 +11,6 @@ fn skill(name: &str, source: SkillSource) -> DiskSkill {
         manifest: SkillManifest {
             name: name.into(),
             description: format!("desc of {}", name),
-            allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
             effort: SkillEffort::default(),
@@ -80,7 +79,6 @@ fn skill_with_when_to_use(name: &str, source: SkillSource, when_to_use: &str) ->
         manifest: SkillManifest {
             name: name.into(),
             description: format!("desc of {}", name),
-            allowed_tools: vec![],
             when_to_use: when_to_use.into(),
             context: SkillContext::default(),
             effort: SkillEffort::default(),
@@ -158,7 +156,6 @@ fn skill_with_paths(name: &str, source: SkillSource, paths: Vec<String>) -> Disk
         manifest: SkillManifest {
             name: name.into(),
             description: format!("desc of {}", name),
-            allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
             effort: SkillEffort::default(),
@@ -562,4 +559,146 @@ fn test_generate_listing_for_agent_user_invocable_filter() {
     let listing = r.generate_listing_for_agent("agent-inv");
     assert!(listing.contains("**visible**"));
     assert!(!listing.contains("**hidden**"));
+}
+
+// ---- Effort rendering tests ----
+
+fn skill_with_effort(name: &str, source: SkillSource, effort: SkillEffort) -> DiskSkill {
+    DiskSkill {
+        source,
+        manifest: SkillManifest {
+            name: name.into(),
+            description: format!("desc of {}", name),
+            when_to_use: String::new(),
+            context: SkillContext::default(),
+            effort,
+            paths: vec![],
+            user_invocable: true,
+        },
+        readme_path: PathBuf::from(format!("/skills/{}/SKILL.md", name)),
+        skill_dir: PathBuf::from(format!("/skills/{}", name)),
+        body: String::new(),
+    }
+}
+
+#[test]
+fn test_skill_effort_display_trivial() {
+    assert_eq!(SkillEffort::Trivial.to_string(), "trivial");
+}
+
+#[test]
+fn test_skill_effort_display_small() {
+    assert_eq!(SkillEffort::Small.to_string(), "small");
+}
+
+#[test]
+fn test_skill_effort_display_medium() {
+    assert_eq!(SkillEffort::Medium.to_string(), "medium");
+}
+
+#[test]
+fn test_skill_effort_display_large() {
+    assert_eq!(SkillEffort::Large.to_string(), "large");
+}
+
+#[test]
+fn test_skill_effort_display_unknown() {
+    assert_eq!(SkillEffort::Unknown.to_string(), "unknown");
+}
+
+#[test]
+fn test_render_listing_effort_medium() {
+    let r = DiskSkillRegistry::new(vec![skill_with_effort(
+        "my-skill",
+        SkillSource::Bundled,
+        SkillEffort::Medium,
+    )]);
+    let listing = r.generate_listing(None, None);
+    assert!(listing.contains("[effort: medium]"));
+}
+
+#[test]
+fn test_render_listing_effort_trivial() {
+    let r = DiskSkillRegistry::new(vec![skill_with_effort(
+        "tiny",
+        SkillSource::Bundled,
+        SkillEffort::Trivial,
+    )]);
+    let listing = r.generate_listing(None, None);
+    assert!(listing.contains("[effort: trivial]"));
+}
+
+#[test]
+fn test_render_listing_effort_small() {
+    let r = DiskSkillRegistry::new(vec![skill_with_effort(
+        "small-task",
+        SkillSource::Bundled,
+        SkillEffort::Small,
+    )]);
+    let listing = r.generate_listing(None, None);
+    assert!(listing.contains("[effort: small]"));
+}
+
+#[test]
+fn test_render_listing_effort_large() {
+    let r = DiskSkillRegistry::new(vec![skill_with_effort(
+        "big-task",
+        SkillSource::Bundled,
+        SkillEffort::Large,
+    )]);
+    let listing = r.generate_listing(None, None);
+    assert!(listing.contains("[effort: large]"));
+}
+
+#[test]
+fn test_render_listing_effort_unknown_not_rendered() {
+    let r = DiskSkillRegistry::new(vec![skill_with_effort(
+        "unknown-effort",
+        SkillSource::Bundled,
+        SkillEffort::Unknown,
+    )]);
+    let listing = r.generate_listing(None, None);
+    assert!(!listing.contains("[effort:"));
+    assert!(!listing.contains("[effort: unknown]"));
+}
+
+#[test]
+fn test_render_listing_no_effort_field_not_rendered() {
+    // Default effort is Unknown, should not render
+    let r = DiskSkillRegistry::new(vec![skill("no-effort", SkillSource::Bundled)]);
+    let listing = r.generate_listing(None, None);
+    assert!(!listing.contains("[effort:"));
+}
+
+#[test]
+fn test_render_listing_effort_with_when_to_use() {
+    let mut s = skill_with_effort("combo", SkillSource::Bundled, SkillEffort::Medium);
+    s.manifest.when_to_use = "Use when combo needed".into();
+    let r = DiskSkillRegistry::new(vec![s]);
+    let listing = r.generate_listing(None, None);
+    assert!(listing.contains("— Use when combo needed [effort: medium]"));
+}
+
+#[test]
+fn test_render_listing_effort_with_paths() {
+    let mut s = skill_with_effort("cond-effort", SkillSource::Bundled, SkillEffort::Large);
+    s.manifest.paths = vec!["**/*.rs".into()];
+    let r = DiskSkillRegistry::new(vec![s]);
+    let listing = r.generate_listing(None, None);
+    assert!(listing.contains("⚡ auto-activates on: **/*.rs [effort: large]"));
+}
+
+#[test]
+fn test_render_listing_effort_mixed_skills() {
+    let r = DiskSkillRegistry::new(vec![
+        skill_with_effort("a", SkillSource::Bundled, SkillEffort::Medium),
+        skill_with_effort("b", SkillSource::Bundled, SkillEffort::Unknown),
+        skill_with_effort("c", SkillSource::Bundled, SkillEffort::Small),
+    ]);
+    let listing = r.generate_listing(None, None);
+    let lines: Vec<&str> = listing.lines().collect();
+    assert_eq!(lines.len(), 3);
+    assert!(lines[0].contains("[effort: medium]"));
+    assert!(!lines[1].contains("[effort:"));
+    assert!(lines[2].contains("[effort: small]"));
 }

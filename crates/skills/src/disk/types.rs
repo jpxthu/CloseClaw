@@ -54,6 +54,18 @@ pub enum SkillEffort {
     Unknown,
 }
 
+impl fmt::Display for SkillEffort {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SkillEffort::Trivial => write!(f, "trivial"),
+            SkillEffort::Small => write!(f, "small"),
+            SkillEffort::Medium => write!(f, "medium"),
+            SkillEffort::Large => write!(f, "large"),
+            SkillEffort::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
 /// Manifest parsed from a SKILL.md frontmatter block.
 ///
 /// Differs from [`crate::registry::SkillManifest`] which is the runtime
@@ -66,9 +78,6 @@ pub struct SkillManifest {
     /// Human-readable description.
     #[serde(default)]
     pub description: String,
-    /// Tools the skill is allowed to use.
-    #[serde(default)]
-    pub allowed_tools: Vec<String>,
     /// When to use this skill.
     #[serde(default)]
     pub when_to_use: String,
@@ -144,6 +153,9 @@ pub struct ScanConfig {
     pub project_root: Option<std::path::PathBuf>,
     /// Agent id used to derive the agent-specific skills directory.
     pub agent_id: Option<String>,
+    /// Explicit path to the agent-specific skills directory.
+    /// When set, takes precedence over deriving from `agent_id` + `global_dir`.
+    pub agent_skills_dir: Option<std::path::PathBuf>,
 }
 
 #[cfg(test)]
@@ -183,7 +195,6 @@ mod tests {
         let m = SkillManifest {
             name: "test".to_string(),
             description: "a test skill".to_string(),
-            allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::Inline,
             effort: SkillEffort::default(),
@@ -218,5 +229,6 @@ mod tests {
         assert!(cfg.global_dir.is_none());
         assert!(cfg.project_root.is_none());
         assert!(cfg.agent_id.is_none());
+        assert!(cfg.agent_skills_dir.is_none());
     }
 }

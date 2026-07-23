@@ -74,7 +74,6 @@ mod tests {
             manifest: super::super::types::SkillManifest {
                 name: name.into(),
                 description: format!("desc of {}", name),
-                allowed_tools: vec![],
                 when_to_use: String::new(),
                 context: super::super::types::SkillContext::default(),
                 effort: super::super::types::SkillEffort::default(),
