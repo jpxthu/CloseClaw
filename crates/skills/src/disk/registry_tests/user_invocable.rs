@@ -44,25 +44,6 @@ fn skill(name: &str, source: SkillSource) -> DiskSkill {
     }
 }
 
-fn skill_with_name(name: &str, source: SkillSource) -> DiskSkill {
-    DiskSkill {
-        source,
-        manifest: SkillManifest {
-            name: name.into(),
-            description: format!("desc of {}", name),
-            allowed_tools: vec![],
-            when_to_use: String::new(),
-            context: SkillContext::default(),
-            effort: SkillEffort::default(),
-            paths: vec![],
-            user_invocable: true,
-        },
-        readme_path: PathBuf::from(format!("/skills/{}/SKILL.md", name)),
-        skill_dir: PathBuf::from(format!("/skills/{}", name)),
-        body: String::new(),
-    }
-}
-
 fn skill_with_paths(name: &str, source: SkillSource, paths: Vec<String>) -> DiskSkill {
     DiskSkill {
         source,
@@ -138,11 +119,11 @@ fn test_user_invocable_false_still_gettable() {
 }
 #[test]
 fn test_user_invocable_false_with_name_cross_filter() {
-    let mut hidden = skill_with_name("hidden_agent", SkillSource::Agent);
+    let mut hidden = skill("hidden_agent", SkillSource::Agent);
     hidden.manifest.user_invocable = false;
     let r = DiskSkillRegistry::new(vec![
         hidden,
-        skill_with_name("visible_agent", SkillSource::Agent),
+        skill("visible_agent", SkillSource::Agent),
         skill("always_visible", SkillSource::Bundled),
     ]);
     let listing = r.generate_listing(None, None);
