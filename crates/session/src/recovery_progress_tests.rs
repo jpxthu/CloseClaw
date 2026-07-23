@@ -30,7 +30,7 @@ mod tests {
                 is_complete: false,
             },
             outbound_pending: Vec::new(),
-            mode: ReasoningMode::Plan,
+            reasoning_mode: ReasoningMode::Plan,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             ttl_seconds: 604800,
