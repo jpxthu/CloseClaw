@@ -403,8 +403,8 @@ impl ConversationSession {
     /// - **Graceful**: pause external input, cascade with same mode,
     ///   then delegate to `graceful_stop()` (Step 1.2). Cleanup is
     ///   always done after wait completes or times out.
-    /// - **Forceful**: cancel token, cascade with forceful mode, kill
-    ///   tool handles immediately. Existing behavior preserved.
+    /// - **Forceful**: cascade with forceful mode, kill tool handles,
+    ///   cancel token, then clean up exec state. Order per design doc.
     ///
     /// `timeout` is the overall time budget for the cascade stop.
     /// In **Graceful** mode it is shared across all child sessions
@@ -457,20 +457,23 @@ impl ConversationSession {
                 // from both stop_single_session (stopped already
                 // set) and kill_child (stopped not set).
                 //
+                // Execution order per design doc:
+                //   cascade → kill tools → cancel LLM → cleanup
+                //
                 // Set stopped flag (best-effort, for Gateway
                 // is_stopped() check).
                 let _ =
                     self.stopped
                         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst);
-                // Cancel in-flight LLM requests via cancel token.
-                self.cancel_token.cancel();
-                // Cascade children with Forceful mode.
+                // 1. Cascade children with Forceful mode.
                 if cascade {
                     self.cascade_stop_children(mode, timeout).await;
                 }
-                // Kill every registered tool handle.
+                // 2. Kill every registered tool handle.
                 self.kill_tool_handles().await;
-                // Reset execution state.
+                // 3. Cancel in-flight LLM requests via cancel token.
+                self.cancel_token.cancel();
+                // 4. Reset execution state.
                 self.clear_exec_state();
                 CascadeStopInfo::default()
             }
@@ -491,7 +494,7 @@ impl ConversationSession {
     ///
     /// Returns [`CascadeStopInfo`] with any children that timed out
     /// during the graceful wait.
-    fn cascade_stop_children<'a>(
+    pub fn cascade_stop_children<'a>(
         &'a self,
         mode: ShutdownMode,
         overall_timeout: Duration,
