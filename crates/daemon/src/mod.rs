@@ -39,7 +39,7 @@ use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
 use closeclaw_session::storage::SqliteStorage;
 use closeclaw_skills::builtin::builtin_skills_with_engine_and_approval_flow;
-use closeclaw_skills::{DiskSkillRegistry, SkillWatcherHandle};
+use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry, SkillWatcherHandle};
 use closeclaw_system_prompt::invalidate_all_sections;
 use closeclaw_tools::ToolRegistry;
 use std::path::{Path, PathBuf};
@@ -97,6 +97,8 @@ pub struct Daemon {
     pub plan_archive_shutdown_tx: watch::Sender<()>,
     /// Shared skill registry, updated on hot reload
     pub skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
+    /// Builtin skill registry — compiled-in skills, not subject to hot reload
+    pub builtin_skill_registry: Arc<BuiltinSkillRegistry>,
     /// Skill file watcher handle (RAII: stops on drop)
     _skill_watcher: Option<SkillWatcherHandle>,
     /// Config file watcher handle (RAII: stops on drop)
@@ -379,13 +381,14 @@ impl Daemon {
 
 /// Dependencies for Phase 5 background initialization.
 ///
-/// Bundles the 8 external references that `init_phase_5_background` needs
+/// Bundles external references that `init_phase_5_background` needs
 /// from earlier phases, keeping the function signature within the 6-parameter
 /// limit imposed by CONTRIBUTING.md.
 pub(crate) struct Phase5Deps<'a> {
     pub config_manager: &'a Arc<ConfigManager>,
     pub agent_registry: &'a Arc<closeclaw_agent::registry::AgentRegistry>,
     pub skill_registry: &'a Arc<RwLock<Option<DiskSkillRegistry>>>,
+    pub builtin_skill_registry: &'a Arc<BuiltinSkillRegistry>,
     pub tool_registry: &'a Arc<ToolRegistry>,
     pub session_manager: &'a Arc<SessionManager>,
     pub permission_engine: &'a Arc<tokio::sync::RwLock<PermissionEngine>>,
@@ -402,7 +405,10 @@ impl Daemon {
         permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
         config_manager: &Arc<closeclaw_config::ConfigManager>,
         config_dir: &str,
-    ) -> Arc<tokio::sync::Mutex<ApprovalFlow>> {
+    ) -> (
+        Arc<tokio::sync::Mutex<ApprovalFlow>>,
+        Arc<BuiltinSkillRegistry>,
+    ) {
         // Build the whitelist-updated callback: reads agent permissions.json,
         // constructs a RuleSet, and reloads the permission engine.
         //
@@ -562,13 +568,20 @@ impl Daemon {
         }
 
         gateway.set_approval_flow(Arc::clone(&approval_flow)).await;
-        let _builtin_skills = builtin_skills_with_engine_and_approval_flow(
+        let builtin_skills = builtin_skills_with_engine_and_approval_flow(
             Arc::clone(permission_engine),
             Arc::clone(&approval_flow),
             Some(Arc::clone(session_manager)),
             config_manager.agent_permissions(),
         );
-        approval_flow
+        let builtin_skill_registry =
+            Arc::new(BuiltinSkillRegistry::from_skills(builtin_skills).await);
+        let builtin_count = builtin_skill_registry.list().await.len();
+        info!(
+            count = builtin_count,
+            "builtin skills registered in BuiltinSkillRegistry"
+        );
+        (approval_flow, builtin_skill_registry)
     }
 
     /// Phase 5: Background services — ArchiveSweeper, DreamingScheduler, registry population.
@@ -590,6 +603,7 @@ impl Daemon {
             config_manager,
             agent_registry,
             skill_registry,
+            builtin_skill_registry,
             tool_registry,
             session_manager,
             permission_engine,
@@ -622,6 +636,7 @@ impl Daemon {
             config_manager,
             agent_registry,
             skill_registry,
+            builtin_registry: builtin_skill_registry,
             tool_registry,
             session_manager,
             permission_engine,

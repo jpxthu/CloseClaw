@@ -232,8 +232,8 @@ fn test_builtin_skills() {
 
 #[tokio::test]
 async fn test_skill_registry_with_builtins() {
-    use crate::registry::SkillRegistry;
-    let registry = SkillRegistry::new();
+    use crate::registry::BuiltinSkillRegistry;
+    let registry = BuiltinSkillRegistry::new();
     for skill in builtin_skills() {
         registry.register(skill).await;
     }

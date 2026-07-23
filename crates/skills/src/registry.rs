@@ -50,18 +50,18 @@ pub trait Skill: Send + Sync {
     ) -> Result<serde_json::Value, SkillError>;
 }
 
-/// Skill registry - manages all registered skills
-pub struct SkillRegistry {
+/// Builtin skill registry - manages all registered builtin skills
+pub struct BuiltinSkillRegistry {
     skills: tokio::sync::RwLock<HashMap<String, Arc<dyn Skill>>>,
 }
 
-impl Default for SkillRegistry {
+impl Default for BuiltinSkillRegistry {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl SkillRegistry {
+impl BuiltinSkillRegistry {
     pub fn new() -> Self {
         Self {
             skills: tokio::sync::RwLock::new(HashMap::new()),
@@ -96,6 +96,15 @@ impl SkillRegistry {
     pub async fn unregister(&self, name: &str) -> bool {
         let mut skills = self.skills.write().await;
         skills.remove(name).is_some()
+    }
+
+    /// Create a registry pre-populated with the given skills.
+    pub async fn from_skills(skills: Vec<Arc<dyn Skill>>) -> Self {
+        let registry = Self::new();
+        for skill in skills {
+            registry.register(skill).await;
+        }
+        registry
     }
 }
 
@@ -166,7 +175,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_and_get() {
-        let registry = SkillRegistry::new();
+        let registry = BuiltinSkillRegistry::new();
         let skill = Arc::new(MockSkill::new("test_skill"));
         registry.register(skill).await;
 
@@ -177,14 +186,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_not_found() {
-        let registry = SkillRegistry::new();
+        let registry = BuiltinSkillRegistry::new();
         let found = registry.get("nonexistent").await;
         assert!(found.is_none());
     }
 
     #[tokio::test]
     async fn test_list() {
-        let registry = SkillRegistry::new();
+        let registry = BuiltinSkillRegistry::new();
         registry.register(Arc::new(MockSkill::new("skill_a"))).await;
         registry.register(Arc::new(MockSkill::new("skill_b"))).await;
 
@@ -195,7 +204,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_contains() {
-        let registry = SkillRegistry::new();
+        let registry = BuiltinSkillRegistry::new();
         registry.register(Arc::new(MockSkill::new("exists"))).await;
 
         assert!(registry.contains("exists").await);
@@ -204,7 +213,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unregister() {
-        let registry = SkillRegistry::new();
+        let registry = BuiltinSkillRegistry::new();
         registry
             .register(Arc::new(MockSkill::new("to_remove")))
             .await;
@@ -216,7 +225,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_replaces() {
-        let registry = SkillRegistry::new();
+        let registry = BuiltinSkillRegistry::new();
         registry.register(Arc::new(MockSkill::new("skill"))).await;
         registry.register(Arc::new(MockSkill::new("skill"))).await;
 
@@ -226,7 +235,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_method() {
-        let registry = SkillRegistry::new();
+        let registry = BuiltinSkillRegistry::new();
         registry
             .register(Arc::new(MockSkill::new("exec_skill")))
             .await;
@@ -303,11 +312,43 @@ mod tests {
 
     #[test]
     fn test_registry_default() {
-        let registry = SkillRegistry::default();
+        let registry = BuiltinSkillRegistry::default();
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let names = registry.list().await;
             assert!(names.is_empty());
         });
+    }
+
+    #[tokio::test]
+    async fn test_from_skills_registers_all() {
+        let skills: Vec<Arc<dyn Skill>> = vec![
+            Arc::new(MockSkill::new("alpha")),
+            Arc::new(MockSkill::new("beta")),
+        ];
+        let registry = BuiltinSkillRegistry::from_skills(skills).await;
+        let mut names = registry.list().await;
+        names.sort();
+        assert_eq!(names, vec!["alpha", "beta"]);
+        assert!(registry.contains("alpha").await);
+        assert!(registry.contains("beta").await);
+    }
+
+    #[tokio::test]
+    async fn test_from_skills_empty() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![]).await;
+        assert!(registry.list().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_from_skills_overwrites_duplicates() {
+        let skills: Vec<Arc<dyn Skill>> = vec![
+            Arc::new(MockSkill::new("dup")),
+            Arc::new(MockSkill::new("dup")),
+        ];
+        let registry = BuiltinSkillRegistry::from_skills(skills).await;
+        let names = registry.list().await;
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0], "dup");
     }
 }
