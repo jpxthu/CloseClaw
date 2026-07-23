@@ -33,19 +33,14 @@ impl fmt::Display for SkillSource {
 }
 
 /// Context in which a skill is meant to run.
+///
+/// Skills always execute inline within the current Agent context.
+/// No isolation or sub-agent creation occurs.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SkillContext {
     /// Skill runs inline, without a dedicated agent context.
     #[default]
     Inline,
-    /// Skill runs within a specific agent.
-    Agent {
-        /// Agent identifier.
-        agent_id: String,
-    },
-    /// Skill signals a fork: the caller should execute it in an
-    /// isolated sub-agent rather than inline.
-    Fork,
 }
 
 /// Effort level required to execute a skill.
@@ -80,12 +75,6 @@ pub struct SkillManifest {
     /// Execution context.
     #[serde(default)]
     pub context: SkillContext,
-    /// Agent type required to run this skill.
-    #[serde(default)]
-    pub agent: String,
-    /// Explicit agent id for agent-scoped skills.
-    #[serde(default)]
-    pub agent_id: String,
     /// Estimated effort.
     #[serde(default)]
     pub effort: SkillEffort,
@@ -185,20 +174,6 @@ mod tests {
     }
 
     #[test]
-    fn test_skill_context_agent() {
-        let ctx = SkillContext::Agent {
-            agent_id: "my-agent".to_string(),
-        };
-        assert!(matches!(ctx, SkillContext::Agent { .. }));
-    }
-
-    #[test]
-    fn test_skill_context_fork() {
-        let ctx = SkillContext::Fork;
-        assert!(matches!(ctx, SkillContext::Fork));
-    }
-
-    #[test]
     fn test_skill_effort_default() {
         assert_eq!(SkillEffort::default(), SkillEffort::Unknown);
     }
@@ -211,8 +186,6 @@ mod tests {
             allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::Inline,
-            agent: String::new(),
-            agent_id: String::new(),
             effort: SkillEffort::default(),
             paths: vec![],
             user_invocable: false,

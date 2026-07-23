@@ -15,8 +15,6 @@ fn skill_with_invocable(name: &str, source: SkillSource, user_invocable: bool) -
             allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: String::new(),
             effort: SkillEffort::default(),
             paths: vec![],
             user_invocable,
@@ -36,29 +34,6 @@ fn skill(name: &str, source: SkillSource) -> DiskSkill {
             allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: String::new(),
-            effort: SkillEffort::default(),
-            paths: vec![],
-            user_invocable: true,
-        },
-        readme_path: PathBuf::from(format!("/skills/{}/SKILL.md", name)),
-        skill_dir: PathBuf::from(format!("/skills/{}", name)),
-        body: String::new(),
-    }
-}
-
-fn skill_with_agent_id(name: &str, source: SkillSource, agent_id: &str) -> DiskSkill {
-    DiskSkill {
-        source,
-        manifest: SkillManifest {
-            name: name.into(),
-            description: format!("desc of {}", name),
-            allowed_tools: vec![],
-            when_to_use: String::new(),
-            context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: agent_id.into(),
             effort: SkillEffort::default(),
             paths: vec![],
             user_invocable: true,
@@ -78,8 +53,6 @@ fn skill_with_paths(name: &str, source: SkillSource, paths: Vec<String>) -> Disk
             allowed_tools: vec![],
             when_to_use: String::new(),
             context: SkillContext::default(),
-            agent: String::new(),
-            agent_id: String::new(),
             effort: SkillEffort::default(),
             paths,
             user_invocable: true,
@@ -145,22 +118,18 @@ fn test_user_invocable_false_still_gettable() {
     assert!(!found.unwrap().manifest.user_invocable);
 }
 #[test]
-fn test_user_invocable_false_with_agent_id_cross_filter() {
-    let mut hidden = skill_with_agent_id("hidden_agent", SkillSource::Agent, "agent1");
+fn test_user_invocable_false_with_name_cross_filter() {
+    let mut hidden = skill("hidden_agent", SkillSource::Agent);
     hidden.manifest.user_invocable = false;
     let r = DiskSkillRegistry::new(vec![
         hidden,
-        skill_with_agent_id("visible_agent", SkillSource::Agent, "agent1"),
+        skill("visible_agent", SkillSource::Agent),
         skill("always_visible", SkillSource::Bundled),
     ]);
-    let listing = r.generate_listing(Some("agent1"), None);
+    let listing = r.generate_listing(None, None);
     assert!(listing.contains("**visible_agent**"));
     assert!(listing.contains("**always_visible**"));
     assert!(!listing.contains("**hidden_agent**"));
-    let listing_all = r.generate_listing(None, None);
-    assert!(listing_all.contains("**visible_agent**"));
-    assert!(listing_all.contains("**always_visible**"));
-    assert!(!listing_all.contains("**hidden_agent**"));
 }
 #[test]
 fn test_user_invocable_false_still_findable_by_paths() {
