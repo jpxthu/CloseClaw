@@ -25,7 +25,6 @@ pub mod workdir_context;
 pub use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 pub use registrars::core::CoreToolsRegistrar;
 pub use registrars::plan::PlanToolsRegistrar;
-pub use registrars::session::SessionToolsRegistrar;
 pub use registrars::skills::SkillsToolsRegistrar;
 pub use registry::ToolRegistryImpl;
 pub use tool_types::{ToolError, ToolSummary};

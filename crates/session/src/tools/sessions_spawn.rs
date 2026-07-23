@@ -1,28 +1,22 @@
-//! Built-in sessions_spawn tool — creates child sessions for sub-agents.
+//! sessions_spawn tool — creates child sessions for sub-agents.
 
 use super::prompt_template::PromptTemplate;
-use crate::permission_check::is_session_sub_agent;
-use crate::{SpawnValidator, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
-use closeclaw_gateway::session_manager::{SessionManager, SpawnMode};
-use closeclaw_permission::approval_flow::ApprovalFlow;
-use closeclaw_permission::engine::engine_risk::RiskLevel;
-use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody};
+use super::SessionManagerOps;
+use closeclaw_common::permission_types::{CallerInfo, RiskLevel};
+use closeclaw_common::tool_trait::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use closeclaw_config::spawn_validation::SpawnValidator;
 
 use async_trait::async_trait;
 use closeclaw_agent::AgentConfigLookup;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tokio::sync::Mutex as TokioMutex;
 
 /// Tool that spawns child sessions for sub-agent execution.
-///
-/// Holds trait-object references for spawn-time validation and config lookup,
-/// following the same constructor-injection pattern as [`BashTool`].
 pub struct SessionsSpawnTool {
     spawn_validator: Arc<dyn SpawnValidator>,
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SessionManagerOps>,
     agent_config_lookup: Arc<dyn AgentConfigLookup>,
-    approval_flow: Arc<TokioMutex<ApprovalFlow>>,
+    approval_flow: closeclaw_common::permission_types::SharedApprovalSubmission,
 }
 
 /// Parsed arguments for a `sessions_spawn` tool call.
@@ -31,7 +25,7 @@ pub(crate) struct SpawnArgs {
     agent_id: Option<String>,
     light_context: bool,
     workspace: Option<String>,
-    mode: SpawnMode,
+    mode: crate::spawn::SpawnMode,
     mode_str: String,
     fork: bool,
     pub(crate) allowed_tools: Option<Vec<String>>,
@@ -45,9 +39,9 @@ impl SessionsSpawnTool {
     /// Create a new `SessionsSpawnTool` with the given dependencies.
     pub fn new(
         spawn_validator: Arc<dyn SpawnValidator>,
-        session_manager: Arc<SessionManager>,
+        session_manager: Arc<dyn SessionManagerOps>,
         agent_config_lookup: Arc<dyn AgentConfigLookup>,
-        approval_flow: Arc<TokioMutex<ApprovalFlow>>,
+        approval_flow: closeclaw_common::permission_types::SharedApprovalSubmission,
     ) -> Self {
         Self {
             spawn_validator,
@@ -77,8 +71,8 @@ impl SessionsSpawnTool {
             .map(String::from);
         let mode_str = args.get("mode").and_then(|v| v.as_str()).unwrap_or("run");
         let mode = match mode_str {
-            "session" => SpawnMode::Session,
-            _ => SpawnMode::Run,
+            "session" => crate::spawn::SpawnMode::Session,
+            _ => crate::spawn::SpawnMode::Run,
         };
         let fork = args.get("fork").and_then(|v| v.as_bool()).unwrap_or(false);
         let allowed_tools = args
@@ -116,8 +110,6 @@ impl SessionsSpawnTool {
     }
 
     /// Create a child session for the given config and parameters.
-    ///
-    /// Delegates to [`SessionManager::create_child_session`] with error mapping.
     #[allow(clippy::too_many_arguments)]
     async fn create_child(
         &self,
@@ -127,7 +119,7 @@ impl SessionsSpawnTool {
         task: &str,
         light_context: bool,
         workspace: Option<&str>,
-        mode: SpawnMode,
+        mode: crate::spawn::SpawnMode,
         fork: bool,
         allowed_tools: Option<Vec<String>>,
         model: Option<&str>,
@@ -279,22 +271,30 @@ impl Tool for SessionsSpawnTool {
             .await
         {
             Ok(result) => result,
-            Err(crate::SpawnError::PermissionDenied { agent_id, reason }) => {
-                let caller = Caller {
+            Err(closeclaw_config::spawn_validation::SpawnError::PermissionDenied {
+                agent_id,
+                reason,
+            }) => {
+                let caller = CallerInfo {
                     user_id: String::new(),
                     agent: ctx.agent_id.clone(),
                     creator_id: String::new(),
                 };
-                let body = PermissionRequestBody::InterAgentMsg {
-                    from: ctx.agent_id.clone(),
-                    to: agent_id,
-                };
                 let session_id = ctx.session_id.as_deref().unwrap_or("");
-                let mut flow = self.approval_flow.lock().await;
-                let is_sub_agent = is_session_sub_agent(&self.session_manager, session_id).await;
-                if let Some(request_id) =
-                    flow.submit_denial(&caller, &body, RiskLevel::Medium, session_id, is_sub_agent)
-                {
+                let is_sub_agent = self
+                    .session_manager
+                    .get_session_depth(session_id)
+                    .await
+                    .is_some_and(|depth| depth > 0);
+                let flow = self.approval_flow.lock().await;
+                if let Some(request_id) = flow.submit_inter_agent_denial(
+                    &caller,
+                    &ctx.agent_id,
+                    &agent_id,
+                    RiskLevel::Medium,
+                    session_id,
+                    is_sub_agent,
+                ) {
                     return Ok(ToolResult {
                         data: json!({
                             "status": "approval_pending",
@@ -317,13 +317,9 @@ impl Tool for SessionsSpawnTool {
         let config = spawn_result.config;
         let effective_max_spawn_depth = spawn_result.effective_max_spawn_depth;
         let mut spawn_timeout = spawn_result.spawn_timeout;
-        // Priority chain: spawn args timeout > target agent config > global default.
-        // (design doc §timeout: spawn 参数指定 → 目标 agent 配置 → 全局默认)
         if let Some(arg_timeout) = spawn_args.timeout {
             spawn_timeout = Some(arg_timeout);
         }
-        // Look up the parent agent's subagents.model config
-        // (used as priority level 2 in the model priority chain).
         let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
         let parent_subagents_model: Option<String> = match &parent_agent_id {
             Some(id) => self
@@ -339,8 +335,6 @@ impl Tool for SessionsSpawnTool {
             .get_session_depth(parent_session_id)
             .await
             .unwrap_or(0);
-        // Prompt template prefix goes into the child's system prompt,
-        // not the user message (design doc §9).
         let prompt_template_prefix = spawn_args.prompt_template.as_ref().map(|tpl| tpl.prefix());
 
         let child_session_id = self

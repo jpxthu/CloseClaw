@@ -23,6 +23,7 @@ pub mod permission_check;
 pub mod permission_op;
 #[cfg(test)]
 pub mod permission_op_tests;
+pub mod permission_types;
 pub mod plan_state;
 #[cfg(test)]
 pub mod plan_state_tests;
@@ -122,7 +123,7 @@ pub use system_prompt::{
 };
 // TaskManager, TaskState, BackgroundTask, BackgroundTaskError migrated to closeclaw-tasks
 pub use tool_registry::{
-    RegistryError, ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry,
+    RegistryError, ToolBox, ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry,
     ToolRegistryQuery,
 };
 pub use tool_session::{KillHandle, ToolSession};
