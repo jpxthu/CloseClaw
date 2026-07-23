@@ -326,8 +326,8 @@ impl SessionCheckpoint {
         self
     }
     /// Update the reasoning mode
-    pub fn with_reasoning_mode(mut self, mode: ReasoningMode) -> Self {
-        self.reasoning_mode = mode;
+    pub fn with_reasoning_mode(mut self, reasoning_mode: ReasoningMode) -> Self {
+        self.reasoning_mode = reasoning_mode;
         self
     }
     /// Update the mode state
