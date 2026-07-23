@@ -679,6 +679,8 @@ mod resolve_tests;
 #[cfg(test)]
 mod self_heal_tests;
 #[cfg(test)]
+mod session_helpers_tests;
+#[cfg(test)]
 mod setter_tests;
 #[cfg(test)]
 mod spawn_cascade_tests;
