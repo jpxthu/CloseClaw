@@ -23,7 +23,12 @@ pub(crate) async fn init_skill_hot_reload(
 ) -> anyhow::Result<(Arc<RwLock<Option<DiskSkillRegistry>>>, SkillWatcherHandle)> {
     let bundled_dir = Path::new(config_dir).join("skills");
     let global_dir = derive_global_dir(config_dir);
-    let scan_config = build_scan_config(bundled_dir.clone(), global_dir.clone());
+    let scan_config = build_scan_config(
+        bundled_dir.clone(),
+        global_dir.clone(),
+        Path::new(config_dir),
+        None,
+    );
     let skill_dirs = build_skill_dirs(bundled_dir, global_dir);
 
     // Initialize shared registry state
@@ -92,11 +97,22 @@ fn build_skill_dirs(bundled_dir: PathBuf, global_dir: Option<PathBuf>) -> Vec<Pa
 }
 
 /// Build a [`ScanConfig`] for the given bundled and global directories.
-fn build_scan_config(bundled_dir: PathBuf, global_dir: Option<PathBuf>) -> ScanConfig {
+///
+/// `config_dir` is the root config directory (e.g. `~/.closeclaw`).
+/// `agent_id` is the agent identifier; when provided, `agent_skills_dir`
+/// is derived as `{config_dir}/agents/{agent_id}/skills/`.
+fn build_scan_config(
+    bundled_dir: PathBuf,
+    global_dir: Option<PathBuf>,
+    config_dir: &Path,
+    agent_id: Option<&str>,
+) -> ScanConfig {
+    let agent_skills_dir = agent_id.map(|id| config_dir.join("agents").join(id).join("skills"));
     ScanConfig {
         bundled_dir: Some(bundled_dir),
         global_dir,
         extra_dirs: vec![],
+        agent_skills_dir,
         ..Default::default()
     }
 }
@@ -127,11 +143,20 @@ mod tests {
         let bundled_dir = config_dir.join("skills");
         let global_dir = derive_global_dir(config_dir.to_str().unwrap());
 
-        let scan_config = build_scan_config(bundled_dir.clone(), global_dir.clone());
+        let scan_config = build_scan_config(
+            bundled_dir.clone(),
+            global_dir.clone(),
+            config_dir.as_path(),
+            Some("my-agent"),
+        );
 
         assert_eq!(scan_config.bundled_dir, Some(bundled_dir));
         assert_eq!(scan_config.global_dir, global_dir);
         assert!(scan_config.extra_dirs.is_empty());
+        assert_eq!(
+            scan_config.agent_skills_dir,
+            Some(config_dir.join("agents").join("my-agent").join("skills"))
+        );
     }
 
     #[test]
@@ -157,5 +182,16 @@ mod tests {
     fn test_global_dir_none_when_no_parent() {
         let result = derive_global_dir("/");
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_agent_skills_dir_none_without_agent_id() {
+        let tmp = TempDir::new().unwrap();
+        let config_dir = tmp.path().join("home/user/.closeclaw");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
+        let bundled_dir = config_dir.join("skills");
+        let scan_config = build_scan_config(bundled_dir, None, config_dir.as_path(), None);
+        assert!(scan_config.agent_skills_dir.is_none());
     }
 }

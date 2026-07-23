@@ -118,11 +118,8 @@ mod tests {
             manifest: SkillManifest {
                 name: "test-skill".into(),
                 description: "A test skill".into(),
-                allowed_tools: vec![],
                 when_to_use: "when testing".into(),
                 context: Default::default(),
-                agent: String::new(),
-                agent_id: String::new(),
                 effort: Default::default(),
                 paths: vec![],
                 user_invocable: true,
@@ -151,11 +148,8 @@ mod tests {
                 manifest: SkillManifest {
                     name: "skill-a".into(),
                     description: "Skill A".into(),
-                    allowed_tools: vec![],
                     when_to_use: String::new(),
                     context: Default::default(),
-                    agent: String::new(),
-                    agent_id: "agent1".into(),
                     effort: Default::default(),
                     paths: vec![],
                     user_invocable: true,
@@ -169,11 +163,8 @@ mod tests {
                 manifest: SkillManifest {
                     name: "skill-b".into(),
                     description: "Skill B".into(),
-                    allowed_tools: vec![],
                     when_to_use: String::new(),
                     context: Default::default(),
-                    agent: String::new(),
-                    agent_id: "agent2".into(),
                     effort: Default::default(),
                     paths: vec![],
                     user_invocable: true,
@@ -184,7 +175,7 @@ mod tests {
             },
         ];
         let reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(skills))));
-        let provider = SkillsFragmentProvider::new(reg, None);
+        let provider = SkillsFragmentProvider::new(reg, Some(vec!["skill-a".to_string()]));
         let ctx = FragmentContext {
             agent_id: "agent1".to_string(),
             ..FragmentContext::test_default()

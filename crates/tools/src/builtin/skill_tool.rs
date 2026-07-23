@@ -4,9 +4,7 @@
 //! reading its SKILL.md file, and returning the content as a meta message
 //! to be injected into the agent context.
 
-use crate::{
-    ContextModifier, Tool, ToolCallError, ToolContext, ToolFlags, ToolMessage, ToolResult,
-};
+use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolMessage, ToolResult};
 use closeclaw_skills::disk::DiskSkillRegistry;
 use closeclaw_skills::BuiltinSkillRegistry;
 
@@ -25,7 +23,7 @@ use std::sync::Arc;
 /// [`BuiltinSkillRegistry`].
 ///
 /// - **Disk skill**: injects `skill.body` as a meta message into the
-///   agent context, with `context_modifier` for `allowed_tools`.
+///   agent context.
 /// - **Builtin skill**: calls `execute("invoke", args)` and injects the
 ///   result as a meta message.
 pub struct SkillTool {
@@ -47,21 +45,15 @@ impl SkillTool {
 
     /// Handle a disk-based skill lookup.
     ///
-    /// Injects the skill body as a meta message into the agent context.
+    /// Injects the skill body as a meta message into the agent context,
+    /// after substituting `${SKILL_DIR}` and `${SESSION_ID}` variables.
     async fn call_disk_skill(
         &self,
         skill_name: &str,
         skill: &closeclaw_skills::disk::types::DiskSkill,
+        ctx: &ToolContext,
     ) -> Result<ToolResult, ToolCallError> {
-        let body = skill.body.clone();
-
-        let context_modifier = if skill.manifest.allowed_tools.is_empty() {
-            None
-        } else {
-            Some(ContextModifier {
-                allowed_tools: skill.manifest.allowed_tools.clone(),
-            })
-        };
+        let body = Self::substitute_variables(&skill.body, skill, ctx);
 
         Ok(ToolResult {
             data: serde_json::json!({
@@ -73,8 +65,30 @@ impl SkillTool {
                 content: body,
                 is_meta: true,
             }],
-            context_modifier,
+            context_modifier: None,
         })
+    }
+
+    /// Replace `${SKILL_DIR}` and `${SESSION_ID}` placeholders in the skill body.
+    ///
+    /// - `${SKILL_DIR}` → absolute path to the skill directory
+    /// - `${SESSION_ID}` → current session ID from ToolContext
+    /// - Unrecognized `${...}` patterns remain unchanged
+    fn substitute_variables(
+        body: &str,
+        skill: &closeclaw_skills::disk::types::DiskSkill,
+        ctx: &ToolContext,
+    ) -> String {
+        let mut result = body.to_string();
+
+        let skill_dir_str = skill.skill_dir.to_string_lossy().to_string();
+        result = result.replace("${SKILL_DIR}", &skill_dir_str);
+
+        if let Some(ref session_id) = ctx.session_id {
+            result = result.replace("${SESSION_ID}", session_id);
+        }
+
+        result
     }
 
     /// Handle a builtin skill lookup.
@@ -156,7 +170,7 @@ impl Tool for SkillTool {
         }
     }
 
-    async fn call(&self, args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
+    async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         // Extract skill_name from args
         let skill_name = args
             .get("skill_name")
@@ -166,7 +180,7 @@ impl Tool for SkillTool {
 
         // --- Unified routing: Disk first, Builtin fallback ---
         if let Some(skill) = self.registry.get(&skill_name) {
-            return self.call_disk_skill(&skill_name, skill).await;
+            return self.call_disk_skill(&skill_name, skill, ctx).await;
         }
 
         // Fallback: Builtin skill registry
@@ -189,17 +203,12 @@ mod tests {
     use std::sync::Arc;
 
     #[allow(dead_code)]
-    fn make_skill(
-        name: &str,
-        allowed_tools: Vec<String>,
-        readme_path: std::path::PathBuf,
-    ) -> DiskSkill {
+    fn make_skill(name: &str, readme_path: std::path::PathBuf) -> DiskSkill {
         DiskSkill {
             source: SkillSource::Bundled,
             manifest: SkillManifest {
                 name: name.into(),
                 description: format!("A test skill named {}", name),
-                allowed_tools,
                 when_to_use: String::new(),
                 context: SkillContext::Inline,
                 effort: SkillEffort::Small,
@@ -212,11 +221,33 @@ mod tests {
         }
     }
 
+    fn make_skill_with_body(name: &str, body: &str, skill_dir: std::path::PathBuf) -> DiskSkill {
+        DiskSkill {
+            source: SkillSource::Bundled,
+            manifest: SkillManifest {
+                name: name.into(),
+                description: format!("A test skill named {}", name),
+                when_to_use: String::new(),
+                context: SkillContext::Inline,
+                effort: SkillEffort::Small,
+                paths: vec![],
+                user_invocable: false,
+            },
+            readme_path: std::path::PathBuf::new(),
+            skill_dir,
+            body: body.to_string(),
+        }
+    }
+
     fn new_ctx() -> ToolContext {
+        new_ctx_with_session(None)
+    }
+
+    fn new_ctx_with_session(session_id: Option<String>) -> ToolContext {
         ToolContext {
             agent_id: "test-agent".to_string(),
             workdir: None,
-            session_id: None,
+            session_id,
             call_id: None,
             session: None,
             session_mode: None,
@@ -313,7 +344,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_disk_priority_over_builtin() {
-        let disk_skill = make_skill("shared", vec![], std::path::PathBuf::from("/tmp/test"));
+        let disk_skill = make_skill("shared", std::path::PathBuf::from("/tmp/test"));
         let disk = Arc::new(DiskSkillRegistry::new(vec![disk_skill]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         builtin
@@ -326,7 +357,90 @@ mod tests {
             .unwrap();
         // Disk skill returns execution_mode "inline" from SkillContext::Inline
         assert_eq!(result.data["execution_mode"], "inline");
-        // Disk skill has no allowed_tools → no context_modifier
+        // Disk skill has no context_modifier (skills don't carry tool permissions)
         assert!(result.context_modifier.is_none());
+    }
+
+    // -----------------------------------------------------------------
+    // Variable substitution tests
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn test_substitute_skill_dir() {
+        let skill = make_skill_with_body(
+            "test",
+            "Read files in ${SKILL_DIR}",
+            std::path::PathBuf::from("/home/user/.closeclaw/skills/my-skill"),
+        );
+        let ctx = new_ctx();
+        let result = SkillTool::substitute_variables(&skill.body, &skill, &ctx);
+        assert_eq!(
+            result,
+            "Read files in /home/user/.closeclaw/skills/my-skill"
+        );
+    }
+
+    #[test]
+    fn test_substitute_session_id() {
+        let skill = make_skill_with_body(
+            "test",
+            "Session: ${SESSION_ID}",
+            std::path::PathBuf::from("/tmp/skill"),
+        );
+        let ctx = new_ctx_with_session(Some("sess-abc-123".to_string()));
+        let result = SkillTool::substitute_variables(&skill.body, &skill, &ctx);
+        assert_eq!(result, "Session: sess-abc-123");
+    }
+
+    #[test]
+    fn test_substitute_unknown_variable_preserved() {
+        let skill = make_skill_with_body(
+            "test",
+            "Hello ${UNKNOWN_VAR}",
+            std::path::PathBuf::from("/tmp/skill"),
+        );
+        let ctx = new_ctx();
+        let result = SkillTool::substitute_variables(&skill.body, &skill, &ctx);
+        assert_eq!(result, "Hello ${UNKNOWN_VAR}");
+    }
+
+    #[test]
+    fn test_substitute_no_variables() {
+        let skill = make_skill_with_body(
+            "test",
+            "Plain text without variables",
+            std::path::PathBuf::from("/tmp/skill"),
+        );
+        let ctx = new_ctx();
+        let result = SkillTool::substitute_variables(&skill.body, &skill, &ctx);
+        assert_eq!(result, "Plain text without variables");
+    }
+
+    #[test]
+    fn test_substitute_mixed_known_and_unknown() {
+        let skill = make_skill_with_body(
+            "test",
+            "Dir: ${SKILL_DIR}, Session: ${SESSION_ID}, Unknown: ${FOO}",
+            std::path::PathBuf::from("/tmp/my-skill"),
+        );
+        let ctx = new_ctx_with_session(Some("s-999".to_string()));
+        let result = SkillTool::substitute_variables(&skill.body, &skill, &ctx);
+        assert_eq!(
+            result,
+            "Dir: /tmp/my-skill, Session: s-999, Unknown: ${FOO}"
+        );
+    }
+
+    #[test]
+    fn test_substitute_session_id_none() {
+        let skill = make_skill_with_body(
+            "test",
+            "Session: ${SESSION_ID}",
+            std::path::PathBuf::from("/tmp/skill"),
+        );
+        let ctx = new_ctx_with_session(None);
+        let result = SkillTool::substitute_variables(&skill.body, &skill, &ctx);
+        // session_id is None → placeholder remains unchanged
+        assert_eq!(result, "Session: ${SESSION_ID}");
     }
 }
