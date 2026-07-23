@@ -175,7 +175,7 @@ mod tests {
             },
         ];
         let reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(skills))));
-        let provider = SkillsFragmentProvider::new(reg, None);
+        let provider = SkillsFragmentProvider::new(reg, Some(vec!["skill-a".to_string()]));
         let ctx = FragmentContext {
             agent_id: "agent1".to_string(),
             ..FragmentContext::test_default()

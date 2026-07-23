@@ -211,4 +211,127 @@ mod tests {
         assert_eq!(result.data["execution_mode"], "inline");
         assert!(result.context_modifier.is_none());
     }
+
+    // -----------------------------------------------------------------
+    // Variable substitution integration tests (via call())
+    // -----------------------------------------------------------------
+
+    fn make_skill_with_body(name: &str, body: &str, skill_dir: std::path::PathBuf) -> DiskSkill {
+        DiskSkill {
+            source: SkillSource::Bundled,
+            manifest: SkillManifest {
+                name: name.into(),
+                description: format!("A test skill named {}", name),
+                when_to_use: String::new(),
+                context: SkillContext::Inline,
+                effort: SkillEffort::Small,
+                paths: vec![],
+                user_invocable: false,
+            },
+            readme_path: std::path::PathBuf::new(),
+            skill_dir,
+            body: body.to_string(),
+        }
+    }
+
+    fn new_ctx_with_session(session_id: Option<String>) -> ToolContext {
+        ToolContext {
+            agent_id: "test-agent".to_string(),
+            workdir: None,
+            session_id,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_call_substitutes_skill_dir() {
+        let skill = make_skill_with_body(
+            "test",
+            "Read files in ${SKILL_DIR}",
+            std::path::PathBuf::from("/home/user/.closeclaw/skills/my-skill"),
+        );
+        let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let result = tool
+            .call(serde_json::json!({"skill_name": "test"}), &new_ctx())
+            .await
+            .unwrap();
+        assert_eq!(
+            result.new_messages[0].content,
+            "Read files in /home/user/.closeclaw/skills/my-skill"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_call_substitutes_session_id() {
+        let skill = make_skill_with_body(
+            "test",
+            "Session: ${SESSION_ID}",
+            std::path::PathBuf::from("/tmp/skill"),
+        );
+        let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let ctx = new_ctx_with_session(Some("sess-abc-123".to_string()));
+        let result = tool
+            .call(serde_json::json!({"skill_name": "test"}), &ctx)
+            .await
+            .unwrap();
+        assert_eq!(result.new_messages[0].content, "Session: sess-abc-123");
+    }
+
+    #[tokio::test]
+    async fn test_call_preserves_unknown_variables() {
+        let skill = make_skill_with_body(
+            "test",
+            "Hello ${UNKNOWN_VAR}",
+            std::path::PathBuf::from("/tmp/skill"),
+        );
+        let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let result = tool
+            .call(serde_json::json!({"skill_name": "test"}), &new_ctx())
+            .await
+            .unwrap();
+        assert_eq!(result.new_messages[0].content, "Hello ${UNKNOWN_VAR}");
+    }
+
+    #[tokio::test]
+    async fn test_call_substitute_mixed_known_and_unknown() {
+        let skill = make_skill_with_body(
+            "test",
+            "Dir: ${SKILL_DIR}, Session: ${SESSION_ID}, Unknown: ${FOO}",
+            std::path::PathBuf::from("/tmp/my-skill"),
+        );
+        let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let ctx = new_ctx_with_session(Some("s-999".to_string()));
+        let result = tool
+            .call(serde_json::json!({"skill_name": "test"}), &ctx)
+            .await
+            .unwrap();
+        assert_eq!(
+            result.new_messages[0].content,
+            "Dir: /tmp/my-skill, Session: s-999, Unknown: ${FOO}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_call_no_context_modifier_for_disk_skill() {
+        let skill = make_skill_with_body(
+            "test",
+            "No modifier",
+            std::path::PathBuf::from("/tmp/skill"),
+        );
+        let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let result = tool
+            .call(serde_json::json!({"skill_name": "test"}), &new_ctx())
+            .await
+            .unwrap();
+        assert!(result.context_modifier.is_none());
+        assert!(result.new_messages[0].is_meta);
+    }
 }
