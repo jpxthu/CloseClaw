@@ -488,6 +488,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/session/working-directory.md",
+    "commit": "e2dc9aeb19fa2419a2a06b0eff021c8b57325d01",
+    "commit_time": "2026-07-23T08:40:17+08:00",
+    "confirmed_time": "2026-07-23T08:54:06.648933+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/system_prompt/appends.md",
     "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
     "commit_time": "2026-07-07T01:07:02+08:00",
