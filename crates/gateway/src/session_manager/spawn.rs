@@ -325,9 +325,11 @@ impl SessionManager {
             .with_depth(depth)
             .with_effective_max_spawn_depth(Some(max_spawn_depth))
             .with_spawn_mode(mode_str);
-        if let Some(label) = label {
-            cp = cp.with_label(label.to_string());
-        }
+        let effective_label = match label {
+            Some(l) => l.to_string(),
+            None => default_spawn_label(),
+        };
+        cp = cp.with_label(effective_label);
         // Persist communication config so routing restrictions survive restart.
         // Use the config from creation (single source of truth, avoids drift).
         cp = cp.with_communication_config(created.communication_config);
@@ -640,4 +642,17 @@ impl SessionManager {
         tracing::info!(rebuilt, "spawn_tree rebuilt from checkpoints");
         Ok(())
     }
+}
+
+/// Generate a default label for a child session.
+///
+/// Format: `"spawn-{nanosecond_timestamp}"` where the timestamp is the
+/// current time in nanoseconds since Unix epoch. The nanosecond precision
+/// ensures uniqueness for rapid successive spawns.
+pub(crate) fn default_spawn_label() -> String {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system time should be after epoch")
+        .as_nanos();
+    format!("spawn-{}", ts)
 }
