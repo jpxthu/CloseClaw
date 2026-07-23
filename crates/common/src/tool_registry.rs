@@ -8,6 +8,14 @@ use async_trait::async_trait;
 use serde_json::Value;
 use thiserror::Error;
 
+use crate::tool_trait::Tool;
+
+/// Wrapper to bridge [`Tool`] with [`std::any::Any`] for type-erased registration.
+///
+/// Used by [`register_single`] and the tools crate's [`ToolRegistry`]
+/// to convert concrete tool types into `Box<dyn Any + Send + Sync>`.
+pub struct ToolBox(pub std::sync::Arc<dyn Tool>);
+
 /// Error type for tool registry operations.
 ///
 /// Distinguished from [`ToolRegistrarError`] which covers registrar-level
@@ -191,4 +199,68 @@ pub trait ToolRegistryQuery: Send + Sync {
 
     /// Get the JSON Schema for a tool's input parameters.
     async fn get_tool_schema(&self, name: &str) -> Option<Value>;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Registration helpers
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Register a single tool, converting [`RegistryError`] into [`ToolRegistrarError`].
+pub async fn register_tool(
+    registry: &dyn ToolRegistry,
+    tool: impl Tool + 'static,
+    registrar_name: &str,
+) -> Result<(), ToolRegistrarError> {
+    let boxed: Box<dyn std::any::Any + Send + Sync> = Box::new(ToolBox(std::sync::Arc::new(tool)));
+    registry
+        .register_any(boxed, registrar_name)
+        .await
+        .map_err(|e| match e {
+            RegistryError::Conflict {
+                tool,
+                registrar,
+                attempting,
+            } => ToolRegistrarError::Conflict {
+                tool,
+                registrar,
+                attempting,
+            },
+            RegistryError::AlreadyRegistered(name) => ToolRegistrarError::Conflict {
+                tool: name,
+                registrar: String::new(),
+                attempting: registrar_name.to_string(),
+            },
+            other => ToolRegistrarError::Internal(other.to_string()),
+        })
+}
+
+/// Register a single tool, logging `Internal` errors as warnings.
+///
+/// Returns `Ok(true)` on success, `Ok(false)` on recoverable error,
+/// or `Err` on conflict.
+pub async fn register_single(
+    registry: &dyn ToolRegistry,
+    name: String,
+    tool: impl Tool + 'static,
+    registrar_name: &str,
+) -> Result<bool, ToolRegistrarError> {
+    match register_tool(registry, tool, registrar_name).await {
+        Ok(()) => Ok(true),
+        Err(ToolRegistrarError::Conflict {
+            tool: conflicting,
+            registrar,
+            attempting,
+        }) => Err(ToolRegistrarError::Conflict {
+            tool: conflicting,
+            registrar,
+            attempting,
+        }),
+        Err(ToolRegistrarError::Internal(e)) => {
+            tracing::warn!(
+                "{registrar_name}: failed to register \
+                 tool `{name}`: {e}"
+            );
+            Ok(false)
+        }
+    }
 }

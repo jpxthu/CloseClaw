@@ -33,6 +33,7 @@ pub mod communication;
 mod compaction_helpers;
 mod consistency_check;
 mod key_registry;
+mod ops_impl;
 mod recovery_injection;
 pub mod register_tools;
 mod resolve;

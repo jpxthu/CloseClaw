@@ -21,6 +21,7 @@ pub mod recovery;
 pub mod run_health;
 pub mod spawn;
 pub mod storage;
+pub mod tools;
 pub mod workspace;
 
 #[cfg(test)]

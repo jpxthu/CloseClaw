@@ -11,6 +11,7 @@ pub mod registries;
 pub mod shutdown;
 pub mod skill_reload;
 pub mod startup;
+pub mod trait_adapters;
 use crate::startup::{all_component_entries, topo_sort_layers, StartupError};
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
 use closeclaw_common::NoopMetricsEmitter;

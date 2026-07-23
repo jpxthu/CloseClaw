@@ -16,10 +16,6 @@ pub mod permission;
 pub mod progress;
 pub mod prompt_template;
 pub mod search;
-pub mod sessions_kill;
-pub mod sessions_spawn;
-pub mod sessions_steer;
-pub mod sessions_yield;
 pub mod skill_creator;
 pub mod skill_tool;
 
@@ -31,10 +27,6 @@ pub use git_ops::{GitCommitTool, GitLogTool, GitPullTool, GitPushTool, GitStatus
 pub use permission::PermissionQueryTool;
 pub use progress::ProgressTool;
 pub use search::ToolSearchTool;
-pub use sessions_kill::SessionsKillTool;
-pub use sessions_spawn::SessionsSpawnTool;
-pub use sessions_steer::SessionsSteerTool;
-pub use sessions_yield::SessionsYieldTool;
 pub use skill_creator::SkillCreatorTool;
 pub use skill_tool::SkillTool;
 
@@ -49,31 +41,3 @@ mod progress_tests;
 
 #[cfg(test)]
 mod skill_tool_tests;
-
-#[cfg(test)]
-#[path = "sessions_spawn_tests.rs"]
-mod sessions_spawn_tests;
-
-#[cfg(test)]
-#[path = "sessions_spawn_permission_tests.rs"]
-mod sessions_spawn_permission_tests;
-
-#[cfg(test)]
-#[path = "sessions_steer_kill_tests.rs"]
-mod sessions_steer_kill_tests;
-
-#[cfg(test)]
-#[path = "bash_approval_tests.rs"]
-mod bash_approval_tests;
-
-#[cfg(test)]
-#[path = "sessions_kill_approval_tests.rs"]
-mod sessions_kill_approval_tests;
-
-#[cfg(test)]
-#[path = "sessions_steer_approval_tests.rs"]
-mod sessions_steer_approval_tests;
-
-#[cfg(test)]
-#[path = "sessions_spawn_approval_tests.rs"]
-mod sessions_spawn_approval_tests;

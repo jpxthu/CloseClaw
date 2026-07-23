@@ -7,13 +7,10 @@ use std::sync::{Arc, OnceLock};
 
 use crate::{PromptGenerationContext, Tool, ToolContext, ToolError, ToolSummary};
 use closeclaw_common::session_mode::SessionMode;
-use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
+use closeclaw_common::tool_registry::{ToolBox, ToolRegistrar, ToolRegistrarError};
 
 // Re-export for tests that `use super::*`
 pub use ToolRegistryImpl as ToolRegistry;
-
-/// Wrapper to bridge [`Tool`] with [`std::any::Any`] for type-erased registration.
-pub(crate) struct ToolBox(pub Arc<dyn Tool>);
 
 use closeclaw_agent::AgentToolsConfigQuery;
 use serde_json::Value;
