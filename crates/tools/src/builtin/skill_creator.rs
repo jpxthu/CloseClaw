@@ -125,10 +125,10 @@ pub(crate) fn edit_skill_md(
     };
 
     let after_fm = &trimmed[fm_end..];
-    let after_fm = if after_fm.starts_with("\r\n") {
-        &after_fm[2..]
-    } else if after_fm.starts_with('\n') {
-        &after_fm[1..]
+    let after_fm = if let Some(rest) = after_fm.strip_prefix("\r\n") {
+        rest
+    } else if let Some(rest) = after_fm.strip_prefix('\n') {
+        rest
     } else {
         after_fm
     };
