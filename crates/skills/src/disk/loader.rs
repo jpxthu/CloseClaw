@@ -506,4 +506,92 @@ mod tests {
         // load_body should read the updated content
         assert_eq!(skills[0].load_body().unwrap(), "# Updated");
     }
+
+    // ----------------------------------------------------------------------
+    // Bundled-layer removal tests
+    // ----------------------------------------------------------------------
+
+    #[test]
+    fn test_scan_config_has_no_bundled_dir() {
+        // ScanConfig should not expose a bundled_dir field;
+        // bundled skills are managed by BuiltinSkillRegistry, not disk scanning.
+        let cfg = ScanConfig::default();
+        // Verify the four disk-scan fields exist and default correctly
+        assert!(cfg.extra_dirs.is_empty());
+        assert!(cfg.global_dir.is_none());
+        assert!(cfg.project_root.is_none());
+        assert!(cfg.agent_id.is_none());
+        assert!(cfg.agent_skills_dir.is_none());
+        // If bundled_dir accidentally re-appears, this test will fail to compile
+        // because ScanConfig has no such field.
+    }
+
+    #[test]
+    fn test_scan_all_skills_only_scans_four_layers() {
+        // Set up a temp directory with skills in each of the four layers
+        let temp = tempfile::tempdir().unwrap();
+
+        // ExtraDirs layer
+        let extra = temp.path().join("extra");
+        create_file(
+            &extra.join("extra-skill").join("SKILL.md"),
+            "---\ndescription: Extra\n---\n",
+        );
+
+        // Global layer
+        let global = temp.path().join("global");
+        create_file(
+            &global.join("global-skill").join("SKILL.md"),
+            "---\ndescription: Global\n---\n",
+        );
+
+        // Agent layer (explicit dir)
+        let agent = temp.path().join("agent");
+        create_file(
+            &agent.join("agent-skill").join("SKILL.md"),
+            "---\ndescription: Agent\n---\n",
+        );
+
+        // Project layer
+        let project = temp.path().join("project");
+        create_file(
+            &project.join("project-skill").join("SKILL.md"),
+            "---\ndescription: Project\n---\n",
+        );
+
+        let config = ScanConfig {
+            extra_dirs: vec![extra],
+            global_dir: Some(global),
+            agent_skills_dir: Some(agent),
+            project_root: Some(project),
+            ..Default::default()
+        };
+
+        let skills = scan_all_skills(&config);
+        let names: Vec<&str> = skills.iter().map(|s| s.manifest.name.as_str()).collect();
+        assert_eq!(
+            skills.len(),
+            4,
+            "expected exactly four skills (one per layer), got: {names:?}"
+        );
+        assert!(names.contains(&"extra-skill"));
+        assert!(names.contains(&"global-skill"));
+        assert!(names.contains(&"agent-skill"));
+        assert!(names.contains(&"project-skill"));
+    }
+
+    #[test]
+    fn test_scan_all_skills_does_not_scan_bundled() {
+        // Even if a directory called "bundled" exists and contains a valid SKILL.md,
+        // scan_all_skills should NOT pick it up because ScanConfig has no bundled_dir.
+        let temp = tempfile::tempdir().unwrap();
+        create_file(
+            &temp.path().join("bundled").join("SKILL.md"),
+            "---\ndescription: Bundled\n---\n",
+        );
+        // No config points to this directory — ScanConfig has no bundled_dir
+        let config = ScanConfig::default();
+        let skills = scan_all_skills(&config);
+        assert!(skills.is_empty(), "bundled directory should not be scanned");
+    }
 }

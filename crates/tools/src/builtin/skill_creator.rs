@@ -361,4 +361,253 @@ mod tests {
         assert_eq!(optional_str(&args, "b"), None);
         assert_eq!(optional_str(&args, "missing"), None);
     }
+
+    // ------------------------------------------------------------------
+    // call() integration tests
+    // ------------------------------------------------------------------
+
+    fn make_ctx() -> ToolContext {
+        ToolContext {
+            agent_id: "test-agent".into(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+        }
+    }
+
+    fn make_ctx_with_workdir(path: &std::path::Path) -> ToolContext {
+        ToolContext {
+            agent_id: "test-agent".into(),
+            workdir: Some(crate::WorkdirContext {
+                path: path.to_string_lossy().into(),
+                has_git: false,
+                branch: None,
+                recent_changes: 0,
+            }),
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_call_create_normal() {
+        let tool = SkillCreatorTool::new();
+        let temp = tempfile::tempdir().unwrap();
+        let ctx = make_ctx_with_workdir(temp.path());
+        let args = serde_json::json!({
+            "action": "create",
+            "name": "my-skill",
+            "description": "A test skill",
+            "body": "# Instructions\nDo things.",
+        });
+        let result = tool.call(args, &ctx).await.unwrap();
+        assert_eq!(result.data["status"], "created");
+        assert_eq!(result.data["name"], "my-skill");
+        let path = std::path::PathBuf::from(result.data["path"].as_str().unwrap());
+        assert!(path.exists());
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("description: \"A test skill\""));
+        assert!(content.contains("# Instructions"));
+    }
+
+    #[tokio::test]
+    async fn test_call_create_duplicate_name() {
+        let tool = SkillCreatorTool::new();
+        let temp = tempfile::tempdir().unwrap();
+        let ctx = make_ctx_with_workdir(temp.path());
+        let args = serde_json::json!({
+            "action": "create",
+            "name": "dup-skill",
+            "description": "First",
+        });
+        // First call succeeds
+        let _ = tool.call(args.clone(), &ctx).await.unwrap();
+        // Second call with same name succeeds (overwrites)
+        let result = tool.call(args, &ctx).await.unwrap();
+        assert_eq!(result.data["status"], "created");
+    }
+
+    #[tokio::test]
+    async fn test_call_create_missing_name() {
+        let tool = SkillCreatorTool::new();
+        let ctx = make_ctx();
+        let args = serde_json::json!({
+            "action": "create",
+            "description": "Missing name",
+        });
+        let err = tool.call(args, &ctx).await.unwrap_err();
+        match err {
+            ToolCallError::InvalidArgs(msg) => {
+                assert!(msg.contains("missing required parameter: name"))
+            }
+            other => panic!("expected InvalidArgs, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_call_create_missing_description() {
+        let tool = SkillCreatorTool::new();
+        let ctx = make_ctx();
+        let args = serde_json::json!({
+            "action": "create",
+            "name": "no-desc",
+        });
+        let err = tool.call(args, &ctx).await.unwrap_err();
+        match err {
+            ToolCallError::InvalidArgs(msg) => {
+                assert!(msg.contains("missing required parameter: description"))
+            }
+            other => panic!("expected InvalidArgs, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_call_create_invalid_name_chars() {
+        let tool = SkillCreatorTool::new();
+        let ctx = make_ctx();
+        let args = serde_json::json!({
+            "action": "create",
+            "name": "has space!",
+            "description": "Invalid name",
+        });
+        let err = tool.call(args, &ctx).await.unwrap_err();
+        match err {
+            ToolCallError::InvalidArgs(msg) => assert!(msg.contains("invalid skill name")),
+            other => panic!("expected InvalidArgs, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_call_create_invalid_directory() {
+        let tool = SkillCreatorTool::new();
+        let ctx = make_ctx();
+        let args = serde_json::json!({
+            "action": "create",
+            "name": "fail-skill",
+            "description": "Will fail",
+            "skills_dir": "/nonexistent/deeply/nested/path",
+        });
+        let err = tool.call(args, &ctx).await.unwrap_err();
+        match err {
+            ToolCallError::ExecutionFailed(msg) => {
+                assert!(msg.contains("failed to create directory"))
+            }
+            other => panic!("expected ExecutionFailed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_call_validate_valid() {
+        let tool = SkillCreatorTool::new();
+        let ctx = make_ctx();
+        let args = serde_json::json!({
+            "action": "validate",
+            "content": "---\ndescription: \"Hello\"\n---\n\nDo stuff.",
+        });
+        let result = tool.call(args, &ctx).await.unwrap();
+        assert_eq!(result.data["valid"], true);
+    }
+
+    #[tokio::test]
+    async fn test_call_validate_no_frontmatter() {
+        let tool = SkillCreatorTool::new();
+        let ctx = make_ctx();
+        let args = serde_json::json!({
+            "action": "validate",
+            "content": "Just plain text",
+        });
+        let result = tool.call(args, &ctx).await.unwrap();
+        assert_eq!(result.data["valid"], false);
+        assert!(result.data["reason"]
+            .as_str()
+            .unwrap()
+            .contains("missing frontmatter"));
+    }
+
+    #[tokio::test]
+    async fn test_call_validate_missing_description() {
+        let tool = SkillCreatorTool::new();
+        let ctx = make_ctx();
+        let args = serde_json::json!({
+            "action": "validate",
+            "content": "---\ntitle: \"No desc\"\n---\nBody.",
+        });
+        let result = tool.call(args, &ctx).await.unwrap();
+        assert_eq!(result.data["valid"], false);
+        assert!(result.data["reason"]
+            .as_str()
+            .unwrap()
+            .contains("missing required field `description`"));
+    }
+
+    #[tokio::test]
+    async fn test_call_validate_pure_text() {
+        let tool = SkillCreatorTool::new();
+        let ctx = make_ctx();
+        let args = serde_json::json!({
+            "action": "validate",
+            "content": "This is just plain text without any frontmatter markers",
+        });
+        let result = tool.call(args, &ctx).await.unwrap();
+        assert_eq!(result.data["valid"], false);
+    }
+
+    #[tokio::test]
+    async fn test_call_validate_missing_content() {
+        let tool = SkillCreatorTool::new();
+        let ctx = make_ctx();
+        let args = serde_json::json!({
+            "action": "validate",
+        });
+        let err = tool.call(args, &ctx).await.unwrap_err();
+        match err {
+            ToolCallError::InvalidArgs(msg) => {
+                assert!(msg.contains("missing required parameter: content"))
+            }
+            other => panic!("expected InvalidArgs, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_call_unknown_action() {
+        let tool = SkillCreatorTool::new();
+        let ctx = make_ctx();
+        let args = serde_json::json!({
+            "action": "delete",
+        });
+        let err = tool.call(args, &ctx).await.unwrap_err();
+        match err {
+            ToolCallError::InvalidArgs(msg) => assert!(msg.contains("unknown action")),
+            other => panic!("expected InvalidArgs, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_input_schema_valid_json() {
+        let tool = SkillCreatorTool::new();
+        let schema = tool.input_schema();
+        // Schema should be a valid JSON object
+        assert!(schema.is_object());
+        // Should have type: object
+        assert_eq!(schema["type"], "object");
+        // Should have properties
+        assert!(schema.pointer("/properties").is_some());
+        // Should have required array with "action"
+        let required = schema.pointer("/required").unwrap().as_array().unwrap();
+        assert!(required.contains(&serde_json::json!("action")));
+        // All expected properties should be present
+        let props = schema.pointer("/properties").unwrap().as_object().unwrap();
+        assert!(props.contains_key("action"));
+        assert!(props.contains_key("name"));
+        assert!(props.contains_key("description"));
+        assert!(props.contains_key("body"));
+        assert!(props.contains_key("skills_dir"));
+        assert!(props.contains_key("content"));
+    }
 }
