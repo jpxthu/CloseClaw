@@ -161,8 +161,6 @@ pub enum ParseError {
 /// Configuration for the skill directory scanner.
 #[derive(Debug, Clone, Default)]
 pub struct ScanConfig {
-    /// Directory containing bundled skills.
-    pub bundled_dir: Option<std::path::PathBuf>,
     /// Additional directories to scan.
     pub extra_dirs: Vec<std::path::PathBuf>,
     /// Global skills directory.
@@ -242,7 +240,6 @@ mod tests {
     #[test]
     fn test_scan_config_default() {
         let cfg = ScanConfig::default();
-        assert!(cfg.bundled_dir.is_none());
         assert!(cfg.extra_dirs.is_empty());
         assert!(cfg.global_dir.is_none());
         assert!(cfg.project_root.is_none());
