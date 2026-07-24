@@ -351,4 +351,67 @@ mod tests {
         assert!(result.context_modifier.is_none());
         assert!(result.new_messages[0].is_meta);
     }
+
+    // -----------------------------------------------------------------
+    // load_body failure → ExecutionFailed
+    // -----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_call_disk_skill_load_body_failure() {
+        // Create a DiskSkill whose readme_path does not exist on disk.
+        let nonexistent = std::path::PathBuf::from(format!(
+            "/tmp/nonexistent-skill-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let skill = DiskSkill {
+            source: SkillSource::Bundled,
+            manifest: SkillManifest {
+                name: "broken".into(),
+                description: "A broken skill".into(),
+                when_to_use: String::new(),
+                context: SkillContext::Inline,
+                effort: SkillEffort::Small,
+                paths: vec![],
+                user_invocable: false,
+            },
+            readme_path: nonexistent.join("SKILL.md"),
+            skill_dir: nonexistent,
+        };
+        let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let result = tool
+            .call(serde_json::json!({"skill_name": "broken"}), &new_ctx())
+            .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        match err {
+            ToolCallError::ExecutionFailed(msg) => {
+                assert!(msg.contains("failed to load skill body"));
+            }
+            other => panic!("expected ExecutionFailed, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_call_disk_skill_load_body_with_special_chars() {
+        let temp = TempDir::new().unwrap();
+        let readme_path = temp.path().join("SKILL.md");
+        let content = "---\ndescription: Emoji skill\n---\n\n# Hello 🌍\n\nLine with \"quotes\" and <html> tags.\n";
+        std::fs::write(&readme_path, content).unwrap();
+        let skill = make_skill("emoji", readme_path);
+        let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let result = tool
+            .call(serde_json::json!({"skill_name": "emoji"}), &new_ctx())
+            .await
+            .unwrap();
+        let body = &result.new_messages[0].content;
+        assert!(body.contains("🌍"));
+        assert!(body.contains('"')); // quotes preserved
+        assert!(body.contains("<html>"));
+    }
 }

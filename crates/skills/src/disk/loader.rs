@@ -432,4 +432,80 @@ mod tests {
             "# Step 1\nDo A.\n\n# Step 2\nDo B."
         );
     }
+
+    #[test]
+    fn test_load_body_file_not_found() {
+        use super::super::types::{
+            DiskSkill, SkillContext, SkillEffort, SkillManifest, SkillSource,
+        };
+        let nonexistent = std::path::PathBuf::from(format!(
+            "/tmp/nonexistent-skill-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let skill = DiskSkill {
+            source: SkillSource::Bundled,
+            manifest: SkillManifest {
+                name: "missing".into(),
+                description: "missing skill".into(),
+                when_to_use: String::new(),
+                context: SkillContext::Inline,
+                effort: SkillEffort::Small,
+                paths: vec![],
+                user_invocable: false,
+            },
+            readme_path: nonexistent.join("SKILL.md"),
+            skill_dir: nonexistent,
+        };
+        let err = skill.load_body().unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn test_load_body_special_characters() {
+        let temp = tempfile::tempdir().unwrap();
+        create_file(
+            &temp.path().join("special").join("SKILL.md"),
+            "---\ndescription: Special\n---\n\n# Hello 🌍\n\nLine with \"quotes\" and <html> &amp; entities.\n",
+        );
+
+        let config = ScanConfig {
+            bundled_dir: Some(temp.path().to_path_buf()),
+            ..Default::default()
+        };
+        let skills = scan_all_skills(&config);
+        assert_eq!(skills.len(), 1);
+        let body = skills[0].load_body().unwrap();
+        assert!(body.contains("🌍"));
+        assert!(body.contains('"')); // quotes preserved
+        assert!(body.contains("<html>") || body.contains("&amp;"));
+    }
+
+    #[test]
+    fn test_load_body_rereads_after_scan() {
+        let temp = tempfile::tempdir().unwrap();
+        create_file(
+            &temp.path().join("live").join("SKILL.md"),
+            "---\ndescription: Live\n---\n\n# Initial\n",
+        );
+
+        let config = ScanConfig {
+            bundled_dir: Some(temp.path().to_path_buf()),
+            ..Default::default()
+        };
+        let skills = scan_all_skills(&config);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].load_body().unwrap(), "# Initial");
+
+        // Overwrite the file after scan
+        create_file(
+            &temp.path().join("live").join("SKILL.md"),
+            "---\ndescription: Live\n---\n\n# Updated\n",
+        );
+        // load_body should read the updated content
+        assert_eq!(skills[0].load_body().unwrap(), "# Updated");
+    }
 }
