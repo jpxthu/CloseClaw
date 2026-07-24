@@ -125,7 +125,6 @@ fn scan_layer(
             manifest,
             readme_path,
             skill_dir,
-            body: parsed.body,
         };
 
         if let Some(existing) = skills.get(&name) {
@@ -361,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scan_populates_body() {
+    fn test_load_body_populates_from_file() {
         let temp = tempfile::tempdir().unwrap();
         create_file(
             &temp.path().join("my-skill").join("SKILL.md"),
@@ -374,11 +373,14 @@ mod tests {
         };
         let skills = scan_all_skills(&config);
         assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].body, "# Hello\n\nInstructions here.");
+        assert_eq!(
+            skills[0].load_body().unwrap(),
+            "# Hello\n\nInstructions here."
+        );
     }
 
     #[test]
-    fn test_scan_body_empty_when_no_body_text() {
+    fn test_load_body_empty_when_no_body_text() {
         let temp = tempfile::tempdir().unwrap();
         create_file(
             &temp.path().join("no-body").join("SKILL.md"),
@@ -391,11 +393,11 @@ mod tests {
         };
         let skills = scan_all_skills(&config);
         assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].body, "");
+        assert_eq!(skills[0].load_body().unwrap(), "");
     }
 
     #[test]
-    fn test_scan_body_with_bom() {
+    fn test_load_body_with_bom() {
         let temp = tempfile::tempdir().unwrap();
         create_file(
             &temp.path().join("bom-skill").join("SKILL.md"),
@@ -408,11 +410,11 @@ mod tests {
         };
         let skills = scan_all_skills(&config);
         assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].body, "# Body");
+        assert_eq!(skills[0].load_body().unwrap(), "# Body");
     }
 
     #[test]
-    fn test_scan_body_preserves_multiline() {
+    fn test_load_body_preserves_multiline() {
         let temp = tempfile::tempdir().unwrap();
         create_file(
             &temp.path().join("multi").join("SKILL.md"),
@@ -425,6 +427,85 @@ mod tests {
         };
         let skills = scan_all_skills(&config);
         assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].body, "# Step 1\nDo A.\n\n# Step 2\nDo B.");
+        assert_eq!(
+            skills[0].load_body().unwrap(),
+            "# Step 1\nDo A.\n\n# Step 2\nDo B."
+        );
+    }
+
+    #[test]
+    fn test_load_body_file_not_found() {
+        use super::super::types::{
+            DiskSkill, SkillContext, SkillEffort, SkillManifest, SkillSource,
+        };
+        let nonexistent = std::path::PathBuf::from(format!(
+            "/tmp/nonexistent-skill-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let skill = DiskSkill {
+            source: SkillSource::Bundled,
+            manifest: SkillManifest {
+                name: "missing".into(),
+                description: "missing skill".into(),
+                when_to_use: String::new(),
+                context: SkillContext::Inline,
+                effort: SkillEffort::Small,
+                paths: vec![],
+                user_invocable: false,
+            },
+            readme_path: nonexistent.join("SKILL.md"),
+            skill_dir: nonexistent,
+        };
+        let err = skill.load_body().unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn test_load_body_special_characters() {
+        let temp = tempfile::tempdir().unwrap();
+        create_file(
+            &temp.path().join("special").join("SKILL.md"),
+            "---\ndescription: Special\n---\n\n# Hello 🌍\n\nLine with \"quotes\" and <html> &amp; entities.\n",
+        );
+
+        let config = ScanConfig {
+            bundled_dir: Some(temp.path().to_path_buf()),
+            ..Default::default()
+        };
+        let skills = scan_all_skills(&config);
+        assert_eq!(skills.len(), 1);
+        let body = skills[0].load_body().unwrap();
+        assert!(body.contains("🌍"));
+        assert!(body.contains('"')); // quotes preserved
+        assert!(body.contains("<html>") || body.contains("&amp;"));
+    }
+
+    #[test]
+    fn test_load_body_rereads_after_scan() {
+        let temp = tempfile::tempdir().unwrap();
+        create_file(
+            &temp.path().join("live").join("SKILL.md"),
+            "---\ndescription: Live\n---\n\n# Initial\n",
+        );
+
+        let config = ScanConfig {
+            bundled_dir: Some(temp.path().to_path_buf()),
+            ..Default::default()
+        };
+        let skills = scan_all_skills(&config);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].load_body().unwrap(), "# Initial");
+
+        // Overwrite the file after scan
+        create_file(
+            &temp.path().join("live").join("SKILL.md"),
+            "---\ndescription: Live\n---\n\n# Updated\n",
+        );
+        // load_body should read the updated content
+        assert_eq!(skills[0].load_body().unwrap(), "# Updated");
     }
 }

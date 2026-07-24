@@ -38,7 +38,6 @@ mod tests {
             },
             readme_path,
             skill_dir: std::path::PathBuf::new(),
-            body: String::new(),
         }
     }
 
@@ -54,8 +53,7 @@ mod tests {
             "---\ndescription: A test skill\n---\n\n# Test Skill\n\nSome skill content here.\n";
         std::fs::write(&readme_path, skill_content).unwrap();
 
-        let mut skill = make_skill("testskill", readme_path);
-        skill.body = "# Test Skill\n\nSome skill content here.".to_string();
+        let skill = make_skill("testskill", readme_path);
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
 
@@ -86,8 +84,7 @@ mod tests {
             + "# Actual Skill Body\n\nThis is the real content.\n";
         std::fs::write(&readme_path, skill_content).unwrap();
 
-        let mut skill = make_skill("testskill", readme_path);
-        skill.body = "# Actual Skill Body\n\nThis is the real content.".to_string();
+        let skill = make_skill("testskill", readme_path);
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
 
@@ -197,7 +194,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_disk_priority_over_builtin() {
-        let disk_skill = make_skill("shared", std::path::PathBuf::from("/tmp/test"));
+        let temp = TempDir::new().unwrap();
+        let readme_path = temp.path().join("SKILL.md");
+        std::fs::write(
+            &readme_path,
+            "---\ndescription: Shared skill\n---\n\nDisk body.\n",
+        )
+        .unwrap();
+        let disk_skill = make_skill("shared", readme_path);
         let disk = Arc::new(DiskSkillRegistry::new(vec![disk_skill]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         builtin
@@ -216,22 +220,35 @@ mod tests {
     // Variable substitution integration tests (via call())
     // -----------------------------------------------------------------
 
-    fn make_skill_with_body(name: &str, body: &str, skill_dir: std::path::PathBuf) -> DiskSkill {
-        DiskSkill {
-            source: SkillSource::Bundled,
-            manifest: SkillManifest {
-                name: name.into(),
-                description: format!("A test skill named {}", name),
-                when_to_use: String::new(),
-                context: SkillContext::Inline,
-                effort: SkillEffort::Small,
-                paths: vec![],
-                user_invocable: false,
+    fn make_skill_with_body(
+        name: &str,
+        body: &str,
+        skill_dir: std::path::PathBuf,
+    ) -> (DiskSkill, tempfile::TempDir) {
+        let temp = tempfile::tempdir().unwrap();
+        let readme_path = temp.path().join("SKILL.md");
+        let content = format!(
+            "---\ndescription: A test skill named {}\n---\n\n{}\n",
+            name, body
+        );
+        std::fs::write(&readme_path, content).unwrap();
+        (
+            DiskSkill {
+                source: SkillSource::Bundled,
+                manifest: SkillManifest {
+                    name: name.into(),
+                    description: format!("A test skill named {}", name),
+                    when_to_use: String::new(),
+                    context: SkillContext::Inline,
+                    effort: SkillEffort::Small,
+                    paths: vec![],
+                    user_invocable: false,
+                },
+                readme_path,
+                skill_dir,
             },
-            readme_path: std::path::PathBuf::new(),
-            skill_dir,
-            body: body.to_string(),
-        }
+            temp,
+        )
     }
 
     fn new_ctx_with_session(session_id: Option<String>) -> ToolContext {
@@ -248,7 +265,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_substitutes_skill_dir() {
-        let skill = make_skill_with_body(
+        let (skill, _temp) = make_skill_with_body(
             "test",
             "Read files in ${SKILL_DIR}",
             std::path::PathBuf::from("/home/user/.closeclaw/skills/my-skill"),
@@ -267,7 +284,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_substitutes_session_id() {
-        let skill = make_skill_with_body(
+        let (skill, _temp) = make_skill_with_body(
             "test",
             "Session: ${SESSION_ID}",
             std::path::PathBuf::from("/tmp/skill"),
@@ -284,7 +301,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_preserves_unknown_variables() {
-        let skill = make_skill_with_body(
+        let (skill, _temp) = make_skill_with_body(
             "test",
             "Hello ${UNKNOWN_VAR}",
             std::path::PathBuf::from("/tmp/skill"),
@@ -300,7 +317,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_substitute_mixed_known_and_unknown() {
-        let skill = make_skill_with_body(
+        let (skill, _temp) = make_skill_with_body(
             "test",
             "Dir: ${SKILL_DIR}, Session: ${SESSION_ID}, Unknown: ${FOO}",
             std::path::PathBuf::from("/tmp/my-skill"),
@@ -320,7 +337,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_no_context_modifier_for_disk_skill() {
-        let skill = make_skill_with_body(
+        let (skill, _temp) = make_skill_with_body(
             "test",
             "No modifier",
             std::path::PathBuf::from("/tmp/skill"),
@@ -333,5 +350,68 @@ mod tests {
             .unwrap();
         assert!(result.context_modifier.is_none());
         assert!(result.new_messages[0].is_meta);
+    }
+
+    // -----------------------------------------------------------------
+    // load_body failure → ExecutionFailed
+    // -----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_call_disk_skill_load_body_failure() {
+        // Create a DiskSkill whose readme_path does not exist on disk.
+        let nonexistent = std::path::PathBuf::from(format!(
+            "/tmp/nonexistent-skill-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let skill = DiskSkill {
+            source: SkillSource::Bundled,
+            manifest: SkillManifest {
+                name: "broken".into(),
+                description: "A broken skill".into(),
+                when_to_use: String::new(),
+                context: SkillContext::Inline,
+                effort: SkillEffort::Small,
+                paths: vec![],
+                user_invocable: false,
+            },
+            readme_path: nonexistent.join("SKILL.md"),
+            skill_dir: nonexistent,
+        };
+        let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let result = tool
+            .call(serde_json::json!({"skill_name": "broken"}), &new_ctx())
+            .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        match err {
+            ToolCallError::ExecutionFailed(msg) => {
+                assert!(msg.contains("failed to load skill body"));
+            }
+            other => panic!("expected ExecutionFailed, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_call_disk_skill_load_body_with_special_chars() {
+        let temp = TempDir::new().unwrap();
+        let readme_path = temp.path().join("SKILL.md");
+        let content = "---\ndescription: Emoji skill\n---\n\n# Hello 🌍\n\nLine with \"quotes\" and <html> tags.\n";
+        std::fs::write(&readme_path, content).unwrap();
+        let skill = make_skill("emoji", readme_path);
+        let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let result = tool
+            .call(serde_json::json!({"skill_name": "emoji"}), &new_ctx())
+            .await
+            .unwrap();
+        let body = &result.new_messages[0].content;
+        assert!(body.contains("🌍"));
+        assert!(body.contains('"')); // quotes preserved
+        assert!(body.contains("<html>"));
     }
 }
