@@ -1,48 +1,21 @@
 //! Permission skill - allows agents to query their own permissions
 use crate::registry::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
-use closeclaw_config::agents::{AgentPermissionProvider, NoopPermissionProvider};
-use closeclaw_gateway::SessionManager;
-use closeclaw_permission::engine::engine_types::{PermissionRequest, PermissionRequestBody};
-use closeclaw_permission::PermissionResponse;
-use std::sync::Arc;
+use closeclaw_common::permission_types::{PermissionEvalResult, SharedSkillPermissionChecker};
 
 pub struct PermissionSkill {
-    engine: Option<Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>>,
-    session_manager: Option<Arc<SessionManager>>,
-    agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync>,
+    engine: Option<SharedSkillPermissionChecker>,
 }
 
 impl PermissionSkill {
     pub fn new() -> Self {
-        Self {
-            engine: None,
-            session_manager: None,
-            agent_permissions: Arc::new(NoopPermissionProvider),
-        }
+        Self { engine: None }
     }
 
-    pub fn with_engine(
-        engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
-    ) -> Self {
+    pub fn with_engine(engine: SharedSkillPermissionChecker) -> Self {
         Self {
             engine: Some(engine),
-            session_manager: None,
-            agent_permissions: Arc::new(NoopPermissionProvider),
         }
-    }
-
-    pub fn with_session_manager(mut self, session_manager: Arc<SessionManager>) -> Self {
-        self.session_manager = Some(session_manager);
-        self
-    }
-
-    pub fn with_agent_permissions(
-        mut self,
-        agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync>,
-    ) -> Self {
-        self.agent_permissions = agent_permissions;
-        self
     }
 }
 
@@ -86,97 +59,39 @@ impl Skill for PermissionSkill {
                     .ok_or_else(|| SkillError::InvalidArgs("action required".to_string()))?;
 
                 if let Some(ref engine) = self.engine {
-                    let body = match action {
-                        "command" => PermissionRequestBody::CommandExec {
-                            agent: agent_id.to_string(),
-                            cmd: "*".to_string(),
-                            args: Vec::new(),
-                        },
-                        "file_read" => PermissionRequestBody::FileOp {
-                            agent: agent_id.to_string(),
-                            path: "*".to_string(),
-                            op: "read".to_string(),
-                        },
-                        "file_write" => PermissionRequestBody::FileOp {
-                            agent: agent_id.to_string(),
-                            path: "*".to_string(),
-                            op: "write".to_string(),
-                        },
-                        "network" => PermissionRequestBody::NetOp {
-                            agent: agent_id.to_string(),
-                            host: "*".to_string(),
-                            port: 0,
-                        },
-                        "spawn" => PermissionRequestBody::InterAgentMsg {
-                            from: agent_id.to_string(),
-                            to: "*".to_string(),
-                        },
-                        "tool_call" => PermissionRequestBody::ToolCall {
-                            agent: agent_id.to_string(),
-                            skill: "*".to_string(),
-                            method: "*".to_string(),
-                        },
-                        "config_write" => PermissionRequestBody::ConfigWrite {
-                            agent: agent_id.to_string(),
-                            config_file: "*".to_string(),
-                        },
-                        // ask_user_question is a special ToolCall that the
-                        // permission engine may annotate with a context_modifier
-                        // in Plan Mode (clarification-only marker).
-                        "ask_user_question" => PermissionRequestBody::ToolCall {
-                            agent: agent_id.to_string(),
-                            skill: "ask_user_question".to_string(),
-                            method: "call".to_string(),
-                        },
-                        _ => PermissionRequestBody::ToolCall {
-                            agent: agent_id.to_string(),
-                            skill: action.to_string(),
-                            method: "unknown".to_string(),
-                        },
-                    };
-                    let request = PermissionRequest::Bare(body);
-                    let response = if let (Some(ref sm), Some(sid)) = (
-                        &self.session_manager,
-                        args.get("session_id").and_then(|v| v.as_str()),
-                    ) {
-                        let guard = engine.read().await;
-                        guard
-                            .evaluate_with_chain(
-                                request,
-                                sm.as_ref(),
-                                sid,
-                                self.agent_permissions.as_ref(),
-                            )
-                            .await
-                    } else {
-                        engine.read().await.evaluate(request, None)
-                    };
-                    match response {
-                        PermissionResponse::Allowed {
-                            token: _,
-                            context_modifier,
-                        } => {
-                            let mut result = serde_json::json!({
+                    let resource = "*".to_string();
+                    let details = serde_json::json!({
+                        "agent_id": agent_id,
+                    });
+                    match engine.check_permission(action, &resource, details).await {
+                        PermissionEvalResult::Allowed { context_modifier } => {
+                            let mut resp = serde_json::json!({
                                 "allowed": true,
                                 "agent_id": agent_id,
                                 "action": action,
                             });
-                            if let Some(modifier) = context_modifier {
-                                result["context_modifier"] = serde_json::Value::String(modifier);
+                            if let Some(cm) = context_modifier {
+                                resp["context_modifier"] = serde_json::json!(cm);
                             }
-                            Ok(result)
+                            Ok(resp)
                         }
-                        PermissionResponse::Denied {
-                            reason,
-                            rule: _,
-                            risk_level,
-                        } => Ok(serde_json::json!({
-                            "allowed": false,
-                            "agent_id": agent_id,
-                            "action": action,
-                            "reason": reason,
-                            "risk_level": risk_level,
-                        })),
+                        PermissionEvalResult::Denied { reason, risk_level } => {
+                            let risk_str = match risk_level {
+                                closeclaw_common::permission_types::RiskLevel::Low => "low",
+                                closeclaw_common::permission_types::RiskLevel::Medium => "medium",
+                                closeclaw_common::permission_types::RiskLevel::High => "high",
+                                closeclaw_common::permission_types::RiskLevel::Critical => {
+                                    "critical"
+                                }
+                            };
+                            Ok(serde_json::json!({
+                                "allowed": false,
+                                "agent_id": agent_id,
+                                "action": action,
+                                "reason": reason,
+                                "risk_level": risk_str,
+                            }))
+                        }
                     }
                 } else {
                     Ok(serde_json::json!({
@@ -209,51 +124,6 @@ impl Skill for PermissionSkill {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use closeclaw_permission::engine::engine_types::{
-        Action, Defaults, Effect, MatchType, Rule, RuleSet, Subject,
-    };
-    use std::collections::HashMap;
-
-    fn make_engine_with_allow_rule() -> Arc<closeclaw_permission::PermissionEngine> {
-        let rules = RuleSet {
-            rules: vec![
-                Rule {
-                    name: "test-allow".to_string(),
-                    subject: Subject::AgentOnly {
-                        agent: "agent-1".to_string(),
-                        match_type: MatchType::Exact,
-                    },
-                    effect: Effect::Allow,
-                    actions: vec![Action::File {
-                        operation: "read".to_string(),
-                        paths: vec!["*".to_string()],
-                    }],
-                    template: None,
-                    priority: 0,
-                },
-                Rule {
-                    name: "test-user-allow".to_string(),
-                    subject: Subject::UserAndAgent {
-                        user_id: "*".to_string(),
-                        agent: "agent-1".to_string(),
-                        user_match: MatchType::Glob,
-                        agent_match: MatchType::Exact,
-                    },
-                    effect: Effect::Allow,
-                    actions: vec![Action::File {
-                        operation: "read".to_string(),
-                        paths: vec!["*".to_string()],
-                    }],
-                    template: None,
-                    priority: 0,
-                },
-            ],
-            defaults: Defaults::default(),
-            template_includes: vec![],
-            agent_creators: HashMap::new(),
-        };
-        Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(rules))
-    }
 
     #[test]
     fn test_manifest() {
@@ -287,36 +157,6 @@ mod tests {
         assert!(result.is_ok());
         let v = result.unwrap();
         assert_eq!(v["allowed"], serde_json::Value::Null);
-    }
-
-    #[tokio::test]
-    async fn test_query_with_engine_allowed() {
-        let engine = make_engine_with_allow_rule();
-        let skill = PermissionSkill::with_engine(engine);
-        let result = skill
-            .execute(
-                "query",
-                serde_json::json!({"agent_id": "agent-1", "action": "file_read"}),
-            )
-            .await;
-        assert!(result.is_ok());
-        let v = result.unwrap();
-        assert_eq!(v["allowed"], true);
-    }
-
-    #[tokio::test]
-    async fn test_query_with_engine_denied() {
-        let engine = make_engine_with_allow_rule();
-        let skill = PermissionSkill::with_engine(engine);
-        let result = skill
-            .execute(
-                "query",
-                serde_json::json!({"agent_id": "unknown-agent", "action": "file_read"}),
-            )
-            .await;
-        assert!(result.is_ok());
-        let v = result.unwrap();
-        assert_eq!(v["allowed"], false);
     }
 
     #[tokio::test]
@@ -354,135 +194,132 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // -----------------------------------------------------------------
-    // context_modifier propagation tests
-    // -----------------------------------------------------------------
+    // ── Mock checker tests (A-4) ───────────────────────────────────────
 
-    use closeclaw_common::session_mode::SessionMode;
-    use closeclaw_common::session_mode_query::SessionModeQuery;
-    use closeclaw_permission::engine::engine_eval::PermissionEngine;
+    use async_trait::async_trait;
+    use closeclaw_common::permission_types::{
+        PermissionEvalResult, RiskLevel, SkillPermissionChecker,
+    };
+    use std::sync::Arc;
 
-    struct MockModeQuery {
-        modes: HashMap<String, SessionMode>,
+    /// A mock permission checker that returns a configurable result.
+    struct MockPermissionChecker {
+        result: PermissionEvalResult,
     }
 
-    impl MockModeQuery {
-        fn new() -> Self {
-            Self {
-                modes: HashMap::new(),
-            }
+    #[async_trait]
+    impl SkillPermissionChecker for MockPermissionChecker {
+        async fn check_permission(
+            &self,
+            _action: &str,
+            _resource: &str,
+            _details: serde_json::Value,
+        ) -> PermissionEvalResult {
+            self.result.clone()
         }
-
-        fn with_mode(mut self, agent_id: &str, mode: SessionMode) -> Self {
-            self.modes.insert(agent_id.to_string(), mode);
-            self
-        }
-    }
-
-    impl SessionModeQuery for MockModeQuery {
-        fn get_session_mode(&self, agent_id: &str) -> Option<SessionMode> {
-            self.modes.get(agent_id).copied()
-        }
-    }
-
-    fn make_plan_mode_engine(agent_id: &str) -> Arc<PermissionEngine> {
-        use closeclaw_permission::rules::RuleSetBuilder;
-
-        let query = Arc::new(MockModeQuery::new().with_mode(agent_id, SessionMode::Plan));
-        let ruleset = RuleSetBuilder::new()
-            .default_file_read(Effect::Allow)
-            .default_file_write(Effect::Allow)
-            .default_command(Effect::Allow)
-            .default_network(Effect::Allow)
-            .default_inter_agent(Effect::Allow)
-            .default_config(Effect::Allow)
-            .default_tool_call(Effect::Allow)
-            .build()
-            .unwrap();
-        Arc::new(
-            PermissionEngine::new_with_default_data_root(ruleset).with_session_mode_query(query),
-        )
-    }
-
-    fn make_normal_mode_engine(agent_id: &str) -> Arc<PermissionEngine> {
-        use closeclaw_permission::rules::RuleSetBuilder;
-
-        let query = Arc::new(MockModeQuery::new().with_mode(agent_id, SessionMode::Normal));
-        let ruleset = RuleSetBuilder::new()
-            .default_file_read(Effect::Allow)
-            .default_file_write(Effect::Allow)
-            .default_command(Effect::Allow)
-            .default_network(Effect::Allow)
-            .default_inter_agent(Effect::Allow)
-            .default_config(Effect::Allow)
-            .default_tool_call(Effect::Allow)
-            .build()
-            .unwrap();
-        Arc::new(
-            PermissionEngine::new_with_default_data_root(ruleset).with_session_mode_query(query),
-        )
     }
 
     #[tokio::test]
-    async fn test_plan_mode_ask_user_question_returns_context_modifier() {
-        let engine = make_plan_mode_engine("agent-pm");
-        let skill = PermissionSkill::with_engine(engine);
+    async fn test_query_allowed_without_context_modifier() {
+        let checker: Arc<dyn SkillPermissionChecker> = Arc::new(MockPermissionChecker {
+            result: PermissionEvalResult::Allowed {
+                context_modifier: None,
+            },
+        });
+        let skill = PermissionSkill::with_engine(checker);
         let result = skill
             .execute(
                 "query",
-                serde_json::json!({"agent_id": "agent-pm", "action": "ask_user_question"}),
+                serde_json::json!({"agent_id": "a1", "action": "file_read"}),
             )
             .await;
         assert!(result.is_ok());
         let v = result.unwrap();
         assert_eq!(v["allowed"], true);
-        assert!(
-            v.get("context_modifier").is_some(),
-            "plan mode ask_user_question should include context_modifier"
-        );
-        let cm = v["context_modifier"].as_str().unwrap();
-        assert!(
-            cm.contains("clarification only"),
-            "context_modifier should mention clarification only, got: {}",
-            cm
-        );
+        assert_eq!(v["context_modifier"], serde_json::Value::Null);
     }
 
     #[tokio::test]
-    async fn test_normal_mode_ask_user_question_no_context_modifier() {
-        let engine = make_normal_mode_engine("agent-nm");
-        let skill = PermissionSkill::with_engine(engine);
+    async fn test_query_allowed_with_context_modifier() {
+        let checker: Arc<dyn SkillPermissionChecker> = Arc::new(MockPermissionChecker {
+            result: PermissionEvalResult::Allowed {
+                context_modifier: Some("read_only".to_string()),
+            },
+        });
+        let skill = PermissionSkill::with_engine(checker);
         let result = skill
             .execute(
                 "query",
-                serde_json::json!({"agent_id": "agent-nm", "action": "ask_user_question"}),
+                serde_json::json!({"agent_id": "a1", "action": "file_write"}),
             )
             .await;
         assert!(result.is_ok());
         let v = result.unwrap();
         assert_eq!(v["allowed"], true);
-        assert!(
-            v.get("context_modifier").is_none(),
-            "normal mode ask_user_question should NOT include context_modifier"
-        );
+        assert_eq!(v["context_modifier"], "read_only");
     }
 
     #[tokio::test]
-    async fn test_plan_mode_other_action_no_context_modifier() {
-        let engine = make_plan_mode_engine("agent-pm2");
-        let skill = PermissionSkill::with_engine(engine);
+    async fn test_query_denied_with_risk_level() {
+        let checker: Arc<dyn SkillPermissionChecker> = Arc::new(MockPermissionChecker {
+            result: PermissionEvalResult::Denied {
+                reason: "not permitted".to_string(),
+                risk_level: RiskLevel::High,
+            },
+        });
+        let skill = PermissionSkill::with_engine(checker);
         let result = skill
             .execute(
                 "query",
-                serde_json::json!({"agent_id": "agent-pm2", "action": "file_read"}),
+                serde_json::json!({"agent_id": "a1", "action": "command"}),
             )
             .await;
         assert!(result.is_ok());
         let v = result.unwrap();
-        assert_eq!(v["allowed"], true);
-        assert!(
-            v.get("context_modifier").is_none(),
-            "plan mode file_read should NOT include context_modifier"
-        );
+        assert_eq!(v["allowed"], false);
+        assert_eq!(v["reason"], "not permitted");
+        assert_eq!(v["risk_level"], "high");
+    }
+
+    #[tokio::test]
+    async fn test_query_denied_low_risk() {
+        let checker: Arc<dyn SkillPermissionChecker> = Arc::new(MockPermissionChecker {
+            result: PermissionEvalResult::Denied {
+                reason: "blocked".to_string(),
+                risk_level: RiskLevel::Low,
+            },
+        });
+        let skill = PermissionSkill::with_engine(checker);
+        let result = skill
+            .execute(
+                "query",
+                serde_json::json!({"agent_id": "a1", "action": "network"}),
+            )
+            .await;
+        assert!(result.is_ok());
+        let v = result.unwrap();
+        assert_eq!(v["allowed"], false);
+        assert_eq!(v["risk_level"], "low");
+    }
+
+    #[tokio::test]
+    async fn test_query_denied_critical_risk() {
+        let checker: Arc<dyn SkillPermissionChecker> = Arc::new(MockPermissionChecker {
+            result: PermissionEvalResult::Denied {
+                reason: "critical block".to_string(),
+                risk_level: RiskLevel::Critical,
+            },
+        });
+        let skill = PermissionSkill::with_engine(checker);
+        let result = skill
+            .execute(
+                "query",
+                serde_json::json!({"agent_id": "a1", "action": "spawn"}),
+            )
+            .await;
+        assert!(result.is_ok());
+        let v = result.unwrap();
+        assert_eq!(v["allowed"], false);
+        assert_eq!(v["risk_level"], "critical");
     }
 }

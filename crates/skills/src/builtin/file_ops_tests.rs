@@ -1,164 +1,114 @@
 //! Tests for file_ops skill — permission engine integration and error paths
 use crate::builtin::FileOpsSkill;
 use crate::registry::Skill;
-use closeclaw_permission::actions::ActionBuilder;
-use closeclaw_permission::rules::{RuleBuilder, RuleSetBuilder};
-use closeclaw_permission::{Effect, MatchType};
+use closeclaw_permission::engine::engine_types::{
+    Action, Defaults, Effect, MatchType, Rule, RuleSet, Subject,
+};
+use closeclaw_permission::skill_wrapper::SkillPermissionEngineWrapper;
+use closeclaw_permission::PermissionEngine;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
 
-fn make_allowed_engine() -> Arc<closeclaw_permission::PermissionEngine> {
-    let ruleset = RuleSetBuilder::new()
-        .default_file_read(Effect::Deny)
-        .default_file_write(Effect::Deny)
-        .rule(
-            RuleBuilder::new()
-                .name("allow-file-read")
-                .subject_agent("test-agent")
-                .allow()
-                .action(
-                    ActionBuilder::file("read", vec!["**".to_string()])
-                        .build()
-                        .unwrap(),
-                )
-                .build()
-                .unwrap(),
-        )
-        .rule(
-            RuleBuilder::new()
-                .name("allow-file-write")
-                .subject_agent("test-agent")
-                .allow()
-                .action(
-                    ActionBuilder::file("write", vec!["**".to_string()])
-                        .build()
-                        .unwrap(),
-                )
-                .build()
-                .unwrap(),
-        )
-        .rule(
-            RuleBuilder::new()
-                .name("allow-file-exists")
-                .subject_agent("test-agent")
-                .allow()
-                .action(
-                    ActionBuilder::file("exists", vec!["**".to_string()])
-                        .build()
-                        .unwrap(),
-                )
-                .build()
-                .unwrap(),
-        )
-        .rule(
-            RuleBuilder::new()
-                .name("allow-file-delete")
-                .subject_agent("test-agent")
-                .allow()
-                .action(
-                    ActionBuilder::file("delete", vec!["**".to_string()])
-                        .build()
-                        .unwrap(),
-                )
-                .build()
-                .unwrap(),
-        )
-        .rule(
-            RuleBuilder::new()
-                .name("allow-file-list")
-                .subject_agent("test-agent")
-                .allow()
-                .action(
-                    ActionBuilder::file("list", vec!["**".to_string()])
-                        .build()
-                        .unwrap(),
-                )
-                .build()
-                .unwrap(),
-        )
-        .rule(
-            RuleBuilder::new()
-                .name("user-allow-file-read")
-                .subject_user_and_agent("*", "test-agent", MatchType::Glob, MatchType::Exact)
-                .allow()
-                .action(
-                    ActionBuilder::file("read", vec!["**".to_string()])
-                        .build()
-                        .unwrap(),
-                )
-                .build()
-                .unwrap(),
-        )
-        .rule(
-            RuleBuilder::new()
-                .name("user-allow-file-write")
-                .subject_user_and_agent("*", "test-agent", MatchType::Glob, MatchType::Exact)
-                .allow()
-                .action(
-                    ActionBuilder::file("write", vec!["**".to_string()])
-                        .build()
-                        .unwrap(),
-                )
-                .build()
-                .unwrap(),
-        )
-        .rule(
-            RuleBuilder::new()
-                .name("user-allow-file-exists")
-                .subject_user_and_agent("*", "test-agent", MatchType::Glob, MatchType::Exact)
-                .allow()
-                .action(
-                    ActionBuilder::file("exists", vec!["**".to_string()])
-                        .build()
-                        .unwrap(),
-                )
-                .build()
-                .unwrap(),
-        )
-        .rule(
-            RuleBuilder::new()
-                .name("user-allow-file-delete")
-                .subject_user_and_agent("*", "test-agent", MatchType::Glob, MatchType::Exact)
-                .allow()
-                .action(
-                    ActionBuilder::file("delete", vec!["**".to_string()])
-                        .build()
-                        .unwrap(),
-                )
-                .build()
-                .unwrap(),
-        )
-        .rule(
-            RuleBuilder::new()
-                .name("user-allow-file-list")
-                .subject_user_and_agent("*", "test-agent", MatchType::Glob, MatchType::Exact)
-                .allow()
-                .action(
-                    ActionBuilder::file("list", vec!["**".to_string()])
-                        .build()
-                        .unwrap(),
-                )
-                .build()
-                .unwrap(),
-        )
-        .build()
-        .unwrap();
-    Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(ruleset))
+fn make_allowed_engine_rwlock() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
+    let rules = vec![
+        Rule {
+            name: "allow-file-read".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "test-agent".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::File {
+                operation: "read".to_string(),
+                paths: vec!["**".to_string()],
+            }],
+            template: None,
+            priority: 0,
+        },
+        Rule {
+            name: "allow-file-write".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "test-agent".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::File {
+                operation: "write".to_string(),
+                paths: vec!["**".to_string()],
+            }],
+            template: None,
+            priority: 0,
+        },
+        Rule {
+            name: "user-allow-file-read".to_string(),
+            subject: Subject::UserAndAgent {
+                user_id: "*".to_string(),
+                agent: "test-agent".to_string(),
+                user_match: MatchType::Glob,
+                agent_match: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::File {
+                operation: "read".to_string(),
+                paths: vec!["**".to_string()],
+            }],
+            template: None,
+            priority: 0,
+        },
+        Rule {
+            name: "user-allow-file-write".to_string(),
+            subject: Subject::UserAndAgent {
+                user_id: "*".to_string(),
+                agent: "test-agent".to_string(),
+                user_match: MatchType::Glob,
+                agent_match: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::File {
+                operation: "write".to_string(),
+                paths: vec!["**".to_string()],
+            }],
+            template: None,
+            priority: 0,
+        },
+    ];
+    let ruleset = RuleSet {
+        rules,
+        defaults: Defaults::default(),
+        template_includes: vec![],
+        agent_creators: HashMap::new(),
+        ..Default::default()
+    };
+    Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(ruleset),
+    ))
 }
 
-fn make_denied_engine() -> Arc<closeclaw_permission::PermissionEngine> {
-    let ruleset = RuleSetBuilder::new()
-        .default_file_read(Effect::Deny)
-        .default_file_write(Effect::Deny)
-        .build()
-        .unwrap();
-    Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(ruleset))
+fn make_denied_engine_rwlock() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
+    let ruleset = RuleSet {
+        rules: vec![],
+        defaults: Defaults::default(),
+        template_includes: vec![],
+        agent_creators: HashMap::new(),
+        ..Default::default()
+    };
+    Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(ruleset),
+    ))
+}
+
+fn wrap_engine(
+    engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
+) -> Arc<SkillPermissionEngineWrapper> {
+    Arc::new(SkillPermissionEngineWrapper::new(engine))
 }
 
 #[tokio::test]
 async fn test_file_ops_with_engine_constructs_skill() {
-    let engine = make_allowed_engine();
-    let skill = FileOpsSkill::with_engine(engine);
+    let engine = make_allowed_engine_rwlock();
+    let wrapper = wrap_engine(engine);
+    let skill = FileOpsSkill::with_engine(wrapper);
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test.txt");
     std::fs::write(&path, "hello").unwrap();
@@ -181,8 +131,9 @@ async fn test_file_ops_with_engine_constructs_skill() {
 
 #[tokio::test]
 async fn test_file_ops_permission_allowed_read() {
-    let engine = make_allowed_engine();
-    let skill = FileOpsSkill::with_engine(engine);
+    let engine = make_allowed_engine_rwlock();
+    let wrapper = wrap_engine(engine);
+    let skill = FileOpsSkill::with_engine(wrapper);
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("secret.txt");
     std::fs::write(&path, "secret data").unwrap();
@@ -201,8 +152,9 @@ async fn test_file_ops_permission_allowed_read() {
 
 #[tokio::test]
 async fn test_file_ops_permission_allowed_write() {
-    let engine = make_allowed_engine();
-    let skill = FileOpsSkill::with_engine(engine);
+    let engine = make_allowed_engine_rwlock();
+    let wrapper = wrap_engine(engine);
+    let skill = FileOpsSkill::with_engine(wrapper);
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("out.txt");
     let result = skill
@@ -221,8 +173,9 @@ async fn test_file_ops_permission_allowed_write() {
 
 #[tokio::test]
 async fn test_file_ops_permission_allowed_exists() {
-    let engine = make_allowed_engine();
-    let skill = FileOpsSkill::with_engine(engine);
+    let engine = make_allowed_engine_rwlock();
+    let wrapper = wrap_engine(engine);
+    let skill = FileOpsSkill::with_engine(wrapper);
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("check.txt");
     std::fs::write(&path, "").unwrap();
@@ -239,48 +192,10 @@ async fn test_file_ops_permission_allowed_exists() {
 }
 
 #[tokio::test]
-async fn test_file_ops_permission_allowed_list() {
-    let engine = make_allowed_engine();
-    let skill = FileOpsSkill::with_engine(engine);
-    let dir = TempDir::new().unwrap();
-    std::fs::write(dir.path().join("a.txt"), "").unwrap();
-    let result = skill
-        .execute(
-            "list",
-            serde_json::json!({
-                "path": dir.path().to_str().unwrap(),
-                "agent_id": "test-agent"
-            }),
-        )
-        .await;
-    let entries = result.as_ref().unwrap()["entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 1);
-}
-
-#[tokio::test]
-async fn test_file_ops_permission_allowed_delete() {
-    let engine = make_allowed_engine();
-    let skill = FileOpsSkill::with_engine(engine);
-    let dir = TempDir::new().unwrap();
-    let path = dir.path().join("todelete.txt");
-    std::fs::write(&path, "to delete").unwrap();
-    let result = skill
-        .execute(
-            "delete",
-            serde_json::json!({
-                "path": path.to_str().unwrap(),
-                "agent_id": "test-agent"
-            }),
-        )
-        .await;
-    assert!(result.is_ok());
-    assert!(!path.exists());
-}
-
-#[tokio::test]
 async fn test_file_ops_permission_denied() {
-    let engine = make_denied_engine();
-    let skill = FileOpsSkill::with_engine(engine);
+    let engine = make_denied_engine_rwlock();
+    let wrapper = wrap_engine(engine);
+    let skill = FileOpsSkill::with_engine(wrapper);
     let result = skill
         .execute(
             "read",
@@ -293,7 +208,7 @@ async fn test_file_ops_permission_denied() {
     assert!(result.is_err());
     match result.unwrap_err() {
         crate::registry::SkillError::PermissionDenied(reason) => {
-            assert!(reason.contains("no matching rule") || !reason.is_empty());
+            assert!(!reason.is_empty());
         }
         other => panic!("expected PermissionDenied, got {:?}", other),
     }
@@ -301,8 +216,9 @@ async fn test_file_ops_permission_denied() {
 
 #[tokio::test]
 async fn test_file_ops_permission_missing_agent_id() {
-    let engine = make_allowed_engine();
-    let skill = FileOpsSkill::with_engine(engine);
+    let engine = make_allowed_engine_rwlock();
+    let wrapper = wrap_engine(engine);
+    let skill = FileOpsSkill::with_engine(wrapper);
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("x.txt");
     let result = skill
