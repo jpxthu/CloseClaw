@@ -216,7 +216,7 @@ impl Daemon {
         Arc<closeclaw_agent::registry::AgentRegistry>,
         Arc<RwLock<Option<DiskSkillRegistry>>>,
         Arc<ToolRegistry>,
-        SkillWatcherHandle,
+        Option<SkillWatcherHandle>,
     )> {
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
         info!("Agent registry initialized");

@@ -109,7 +109,7 @@ impl Daemon {
             plan_archive_shutdown_tx: plan_archive_tx,
             skill_registry,
             builtin_skill_registry,
-            _skill_watcher: Some(skill_watcher),
+            _skill_watcher: skill_watcher,
             _config_watcher: config_watcher,
             approval_flow,
             admin_handle: Some(admin_handle),

@@ -10,11 +10,13 @@ use super::{DiskSkill, ParsedSkill, ScanConfig, SkillSource};
 /// Scan all skill directories and return a list of discovered skills.
 ///
 /// Discovery order (lowest to highest priority, later overwrites earlier):
-/// 1. `bundled_dir` — built-in framework skills (lowest priority)
-/// 2. `extra_dirs` — user-provided additional directories
-/// 3. `global_dir` — global cross-agent skills
-/// 4. Agent-specific directory derived from `agent_id`
-/// 5. `project_root` — project-local skills (highest priority)
+/// 1. `extra_dirs` — user-provided additional directories (lowest priority)
+/// 2. `global_dir` — global cross-agent skills
+/// 3. Agent-specific directory derived from `agent_id`
+/// 4. `project_root` — project-local skills (highest priority)
+///
+/// Bundled skills are NOT scanned from disk — they are compiled in
+/// and managed by `BuiltinSkillRegistry`.
 ///
 /// When the same skill name appears at multiple priority levels,
 /// the higher-priority entry wins and a warning is emitted.
@@ -22,10 +24,6 @@ pub fn scan_all_skills(config: &ScanConfig) -> Vec<DiskSkill> {
     let mut skills_by_name: BTreeMap<String, DiskSkill> = BTreeMap::new();
 
     // Scan from lowest to highest priority so higher priority always overwrites
-    if let Some(ref dir) = config.bundled_dir {
-        scan_layer(dir, SkillSource::Bundled, &mut skills_by_name);
-    }
-
     for dir in &config.extra_dirs {
         scan_layer(dir, SkillSource::ExtraDirs, &mut skills_by_name);
     }
@@ -161,7 +159,7 @@ mod tests {
     #[test]
     fn test_scan_nonexistent_directory() {
         let config = ScanConfig {
-            bundled_dir: Some(std::path::PathBuf::from("/nonexistent/path")),
+            global_dir: Some(std::path::PathBuf::from("/nonexistent/path")),
             ..Default::default()
         };
         let skills = scan_all_skills(&config);
@@ -178,7 +176,7 @@ mod tests {
         );
 
         let config = ScanConfig {
-            bundled_dir: Some(temp.path().to_path_buf()),
+            global_dir: Some(temp.path().to_path_buf()),
             ..Default::default()
         };
         let skills = scan_all_skills(&config);
@@ -197,7 +195,7 @@ mod tests {
         }
 
         let config = ScanConfig {
-            bundled_dir: Some(temp.path().to_path_buf()),
+            global_dir: Some(temp.path().to_path_buf()),
             ..Default::default()
         };
         let skills = scan_all_skills(&config);
@@ -207,11 +205,11 @@ mod tests {
     #[test]
     fn test_priority_override() {
         let temp = tempfile::tempdir().unwrap();
-        let bundled_dir = temp.path().join("bundled");
+        let global_dir = temp.path().join("global");
         let project_dir = temp.path().join("project");
 
         create_file(
-            &bundled_dir.join("shared-skill").join("SKILL.md"),
+            &global_dir.join("shared-skill").join("SKILL.md"),
             "---\ndescription: Lower\n---\n# Lower\n",
         );
         create_file(
@@ -220,7 +218,7 @@ mod tests {
         );
 
         let config = ScanConfig {
-            bundled_dir: Some(bundled_dir),
+            global_dir: Some(global_dir),
             project_root: Some(project_dir),
             ..Default::default()
         };
@@ -243,7 +241,7 @@ mod tests {
         );
 
         let config = ScanConfig {
-            bundled_dir: Some(temp.path().to_path_buf()),
+            global_dir: Some(temp.path().to_path_buf()),
             ..Default::default()
         };
         let skills = scan_all_skills(&config);
@@ -256,7 +254,7 @@ mod tests {
         std::fs::create_dir(temp.path().join("no-readme")).unwrap();
 
         let config = ScanConfig {
-            bundled_dir: Some(temp.path().to_path_buf()),
+            global_dir: Some(temp.path().to_path_buf()),
             ..Default::default()
         };
         let skills = scan_all_skills(&config);
@@ -368,7 +366,7 @@ mod tests {
         );
 
         let config = ScanConfig {
-            bundled_dir: Some(temp.path().to_path_buf()),
+            global_dir: Some(temp.path().to_path_buf()),
             ..Default::default()
         };
         let skills = scan_all_skills(&config);
@@ -388,7 +386,7 @@ mod tests {
         );
 
         let config = ScanConfig {
-            bundled_dir: Some(temp.path().to_path_buf()),
+            global_dir: Some(temp.path().to_path_buf()),
             ..Default::default()
         };
         let skills = scan_all_skills(&config);
@@ -405,7 +403,7 @@ mod tests {
         );
 
         let config = ScanConfig {
-            bundled_dir: Some(temp.path().to_path_buf()),
+            global_dir: Some(temp.path().to_path_buf()),
             ..Default::default()
         };
         let skills = scan_all_skills(&config);
@@ -422,7 +420,7 @@ mod tests {
         );
 
         let config = ScanConfig {
-            bundled_dir: Some(temp.path().to_path_buf()),
+            global_dir: Some(temp.path().to_path_buf()),
             ..Default::default()
         };
         let skills = scan_all_skills(&config);
@@ -467,13 +465,15 @@ mod tests {
     #[test]
     fn test_load_body_special_characters() {
         let temp = tempfile::tempdir().unwrap();
-        create_file(
-            &temp.path().join("special").join("SKILL.md"),
-            "---\ndescription: Special\n---\n\n# Hello 🌍\n\nLine with \"quotes\" and <html> &amp; entities.\n",
+        let content = concat!(
+            "---\ndescription: Special\n---\n\n",
+            "# Hello 🌍\n\nLine with \"quotes\" ",
+            "and <html> &amp; entities.\n",
         );
+        create_file(&temp.path().join("special").join("SKILL.md"), content);
 
         let config = ScanConfig {
-            bundled_dir: Some(temp.path().to_path_buf()),
+            global_dir: Some(temp.path().to_path_buf()),
             ..Default::default()
         };
         let skills = scan_all_skills(&config);
@@ -493,7 +493,7 @@ mod tests {
         );
 
         let config = ScanConfig {
-            bundled_dir: Some(temp.path().to_path_buf()),
+            global_dir: Some(temp.path().to_path_buf()),
             ..Default::default()
         };
         let skills = scan_all_skills(&config);
@@ -507,5 +507,93 @@ mod tests {
         );
         // load_body should read the updated content
         assert_eq!(skills[0].load_body().unwrap(), "# Updated");
+    }
+
+    // ----------------------------------------------------------------------
+    // Bundled-layer removal tests
+    // ----------------------------------------------------------------------
+
+    #[test]
+    fn test_scan_config_has_no_bundled_dir() {
+        // ScanConfig should not expose a bundled_dir field;
+        // bundled skills are managed by BuiltinSkillRegistry, not disk scanning.
+        let cfg = ScanConfig::default();
+        // Verify the four disk-scan fields exist and default correctly
+        assert!(cfg.extra_dirs.is_empty());
+        assert!(cfg.global_dir.is_none());
+        assert!(cfg.project_root.is_none());
+        assert!(cfg.agent_id.is_none());
+        assert!(cfg.agent_skills_dir.is_none());
+        // If bundled_dir accidentally re-appears, this test will fail to compile
+        // because ScanConfig has no such field.
+    }
+
+    #[test]
+    fn test_scan_all_skills_only_scans_four_layers() {
+        // Set up a temp directory with skills in each of the four layers
+        let temp = tempfile::tempdir().unwrap();
+
+        // ExtraDirs layer
+        let extra = temp.path().join("extra");
+        create_file(
+            &extra.join("extra-skill").join("SKILL.md"),
+            "---\ndescription: Extra\n---\n",
+        );
+
+        // Global layer
+        let global = temp.path().join("global");
+        create_file(
+            &global.join("global-skill").join("SKILL.md"),
+            "---\ndescription: Global\n---\n",
+        );
+
+        // Agent layer (explicit dir)
+        let agent = temp.path().join("agent");
+        create_file(
+            &agent.join("agent-skill").join("SKILL.md"),
+            "---\ndescription: Agent\n---\n",
+        );
+
+        // Project layer
+        let project = temp.path().join("project");
+        create_file(
+            &project.join("project-skill").join("SKILL.md"),
+            "---\ndescription: Project\n---\n",
+        );
+
+        let config = ScanConfig {
+            extra_dirs: vec![extra],
+            global_dir: Some(global),
+            agent_skills_dir: Some(agent),
+            project_root: Some(project),
+            ..Default::default()
+        };
+
+        let skills = scan_all_skills(&config);
+        let names: Vec<&str> = skills.iter().map(|s| s.manifest.name.as_str()).collect();
+        assert_eq!(
+            skills.len(),
+            4,
+            "expected exactly four skills (one per layer), got: {names:?}"
+        );
+        assert!(names.contains(&"extra-skill"));
+        assert!(names.contains(&"global-skill"));
+        assert!(names.contains(&"agent-skill"));
+        assert!(names.contains(&"project-skill"));
+    }
+
+    #[test]
+    fn test_scan_all_skills_does_not_scan_bundled() {
+        // Even if a directory called "bundled" exists and contains a valid SKILL.md,
+        // scan_all_skills should NOT pick it up because ScanConfig has no bundled_dir.
+        let temp = tempfile::tempdir().unwrap();
+        create_file(
+            &temp.path().join("bundled").join("SKILL.md"),
+            "---\ndescription: Bundled\n---\n",
+        );
+        // No config points to this directory — ScanConfig has no bundled_dir
+        let config = ScanConfig::default();
+        let skills = scan_all_skills(&config);
+        assert!(skills.is_empty(), "bundled directory should not be scanned");
     }
 }
