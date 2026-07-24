@@ -345,7 +345,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_disk_priority_over_builtin() {
-        let disk_skill = make_skill("shared", std::path::PathBuf::from("/tmp/test"));
+        let temp = tempfile::tempdir().unwrap();
+        let readme_path = temp.path().join("SKILL.md");
+        std::fs::write(
+            &readme_path,
+            "---\ndescription: Shared skill\n---\n\nDisk body.\n",
+        )
+        .unwrap();
+        let disk_skill = make_skill("shared", readme_path);
         let disk = Arc::new(DiskSkillRegistry::new(vec![disk_skill]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         builtin
