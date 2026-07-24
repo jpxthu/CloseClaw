@@ -56,7 +56,7 @@ fn default_skills_dir(ctx: &ToolContext) -> PathBuf {
 
 /// Generate SKILL.md content from parameters.
 fn build_skill_md(description: &str, body: &str) -> String {
-    let escaped = description.replace('"', "\\\"");
+    let escaped = description.replace('"', "\\\"").replace('\n', " ");
     let mut content = format!("---\ndescription: \"{escaped}\"\n---\n");
     if !body.is_empty() {
         content.push('\n');
@@ -73,10 +73,13 @@ fn build_skill_md(description: &str, body: &str) -> String {
 /// Returns Ok(()) if valid, or Err with reason.
 fn validate_skill_md(content: &str) -> Result<(), String> {
     let trimmed = content.trim_start();
-    if !trimmed.starts_with("---") {
-        return Err("missing frontmatter (content must start with `---`)".into());
+    if !(trimmed.starts_with("---\n") || trimmed.starts_with("---\r\n")) {
+        return Err(
+            "missing frontmatter (content must start with `---` followed by a newline)".into(),
+        );
     }
-    let after_first = &trimmed[3..];
+    let after_first = &trimmed[3..].trim_start_matches('\r');
+    let after_first = &after_first[1..]; // skip the newline
     let end = after_first
         .find("---")
         .ok_or_else(|| "unclosed frontmatter (missing closing `---`)".to_string())?;
@@ -619,5 +622,56 @@ mod tests {
         assert!(props.contains_key("body"));
         assert!(props.contains_key("skills_dir"));
         assert!(props.contains_key("content"));
+    }
+
+    // ------------------------------------------------------------------
+    // Step 1.5: validate_skill_md strictness tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_validate_rejects_embedded_dashes() {
+        // "a---b---c" starts with 'a', not '---'
+        let content = "a---b---c\ndescription: \"test\"\n---\n";
+        let err = validate_skill_md(content).unwrap_err();
+        assert!(err.contains("missing frontmatter"));
+    }
+
+    #[test]
+    fn test_validate_rejects_no_newline_after_dashes() {
+        // "--- description" has space, not newline after ---
+        let content = "--- description\n---\n";
+        let err = validate_skill_md(content).unwrap_err();
+        assert!(err.contains("missing frontmatter"));
+    }
+
+    #[test]
+    fn test_validate_accepts_crlf() {
+        let content = "---\r\ndescription: \"test\"\r\n---\r\n";
+        assert!(validate_skill_md(content).is_ok());
+    }
+
+    #[test]
+    fn test_validate_accepts_lf() {
+        let content = "---\ndescription: \"test\"\n---\n";
+        assert!(validate_skill_md(content).is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_empty() {
+        let err = validate_skill_md("").unwrap_err();
+        assert!(err.contains("missing frontmatter"));
+    }
+
+    #[test]
+    fn test_build_skill_md_escapes_newlines() {
+        let md = build_skill_md("line1\nline2", "body");
+        assert!(md.contains("description: \"line1 line2\""));
+        assert!(!md.contains("line1\nline2"));
+    }
+
+    #[test]
+    fn test_build_skill_md_escapes_mixed() {
+        let md = build_skill_md("say \"hi\"\nand newline", "");
+        assert!(md.contains("description: \"say \\\"hi\\\" and newline\""));
     }
 }
