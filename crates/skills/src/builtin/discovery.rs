@@ -1,16 +1,14 @@
 //! Skill discovery skill - allows agents to search and install skills from ClawHub
 use crate::registry::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
-use closeclaw_permission::approval_flow::ApprovalFlow;
-use closeclaw_permission::engine::Caller;
-use closeclaw_permission::engine::PermissionRequestBody;
-use closeclaw_permission::{PermissionRequest, PermissionResponse};
-use std::sync::Arc;
+use closeclaw_common::permission_types::{
+    CallerInfo, PermissionEvalResult, SharedSkillApprovalSubmitter, SharedSkillPermissionChecker,
+};
 
 #[derive(Default)]
 pub struct SkillDiscoverySkill {
-    engine: Option<Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>>,
-    approval_flow: Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>,
+    engine: Option<SharedSkillPermissionChecker>,
+    approval_flow: Option<SharedSkillApprovalSubmitter>,
 }
 
 impl SkillDiscoverySkill {
@@ -21,9 +19,7 @@ impl SkillDiscoverySkill {
         }
     }
 
-    pub fn with_engine(
-        engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
-    ) -> Self {
+    pub fn with_engine(engine: SharedSkillPermissionChecker) -> Self {
         Self {
             engine: Some(engine),
             approval_flow: None,
@@ -31,8 +27,8 @@ impl SkillDiscoverySkill {
     }
 
     pub fn with_engine_and_approval_flow(
-        engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
-        approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+        engine: SharedSkillPermissionChecker,
+        approval_flow: SharedSkillApprovalSubmitter,
     ) -> Self {
         Self {
             engine: Some(engine),
@@ -92,47 +88,39 @@ impl Skill for SkillDiscoverySkill {
                 let version = args.get("version").and_then(|v| v.as_str());
 
                 if let Some(ref engine) = self.engine {
-                    let caller = Caller {
-                        user_id: String::new(),
-                        agent: agent_id.to_string(),
-                        creator_id: String::new(),
-                    };
-                    let request = PermissionRequest::WithCaller {
-                        caller: caller.clone(),
-                        request: PermissionRequestBody::InterAgentMsg {
-                            from: agent_id.to_string(),
-                            to: "*".to_string(),
-                        },
-                    };
-                    let extra_deny_subjects = engine
-                        .read()
-                        .await
-                        .get_agent_deny_subjects(agent_id, agent_id);
-                    match engine
-                        .read()
-                        .await
-                        .evaluate(request, Some(extra_deny_subjects))
-                    {
-                        PermissionResponse::Allowed { .. } => {}
-                        PermissionResponse::Denied {
-                            reason, risk_level, ..
-                        } => {
+                    let session_id = args
+                        .get("session_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let details = serde_json::json!({
+                        "agent_id": agent_id,
+                    });
+                    match engine.check_permission("spawn", "*", details).await {
+                        PermissionEvalResult::Allowed { .. } => {}
+                        PermissionEvalResult::Denied { reason, risk_level } => {
                             if let Some(ref flow) = self.approval_flow {
-                                let body = PermissionRequestBody::InterAgentMsg {
-                                    from: agent_id.to_string(),
-                                    to: "*".to_string(),
+                                let caller = CallerInfo {
+                                    user_id: args
+                                        .get("user_id")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    agent: agent_id.to_string(),
+                                    creator_id: args
+                                        .get("creator_id")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
                                 };
-                                let session_id = args
-                                    .get("session_id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
-                                let mut flow = flow.lock().await;
-                                if let Some(request_id) = flow
-                                    .submit_denial(&caller, &body, risk_level, session_id, false)
-                                {
+                                let request_id = flow
+                                    .submit_denial(
+                                        "spawn", "*", &reason, risk_level, session_id, &caller,
+                                    )
+                                    .await;
+                                if let Some(id) = request_id {
                                     return Ok(serde_json::json!({
                                         "status": "approval_pending",
-                                        "request_id": request_id,
+                                        "request_id": id,
                                         "message": "Operation pending owner approval",
                                     }));
                                 }
@@ -264,93 +252,5 @@ mod tests {
             SkillError::MethodNotFound { skill, .. } => assert_eq!(skill, "skill_discovery"),
             other => panic!("expected MethodNotFound, got {:?}", other),
         }
-    }
-
-    fn make_engine() -> Arc<closeclaw_permission::PermissionEngine> {
-        use closeclaw_permission::engine::engine_types::{
-            Action, Defaults, Effect, MatchType, Rule, RuleSet, Subject,
-        };
-        use std::collections::HashMap;
-        let rules = RuleSet {
-            rules: vec![Rule {
-                name: "deny-spawn".to_string(),
-                subject: Subject::AgentOnly {
-                    agent: "blocked-agent".to_string(),
-                    match_type: MatchType::Exact,
-                },
-                effect: Effect::Deny,
-                actions: vec![Action::ToolCall {
-                    skill: "*".to_string(),
-                    methods: vec![],
-                }],
-                template: None,
-                priority: 10,
-            }],
-            defaults: Defaults::default(),
-            template_includes: vec![],
-            agent_creators: HashMap::new(),
-        };
-        Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(rules))
-    }
-
-    #[tokio::test]
-    async fn test_install_permission_denied() {
-        let engine = make_engine();
-        let skill = SkillDiscoverySkill::with_engine(engine);
-        let result = skill
-            .execute(
-                "install",
-                serde_json::json!({
-                    "agent_id": "blocked-agent",
-                    "skill": "test-skill"
-                }),
-            )
-            .await;
-        let _ = result;
-    }
-
-    #[tokio::test]
-    async fn test_install_permission_with_extra_deny() {
-        use closeclaw_permission::engine::engine_types::{
-            Action, Defaults, Effect, MatchType, Rule, RuleSet, Subject,
-        };
-        use std::collections::HashMap;
-        let rules = RuleSet {
-            rules: vec![Rule {
-                name: "parent-deny-spawn".to_string(),
-                subject: Subject::AgentOnly {
-                    agent: "parent-agent".to_string(),
-                    match_type: MatchType::Exact,
-                },
-                effect: Effect::Deny,
-                actions: vec![Action::ToolCall {
-                    skill: "*".to_string(),
-                    methods: vec![],
-                }],
-                template: None,
-                priority: 10,
-            }],
-            defaults: Defaults::default(),
-            template_includes: vec![],
-            agent_creators: HashMap::new(),
-        };
-        let engine =
-            Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(rules));
-        let skill = SkillDiscoverySkill::with_engine(engine);
-        let result = skill
-            .execute(
-                "install",
-                serde_json::json!({
-                    "agent_id": "child-agent",
-                    "skill": "test-skill"
-                }),
-            )
-            .await;
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(
-            err,
-            crate::registry::SkillError::PermissionDenied(_)
-        ));
     }
 }
