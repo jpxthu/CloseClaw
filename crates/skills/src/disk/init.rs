@@ -34,7 +34,7 @@ mod tests {
     #[test]
     fn test_init_disk_skills_nonexistent_dir() {
         let config = ScanConfig {
-            bundled_dir: Some(std::path::PathBuf::from("/nonexistent")),
+            global_dir: Some(std::path::PathBuf::from("/nonexistent")),
             ..Default::default()
         };
         let registry = super::init_disk_skills(&config);
@@ -53,7 +53,7 @@ mod tests {
         .unwrap();
 
         let config = ScanConfig {
-            bundled_dir: Some(temp.path().to_path_buf()),
+            global_dir: Some(temp.path().to_path_buf()),
             ..Default::default()
         };
         let registry = super::init_disk_skills(&config);

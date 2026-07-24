@@ -40,4 +40,7 @@ mod prompt_template_tests;
 mod progress_tests;
 
 #[cfg(test)]
+mod skill_creator_tests;
+
+#[cfg(test)]
 mod skill_tool_tests;
