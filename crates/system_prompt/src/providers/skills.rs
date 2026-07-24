@@ -126,7 +126,6 @@ mod tests {
             },
             readme_path: std::path::PathBuf::from("/skills/test-skill/SKILL.md"),
             skill_dir: std::path::PathBuf::from("/skills/test-skill"),
-            body: String::new(),
         }];
         let reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(skills))));
         let provider = SkillsFragmentProvider::new(reg, None);
@@ -156,7 +155,6 @@ mod tests {
                 },
                 readme_path: std::path::PathBuf::from("/skills/skill-a/SKILL.md"),
                 skill_dir: std::path::PathBuf::from("/skills/skill-a"),
-                body: String::new(),
             },
             DiskSkill {
                 source: SkillSource::Bundled,
@@ -171,7 +169,6 @@ mod tests {
                 },
                 readme_path: std::path::PathBuf::from("/skills/skill-b/SKILL.md"),
                 skill_dir: std::path::PathBuf::from("/skills/skill-b"),
-                body: String::new(),
             },
         ];
         let reg = Arc::new(RwLock::new(Some(DiskSkillRegistry::new(skills))));

@@ -22,7 +22,7 @@ use std::sync::Arc;
 /// [`DiskSkillRegistry`]. If not found, it falls back to the
 /// [`BuiltinSkillRegistry`].
 ///
-/// - **Disk skill**: injects `skill.body` as a meta message into the
+/// - **Disk skill**: injects the skill body (loaded via `load_body()`) as a meta message into the
 ///   agent context.
 /// - **Builtin skill**: calls `execute("invoke", args)` and injects the
 ///   result as a meta message.
@@ -53,7 +53,10 @@ impl SkillTool {
         skill: &closeclaw_skills::disk::types::DiskSkill,
         ctx: &ToolContext,
     ) -> Result<ToolResult, ToolCallError> {
-        let body = Self::substitute_variables(&skill.body, skill, ctx);
+        let body_str = skill.load_body().map_err(|e| {
+            ToolCallError::ExecutionFailed(format!("failed to load skill body: {}", e))
+        })?;
+        let body = Self::substitute_variables(&body_str, skill, ctx);
 
         Ok(ToolResult {
             data: serde_json::json!({
@@ -217,11 +220,10 @@ mod tests {
             },
             readme_path,
             skill_dir: std::path::PathBuf::new(),
-            body: String::new(),
         }
     }
 
-    fn make_skill_with_body(name: &str, body: &str, skill_dir: std::path::PathBuf) -> DiskSkill {
+    fn make_skill_with_body(name: &str, _body: &str, skill_dir: std::path::PathBuf) -> DiskSkill {
         DiskSkill {
             source: SkillSource::Bundled,
             manifest: SkillManifest {
@@ -235,7 +237,6 @@ mod tests {
             },
             readme_path: std::path::PathBuf::new(),
             skill_dir,
-            body: body.to_string(),
         }
     }
 
@@ -344,7 +345,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_disk_priority_over_builtin() {
-        let disk_skill = make_skill("shared", std::path::PathBuf::from("/tmp/test"));
+        let temp = tempfile::tempdir().unwrap();
+        let readme_path = temp.path().join("SKILL.md");
+        std::fs::write(
+            &readme_path,
+            "---\ndescription: Shared skill\n---\n\nDisk body.\n",
+        )
+        .unwrap();
+        let disk_skill = make_skill("shared", readme_path);
         let disk = Arc::new(DiskSkillRegistry::new(vec![disk_skill]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         builtin
@@ -373,7 +381,8 @@ mod tests {
             std::path::PathBuf::from("/home/user/.closeclaw/skills/my-skill"),
         );
         let ctx = new_ctx();
-        let result = SkillTool::substitute_variables(&skill.body, &skill, &ctx);
+        let body_str = "Read files in ${SKILL_DIR}";
+        let result = SkillTool::substitute_variables(body_str, &skill, &ctx);
         assert_eq!(
             result,
             "Read files in /home/user/.closeclaw/skills/my-skill"
@@ -388,7 +397,8 @@ mod tests {
             std::path::PathBuf::from("/tmp/skill"),
         );
         let ctx = new_ctx_with_session(Some("sess-abc-123".to_string()));
-        let result = SkillTool::substitute_variables(&skill.body, &skill, &ctx);
+        let body_str = "Session: ${SESSION_ID}";
+        let result = SkillTool::substitute_variables(body_str, &skill, &ctx);
         assert_eq!(result, "Session: sess-abc-123");
     }
 
@@ -400,7 +410,8 @@ mod tests {
             std::path::PathBuf::from("/tmp/skill"),
         );
         let ctx = new_ctx();
-        let result = SkillTool::substitute_variables(&skill.body, &skill, &ctx);
+        let body_str = "Hello ${UNKNOWN_VAR}";
+        let result = SkillTool::substitute_variables(body_str, &skill, &ctx);
         assert_eq!(result, "Hello ${UNKNOWN_VAR}");
     }
 
@@ -412,7 +423,8 @@ mod tests {
             std::path::PathBuf::from("/tmp/skill"),
         );
         let ctx = new_ctx();
-        let result = SkillTool::substitute_variables(&skill.body, &skill, &ctx);
+        let body_str = "Plain text without variables";
+        let result = SkillTool::substitute_variables(body_str, &skill, &ctx);
         assert_eq!(result, "Plain text without variables");
     }
 
@@ -424,7 +436,8 @@ mod tests {
             std::path::PathBuf::from("/tmp/my-skill"),
         );
         let ctx = new_ctx_with_session(Some("s-999".to_string()));
-        let result = SkillTool::substitute_variables(&skill.body, &skill, &ctx);
+        let body_str = "Dir: ${SKILL_DIR}, Session: ${SESSION_ID}, Unknown: ${FOO}";
+        let result = SkillTool::substitute_variables(body_str, &skill, &ctx);
         assert_eq!(
             result,
             "Dir: /tmp/my-skill, Session: s-999, Unknown: ${FOO}"
@@ -439,7 +452,8 @@ mod tests {
             std::path::PathBuf::from("/tmp/skill"),
         );
         let ctx = new_ctx_with_session(None);
-        let result = SkillTool::substitute_variables(&skill.body, &skill, &ctx);
+        let body_str = "Session: ${SESSION_ID}";
+        let result = SkillTool::substitute_variables(body_str, &skill, &ctx);
         // session_id is None → placeholder remains unchanged
         assert_eq!(result, "Session: ${SESSION_ID}");
     }
