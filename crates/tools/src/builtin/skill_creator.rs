@@ -56,7 +56,8 @@ fn default_skills_dir(ctx: &ToolContext) -> PathBuf {
 
 /// Generate SKILL.md content from parameters.
 fn build_skill_md(description: &str, body: &str) -> String {
-    let mut content = format!("---\ndescription: \"{description}\"\n---\n");
+    let escaped = description.replace('"', "\\\"");
+    let mut content = format!("---\ndescription: \"{escaped}\"\n---\n");
     if !body.is_empty() {
         content.push('\n');
         content.push_str(body);
@@ -112,6 +113,12 @@ impl Tool for SkillCreatorTool {
     }
 
     fn input_schema(&self) -> Value {
+        let skills_dir_desc = concat!(
+            "Target skills directory ",
+            "(create only, optional). ",
+            "Defaults to .closeclaw/skills/ ",
+            "under cwd"
+        );
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -134,7 +141,7 @@ impl Tool for SkillCreatorTool {
                 },
                 "skills_dir": {
                     "type": "string",
-                    "description": "Target skills directory (create only, optional). Defaults to .closeclaw/skills/ under cwd"
+                    "description": skills_dir_desc,
                 },
                 "content": {
                     "type": "string",
@@ -157,7 +164,7 @@ impl Tool for SkillCreatorTool {
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         let action = required_str(&args, "action")?;
         match action {
-            "create" => self.handle_create(&args, ctx).await,
+            "create" => self.handle_create(&args, ctx),
             "validate" => self.handle_validate(&args),
             other => Err(ToolCallError::InvalidArgs(format!(
                 "unknown action: {other} (expected \"create\" or \"validate\")"
@@ -168,11 +175,7 @@ impl Tool for SkillCreatorTool {
 
 impl SkillCreatorTool {
     /// Handle `create` action: create skill directory and SKILL.md.
-    async fn handle_create(
-        &self,
-        args: &Value,
-        ctx: &ToolContext,
-    ) -> Result<ToolResult, ToolCallError> {
+    fn handle_create(&self, args: &Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         let name = required_str(args, "name")?;
         let description = required_str(args, "description")?;
         let body = optional_str(args, "body").unwrap_or("");
@@ -303,6 +306,13 @@ mod tests {
     fn test_build_skill_md_empty_body() {
         let md = build_skill_md("Desc only", "");
         assert_eq!(md, "---\ndescription: \"Desc only\"\n---\n");
+    }
+
+    #[test]
+    fn test_build_skill_md_escapes_quotes() {
+        let md = build_skill_md("He said \"hello\"", "");
+        assert!(md.contains("description: \"He said \\\"hello\\\"\""));
+        assert!(validate_skill_md(&md).is_ok());
     }
 
     #[test]

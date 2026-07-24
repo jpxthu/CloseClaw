@@ -465,10 +465,12 @@ mod tests {
     #[test]
     fn test_load_body_special_characters() {
         let temp = tempfile::tempdir().unwrap();
-        create_file(
-            &temp.path().join("special").join("SKILL.md"),
-            "---\ndescription: Special\n---\n\n# Hello 🌍\n\nLine with \"quotes\" and <html> &amp; entities.\n",
+        let content = concat!(
+            "---\ndescription: Special\n---\n\n",
+            "# Hello 🌍\n\nLine with \"quotes\" ",
+            "and <html> &amp; entities.\n",
         );
+        create_file(&temp.path().join("special").join("SKILL.md"), content);
 
         let config = ScanConfig {
             global_dir: Some(temp.path().to_path_buf()),
