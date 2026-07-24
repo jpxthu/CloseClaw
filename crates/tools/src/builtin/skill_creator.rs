@@ -104,7 +104,7 @@ pub(crate) fn edit_skill_md(
     let leading_len = content.len() - trimmed.len();
     let prefix = &content[..leading_len];
 
-    let fm_start = 4; // skip "---\n" or "---\r\n"
+    let fm_start = if trimmed.starts_with("---\r\n") { 5 } else { 4 };
     let closing_marker = trimmed[fm_start..].find("---").unwrap();
     let fm_end = fm_start + closing_marker;
     let fm_content = &trimmed[fm_start..fm_end];

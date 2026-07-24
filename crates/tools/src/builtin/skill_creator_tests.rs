@@ -499,6 +499,18 @@ fn test_edit_skill_md_crlf() {
     assert!(validate_skill_md(&out).is_ok());
 }
 
+#[test]
+fn test_edit_skill_md_pure_crlf_no_trim() {
+    // Pure CRLF input WITHOUT trim_start — exercises fm_start fix
+    let input = "---\r\ndescription: \"old\"\r\n---\r\n\r\nBody.\r\n";
+    let out = edit_skill_md(input, Some("new"), None);
+    assert!(out.contains("description: \"new\""));
+    assert!(out.contains("Body."));
+    // No stray leading newline in body
+    assert!(!out.starts_with("\n"));
+    assert!(validate_skill_md(&out).is_ok());
+}
+
 // ------------------------------------------------------------------
 // Step 1.6: call() edit integration tests
 // ------------------------------------------------------------------
