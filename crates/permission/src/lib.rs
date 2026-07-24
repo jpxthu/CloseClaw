@@ -8,6 +8,7 @@ pub mod approval_flow;
 pub mod engine;
 pub mod rules;
 pub mod sandbox;
+pub mod skill_wrapper;
 pub mod templates;
 pub mod user_registry;
 pub mod whitelist;

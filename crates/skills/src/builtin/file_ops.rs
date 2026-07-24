@@ -1,20 +1,13 @@
 //! File operations skill
 use crate::registry::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
-use closeclaw_config::agents::{AgentPermissionProvider, NoopPermissionProvider};
-use closeclaw_gateway::SessionManager;
-use closeclaw_permission::approval_flow::ApprovalFlow;
-use closeclaw_permission::engine::engine_types::{
-    Caller, PermissionRequest, PermissionRequestBody,
+use closeclaw_common::permission_types::{
+    CallerInfo, PermissionEvalResult, SharedSkillApprovalSubmitter, SharedSkillPermissionChecker,
 };
-use closeclaw_permission::PermissionResponse;
-use std::sync::Arc;
 
 pub struct FileOpsSkill {
-    engine: Option<Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>>,
-    approval_flow: Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>,
-    session_manager: Option<Arc<SessionManager>>,
-    agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync>,
+    engine: Option<SharedSkillPermissionChecker>,
+    approval_flow: Option<SharedSkillApprovalSubmitter>,
 }
 
 impl Default for FileOpsSkill {
@@ -28,45 +21,24 @@ impl FileOpsSkill {
         Self {
             engine: None,
             approval_flow: None,
-            session_manager: None,
-            agent_permissions: Arc::new(NoopPermissionProvider),
         }
     }
 
-    pub fn with_engine(
-        engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
-    ) -> Self {
+    pub fn with_engine(engine: SharedSkillPermissionChecker) -> Self {
         Self {
             engine: Some(engine),
             approval_flow: None,
-            session_manager: None,
-            agent_permissions: Arc::new(NoopPermissionProvider),
         }
     }
 
     pub fn with_engine_and_approval_flow(
-        engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
-        approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+        engine: SharedSkillPermissionChecker,
+        approval_flow: SharedSkillApprovalSubmitter,
     ) -> Self {
         Self {
             engine: Some(engine),
             approval_flow: Some(approval_flow),
-            session_manager: None,
-            agent_permissions: Arc::new(NoopPermissionProvider),
         }
-    }
-
-    pub fn with_session_manager(mut self, session_manager: Arc<SessionManager>) -> Self {
-        self.session_manager = Some(session_manager);
-        self
-    }
-
-    pub fn with_agent_permissions(
-        mut self,
-        agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync>,
-    ) -> Self {
-        self.agent_permissions = agent_permissions;
-        self
     }
 }
 
@@ -107,74 +79,43 @@ impl Skill for FileOpsSkill {
                 .get("agent_id")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| SkillError::InvalidArgs("agent_id required".to_string()))?;
-            let user_id = args
-                .get("user_id")
+            let session_id = args
+                .get("session_id")
                 .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            let file_op = match action {
-                "file_read" => "read",
-                "file_write" => "write",
-                _ => action,
-            };
-            let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
-                agent: agent_id.to_string(),
-                path: args
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                op: file_op.to_string(),
+                .unwrap_or("");
+            let path = args
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let details = serde_json::json!({
+                "agent_id": agent_id,
             });
-            let response = match (
-                &self.session_manager,
-                args.get("session_id").and_then(|v| v.as_str()),
-            ) {
-                (Some(ref sm), Some(sid)) => {
-                    let caller = Caller {
-                        user_id: user_id.to_string(),
-                        agent: agent_id.to_string(),
-                        creator_id: String::new(),
-                    };
-                    let request = request.with_caller(caller);
-                    let guard = engine.read().await;
-                    guard
-                        .evaluate_with_chain(
-                            request,
-                            sm.as_ref(),
-                            sid,
-                            self.agent_permissions.as_ref(),
-                        )
-                        .await
-                }
-                _ => engine.read().await.evaluate(request, None),
-            };
-            match response {
-                PermissionResponse::Allowed { .. } => {}
-                PermissionResponse::Denied {
-                    reason, risk_level, ..
-                } => {
+            match engine.check_permission(action, &path, details).await {
+                PermissionEvalResult::Allowed { .. } => {}
+                PermissionEvalResult::Denied { reason, risk_level } => {
                     if let Some(ref flow) = self.approval_flow {
-                        let caller = Caller {
-                            user_id: user_id.to_string(),
+                        let caller = CallerInfo {
+                            user_id: args
+                                .get("user_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
                             agent: agent_id.to_string(),
-                            creator_id: String::new(),
+                            creator_id: args
+                                .get("creator_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
                         };
-                        let body = PermissionRequestBody::ToolCall {
-                            agent: agent_id.to_string(),
-                            skill: "file_ops".to_string(),
-                            method: method.to_string(),
-                        };
-                        let session_id = args
-                            .get("session_id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        let mut flow = flow.lock().await;
-                        if let Some(request_id) =
-                            flow.submit_denial(&caller, &body, risk_level, session_id, false)
-                        {
+                        let request_id = flow
+                            .submit_denial(action, &path, &reason, risk_level, session_id, &caller)
+                            .await;
+                        if let Some(id) = request_id {
                             return Ok(serde_json::json!({
                                 "status": "approval_pending",
-                                "request_id": request_id,
+                                "request_id": id,
                                 "message": "Operation pending owner approval",
                             }));
                         }

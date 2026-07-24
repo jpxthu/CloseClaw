@@ -17,9 +17,9 @@ pub use permission::PermissionSkill;
 pub use search::SearchSkill;
 
 use crate::registry::Skill;
-use closeclaw_config::agents::AgentPermissionProvider;
-use closeclaw_gateway::SessionManager;
-use closeclaw_permission::approval_flow::ApprovalFlow;
+use closeclaw_common::permission_types::{
+    SharedSkillApprovalSubmitter, SharedSkillPermissionChecker,
+};
 use std::sync::Arc;
 
 /// Built-in skills registry
@@ -40,10 +40,8 @@ impl BuiltinSkills {
         ]
     }
 
-    /// Create all built-in skills with a shared permission engine injected.
-    pub fn all_with_engine(
-        engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
-    ) -> Vec<Arc<dyn Skill>> {
+    /// Create all built-in skills with a shared permission checker injected.
+    pub fn all_with_engine(engine: SharedSkillPermissionChecker) -> Vec<Arc<dyn Skill>> {
         vec![
             Arc::new(FileOpsSkill::with_engine(engine.clone())) as Arc<dyn Skill>,
             Arc::new(GitOpsSkill::new()),
@@ -55,28 +53,15 @@ impl BuiltinSkills {
         ]
     }
 
-    /// Create all built-in skills with a shared permission engine and approval flow injected.
+    /// Create all built-in skills with a shared permission checker and approval
+    /// submitter injected.
     pub fn all_with_engine_and_approval_flow(
-        engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
-        approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
-        session_manager: Option<Arc<SessionManager>>,
-        agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync>,
+        engine: SharedSkillPermissionChecker,
+        approval_flow: SharedSkillApprovalSubmitter,
     ) -> Vec<Arc<dyn Skill>> {
         let file_ops =
-            FileOpsSkill::with_engine_and_approval_flow(engine.clone(), approval_flow.clone())
-                .with_agent_permissions(Arc::clone(&agent_permissions));
-        let file_ops = if let Some(ref sm) = session_manager {
-            file_ops.with_session_manager(Arc::clone(sm))
-        } else {
-            file_ops
-        };
-        let perm_skill =
-            PermissionSkill::with_engine(engine.clone()).with_agent_permissions(agent_permissions);
-        let perm_skill = if let Some(ref sm) = session_manager {
-            perm_skill.with_session_manager(Arc::clone(sm))
-        } else {
-            perm_skill
-        };
+            FileOpsSkill::with_engine_and_approval_flow(engine.clone(), approval_flow.clone());
+        let perm_skill = PermissionSkill::with_engine(engine.clone());
         vec![
             Arc::new(file_ops) as Arc<dyn Skill>,
             Arc::new(GitOpsSkill::new()),
@@ -97,26 +82,18 @@ pub fn builtin_skills() -> Vec<Arc<dyn Skill>> {
     BuiltinSkills::all()
 }
 
-/// Get all built-in skills with a shared permission engine injected.
-pub fn builtin_skills_with_engine(
-    engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
-) -> Vec<Arc<dyn Skill>> {
+/// Get all built-in skills with a shared permission checker injected.
+pub fn builtin_skills_with_engine(engine: SharedSkillPermissionChecker) -> Vec<Arc<dyn Skill>> {
     BuiltinSkills::all_with_engine(engine)
 }
 
-/// Get all built-in skills with a shared permission engine and approval flow injected.
+/// Get all built-in skills with a shared permission checker and approval
+/// submitter injected.
 pub fn builtin_skills_with_engine_and_approval_flow(
-    engine: Arc<tokio::sync::RwLock<closeclaw_permission::PermissionEngine>>,
-    approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
-    session_manager: Option<Arc<SessionManager>>,
-    agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync>,
+    engine: SharedSkillPermissionChecker,
+    approval_flow: SharedSkillApprovalSubmitter,
 ) -> Vec<Arc<dyn Skill>> {
-    BuiltinSkills::all_with_engine_and_approval_flow(
-        engine,
-        approval_flow,
-        session_manager,
-        agent_permissions,
-    )
+    BuiltinSkills::all_with_engine_and_approval_flow(engine, approval_flow)
 }
 
 #[cfg(test)]
@@ -160,33 +137,5 @@ mod extra_tests {
     fn test_builtin_skills_function() {
         let skills = builtin_skills();
         assert_eq!(skills.len(), 7);
-    }
-
-    fn make_engine() -> Arc<closeclaw_permission::PermissionEngine> {
-        use closeclaw_permission::engine::engine_types::{Defaults, RuleSet};
-        let rules = RuleSet {
-            rules: vec![],
-            defaults: Defaults::default(),
-            template_includes: vec![],
-            agent_creators: std::collections::HashMap::new(),
-        };
-        Arc::new(closeclaw_permission::PermissionEngine::new_with_default_data_root(rules))
-    }
-
-    #[test]
-    fn test_builtin_skills_with_engine_has_same_count() {
-        let engine = make_engine();
-        let skills = builtin_skills_with_engine(engine);
-        assert_eq!(skills.len(), 7);
-    }
-
-    #[test]
-    fn test_all_with_engine_skills_have_manifests() {
-        let engine = make_engine();
-        let skills = BuiltinSkills::all_with_engine(engine);
-        for skill in &skills {
-            let m = skill.manifest();
-            assert!(!m.name.is_empty());
-        }
     }
 }

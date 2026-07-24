@@ -810,8 +810,6 @@ dependencies = [
  "async-trait",
  "closeclaw-agent",
  "closeclaw-common",
- "closeclaw-config",
- "closeclaw-gateway",
  "closeclaw-permission",
  "closeclaw-session",
  "futures",

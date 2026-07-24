@@ -8,11 +8,8 @@ license = "MIT"
 [dependencies]
 # Internal crates
 closeclaw-common = { path = "../common" }
-closeclaw-config = { path = "../config" }
 closeclaw-agent = { path = "../agent" }
 closeclaw-session = { path = "../session" }
-closeclaw-gateway = { path = "../gateway" }
-closeclaw-permission = { path = "../permission" }
 
 # Async runtime
 tokio = { version = "=1.35.0", features = ["full"] }
@@ -41,5 +38,6 @@ notify = "6.1"
 notify-debouncer-mini = "0.4"
 
 [dev-dependencies]
+closeclaw-permission = { path = "../permission" }
 tempfile = "3"
 serial_test = "3.4"
