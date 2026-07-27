@@ -4,9 +4,11 @@
 mod tests {
     use crate::compaction::{
         build_compact_prompt, estimate_messages_tokens, estimate_tokens, estimate_total_tokens,
-        extract_summary, format_boundary_message, get_context_window, CompactConfig,
+        extract_summary, format_boundary_message, get_context_window, ChatFn, CompactConfig,
         CompactionError, CompactionMessage, CompactionService, TokenWarningState,
     };
+    use std::sync::Arc;
+
     use closeclaw_common::RunningStats;
 
     #[test]
@@ -713,6 +715,271 @@ mod tests {
     }
 
     // ===================================================================
-    // execute_compact integration tests — see crates/llm/src/compaction_tests.rs
+    // Step 1.5: CompactionService::compact tests
     // ===================================================================
+
+    /// Helper: create a ChatFn that returns a successful LLM response
+    /// with the given summary content.
+    fn mock_chat_success(summary: &str) -> ChatFn {
+        let response = format!("<summary>{}</summary>", summary);
+        Arc::new(move |_model: String, _msgs: Vec<CompactionMessage>| {
+            let resp = response.clone();
+            Box::pin(async move { Ok((resp, 0)) })
+        })
+    }
+
+    /// Helper: create a ChatFn that simulates an LLM call failure.
+    fn mock_chat_failure(error_msg: &str) -> ChatFn {
+        let err = error_msg.to_string();
+        Arc::new(move |_model: String, _msgs: Vec<CompactionMessage>| {
+            let e = err.clone();
+            Box::pin(async move { Err(e) })
+        })
+    }
+
+    /// Helper: create a ChatFn that returns a response without <summary> tags.
+    fn mock_chat_no_summary(response: &str) -> ChatFn {
+        let resp = response.to_string();
+        Arc::new(move |_model: String, _msgs: Vec<CompactionMessage>| {
+            let r = resp.clone();
+            Box::pin(async move { Ok((r, 0)) })
+        })
+    }
+
+    /// Dimension 1 + auto flag: Normal path — valid messages + no custom
+    /// instruction returns CompactionResult with performed=true, message
+    /// containing character counts, and auto flag correctly set.
+    #[tokio::test]
+    async fn test_compact_normal_no_instruction() {
+        let mut svc = CompactionService::new(CompactConfig::default());
+        let msgs = vec![
+            CompactionMessage {
+                role: "user".to_string(),
+                content: "Hello, how are you?".to_string(),
+            },
+            CompactionMessage {
+                role: "assistant".to_string(),
+                content: "I am doing well, thank you.".to_string(),
+            },
+        ];
+        let chat_fn = mock_chat_success("Greeted user.");
+
+        // Manual compact
+        let result = svc
+            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .await
+            .unwrap();
+
+        assert!(result.performed, "should be performed");
+        assert!(
+            result.message.starts_with("压缩完成："),
+            "message should start with 压缩完成："
+        );
+        assert!(
+            result.message.contains("字符"),
+            "message should contain 字符"
+        );
+        assert!(!result.is_auto);
+
+        // Auto compact
+        let result_auto = svc
+            .compact(&msgs, "glm-5", None, true, None, &chat_fn)
+            .await
+            .unwrap();
+        assert!(result_auto.is_auto);
+    }
+
+    /// Dimension 2: Normal path — valid messages + custom keep instruction
+    /// produces a prompt that contains the custom instruction.
+    #[tokio::test]
+    async fn test_compact_with_custom_instruction() {
+        let mut svc = CompactionService::new(CompactConfig::default());
+        let msgs = vec![CompactionMessage {
+            role: "user".to_string(),
+            content: "Help me with the API docs".to_string(),
+        }];
+        let chat_fn = mock_chat_success("Summarized.");
+
+        let result = svc
+            .compact(&msgs, "glm-5", Some("保留 API 列表"), false, None, &chat_fn)
+            .await
+            .unwrap();
+
+        assert!(result.performed);
+    }
+
+    /// Dimension 3: Error path — empty messages returns EmptyMessages.
+    #[tokio::test]
+    async fn test_compact_empty_messages() {
+        let mut svc = CompactionService::new(CompactConfig::default());
+        let msgs: Vec<CompactionMessage> = vec![];
+        let chat_fn = mock_chat_success("unused");
+
+        let err = svc
+            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, CompactionError::EmptyMessages));
+    }
+
+    /// Dimension 4: Error path — LLM call failure returns LLMCallFailed.
+    #[tokio::test]
+    async fn test_compact_llm_failure() {
+        let mut svc = CompactionService::new(CompactConfig::default());
+        let msgs = vec![CompactionMessage {
+            role: "user".to_string(),
+            content: "test message".to_string(),
+        }];
+        let chat_fn = mock_chat_failure("rate limit exceeded");
+
+        let err = svc
+            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .await
+            .unwrap_err();
+
+        match err {
+            CompactionError::LLMCallFailed(msg) => {
+                assert_eq!(msg, "rate limit exceeded");
+            }
+            _ => panic!("expected LLMCallFailed"),
+        }
+    }
+
+    /// Dimension 5: Error path — LLM response without <summary> tag
+    /// returns SummaryParseFailed.
+    #[tokio::test]
+    async fn test_compact_summary_parse_failure() {
+        let mut svc = CompactionService::new(CompactConfig::default());
+        let msgs = vec![CompactionMessage {
+            role: "user".to_string(),
+            content: "test message".to_string(),
+        }];
+        let chat_fn = mock_chat_no_summary("no summary tag here");
+
+        let err = svc
+            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, CompactionError::SummaryParseFailed));
+    }
+
+    /// Dimension 6 + token counts: Boundary values — before_char_count and
+    /// after_char_count are computed correctly; token counts are populated.
+    #[tokio::test]
+    async fn test_compact_char_counts_correct() {
+        let mut svc = CompactionService::new(CompactConfig::default());
+        let msgs = vec![
+            CompactionMessage {
+                role: "user".to_string(),
+                content: "Hello world".to_string(),
+            },
+            CompactionMessage {
+                role: "assistant".to_string(),
+                content: "Hi there".to_string(),
+            },
+        ];
+        let expected_before = 11 + 8;
+        let chat_fn = mock_chat_success("Brief summary.");
+
+        let result = svc
+            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .await
+            .unwrap();
+
+        assert_eq!(result.before_char_count, expected_before);
+        assert!(result.after_char_count > 0);
+        assert!(result.after_char_count > result.before_char_count);
+        assert!(result.boundary_message.contains("Brief summary."));
+        assert!(result.boundary_message.contains("Session Compaction"));
+        // Token counts
+        assert!(result.before_token_count > 0);
+        assert!(result.after_token_count > 0);
+        assert_eq!(result.original_tokens, result.before_token_count);
+        assert_eq!(result.compacted_tokens, result.after_token_count);
+    }
+
+    /// Dimension 7: State transition — after successful compact,
+    /// consecutive_failures resets to 0.
+    #[tokio::test]
+    async fn test_compact_resets_consecutive_failures() {
+        let mut config = CompactConfig::default();
+        config.max_consecutive_failures = 3;
+        let mut svc = CompactionService::new(config);
+
+        // Trip the circuit breaker.
+        svc.record_failure();
+        svc.record_failure();
+        svc.record_failure();
+        assert_eq!(svc.consecutive_failures(), 3);
+
+        let msgs = vec![CompactionMessage {
+            role: "user".to_string(),
+            content: "test".to_string(),
+        }];
+        let chat_fn = mock_chat_success("ok");
+
+        let result = svc
+            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .await
+            .unwrap();
+        assert!(result.performed);
+        assert_eq!(
+            svc.consecutive_failures(),
+            0,
+            "consecutive_failures should reset to 0 after success"
+        );
+    }
+
+    /// Verify that compact failure does NOT reset the circuit breaker.
+    #[tokio::test]
+    async fn test_compact_failure_preserves_circuit_breaker() {
+        let mut config = CompactConfig::default();
+        config.max_consecutive_failures = 3;
+        let mut svc = CompactionService::new(config);
+
+        svc.record_failure();
+        svc.record_failure();
+        assert_eq!(svc.consecutive_failures(), 2);
+
+        let msgs = vec![CompactionMessage {
+            role: "user".to_string(),
+            content: "test".to_string(),
+        }];
+        let chat_fn = mock_chat_failure("error");
+
+        let err = svc
+            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CompactionError::LLMCallFailed(_)));
+        // consecutive_failures should remain 2 — compact failure doesn't
+        // call record_failure (it's the caller's responsibility).
+        assert_eq!(svc.consecutive_failures(), 2);
+    }
+
+    /// Verify that the reply message format matches the design doc:
+    /// "压缩完成：{before_char_count} → {after_char_count} 字符"
+    #[tokio::test]
+    async fn test_compact_message_format_matches_design_doc() {
+        let mut svc = CompactionService::new(CompactConfig::default());
+        let msgs = vec![CompactionMessage {
+            role: "user".to_string(),
+            content: "abc".to_string(),
+        }];
+        let chat_fn = mock_chat_success("Summary.");
+
+        let result = svc
+            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .await
+            .unwrap();
+
+        // Format: "压缩完成：{before} → {after} 字符"
+        let expected_format = format!(
+            "压缩完成：{} → {} 字符",
+            result.before_char_count, result.after_char_count
+        );
+        assert_eq!(result.message, expected_format);
+    }
 }
