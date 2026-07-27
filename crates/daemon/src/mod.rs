@@ -630,7 +630,7 @@ impl Daemon {
         let config_subdir = PathBuf::from(data_dir).join("config");
         let late_bound_session_manager =
             Arc::new(closeclaw_session::tools::LateBoundSessionManagerOps::new());
-        let builtin_skill_listing = Arc::clone(&builtin_skill_registry);
+        let builtin_skill_listing = Arc::clone(builtin_skill_registry);
         let ctx = registries::RegistryContext {
             config_manager,
             agent_registry,
