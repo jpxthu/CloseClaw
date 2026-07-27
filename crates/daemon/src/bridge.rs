@@ -123,9 +123,18 @@ impl SkillListingProviderWrapper {
     /// Disk skills use `SkillSource` for priority ordering (Project > Agent >
     /// Global > ExtraDirs > Bundled). Builtin skills are treated as `Bundled`
     /// (lowest priority). When names collide, the higher-priority skill wins.
-    fn merged_listing(&self, agent_id: Option<&str>, agent_skills: Option<&[String]>) -> String {
-        let disk = self.collect_disk_listings(agent_id, agent_skills);
-        let builtin = self.collect_builtin_listings(agent_skills);
+    ///
+    /// When `exclude_conditional` is `true`, skills with non-empty `paths`
+    /// are excluded. When `false`, all qualifying skills are included so
+    /// the caller can compute the conditional-activation diff.
+    fn merged_listing(
+        &self,
+        agent_id: Option<&str>,
+        agent_skills: Option<&[String]>,
+        exclude_conditional: bool,
+    ) -> String {
+        let disk = self.collect_disk_listings(agent_id, agent_skills, exclude_conditional);
+        let builtin = self.collect_builtin_listings(agent_skills, exclude_conditional);
         Self::merge_and_sort_listings(disk, builtin)
     }
 
@@ -134,12 +143,15 @@ impl SkillListingProviderWrapper {
     /// Resolves the effective whitelist (explicit `agent_skills` override,
     /// falling back to the agent skills query) and delegates to
     /// [`DiskSkillRegistry::listing_entries`] which handles
-    /// `user_invocable` / conditional / whitelist filtering and
-    /// `(source, name)` sorting.
+    /// `user_invocable` / whitelist filtering and `(source, name)` sorting.
+    ///
+    /// When `exclude_conditional` is `true`, conditional skills are
+    /// excluded. When `false`, all qualifying skills are included.
     fn collect_disk_listings(
         &self,
         agent_id: Option<&str>,
         agent_skills: Option<&[String]>,
+        exclude_conditional: bool,
     ) -> Vec<(String, u8)> {
         self.disk
             .read()
@@ -151,7 +163,7 @@ impl SkillListingProviderWrapper {
                             .and_then(|q| q.get_agent_skills(agent_id.unwrap_or("")))
                     });
                     let resolved_ref = resolved_whitelist.as_deref();
-                    r.listing_entries(resolved_ref)
+                    r.listing_entries(resolved_ref, exclude_conditional)
                         .into_iter()
                         .map(|(line, source)| (line, source as u8))
                         .collect()
@@ -162,16 +174,21 @@ impl SkillListingProviderWrapper {
 
     /// Collect listing entries from the builtin skill registry.
     ///
-    /// Filters by `user_invocable`, exclusion of conditional skills
-    /// (non-empty `paths`), and whitelist membership.
-    fn collect_builtin_listings(&self, agent_skills: Option<&[String]>) -> Vec<(String, u8)> {
+    /// Filters by `user_invocable` and whitelist membership. When
+    /// `exclude_conditional` is `true`, also excludes skills with
+    /// non-empty `paths`.
+    fn collect_builtin_listings(
+        &self,
+        agent_skills: Option<&[String]>,
+        exclude_conditional: bool,
+    ) -> Vec<(String, u8)> {
         let rt = tokio::runtime::Handle::current();
         let entries = rt.block_on(self.builtin.sorted_skills());
         entries
             .into_iter()
             .filter(|(m, meta)| {
                 meta.user_invocable
-                    && meta.paths.is_empty()
+                    && !(exclude_conditional && !meta.paths.is_empty())
                     && agent_skills.map_or(true, |w| {
                         w == ["*"] || w.iter().any(|s| s.as_str() == m.name.as_str())
                     })
@@ -260,7 +277,7 @@ fn extract_name(line: &str) -> String {
 
 impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
     fn generate_listing(&self, agent_id: Option<&str>, agent_skills: Option<&[String]>) -> String {
-        self.merged_listing(agent_id, agent_skills)
+        self.merged_listing(agent_id, agent_skills, false)
     }
 
     fn generate_listing_excluding_conditional(
@@ -268,7 +285,7 @@ impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
         agent_id: Option<&str>,
         agent_skills: Option<&[String]>,
     ) -> String {
-        self.merged_listing(agent_id, agent_skills)
+        self.merged_listing(agent_id, agent_skills, true)
     }
 
     fn find_conditional_matches(
