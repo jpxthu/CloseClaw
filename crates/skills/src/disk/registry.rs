@@ -297,15 +297,14 @@ impl DiskSkillRegistry {
     /// `generate_listing_excluding_conditional`.
     fn generate_listing_inner(&self, skills_whitelist: Option<&[String]>) -> String {
         let mut filtered = self.filter_skills_for_listing(skills_whitelist);
-        filtered.retain(|s| s.manifest.paths.is_empty());
         if filtered.is_empty() {
             return String::new();
         }
         Self::render_listing(&mut filtered)
     }
 
-    /// Filter skills by common listing criteria: `user_invocable`
-    /// and whitelist membership. Also excludes conditional skills
+    /// Filter skills by common listing criteria: `user_invocable`,
+    /// whitelist membership, and exclusion of conditional skills
     /// (those with non-empty `paths`).
     fn filter_skills_for_listing<'a>(
         &'a self,
@@ -323,6 +322,9 @@ impl DiskSkillRegistry {
             .iter()
             .filter(|s| {
                 if !s.manifest.user_invocable {
+                    return false;
+                }
+                if !s.manifest.paths.is_empty() {
                     return false;
                 }
                 // Agent-scoped filtering is handled by directory-based discovery
