@@ -69,6 +69,10 @@ pub enum CompactionError {
     #[error("LLM call failed: {0}")]
     LLMCallFailed(String),
 
+    /// Session not found.
+    #[error("session not found: {0}")]
+    SessionNotFound(String),
+
     /// Failed to parse summary from LLM response.
     #[error("Failed to parse summary from LLM response")]
     SummaryParseFailed,

@@ -47,8 +47,8 @@ impl SessionManager {
     ) -> Result<CompactionResult, closeclaw_session::compaction::CompactionError> {
         let (model, llm_messages, stats) =
             load_compact_inputs(self, session_id).await.ok_or_else(|| {
-                closeclaw_session::compaction::CompactionError::LLMCallFailed(
-                    "session not found".to_string(),
+                closeclaw_session::compaction::CompactionError::SessionNotFound(
+                    session_id.to_string(),
                 )
             })?;
 

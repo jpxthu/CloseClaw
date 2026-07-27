@@ -287,36 +287,8 @@ impl SessionMessageHandler {
         let sm = Arc::clone(&self.session_manager);
         let sid = session_id.to_string();
         tokio::spawn(async move {
-            // Build ChatFn from FallbackClient.
-            let chat_fn: closeclaw_session::compaction::ChatFn =
-                Arc::new(move |model, messages| {
-                    let fc = Arc::clone(&fc);
-                    Box::pin(async move {
-                        use closeclaw_llm::{ChatRequest, Message as LlmMessage};
-                        use closeclaw_session::compaction::build_compact_prompt;
-
-                        let prompt = build_compact_prompt(None);
-                        let mut llm_messages = vec![LlmMessage {
-                            role: "system".to_string(),
-                            content: prompt,
-                        }];
-                        for m in &messages {
-                            llm_messages.push(LlmMessage {
-                                role: m.role.clone(),
-                                content: m.content.clone(),
-                            });
-                        }
-                        let request = ChatRequest {
-                            model,
-                            messages: llm_messages,
-                            temperature: 0.0,
-                            max_tokens: Some(4096),
-                        };
-                        let (response, retries) =
-                            fc.chat(request).await.map_err(|e| e.to_string())?;
-                        Ok((response.content, retries))
-                    })
-                });
+            // Build ChatFn: pure LLM forwarding layer.
+            let chat_fn = build_chat_fn(fc);
             // Lock CompactionService and call SessionManager::compact.
             let mut svc_guard = svc.lock().await;
             match sm
@@ -428,54 +400,67 @@ impl SessionMessageHandler {
                 return;
             }
         }
-        // Build ChatFn from FallbackClient.
+        // Build ChatFn: pure LLM forwarding layer.
         let fc = Arc::clone(&self.fallback_client);
-        let chat_fn: closeclaw_session::compaction::ChatFn = Arc::new(move |model, messages| {
-            let fc = Arc::clone(&fc);
-            Box::pin(async move {
-                use closeclaw_llm::{ChatRequest, Message as LlmMessage};
-                use closeclaw_session::compaction::build_compact_prompt;
-
-                let prompt = build_compact_prompt(None);
-                let mut llm_messages = vec![LlmMessage {
-                    role: "system".to_string(),
-                    content: prompt,
-                }];
-                for m in &messages {
-                    llm_messages.push(LlmMessage {
-                        role: m.role.clone(),
-                        content: m.content.clone(),
-                    });
-                }
-                let request = ChatRequest {
-                    model,
-                    messages: llm_messages,
-                    temperature: 0.0,
-                    max_tokens: Some(4096),
-                };
-                let (response, retries) = fc.chat(request).await.map_err(|e| e.to_string())?;
-                Ok((response.content, retries))
-            })
-        });
+        let chat_fn = build_chat_fn(fc);
         // Lock CompactionService and call SessionManager::compact.
+        // SessionManager::compact handles apply/rollback internally.
         let mut svc = self.compaction_service.lock().await;
         let result = self
             .session_manager
             .compact(session_id, None, true, &mut svc, &chat_fn)
             .await;
         drop(svc);
-        // Finalize: apply result or rollback.
         match result {
             Ok(r) => {
-                apply_compact_result(&self.session_manager, session_id, &r, None).await;
+                tracing::info!(
+                    session_id,
+                    before = r.before_char_count,
+                    after = r.after_char_count,
+                    "auto compact completed"
+                );
             }
             Err(e) => {
                 tracing::warn!(session_id, error = %e, "auto compact failed");
-                self.session_manager.rollback_compaction(session_id).await;
                 self.compaction_service.lock().await.record_failure();
             }
         }
     }
+}
+
+// ── Compaction helpers ──
+
+/// Build a [`ChatFn`] that forwards messages directly to the LLM client.
+///
+/// The returned closure is a pure forwarding layer: it converts
+/// [`CompactionMessage`]s to [`LlmMessage`]s, constructs a
+/// [`ChatRequest`], and calls `fc.chat(request)`. It does **not**
+/// build its own system prompt — the caller (typically
+/// [`CompactionService::compact`]) is responsible for injecting the
+/// system prompt into the messages slice.
+pub(crate) fn build_chat_fn(fc: Arc<FallbackClient>) -> closeclaw_session::compaction::ChatFn {
+    Arc::new(move |model, messages| {
+        let fc = Arc::clone(&fc);
+        Box::pin(async move {
+            use closeclaw_llm::{ChatRequest, Message as LlmMessage};
+
+            let llm_messages: Vec<LlmMessage> = messages
+                .iter()
+                .map(|m| LlmMessage {
+                    role: m.role.clone(),
+                    content: m.content.clone(),
+                })
+                .collect();
+            let request = ChatRequest {
+                model,
+                messages: llm_messages,
+                temperature: 0.0,
+                max_tokens: Some(4096),
+            };
+            let (response, retries) = fc.chat(request).await.map_err(|e| e.to_string())?;
+            Ok((response.content, retries))
+        })
+    })
 }
 
 /// LlmCaller adapter for `UnifiedFallbackClient`.

@@ -739,35 +739,9 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             );
         };
 
-        // Build ChatFn from FallbackClient.
+        // Build ChatFn: pure LLM forwarding layer.
         let fc = Arc::clone(&sh.fallback_client);
-        let chat_fn: closeclaw_session::compaction::ChatFn = Arc::new(move |model, messages| {
-            let fc = Arc::clone(&fc);
-            Box::pin(async move {
-                use closeclaw_llm::{ChatRequest, Message as LlmMessage};
-                use closeclaw_session::compaction::build_compact_prompt;
-
-                let prompt = build_compact_prompt(None);
-                let mut llm_messages = vec![LlmMessage {
-                    role: "system".to_string(),
-                    content: prompt,
-                }];
-                for m in &messages {
-                    llm_messages.push(LlmMessage {
-                        role: m.role.clone(),
-                        content: m.content.clone(),
-                    });
-                }
-                let request = ChatRequest {
-                    model,
-                    messages: llm_messages,
-                    temperature: 0.0,
-                    max_tokens: Some(4096),
-                };
-                let (response, retries) = fc.chat(request).await.map_err(|e| e.to_string())?;
-                Ok((response.content, retries))
-            })
-        });
+        let chat_fn = crate::session_handler::build_chat_fn(fc);
 
         // Lock CompactionService and call SessionManager::compact.
         let mut svc = sh.compaction_service.lock().await;

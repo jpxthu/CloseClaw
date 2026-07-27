@@ -22,6 +22,9 @@ use closeclaw_session::compaction::{CompactionError, CompactionResult};
 
 use crate::slash_executor::SlashResultExecutor;
 
+/// Expected reply from the mock compact executor.
+const COMPACT_REPLY: &str = "压缩完成：100 → 50 字符";
+
 // ---------------------------------------------------------------------------
 // Mock implementations
 // ---------------------------------------------------------------------------
@@ -114,8 +117,7 @@ impl SlashEffectExecutor for MockExecutor {
             performed: true,
             original_tokens: 100,
             compacted_tokens: 50,
-            message: "\u{538b}\u{7f29}\u{5b8c}\u{6210}\u{ff1a}100 \u{2192} 50 \u{5b57}\u{7b26}"
-                .to_string(),
+            message: COMPACT_REPLY.to_string(),
             before_char_count: 100,
             after_char_count: 50,
             before_token_count: 25,
@@ -304,9 +306,7 @@ async fn test_compact_calls_executor_and_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "\u{538b}\u{7f29}\u{5b8c}\u{6210}\u{ff1a}100 \u{2192} 50 \u{5b57}\u{7b26}")
-            );
+            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == COMPACT_REPLY));
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -333,9 +333,7 @@ async fn test_compact_with_instruction_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "\u{538b}\u{7f29}\u{5b8c}\u{6210}\u{ff1a}100 \u{2192} 50 \u{5b57}\u{7b26}")
-            );
+            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == COMPACT_REPLY));
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
