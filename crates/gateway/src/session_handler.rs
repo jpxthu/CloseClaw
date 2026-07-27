@@ -265,53 +265,6 @@ impl SessionMessageHandler {
 }
 // ── Compaction ──
 impl SessionMessageHandler {
-    /// Handle `/compact [instruction]` manual compaction.
-    pub async fn handle_compact_command(&self, session_id: &str, content: &str) -> HandleResult {
-        let instruction: Option<String> = content
-            .strip_prefix("/compact")
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        if self
-            .session_manager
-            .get_conversation_session(session_id)
-            .await
-            .is_none()
-        {
-            tracing::warn!(session_id, "session not found for /compact");
-            return HandleResult::MessageQueued;
-        }
-        let fc = Arc::clone(&self.fallback_client);
-        let output_tx = Arc::clone(&self.output_tx);
-        let svc = Arc::clone(&self.compaction_service);
-        let sm = Arc::clone(&self.session_manager);
-        let sid = session_id.to_string();
-        tokio::spawn(async move {
-            // Build ChatFn: pure LLM forwarding layer.
-            let chat_fn = build_chat_fn(fc);
-            // Lock CompactionService and call SessionManager::compact.
-            let mut svc_guard = svc.lock().await;
-            match sm
-                .compact(
-                    &sid,
-                    instruction.as_deref(),
-                    false,
-                    &mut svc_guard,
-                    &chat_fn,
-                    None,
-                )
-                .await
-            {
-                Ok(r) => {
-                    send_output(&output_tx, &r.message).await;
-                }
-                Err(e) => {
-                    send_output(&output_tx, &format!("Compact failed: {}", e)).await;
-                }
-            }
-        });
-        HandleResult::LlmStarted
-    }
-
     /// Send a text reply through the output channel (used by slash handlers).
     pub async fn send_reply(&self, text: String) {
         send_output(&self.output_tx, &text).await;
