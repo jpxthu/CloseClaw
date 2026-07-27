@@ -84,23 +84,6 @@ fn test_load_cached_file_section_fresh() {
     assert_eq!(result3, Some("updated content".to_string()));
 }
 
-#[test]
-fn test_skill_listing_section_render() {
-    let s = Section::SkillListingSection(
-        "- **foo**: desc — use when needed
-- **bar**: desc"
-            .to_string(),
-    );
-    let rendered = s.render();
-    assert!(rendered.starts_with("## Available Skills\n\n"));
-    assert!(rendered.contains("**foo**"));
-    assert!(rendered.contains(" — use when needed"));
-    // Empty renders empty
-    let empty = Section::SkillListingSection(String::new());
-    assert_eq!(empty.render(), "");
-}
-
-#[test]
 fn test_git_status_render() {
     let s = Section::GitStatus("On branch master\n?? file.txt".to_string());
     let rendered = s.render();
@@ -162,7 +145,6 @@ fn test_section_variants_name_and_cacheable() {
         Section::ToolsSection("t".into()),
         Section::MemorySection("m".into()),
         Section::HeartbeatSection("h".into()),
-        Section::SkillListingSection("s".into()),
         Section::ChannelContext {
             chat_name: "c".into(),
             sender_id: "s".into(),
@@ -189,7 +171,6 @@ fn test_section_variants_name_and_cacheable() {
         ("tools", false),
         ("memory", true),
         ("heartbeat", true),
-        ("skill_listing", false),
         ("channel_context", false),
         ("session_state", false),
         ("append", false),
