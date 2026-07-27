@@ -58,9 +58,9 @@ Agent 可以将子任务委托给其他 Agent（子 session），并等待结果
 - 当前 session 及所有子 session 可被终止，级联生效
 
 > **交叉引用**：`/stop` 指令触发 session 终止，详见 [slash §F3](slash.md)。
-- 子 Agent 超过预期执行时长（timeout_warning）时，系统将其转为后台运行并通知父 Agent；子 Agent 继续执行，完成后正常回传结果
+- 子 Agent 超过预期时长（timeout_warning）时，系统向父 Agent 注入超时预警通知；子 Agent 继续执行，完成后正常回传结果
 - 子 Agent 超过硬超时（timeout）时，系统终止该子 Agent 并级联终止其所有后代，并通知父 Agent
-- sessions_yield 不是硬阻塞：任何消息（用户消息、子 Agent 完成通知、子 Agent 超时过渡通知）都会解除等待，恢复父 Agent 的 turn。Agent 不需要主动查询子 Agent 状态
+- sessions_yield 不是硬阻塞：任何消息（用户消息、子 Agent 完成通知、子 Agent 超时预警通知）都会解除等待，恢复父 Agent 的 turn。Agent 不需要主动查询子 Agent 状态
 
 ### F5. LLM 交互控制
 

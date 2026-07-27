@@ -84,7 +84,7 @@ Agent 可以创建子 Agent 来执行子任务。默认创建的子 Agent 为一
 - **模型覆盖**：可选覆盖目标 Agent 的默认模型
 - **行为模板**：可选注入预置的行为约束模板（如"只读研究"、"校验审计"）
 - **工作目录覆盖**：可选为子 Agent 指定独立的工作目录
-- **预期超时**（timeout_warning）：子 Agent 的预期执行时长。超时后系统不终止子 Agent，而是将其转为后台运行，并向父 Agent 注入过渡通知。子 Agent 继续执行，完成后正常回传结果。未指定时使用目标 Agent 配置或全局默认值，可在 spawn 时覆盖
+- **超时预警**（timeout_warning）：子 Agent 的预期执行时长。超时后系统不终止子 Agent，而是向父 Agent 注入预警通知。子 Agent 继续执行，完成后正常回传结果。未指定时使用目标 Agent 配置或全局默认值，可在 spawn 时覆盖
 - **硬超时**（timeout）：子 Agent 的绝对最大执行时长。超时后系统终止该子 Agent 并级联终止其所有后代，向父 Agent 注入超时通知。作为安全兜底，防止子 Agent 永久运行。未指定时使用目标 Agent 配置或全局默认值（默认 48 小时），可在 spawn 时覆盖
 
 子 Agent 的最终模型按以下优先级确定：显式指定的模型 > 父 Agent 配置中的子 Agent 默认模型 > 目标 Agent 配置的模型 > 系统默认模型。
@@ -102,7 +102,7 @@ Fork 是子 Agent 创建中「上下文模式」的具体实现：子 Agent 在�
 - **并发数量**：限制同时存活的子 Agent 数量上限
 - **必选 Agent ID**：要求 spawn 时必须显式指定目标 Agent
 - **子 Agent 默认模型**：子 Agent 的默认模型覆盖（优先级低于 spawn 时显式指定的模型）
-- **子 Agent 预期超时**（timeout_warning）：子 Agent 的预期执行时长，超时后转为后台运行并通知父 Agent。可在 spawn 时覆盖
+- **子 Agent 超时预警**（timeout_warning）：子 Agent 的预期执行时长，超时后向父 Agent 注入预警通知。可在 spawn 时覆盖
 - **子 Agent 硬超时**（timeout）：子 Agent 的绝对最大执行时长，超时后终止子 Agent。可在 spawn 时覆盖
 
 层级深度受父 Agent 配置和目标 Agent 配置的双重约束：取两者中更严格的值生效。即使父 Agent 允许更多层级，目标 Agent 可以主动收窄自己的子树深度。
