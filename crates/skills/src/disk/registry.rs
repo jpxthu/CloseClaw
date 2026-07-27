@@ -292,6 +292,27 @@ impl DiskSkillRegistry {
             .collect()
     }
 
+    /// Return filtered and sorted skills suitable for listing generation.
+    ///
+    /// Skills are filtered by `user_invocable`, whitelist membership, and
+    /// exclusion of conditional skills (those with non-empty `paths`).
+    /// Result is sorted by `(source, name)` for consistent merge ordering.
+    pub fn sorted_skills_for_listing(
+        &self,
+        skills_whitelist: Option<&[String]>,
+    ) -> Vec<(DiskSkill, SkillSource)> {
+        let mut filtered: Vec<(DiskSkill, SkillSource)> = self
+            .filter_skills_for_listing(skills_whitelist)
+            .into_iter()
+            .map(|s| (s.clone(), s.source))
+            .collect();
+        filtered.sort_by(|a, b| {
+            a.1.cmp(&b.1)
+                .then_with(|| a.0.manifest.name.cmp(&b.0.manifest.name))
+        });
+        filtered
+    }
+
     /// Internal implementation shared by `generate_listing`,
     /// `generate_listing_for_agent`, and
     /// `generate_listing_excluding_conditional`.
@@ -346,7 +367,7 @@ impl DiskSkillRegistry {
 impl DiskSkillRegistry {
     /// Render a single skill's listing line in the same format as
     /// [`render_listing`].
-    fn render_single_listing(skill: &DiskSkill) -> String {
+    pub fn render_single_listing(skill: &DiskSkill) -> String {
         let when = if skill.manifest.when_to_use.is_empty() {
             String::new()
         } else {

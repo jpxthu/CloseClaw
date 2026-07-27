@@ -115,7 +115,7 @@ impl BuiltinSkillRegistry {
     ///
     /// Format matches [`DiskSkillRegistry::render_single_listing`]:
     /// `- **{name}**: {description} — {when_to_use} ⚡ auto-activates on: {paths} [effort: ...]`
-    fn render_single_listing(manifest: &SkillManifest, meta: &SkillListingMeta) -> String {
+    pub fn render_single_listing(manifest: &SkillManifest, meta: &SkillListingMeta) -> String {
         let when = if meta.when_to_use.is_empty() {
             String::new()
         } else {
@@ -138,7 +138,7 @@ impl BuiltinSkillRegistry {
 
     /// Collects all skills with their metadata, sorted by name
     /// (all builtin skills share the same `Bundled` priority).
-    async fn sorted_skills(&self) -> Vec<(SkillManifest, SkillListingMeta)> {
+    pub async fn sorted_skills(&self) -> Vec<(SkillManifest, SkillListingMeta)> {
         let skills = self.skills.read().await;
         let mut entries: Vec<(SkillManifest, SkillListingMeta)> = skills
             .values()

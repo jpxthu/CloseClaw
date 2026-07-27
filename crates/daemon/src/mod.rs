@@ -630,6 +630,7 @@ impl Daemon {
         let config_subdir = PathBuf::from(data_dir).join("config");
         let late_bound_session_manager =
             Arc::new(closeclaw_session::tools::LateBoundSessionManagerOps::new());
+        let builtin_skill_listing = Arc::clone(&builtin_skill_registry);
         let ctx = registries::RegistryContext {
             config_manager,
             agent_registry,
@@ -668,8 +669,9 @@ impl Daemon {
         // Inject skill listing provider so resolve() can pass it to every
         // new ConversationSession for per-turn skill attachment injection.
         session_manager
-            .set_skill_listing_provider(Arc::new(crate::bridge::SkillListingProviderWrapper(
+            .set_skill_listing_provider(Arc::new(crate::bridge::SkillListingProviderWrapper::new(
                 skill_registry.clone(),
+                Arc::clone(&builtin_skill_listing),
             ))
                 as Arc<dyn closeclaw_common::SkillListingProvider>)
             .await;
