@@ -103,7 +103,7 @@ Fork 是子 Agent 创建中「上下文模式」的具体实现：子 Agent 在�
 - **必选 Agent ID**：要求 spawn 时必须显式指定目标 Agent
 - **子 Agent 默认模型**：子 Agent 的默认模型覆盖（优先级低于 spawn 时显式指定的模型）
 - **子 Agent 超时预警**（timeout_warning）：子 Agent 的预期执行时长，超时后向父 Agent 注入预警通知。可在 spawn 时覆盖
-- **子 Agent 硬超时**（timeout）：子 Agent 的绝对最大执行时长，超时后终止子 Agent。可在 spawn 时覆盖
+- **子 Agent 硬超时**（timeout）：子 Agent 的绝对最大执行时长，超时后终止子 Agent 并级联终止其所有后代，通知父 Agent。可在 spawn 时覆盖
 
 层级深度受父 Agent 配置和目标 Agent 配置的双重约束：取两者中更严格的值生效。即使父 Agent 允许更多层级，目标 Agent 可以主动收窄自己的子树深度。
 
