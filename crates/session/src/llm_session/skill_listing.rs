@@ -3,6 +3,9 @@
 //! Provides per-turn skill listing computation with incremental diff,
 //! conditional skill activation, and file-path-based matching. Used
 //! by [`super::ConversationSession::prepare_turn_skill_listing`].
+//!
+//! Implements the "增量更新" (incremental update) section of the
+//! design doc (`docs/design/skills/skill-listing-injection.md`).
 
 use std::collections::HashSet;
 
@@ -14,24 +17,26 @@ impl ConversationSession {
     /// Compute the skill listing for the current turn without
     /// mutating session state.
     ///
-    /// Implements the design doc's "incremental update" mechanism
-    /// (see `docs/design/skills/skill-listing-injection.md`):
+    /// Implements the design doc's "增量更新" (incremental update)
+    /// mechanism (see `docs/design/skills/skill-listing-injection.md`).
     ///
-    /// - The daemon handles file-change-driven hot reload (re-scan +
-    ///   cache invalidation) *before* this turn executes.
-    /// - This function handles path-matching conditional activation
-    ///   (via [`prepare_turn_skill_listing`]) and computes a
-    ///   line-level diff that captures **both** sources of change in
-    ///   a single atomic operation.
+    /// The design doc specifies the processing order: "先更新文件
+    /// 变更引起的增量，再处理条件激活的增量" (first update increments
+    /// caused by file changes, then process conditional activation
+    /// increments). In this implementation, the two sources of
+    /// change are merged implicitly rather than via a separate
+    /// two-step diff. This is correct because:
     ///
-    /// The design doc describes a conceptual two-step merge ("first
-    /// update file-change increments, then process conditional
-    /// activation increments"). In this implementation the merge is
-    /// implicit: the full listing already includes activated
-    /// conditionals, so a line-level diff against the previous
-    /// snapshot captures all additions and removals regardless of
-    /// their source. This is logically equivalent to the design
-    /// doc's two-step model.
+    /// - The daemon's file listener completes cache invalidation
+    ///   and re-scan *before* this turn starts (see design doc's
+    ///   "文件监听与热重载" section).
+    /// - [`prepare_turn_skill_listing`] detects newly activated
+    ///   conditional skills from the user message.
+    /// - The current listing already includes all activated
+    ///   conditionals, so a line-level diff against the previous
+    ///   snapshot naturally captures both file-change increments
+    ///   and conditional activation increments in the correct
+    ///   order.
     ///
     /// On the first turn (no snapshot), generates a full listing
     /// excluding conditional skills. On subsequent turns, generates

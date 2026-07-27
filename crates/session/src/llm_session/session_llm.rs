@@ -46,7 +46,13 @@ impl ConversationSession {
 
     /// Prepare the skill listing for the current turn.
     ///
-    /// Implements the design doc's "conditional activation" step:
+    /// Corresponds to the design doc's "增量更新" section
+    /// (`docs/design/skills/skill-listing-injection.md`), which
+    /// specifies the processing order: "先更新文件变更引起的增量，
+    /// 再处理条件激活的增量" (first update increments caused by
+    /// file changes, then process conditional activation increments).
+    ///
+    /// This function handles the conditional activation step:
     /// extracts file paths from the user message, finds new
     /// conditional matches, computes the incremental listing using
     /// only the currently activated skills (newly activated skills
@@ -54,11 +60,12 @@ impl ConversationSession {
     /// and returns the listing to inject plus the updated state for
     /// the caller to apply.
     ///
-    /// This function runs *after* the daemon's file-change hot
-    /// reload (which invalidates the listing cache), ensuring the
-    /// ordering described in the design doc: "first update
-    /// file-change increments, then process conditional activation
-    /// increments."
+    /// The ordering is guaranteed by the daemon's file listener,
+    /// which completes cache invalidation and re-scan *before* this
+    /// turn executes (see design doc's "文件监听与热重载" section).
+    /// The incremental diff in [`compute_skill_listing_for_turn`]
+    /// then naturally captures both file-change increments and
+    /// conditional activation increments in the correct order.
     ///
     /// Returns `(listing, new_snapshot, newly_activated_names)`.
     fn prepare_turn_skill_listing(
