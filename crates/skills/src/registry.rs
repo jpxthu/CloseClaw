@@ -22,7 +22,7 @@ pub struct SkillManifest {
 ///
 /// Builtin skills provide this so they can appear in the same
 /// skill listing that disk-based skills already produce.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SkillListingMeta {
     /// When to use this skill (decision hint).
     pub when_to_use: String,
@@ -47,7 +47,13 @@ pub trait Skill: Send + Sync {
     ///
     /// Used by the listing generator to render builtin skills
     /// into the same format as disk-based skills.
-    fn listing_meta(&self) -> SkillListingMeta;
+    ///
+    /// The default implementation returns a sentinel value with
+    /// `user_invocable: false` so that non-user-visible skills do
+    /// not need to override this method.
+    fn listing_meta(&self) -> SkillListingMeta {
+        SkillListingMeta::default()
+    }
 }
 
 /// Builtin skill registry - manages all registered builtin skills
@@ -387,6 +393,39 @@ mod tests {
             let names = registry.list().await;
             assert!(names.is_empty());
         });
+    }
+
+    #[test]
+    fn test_default_listing_meta() {
+        // A skill that does not override listing_meta() gets the
+        // default sentinel: user_invocable = false, everything else empty/default.
+        struct NoMetaSkill;
+        #[async_trait]
+        impl Skill for NoMetaSkill {
+            fn manifest(&self) -> SkillManifest {
+                SkillManifest {
+                    name: "no_meta".into(),
+                    version: "0.1".into(),
+                    description: "".into(),
+                    author: None,
+                    dependencies: vec![],
+                }
+            }
+            fn body(&self) -> &str {
+                ""
+            }
+            // listing_meta intentionally omitted — should use default
+        }
+
+        let skill = NoMetaSkill;
+        let meta = skill.listing_meta();
+        assert!(
+            !meta.user_invocable,
+            "default should be user_invocable: false"
+        );
+        assert!(meta.when_to_use.is_empty());
+        assert!(meta.paths.is_empty());
+        assert_eq!(meta.effort, SkillEffort::Unknown);
     }
 
     #[test]

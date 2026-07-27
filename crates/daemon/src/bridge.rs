@@ -124,74 +124,78 @@ impl SkillListingProviderWrapper {
     /// Global > ExtraDirs > Bundled). Builtin skills are treated as `Bundled`
     /// (lowest priority). When names collide, the higher-priority skill wins.
     fn merged_listing(&self, agent_id: Option<&str>, agent_skills: Option<&[String]>) -> String {
-        // Collect disk skills
-        let disk_lines: Vec<(String, u8)> = {
-            self.disk
-                .read()
-                .ok()
-                .and_then(|g| {
-                    g.as_ref().map(|r| {
-                        let all_skills = r.sorted_skills_for_listing(agent_skills);
-                        let resolved_whitelist = agent_skills.map(|w| w.to_vec()).or_else(|| {
-                            r.agent_skills_query()
-                                .and_then(|q| q.get_agent_skills(agent_id.unwrap_or("")))
-                        });
-                        let use_whitelist = resolved_whitelist
-                            .filter(|w| !(w.len() == 1 && w[0] == "*"))
-                            .map(|w| w.iter().cloned().collect::<std::collections::HashSet<_>>());
-                        all_skills
-                            .into_iter()
-                            .filter(|(skill, _)| {
-                                skill.manifest.user_invocable
-                                    && skill.manifest.paths.is_empty()
-                                    && use_whitelist
-                                        .as_ref()
-                                        .map_or(true, |set| set.contains(&skill.manifest.name))
-                            })
-                            .map(|(skill, source)| {
-                                let src = source as u8;
-                                (
-                                    closeclaw_skills::DiskSkillRegistry::render_single_listing(
-                                        &skill,
-                                    ),
-                                    src,
-                                )
-                            })
-                            .collect()
+        let disk = self.collect_disk_listings(agent_id, agent_skills);
+        let builtin = self.collect_builtin_listings(agent_skills);
+        Self::merge_and_sort_listings(disk, builtin)
+    }
+
+    /// Collect listing entries from the disk skill registry.
+    ///
+    /// Resolves the effective whitelist (explicit `agent_skills` override,
+    /// falling back to the agent skills query) and delegates to
+    /// [`DiskSkillRegistry::listing_entries`] which handles
+    /// `user_invocable` / conditional / whitelist filtering and
+    /// `(source, name)` sorting.
+    fn collect_disk_listings(
+        &self,
+        agent_id: Option<&str>,
+        agent_skills: Option<&[String]>,
+    ) -> Vec<(String, u8)> {
+        self.disk
+            .read()
+            .ok()
+            .and_then(|g| {
+                g.as_ref().map(|r| {
+                    let resolved_whitelist = agent_skills.map(|w| w.to_vec()).or_else(|| {
+                        r.agent_skills_query()
+                            .and_then(|q| q.get_agent_skills(agent_id.unwrap_or("")))
+                    });
+                    let resolved_ref = resolved_whitelist.as_deref();
+                    r.listing_entries(resolved_ref)
+                        .into_iter()
+                        .map(|(line, source)| (line, source as u8))
+                        .collect()
+                })
+            })
+            .unwrap_or_default()
+    }
+
+    /// Collect listing entries from the builtin skill registry.
+    ///
+    /// Filters by `user_invocable`, exclusion of conditional skills
+    /// (non-empty `paths`), and whitelist membership.
+    fn collect_builtin_listings(&self, agent_skills: Option<&[String]>) -> Vec<(String, u8)> {
+        let rt = tokio::runtime::Handle::current();
+        let entries = rt.block_on(self.builtin.sorted_skills());
+        entries
+            .into_iter()
+            .filter(|(m, meta)| {
+                meta.user_invocable
+                    && meta.paths.is_empty()
+                    && agent_skills.map_or(true, |w| {
+                        w == ["*"] || w.iter().any(|s| s.as_str() == m.name.as_str())
                     })
-                })
-                .unwrap_or_default()
-        };
+            })
+            .map(|(m, meta)| {
+                let line = BuiltinSkillRegistry::render_single_listing(&m, &meta);
+                (line, 4u8) // Bundled priority
+            })
+            .collect()
+    }
 
-        // Collect builtin skills (Bundled = 4)
-        let builtin_lines: Vec<(String, u8)> = {
-            let rt = tokio::runtime::Handle::current();
-            let entries = rt.block_on(self.builtin.sorted_skills());
-            entries
-                .into_iter()
-                .filter(|(m, meta)| {
-                    meta.user_invocable
-                        && meta.paths.is_empty()
-                        && agent_skills.map_or(true, |w| {
-                            w == ["*"] || w.iter().any(|s| s.as_str() == m.name.as_str())
-                        })
-                })
-                .map(|(m, meta)| {
-                    let line = BuiltinSkillRegistry::render_single_listing(&m, &meta);
-                    (line, 4u8) // Bundled priority
-                })
-                .collect()
-        };
-
-        // Merge: disk overrides builtin on name collision
-        let mut builtin_by_name: std::collections::HashMap<String, (String, u8)> = builtin_lines
+    /// Merge two sorted listing vectors, deduplicating by skill name.
+    ///
+    /// Disk entries take precedence over builtin entries when names
+    /// collide. The final output is sorted by `(priority, name)`.
+    fn merge_and_sort_listings(disk: Vec<(String, u8)>, builtin: Vec<(String, u8)>) -> String {
+        let mut builtin_by_name: std::collections::HashMap<String, (String, u8)> = builtin
             .into_iter()
             .map(|(line, pri)| (extract_name(&line), (line, pri)))
             .collect();
         let mut seen = std::collections::HashSet::new();
         let mut merged: Vec<(String, u8)> = Vec::new();
 
-        for (line, src) in disk_lines {
+        for (line, src) in disk {
             let name = extract_name(&line);
             seen.insert(name);
             merged.push((line, src));
