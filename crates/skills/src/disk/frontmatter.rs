@@ -7,11 +7,11 @@
 //! ---
 //! name: "skill-name"
 //! description: "What this skill does"
-//! when_to_use: "Use this when..."
+//! when-to-use: "Use this when..."
 //! context: Inline
 //! effort: Small
 //! paths: []
-//! user_invocable: false
+//! user-invocable: false
 //! ---
 //! ```
 
@@ -131,10 +131,13 @@ pub fn parse_skill_md(raw: &str) -> Result<ParsedSkill, ParseError> {
     }
 
     // description_only = true when no fields beyond description are present
-    let description_only = !frontmatter_trimmed.contains("when_to_use:")
+    // Check both hyphen (design doc format) and underscore (legacy format)
+    let description_only = !frontmatter_trimmed.contains("when-to-use:")
+        && !frontmatter_trimmed.contains("when_to_use:")
         && !frontmatter_trimmed.contains("context:")
         && !frontmatter_trimmed.contains("effort:")
         && !frontmatter_trimmed.contains("paths:")
+        && !frontmatter_trimmed.contains("user-invocable:")
         && !frontmatter_trimmed.contains("user_invocable:");
 
     // Extract body using find_body_range's Range.
@@ -160,11 +163,11 @@ mod tests {
         let input = r#"---
 name: "test-skill"
 description: "A test skill for unit testing"
-when_to_use: "Use this when you need to test things"
+when-to-use: "Use this when you need to test things"
 context: Inline
 effort: Small
 paths: []
-user_invocable: true
+user-invocable: true
 ---
 
 # Test Skill
@@ -269,11 +272,11 @@ description: ""
         let input = r#"---
 name: "serde-skill"
 description: "Testing serde round-trip"
-when_to_use: ""
+when-to-use: ""
 context: Inline
 effort: Unknown
 paths: []
-user_invocable: false
+user-invocable: false
 ---
 
 # Serde Skill
@@ -438,5 +441,138 @@ Some instructions here."#;
         let input = concat!("\u{feff}", "Just plain text with BOM.");
         let body = extract_skill_body(input);
         assert_eq!(body, "");
+    }
+
+    // --- hyphen format tests (design doc format) ---
+
+    #[test]
+    fn test_parse_hyphen_format_when_to_use() {
+        let input = r#"---
+name: "hyphen-skill"
+description: "Uses hyphen format"
+when-to-use: "Use when testing hyphens"
+---
+
+# Hyphen Skill
+"#;
+
+        let result = parse_skill_md(input).expect("should parse");
+        assert_eq!(result.manifest.when_to_use, "Use when testing hyphens");
+        assert!(!result.description_only);
+    }
+
+    #[test]
+    fn test_parse_hyphen_format_user_invocable() {
+        let input = r#"---
+name: "hyphen-invocable"
+description: "Hyphen user-invocable"
+user-invocable: true
+---
+
+# Invocable Skill
+"#;
+
+        let result = parse_skill_md(input).expect("should parse");
+        assert!(result.manifest.user_invocable);
+        assert!(!result.description_only);
+    }
+
+    #[test]
+    fn test_parse_hyphen_format_all_fields() {
+        let input = r#"---
+name: "full-hyphen"
+description: "All fields in hyphen format"
+when-to-use: "Always"
+context: Inline
+effort: Small
+paths: ["**/*.rs"]
+user-invocable: true
+---
+
+# Full Hyphen Skill
+"#;
+
+        let result = parse_skill_md(input).expect("should parse");
+        assert_eq!(result.manifest.name, "full-hyphen");
+        assert_eq!(result.manifest.when_to_use, "Always");
+        assert!(result.manifest.user_invocable);
+        assert!(!result.description_only);
+    }
+
+    #[test]
+    fn test_description_only_with_hyphen_format() {
+        // when-to-use is present but via hyphen format → description_only should be false
+        let input = r#"---
+description: Has when-to-use
+when-to-use: "Some condition"
+---
+
+# Skill
+"#;
+
+        let result = parse_skill_md(input).expect("should parse");
+        assert!(!result.description_only);
+    }
+
+    #[test]
+    fn test_description_only_with_user_invocable_hyphen() {
+        let input = r#"---
+description: Has user-invocable
+user-invocable: true
+---
+
+# Skill
+"#;
+
+        let result = parse_skill_md(input).expect("should parse");
+        assert!(!result.description_only);
+    }
+
+    #[test]
+    fn test_legacy_underscore_format_still_works() {
+        // Backward compatibility: underscore format still parses correctly
+        let input = r#"---
+name: "legacy-skill"
+description: "Uses legacy underscore format"
+when_to_use: "Legacy condition"
+user_invocable: true
+---
+
+# Legacy Skill
+"#;
+
+        let result = parse_skill_md(input).expect("should parse");
+        assert_eq!(result.manifest.when_to_use, "Legacy condition");
+        assert!(result.manifest.user_invocable);
+        assert!(!result.description_only);
+    }
+
+    #[test]
+    fn test_description_only_with_legacy_underscore() {
+        // Legacy underscore format should also be detected by description_only
+        let input = r#"---
+description: Has legacy when_to_use
+when_to_use: "Something"
+---
+
+# Skill
+"#;
+
+        let result = parse_skill_md(input).expect("should parse");
+        assert!(!result.description_only);
+    }
+
+    #[test]
+    fn test_description_only_pure_description_with_hyphen() {
+        // Only description field → description_only should be true
+        let input = r#"---
+description: Only description
+---
+
+# Skill
+"#;
+
+        let result = parse_skill_md(input).expect("should parse");
+        assert!(result.description_only);
     }
 }
