@@ -1,14 +1,8 @@
 //! File operations skill
-use crate::registry::{Skill, SkillError, SkillManifest};
+use crate::registry::{Skill, SkillManifest};
 use async_trait::async_trait;
-use closeclaw_common::permission_types::{
-    CallerInfo, PermissionEvalResult, SharedSkillApprovalSubmitter, SharedSkillPermissionChecker,
-};
 
-pub struct FileOpsSkill {
-    engine: Option<SharedSkillPermissionChecker>,
-    approval_flow: Option<SharedSkillApprovalSubmitter>,
-}
+pub struct FileOpsSkill;
 
 impl Default for FileOpsSkill {
     fn default() -> Self {
@@ -18,27 +12,7 @@ impl Default for FileOpsSkill {
 
 impl FileOpsSkill {
     pub fn new() -> Self {
-        Self {
-            engine: None,
-            approval_flow: None,
-        }
-    }
-
-    pub fn with_engine(engine: SharedSkillPermissionChecker) -> Self {
-        Self {
-            engine: Some(engine),
-            approval_flow: None,
-        }
-    }
-
-    pub fn with_engine_and_approval_flow(
-        engine: SharedSkillPermissionChecker,
-        approval_flow: SharedSkillApprovalSubmitter,
-    ) -> Self {
-        Self {
-            engine: Some(engine),
-            approval_flow: Some(approval_flow),
-        }
+        Self
     }
 }
 
@@ -54,137 +28,24 @@ impl Skill for FileOpsSkill {
         }
     }
 
-    fn methods(&self) -> Vec<&str> {
-        vec!["read", "write", "list", "delete", "exists"]
-    }
+    fn body(&self) -> &str {
+        r#"# File Operations Skill
 
-    async fn execute(
-        &self,
-        method: &str,
-        args: serde_json::Value,
-    ) -> Result<serde_json::Value, SkillError> {
-        let action = match method {
-            "read" | "exists" | "list" => "file_read",
-            "write" | "delete" => "file_write",
-            _ => {
-                return Err(SkillError::MethodNotFound {
-                    skill: "file_ops".to_string(),
-                    method: method.to_string(),
-                });
-            }
-        };
+You have access to file system tools. Use them to perform file operations:
 
-        if let Some(ref engine) = self.engine {
-            let agent_id = args
-                .get("agent_id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| SkillError::InvalidArgs("agent_id required".to_string()))?;
-            let session_id = args
-                .get("session_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let path = args
-                .get("path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+- **Read a file**: Use the `read` tool with the file path.
+- **Write a file**: Use the `write` tool with the file path and content.
+- **Check if a file exists**: Use the `read` tool and check for errors, or use `exec` with `test -f <path>`.
+- **List directory contents**: Use `exec` with `ls <path>` or `find <path> -maxdepth 1`.
+- **Delete a file**: Use `exec` with `rm <path>`.
 
-            let details = serde_json::json!({
-                "agent_id": agent_id,
-            });
-            match engine.check_permission(action, &path, details).await {
-                PermissionEvalResult::Allowed { .. } => {}
-                PermissionEvalResult::Denied { reason, risk_level } => {
-                    if let Some(ref flow) = self.approval_flow {
-                        let caller = CallerInfo {
-                            user_id: args
-                                .get("user_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            agent: agent_id.to_string(),
-                            creator_id: args
-                                .get("creator_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                        };
-                        let request_id = flow
-                            .submit_denial(action, &path, &reason, risk_level, session_id, &caller)
-                            .await;
-                        if let Some(id) = request_id {
-                            return Ok(serde_json::json!({
-                                "status": "approval_pending",
-                                "request_id": id,
-                                "message": "Operation pending owner approval",
-                            }));
-                        }
-                    }
-                    return Err(SkillError::PermissionDenied(reason));
-                }
-            }
-        }
-
-        match method {
-            "read" => {
-                let path = args
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| SkillError::InvalidArgs("path required".to_string()))?;
-                std::fs::read_to_string(path)
-                    .map(|content| serde_json::json!({ "content": content }))
-                    .map_err(|e| SkillError::ExecutionFailed(e.to_string()))
-            }
-            "write" => {
-                let path = args
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| SkillError::InvalidArgs("path required".to_string()))?;
-                let content = args
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| SkillError::InvalidArgs("content required".to_string()))?;
-                std::fs::write(path, content)
-                    .map(|_| serde_json::json!({ "success": true }))
-                    .map_err(|e| SkillError::ExecutionFailed(e.to_string()))
-            }
-            "exists" => {
-                let path = args
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| SkillError::InvalidArgs("path required".to_string()))?;
-                Ok(serde_json::json!({ "exists": std::path::Path::new(path).exists() }))
-            }
-            "delete" => {
-                let path = args
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| SkillError::InvalidArgs("path required".to_string()))?;
-                std::fs::remove_file(path)
-                    .map(|_| serde_json::json!({ "success": true }))
-                    .map_err(|e| SkillError::ExecutionFailed(e.to_string()))
-            }
-            "list" => {
-                let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-                let entries: Vec<_> = std::fs::read_dir(path)
-                    .map_err(|e| SkillError::ExecutionFailed(e.to_string()))?
-                    .filter_map(|e| e.ok())
-                    .map(|e| e.file_name().to_string_lossy().to_string())
-                    .collect();
-                Ok(serde_json::json!({ "entries": entries }))
-            }
-            _ => Err(SkillError::MethodNotFound {
-                skill: "file_ops".to_string(),
-                method: method.to_string(),
-            }),
-        }
+Always confirm destructive operations with the user before executing."#
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     #[test]
     fn test_manifest() {
@@ -192,147 +53,19 @@ mod tests {
         let m = skill.manifest();
         assert_eq!(m.name, "file_ops");
         assert_eq!(m.version, "1.0.0");
+        assert!(!m.description.is_empty());
     }
 
     #[test]
-    fn test_methods() {
+    fn test_body_not_empty() {
         let skill = FileOpsSkill::new();
-        assert_eq!(
-            skill.methods(),
-            vec!["read", "write", "list", "delete", "exists"]
-        );
+        let body = skill.body();
+        assert!(!body.is_empty());
+        assert!(body.contains("File Operations Skill"));
     }
 
-    #[tokio::test]
-    async fn test_read_file() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("test.txt");
-        std::fs::write(&path, "hello world").unwrap();
-
-        let skill = FileOpsSkill::new();
-        let result = skill
-            .execute("read", serde_json::json!({"path": path.to_str().unwrap()}))
-            .await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap()["content"], "hello world");
-    }
-
-    #[tokio::test]
-    async fn test_read_missing_path() {
-        let skill = FileOpsSkill::new();
-        let result = skill.execute("read", serde_json::json!({})).await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            SkillError::InvalidArgs(msg) => assert!(msg.contains("path")),
-            other => panic!("expected InvalidArgs, got {:?}", other),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_write_and_read() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("out.txt");
-
-        let skill = FileOpsSkill::new();
-        let result = skill
-            .execute(
-                "write",
-                serde_json::json!({"path": path.to_str().unwrap(), "content": "data"}),
-            )
-            .await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap()["success"], true);
-
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(content, "data");
-    }
-
-    #[tokio::test]
-    async fn test_write_missing_content() {
-        let skill = FileOpsSkill::new();
-        let result = skill
-            .execute("write", serde_json::json!({"path": "/tmp/x"}))
-            .await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            SkillError::InvalidArgs(msg) => assert!(msg.contains("content")),
-            other => panic!("expected InvalidArgs, got {:?}", other),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_exists_true_and_false() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("real.txt");
-        std::fs::write(&path, "").unwrap();
-
-        let skill = FileOpsSkill::new();
-        let result = skill
-            .execute(
-                "exists",
-                serde_json::json!({"path": path.to_str().unwrap()}),
-            )
-            .await;
-        assert_eq!(result.unwrap()["exists"], true);
-
-        let fake = dir.path().join("fake.txt");
-        let result = skill
-            .execute(
-                "exists",
-                serde_json::json!({"path": fake.to_str().unwrap()}),
-            )
-            .await;
-        assert_eq!(result.unwrap()["exists"], false);
-    }
-
-    #[tokio::test]
-    async fn test_delete_file() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("del.txt");
-        std::fs::write(&path, "bye").unwrap();
-
-        let skill = FileOpsSkill::new();
-        let result = skill
-            .execute(
-                "delete",
-                serde_json::json!({"path": path.to_str().unwrap()}),
-            )
-            .await;
-        assert!(result.is_ok());
-        assert!(!path.exists());
-    }
-
-    #[tokio::test]
-    async fn test_list_dir() {
-        let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("a.txt"), "").unwrap();
-        std::fs::write(dir.path().join("b.txt"), "").unwrap();
-
-        let skill = FileOpsSkill::new();
-        let result = skill
-            .execute(
-                "list",
-                serde_json::json!({"path": dir.path().to_str().unwrap()}),
-            )
-            .await;
-        let binding = result.unwrap();
-        let entries = binding["entries"].as_array().unwrap();
-        assert_eq!(entries.len(), 2);
-    }
-
-    #[tokio::test]
-    async fn test_unknown_method() {
-        let skill = FileOpsSkill::new();
-        let result = skill.execute("nonexistent", serde_json::json!({})).await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            SkillError::MethodNotFound { skill, .. } => assert_eq!(skill, "file_ops"),
-            other => panic!("expected MethodNotFound, got {:?}", other),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_default() {
+    #[test]
+    fn test_default() {
         let skill = FileOpsSkill::default();
         let m = skill.manifest();
         assert_eq!(m.name, "file_ops");

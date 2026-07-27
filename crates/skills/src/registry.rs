@@ -16,38 +16,14 @@ pub struct SkillManifest {
     pub dependencies: Vec<String>,
 }
 
-/// Input for skill execution
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SkillInput {
-    pub skill_name: String,
-    pub method: String,
-    pub args: serde_json::Value,
-    pub agent_id: String,
-}
-
-/// Output from skill execution
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SkillOutput {
-    pub success: bool,
-    pub result: Option<serde_json::Value>,
-    pub error: Option<String>,
-}
-
 /// Skill trait - implemented by each skill
 #[async_trait]
 pub trait Skill: Send + Sync {
     /// Get skill manifest
     fn manifest(&self) -> SkillManifest;
 
-    /// List available methods
-    fn methods(&self) -> Vec<&str>;
-
-    /// Execute a method
-    async fn execute(
-        &self,
-        method: &str,
-        args: serde_json::Value,
-    ) -> Result<serde_json::Value, SkillError>;
+    /// Get skill prompt body text
+    fn body(&self) -> &str;
 }
 
 /// Builtin skill registry - manages all registered builtin skills
@@ -113,9 +89,6 @@ pub enum SkillError {
     #[error("Skill '{0}' not found")]
     NotFound(String),
 
-    #[error("Method '{method}' not found in skill '{skill}'")]
-    MethodNotFound { skill: String, method: String },
-
     #[error("Execution failed: {0}")]
     ExecutionFailed(String),
 
@@ -154,22 +127,8 @@ mod tests {
             }
         }
 
-        fn methods(&self) -> Vec<&str> {
-            vec!["method1", "method2"]
-        }
-
-        async fn execute(
-            &self,
-            method: &str,
-            _args: serde_json::Value,
-        ) -> Result<serde_json::Value, SkillError> {
-            match method {
-                "method1" => Ok(serde_json::json!({"method": method})),
-                _ => Err(SkillError::MethodNotFound {
-                    skill: self.name.clone(),
-                    method: method.to_string(),
-                }),
-            }
+        fn body(&self) -> &str {
+            "mock body"
         }
     }
 
@@ -234,16 +193,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_execute_method() {
+    async fn test_body_returns_value() {
         let registry = BuiltinSkillRegistry::new();
         registry
-            .register(Arc::new(MockSkill::new("exec_skill")))
+            .register(Arc::new(MockSkill::new("body_skill")))
             .await;
 
-        let skill = registry.get("exec_skill").await.unwrap();
-        let result = skill.execute("method1", serde_json::Value::Null).await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap()["method"], "method1");
+        let skill = registry.get("body_skill").await.unwrap();
+        assert_eq!(skill.body(), "mock body");
     }
 
     #[tokio::test]
@@ -259,13 +216,6 @@ mod tests {
 
         let err = SkillError::PermissionDenied("no".to_string());
         assert!(err.to_string().contains("no"));
-
-        let err = SkillError::MethodNotFound {
-            skill: "s".to_string(),
-            method: "m".to_string(),
-        };
-        assert!(err.to_string().contains("s"));
-        assert!(err.to_string().contains("m"));
     }
 
     #[test]
@@ -282,32 +232,6 @@ mod tests {
         assert_eq!(parsed.name, "test");
         assert_eq!(parsed.author, Some("author".to_string()));
         assert_eq!(parsed.dependencies, vec!["dep1".to_string()]);
-    }
-
-    #[test]
-    fn test_skill_output_serialization() {
-        let output = SkillOutput {
-            success: true,
-            result: Some(serde_json::json!("ok")),
-            error: None,
-        };
-        let json = serde_json::to_string(&output).unwrap();
-        let parsed: SkillOutput = serde_json::from_str(&json).unwrap();
-        assert!(parsed.success);
-        assert!(parsed.error.is_none());
-    }
-
-    #[test]
-    fn test_skill_input_serialization() {
-        let input = SkillInput {
-            skill_name: "skill".to_string(),
-            method: "run".to_string(),
-            args: serde_json::json!({"key": "value"}),
-            agent_id: "agent1".to_string(),
-        };
-        let json = serde_json::to_string(&input).unwrap();
-        let parsed: SkillInput = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.skill_name, "skill");
     }
 
     #[test]
