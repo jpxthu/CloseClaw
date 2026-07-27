@@ -34,13 +34,12 @@ use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
 use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
-use closeclaw_permission::skill_wrapper::{SkillApprovalFlowWrapper, SkillPermissionEngineWrapper};
 use closeclaw_permission::{PermissionEngine, RuleSet};
 use closeclaw_processor_chain as processor_chain;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
 use closeclaw_session::storage::SqliteStorage;
-use closeclaw_skills::builtin::builtin_skills_with_engine_and_approval_flow;
+use closeclaw_skills::builtin::builtin_skills;
 use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry, SkillWatcherHandle};
 use closeclaw_system_prompt::invalidate_all_sections;
 use closeclaw_tools::ToolRegistry;
@@ -570,13 +569,7 @@ impl Daemon {
         }
 
         gateway.set_approval_flow(Arc::clone(&approval_flow)).await;
-        let skill_permission_wrapper =
-            SkillPermissionEngineWrapper::new(Arc::clone(permission_engine));
-        let skill_approval_wrapper = SkillApprovalFlowWrapper::new(Arc::clone(&approval_flow));
-        let builtin_skills = builtin_skills_with_engine_and_approval_flow(
-            Arc::new(skill_permission_wrapper),
-            Arc::new(skill_approval_wrapper),
-        );
+        let builtin_skills = builtin_skills();
         let builtin_skill_registry =
             Arc::new(BuiltinSkillRegistry::from_skills(builtin_skills).await);
         let builtin_count = builtin_skill_registry.list().await.len();
