@@ -106,6 +106,113 @@ impl BuiltinSkillRegistry {
         }
         registry
     }
+
+    // -----------------------------------------------------------------------
+    // Listing generation
+    // -----------------------------------------------------------------------
+
+    /// Render a single builtin skill's listing line.
+    ///
+    /// Format matches [`DiskSkillRegistry::render_single_listing`]:
+    /// `- **{name}**: {description} — {when_to_use} ⚡ auto-activates on: {paths} [effort: ...]`
+    fn render_single_listing(manifest: &SkillManifest, meta: &SkillListingMeta) -> String {
+        let when = if meta.when_to_use.is_empty() {
+            String::new()
+        } else {
+            format!(" — {}", meta.when_to_use)
+        };
+        let paths_anno = if meta.paths.is_empty() {
+            String::new()
+        } else {
+            format!(" ⚡ auto-activates on: {}", meta.paths.join(", "))
+        };
+        let effort_anno = match meta.effort {
+            SkillEffort::Unknown => String::new(),
+            effort => format!(" [effort: {}]", effort),
+        };
+        format!(
+            "- **{}**: {}{}{}{}",
+            manifest.name, manifest.description, when, paths_anno, effort_anno,
+        )
+    }
+
+    /// Collects all skills with their metadata, sorted by name
+    /// (all builtin skills share the same `Bundled` priority).
+    async fn sorted_skills(&self) -> Vec<(SkillManifest, SkillListingMeta)> {
+        let skills = self.skills.read().await;
+        let mut entries: Vec<(SkillManifest, SkillListingMeta)> = skills
+            .values()
+            .map(|s| (s.manifest(), s.listing_meta()))
+            .collect();
+        entries.sort_by(|a, b| a.0.name.cmp(&b.0.name));
+        entries
+    }
+
+    /// Generates a formatted skill listing string for all builtin skills.
+    ///
+    /// - Only includes skills where `user_invocable` is `true`
+    /// - Sorts by name alphabetically (all builtin skills share
+    ///   `SkillSource::Bundled` priority)
+    /// - Format matches [`DiskSkillRegistry::generate_listing`]
+    pub async fn generate_listing(&self) -> String {
+        let entries = self.sorted_skills().await;
+        let lines: Vec<String> = entries
+            .iter()
+            .filter(|(_, meta)| meta.user_invocable)
+            .map(|(m, meta)| Self::render_single_listing(m, meta))
+            .collect();
+        lines.join("\n")
+    }
+
+    /// Generates a skill listing **excluding** conditional skills (those
+    /// with non-empty `paths`).
+    ///
+    /// Used as the base for incremental diff computation. Conditional
+    /// skills are injected separately via [`find_conditional_matches`].
+    pub async fn generate_listing_excluding_conditional(&self) -> String {
+        let entries = self.sorted_skills().await;
+        let lines: Vec<String> = entries
+            .iter()
+            .filter(|(_, meta)| meta.user_invocable && meta.paths.is_empty())
+            .map(|(m, meta)| Self::render_single_listing(m, meta))
+            .collect();
+        lines.join("\n")
+    }
+
+    /// Find conditional skills whose glob patterns match the given file
+    /// paths.
+    ///
+    /// Returns each matched skill as a [`ConditionalSkillMatch`] with a
+    /// rendered listing line including the `⚡ auto-activates on:`
+    /// annotation.
+    pub async fn find_conditional_matches(
+        &self,
+        paths: &[std::path::PathBuf],
+    ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+        use crate::disk::path_matcher::PathMatcher;
+
+        if paths.is_empty() {
+            return Vec::new();
+        }
+        let entries = self.sorted_skills().await;
+        let mut matched = Vec::new();
+        for (manifest, meta) in &entries {
+            if meta.paths.is_empty() {
+                continue;
+            }
+            let matcher = match PathMatcher::new(&meta.paths) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            if paths.iter().any(|p| matcher.matches(p)) {
+                matched.push(closeclaw_common::ConditionalSkillMatch {
+                    name: manifest.name.clone(),
+                    listing_line: Self::render_single_listing(manifest, meta),
+                });
+            }
+        }
+        matched
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -128,12 +235,26 @@ mod tests {
 
     struct MockSkill {
         name: String,
+        meta: SkillListingMeta,
     }
 
     impl MockSkill {
         fn new(name: &str) -> Self {
             Self {
                 name: name.to_string(),
+                meta: SkillListingMeta {
+                    when_to_use: format!("use {} when needed", name),
+                    user_invocable: false,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            }
+        }
+
+        fn with_meta(name: &str, meta: SkillListingMeta) -> Self {
+            Self {
+                name: name.to_string(),
+                meta,
             }
         }
     }
@@ -155,12 +276,7 @@ mod tests {
         }
 
         fn listing_meta(&self) -> SkillListingMeta {
-            SkillListingMeta {
-                when_to_use: format!("use {} when needed", self.name),
-                user_invocable: false,
-                paths: vec![],
-                effort: SkillEffort::Unknown,
-            }
+            self.meta.clone()
         }
     }
 
@@ -283,6 +399,24 @@ mod tests {
         assert_eq!(meta.effort, SkillEffort::Unknown);
     }
 
+    #[test]
+    fn test_mock_listing_meta_with_meta() {
+        let skill = MockSkill::with_meta(
+            "custom",
+            SkillListingMeta {
+                when_to_use: "custom when".into(),
+                user_invocable: true,
+                paths: vec!["**/*.rs".into()],
+                effort: SkillEffort::Large,
+            },
+        );
+        let meta = skill.listing_meta();
+        assert_eq!(meta.when_to_use, "custom when");
+        assert!(meta.user_invocable);
+        assert_eq!(meta.paths, vec!["**/*.rs"]);
+        assert_eq!(meta.effort, SkillEffort::Large);
+    }
+
     #[tokio::test]
     async fn test_from_skills_registers_all() {
         let skills: Vec<Arc<dyn Skill>> = vec![
@@ -313,5 +447,225 @@ mod tests {
         let names = registry.list().await;
         assert_eq!(names.len(), 1);
         assert_eq!(names[0], "dup");
+    }
+
+    #[tokio::test]
+    async fn test_generate_listing_only_user_invocable() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![
+            Arc::new(MockSkill::with_meta(
+                "visible",
+                SkillListingMeta {
+                    when_to_use: "when visible".into(),
+                    user_invocable: true,
+                    paths: vec![],
+                    effort: SkillEffort::Small,
+                },
+            )),
+            Arc::new(MockSkill::with_meta(
+                "hidden",
+                SkillListingMeta {
+                    when_to_use: "when hidden".into(),
+                    user_invocable: false,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+        ])
+        .await;
+        let listing = registry.generate_listing().await;
+        assert!(listing.contains("visible"));
+        assert!(!listing.contains("hidden"));
+    }
+
+    #[tokio::test]
+    async fn test_generate_listing_format_matches_disk() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_meta(
+            "my_skill",
+            SkillListingMeta {
+                when_to_use: "use when testing".into(),
+                user_invocable: true,
+                paths: vec![],
+                effort: SkillEffort::Medium,
+            },
+        ))])
+        .await;
+        let listing = registry.generate_listing().await;
+        assert_eq!(
+            listing,
+            "- **my_skill**: mock skill my_skill — use when testing [effort: medium]"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_generate_listing_sorts_alphabetically() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![
+            Arc::new(MockSkill::with_meta(
+                "zebra",
+                SkillListingMeta {
+                    when_to_use: String::new(),
+                    user_invocable: true,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+            Arc::new(MockSkill::with_meta(
+                "alpha",
+                SkillListingMeta {
+                    when_to_use: String::new(),
+                    user_invocable: true,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+        ])
+        .await;
+        let listing = registry.generate_listing().await;
+        let alpha_pos = listing.find("alpha").unwrap();
+        let zebra_pos = listing.find("zebra").unwrap();
+        assert!(alpha_pos < zebra_pos);
+    }
+
+    #[tokio::test]
+    async fn test_generate_listing_empty_when_no_invocable() {
+        let registry =
+            BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::new("hidden"))]).await;
+        let listing = registry.generate_listing().await;
+        assert!(listing.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_generate_listing_excluding_conditional() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![
+            Arc::new(MockSkill::with_meta(
+                "regular",
+                SkillListingMeta {
+                    when_to_use: "always".into(),
+                    user_invocable: true,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+            Arc::new(MockSkill::with_meta(
+                "conditional",
+                SkillListingMeta {
+                    when_to_use: "on match".into(),
+                    user_invocable: true,
+                    paths: vec!["**/*.rs".into()],
+                    effort: SkillEffort::Small,
+                },
+            )),
+        ])
+        .await;
+        let listing = registry.generate_listing_excluding_conditional().await;
+        assert!(listing.contains("regular"));
+        assert!(!listing.contains("conditional"));
+    }
+
+    #[tokio::test]
+    async fn test_find_conditional_matches() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![
+            Arc::new(MockSkill::with_meta(
+                "rust_skill",
+                SkillListingMeta {
+                    when_to_use: "for rust files".into(),
+                    user_invocable: true,
+                    paths: vec!["**/*.rs".into()],
+                    effort: SkillEffort::Small,
+                },
+            )),
+            Arc::new(MockSkill::with_meta(
+                "no_paths",
+                SkillListingMeta {
+                    when_to_use: String::new(),
+                    user_invocable: true,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+        ])
+        .await;
+        let matches = registry
+            .find_conditional_matches(&[std::path::PathBuf::from("src/main.rs")])
+            .await;
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].name, "rust_skill");
+        assert!(matches[0]
+            .listing_line
+            .contains("⚡ auto-activates on: **/*.rs"));
+    }
+
+    #[tokio::test]
+    async fn test_find_conditional_matches_empty_paths() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_meta(
+            "skill",
+            SkillListingMeta {
+                when_to_use: String::new(),
+                user_invocable: true,
+                paths: vec!["**/*.rs".into()],
+                effort: SkillEffort::Unknown,
+            },
+        ))])
+        .await;
+        let matches = registry.find_conditional_matches(&[]).await;
+        assert!(matches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_find_conditional_matches_no_match() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_meta(
+            "skill",
+            SkillListingMeta {
+                when_to_use: String::new(),
+                user_invocable: true,
+                paths: vec!["**/*.rs".into()],
+                effort: SkillEffort::Unknown,
+            },
+        ))])
+        .await;
+        let matches = registry
+            .find_conditional_matches(&[std::path::PathBuf::from("file.txt")])
+            .await;
+        assert!(matches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_render_single_listing_no_when_to_use() {
+        let manifest = SkillManifest {
+            name: "bare".into(),
+            version: "1.0".into(),
+            description: "bare skill".into(),
+            author: None,
+            dependencies: vec![],
+        };
+        let meta = SkillListingMeta {
+            when_to_use: String::new(),
+            user_invocable: true,
+            paths: vec![],
+            effort: SkillEffort::Unknown,
+        };
+        let line = BuiltinSkillRegistry::render_single_listing(&manifest, &meta);
+        assert_eq!(line, "- **bare**: bare skill");
+    }
+
+    #[tokio::test]
+    async fn test_render_single_listing_with_paths() {
+        let manifest = SkillManifest {
+            name: "rs_skill".into(),
+            version: "1.0".into(),
+            description: "rust skill".into(),
+            author: None,
+            dependencies: vec![],
+        };
+        let meta = SkillListingMeta {
+            when_to_use: "for rust".into(),
+            user_invocable: true,
+            paths: vec!["**/*.rs".into(), "**/*.toml".into()],
+            effort: SkillEffort::Small,
+        };
+        let line = BuiltinSkillRegistry::render_single_listing(&manifest, &meta);
+        assert_eq!(
+            line,
+            "- **rs_skill**: rust skill — for rust ⚡ auto-activates on: **/*.rs, **/*.toml [effort: small]"
+        );
     }
 }
