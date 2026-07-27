@@ -107,6 +107,39 @@ fn test_variable_as_command_uncertain() {
     );
 }
 
+// Step 1.1 tests: proc_environ and zsh dangerous builtins
+
+#[test]
+fn test_proc_environ_malicious() {
+    let r = analyzer().analyze("cat /proc/self/environ");
+    assert_eq!(r.trust_level, TrustLevel::Malicious);
+    assert!(r.reason.unwrap().contains("/proc/self/environ"));
+}
+
+#[test]
+fn test_proc_pid_environ_malicious() {
+    let r = analyzer().analyze("cat /proc/1/environ");
+    assert_eq!(r.trust_level, TrustLevel::Malicious);
+    assert!(r.reason.unwrap().contains("/proc/self/environ"));
+}
+
+#[test]
+fn test_zsh_modload_malicious() {
+    let r = analyzer().analyze("zmodload zsh/net/tcp");
+    assert_eq!(r.trust_level, TrustLevel::Malicious);
+    assert!(r
+        .reason
+        .unwrap()
+        .contains("Zsh dangerous builtin command detected"));
+}
+
+#[test]
+fn test_existing_ifs_detection_unchanged() {
+    let r = analyzer().analyze("IFS=x read line");
+    assert_eq!(r.trust_level, TrustLevel::Malicious);
+    assert!(r.reason.unwrap().contains("IFS"));
+}
+
 #[test]
 fn test_interpret_exit_code() {
     assert_eq!(
