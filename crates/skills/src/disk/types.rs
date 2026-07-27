@@ -79,7 +79,7 @@ pub struct SkillManifest {
     #[serde(default)]
     pub description: String,
     /// When to use this skill.
-    #[serde(default)]
+    #[serde(default, rename = "when-to-use", alias = "when_to_use")]
     pub when_to_use: String,
     /// Execution context.
     #[serde(default)]
@@ -91,7 +91,7 @@ pub struct SkillManifest {
     #[serde(default)]
     pub paths: Vec<String>,
     /// Whether the skill can be invoked directly by a user.
-    #[serde(default)]
+    #[serde(default, rename = "user-invocable", alias = "user_invocable")]
     pub user_invocable: bool,
 }
 
