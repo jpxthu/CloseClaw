@@ -1,5 +1,6 @@
 //! Search skill (web search)
-use crate::registry::{Skill, SkillManifest};
+use crate::disk::types::SkillEffort;
+use crate::registry::{Skill, SkillListingMeta, SkillManifest};
 use async_trait::async_trait;
 
 #[derive(Default)]
@@ -31,5 +32,14 @@ Use the `web_search` tool to search the web for information. Provide a clear, co
 - For code-related searches, include the programming language and specific library/framework.
 - For factual queries, include enough context to get precise results.
 - Use `web_fetch` to retrieve full content from a specific URL when needed."#
+    }
+
+    fn listing_meta(&self) -> SkillListingMeta {
+        SkillListingMeta {
+            when_to_use: "Use when the agent needs to search the web for information or fetch content from URLs".to_string(),
+            user_invocable: true,
+            paths: vec![],
+            effort: SkillEffort::Small,
+        }
     }
 }

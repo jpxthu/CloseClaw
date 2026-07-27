@@ -2,7 +2,8 @@
 //!
 //! This skill wraps OpenCode or Claude Code to handle complex coding tasks.
 
-use crate::registry::{Skill, SkillManifest};
+use crate::disk::types::SkillEffort;
+use crate::registry::{Skill, SkillListingMeta, SkillManifest};
 use async_trait::async_trait;
 
 pub struct CodingAgentSkill;
@@ -44,6 +45,15 @@ Use the `exec` tool to delegate coding tasks to an AI coding agent.
 - **Generate tests**: Read the source file, then delegate test generation.
 
 Always read relevant files before delegating to provide context."#
+    }
+
+    fn listing_meta(&self) -> SkillListingMeta {
+        SkillListingMeta {
+            when_to_use: "Use when the agent needs to delegate complex coding tasks to an AI coding agent like OpenCode or Claude Code".to_string(),
+            user_invocable: true,
+            paths: vec![],
+            effort: SkillEffort::Medium,
+        }
     }
 }
 

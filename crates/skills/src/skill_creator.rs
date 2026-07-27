@@ -2,7 +2,8 @@
 //!
 //! This skill helps agents create SKILL.md files for CloseClaw.
 
-use crate::registry::{Skill, SkillManifest};
+use crate::disk::types::SkillEffort;
+use crate::registry::{Skill, SkillListingMeta, SkillManifest};
 use async_trait::async_trait;
 
 pub struct SkillCreatorSkill;
@@ -78,6 +79,15 @@ A valid SKILL.md must:
 2. Include a `description` field in frontmatter
 3. Have Markdown content after the frontmatter
 4. Use proper YAML syntax in frontmatter"#
+    }
+
+    fn listing_meta(&self) -> SkillListingMeta {
+        SkillListingMeta {
+            when_to_use: "Use when the agent needs to create or understand how to create new skills for CloseClaw".to_string(),
+            user_invocable: true,
+            paths: vec![],
+            effort: SkillEffort::Small,
+        }
     }
 }
 

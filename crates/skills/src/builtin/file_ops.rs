@@ -1,5 +1,6 @@
 //! File operations skill
-use crate::registry::{Skill, SkillManifest};
+use crate::disk::types::SkillEffort;
+use crate::registry::{Skill, SkillListingMeta, SkillManifest};
 use async_trait::async_trait;
 
 pub struct FileOpsSkill;
@@ -40,6 +41,16 @@ You have access to file system tools. Use them to perform file operations:
 - **Delete a file**: Use `exec` with `rm <path>`.
 
 Always confirm destructive operations with the user before executing."#
+    }
+
+    fn listing_meta(&self) -> SkillListingMeta {
+        SkillListingMeta {
+            when_to_use: "Use when the agent needs to read, write, list, or delete files on disk"
+                .to_string(),
+            user_invocable: false,
+            paths: vec![],
+            effort: SkillEffort::Small,
+        }
     }
 }
 

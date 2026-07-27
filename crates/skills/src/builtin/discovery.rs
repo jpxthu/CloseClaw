@@ -1,5 +1,6 @@
 //! Skill discovery skill - allows agents to search and install skills from ClawHub
-use crate::registry::{Skill, SkillManifest};
+use crate::disk::types::SkillEffort;
+use crate::registry::{Skill, SkillListingMeta, SkillManifest};
 use async_trait::async_trait;
 
 #[derive(Default)]
@@ -34,6 +35,15 @@ Use the `exec` tool to run `clawhub` CLI commands for skill management:
 - **Update**: `exec` with `clawhub update [skill-name]` (or `--all` for all skills)
 
 Always confirm before installing or updating skills."#
+    }
+
+    fn listing_meta(&self) -> SkillListingMeta {
+        SkillListingMeta {
+            when_to_use: "Use when the agent needs to search, install, or manage skills from ClawHub marketplace".to_string(),
+            user_invocable: true,
+            paths: vec![],
+            effort: SkillEffort::Small,
+        }
     }
 }
 
