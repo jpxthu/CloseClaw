@@ -22,8 +22,6 @@ use closeclaw_common::llm_caller::LlmCaller;
 use closeclaw_common::llm_error::LLMError;
 use closeclaw_common::llm_types::InternalRequest;
 use closeclaw_common::processor::{StreamEvent, UnifiedResponse};
-use closeclaw_common::RunningStats;
-use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::protocol::ProtocolError;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 
@@ -61,95 +59,6 @@ impl LlmCaller for FallbackLlmCaller {
     fn default_header_pairs(&self) -> Vec<(String, String)> {
         self.0.default_header_pairs()
     }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// execute_compact
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Execute a compaction: call the LLM to summarize the conversation,
-/// return the compaction result with the boundary message.
-///
-/// When `stats` is provided with `request_count > 0`, uses
-/// `stats.total_tokens` for precise token counting. Falls back to
-/// pure character estimation when `None`.
-pub async fn execute_compact(
-    messages: &[closeclaw_llm::Message],
-    client: &FallbackClient,
-    model: &str,
-    instruction: Option<&str>,
-    is_auto: bool,
-    chars_per_token: f64,
-    stats: Option<&RunningStats>,
-) -> Result<
-    closeclaw_session::compaction::CompactionResult,
-    closeclaw_session::compaction::CompactionError,
-> {
-    use closeclaw_llm::{ChatRequest, Message as LlmMessage};
-    use closeclaw_session::compaction::*;
-
-    if messages.is_empty() {
-        return Err(CompactionError::EmptyMessages);
-    }
-
-    let prompt = build_compact_prompt(instruction);
-    let mut llm_messages = vec![LlmMessage {
-        role: "system".to_string(),
-        content: prompt,
-    }];
-    for m in messages {
-        llm_messages.push(LlmMessage {
-            role: m.role.clone(),
-            content: m.content.clone(),
-        });
-    }
-
-    let request = ChatRequest {
-        model: model.to_string(),
-        messages: llm_messages,
-        temperature: 0.0,
-        max_tokens: Some(4096),
-    };
-
-    let (response, _retries) = client
-        .chat(request)
-        .await
-        .map_err(|e| CompactionError::LLMCallFailed(e.to_string()))?;
-
-    let summary = extract_summary(&response.content).ok_or(CompactionError::SummaryParseFailed)?;
-
-    let boundary = format_boundary_message(&summary, is_auto, chrono::Utc::now());
-    let before_chars: usize = messages.iter().map(|m| m.content.chars().count()).sum();
-    let compaction_msgs: Vec<closeclaw_session::compaction::CompactionMessage> = messages
-        .iter()
-        .map(|m| closeclaw_session::compaction::CompactionMessage {
-            role: m.role.clone(),
-            content: m.content.clone(),
-        })
-        .collect();
-    let before_tokens = closeclaw_session::compaction::compute_before_tokens(
-        &compaction_msgs,
-        stats,
-        chars_per_token,
-    );
-    let after_tokens = estimate_tokens(&boundary, chars_per_token);
-    let after_chars = boundary.chars().count();
-
-    Ok(CompactionResult {
-        performed: true,
-        original_tokens: before_tokens,
-        compacted_tokens: after_tokens,
-        message: format!(
-            "Compaction completed: {} → {} tokens",
-            before_tokens, after_tokens
-        ),
-        before_char_count: before_chars,
-        after_char_count: after_chars,
-        before_token_count: before_tokens,
-        after_token_count: after_tokens,
-        boundary_message: boundary,
-        is_auto,
-    })
 }
 
 #[cfg(test)]
@@ -534,38 +443,5 @@ mod tests {
             events.push(event);
         }
         assert!(!events.is_empty(), "degraded stream should produce events");
-    }
-
-    // ── execute_compact tests ─────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_execute_compact_empty_messages() {
-        use closeclaw_llm::fallback::FallbackClient;
-        use closeclaw_llm::LLMRegistry;
-        use closeclaw_session::compaction::CompactionError;
-
-        let registry = Arc::new(LLMRegistry::default());
-        let client = FallbackClient::new(registry, vec![]);
-
-        let result = execute_compact(&[], &client, "stub-model", None, false, 0.25, None).await;
-        assert!(matches!(result, Err(CompactionError::EmptyMessages)));
-    }
-
-    #[tokio::test]
-    async fn test_execute_compact_valid_messages() {
-        use closeclaw_llm::fallback::FallbackClient;
-        use closeclaw_llm::LLMRegistry;
-
-        let registry = Arc::new(LLMRegistry::default());
-        let client = FallbackClient::new(registry, vec![]);
-
-        let messages = vec![closeclaw_llm::Message {
-            role: "user".to_string(),
-            content: "Hello, how are you?".to_string(),
-        }];
-        let result =
-            execute_compact(&messages, &client, "stub-model", None, false, 0.25, None).await;
-        // Empty chain returns LLMCallFailed
-        assert!(result.is_err());
     }
 }

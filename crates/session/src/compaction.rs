@@ -1,9 +1,9 @@
 //! Session Compaction Service
 //!
 //! Provides token estimation, auto-compaction threshold detection, and circuit breaker
-//! for LLM context window management. This module contains only data types, pure
-//! functions, and the `CompactionService` state machine. The actual LLM-calling
-//! `execute_compact` function lives in the main crate's wrapper module.
+//! for LLM context window management. This module contains data types, pure
+//! functions, and the `CompactionService` state machine with its `compact` method
+//! that executes compaction via an injected chat function.
 
 pub use closeclaw_common::CompactConfig;
 use std::future::Future;
@@ -186,8 +186,7 @@ pub fn estimate_total_tokens(
 /// pure character-based estimation for all messages.
 ///
 /// This is the single source of truth for before-compaction token
-/// counting, shared by `llm::compaction::execute_compact` and
-/// `gateway::llm_caller_impl::execute_compact`.
+/// counting, shared by [`CompactionService::compact`].
 pub fn compute_before_tokens(
     messages: &[CompactionMessage],
     stats: Option<&RunningStats>,
