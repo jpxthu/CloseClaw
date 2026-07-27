@@ -46,12 +46,19 @@ impl ConversationSession {
 
     /// Prepare the skill listing for the current turn.
     ///
-    /// Extracts file paths from the user message, finds new
-    /// conditional matches, computes the incremental listing using only
-    /// the currently activated skills (newly activated skills are
-    /// applied AFTER this turn via [`apply_skill_listing_update`]),
+    /// Implements the design doc's "conditional activation" step:
+    /// extracts file paths from the user message, finds new
+    /// conditional matches, computes the incremental listing using
+    /// only the currently activated skills (newly activated skills
+    /// are applied AFTER this turn via [`apply_skill_listing_update`]),
     /// and returns the listing to inject plus the updated state for
     /// the caller to apply.
+    ///
+    /// This function runs *after* the daemon's file-change hot
+    /// reload (which invalidates the listing cache), ensuring the
+    /// ordering described in the design doc: "first update
+    /// file-change increments, then process conditional activation
+    /// increments."
     ///
     /// Returns `(listing, new_snapshot, newly_activated_names)`.
     fn prepare_turn_skill_listing(

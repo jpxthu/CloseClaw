@@ -1,6 +1,11 @@
 //! Skill Hot Reload Initialization
 //!
 //! Initializes the skill registry and file watcher at daemon startup.
+//!
+//! Implements the design doc's "file change" trigger for incremental
+//! skill listing updates (`docs/design/skills/skill-listing-injection.md`):
+//! file changes → re-scan registry → invalidate listing cache → next turn
+//! the Session module picks up the updated listing.
 
 use closeclaw_skills::{
     init_disk_skills, start_skill_watcher, DiskSkillRegistry, ScanConfig, SkillWatcherHandle,
@@ -12,9 +17,15 @@ use tracing::info;
 
 /// Initialize skill hot reload system.
 ///
-/// Scans configured skill directories and starts a file watcher.
-/// When skill files change, the registry is re-scanned and cached
-/// listings are invalidated.
+/// Implements the design doc's file-change-driven hot reload path:
+/// "SKILL.md create/modify/delete → 300ms debounce → invalidate
+/// listing cache → re-scan changed directory, update registry
+/// listing cache → next turn update attachment content."
+///
+/// When skill files change, the watcher callback re-scans the
+/// registry and calls [`invalidate_skill_listing`] to clear the
+/// cached listing. The Session module then picks up the fresh
+/// listing on the next turn via `compute_skill_listing_for_turn`.
 ///
 /// Returns the shared skill registry and the watcher handle
 /// (RAII: stops on drop).

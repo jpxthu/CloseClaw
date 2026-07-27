@@ -449,3 +449,152 @@ async fn test_removed_skill_disappears() {
     let req3 = fake_ref.last_request().unwrap();
     assert_eq!(tool_messages(&req3).len(), 0);
 }
+
+// ── Scenario 3: file change + conditional activation simultaneously ──────
+
+/// When a daemon hot-reload changes the base listing AND the user
+/// message contains a file path that triggers conditional activation
+/// in the same turn, the diff should capture both sources of change:
+/// the base listing update (file change) and the newly activated
+/// conditional skill.
+#[tokio::test]
+async fn test_file_change_and_conditional_activation_same_turn() {
+    let provider = Arc::new(MockConditionalProvider::new(
+        "- **skill_a**: desc_a
+- **skill_b**: desc_b",
+        "- **skill_a**: desc_a
+- **skill_b**: desc_b",
+    ));
+    provider.add_conditional_rule(
+        ".rs",
+        ConditionalSkillMatch {
+            name: "rs_helper".into(),
+            listing_line: "- **rs_helper**: rs desc ⚡ auto-activates on: *.rs".into(),
+        },
+    );
+
+    let mut session = ConversationSession::new("s_file_cond".into(), "m".into(), tmp_path());
+    session.set_skill_listing_provider(provider.clone());
+
+    let fake = Arc::new(FakeLlmCaller::new("ok"));
+    let fake_ref = fake.clone();
+    session.set_llm_caller(fake);
+
+    // Turn 1: establish baseline
+    let _ = session.invoke_llm("hello").await.unwrap();
+    let req1 = fake_ref.last_request().unwrap();
+    let tools1 = tool_messages(&req1);
+    assert_eq!(tools1.len(), 1);
+    assert!(tools1[0].contains("skill_a"));
+    assert!(tools1[0].contains("skill_b"));
+    assert!(!tools1[0].contains("rs_helper"));
+
+    // Simulate daemon hot-reload: skill_b removed, skill_c added
+    // Also include rs_helper in the all_listing (simulating the real
+    // listing which includes activated conditionals)
+    provider.set_all_listing(
+        "- **skill_a**: desc_a
+- **skill_c**: desc_c
+- **rs_helper**: rs desc ⚡ auto-activates on: *.rs",
+    );
+    provider.set_base_listing(
+        "- **skill_a**: desc_a
+- **skill_c**: desc_c",
+    );
+
+    // Turn 2: file change (listing updated) + .rs path triggers
+    // conditional activation in the same turn
+    let _ = session
+        .invoke_llm("edit src/main.rs for the feature")
+        .await
+        .unwrap();
+    let req2 = fake_ref.last_request().unwrap();
+    let tools2 = tool_messages(&req2);
+    assert_eq!(
+        tools2.len(),
+        1,
+        "should inject a diff on the turn with changes"
+    );
+    // The diff should show: skill_b removed, skill_c added
+    assert!(
+        tools2[0].contains("- - **skill_b**"),
+        "diff should include deletion of skill_b"
+    );
+    assert!(
+        tools2[0].contains("skill_c"),
+        "diff should include addition of skill_c"
+    );
+    // rs_helper is NOT yet activated this turn (activation applies
+    // next turn), so it should not appear in this turn's listing
+    assert!(!tools2[0].contains("rs_helper"));
+
+    // Turn 3: rs_helper activated from last turn's path match
+    let _ = session.invoke_llm("continue").await.unwrap();
+    let req3 = fake_ref.last_request().unwrap();
+    let tools3 = tool_messages(&req3);
+    assert_eq!(tools3.len(), 1);
+    assert!(tools3[0].contains("rs_helper"));
+    // skill_c is already in the snapshot, so it should NOT appear in the diff
+    assert!(!tools3[0].contains("skill_c"));
+}
+
+// ── File change that deactivates a conditional skill ─────────────────────
+
+/// When the daemon removes a skill from the listing, and a
+/// conditional skill was previously activated, the diff should
+/// reflect the removal of both the base skill and the conditional.
+#[tokio::test]
+async fn test_file_change_removes_base_skill_with_conditional_active() {
+    let provider = Arc::new(MockConditionalProvider::new(
+        "- **skill_a**: desc_a
+- **rs_helper**: rs desc ⚡ auto-activates on: *.rs",
+        "- **skill_a**: desc_a",
+    ));
+    provider.add_conditional_rule(
+        ".rs",
+        ConditionalSkillMatch {
+            name: "rs_helper".into(),
+            listing_line: "- **skill_a**: desc_a
+- **rs_helper**: rs desc ⚡ auto-activates on: *.rs"
+                .into(),
+        },
+    );
+
+    let mut session = ConversationSession::new("s_file_rm".into(), "m".into(), tmp_path());
+    session.set_skill_listing_provider(provider.clone());
+
+    let fake = Arc::new(FakeLlmCaller::new("ok"));
+    let fake_ref = fake.clone();
+    session.set_llm_caller(fake);
+
+    // Turn 1: baseline with skill_a only
+    let _ = session.invoke_llm("hello").await.unwrap();
+    let req1 = fake_ref.last_request().unwrap();
+    let tools1 = tool_messages(&req1);
+    assert_eq!(tools1.len(), 1);
+    assert!(tools1[0].contains("skill_a"));
+
+    // Turn 2: .rs path → marks rs_helper for activation
+    let _ = session.invoke_llm("edit src/lib.rs").await.unwrap();
+    // Turn 3: rs_helper now activated → incremental injection
+    let _ = session.invoke_llm("continue").await.unwrap();
+    let req3 = fake_ref.last_request().unwrap();
+    let tools3 = tool_messages(&req3);
+    assert_eq!(tools3.len(), 1);
+    assert!(tools3[0].contains("rs_helper"));
+
+    // Daemon removes skill_a from listing (but keeps something else
+    // so the listing is not completely empty)
+    provider.set_all_listing("- **skill_d**: desc_d");
+    provider.set_base_listing("- **skill_d**: desc_d");
+
+    // Turn 4: listing changes → diff should show removals
+    let _ = session.invoke_llm("turn4").await.unwrap();
+    let req4 = fake_ref.last_request().unwrap();
+    let tools4 = tool_messages(&req4);
+    assert_eq!(tools4.len(), 1, "should inject diff for removed skills");
+    assert!(
+        tools4[0].contains("- - **skill_a**"),
+        "diff should show skill_a removal"
+    );
+}
