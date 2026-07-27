@@ -269,7 +269,7 @@ impl DiskSkillRegistry {
             None => self.lookup_whitelist_from_agent_skills_query(agent_id),
         };
         let resolved_ref = resolved_whitelist.as_deref();
-        self.generate_listing_inner_excluding_conditional(resolved_ref)
+        self.generate_listing_inner(resolved_ref)
     }
 
     /// Find conditional skills whose glob patterns match the given file
@@ -292,22 +292,9 @@ impl DiskSkillRegistry {
             .collect()
     }
 
-    /// Internal implementation that excludes conditional skills from the
-    /// listing.
-    fn generate_listing_inner_excluding_conditional(
-        &self,
-        skills_whitelist: Option<&[String]>,
-    ) -> String {
-        let mut filtered = self.filter_skills_for_listing(skills_whitelist);
-        filtered.retain(|s| s.manifest.paths.is_empty());
-        if filtered.is_empty() {
-            return String::new();
-        }
-        Self::render_listing(&mut filtered)
-    }
-
-    /// Internal implementation shared by `generate_listing` and
-    /// `generate_listing_for_agent`.
+    /// Internal implementation shared by `generate_listing`,
+    /// `generate_listing_for_agent`, and
+    /// `generate_listing_excluding_conditional`.
     fn generate_listing_inner(&self, skills_whitelist: Option<&[String]>) -> String {
         let mut filtered = self.filter_skills_for_listing(skills_whitelist);
         if filtered.is_empty() {
@@ -316,11 +303,9 @@ impl DiskSkillRegistry {
         Self::render_listing(&mut filtered)
     }
 
-    /// Filter skills by common listing criteria: `user_invocable`
-    /// and whitelist membership.
-    ///
-    /// The caller may apply additional filtering (e.g. excluding
-    /// conditional skills) on the returned slice.
+    /// Filter skills by common listing criteria: `user_invocable`,
+    /// whitelist membership, and exclusion of conditional skills
+    /// (those with non-empty `paths`).
     fn filter_skills_for_listing<'a>(
         &'a self,
         skills_whitelist: Option<&[String]>,
@@ -337,6 +322,9 @@ impl DiskSkillRegistry {
             .iter()
             .filter(|s| {
                 if !s.manifest.user_invocable {
+                    return false;
+                }
+                if !s.manifest.paths.is_empty() {
                     return false;
                 }
                 // Agent-scoped filtering is handled by directory-based discovery
