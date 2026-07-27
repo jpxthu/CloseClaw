@@ -73,7 +73,7 @@ fn test_filter_by_source() {
 }
 
 #[test]
-fn test_generate_listing_all_skills_have_paths_returns_empty() {
+fn test_generate_listing_all_skills_have_paths_returns_all() {
     let r = DiskSkillRegistry::new(vec![
         skill_with_paths("rs-tool", SkillSource::Bundled, vec!["**/*.rs".into()]),
         skill_with_paths("md-tool", SkillSource::Global, vec!["**/*.md".into()]),
@@ -81,13 +81,16 @@ fn test_generate_listing_all_skills_have_paths_returns_empty() {
     ]);
     let listing = r.generate_listing(None, None);
     assert!(
-        listing.is_empty(),
-        "when all skills have paths, generate_listing must return empty"
+        !listing.is_empty(),
+        "generate_listing should include skills with paths"
     );
+    assert!(listing.contains("**rs-tool**"));
+    assert!(listing.contains("**md-tool**"));
+    assert!(listing.contains("**toml-tool**"));
 }
 
 #[test]
-fn test_generate_listing_for_agent_excludes_conditional_skills() {
+fn test_generate_listing_for_agent_includes_conditional_skills() {
     let query = Arc::new(MockAgentSkillsQuery::new().with_config(
         "agent-cond",
         vec!["plain-skill".into(), "cond-skill".into()],
@@ -99,7 +102,7 @@ fn test_generate_listing_for_agent_excludes_conditional_skills() {
     r.set_agent_skills_query(query);
     let listing = r.generate_listing_for_agent("agent-cond");
     assert!(listing.contains("**plain-skill**"));
-    assert!(!listing.contains("**cond-skill**"));
+    assert!(listing.contains("**cond-skill**"));
 }
 
 #[test]
@@ -327,7 +330,7 @@ fn test_matches_paths_multiple_input_paths_any_match() {
 }
 
 #[test]
-fn test_generate_listing_excludes_conditional_with_paths() {
+fn test_generate_listing_includes_conditional_with_paths() {
     let r = DiskSkillRegistry::new(vec![skill_with_paths(
         "rs-skill",
         SkillSource::Bundled,
@@ -335,12 +338,13 @@ fn test_generate_listing_excludes_conditional_with_paths() {
     )]);
     let listing = r.generate_listing(None, None);
     assert!(
-        listing.is_empty(),
-        "skills with paths should be excluded from initial listing"
+        !listing.is_empty(),
+        "skills with paths should be included in generate_listing"
     );
+    assert!(listing.contains("**rs-skill**"));
 }
 #[test]
-fn test_generate_listing_excludes_conditional_multi_patterns() {
+fn test_generate_listing_includes_conditional_multi_patterns() {
     let r = DiskSkillRegistry::new(vec![skill_with_paths(
         "multi",
         SkillSource::Bundled,
@@ -348,9 +352,10 @@ fn test_generate_listing_excludes_conditional_multi_patterns() {
     )]);
     let listing = r.generate_listing(None, None);
     assert!(
-        listing.is_empty(),
-        "skills with paths should be excluded from initial listing"
+        !listing.is_empty(),
+        "skills with paths should be included in generate_listing"
     );
+    assert!(listing.contains("**multi**"));
 }
 #[test]
 fn test_generate_listing_conditional_annotation_not_shown_without_paths() {
@@ -369,33 +374,33 @@ fn test_generate_listing_mixed_conditional_and_plain() {
     ]);
     let listing = r.generate_listing(None, None);
     let lines: Vec<&str> = listing.lines().collect();
-    assert_eq!(lines.len(), 2, "only non-conditional skills should appear");
+    assert_eq!(lines.len(), 4, "all user_invocable skills should appear");
     assert!(lines.iter().any(|l| l.contains("**plain1**")));
     assert!(lines.iter().any(|l| l.contains("**plain2**")));
-    assert!(!lines.iter().any(|l| l.contains("**cond**")));
-    assert!(!lines.iter().any(|l| l.contains("**cond2**")));
+    assert!(lines.iter().any(|l| l.contains("**cond**")));
+    assert!(lines.iter().any(|l| l.contains("**cond2**")));
 }
 #[test]
 fn test_generate_listing_conditional_with_agent_id_filter() {
     // Agent-scoped filtering is now handled by directory-based discovery
     // (agents/<id>/skills/), not by manifest fields. Conditional skills
-    // (those with paths) are excluded from the initial listing.
+    // (those with paths) are included in generate_listing.
     let s1 = skill_with_paths("agent1-cond", SkillSource::Agent, vec!["**/*.rs".into()]);
     let s2 = skill_with_paths("any-cond", SkillSource::Agent, vec!["**/*.md".into()]);
     let s3 = skill_with_paths("agent2-cond", SkillSource::Agent, vec!["**/*.toml".into()]);
     let r = DiskSkillRegistry::new(vec![s1, s2, s3, skill("plain", SkillSource::Agent)]);
     let listing = r.generate_listing(Some("agent1"), None);
     assert!(
-        !listing.contains("**agent1-cond**"),
-        "conditional skills should be excluded"
+        listing.contains("**agent1-cond**"),
+        "conditional skills should be included"
     );
     assert!(
-        !listing.contains("**any-cond**"),
-        "conditional skills should be excluded"
+        listing.contains("**any-cond**"),
+        "conditional skills should be included"
     );
     assert!(
-        !listing.contains("**agent2-cond**"),
-        "conditional skills should be excluded"
+        listing.contains("**agent2-cond**"),
+        "conditional skills should be included"
     );
     assert!(
         listing.contains("**plain**"),
@@ -752,15 +757,18 @@ fn test_render_listing_effort_with_when_to_use() {
 }
 
 #[test]
-fn test_render_listing_effort_with_paths_excluded() {
+fn test_render_listing_effort_with_paths_included() {
     let mut s = skill_with_effort("cond-effort", SkillSource::Bundled, SkillEffort::Large);
     s.manifest.paths = vec!["**/*.rs".into()];
     let r = DiskSkillRegistry::new(vec![s]);
     let listing = r.generate_listing(None, None);
     assert!(
-        listing.is_empty(),
-        "skill with paths should be excluded from initial listing"
+        !listing.is_empty(),
+        "skill with paths should be included in generate_listing"
     );
+    assert!(listing.contains("**cond-effort**"));
+    assert!(listing.contains("[effort: large]"));
+    assert!(listing.contains("auto-activates on:"));
 }
 
 #[test]
