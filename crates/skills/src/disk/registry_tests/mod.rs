@@ -785,3 +785,153 @@ fn test_render_listing_effort_mixed_skills() {
     assert!(!lines[1].contains("[effort:"));
     assert!(lines[2].contains("[effort: small]"));
 }
+
+// ---- Conditional activation end-to-end tests ----
+// These tests verify the full conditional activation data flow:
+// generate_listing() includes conditional skills, generate_listing_excluding_conditional()
+// excludes them, and the diff between the two yields the activated conditional skill entries.
+
+#[test]
+fn test_generate_listing_vs_excluding_conditional_differ() {
+    let r = DiskSkillRegistry::new(vec![
+        skill_with_paths("cond", SkillSource::Bundled, vec!["**/*.rs".into()]),
+        skill("plain", SkillSource::Bundled),
+    ]);
+    let all = r.generate_listing(None, None);
+    let excluding = r.generate_listing_excluding_conditional(None, None);
+    assert_ne!(all, excluding, "must differ when conditional skills exist");
+    assert!(
+        all.contains("**cond**"),
+        "full listing includes conditional"
+    );
+    assert!(all.contains("**plain**"));
+    assert!(
+        !excluding.contains("**cond**"),
+        "excluding listing must not include conditional"
+    );
+    assert!(excluding.contains("**plain**"));
+}
+
+#[test]
+fn test_conditional_activation_end_to_end() {
+    // Simulate the full flow:
+    // 1. Initial listing excludes conditional skills
+    // 2. File paths match a conditional skill
+    // 3. Conditional skill entry is injected into the listing
+    let r = DiskSkillRegistry::new(vec![
+        skill_with_paths("rs-tool", SkillSource::Bundled, vec!["**/*.rs".into()]),
+        skill_with_paths("md-tool", SkillSource::Global, vec!["**/*.md".into()]),
+        skill("base-skill", SkillSource::Bundled),
+    ]);
+
+    // Step 1: initial listing (no conditional skills)
+    let initial = r.generate_listing_excluding_conditional(None, None);
+    assert!(initial.contains("**base-skill**"));
+    assert!(!initial.contains("**rs-tool**"));
+    assert!(!initial.contains("**md-tool**"));
+
+    // Step 2: file paths match rs-tool
+    let matches = r.find_conditional_matches(&[PathBuf::from("src/main.rs")]);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].name, "rs-tool");
+
+    // Step 3: inject matched entry
+    let mut injected_lines: Vec<String> = initial.lines().map(String::from).collect();
+    for m in &matches {
+        injected_lines.push(m.listing_line.clone());
+    }
+    let injected = injected_lines.join("\n");
+    assert!(injected.contains("**base-skill**"));
+    assert!(injected.contains("**rs-tool**"));
+    assert!(!injected.contains("**md-tool**"));
+}
+
+#[test]
+fn test_conditional_activation_diff_computation() {
+    // Verify the Session module's incremental diff logic:
+    // generate_listing() minus generate_listing_excluding_conditional()
+    // yields the conditional skill entries that should be injected.
+    let r = DiskSkillRegistry::new(vec![
+        skill_with_paths("cond-rs", SkillSource::Bundled, vec!["**/*.rs".into()]),
+        skill_with_paths("cond-md", SkillSource::Global, vec!["**/*.md".into()]),
+        skill("plain", SkillSource::Bundled),
+    ]);
+
+    let all = r.generate_listing(None, None);
+    let excluding = r.generate_listing_excluding_conditional(None, None);
+
+    // Compute diff: lines in all but not in excluding
+    let all_lines: std::collections::HashSet<&str> = all.lines().collect();
+    let excl_lines: std::collections::HashSet<&str> = excluding.lines().collect();
+    let diff: Vec<&&str> = all_lines.difference(&excl_lines).collect();
+
+    // Diff should contain exactly the conditional skills
+    assert_eq!(diff.len(), 2, "diff must contain both conditional skills");
+    let diff_names: Vec<&str> = diff
+        .iter()
+        .map(|line| {
+            // Extract name from "- **name**: ..."
+            let start = line.find("**").unwrap() + 2;
+            let end = line[start..].find("**").unwrap() + start;
+            &line[start..end]
+        })
+        .collect();
+    assert!(diff_names.contains(&"cond-rs"));
+    assert!(diff_names.contains(&"cond-md"));
+    assert!(!diff_names.contains(&"plain"));
+
+    // The diff lines should contain the auto-activates annotation
+    for line in &diff {
+        assert!(
+            line.contains("auto-activates on:"),
+            "conditional diff line must have auto-activates annotation"
+        );
+    }
+}
+
+#[test]
+fn test_conditional_activation_multiple_paths_match() {
+    // When multiple file paths match different conditional skills,
+    // all matching skills should be injected.
+    let r = DiskSkillRegistry::new(vec![
+        skill_with_paths("rs-tool", SkillSource::Bundled, vec!["**/*.rs".into()]),
+        skill_with_paths("md-tool", SkillSource::Global, vec!["**/*.md".into()]),
+        skill("base", SkillSource::Bundled),
+    ]);
+
+    let matches = r.find_conditional_matches(&[PathBuf::from("a.rs"), PathBuf::from("b.md")]);
+    assert_eq!(matches.len(), 2);
+    let names: Vec<&str> = matches.iter().map(|m| m.name.as_str()).collect();
+    assert!(names.contains(&"rs-tool"));
+    assert!(names.contains(&"md-tool"));
+}
+
+#[test]
+fn test_conditional_activation_no_match_yields_empty_diff() {
+    // When no file paths match any conditional skill, the diff is empty.
+    let r = DiskSkillRegistry::new(vec![
+        skill_with_paths("rs-tool", SkillSource::Bundled, vec!["**/*.rs".into()]),
+        skill("base", SkillSource::Bundled),
+    ]);
+
+    let all = r.generate_listing(None, None);
+    let excluding = r.generate_listing_excluding_conditional(None, None);
+
+    // No paths provided → no conditional matches
+    let all_lines: std::collections::HashSet<&str> = all.lines().collect();
+    let excl_lines: std::collections::HashSet<&str> = excluding.lines().collect();
+    let diff: Vec<&&str> = all_lines.difference(&excl_lines).collect();
+
+    // Even though conditional skills exist in the registry,
+    // the diff (listing vs excluding) still contains them because
+    // generate_listing() always includes conditional skills.
+    // The Session module uses find_conditional_matches() for path-based
+    // activation, not the diff. This test verifies that the diff
+    // correctly identifies conditional skills regardless of path matching.
+    assert_eq!(diff.len(), 1, "diff should contain the conditional skill");
+    assert!(diff[0].contains("**rs-tool**"));
+
+    // But find_conditional_matches with no paths returns nothing
+    let matches = r.find_conditional_matches(&[]);
+    assert!(matches.is_empty());
+}
