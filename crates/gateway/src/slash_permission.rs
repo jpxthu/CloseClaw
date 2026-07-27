@@ -71,7 +71,7 @@ impl Gateway {
     /// Three-branch permission routing (恢复自 PR #811 之前的语义):
     /// 1. `sender_id == Some("owner")` → 直接分派 handler（Owner 短路）
     /// 2. `handler.requires_permission() == true` → handler.handle() 执行后，
-    ///    调用 `permission_engine.evaluate()`；返回 `Denied` 时回复"无权限"
+    ///    调用 `permission_engine.evaluate()`；返回 `Denied` 时回复"权限不足"
     ///    并跳过 SlashResult.execute()
     /// 3. `handler.requires_permission() == false` → 直接分派 handler 并执行
     ///
@@ -161,7 +161,8 @@ impl Gateway {
                 cmd,
                 "permission engine not configured; denying high-risk slash command"
             );
-            self.send_reply_if_available("无权限：权限引擎未配置").await;
+            self.send_reply_if_available("权限不足：权限引擎未配置")
+                .await;
             return false;
         };
 
@@ -204,7 +205,7 @@ impl Gateway {
             )
             .await;
         if let PermissionResponse::Denied { reason, .. } = response {
-            self.send_reply_if_available(&format!("无权限：{reason}"))
+            self.send_reply_if_available(&format!("权限不足：{reason}"))
                 .await;
             return false;
         }
@@ -357,7 +358,7 @@ impl Gateway {
         sender_id: Option<&str>,
     ) -> String {
         if sender_id != Some("owner") {
-            return "无权限：仅 Owner 可以执行权限管理操作".to_owned();
+            return "权限不足：仅 Owner 可以执行权限管理操作".to_owned();
         }
 
         // Path traversal validation for file operations.
@@ -500,7 +501,7 @@ impl Gateway {
         sender_id: Option<&str>,
     ) -> String {
         if sender_id != Some("owner") {
-            return "无权限：仅 Owner 可以审批用户注册".to_owned();
+            return "权限不足：仅 Owner 可以审批用户注册".to_owned();
         }
 
         let flow_guard = self.approval_flow.read().await;
@@ -529,7 +530,7 @@ impl Gateway {
     /// Handle a `UserReject` result — reject the user registration via ApprovalFlow.
     async fn handle_user_reject(&self, request_id: &str, sender_id: Option<&str>) -> String {
         if sender_id != Some("owner") {
-            return "无权限：仅 Owner 可以拒绝用户注册".to_owned();
+            return "权限不足：仅 Owner 可以拒绝用户注册".to_owned();
         }
 
         let flow_guard = self.approval_flow.read().await;
@@ -629,7 +630,7 @@ impl Gateway {
 /// Bridges the common trait to the Gateway's concrete
 /// `SessionManager` and `SessionMessageHandler` for performing
 /// slash command side effects.
-struct GatewaySlashExecutor {
+pub(crate) struct GatewaySlashExecutor {
     session_manager: Arc<SessionManager>,
     session_handler: Option<Arc<SessionMessageHandler>>,
     permission_engine: Option<Arc<tokio::sync::RwLock<PermissionEngine>>>,
@@ -884,9 +885,23 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
 // ── GatewaySlashExecutor inherent methods ──────────────────────────────
 
 impl GatewaySlashExecutor {
+    /// Create a new executor for testing purposes.
+    #[allow(dead_code)]
+    pub(crate) fn new(
+        session_manager: Arc<SessionManager>,
+        session_handler: Option<Arc<SessionMessageHandler>>,
+        permission_engine: Option<Arc<tokio::sync::RwLock<PermissionEngine>>>,
+    ) -> Self {
+        Self {
+            session_manager,
+            session_handler,
+            permission_engine,
+        }
+    }
+
     /// Check permission for a command execution request.
     /// Returns `Ok(())` if allowed, or `Err(blocks)` with a denial message.
-    async fn check_command_permission(
+    pub(crate) async fn check_command_permission(
         &self,
         agent_id: &str,
         cmd: &str,
@@ -894,9 +909,16 @@ impl GatewaySlashExecutor {
     ) -> Result<(), Vec<ContentBlock>> {
         let Some(engine) = self.permission_engine.as_ref() else {
             return Err(vec![ContentBlock::Text(
-                "无权限：权限引擎未配置".to_owned(),
+                "权限不足：权限引擎未配置".to_owned(),
             )]);
         };
+        // Note: user_id is hardcoded to "owner" because this executor layer
+        // does not receive the actual sender_id (see design doc: permission is
+        // fully handled at the Gateway layer). Commands executed here are
+        // already permission-gated at the Gateway level, so evaluating with
+        // "owner" identity aligns with the design doc's "Owner default Allow"
+        // principle — the Gateway's Branch 1 short-circuit already bypasses
+        // this check for real owner senders.
         let caller = Caller {
             user_id: "owner".to_owned(),
             agent: agent_id.to_owned(),
@@ -912,7 +934,7 @@ impl GatewaySlashExecutor {
         };
         let response = engine.read().await.evaluate(request, None);
         if let PermissionResponse::Denied { reason, .. } = response {
-            return Err(vec![ContentBlock::Text(format!("无权限：{reason}"))]);
+            return Err(vec![ContentBlock::Text(format!("权限不足：{reason}"))]);
         }
         Ok(())
     }
