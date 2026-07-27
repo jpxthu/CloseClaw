@@ -28,7 +28,6 @@ pub enum Section {
     ToolsSection(String),
     MemorySection(String),
     HeartbeatSection(String),
-    SkillListingSection(String),
     // --- Dynamic sections (always rebuilt) ---
     ChannelContext {
         chat_name: String,
@@ -73,7 +72,7 @@ impl Section {
             Section::ToolsSection(_) => "tools",
             Section::MemorySection(_) => "memory",
             Section::HeartbeatSection(_) => "heartbeat",
-            Section::SkillListingSection(_) => "skill_listing",
+
             Section::ChannelContext { .. } => "channel_context",
             Section::SessionState { .. } => "session_state",
             Section::AppendSection(_) => "append",
@@ -112,13 +111,7 @@ impl Section {
             Section::HeartbeatSection(content) => {
                 format!("## Heartbeat Context\n{}\n", content)
             }
-            Section::SkillListingSection(content) => {
-                if content.is_empty() {
-                    String::new()
-                } else {
-                    format!("## Available Skills\n\n{}\n", content)
-                }
-            }
+
             Section::ChannelContext {
                 chat_name,
                 sender_id,

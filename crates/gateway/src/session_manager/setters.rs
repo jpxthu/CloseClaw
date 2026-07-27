@@ -267,7 +267,7 @@ impl SessionManager {
         *self.tool_registry.write().await = Some(registry);
     }
 
-    /// Set the skill registry for building system prompt SkillListingSection.
+    /// Set the skill registry for querying available skills.
     pub async fn set_skill_registry(&self, registry: Arc<dyn SkillRegistryQuery>) {
         *self.skill_registry.write().await = Some(registry);
     }
