@@ -1,12 +1,29 @@
 //! Session Compaction Service
 //!
 //! Provides token estimation, auto-compaction threshold detection, and circuit breaker
-//! for LLM context window management. This module contains only data types, pure
-//! functions, and the `CompactionService` state machine. The actual LLM-calling
-//! `execute_compact` function lives in the main crate's wrapper module.
+//! for LLM context window management. This module contains data types, pure
+//! functions, and the `CompactionService` state machine with its `compact` method
+//! that executes compaction via an injected chat function.
 
 pub use closeclaw_common::CompactConfig;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
 use closeclaw_common::RunningStats;
+
+/// Boxed async chat function for LLM injection.
+///
+/// Takes (model_name, messages) and returns (response_content, retries)
+/// on success, or an error message on failure.
+pub type ChatFn = Arc<
+    dyn Fn(
+            String,
+            Vec<CompactionMessage>,
+        ) -> Pin<Box<dyn Future<Output = Result<(String, u32), String>> + Send>>
+        + Send
+        + Sync,
+>;
 
 /// Simple message type for compaction operations.
 ///
@@ -52,6 +69,10 @@ pub enum CompactionError {
     #[error("LLM call failed: {0}")]
     LLMCallFailed(String),
 
+    /// Session not found.
+    #[error("session not found: {0}")]
+    SessionNotFound(String),
+
     /// Failed to parse summary from LLM response.
     #[error("Failed to parse summary from LLM response")]
     SummaryParseFailed,
@@ -59,6 +80,10 @@ pub enum CompactionError {
     /// No messages provided for compaction.
     #[error("No messages provided for compaction")]
     EmptyMessages,
+
+    /// Required handler not available.
+    #[error("handler not available: {0}")]
+    HandlerNotAvailable(String),
 }
 
 /// No-tools preamble constant.
@@ -169,8 +194,7 @@ pub fn estimate_total_tokens(
 /// pure character-based estimation for all messages.
 ///
 /// This is the single source of truth for before-compaction token
-/// counting, shared by `llm::compaction::execute_compact` and
-/// `gateway::llm_caller_impl::execute_compact`.
+/// counting, shared by [`CompactionService::compact`].
 pub fn compute_before_tokens(
     messages: &[CompactionMessage],
     stats: Option<&RunningStats>,
@@ -294,6 +318,71 @@ impl CompactionService {
             self.token_warning_state(tokens, model, knowledge_context_window),
             TokenWarningState::AutoCompactTriggered
         )
+    }
+
+    /// Executes a compaction: calls the LLM to summarize the conversation,
+    /// returns the compaction result with the boundary message.
+    ///
+    /// The LLM is injected via `chat_fn` to avoid depending on the `llm` crate.
+    /// When `stats` is provided with `request_count > 0`, uses
+    /// `stats.total_tokens` for precise token counting. Falls back to
+    /// pure character estimation when `None`.
+    ///
+    /// On success, resets `consecutive_failures` to 0.
+    /// The reply message format is: `"压缩完成：{before_char_count} → {after_char_count} 字符"`
+    /// to align with the design document's requirement of showing character counts.
+    pub async fn compact(
+        &mut self,
+        messages: &[CompactionMessage],
+        model: &str,
+        instruction: Option<&str>,
+        is_auto: bool,
+        stats: Option<&RunningStats>,
+        chat_fn: &ChatFn,
+    ) -> Result<CompactionResult, CompactionError> {
+        if messages.is_empty() {
+            return Err(CompactionError::EmptyMessages);
+        }
+
+        let prompt = build_compact_prompt(instruction);
+        let mut llm_messages = vec![CompactionMessage {
+            role: "system".to_string(),
+            content: prompt,
+        }];
+        for m in messages {
+            llm_messages.push(CompactionMessage {
+                role: m.role.clone(),
+                content: m.content.clone(),
+            });
+        }
+
+        let (response_content, _retries) = chat_fn(model.to_string(), llm_messages)
+            .await
+            .map_err(CompactionError::LLMCallFailed)?;
+
+        let summary =
+            extract_summary(&response_content).ok_or(CompactionError::SummaryParseFailed)?;
+
+        let boundary = format_boundary_message(&summary, is_auto, chrono::Utc::now());
+        let before_chars: usize = messages.iter().map(|m| m.content.chars().count()).sum();
+        let before_tokens = compute_before_tokens(messages, stats, self.config.chars_per_token);
+        let after_tokens = estimate_tokens(&boundary, self.config.chars_per_token);
+        let after_chars = boundary.chars().count();
+
+        self.record_success();
+
+        Ok(CompactionResult {
+            performed: true,
+            original_tokens: before_tokens,
+            compacted_tokens: after_tokens,
+            message: format!("压缩完成：{} → {} 字符", before_chars, after_chars),
+            before_char_count: before_chars,
+            after_char_count: after_chars,
+            before_token_count: before_tokens,
+            after_token_count: after_tokens,
+            boundary_message: boundary,
+            is_auto,
+        })
     }
 
     /// Returns the number of consecutive compaction failures.

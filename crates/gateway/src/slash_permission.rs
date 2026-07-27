@@ -723,14 +723,38 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             .await;
     }
 
-    async fn execute_compact(&self, session_id: &str, instruction: Option<String>) {
-        if let Some(sh) = self.session_handler.as_ref() {
-            let compact_cmd = match &instruction {
-                Some(inst) => format!("/compact {}", inst),
-                None => "/compact".to_string(),
-            };
-            sh.handle_compact_command(session_id, &compact_cmd).await;
-        }
+    async fn execute_compact(
+        &self,
+        session_id: &str,
+        instruction: Option<String>,
+    ) -> Result<
+        closeclaw_session::compaction::CompactionResult,
+        closeclaw_session::compaction::CompactionError,
+    > {
+        let Some(sh) = self.session_handler.as_ref() else {
+            return Err(
+                closeclaw_session::compaction::CompactionError::HandlerNotAvailable(
+                    "session handler not available".to_string(),
+                ),
+            );
+        };
+
+        // Build ChatFn: pure LLM forwarding layer.
+        let fc = Arc::clone(&sh.fallback_client);
+        let chat_fn = crate::session_handler::build_chat_fn(fc);
+
+        // Lock CompactionService and call SessionManager::compact.
+        let mut svc = sh.compaction_service.lock().await;
+        self.session_manager
+            .compact(
+                session_id,
+                instruction.as_deref(),
+                false,
+                &mut svc,
+                &chat_fn,
+                None,
+            )
+            .await
     }
 
     async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction) {

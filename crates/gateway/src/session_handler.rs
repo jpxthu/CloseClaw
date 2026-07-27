@@ -10,10 +10,9 @@
 //! The `output_tx` channel is used to surface LLM response text to callers.
 
 use super::Gateway;
-use crate::llm_caller_impl::execute_compact;
+use crate::session_manager::compact::{load_compact_inputs, PreloadedCompactInputs};
 use crate::session_manager::SessionManager;
 use crate::shutdown_handle::ShutdownHandle;
-use closeclaw_common::RunningStats;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::Message as ChatMessage;
@@ -21,7 +20,6 @@ use closeclaw_llm::ProviderModelKnowledge;
 use closeclaw_session::compaction::{
     CompactConfig, CompactionMessage, CompactionResult, CompactionService, TokenWarningState,
 };
-use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::run_health::TranscriptOp;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -74,7 +72,7 @@ pub struct SessionMessageHandler {
     pub(super) session_manager: Arc<SessionManager>,
     pub(super) fallback_client: Arc<FallbackClient>,
     pub(super) output_tx: OutputTx,
-    pub(super) compaction_service: Arc<std::sync::Mutex<CompactionService>>,
+    pub(super) compaction_service: Arc<tokio::sync::Mutex<CompactionService>>,
     /// Concrete [`ActiveSearcherLlmCaller`] for the active-searcher pipeline.
     ///
     /// The active-searcher uses its own [`LlmCaller`][closeclaw_memory::active_searcher_llm::LlmCaller]
@@ -129,7 +127,7 @@ impl SessionMessageHandler {
             session_manager,
             fallback_client,
             output_tx: Arc::new(RwLock::new(Some(output_tx))),
-            compaction_service: Arc::new(std::sync::Mutex::new(CompactionService::new(
+            compaction_service: Arc::new(tokio::sync::Mutex::new(CompactionService::new(
                 CompactConfig::default(),
             ))),
             fallback_llm_caller,
@@ -151,7 +149,7 @@ impl SessionMessageHandler {
             session_manager,
             fallback_client,
             output_tx: Arc::new(RwLock::new(None)),
-            compaction_service: Arc::new(std::sync::Mutex::new(CompactionService::new(
+            compaction_service: Arc::new(tokio::sync::Mutex::new(CompactionService::new(
                 CompactConfig::default(),
             ))),
             fallback_llm_caller,
@@ -267,40 +265,6 @@ impl SessionMessageHandler {
 }
 // ── Compaction ──
 impl SessionMessageHandler {
-    /// Handle `/compact [instruction]` manual compaction.
-    pub async fn handle_compact_command(&self, session_id: &str, content: &str) -> HandleResult {
-        let instruction: Option<String> = content
-            .strip_prefix("/compact")
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        let Some((model, llm_messages, stats)) =
-            load_compact_inputs(&self.session_manager, session_id).await
-        else {
-            tracing::warn!(session_id, "session not found for /compact");
-            return HandleResult::MessageQueued;
-        };
-        let fc = Arc::clone(&self.fallback_client);
-        let output_tx = Arc::clone(&self.output_tx);
-        let svc = Arc::clone(&self.compaction_service);
-        let sm = Arc::clone(&self.session_manager);
-        let sid = session_id.to_string();
-        tokio::spawn(async move {
-            run_manual_compact(
-                sm,
-                fc,
-                output_tx,
-                svc,
-                sid,
-                model,
-                llm_messages,
-                instruction,
-                stats,
-            )
-            .await;
-        });
-        HandleResult::LlmStarted
-    }
-
     /// Send a text reply through the output channel (used by slash handlers).
     pub async fn send_reply(&self, text: String) {
         send_output(&self.output_tx, &text).await;
@@ -314,10 +278,7 @@ impl SessionMessageHandler {
         };
         // Truncate history before token estimation if configured.
         {
-            let svc = self
-                .compaction_service
-                .lock()
-                .expect("compaction_service poisoned");
+            let svc = self.compaction_service.lock().await;
             truncate_messages(&mut llm_messages, svc.config().max_history_messages);
         }
         let compaction_msgs: Vec<CompactionMessage> = llm_messages
@@ -328,10 +289,7 @@ impl SessionMessageHandler {
             })
             .collect();
         let cpt = {
-            let svc = self
-                .compaction_service
-                .lock()
-                .expect("compaction_service poisoned");
+            let svc = self.compaction_service.lock().await;
             svc.config().chars_per_token
         };
         let tokens =
@@ -341,16 +299,11 @@ impl SessionMessageHandler {
             .as_ref()
             .and_then(|kb| find_context_window_for_model(kb, &model));
         let warning = {
-            let svc = self
-                .compaction_service
-                .lock()
-                .expect("compaction_service poisoned");
+            let svc = self.compaction_service.lock().await;
             svc.token_warning_state(tokens, &model, kb_window)
         };
         match warning {
             TokenWarningState::Normal => {
-                // Reset dedup flag when leaving the warning state so
-                // the next warning interval triggers a fresh notification.
                 *self.has_warned.lock().expect("has_warned poisoned") = false;
             }
             TokenWarningState::Warning => {
@@ -360,8 +313,6 @@ impl SessionMessageHandler {
                     model = %model,
                     "token warning: approaching context limit"
                 );
-                // Send warning notification only once per interval.
-                // Scope the guard to avoid holding it across .await.
                 let should_warn = {
                     let warned = self.has_warned.lock().expect("has_warned poisoned");
                     !*warned
@@ -372,8 +323,12 @@ impl SessionMessageHandler {
                 }
             }
             TokenWarningState::AutoCompactTriggered => {
-                self.run_auto_compact(session_id, &llm_messages, &model, &stats)
-                    .await;
+                let preloaded = PreloadedCompactInputs {
+                    model,
+                    llm_messages,
+                    stats,
+                };
+                self.run_auto_compact(session_id, preloaded).await;
             }
             TokenWarningState::Blocking => {
                 tracing::warn!(
@@ -385,51 +340,74 @@ impl SessionMessageHandler {
     }
 
     /// Execute auto-compaction: check breaker, snapshot, compact, finalize.
-    async fn run_auto_compact(
-        &self,
-        session_id: &str,
-        llm_messages: &[ChatMessage],
-        model: &str,
-        stats: &RunningStats,
-    ) {
+    async fn run_auto_compact(&self, session_id: &str, preloaded: PreloadedCompactInputs) {
         {
-            let breaker = self
-                .compaction_service
-                .lock()
-                .expect("compaction_service poisoned");
+            let breaker = self.compaction_service.lock().await;
             if breaker.consecutive_failures() >= breaker.config().max_consecutive_failures {
                 return;
             }
         }
-        let snapshot_id = self
+        // Build ChatFn: pure LLM forwarding layer.
+        let fc = Arc::clone(&self.fallback_client);
+        let chat_fn = build_chat_fn(fc);
+        // Lock CompactionService and call SessionManager::compact.
+        // SessionManager::compact handles apply/rollback internally.
+        let mut svc = self.compaction_service.lock().await;
+        let result = self
             .session_manager
-            .save_pre_compaction_snapshot(session_id)
+            .compact(session_id, None, true, &mut svc, &chat_fn, Some(preloaded))
             .await;
-        let cpt = self
-            .compaction_service
-            .lock()
-            .expect("compaction_service poisoned")
-            .config()
-            .chars_per_token;
-        let result = execute_compact(
-            llm_messages,
-            &self.fallback_client,
-            model,
-            None,
-            true,
-            cpt,
-            Some(stats),
-        )
-        .await;
-        finalize_auto_compact(
-            &self.session_manager,
-            &self.compaction_service,
-            session_id,
-            result,
-            snapshot_id.as_deref(),
-        )
-        .await;
+        drop(svc);
+        match result {
+            Ok(r) => {
+                tracing::info!(
+                    session_id,
+                    before = r.before_char_count,
+                    after = r.after_char_count,
+                    "auto compact completed"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(session_id, error = %e, "auto compact failed");
+                self.compaction_service.lock().await.record_failure();
+            }
+        }
     }
+}
+
+// ── Compaction helpers ──
+
+/// Build a [`ChatFn`] that forwards messages directly to the LLM client.
+///
+/// The returned closure is a pure forwarding layer: it converts
+/// [`CompactionMessage`]s to [`LlmMessage`]s, constructs a
+/// [`ChatRequest`], and calls `fc.chat(request)`. It does **not**
+/// build its own system prompt — the caller (typically
+/// [`CompactionService::compact`]) is responsible for injecting the
+/// system prompt into the messages slice.
+pub(crate) fn build_chat_fn(fc: Arc<FallbackClient>) -> closeclaw_session::compaction::ChatFn {
+    Arc::new(move |model, messages| {
+        let fc = Arc::clone(&fc);
+        Box::pin(async move {
+            use closeclaw_llm::{ChatRequest, Message as LlmMessage};
+
+            let llm_messages: Vec<LlmMessage> = messages
+                .iter()
+                .map(|m| LlmMessage {
+                    role: m.role.clone(),
+                    content: m.content.clone(),
+                })
+                .collect();
+            let request = ChatRequest {
+                model,
+                messages: llm_messages,
+                temperature: 0.0,
+                max_tokens: Some(4096),
+            };
+            let (response, retries) = fc.chat(request).await.map_err(|e| e.to_string())?;
+            Ok((response.content, retries))
+        })
+    })
 }
 
 /// LlmCaller adapter for `UnifiedFallbackClient`.
@@ -494,33 +472,6 @@ impl crate::memory::active_searcher_llm::LlmCaller for ActiveSearcherLlmCaller {
     }
 }
 // ── Compaction helpers ──
-pub(crate) fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
-    blocks
-        .iter()
-        .map(|b| match b {
-            ContentBlock::Text(t) => t.as_str(),
-            ContentBlock::Thinking { thinking: t, .. } => t.as_str(),
-            ContentBlock::ToolUse { input, .. } => input.as_str(),
-            ContentBlock::ToolResult { content, .. } => content.as_str(),
-            _ => "",
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn build_compact_messages(
-    messages: &[closeclaw_session::llm_session::SessionMessage],
-) -> Vec<ChatMessage> {
-    messages
-        .iter()
-        .filter(|m| m.role == "user" || m.role == "assistant")
-        .map(|m| ChatMessage {
-            role: m.role.clone(),
-            content: flatten_content_blocks(&m.content_blocks),
-        })
-        .collect()
-}
-
 /// Look up a model's context window from the knowledge base.
 ///
 /// Searches across all known providers. Returns `Some(context_window)`
@@ -542,7 +493,7 @@ fn find_context_window_for_model(knowledge: &ProviderModelKnowledge, model: &str
 /// Follows the design doc pipeline: replace messages → rebuild system
 /// prompt → persist checkpoint → mark snapshot complete.
 pub(crate) async fn apply_compact_result(
-    sm: &Arc<SessionManager>,
+    sm: &SessionManager,
     session_id: &str,
     result: &CompactionResult,
     snapshot_id: Option<&str>,
@@ -592,7 +543,7 @@ pub(crate) async fn send_output(output_tx: &OutputTx, text: &str) {
 }
 /// Check if the session is in a blocking state (context window nearly full).
 pub(crate) async fn is_blocking_state(
-    svc: &Arc<std::sync::Mutex<CompactionService>>,
+    svc: &Arc<tokio::sync::Mutex<CompactionService>>,
     sm: &Arc<SessionManager>,
     session_id: &str,
     model_knowledge: Option<&ProviderModelKnowledge>,
@@ -605,7 +556,7 @@ pub(crate) async fn is_blocking_state(
     // the function would over-estimate tokens and incorrectly report
     // Blocking when the effective history is shorter.
     {
-        let svc_guard = svc.lock().expect("compaction_service poisoned");
+        let svc_guard = svc.lock().await;
         truncate_messages(&mut llm_messages, svc_guard.config().max_history_messages);
     }
     let compaction_msgs: Vec<CompactionMessage> = llm_messages
@@ -615,33 +566,16 @@ pub(crate) async fn is_blocking_state(
             content: m.content.clone(),
         })
         .collect();
-    let cpt = svc
-        .lock()
-        .expect("compaction_service poisoned")
-        .config()
-        .chars_per_token;
+    let cpt = svc.lock().await.config().chars_per_token;
     let tokens =
         closeclaw_session::compaction::estimate_total_tokens(&stats, &compaction_msgs, cpt);
     let kb_window = model_knowledge.and_then(|kb| find_context_window_for_model(kb, &model));
     matches!(
         svc.lock()
-            .expect("compaction_service poisoned")
+            .await
             .token_warning_state(tokens, &model, kb_window),
         TokenWarningState::Blocking
     )
-}
-
-/// Load compaction inputs: (model, llm_messages, stats). Returns None if session not found.
-async fn load_compact_inputs(
-    sm: &Arc<SessionManager>,
-    session_id: &str,
-) -> Option<(String, Vec<ChatMessage>, RunningStats)> {
-    let cs = sm.get_conversation_session(session_id).await?;
-    let cs_read = cs.read().await;
-    let model = cs_read.model().to_string();
-    let llm_msgs = build_compact_messages(ChatSession::messages(&*cs_read));
-    let stats = cs_read.stats().clone();
-    Some((model, llm_msgs, stats))
 }
 
 /// Truncate `llm_messages` to the most recent `max` entries.
@@ -654,79 +588,6 @@ fn truncate_messages(llm_messages: &mut Vec<ChatMessage>, max: Option<usize>) {
         if llm_messages.len() > max {
             let drain = llm_messages.len() - max;
             llm_messages.drain(..drain);
-        }
-    }
-}
-/// Run manual `/compact` invocation.
-#[allow(clippy::too_many_arguments)]
-async fn run_manual_compact(
-    sm: Arc<SessionManager>,
-    fc: Arc<FallbackClient>,
-    output_tx: OutputTx,
-    svc: Arc<std::sync::Mutex<CompactionService>>,
-    sid: String,
-    model: String,
-    llm_messages: Vec<ChatMessage>,
-    instruction: Option<String>,
-    stats: RunningStats,
-) {
-    // Save a snapshot before compaction so we can rollback on failure.
-    let snapshot_id = sm.save_pre_compaction_snapshot(&sid).await;
-    let cpt = svc
-        .lock()
-        .expect("compaction_service poisoned")
-        .config()
-        .chars_per_token;
-    let result = execute_compact(
-        &llm_messages,
-        &fc,
-        &model,
-        instruction.as_deref(),
-        false,
-        cpt,
-        Some(&stats),
-    )
-    .await;
-    match result {
-        Ok(r) => {
-            apply_compact_result(&sm, &sid, &r, snapshot_id.as_deref()).await;
-            send_output(&output_tx, &r.message).await;
-            svc.lock()
-                .expect("compaction_service poisoned")
-                .record_success();
-        }
-        Err(e) => {
-            tracing::warn!(session_id = %sid, error = %e, "manual compact failed");
-            // Rollback to the pre-compaction snapshot.
-            sm.rollback_compaction(&sid).await;
-            // Manual compact failure does NOT increment the circuit breaker counter
-            // (design doc: "手动压缩的失败不递增熔断计数器").
-            send_output(&output_tx, &format!("Compact failed: {}", e)).await;
-        }
-    }
-}
-/// Finalize auto-compact result.
-async fn finalize_auto_compact(
-    sm: &Arc<SessionManager>,
-    svc: &Arc<std::sync::Mutex<CompactionService>>,
-    session_id: &str,
-    result: Result<CompactionResult, closeclaw_session::compaction::CompactionError>,
-    snapshot_id: Option<&str>,
-) {
-    match result {
-        Ok(r) => {
-            apply_compact_result(sm, session_id, &r, snapshot_id).await;
-            svc.lock()
-                .expect("compaction_service poisoned")
-                .record_success();
-        }
-        Err(e) => {
-            tracing::warn!(session_id, error = %e, "auto compact failed");
-            // Rollback to the pre-compaction snapshot.
-            sm.rollback_compaction(session_id).await;
-            svc.lock()
-                .expect("compaction_service poisoned")
-                .record_failure();
         }
     }
 }
