@@ -297,7 +297,6 @@ async fn test_compaction_with_empty_activated_set() {
 
     // Turn 1
     let _ = session.invoke_llm("hello").await.unwrap();
-    assert!(!session.activated_conditional_skills().is_empty() || true);
     // No conditional skills activated in this scenario
     assert!(
         session.activated_conditional_skills().is_empty(),
@@ -318,20 +317,19 @@ async fn test_compaction_with_empty_activated_set() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Test 5: State transition — pre-compaction with skills → compaction →
-//          post-compaction rebirth → incremental diff
+// Test 5a: Compaction after hot-reload — no spurious diff
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Full state transition: session has skill listing state, compaction
-/// happens, then a new turn produces the correct incremental diff
-/// (no spurious additions or removals).
+/// After a hot-reload adds a skill, compaction preserves the full
+/// snapshot. The next turn produces no diff because listing is
+/// unchanged.
 #[tokio::test]
-async fn test_state_transition_through_compaction() {
+async fn test_compaction_after_hot_reload_no_diff() {
     let provider = Arc::new(MockProvider::new(
         "- **skill_a**: desc_a\n- **skill_b**: desc_b",
         "- **skill_a**: desc_a\n- **skill_b**: desc_b",
     ));
-    let mut session = ConversationSession::new("s_compact_5".into(), "m".into(), tmp_path());
+    let mut session = ConversationSession::new("s_compact_5a".into(), "m".into(), tmp_path());
     session.set_skill_listing_provider(provider.clone());
 
     let fake = Arc::new(FakeLlmCaller::new("ok"));
@@ -374,21 +372,51 @@ async fn test_state_transition_through_compaction() {
         0,
         "no diff expected when listing unchanged after compaction"
     );
+}
 
-    // Turn 4: skill_b removed by daemon
+// ═══════════════════════════════════════════════════════════════════════════
+// Test 5b: Skill removal detected after compaction
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// After compaction, skill removal by daemon hot-reload is correctly
+/// detected as an incremental diff.
+#[tokio::test]
+async fn test_removal_detected_after_compaction() {
+    let provider = Arc::new(MockProvider::new(
+        "- **skill_a**: desc_a\n- **skill_b**: desc_b",
+        "- **skill_a**: desc_a\n- **skill_b**: desc_b",
+    ));
+    let mut session = ConversationSession::new("s_compact_5b".into(), "m".into(), tmp_path());
+    session.set_skill_listing_provider(provider.clone());
+
+    let fake = Arc::new(FakeLlmCaller::new("ok"));
+    let fake_ref = fake.clone();
+    session.set_llm_caller(fake);
+
+    // Turn 1: establish snapshot
+    let _ = session.invoke_llm("hello").await.unwrap();
+    assert!(session.skill_listing_snapshot().is_some());
+
+    // Simulate compaction
+    simulate_compaction(&mut session);
+    session.preserve_listing_on_compaction();
+
+    // Daemon removes skill_b
     provider.set_all_listing("- **skill_a**: desc_a\n- **skill_c**: desc_c");
     provider.set_base_listing("- **skill_a**: desc_a\n- **skill_c**: desc_c");
-    let _ = session.invoke_llm("turn4").await.unwrap();
-    let req4 = fake_ref.last_request().unwrap();
-    let tools4 = tool_messages(&req4);
-    assert_eq!(tools4.len(), 1);
+
+    // Turn 2: diff should show skill_b removal
+    let _ = session.invoke_llm("turn2").await.unwrap();
+    let req = fake_ref.last_request().unwrap();
+    let tools = tool_messages(&req);
+    assert_eq!(tools.len(), 1);
     assert!(
-        tools4[0].contains("- - **skill_b**"),
+        tools[0].contains("- - **skill_b**"),
         "diff should show skill_b removal"
     );
     assert!(
-        tools4[0].contains("skill_a") || !tools4[0].contains("skill_a"),
-        "skill_a unchanged"
+        !tools[0].contains("skill_a"),
+        "skill_a unchanged, should not appear in removal diff"
     );
 }
 
