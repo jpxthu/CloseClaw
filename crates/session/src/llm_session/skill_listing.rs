@@ -120,7 +120,7 @@ impl ConversationSession {
     ///
     /// Called by the gateway layer after compaction completes, before
     /// the next turn re-computes the listing.
-    pub fn preserve_listing_on_compaction(&mut self) {
+    pub fn preserve_listing_on_compaction(&self) {
         // skill_listing_snapshot and activated_conditional_skills are
         // session-level fields independent of the transcript. They are
         // not cleared by apply_transcript_op (which only replaces

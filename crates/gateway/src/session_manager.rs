@@ -64,7 +64,7 @@ pub struct SessionManager {
     workspace_dir: Option<PathBuf>,
     /// Tool registry for building system prompt ToolsSection
     tool_registry: RwLock<Option<Arc<dyn ToolRegistryQuery>>>,
-    /// Skill registry for building system prompt SkillListingSection
+    /// Skill registry for querying available skills (listing generation)
     skill_registry: RwLock<Option<Arc<dyn SkillRegistryQuery>>>,
     /// Default reasoning level for new sessions
     default_reasoning_level: ReasoningLevel,
