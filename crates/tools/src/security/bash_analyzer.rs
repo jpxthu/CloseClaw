@@ -324,6 +324,12 @@ fn detect_malicious(source: &str) -> Option<String> {
     if detect_ifs_injection(source) {
         return Some("IFS injection detected".into());
     }
+    if detect_proc_environ(source) {
+        return Some("/proc/self/environ access detected".into());
+    }
+    if detect_zsh_dangerous_builtins(source) {
+        return Some("Zsh dangerous builtin command detected".into());
+    }
     None
 }
 
@@ -366,6 +372,21 @@ fn detect_unquoted_redirect(source: &str) -> bool {
     regex_lite::Regex::new(r"[<>]{1,2}\s*\$")
         .map(|r| r.is_match(source))
         .unwrap_or(false)
+}
+
+/// Detect `/proc/self/environ` or `/proc/[pid]/environ` access.
+fn detect_proc_environ(source: &str) -> bool {
+    regex_lite::Regex::new(r"/proc/(self|\d+)/environ")
+        .map(|r| r.is_match(source))
+        .unwrap_or(false)
+}
+
+/// Detect zsh-specific dangerous builtin commands (e.g. `zmodload`) and
+/// the `zsh` command itself (e.g. `zsh -c "malicious"`).
+fn detect_zsh_dangerous_builtins(source: &str) -> bool {
+    let words: Vec<&str> = source.split_ascii_whitespace().collect();
+    words.iter().any(|w| matches!(*w, "zmodload"))
+        || words.iter().any(|w| w.starts_with("zsh") && *w != "zshenv")
 }
 
 /// Detect IFS injection: `IFS=...` with suspicious values or `$IFS`.
