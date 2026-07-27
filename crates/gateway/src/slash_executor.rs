@@ -15,6 +15,7 @@ use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 use closeclaw_common::SessionLookup;
 use closeclaw_common::{ReasoningLevel, VerbosityLevel};
+use closeclaw_session::compaction::{CompactionError, CompactionResult};
 
 // ── Migrated types (from common) ──────────────────────────────────────
 
@@ -46,7 +47,11 @@ pub trait SlashEffectExecutor: Send + Sync {
     async fn execute_new_session(&self, session_id: &str, channel: &str);
 
     /// Trigger context compaction with an optional custom instruction.
-    async fn execute_compact(&self, session_id: &str, instruction: Option<String>);
+    async fn execute_compact(
+        &self,
+        session_id: &str,
+        instruction: Option<String>,
+    ) -> Result<CompactionResult, CompactionError>;
 
     /// Apply a system prompt append/clear action.
     async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction);
@@ -152,14 +157,17 @@ impl SlashResultExecutor for SlashResult {
                     .await;
             }
             SlashResult::Compact { instruction } => {
-                ctx.executor
+                let reply = match ctx
+                    .executor
                     .execute_compact(&ctx.session_id, instruction)
-                    .await;
+                    .await
+                {
+                    Ok(r) => r.message,
+                    Err(e) => format!("Compact failed: {e}"),
+                };
                 let _ = ctx
                     .reply_tx
-                    .send(ReplyAction::Reply(vec![ContentBlock::Text(
-                        "对话历史已压缩".into(),
-                    )]))
+                    .send(ReplyAction::Reply(vec![ContentBlock::Text(reply)]))
                     .await;
             }
             SlashResult::SystemAppend { action } => {

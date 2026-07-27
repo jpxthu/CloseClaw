@@ -12,10 +12,9 @@ use std::sync::Arc;
 
 use tokio::time::Instant;
 
-use super::session_handler::{
-    flatten_content_blocks, ActiveSearcherLlmCaller, MessageMetadata, SessionMessageHandler,
-};
+use super::session_handler::{ActiveSearcherLlmCaller, MessageMetadata, SessionMessageHandler};
 use super::Gateway;
+use crate::session_manager::compact::flatten_content_blocks;
 use crate::session_manager::SessionManager;
 use crate::HandleResult;
 use closeclaw_common::im_plugin::IMPlugin;

@@ -30,6 +30,7 @@ use tracing::warn;
 mod announce;
 mod channel;
 pub mod communication;
+pub(crate) mod compact;
 mod compaction_helpers;
 mod consistency_check;
 mod key_registry;
