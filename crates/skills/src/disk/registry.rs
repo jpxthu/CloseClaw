@@ -310,6 +310,7 @@ impl DiskSkillRegistry {
     /// `generate_listing_for_agent`.
     fn generate_listing_inner(&self, skills_whitelist: Option<&[String]>) -> String {
         let mut filtered = self.filter_skills_for_listing(skills_whitelist);
+        filtered.retain(|s| s.manifest.paths.is_empty());
         if filtered.is_empty() {
             return String::new();
         }
