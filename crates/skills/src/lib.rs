@@ -14,5 +14,5 @@ pub use disk::{
     init_disk_skills, resolve_skill, start_skill_watcher, DiskSkillRegistry, ResolvedSkill,
     ScanConfig, SkillWatcherHandle,
 };
-pub use registry::{BuiltinSkillRegistry, Skill, SkillError, SkillManifest};
+pub use registry::{BuiltinSkillRegistry, Skill, SkillError, SkillListingMeta, SkillManifest};
 pub use skill_creator::SkillCreatorSkill;

@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::disk::types::SkillEffort;
+
 /// Skill metadata
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SkillManifest {
@@ -16,6 +18,22 @@ pub struct SkillManifest {
     pub dependencies: Vec<String>,
 }
 
+/// Metadata required for listing generation.
+///
+/// Builtin skills provide this so they can appear in the same
+/// skill listing that disk-based skills already produce.
+#[derive(Debug, Clone)]
+pub struct SkillListingMeta {
+    /// When to use this skill (decision hint).
+    pub when_to_use: String,
+    /// Whether the skill can be invoked directly by a user.
+    pub user_invocable: bool,
+    /// File glob patterns for conditional activation.
+    pub paths: Vec<String>,
+    /// Estimated effort level.
+    pub effort: SkillEffort,
+}
+
 /// Skill trait - implemented by each skill
 #[async_trait]
 pub trait Skill: Send + Sync {
@@ -24,6 +42,12 @@ pub trait Skill: Send + Sync {
 
     /// Get skill prompt body text
     fn body(&self) -> &str;
+
+    /// Get listing metadata for this skill.
+    ///
+    /// Used by the listing generator to render builtin skills
+    /// into the same format as disk-based skills.
+    fn listing_meta(&self) -> SkillListingMeta;
 }
 
 /// Builtin skill registry - manages all registered builtin skills
@@ -100,6 +124,8 @@ pub enum SkillError {
 mod tests {
     use super::*;
 
+    use crate::disk::types::SkillEffort;
+
     struct MockSkill {
         name: String,
     }
@@ -126,6 +152,15 @@ mod tests {
 
         fn body(&self) -> &str {
             "mock body"
+        }
+
+        fn listing_meta(&self) -> SkillListingMeta {
+            SkillListingMeta {
+                when_to_use: format!("use {} when needed", self.name),
+                user_invocable: false,
+                paths: vec![],
+                effort: SkillEffort::Unknown,
+            }
         }
     }
 
@@ -236,6 +271,16 @@ mod tests {
             let names = registry.list().await;
             assert!(names.is_empty());
         });
+    }
+
+    #[test]
+    fn test_mock_listing_meta() {
+        let skill = MockSkill::new("test");
+        let meta = skill.listing_meta();
+        assert_eq!(meta.when_to_use, "use test when needed");
+        assert!(!meta.user_invocable);
+        assert!(meta.paths.is_empty());
+        assert_eq!(meta.effort, SkillEffort::Unknown);
     }
 
     #[tokio::test]
