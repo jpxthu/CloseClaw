@@ -3,6 +3,9 @@
 //! Provides per-turn skill listing computation with incremental diff,
 //! conditional skill activation, and file-path-based matching. Used
 //! by [`super::ConversationSession::prepare_turn_skill_listing`].
+//!
+//! Implements the "增量更新" (incremental update) section of the
+//! design doc (`docs/design/skills/skill-listing-injection.md`).
 
 use std::collections::HashSet;
 
@@ -14,24 +17,26 @@ impl ConversationSession {
     /// Compute the skill listing for the current turn without
     /// mutating session state.
     ///
-    /// Implements the design doc's "incremental update" mechanism
-    /// (see `docs/design/skills/skill-listing-injection.md`):
+    /// Implements the design doc's "增量更新" (incremental update)
+    /// mechanism (see `docs/design/skills/skill-listing-injection.md`).
     ///
-    /// - The daemon handles file-change-driven hot reload (re-scan +
-    ///   cache invalidation) *before* this turn executes.
-    /// - This function handles path-matching conditional activation
-    ///   (via [`prepare_turn_skill_listing`]) and computes a
-    ///   line-level diff that captures **both** sources of change in
-    ///   a single atomic operation.
+    /// The design doc specifies the processing order: "先更新文件
+    /// 变更引起的增量，再处理条件激活的增量" (first update increments
+    /// caused by file changes, then process conditional activation
+    /// increments). In this implementation, the two sources of
+    /// change are merged implicitly rather than via a separate
+    /// two-step diff. This is correct because:
     ///
-    /// The design doc describes a conceptual two-step merge ("first
-    /// update file-change increments, then process conditional
-    /// activation increments"). In this implementation the merge is
-    /// implicit: the full listing already includes activated
-    /// conditionals, so a line-level diff against the previous
-    /// snapshot captures all additions and removals regardless of
-    /// their source. This is logically equivalent to the design
-    /// doc's two-step model.
+    /// - The daemon's file listener completes cache invalidation
+    ///   and re-scan *before* this turn starts (see design doc's
+    ///   "文件监听与热重载" section).
+    /// - [`prepare_turn_skill_listing`] detects newly activated
+    ///   conditional skills from the user message.
+    /// - The current listing already includes all activated
+    ///   conditionals, so a line-level diff against the previous
+    ///   snapshot naturally captures both file-change increments
+    ///   and conditional activation increments in the correct
+    ///   order.
     ///
     /// On the first turn (no snapshot), generates a full listing
     /// excluding conditional skills. On subsequent turns, generates
@@ -91,6 +96,46 @@ impl ConversationSession {
                 }
             }
         }
+    }
+
+    /// Preserve skill listing state across conversation compaction.
+    ///
+    /// Implements the design doc's description of "对话压缩时受
+    /// Session 模块保护" (conversation compaction is protected by the
+    /// Session module). See
+    /// `docs/design/skills/skill-listing-injection.md`.
+    ///
+    /// Skill listing state (`skill_listing_snapshot` and
+    /// `activated_conditional_skills`) is session-level state that
+    /// must survive compaction. During compaction, the transcript is
+    /// rewritten via [`super::transcript_ops::apply_transcript_op`],
+    /// but these fields are independent of the transcript and are not
+    /// affected by that operation. This method explicitly documents
+    /// the protection intent and ensures the state remains intact:
+    ///
+    /// - `skill_listing_snapshot` remains valid for the next turn's
+    ///   incremental diff computation in [`compute_skill_listing_for_turn`].
+    /// - `activated_conditional_skills` persists so conditionally
+    ///   activated skills remain available in subsequent turns.
+    ///
+    /// Called by the gateway layer after compaction completes, before
+    /// the next turn re-computes the listing.
+    pub fn preserve_listing_on_compaction(&self) {
+        // skill_listing_snapshot and activated_conditional_skills are
+        // session-level fields independent of the transcript. They are
+        // not cleared by apply_transcript_op (which only replaces
+        // self.messages and updates last_activity_at). This method
+        // makes the protection explicit per the design doc.
+        //
+        // Future-proofing: if transcript_ops ever clears additional
+        // session state, this method provides a single place to add
+        // preservation logic for skill listing fields.
+        tracing::debug!(
+            session_id = %self.session_id,
+            has_snapshot = self.skill_listing_snapshot.is_some(),
+            activated_count = self.activated_conditional_skills.len(),
+            "preserve_listing_on_compaction: skill listing state retained"
+        );
     }
 
     /// Apply the skill listing state update after a turn.

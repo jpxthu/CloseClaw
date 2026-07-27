@@ -46,7 +46,13 @@ impl ConversationSession {
 
     /// Prepare the skill listing for the current turn.
     ///
-    /// Implements the design doc's "conditional activation" step:
+    /// Corresponds to the design doc's "增量更新" section
+    /// (`docs/design/skills/skill-listing-injection.md`), which
+    /// specifies the processing order: "先更新文件变更引起的增量，
+    /// 再处理条件激活的增量" (first update increments caused by
+    /// file changes, then process conditional activation increments).
+    ///
+    /// This function handles the conditional activation step:
     /// extracts file paths from the user message, finds new
     /// conditional matches, computes the incremental listing using
     /// only the currently activated skills (newly activated skills
@@ -54,11 +60,12 @@ impl ConversationSession {
     /// and returns the listing to inject plus the updated state for
     /// the caller to apply.
     ///
-    /// This function runs *after* the daemon's file-change hot
-    /// reload (which invalidates the listing cache), ensuring the
-    /// ordering described in the design doc: "first update
-    /// file-change increments, then process conditional activation
-    /// increments."
+    /// The ordering is guaranteed by the daemon's file listener,
+    /// which completes cache invalidation and re-scan *before* this
+    /// turn executes (see design doc's "文件监听与热重载" section).
+    /// The incremental diff in [`compute_skill_listing_for_turn`]
+    /// then naturally captures both file-change increments and
+    /// conditional activation increments in the correct order.
     ///
     /// Returns `(listing, new_snapshot, newly_activated_names)`.
     fn prepare_turn_skill_listing(
@@ -93,6 +100,11 @@ impl ConversationSession {
 
     /// Make a non-streaming LLM call via the injected [`LlmCaller`].
     ///
+    /// Corresponds to the design doc's injection flow: prepares the
+    /// skill listing via [`prepare_turn_skill_listing`], injects it as
+    /// the instruction block via [`build_llm_messages_with_listing`],
+    /// then delegates to the LLM caller.
+    ///
     /// Builds an [`InternalRequest`], consuming any pending
     /// memory-injection slot, and delegates to the caller. Returns
     /// an error if no [`LlmCaller`] has been injected.
@@ -112,6 +124,11 @@ impl ConversationSession {
     }
 
     /// Make a streaming LLM call via the injected [`LlmCaller`].
+    ///
+    /// Corresponds to the design doc's injection flow: prepares the
+    /// skill listing via [`prepare_turn_skill_listing`], injects it as
+    /// the instruction block via [`build_llm_messages_with_listing`],
+    /// then delegates to the LLM caller.
     ///
     /// Returns a [`SessionStream`] that wraps the raw LLM event stream
     /// and accumulates [`ContentBlock`](closeclaw_common::ContentBlock)s
@@ -141,6 +158,12 @@ impl ConversationSession {
     /// Build the messages list for an LLM request, consuming any
     /// pending memory-injection slot.
     ///
+    /// Corresponds to the design doc's "注入当前 turn 的 instruction
+    /// block" section (`docs/design/skills/skill-listing-injection.md`).
+    /// The skill listing is injected as a tool-role message at position 0,
+    /// which is the code-level implementation of the design doc's
+    /// "instruction block" injection.
+    ///
     /// Message assembly order:
     /// 1. Skill listing attachment (tool role, position 0) — per-turn
     ///    incremental diff from the [`SkillListingProvider`] when
@@ -163,6 +186,10 @@ impl ConversationSession {
         }];
 
         // 1. Skill listing attachment — at position 0 when non-empty.
+        //    This is the code-level implementation of the design doc's
+        //    "instruction block" injection (tool-role message at
+        //    position 0 corresponds to the instruction block concept
+        //    in docs/design/skills/skill-listing-injection.md).
         let skill_listing_inserted = if let Some(listing) = skill_listing {
             if !listing.is_empty() {
                 messages.insert(

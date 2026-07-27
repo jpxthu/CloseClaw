@@ -7,7 +7,7 @@ use crate::bootstrap::BootstrapMode;
 /// Context passed to each [`PromptFragmentProvider`] during system prompt construction.
 #[derive(Debug, Clone)]
 pub struct FragmentContext {
-    /// Agent identifier — used by [`SkillsFragmentProvider`] to filter visible skills.
+    /// Agent identifier — used by skills providers to filter visible skills.
     pub agent_id: String,
     /// Bootstrap mode (Minimal / Full) — used by [`BootstrapFragmentProvider`]
     /// to select the file set.
