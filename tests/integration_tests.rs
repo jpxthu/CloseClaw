@@ -15,6 +15,7 @@ use closeclaw::agent::registry::{create_registry, SharedAgentRegistry};
 use closeclaw_config::agents::{AgentsConfigProvider, ConfigSource, ResolvedAgentConfig};
 use closeclaw_permission::engine::{Action, CommandArgs, Effect, PermissionEngine, RuleSet};
 use closeclaw_permission::rules::{RuleBuilder, RuleSetBuilder};
+use closeclaw_permission::skill_wrapper::SkillPermissionEngineWrapper;
 use closeclaw_skills::Skill;
 use tokio::sync::RwLock;
 
@@ -278,7 +279,8 @@ async fn test_skill_with_permission_engine_integration() {
     )));
 
     // Create permission skill with engine reference
-    let perm_skill = closeclaw_skills::builtin::PermissionSkill::with_engine(engine.clone());
+    let wrapper = Arc::new(SkillPermissionEngineWrapper::new(engine.clone()));
+    let perm_skill = closeclaw_skills::builtin::PermissionSkill::with_engine(wrapper);
 
     // Populate registry with a test agent config
     let registry: SharedAgentRegistry = create_registry();
