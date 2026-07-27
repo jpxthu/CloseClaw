@@ -13,6 +13,12 @@ impl CodingAgentSkill {
     }
 }
 
+impl Default for CodingAgentSkill {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl Skill for CodingAgentSkill {
     fn manifest(&self) -> SkillManifest {
