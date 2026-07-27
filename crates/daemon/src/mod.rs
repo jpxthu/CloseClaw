@@ -100,6 +100,9 @@ pub struct Daemon {
     pub skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
     /// Builtin skill registry — compiled-in skills, not subject to hot reload
     pub builtin_skill_registry: Arc<BuiltinSkillRegistry>,
+    /// Slash command handler registry — shared with SlashDispatcher;
+    /// allows late registration of SkillSlashHandler after registries are ready.
+    pub slash_registry: Arc<closeclaw_slash::registry::HandlerRegistry>,
     /// Skill file watcher handle (RAII: stops on drop)
     _skill_watcher: Option<SkillWatcherHandle>,
     /// Config file watcher handle (RAII: stops on drop)
@@ -236,6 +239,7 @@ impl Daemon {
         Arc<SessionManager>,
         shutdown::ShutdownHandle,
         Vec<String>,
+        Arc<closeclaw_slash::registry::HandlerRegistry>,
     )> {
         let gateway_config = GatewayConfig {
             name: "closeclaw".to_string(),
@@ -366,7 +370,8 @@ impl Daemon {
             }
         }
         Self::init_terminal_plugin(&gateway).await;
-        Self::init_slash_dispatcher(&gateway, &session_manager, permission_engine).await;
+        let slash_registry =
+            Self::init_slash_dispatcher(&gateway, &session_manager, permission_engine).await;
         // Start the inbound queue consumer so webhook messages are buffered.
         gateway.start_inbound_queue();
         let shutdown = shutdown::ShutdownHandle::new();
@@ -376,7 +381,13 @@ impl Daemon {
             .set_shutdown_handle(crate::bridge::common_shutdown_handle(&shutdown))
             .await;
         info!("Shutdown coordinator initialized");
-        Ok((gateway, session_manager, shutdown, dirty_sessions_for_drain))
+        Ok((
+            gateway,
+            session_manager,
+            shutdown,
+            dirty_sessions_for_drain,
+            slash_registry,
+        ))
     }
 }
 
@@ -395,6 +406,7 @@ pub(crate) struct Phase5Deps<'a> {
     pub permission_engine: &'a Arc<tokio::sync::RwLock<PermissionEngine>>,
     pub approval_flow: &'a Arc<tokio::sync::Mutex<ApprovalFlow>>,
     pub gateway: &'a Arc<Gateway>,
+    pub slash_registry: &'a Arc<closeclaw_slash::registry::HandlerRegistry>,
 }
 
 // --- Phase 4-5 initialization ---
@@ -605,6 +617,7 @@ impl Daemon {
             permission_engine,
             approval_flow,
             gateway,
+            slash_registry,
         } = deps;
         let (sweeper_tx, sweeper_rx) = watch::channel(());
         let (announce_sweeper_tx, announce_sweeper_rx) = watch::channel(());
@@ -646,6 +659,30 @@ impl Daemon {
             gateway,
         };
         let config_watcher = registries::populate_registries(&ctx).await;
+
+        // Register SkillSlashHandler for all user-invocable skills.
+        // Must happen after populate_registries so DiskSkillRegistry is loaded.
+        {
+            use closeclaw_slash::skill_handler::SkillSlashHandler;
+            let disk_reg = {
+                let guard = skill_registry.read().unwrap();
+                guard.as_ref().map(|dr| Arc::new(dr.clone()))
+            };
+            if let Some(disk_reg) = disk_reg {
+                let skill_handler = Arc::new(SkillSlashHandler::new(
+                    disk_reg,
+                    Arc::clone(builtin_skill_registry),
+                ));
+                for name in skill_handler.invocable_names() {
+                    slash_registry.register_named(
+                        &name,
+                        Arc::clone(&skill_handler) as Arc<dyn closeclaw_slash::SlashHandler>,
+                    );
+                }
+                let count = slash_registry.all_commands().len();
+                info!(count = count, "slash registry fully populated");
+            }
+        }
         // Inject the real SessionManager into the late-bound proxy so
         // session tools can delegate to it (layer 4 after layer 3).
         if late_bound_session_manager

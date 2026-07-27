@@ -37,6 +37,16 @@ impl HandlerRegistry {
         }
     }
 
+    /// Register a handler under a specific command name.
+    ///
+    /// This allows handlers whose [`SlashHandler::commands`] returns an
+    /// empty slice (like [`crate::skill_handler::SkillSlashHandler`]) to
+    /// dynamically claim command names at registration time.
+    pub fn register_named(&self, command: &str, handler: Arc<dyn SlashHandler>) {
+        let mut handlers = self.handlers.write().expect("registry lock poisoned");
+        handlers.insert(command.to_owned(), handler);
+    }
+
     /// Look up a handler by command name (without the leading `/`).
     pub fn get(&self, command: &str) -> Option<Arc<dyn SlashHandler>> {
         self.handlers
@@ -64,5 +74,92 @@ impl HandlerRegistry {
             .keys()
             .cloned()
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::SlashContext;
+    use crate::handler::SlashHandler;
+    use async_trait::async_trait;
+    use closeclaw_common::slash_router::SlashResult;
+
+    struct MockHandler {
+        desc: String,
+    }
+
+    #[async_trait]
+    impl SlashHandler for MockHandler {
+        fn commands(&self) -> &[&str] {
+            &[]
+        }
+        fn description(&self) -> &str {
+            &self.desc
+        }
+        fn immediate(&self, _cmd: &str) -> bool {
+            false
+        }
+        async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
+            SlashResult::Reply(format!("handled by {}", self.desc))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_register_named_and_get() {
+        let registry = HandlerRegistry::new();
+        let handler: Arc<dyn SlashHandler> = Arc::new(MockHandler {
+            desc: "skill-h".into(),
+        });
+        registry.register_named("my-skill", Arc::clone(&handler));
+
+        let found = registry.get("my-skill");
+        assert!(found.is_some());
+        let h = found.unwrap();
+        assert_eq!(h.description(), "skill-h");
+    }
+
+    #[tokio::test]
+    async fn test_register_named_overwrites_existing() {
+        let registry = HandlerRegistry::new();
+        let h1: Arc<dyn SlashHandler> = Arc::new(MockHandler {
+            desc: "first".into(),
+        });
+        let h2: Arc<dyn SlashHandler> = Arc::new(MockHandler {
+            desc: "second".into(),
+        });
+        registry.register_named("dup", h1);
+        registry.register_named("dup", h2);
+
+        let found = registry.get("dup").unwrap();
+        assert_eq!(found.description(), "second");
+    }
+
+    #[tokio::test]
+    async fn test_register_named_in_all_commands() {
+        let registry = HandlerRegistry::new();
+        let handler: Arc<dyn SlashHandler> = Arc::new(MockHandler {
+            desc: "test".into(),
+        });
+        registry.register_named("alpha", Arc::clone(&handler));
+        registry.register_named("beta", Arc::clone(&handler));
+
+        let mut cmds = registry.all_commands();
+        cmds.sort();
+        assert_eq!(cmds, vec!["alpha", "beta"]);
+    }
+
+    #[tokio::test]
+    async fn test_register_named_not_in_regular_register() {
+        let registry = HandlerRegistry::new();
+        let handler: Arc<dyn SlashHandler> = Arc::new(MockHandler {
+            desc: "named".into(),
+        });
+        registry.register_named("only-named", handler);
+
+        // register() uses commands() which returns [] for MockHandler
+        // so register_named should be the only way to add it
+        assert!(registry.get("only-named").is_some());
+        assert_eq!(registry.all_commands().len(), 1);
     }
 }

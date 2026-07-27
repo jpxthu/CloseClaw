@@ -126,6 +126,34 @@ fn test_user_invocable_false_with_name_cross_filter() {
     assert!(!listing.contains("**hidden_agent**"));
 }
 #[test]
+fn test_user_invocable_names_returns_only_invocable() {
+    let r = DiskSkillRegistry::new(vec![
+        skill_with_invocable("hidden", SkillSource::Bundled, false),
+        skill("visible1", SkillSource::Global),
+        skill("visible2", SkillSource::Agent),
+    ]);
+    let names = r.user_invocable_names();
+    assert_eq!(names, vec!["visible1", "visible2"]);
+}
+
+#[test]
+fn test_user_invocable_names_empty_when_none_invocable() {
+    let r = DiskSkillRegistry::new(vec![
+        skill_with_invocable("h1", SkillSource::Bundled, false),
+        skill_with_invocable("h2", SkillSource::Global, false),
+    ]);
+    let names = r.user_invocable_names();
+    assert!(names.is_empty());
+}
+
+#[test]
+fn test_user_invocable_names_empty_registry() {
+    let r = DiskSkillRegistry::new(vec![]);
+    let names = r.user_invocable_names();
+    assert!(names.is_empty());
+}
+
+#[test]
 fn test_user_invocable_false_still_findable_by_paths() {
     let mut hidden = skill_with_paths("hidden_rs", SkillSource::Bundled, vec!["**/*.rs".into()]);
     hidden.manifest.user_invocable = false;

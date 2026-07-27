@@ -8,6 +8,7 @@ pub mod handlers_permission;
 pub mod handlers_session;
 pub mod handlers_user;
 pub mod registry;
+pub mod skill_handler;
 
 pub use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 pub use context::SlashContext;

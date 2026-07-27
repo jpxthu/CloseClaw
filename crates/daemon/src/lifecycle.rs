@@ -27,7 +27,7 @@ impl Daemon {
         let (config_manager, storage, data_dir) = Self::init_phase_1_foundation(config_dir)?;
         let (agent_registry, skill_registry, tool_registry, skill_watcher) =
             Self::init_phase_2_registries(config_dir).await?;
-        let (gateway, session_manager, shutdown, dirty_sessions) =
+        let (gateway, session_manager, shutdown, dirty_sessions, slash_registry) =
             Self::init_phase_3_core_services(
                 config_dir,
                 &storage,
@@ -70,6 +70,7 @@ impl Daemon {
                 permission_engine: &permission_engine,
                 approval_flow: &approval_flow,
                 gateway: &gateway,
+                slash_registry: &slash_registry,
             },
             &data_dir,
         )
@@ -109,6 +110,7 @@ impl Daemon {
             plan_archive_shutdown_tx: plan_archive_tx,
             skill_registry,
             builtin_skill_registry,
+            slash_registry,
             _skill_watcher: skill_watcher,
             _config_watcher: config_watcher,
             approval_flow,
@@ -637,11 +639,15 @@ impl Daemon {
     }
 
     /// Initialize the slash command dispatcher and register all handlers.
+    ///
+    /// Returns the shared [`HandlerRegistry`] so callers can later register
+    /// additional handlers (e.g. [`SkillSlashHandler`]) after dependent
+    /// registries are initialized.
     pub(crate) async fn init_slash_dispatcher(
         gateway: &Arc<closeclaw_gateway::Gateway>,
         session_manager: &Arc<closeclaw_gateway::SessionManager>,
         permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
-    ) {
+    ) -> Arc<closeclaw_slash::registry::HandlerRegistry> {
         use closeclaw_slash::dispatcher::SlashDispatcher;
         use closeclaw_slash::handlers::{ReasoningHandler, SystemHandler, WorkdirHandler};
         use closeclaw_slash::handlers_bg::BackgroundHandler;
@@ -655,6 +661,7 @@ impl Daemon {
         };
 
         let slash_registry = Arc::new(HandlerRegistry::new());
+        let registry_for_return = Arc::clone(&slash_registry);
         slash_registry.register(Arc::new(CompactHandler));
         slash_registry.register(Arc::new(ClearHandler::new(Arc::clone(session_manager))));
         slash_registry.register(Arc::new(ExecHandler));
@@ -691,5 +698,6 @@ impl Daemon {
             .set_permission_engine(Arc::clone(permission_engine))
             .await;
         info!("Slash dispatcher installed");
+        registry_for_return
     }
 }

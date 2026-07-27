@@ -838,6 +838,7 @@ dependencies = [
  "closeclaw-llm",
  "closeclaw-permission",
  "closeclaw-session",
+ "closeclaw-skills",
  "closeclaw-tools",
  "serde_json",
  "tempfile",

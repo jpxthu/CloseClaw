@@ -96,7 +96,7 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
         processor_registry,
     );
 
-    let slash_dispatcher = build_slash_dispatcher(Arc::clone(&session_manager));
+    let slash_dispatcher = build_slash_dispatcher(Arc::clone(&session_manager)).await;
 
     let metrics_emitter: Arc<dyn closeclaw_common::MetricsEmitter> = Arc::new(NoopMetricsEmitter);
     let gateway =
@@ -150,7 +150,7 @@ async fn filter_valid_chain(
 }
 
 /// Build a [`SlashDispatcher`] with core command handlers.
-fn build_slash_dispatcher(
+async fn build_slash_dispatcher(
     session_manager: Arc<SessionManager>,
 ) -> Arc<crate::bridge::SlashDispatcherWrapper> {
     let slash_registry = Arc::new(HandlerRegistry::new());
@@ -160,6 +160,33 @@ fn build_slash_dispatcher(
     slash_registry.register(Arc::new(NewSessionHandler));
     slash_registry.register(Arc::new(StopHandler));
     slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(&session_manager))));
+
+    // Register SkillSlashHandler for user-invocable skills.
+    // Load disk skills from the global skills directory.
+    use closeclaw_skills::builtin::builtin_skills;
+    use closeclaw_skills::disk::init_disk_skills;
+    use closeclaw_skills::disk::types::ScanConfig;
+    use closeclaw_skills::BuiltinSkillRegistry;
+    use closeclaw_slash::skill_handler::SkillSlashHandler;
+
+    let global_skills_dir = std::env::var("CLOSECLAW_SKILLS_DIR")
+        .ok()
+        .map(std::path::PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|h| h.join(".closeclaw").join("skills")));
+    let scan_config = ScanConfig {
+        global_dir: global_skills_dir,
+        ..Default::default()
+    };
+    let disk_registry = Arc::new(init_disk_skills(&scan_config));
+    let builtin_registry = Arc::new(BuiltinSkillRegistry::from_skills(builtin_skills()).await);
+    let skill_handler = Arc::new(SkillSlashHandler::new(disk_registry, builtin_registry));
+    for name in skill_handler.invocable_names() {
+        slash_registry.register_named(
+            &name,
+            Arc::clone(&skill_handler) as Arc<dyn closeclaw_slash::SlashHandler>,
+        );
+    }
+
     Arc::new(crate::bridge::SlashDispatcherWrapper(
         SlashDispatcher::from_shared(slash_registry),
     ))

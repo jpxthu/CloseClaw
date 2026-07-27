@@ -219,6 +219,17 @@ impl SlashResultExecutor for SlashResult {
                     ))]))
                     .await;
             }
+            SlashResult::InjectMeta { content } => {
+                ctx.executor
+                    .execute_system_append(&ctx.session_id, &SystemAppendAction::Add(content))
+                    .await;
+                let _ = ctx
+                    .reply_tx
+                    .send(ReplyAction::Reply(vec![ContentBlock::Text(
+                        "技能已加载".into(),
+                    )]))
+                    .await;
+            }
             SlashResult::Unknown(cmd) => {
                 actions.push(ReplyAction::Reply(vec![ContentBlock::Text(format!(
                     "Unknown command: /{cmd}"
