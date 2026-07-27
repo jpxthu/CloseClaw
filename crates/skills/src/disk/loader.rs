@@ -12,7 +12,7 @@ use super::{DiskSkill, ParsedSkill, ScanConfig, SkillSource};
 /// Discovery order (lowest to highest priority, later overwrites earlier):
 /// 1. `extra_dirs` — user-provided additional directories (lowest priority)
 /// 2. `global_dir` — global cross-agent skills
-/// 3. Agent-specific directory derived from `agent_id`
+/// 3. `agent_skills_dir` — agent-specific skills directory (explicit path required)
 /// 4. `project_root` — project-local skills (highest priority)
 ///
 /// Bundled skills are NOT scanned from disk — they are compiled in
@@ -32,18 +32,8 @@ pub fn scan_all_skills(config: &ScanConfig) -> Vec<DiskSkill> {
         scan_layer(dir, SkillSource::Global, &mut skills_by_name);
     }
 
-    // Agent-specific directory: use explicit path when provided,
-    // otherwise derive from global_dir + agent_id (legacy).
-    let agent_dir = config.agent_skills_dir.clone().or_else(|| {
-        config.agent_id.as_ref().and_then(|agent_id| {
-            config
-                .global_dir
-                .as_ref()
-                .map(|g| g.join("agents").join(agent_id))
-        })
-    });
-    if let Some(dir) = agent_dir {
-        scan_layer(&dir, SkillSource::Agent, &mut skills_by_name);
+    if let Some(ref dir) = config.agent_skills_dir {
+        scan_layer(dir, SkillSource::Agent, &mut skills_by_name);
     }
 
     if let Some(ref project_root) = config.project_root {
@@ -280,7 +270,9 @@ mod tests {
     }
 
     #[test]
-    fn test_agent_layer_legacy_derivation() {
+    fn test_agent_layer_no_explicit_dir_skips() {
+        // Without agent_skills_dir, agent layer is skipped
+        // (legacy agent_id derivation removed)
         let temp = tempfile::tempdir().unwrap();
         let global_dir = temp.path().join("global");
         create_file(
@@ -294,16 +286,14 @@ mod tests {
 
         let config = ScanConfig {
             global_dir: Some(global_dir),
-            agent_id: Some("my-agent".to_string()),
             ..Default::default()
         };
         let skills = scan_all_skills(&config);
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].source, SkillSource::Agent);
+        assert!(skills.is_empty());
     }
 
     #[test]
-    fn test_agent_layer_explicit_dir_takes_precedence() {
+    fn test_agent_layer_explicit_dir_used() {
         let temp = tempfile::tempdir().unwrap();
         // Explicit dir has one skill
         let explicit_dir = temp.path().join("explicit").join("my-agent").join("skills");
@@ -311,25 +301,12 @@ mod tests {
             &explicit_dir.join("explicit-skill").join("SKILL.md"),
             "---\ndescription: Explicit\n---\n# Explicit\n",
         );
-        // Legacy derivation would look in global_dir/agents/my-agent
-        let global_dir = temp.path().join("global");
-        create_file(
-            &global_dir
-                .join("agents")
-                .join("my-agent")
-                .join("legacy-skill")
-                .join("SKILL.md"),
-            "---\ndescription: Legacy\n---\n# Legacy\n",
-        );
 
         let config = ScanConfig {
             agent_skills_dir: Some(explicit_dir),
-            global_dir: Some(global_dir),
-            agent_id: Some("my-agent".to_string()),
             ..Default::default()
         };
         let skills = scan_all_skills(&config);
-        // Only the explicit skill should be found (legacy derivation ignored)
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].manifest.name, "explicit-skill");
     }
@@ -522,7 +499,6 @@ mod tests {
         assert!(cfg.extra_dirs.is_empty());
         assert!(cfg.global_dir.is_none());
         assert!(cfg.project_root.is_none());
-        assert!(cfg.agent_id.is_none());
         assert!(cfg.agent_skills_dir.is_none());
         // If bundled_dir accidentally re-appears, this test will fail to compile
         // because ScanConfig has no such field.
