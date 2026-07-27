@@ -14,7 +14,7 @@ use crate::bash::CommandSandbox;
 use crate::permission_check::{
     check_command_permission, check_tool_permission, CommandPermissionResult, PermDeps,
 };
-use crate::security::{BashSecurityAnalyzer, TrustLevel};
+use crate::security::{BashSecurityAnalyzer, ParseResult};
 use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use closeclaw_common::ToolExecState;
 use closeclaw_config::ConfigManager;
@@ -396,23 +396,16 @@ async fn handle_foreground_result(
     }
 }
 
-/// Analyze command security. Returns `Err` if the command is untrusted.
-fn analyze_security(command: &str) -> Result<(), ToolCallError> {
+/// Analyze command security and return the parsed result.
+///
+/// Returns the [`ParseResult`] so the caller can inspect `trust_level`
+/// and use the tree-sitter parsed `commands` (argv arrays) for
+/// downstream permission checks.
+fn analyze_security(command: &str) -> Result<ParseResult, ToolCallError> {
     let sec_result = BashSecurityAnalyzer::new()
         .map_err(ToolCallError::ExecutionFailed)?
         .analyze(command);
-    if let TrustLevel::Uncertain | TrustLevel::Malicious = sec_result.trust_level {
-        return Err(ToolCallError::ExecutionFailed(format!(
-            "Command {} (reason: {})",
-            if sec_result.trust_level == TrustLevel::Malicious {
-                "blocked"
-            } else {
-                "requires approval"
-            },
-            sec_result.reason.unwrap_or_default()
-        )));
-    }
-    Ok(())
+    Ok(sec_result)
 }
 
 /// Check Level 2 command permission, routing through approval or sandbox.
@@ -474,16 +467,29 @@ async fn execute_bash_call(
             "command must not be empty".into(),
         ));
     }
-    analyze_security(command)?;
+    let sec_result = analyze_security(command)?;
 
     // Level 1: ToolCall - verify agent may invoke Bash tool
     if let Some(r) = check_tool_permission(deps, ctx, "bash", "call").await? {
         return Ok(r);
     }
 
-    let cmd_parts: Vec<&str> = command.split_whitespace().collect();
-    let cmd_name = cmd_parts.first().copied().unwrap_or("*").to_string();
-    let cmd_args: Vec<String> = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
+    // Use tree-sitter parsed argv from ParseResult when available,
+    // falling back to split_whitespace() for parse errors.
+    let (cmd_name, cmd_args): (String, Vec<String>) = sec_result
+        .commands
+        .first()
+        .map(|cmd| {
+            let name = cmd.argv.first().cloned().unwrap_or_else(|| "*".into());
+            let args = cmd.argv[1..].to_vec();
+            (name, args)
+        })
+        .unwrap_or_else(|| {
+            let cmd_parts: Vec<&str> = command.split_whitespace().collect();
+            let name = cmd_parts.first().copied().unwrap_or("*").to_string();
+            let args = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
+            (name, args)
+        });
 
     let dangerously_disable = args.get("dangerouslyDisableSandbox") == Some(&Value::Bool(true));
 
