@@ -453,6 +453,43 @@ async fn check_command_permission_and_route(
     }
 }
 
+/// Submit a trust-level denial to the approval flow and optionally notify the owner.
+///
+/// Builds a [`Caller`] and [`PermissionRequestBody`] from the tool context, then
+/// calls `submit_denial()` on the approval flow. Returns the request ID if the
+/// approval flow accepted the request (i.e. owner was notified / queued), or
+/// `None` if hard-denied (sub-agent or duplicate).
+///
+/// P3 note: `user_id` and `creator_id` are intentionally left empty here because
+/// trust-level routing (malicious/uncertain) occurs before user identity
+/// verification — at this point in the pipeline we only know the agent ID,
+/// not the Feishu user identity. The approval flow will resolve the actual
+/// user identity from the session manager when it processes the request.
+async fn submit_trust_level_denial(
+    deps: &PermDeps,
+    ctx: &ToolContext,
+    command: &str,
+    risk: RiskLevel,
+) -> Option<String> {
+    let (_, session_mgr, _, approval_flow) = deps;
+    let caller = Caller {
+        user_id: String::new(),
+        agent: ctx.agent_id.clone(),
+        creator_id: String::new(),
+    };
+    let body = PermissionRequestBody::CommandExec {
+        agent: ctx.agent_id.clone(),
+        cmd: command.to_string(),
+        args: vec![],
+    };
+    let sid = ctx.session_id.as_deref().unwrap_or("");
+    let is_sub_agent = crate::permission_check::is_session_sub_agent(session_mgr, sid).await;
+    let mut flow = approval_flow.lock().await;
+    let request_id = flow.submit_denial(&caller, &body, risk, sid, is_sub_agent);
+    drop(flow);
+    request_id
+}
+
 /// Execute the BashTool call: parse args, check two-level permissions, run command.
 async fn execute_bash_call(
     deps: &PermDeps,
@@ -478,26 +515,10 @@ async fn execute_bash_call(
             // Design doc: malicious → intercept + notify owner.
             // Route through approval flow for owner notification, then
             // immediately block (return error, do not execute).
-            let (_, session_mgr, _, approval_flow) = deps;
-            let caller = Caller {
-                user_id: String::new(),
-                agent: ctx.agent_id.clone(),
-                creator_id: String::new(),
-            };
-            let body = PermissionRequestBody::CommandExec {
-                agent: ctx.agent_id.clone(),
-                cmd: command.to_string(),
-                args: vec![],
-            };
-            let sid = ctx.session_id.as_deref().unwrap_or("");
-            let is_sub_agent =
-                crate::permission_check::is_session_sub_agent(session_mgr, sid).await;
-            let mut flow = approval_flow.lock().await;
             // submit_denial() enqueues the request and notifies the owner.
             // We intentionally ignore the return value — the command is
             // always blocked regardless of whether the owner is notified.
-            flow.submit_denial(&caller, &body, RiskLevel::Critical, sid, is_sub_agent);
-            drop(flow);
+            submit_trust_level_denial(deps, ctx, command, RiskLevel::Critical).await;
             return Err(ToolCallError::ExecutionFailed(format!(
                 "Blocked: malicious command detected — {}",
                 sec_result.reason.unwrap_or_else(|| "unknown reason".into())
@@ -507,34 +528,18 @@ async fn execute_bash_call(
             // Design doc: uncertain → approval flow.
             // Submit to approval queue; if accepted, return approval_pending
             // to the agent. If rejected (sub-agent / duplicate), block.
-            let (_, session_mgr, _, approval_flow) = deps;
-            let caller = Caller {
-                user_id: String::new(),
-                agent: ctx.agent_id.clone(),
-                creator_id: String::new(),
-            };
-            let body = PermissionRequestBody::CommandExec {
-                agent: ctx.agent_id.clone(),
-                cmd: command.to_string(),
-                args: vec![],
-            };
-            let sid = ctx.session_id.as_deref().unwrap_or("");
-            let is_sub_agent =
-                crate::permission_check::is_session_sub_agent(session_mgr, sid).await;
-            let mut flow = approval_flow.lock().await;
-            let risk = RiskLevel::High;
             let reason = sec_result
                 .reason
                 .unwrap_or_else(|| "untrusted syntax".into());
-            if let Some(request_id) = flow.submit_denial(&caller, &body, risk, sid, is_sub_agent) {
-                drop(flow);
+            if let Some(request_id) =
+                submit_trust_level_denial(deps, ctx, command, RiskLevel::High).await
+            {
                 return Ok(ToolResult {
                     data: crate::builtin::approval_utils::build_approval_pending(request_id),
                     new_messages: vec![],
                     context_modifier: None,
                 });
             }
-            drop(flow);
             return Err(ToolCallError::ExecutionFailed(format!(
                 "Blocked: uncertain command — {}",
                 reason

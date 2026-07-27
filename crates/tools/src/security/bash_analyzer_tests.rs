@@ -134,6 +134,23 @@ fn test_zsh_modload_malicious() {
 }
 
 #[test]
+fn test_zsh_command_malicious() {
+    let r = analyzer().analyze("zsh -c \"malicious\"");
+    assert_eq!(r.trust_level, TrustLevel::Malicious);
+    assert!(r
+        .reason
+        .unwrap()
+        .contains("Zsh dangerous builtin command detected"));
+}
+
+#[test]
+fn test_zshenv_not_flagged() {
+    // zshenv is a normal zsh startup file, not a dangerous builtin
+    let r = analyzer().analyze("cat ~/.zshenv");
+    assert_eq!(r.trust_level, TrustLevel::Trusted);
+}
+
+#[test]
 fn test_existing_ifs_detection_unchanged() {
     let r = analyzer().analyze("IFS=x read line");
     assert_eq!(r.trust_level, TrustLevel::Malicious);

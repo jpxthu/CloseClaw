@@ -381,10 +381,12 @@ fn detect_proc_environ(source: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Detect zsh-specific dangerous builtin commands (e.g. `zmodload`).
+/// Detect zsh-specific dangerous builtin commands (e.g. `zmodload`) and
+/// the `zsh` command itself (e.g. `zsh -c "malicious"`).
 fn detect_zsh_dangerous_builtins(source: &str) -> bool {
-    let words: Vec<&str> = source.split_whitespace().collect();
+    let words: Vec<&str> = source.split_ascii_whitespace().collect();
     words.iter().any(|w| matches!(*w, "zmodload"))
+        || words.iter().any(|w| w.starts_with("zsh") && *w != "zshenv")
 }
 
 /// Detect IFS injection: `IFS=...` with suspicious values or `$IFS`.
