@@ -37,6 +37,16 @@ impl HandlerRegistry {
         }
     }
 
+    /// Register a handler under a specific command name.
+    ///
+    /// This allows handlers whose [`SlashHandler::commands`] returns an
+    /// empty slice (like [`crate::skill_handler::SkillSlashHandler`]) to
+    /// dynamically claim command names at registration time.
+    pub fn register_named(&self, command: &str, handler: Arc<dyn SlashHandler>) {
+        let mut handlers = self.handlers.write().expect("registry lock poisoned");
+        handlers.insert(command.to_owned(), handler);
+    }
+
     /// Look up a handler by command name (without the leading `/`).
     pub fn get(&self, command: &str) -> Option<Arc<dyn SlashHandler>> {
         self.handlers
