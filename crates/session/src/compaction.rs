@@ -80,6 +80,10 @@ pub enum CompactionError {
     /// No messages provided for compaction.
     #[error("No messages provided for compaction")]
     EmptyMessages,
+
+    /// Required handler not available.
+    #[error("handler not available: {0}")]
+    HandlerNotAvailable(String),
 }
 
 /// No-tools preamble constant.

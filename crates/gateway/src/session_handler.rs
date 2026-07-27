@@ -10,9 +10,9 @@
 //! The `output_tx` channel is used to surface LLM response text to callers.
 
 use super::Gateway;
+use crate::session_manager::compact::{load_compact_inputs, PreloadedCompactInputs};
 use crate::session_manager::SessionManager;
 use crate::shutdown_handle::ShutdownHandle;
-use closeclaw_common::RunningStats;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::Message as ChatMessage;
@@ -20,7 +20,6 @@ use closeclaw_llm::ProviderModelKnowledge;
 use closeclaw_session::compaction::{
     CompactConfig, CompactionMessage, CompactionResult, CompactionService, TokenWarningState,
 };
-use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::run_health::TranscriptOp;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -298,6 +297,7 @@ impl SessionMessageHandler {
                     false,
                     &mut svc_guard,
                     &chat_fn,
+                    None,
                 )
                 .await
             {
@@ -351,8 +351,6 @@ impl SessionMessageHandler {
         };
         match warning {
             TokenWarningState::Normal => {
-                // Reset dedup flag when leaving the warning state so
-                // the next warning interval triggers a fresh notification.
                 *self.has_warned.lock().expect("has_warned poisoned") = false;
             }
             TokenWarningState::Warning => {
@@ -362,8 +360,6 @@ impl SessionMessageHandler {
                     model = %model,
                     "token warning: approaching context limit"
                 );
-                // Send warning notification only once per interval.
-                // Scope the guard to avoid holding it across .await.
                 let should_warn = {
                     let warned = self.has_warned.lock().expect("has_warned poisoned");
                     !*warned
@@ -374,8 +370,12 @@ impl SessionMessageHandler {
                 }
             }
             TokenWarningState::AutoCompactTriggered => {
-                self.run_auto_compact(session_id, &llm_messages, &model, &stats)
-                    .await;
+                let preloaded = PreloadedCompactInputs {
+                    model,
+                    llm_messages,
+                    stats,
+                };
+                self.run_auto_compact(session_id, preloaded).await;
             }
             TokenWarningState::Blocking => {
                 tracing::warn!(
@@ -387,13 +387,7 @@ impl SessionMessageHandler {
     }
 
     /// Execute auto-compaction: check breaker, snapshot, compact, finalize.
-    async fn run_auto_compact(
-        &self,
-        session_id: &str,
-        _llm_messages: &[ChatMessage],
-        _model: &str,
-        _stats: &RunningStats,
-    ) {
+    async fn run_auto_compact(&self, session_id: &str, preloaded: PreloadedCompactInputs) {
         {
             let breaker = self.compaction_service.lock().await;
             if breaker.consecutive_failures() >= breaker.config().max_consecutive_failures {
@@ -408,7 +402,7 @@ impl SessionMessageHandler {
         let mut svc = self.compaction_service.lock().await;
         let result = self
             .session_manager
-            .compact(session_id, None, true, &mut svc, &chat_fn)
+            .compact(session_id, None, true, &mut svc, &chat_fn, Some(preloaded))
             .await;
         drop(svc);
         match result {
@@ -525,33 +519,6 @@ impl crate::memory::active_searcher_llm::LlmCaller for ActiveSearcherLlmCaller {
     }
 }
 // ── Compaction helpers ──
-pub(crate) fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
-    blocks
-        .iter()
-        .map(|b| match b {
-            ContentBlock::Text(t) => t.as_str(),
-            ContentBlock::Thinking { thinking: t, .. } => t.as_str(),
-            ContentBlock::ToolUse { input, .. } => input.as_str(),
-            ContentBlock::ToolResult { content, .. } => content.as_str(),
-            _ => "",
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn build_compact_messages(
-    messages: &[closeclaw_session::llm_session::SessionMessage],
-) -> Vec<ChatMessage> {
-    messages
-        .iter()
-        .filter(|m| m.role == "user" || m.role == "assistant")
-        .map(|m| ChatMessage {
-            role: m.role.clone(),
-            content: flatten_content_blocks(&m.content_blocks),
-        })
-        .collect()
-}
-
 /// Look up a model's context window from the knowledge base.
 ///
 /// Searches across all known providers. Returns `Some(context_window)`
@@ -656,19 +623,6 @@ pub(crate) async fn is_blocking_state(
             .token_warning_state(tokens, &model, kb_window),
         TokenWarningState::Blocking
     )
-}
-
-/// Load compaction inputs: (model, llm_messages, stats). Returns None if session not found.
-async fn load_compact_inputs(
-    sm: &Arc<SessionManager>,
-    session_id: &str,
-) -> Option<(String, Vec<ChatMessage>, RunningStats)> {
-    let cs = sm.get_conversation_session(session_id).await?;
-    let cs_read = cs.read().await;
-    let model = cs_read.model().to_string();
-    let llm_msgs = build_compact_messages(ChatSession::messages(&*cs_read));
-    let stats = cs_read.stats().clone();
-    Some((model, llm_msgs, stats))
 }
 
 /// Truncate `llm_messages` to the most recent `max` entries.

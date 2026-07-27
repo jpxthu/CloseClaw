@@ -733,7 +733,7 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
     > {
         let Some(sh) = self.session_handler.as_ref() else {
             return Err(
-                closeclaw_session::compaction::CompactionError::LLMCallFailed(
+                closeclaw_session::compaction::CompactionError::HandlerNotAvailable(
                     "session handler not available".to_string(),
                 ),
             );
@@ -752,6 +752,7 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
                 false,
                 &mut svc,
                 &chat_fn,
+                None,
             )
             .await
     }

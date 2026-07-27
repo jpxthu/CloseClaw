@@ -4,8 +4,9 @@
 //! which implements the design-doc call chain:
 //!   Gateway → session.compact(instruction)
 //!
-//! Extracted from `session_manager.rs` to stay under the 1000-line
-//! file limit.
+//! Also contains shared compaction helpers (`flatten_content_blocks`,
+//! `build_compact_messages`, `load_compact_inputs`) used by
+//! `session_handler.rs` and `session_handler_dispatch.rs`.
 
 use closeclaw_common::RunningStats;
 use closeclaw_llm::types::ContentBlock;
@@ -17,6 +18,17 @@ use tracing::warn;
 
 use super::SessionManager;
 
+/// Pre-loaded compaction inputs to avoid redundant session reads.
+///
+/// When the caller (e.g. `check_and_run_auto_compact`) has already
+/// loaded session data for threshold estimation, passing it here
+/// avoids a second redundant `load_compact_inputs` call.
+pub(crate) struct PreloadedCompactInputs {
+    pub model: String,
+    pub llm_messages: Vec<closeclaw_llm::Message>,
+    pub stats: RunningStats,
+}
+
 impl SessionManager {
     /// Execute a compaction for the given session.
     ///
@@ -25,32 +37,27 @@ impl SessionManager {
     /// checkpoint. This implements the design-doc call chain:
     /// `Gateway → session.compact(instruction)`.
     ///
-    /// # Arguments
-    ///
-    /// * `session_id` - Target session to compact.
-    /// * `instruction` - Optional custom retention instruction.
-    /// * `compaction_service` - Mutable reference to the compaction
-    ///   service (circuit breaker state is updated on success/failure).
-    /// * `chat_fn` - Async closure for LLM calls, injected to avoid
-    ///   depending on the `llm` crate directly.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(CompactionResult)` on success, or `Err(CompactionError)`.
-    pub async fn compact(
+    /// If `preloaded` is provided, it is used instead of calling
+    /// `load_compact_inputs` again — avoids redundant session reads
+    /// when the caller has already loaded the data (e.g. for
+    /// threshold estimation).
+    pub(crate) async fn compact(
         &self,
         session_id: &str,
         instruction: Option<&str>,
         is_auto: bool,
         compaction_service: &mut CompactionService,
         chat_fn: &ChatFn,
+        preloaded: Option<PreloadedCompactInputs>,
     ) -> Result<CompactionResult, closeclaw_session::compaction::CompactionError> {
-        let (model, llm_messages, stats) =
-            load_compact_inputs(self, session_id).await.ok_or_else(|| {
+        let (model, llm_messages, stats) = match preloaded {
+            Some(p) => (p.model, p.llm_messages, p.stats),
+            None => load_compact_inputs(self, session_id).await.ok_or_else(|| {
                 closeclaw_session::compaction::CompactionError::SessionNotFound(
                     session_id.to_string(),
                 )
-            })?;
+            })?,
+        };
 
         if llm_messages.is_empty() {
             return Err(closeclaw_session::compaction::CompactionError::EmptyMessages);
@@ -105,7 +112,7 @@ impl SessionManager {
 ///
 /// Returns `(model, llm_messages, stats)` or `None` if the session
 /// is not found.
-async fn load_compact_inputs(
+pub(crate) async fn load_compact_inputs(
     sm: &SessionManager,
     session_id: &str,
 ) -> Option<(String, Vec<closeclaw_llm::Message>, RunningStats)> {
@@ -120,7 +127,7 @@ async fn load_compact_inputs(
 /// Build compact-friendly messages from session messages.
 ///
 /// Filters to user/assistant roles and flattens content blocks.
-fn build_compact_messages(
+pub(crate) fn build_compact_messages(
     messages: &[closeclaw_session::llm_session::SessionMessage],
 ) -> Vec<closeclaw_llm::Message> {
     messages
@@ -134,7 +141,7 @@ fn build_compact_messages(
 }
 
 /// Flatten content blocks into a single string.
-fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
+pub(crate) fn flatten_content_blocks(blocks: &[ContentBlock]) -> String {
     blocks
         .iter()
         .map(|b| match b {
