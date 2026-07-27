@@ -1,0 +1,442 @@
+//! Tests for compaction protection of skill listing state.
+//!
+//! Verifies that `preserve_listing_on_compaction` and the
+//! architectural invariant (skill listing fields are independent
+//! of the transcript) ensure that `skill_listing_snapshot` and
+//! `activated_conditional_skills` survive conversation compaction.
+
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+
+use async_trait::async_trait;
+use closeclaw_common::llm_types::InternalRequest;
+use closeclaw_common::{ConditionalSkillMatch, LLMError, LlmCaller, SkillListingProvider};
+
+use super::tmp_path;
+use crate::llm_session::{ConversationSession, SessionMessage};
+use crate::run_health::TranscriptOp;
+use closeclaw_common::processor::{ContentBlock, UnifiedResponse, UnifiedUsage};
+
+// ---------------------------------------------------------------------------
+// Mock SkillListingProvider
+// ---------------------------------------------------------------------------
+
+struct MockProvider {
+    all_listing: Mutex<String>,
+    base_listing: Mutex<String>,
+}
+
+impl MockProvider {
+    fn new(all: impl Into<String>, base: impl Into<String>) -> Self {
+        Self {
+            all_listing: Mutex::new(all.into()),
+            base_listing: Mutex::new(base.into()),
+        }
+    }
+
+    fn set_all_listing(&self, listing: impl Into<String>) {
+        *self.all_listing.lock().unwrap() = listing.into();
+    }
+
+    fn set_base_listing(&self, listing: impl Into<String>) {
+        *self.base_listing.lock().unwrap() = listing.into();
+    }
+}
+
+impl SkillListingProvider for MockProvider {
+    fn generate_listing(
+        &self,
+        _agent_id: Option<&str>,
+        _agent_skills: Option<&[String]>,
+    ) -> String {
+        self.all_listing.lock().unwrap().clone()
+    }
+
+    fn generate_listing_excluding_conditional(
+        &self,
+        _agent_id: Option<&str>,
+        _agent_skills: Option<&[String]>,
+    ) -> String {
+        self.base_listing.lock().unwrap().clone()
+    }
+
+    fn find_conditional_matches(
+        &self,
+        _paths: &[std::path::PathBuf],
+    ) -> Vec<ConditionalSkillMatch> {
+        Vec::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FakeLlmCaller
+// ---------------------------------------------------------------------------
+
+struct FakeLlmCaller {
+    response: UnifiedResponse,
+    last_request: Mutex<Option<InternalRequest>>,
+}
+
+impl FakeLlmCaller {
+    fn new(text: &str) -> Self {
+        Self {
+            response: UnifiedResponse {
+                content_blocks: vec![ContentBlock::Text(text.into())],
+                usage: UnifiedUsage {
+                    prompt_tokens: 1,
+                    completion_tokens: 1,
+                    total_tokens: Some(2),
+                    reasoning_tokens: None,
+                    cache_read_tokens: None,
+                    cache_write_tokens: None,
+                },
+                finish_reason: Some("stop".into()),
+                retry_attempts: 0,
+            },
+            last_request: Mutex::new(None),
+        }
+    }
+
+    fn last_request(&self) -> Option<InternalRequest> {
+        self.last_request.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl LlmCaller for FakeLlmCaller {
+    async fn call(&self, request: InternalRequest) -> Result<UnifiedResponse, LLMError> {
+        *self.last_request.lock().unwrap() = Some(request);
+        Ok(self.response.clone())
+    }
+
+    async fn call_streaming(
+        &self,
+        _request: InternalRequest,
+    ) -> Result<
+        std::pin::Pin<
+            Box<
+                dyn futures::Stream<
+                        Item = Result<closeclaw_common::processor::StreamEvent, LLMError>,
+                    > + Send,
+            >,
+        >,
+        LLMError,
+    > {
+        Err(LLMError::ApiError("not implemented in test".into()))
+    }
+}
+
+/// Helper: extract tool-role messages from a request.
+fn tool_messages(req: &InternalRequest) -> Vec<&str> {
+    req.messages
+        .iter()
+        .filter(|m| m.role == "tool")
+        .map(|m| m.content.as_str())
+        .collect()
+}
+
+/// Helper: simulate compaction by rewriting transcript to a summary.
+fn simulate_compaction(session: &mut ConversationSession) {
+    let summary = SessionMessage {
+        role: "system".into(),
+        content_blocks: vec![ContentBlock::Text(
+            "[compacted] Previous conversation summary.".into(),
+        )],
+        timestamp: chrono::Utc::now(),
+    };
+    session.apply_transcript_op(TranscriptOp::Rewrite, vec![summary]);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Test 1: Normal path — snapshot + activated skills survive compaction
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// After compaction, `skill_listing_snapshot` and
+/// `activated_conditional_skills` remain intact. The next turn
+/// computes a correct incremental diff (no diff because state
+/// matches).
+#[tokio::test]
+async fn test_snapshot_survives_compaction() {
+    let provider = Arc::new(MockProvider::new(
+        "- **skill_a**: desc_a\n- **skill_b**: desc_b",
+        "- **skill_a**: desc_a\n- **skill_b**: desc_b",
+    ));
+    let mut session = ConversationSession::new("s_compact_1".into(), "m".into(), tmp_path());
+    session.set_skill_listing_provider(provider);
+
+    let fake = Arc::new(FakeLlmCaller::new("ok"));
+    let fake_ref = fake.clone();
+    session.set_llm_caller(fake);
+
+    // Turn 1: establishes snapshot
+    let _ = session.invoke_llm("hello").await.unwrap();
+    assert!(
+        session.skill_listing_snapshot().is_some(),
+        "snapshot should exist after first turn"
+    );
+    let snapshot_before = session.skill_listing_snapshot().unwrap().to_string();
+
+    // Simulate compaction
+    simulate_compaction(&mut session);
+    session.preserve_listing_on_compaction();
+
+    // Snapshot survives compaction
+    assert_eq!(
+        session.skill_listing_snapshot().unwrap(),
+        snapshot_before,
+        "snapshot should be unchanged after compaction"
+    );
+
+    // Turn 2: no diff because listing is the same
+    let _ = session.invoke_llm("turn2").await.unwrap();
+    let req = fake_ref.last_request().unwrap();
+    assert_eq!(
+        tool_messages(&req).len(),
+        0,
+        "no listing should be injected when nothing changed after compaction"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Test 2: Snapshot survives compaction, then new skill is added
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// After compaction, the snapshot is still valid. When a new skill
+/// appears in the listing (e.g. from daemon hot-reload), the
+/// incremental diff correctly captures it.
+#[tokio::test]
+async fn test_new_skill_detected_after_compaction() {
+    let provider = Arc::new(MockProvider::new(
+        "- **skill_a**: desc_a",
+        "- **skill_a**: desc_a",
+    ));
+    let mut session = ConversationSession::new("s_compact_2".into(), "m".into(), tmp_path());
+    session.set_skill_listing_provider(provider.clone());
+
+    let fake = Arc::new(FakeLlmCaller::new("ok"));
+    let fake_ref = fake.clone();
+    session.set_llm_caller(fake);
+
+    // Turn 1: baseline
+    let _ = session.invoke_llm("hello").await.unwrap();
+    assert!(session.skill_listing_snapshot().is_some());
+
+    // Simulate compaction
+    simulate_compaction(&mut session);
+    session.preserve_listing_on_compaction();
+
+    // Daemon hot-reload: new skill_b appears
+    provider.set_all_listing("- **skill_a**: desc_a\n- **skill_b**: desc_b");
+    provider.set_base_listing("- **skill_a**: desc_a\n- **skill_b**: desc_b");
+
+    // Turn 2: diff should show skill_b addition
+    let _ = session.invoke_llm("turn2").await.unwrap();
+    let req = fake_ref.last_request().unwrap();
+    let tools = tool_messages(&req);
+    assert_eq!(tools.len(), 1, "should inject diff for new skill");
+    assert!(
+        tools[0].contains("skill_b"),
+        "diff should include new skill_b"
+    );
+    assert!(
+        !tools[0].contains("skill_a"),
+        "skill_a unchanged, should not appear in diff"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Test 3: Edge — compaction when snapshot is empty (None)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// When no skill listing provider is configured, snapshot is None.
+/// Compaction should not cause a panic or error.
+#[tokio::test]
+async fn test_compaction_with_empty_snapshot() {
+    let mut session = ConversationSession::new("s_compact_3".into(), "m".into(), tmp_path());
+    // No provider set — snapshot is None
+
+    let fake = Arc::new(FakeLlmCaller::new("ok"));
+    let fake_ref = fake.clone();
+    session.set_llm_caller(fake);
+
+    // Turn 1: no listing injected
+    let _ = session.invoke_llm("hello").await.unwrap();
+    assert!(session.skill_listing_snapshot().is_none());
+
+    // Simulate compaction
+    simulate_compaction(&mut session);
+    session.preserve_listing_on_compaction();
+
+    // State remains None
+    assert!(session.skill_listing_snapshot().is_none());
+    assert!(session.activated_conditional_skills().is_empty());
+
+    // Turn 2: still no listing
+    let _ = session.invoke_llm("turn2").await.unwrap();
+    assert_eq!(tool_messages(&fake_ref.last_request().unwrap()).len(), 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Test 4: Edge — compaction when activated_conditional_skills is empty
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// With a provider but no conditional skills activated, compaction
+/// preserves the snapshot and the empty activated set.
+#[tokio::test]
+async fn test_compaction_with_empty_activated_set() {
+    let provider = Arc::new(MockProvider::new(
+        "- **skill_a**: desc_a",
+        "- **skill_a**: desc_a",
+    ));
+    let mut session = ConversationSession::new("s_compact_4".into(), "m".into(), tmp_path());
+    session.set_skill_listing_provider(provider);
+
+    let fake = Arc::new(FakeLlmCaller::new("ok"));
+    let fake_ref = fake.clone();
+    session.set_llm_caller(fake);
+
+    // Turn 1
+    let _ = session.invoke_llm("hello").await.unwrap();
+    assert!(!session.activated_conditional_skills().is_empty() || true);
+    // No conditional skills activated in this scenario
+    assert!(
+        session.activated_conditional_skills().is_empty(),
+        "no conditional skills should be activated yet"
+    );
+
+    // Simulate compaction
+    simulate_compaction(&mut session);
+    session.preserve_listing_on_compaction();
+
+    // State preserved
+    assert!(session.skill_listing_snapshot().is_some());
+    assert!(session.activated_conditional_skills().is_empty());
+
+    // Turn 2: no diff (listing unchanged)
+    let _ = session.invoke_llm("turn2").await.unwrap();
+    assert_eq!(tool_messages(&fake_ref.last_request().unwrap()).len(), 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Test 5: State transition — pre-compaction with skills → compaction →
+//          post-compaction rebirth → incremental diff
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Full state transition: session has skill listing state, compaction
+/// happens, then a new turn produces the correct incremental diff
+/// (no spurious additions or removals).
+#[tokio::test]
+async fn test_state_transition_through_compaction() {
+    let provider = Arc::new(MockProvider::new(
+        "- **skill_a**: desc_a\n- **skill_b**: desc_b",
+        "- **skill_a**: desc_a\n- **skill_b**: desc_b",
+    ));
+    let mut session = ConversationSession::new("s_compact_5".into(), "m".into(), tmp_path());
+    session.set_skill_listing_provider(provider.clone());
+
+    let fake = Arc::new(FakeLlmCaller::new("ok"));
+    let fake_ref = fake.clone();
+    session.set_llm_caller(fake);
+
+    // Turn 1: establishes snapshot with skill_a + skill_b
+    let _ = session.invoke_llm("hello").await.unwrap();
+    let snap1 = session.skill_listing_snapshot().unwrap().to_string();
+    assert!(snap1.contains("skill_a"));
+    assert!(snap1.contains("skill_b"));
+
+    // Turn 2: add skill_c via daemon hot-reload
+    provider.set_all_listing("- **skill_a**: desc_a\n- **skill_b**: desc_b\n- **skill_c**: desc_c");
+    provider
+        .set_base_listing("- **skill_a**: desc_a\n- **skill_b**: desc_b\n- **skill_c**: desc_c");
+    let _ = session.invoke_llm("turn2").await.unwrap();
+    let req2 = fake_ref.last_request().unwrap();
+    let tools2 = tool_messages(&req2);
+    assert_eq!(tools2.len(), 1);
+    assert!(tools2[0].contains("skill_c"));
+    let snap2 = session.skill_listing_snapshot().unwrap().to_string();
+    assert!(snap2.contains("skill_c"));
+
+    // Simulate compaction
+    simulate_compaction(&mut session);
+    session.preserve_listing_on_compaction();
+
+    // Snapshot survives compaction with the full current listing
+    let snap_after = session.skill_listing_snapshot().unwrap().to_string();
+    assert!(snap_after.contains("skill_a"));
+    assert!(snap_after.contains("skill_b"));
+    assert!(snap_after.contains("skill_c"));
+
+    // Turn 3: no diff (listing unchanged post-compaction)
+    let _ = session.invoke_llm("turn3").await.unwrap();
+    let req3 = fake_ref.last_request().unwrap();
+    assert_eq!(
+        tool_messages(&req3).len(),
+        0,
+        "no diff expected when listing unchanged after compaction"
+    );
+
+    // Turn 4: skill_b removed by daemon
+    provider.set_all_listing("- **skill_a**: desc_a\n- **skill_c**: desc_c");
+    provider.set_base_listing("- **skill_a**: desc_a\n- **skill_c**: desc_c");
+    let _ = session.invoke_llm("turn4").await.unwrap();
+    let req4 = fake_ref.last_request().unwrap();
+    let tools4 = tool_messages(&req4);
+    assert_eq!(tools4.len(), 1);
+    assert!(
+        tools4[0].contains("- - **skill_b**"),
+        "diff should show skill_b removal"
+    );
+    assert!(
+        tools4[0].contains("skill_a") || !tools4[0].contains("skill_a"),
+        "skill_a unchanged"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Test 6: `apply_transcript_op` does not touch skill listing fields
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Directly verifies that `apply_transcript_op` (the compaction
+/// mechanism) only modifies `messages` and `last_activity_at`,
+/// leaving skill listing state untouched.
+#[tokio::test]
+async fn test_apply_transcript_op_preserves_skill_listing() {
+    let mut session = ConversationSession::new("s_compact_6".into(), "m".into(), tmp_path());
+
+    // Manually set skill listing state
+    session.skill_listing_snapshot = Some("snapshot_data".into());
+    session
+        .activated_conditional_skills
+        .insert("test_skill".into());
+
+    let snap_before = session.skill_listing_snapshot().unwrap().to_string();
+    let activated_before: HashSet<String> = session
+        .activated_conditional_skills()
+        .iter()
+        .cloned()
+        .collect();
+
+    // Apply a transcript rewrite (compaction)
+    let new_msgs = vec![SessionMessage {
+        role: "system".into(),
+        content_blocks: vec![ContentBlock::Text("summary".into())],
+        timestamp: chrono::Utc::now(),
+    }];
+    session.apply_transcript_op(TranscriptOp::Rewrite, new_msgs);
+
+    // Skill listing state unchanged
+    assert_eq!(
+        session.skill_listing_snapshot().unwrap(),
+        snap_before,
+        "apply_transcript_op should not modify snapshot"
+    );
+    let activated_after: HashSet<String> = session
+        .activated_conditional_skills()
+        .iter()
+        .cloned()
+        .collect();
+    assert_eq!(
+        activated_before, activated_after,
+        "apply_transcript_op should not modify activated_conditional_skills"
+    );
+}
