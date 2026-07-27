@@ -136,6 +136,17 @@ impl DiskSkillRegistry {
             .map(|s| s.manifest.name.as_str())
             .collect()
     }
+
+    /// Returns names of all skills with `user_invocable: true`.
+    ///
+    /// Used by the slash command handler to claim command names.
+    pub fn user_invocable_names(&self) -> Vec<String> {
+        self.skills
+            .iter()
+            .filter(|s| s.manifest.user_invocable)
+            .map(|s| s.manifest.name.clone())
+            .collect()
+    }
 }
 
 // ---------------------------------------------------------------------------
