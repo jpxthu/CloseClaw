@@ -224,3 +224,191 @@ async fn test_bash_approval_deny_enqueue_success() {
         "should include request_id"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Step 1.3: Trust-level branching tests
+// ---------------------------------------------------------------------------
+
+fn make_ctx_with_agent(agent_id: &str) -> ToolContext {
+    ToolContext {
+        agent_id: agent_id.to_string(),
+        workdir: None,
+        session_id: None,
+        call_id: None,
+        session: None,
+        session_mode: None,
+        manual_background_signal: None,
+    }
+}
+
+/// Malicious commands (e.g. IFS injection) are blocked and owner is notified.
+#[tokio::test]
+async fn test_bash_malicious_command_blocked() {
+    let tool = make_tool(allow_all_engine());
+    // IFS injection is classified as Malicious by the security analyzer.
+    let result = tool
+        .call(
+            json!({ "command": "IFS=x; eval echo pwned" }),
+            &make_ctx_with_agent("a"),
+        )
+        .await;
+    assert!(
+        result.is_err(),
+        "malicious command should be blocked, got: {:?}",
+        result
+    );
+    let err = result.unwrap_err();
+    let msg = format!("{}", err);
+    assert!(
+        msg.contains("Blocked"),
+        "error should contain 'Blocked', got: {}",
+        msg
+    );
+}
+
+/// /proc/self/environ access is classified as Malicious and blocked.
+#[tokio::test]
+async fn test_bash_proc_environ_blocked() {
+    let tool = make_tool(allow_all_engine());
+    let result = tool
+        .call(
+            json!({ "command": "cat /proc/self/environ" }),
+            &make_ctx_with_agent("a"),
+        )
+        .await;
+    assert!(
+        result.is_err(),
+        "/proc/self/environ should be blocked, got: {:?}",
+        result
+    );
+    let msg = format!("{}", result.unwrap_err());
+    assert!(msg.contains("Blocked"));
+    assert!(msg.contains("malicious"));
+}
+
+/// Uncertain commands (e.g. ANSI-C quoting) are routed to the approval flow.
+#[tokio::test]
+async fn test_bash_uncertain_command_routes_to_approval() {
+    let tool = make_tool(allow_all_engine());
+    // $'...' (ANSI-C quoting) is classified as Uncertain.
+    let result = tool
+        .call(
+            json!({ "command": "echo $'hello'" }),
+            &make_ctx_with_agent("a"),
+        )
+        .await;
+    assert!(
+        result.is_ok(),
+        "uncertain command should return approval_pending, got: {:?}",
+        result.err()
+    );
+    let output = result.unwrap();
+    assert_eq!(
+        output.data["status"], "approval_pending",
+        "uncertain command should return approval_pending status, got: {:?}",
+        output.data
+    );
+    assert!(
+        output.data["request_id"].is_string(),
+        "should include request_id"
+    );
+}
+
+/// Brace expansion is classified as Uncertain and routed to approval.
+#[tokio::test]
+async fn test_bash_brace_expansion_routes_to_approval() {
+    let tool = make_tool(allow_all_engine());
+    let result = tool
+        .call(
+            json!({ "command": "echo {a,b}" }),
+            &make_ctx_with_agent("a"),
+        )
+        .await;
+    assert!(result.is_ok());
+    let output = result.unwrap();
+    assert_eq!(output.data["status"], "approval_pending");
+}
+
+/// Uncertain command with deny-all approval flow is blocked.
+#[tokio::test]
+async fn test_bash_uncertain_deny_flow_blocked() {
+    let tool = BashTool::new(
+        deny_all_engine(),
+        make_bg_manager(),
+        make_session_manager(),
+        make_config_manager(),
+        Arc::new(TokioMutex::new(ApprovalFlow::new_deny_all(
+            Arc::clone(&make_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
+            Arc::new(|_| {}),
+            Arc::new(|_: &str| {}),
+            tokio::runtime::Handle::current(),
+            HeartbeatApprovalMode::default(),
+            std::env::temp_dir(),
+            RuleSet::default(),
+        ))),
+    );
+    let result = tool
+        .call(
+            json!({ "command": "echo $'hello'" }),
+            &make_ctx_with_agent("a"),
+        )
+        .await;
+    assert!(
+        result.is_err(),
+        "uncertain + deny-all should block, got: {:?}",
+        result
+    );
+    let msg = format!("{}", result.unwrap_err());
+    assert!(msg.contains("Blocked"));
+}
+
+/// Trusted commands continue normal execution path.
+#[tokio::test]
+async fn test_bash_trusted_command_normal_execution() {
+    let tool = make_tool(allow_all_engine());
+    // Simple 'echo' is classified as Trusted.
+    let result = tool
+        .call(
+            json!({ "command": "echo hello" }),
+            &make_ctx_with_agent("a"),
+        )
+        .await;
+    assert!(
+        result.is_ok(),
+        "trusted command should execute normally, got: {:?}",
+        result.err()
+    );
+}
+
+/// Malicious command with deny-all approval flow still blocked (owner notified or not).
+#[tokio::test]
+async fn test_bash_malicious_deny_flow_still_blocked() {
+    let tool = BashTool::new(
+        deny_all_engine(),
+        make_bg_manager(),
+        make_session_manager(),
+        make_config_manager(),
+        Arc::new(TokioMutex::new(ApprovalFlow::new_deny_all(
+            Arc::clone(&make_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
+            Arc::new(|_| {}),
+            Arc::new(|_: &str| {}),
+            tokio::runtime::Handle::current(),
+            HeartbeatApprovalMode::default(),
+            std::env::temp_dir(),
+            RuleSet::default(),
+        ))),
+    );
+    let result = tool
+        .call(
+            json!({ "command": "IFS=x; eval echo pwned" }),
+            &make_ctx_with_agent("a"),
+        )
+        .await;
+    assert!(
+        result.is_err(),
+        "malicious command should always be blocked, got: {:?}",
+        result
+    );
+    let msg = format!("{}", result.unwrap_err());
+    assert!(msg.contains("Blocked"));
+}

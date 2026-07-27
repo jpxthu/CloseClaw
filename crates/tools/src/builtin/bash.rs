@@ -14,13 +14,15 @@ use crate::bash::CommandSandbox;
 use crate::permission_check::{
     check_command_permission, check_tool_permission, CommandPermissionResult, PermDeps,
 };
-use crate::security::{BashSecurityAnalyzer, TrustLevel};
+use crate::security::{BashSecurityAnalyzer, ParseResult, TrustLevel};
 use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use closeclaw_common::ToolExecState;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::engine::engine_risk::RiskLevel;
+use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -396,23 +398,16 @@ async fn handle_foreground_result(
     }
 }
 
-/// Analyze command security. Returns `Err` if the command is untrusted.
-fn analyze_security(command: &str) -> Result<(), ToolCallError> {
+/// Analyze command security and return the parsed result.
+///
+/// Returns the [`ParseResult`] so the caller can inspect `trust_level`
+/// and use the tree-sitter parsed `commands` (argv arrays) for
+/// downstream permission checks.
+fn analyze_security(command: &str) -> Result<ParseResult, ToolCallError> {
     let sec_result = BashSecurityAnalyzer::new()
         .map_err(ToolCallError::ExecutionFailed)?
         .analyze(command);
-    if let TrustLevel::Uncertain | TrustLevel::Malicious = sec_result.trust_level {
-        return Err(ToolCallError::ExecutionFailed(format!(
-            "Command {} (reason: {})",
-            if sec_result.trust_level == TrustLevel::Malicious {
-                "blocked"
-            } else {
-                "requires approval"
-            },
-            sec_result.reason.unwrap_or_default()
-        )));
-    }
-    Ok(())
+    Ok(sec_result)
 }
 
 /// Check Level 2 command permission, routing through approval or sandbox.
@@ -458,6 +453,43 @@ async fn check_command_permission_and_route(
     }
 }
 
+/// Submit a trust-level denial to the approval flow and optionally notify the owner.
+///
+/// Builds a [`Caller`] and [`PermissionRequestBody`] from the tool context, then
+/// calls `submit_denial()` on the approval flow. Returns the request ID if the
+/// approval flow accepted the request (i.e. owner was notified / queued), or
+/// `None` if hard-denied (sub-agent or duplicate).
+///
+/// P3 note: `user_id` and `creator_id` are intentionally left empty here because
+/// trust-level routing (malicious/uncertain) occurs before user identity
+/// verification — at this point in the pipeline we only know the agent ID,
+/// not the Feishu user identity. The approval flow will resolve the actual
+/// user identity from the session manager when it processes the request.
+async fn submit_trust_level_denial(
+    deps: &PermDeps,
+    ctx: &ToolContext,
+    command: &str,
+    risk: RiskLevel,
+) -> Option<String> {
+    let (_, session_mgr, _, approval_flow) = deps;
+    let caller = Caller {
+        user_id: String::new(),
+        agent: ctx.agent_id.clone(),
+        creator_id: String::new(),
+    };
+    let body = PermissionRequestBody::CommandExec {
+        agent: ctx.agent_id.clone(),
+        cmd: command.to_string(),
+        args: vec![],
+    };
+    let sid = ctx.session_id.as_deref().unwrap_or("");
+    let is_sub_agent = crate::permission_check::is_session_sub_agent(session_mgr, sid).await;
+    let mut flow = approval_flow.lock().await;
+    let request_id = flow.submit_denial(&caller, &body, risk, sid, is_sub_agent);
+    drop(flow);
+    request_id
+}
+
 /// Execute the BashTool call: parse args, check two-level permissions, run command.
 async fn execute_bash_call(
     deps: &PermDeps,
@@ -474,16 +506,71 @@ async fn execute_bash_call(
             "command must not be empty".into(),
         ));
     }
-    analyze_security(command)?;
+    let sec_result = analyze_security(command)?;
+
+    // Trust-level branching: malicious/uncertain commands are routed
+    // through the approval flow before the normal permission checks.
+    match sec_result.trust_level {
+        TrustLevel::Malicious => {
+            // Design doc: malicious → intercept + notify owner.
+            // Route through approval flow for owner notification, then
+            // immediately block (return error, do not execute).
+            // submit_denial() enqueues the request and notifies the owner.
+            // We intentionally ignore the return value — the command is
+            // always blocked regardless of whether the owner is notified.
+            submit_trust_level_denial(deps, ctx, command, RiskLevel::Critical).await;
+            return Err(ToolCallError::ExecutionFailed(format!(
+                "Blocked: malicious command detected — {}",
+                sec_result.reason.unwrap_or_else(|| "unknown reason".into())
+            )));
+        }
+        TrustLevel::Uncertain => {
+            // Design doc: uncertain → approval flow.
+            // Submit to approval queue; if accepted, return approval_pending
+            // to the agent. If rejected (sub-agent / duplicate), block.
+            let reason = sec_result
+                .reason
+                .unwrap_or_else(|| "untrusted syntax".into());
+            if let Some(request_id) =
+                submit_trust_level_denial(deps, ctx, command, RiskLevel::High).await
+            {
+                return Ok(ToolResult {
+                    data: crate::builtin::approval_utils::build_approval_pending(request_id),
+                    new_messages: vec![],
+                    context_modifier: None,
+                });
+            }
+            return Err(ToolCallError::ExecutionFailed(format!(
+                "Blocked: uncertain command — {}",
+                reason
+            )));
+        }
+        TrustLevel::Trusted => {
+            // Continue with normal permission checks below.
+        }
+    }
 
     // Level 1: ToolCall - verify agent may invoke Bash tool
     if let Some(r) = check_tool_permission(deps, ctx, "bash", "call").await? {
         return Ok(r);
     }
 
-    let cmd_parts: Vec<&str> = command.split_whitespace().collect();
-    let cmd_name = cmd_parts.first().copied().unwrap_or("*").to_string();
-    let cmd_args: Vec<String> = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
+    // Use tree-sitter parsed argv from ParseResult when available,
+    // falling back to split_whitespace() for parse errors.
+    let (cmd_name, cmd_args): (String, Vec<String>) = sec_result
+        .commands
+        .first()
+        .map(|cmd| {
+            let name = cmd.argv.first().cloned().unwrap_or_else(|| "*".into());
+            let args = cmd.argv[1..].to_vec();
+            (name, args)
+        })
+        .unwrap_or_else(|| {
+            let cmd_parts: Vec<&str> = command.split_whitespace().collect();
+            let name = cmd_parts.first().copied().unwrap_or("*").to_string();
+            let args = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
+            (name, args)
+        });
 
     let dangerously_disable = args.get("dangerouslyDisableSandbox") == Some(&Value::Bool(true));
 
@@ -780,3 +867,7 @@ fn build_manual_background_result(task: &closeclaw_tasks::BackgroundTask) -> Too
 #[cfg(test)]
 #[path = "bash_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "bash_approval_tests.rs"]
+mod approval_tests;
