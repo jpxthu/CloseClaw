@@ -72,6 +72,70 @@ fn test_filter_by_source() {
     assert_eq!(r.filter_by_source(SkillSource::Agent).len(), 0);
 }
 
+#[test]
+fn test_generate_listing_all_skills_have_paths_returns_empty() {
+    let r = DiskSkillRegistry::new(vec![
+        skill_with_paths("rs-tool", SkillSource::Bundled, vec!["**/*.rs".into()]),
+        skill_with_paths("md-tool", SkillSource::Global, vec!["**/*.md".into()]),
+        skill_with_paths("toml-tool", SkillSource::Agent, vec!["**/*.toml".into()]),
+    ]);
+    let listing = r.generate_listing(None, None);
+    assert!(
+        listing.is_empty(),
+        "when all skills have paths, generate_listing must return empty"
+    );
+}
+
+#[test]
+fn test_generate_listing_for_agent_excludes_conditional_skills() {
+    let query = Arc::new(MockAgentSkillsQuery::new().with_config(
+        "agent-cond",
+        vec!["plain-skill".into(), "cond-skill".into()],
+    ));
+    let mut r = DiskSkillRegistry::new(vec![
+        skill_with_paths("cond-skill", SkillSource::Bundled, vec!["**/*.rs".into()]),
+        skill("plain-skill", SkillSource::Bundled),
+    ]);
+    r.set_agent_skills_query(query);
+    let listing = r.generate_listing_for_agent("agent-cond");
+    assert!(listing.contains("**plain-skill**"));
+    assert!(!listing.contains("**cond-skill**"));
+}
+
+#[test]
+fn test_generate_listing_excluding_conditional_excludes_with_paths() {
+    let r = DiskSkillRegistry::new(vec![
+        skill("plain", SkillSource::Bundled),
+        skill_with_paths("cond", SkillSource::Global, vec!["**/*.rs".into()]),
+    ]);
+    let listing = r.generate_listing_excluding_conditional(None, None);
+    assert!(listing.contains("**plain**"));
+    assert!(!listing.contains("**cond**"));
+}
+
+#[test]
+fn test_generate_listing_excluding_conditional_returns_empty_when_all_conditional() {
+    let r = DiskSkillRegistry::new(vec![
+        skill_with_paths("rs-tool", SkillSource::Bundled, vec!["**/*.rs".into()]),
+        skill_with_paths("md-tool", SkillSource::Global, vec!["**/*.md".into()]),
+    ]);
+    let listing = r.generate_listing_excluding_conditional(None, None);
+    assert!(listing.is_empty());
+}
+
+#[test]
+fn test_generate_listing_excluding_conditional_with_whitelist() {
+    let r = DiskSkillRegistry::new(vec![
+        skill("a", SkillSource::Bundled),
+        skill("b", SkillSource::Bundled),
+        skill_with_paths("c", SkillSource::Bundled, vec!["**/*.rs".into()]),
+    ]);
+    let listing = r.generate_listing_excluding_conditional(None, Some(&["a".into(), "c".into()]));
+    assert!(listing.contains("**a**"));
+    assert!(!listing.contains("**b**"));
+    assert!(!listing.contains("**c**"));
+}
+
 fn skill_with_when_to_use(name: &str, source: SkillSource, when_to_use: &str) -> DiskSkill {
     DiskSkill {
         source,
