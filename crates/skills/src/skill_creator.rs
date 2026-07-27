@@ -57,8 +57,8 @@ Description of the skill purpose and capabilities.
 ## Instructions
 Step-by-step instructions for the Agent to follow when this skill is invoked.
 
-Use `${SKILL_DIR}` to reference the skill directory path.
-Use `${SESSION_ID}` to reference the current session ID.
+Use `${SKILL_DIR}` to reference the skill directory path (disk-based skills only).
+Use `${SESSION_ID}` to reference the current session ID (disk-based skills only).
 ```
 
 ## Frontmatter Fields

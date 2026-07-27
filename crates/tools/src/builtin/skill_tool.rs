@@ -24,8 +24,8 @@ use std::sync::Arc;
 ///
 /// - **Disk skill**: injects the skill body (loaded via `load_body()`) as a meta message into the
 ///   agent context.
-/// - **Builtin skill**: calls `execute("invoke", args)` and injects the
-///   result as a meta message.
+/// - **Builtin skill**: loads the skill body via `body()` and injects the
+///   prompt instructions as a meta message.
 pub struct SkillTool {
     registry: Arc<DiskSkillRegistry>,
     builtin_registry: Arc<BuiltinSkillRegistry>,

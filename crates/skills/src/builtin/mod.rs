@@ -28,7 +28,7 @@ impl BuiltinSkills {
             Arc::new(GitOpsSkill::new()),
             Arc::new(SearchSkill::new()),
             Arc::new(SkillDiscoverySkill::new()),
-            Arc::new(crate::CodingAgentSkill::new(None)),
+            Arc::new(crate::CodingAgentSkill::new()),
             Arc::new(crate::SkillCreatorSkill::new()),
         ]
     }

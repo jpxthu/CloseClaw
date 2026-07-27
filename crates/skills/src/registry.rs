@@ -94,9 +94,6 @@ pub enum SkillError {
 
     #[error("Invalid arguments: {0}")]
     InvalidArgs(String),
-
-    #[error("Permission denied: {0}")]
-    PermissionDenied(String),
 }
 
 #[cfg(test)]
@@ -213,9 +210,6 @@ mod tests {
 
         let err = SkillError::InvalidArgs("bad".to_string());
         assert!(err.to_string().contains("bad"));
-
-        let err = SkillError::PermissionDenied("no".to_string());
-        assert!(err.to_string().contains("no"));
     }
 
     #[test]

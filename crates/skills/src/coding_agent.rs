@@ -8,7 +8,7 @@ use async_trait::async_trait;
 pub struct CodingAgentSkill;
 
 impl CodingAgentSkill {
-    pub fn new(_model: Option<String>) -> Self {
+    pub fn new() -> Self {
         Self
     }
 }
@@ -46,22 +46,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_with_model() {
-        let skill = CodingAgentSkill::new(Some("openai/gpt-4".to_string()));
-        let m = skill.manifest();
-        assert_eq!(m.name, "coding_agent");
-    }
-
-    #[test]
-    fn test_new_without_model() {
-        let skill = CodingAgentSkill::new(None);
+    fn test_new() {
+        let skill = CodingAgentSkill::new();
         let m = skill.manifest();
         assert_eq!(m.name, "coding_agent");
     }
 
     #[test]
     fn test_manifest_fields() {
-        let skill = CodingAgentSkill::new(None);
+        let skill = CodingAgentSkill::new();
         let m = skill.manifest();
         assert_eq!(m.name, "coding_agent");
         assert_eq!(m.version, "1.0.0");
@@ -72,7 +65,7 @@ mod tests {
 
     #[test]
     fn test_body_not_empty() {
-        let skill = CodingAgentSkill::new(None);
+        let skill = CodingAgentSkill::new();
         let body = skill.body();
         assert!(!body.is_empty());
         assert!(body.contains("Coding Agent Skill"));
