@@ -227,7 +227,7 @@ impl DiskSkillRegistry {
             None => self.lookup_whitelist_from_agent_skills_query(agent_id),
         };
         let resolved_ref = resolved_whitelist.as_deref();
-        self.generate_listing_inner_all(resolved_ref)
+        self.generate_listing_inner(resolved_ref, false)
     }
 
     /// Generates a skill listing by directly querying the agent skills
@@ -243,7 +243,7 @@ impl DiskSkillRegistry {
             .as_ref()
             .and_then(|q| q.get_agent_skills(agent_id));
         let resolved_ref = resolved_whitelist.as_deref();
-        self.generate_listing_inner_all(resolved_ref)
+        self.generate_listing_inner(resolved_ref, false)
     }
 }
 
@@ -269,7 +269,7 @@ impl DiskSkillRegistry {
             None => self.lookup_whitelist_from_agent_skills_query(agent_id),
         };
         let resolved_ref = resolved_whitelist.as_deref();
-        self.generate_listing_inner(resolved_ref)
+        self.generate_listing_inner(resolved_ref, true)
     }
 
     /// Find conditional skills whose glob patterns match the given file
@@ -302,7 +302,7 @@ impl DiskSkillRegistry {
         skills_whitelist: Option<&[String]>,
     ) -> Vec<(DiskSkill, SkillSource)> {
         let mut filtered: Vec<(DiskSkill, SkillSource)> = self
-            .filter_skills_for_listing(skills_whitelist)
+            .filter_skills_inner(skills_whitelist, true)
             .into_iter()
             .map(|s| (s.clone(), s.source))
             .collect();
@@ -319,13 +319,15 @@ impl DiskSkillRegistry {
     /// Each entry is `(listing_line, SkillSource)`. The list is
     /// sorted by `(source, name)` for consistent merge ordering.
     ///
-    /// Filters: `user_invocable`, whitelist membership, and
-    /// exclusion of conditional skills (non-empty `paths`).
+    /// When `exclude_conditional` is `true`, skills with non-empty
+    /// `paths` are excluded. When `false`, all qualifying skills
+    /// (including conditional) are included.
     pub fn listing_entries(
         &self,
         skills_whitelist: Option<&[String]>,
+        exclude_conditional: bool,
     ) -> Vec<(String, SkillSource)> {
-        let mut filtered = self.filter_skills_for_listing(skills_whitelist);
+        let mut filtered = self.filter_skills_inner(skills_whitelist, exclude_conditional);
         filtered.sort_by(|a, b| {
             a.source
                 .cmp(&b.source)
@@ -337,58 +339,32 @@ impl DiskSkillRegistry {
             .collect()
     }
 
-    /// Return filtered, sorted, rendered listing entries **including**
-    /// conditional skills (non-empty `paths`).
+    /// Internal implementation for listing generation.
     ///
-    /// Each entry is `(listing_line, SkillSource)`. The list is
-    /// sorted by `(source, name)` for consistent merge ordering.
-    ///
-    /// Filters: `user_invocable` and whitelist membership only.
-    pub fn listing_entries_all(
+    /// When `exclude_conditional` is `false`, includes conditional skills
+    /// (non-empty `paths`) so the caller can compute the
+    /// conditional-activation diff. When `true`, excludes them.
+    fn generate_listing_inner(
         &self,
         skills_whitelist: Option<&[String]>,
-    ) -> Vec<(String, SkillSource)> {
-        let mut filtered = self.filter_skills_for_listing_all(skills_whitelist);
-        filtered.sort_by(|a, b| {
-            a.source
-                .cmp(&b.source)
-                .then_with(|| a.manifest.name.cmp(&b.manifest.name))
-        });
-        filtered
-            .into_iter()
-            .map(|s| (Self::render_single_listing(s), s.source))
-            .collect()
-    }
-
-    /// Internal implementation shared by `generate_listing` and
-    /// `generate_listing_for_agent`. Includes conditional skills
-    /// (non-empty `paths`) in the result.
-    fn generate_listing_inner_all(&self, skills_whitelist: Option<&[String]>) -> String {
-        let mut filtered = self.filter_skills_for_listing_all(skills_whitelist);
+        exclude_conditional: bool,
+    ) -> String {
+        let mut filtered = self.filter_skills_inner(skills_whitelist, exclude_conditional);
         if filtered.is_empty() {
             return String::new();
         }
         Self::render_listing(&mut filtered)
     }
 
-    /// Internal implementation shared by
-    /// `generate_listing_excluding_conditional`.
-    /// Excludes conditional skills (non-empty `paths`).
-    fn generate_listing_inner(&self, skills_whitelist: Option<&[String]>) -> String {
-        let mut filtered = self.filter_skills_for_listing(skills_whitelist);
-        if filtered.is_empty() {
-            return String::new();
-        }
-        Self::render_listing(&mut filtered)
-    }
-
-    /// Filter skills for the full listing: `user_invocable` +
-    /// whitelist membership only. Conditional skills (non-empty
-    /// `paths`) are **included** so the caller can compute the
-    /// conditional-activation diff.
-    fn filter_skills_for_listing_all<'a>(
+    /// Filter skills by common listing criteria.
+    ///
+    /// Filters by `user_invocable` and whitelist membership. When
+    /// `exclude_conditional` is `true`, also excludes skills with
+    /// non-empty `paths`.
+    fn filter_skills_inner<'a>(
         &'a self,
         skills_whitelist: Option<&[String]>,
+        exclude_conditional: bool,
     ) -> Vec<&'a DiskSkill> {
         let use_whitelist = skills_whitelist
             .filter(|w| !(w.len() == 1 && w[0] == "*"))
@@ -404,41 +380,9 @@ impl DiskSkillRegistry {
                 if !s.manifest.user_invocable {
                     return false;
                 }
-                if let Some(ref set) = use_whitelist {
-                    set.contains(s.manifest.name.as_str())
-                } else {
-                    true
-                }
-            })
-            .collect()
-    }
-
-    /// Filter skills by common listing criteria: `user_invocable`,
-    /// whitelist membership, and exclusion of conditional skills
-    /// (those with non-empty `paths`).
-    fn filter_skills_for_listing<'a>(
-        &'a self,
-        skills_whitelist: Option<&[String]>,
-    ) -> Vec<&'a DiskSkill> {
-        let use_whitelist = skills_whitelist
-            .filter(|w| !(w.len() == 1 && w[0] == "*"))
-            .map(|w| {
-                w.iter()
-                    .map(|s| s.as_str())
-                    .collect::<std::collections::HashSet<_>>()
-            });
-
-        self.skills
-            .iter()
-            .filter(|s| {
-                if !s.manifest.user_invocable {
+                if exclude_conditional && !s.manifest.paths.is_empty() {
                     return false;
                 }
-                if !s.manifest.paths.is_empty() {
-                    return false;
-                }
-                // Agent-scoped filtering is handled by directory-based discovery
-                // (agents/<id>/skills/), not by manifest fields.
                 if let Some(ref set) = use_whitelist {
                     set.contains(s.manifest.name.as_str())
                 } else {
@@ -477,9 +421,11 @@ impl DiskSkillRegistry {
         )
     }
 
-    /// Render a pre-filtered, pre-sorted skill slice into a listing
-    /// string. Each line is formatted as:
+    /// Render a pre-filtered skill slice into a listing string.
+    /// Each line is formatted as:
     ///   `- **{name}**: {description} — {when_to_use} ⚡ auto-activates on: {paths}`
+    ///
+    /// Sorts by `(source, name)` for consistent output ordering.
     fn render_listing(skills: &mut Vec<&DiskSkill>) -> String {
         skills.sort_by(|a, b| {
             let src_cmp = a.source.cmp(&b.source);
