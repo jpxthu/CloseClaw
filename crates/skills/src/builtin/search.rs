@@ -1,5 +1,5 @@
 //! Search skill (web search)
-use crate::registry::{Skill, SkillError, SkillManifest};
+use crate::registry::{Skill, SkillManifest};
 use async_trait::async_trait;
 
 #[derive(Default)]
@@ -23,32 +23,13 @@ impl Skill for SearchSkill {
         }
     }
 
-    fn methods(&self) -> Vec<&str> {
-        vec!["search"]
-    }
+    fn body(&self) -> &str {
+        r#"# Search Skill
 
-    async fn execute(
-        &self,
-        method: &str,
-        args: serde_json::Value,
-    ) -> Result<serde_json::Value, SkillError> {
-        match method {
-            "search" => {
-                let query = args
-                    .get("query")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| SkillError::InvalidArgs("query required".to_string()))?;
-                Ok(serde_json::json!({
-                    "query": query,
-                    "results": [],
-                    "is_stub": true,
-                    "message": "Search skill stub - integrate with search API"
-                }))
-            }
-            _ => Err(SkillError::MethodNotFound {
-                skill: "search".to_string(),
-                method: method.to_string(),
-            }),
-        }
+Use the `web_search` tool to search the web for information. Provide a clear, concise query.
+
+- For code-related searches, include the programming language and specific library/framework.
+- For factual queries, include enough context to get precise results.
+- Use `web_fetch` to retrieve full content from a specific URL when needed."#
     }
 }

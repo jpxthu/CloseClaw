@@ -56,15 +56,8 @@ mod tests {
                 dependencies: vec![],
             }
         }
-        fn methods(&self) -> Vec<&str> {
-            vec![]
-        }
-        async fn execute(
-            &self,
-            _method: &str,
-            _args: serde_json::Value,
-        ) -> Result<serde_json::Value, crate::registry::SkillError> {
-            Ok(serde_json::Value::Null)
+        fn body(&self) -> &str {
+            "bundled body"
         }
     }
 

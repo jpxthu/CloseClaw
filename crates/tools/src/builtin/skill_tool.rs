@@ -24,8 +24,8 @@ use std::sync::Arc;
 ///
 /// - **Disk skill**: injects the skill body (loaded via `load_body()`) as a meta message into the
 ///   agent context.
-/// - **Builtin skill**: calls `execute("invoke", args)` and injects the
-///   result as a meta message.
+/// - **Builtin skill**: loads the skill body via `body()` and injects the
+///   prompt instructions as a meta message.
 pub struct SkillTool {
     registry: Arc<DiskSkillRegistry>,
     builtin_registry: Arc<BuiltinSkillRegistry>,
@@ -96,33 +96,26 @@ impl SkillTool {
 
     /// Handle a builtin skill lookup.
     ///
-    /// Calls `execute("invoke", args)` and wraps the result as a
-    /// meta-message in Inline mode.
+    /// Loads the skill body and injects it as a meta-message in Inline mode,
+    /// the same path as disk skills.
     async fn call_builtin_skill(
         &self,
         skill_name: &str,
         skill: Arc<dyn closeclaw_skills::Skill>,
-        args: Value,
     ) -> Result<ToolResult, ToolCallError> {
-        let result = skill.execute("invoke", args).await;
-        match result {
-            Ok(value) => Ok(ToolResult {
-                data: serde_json::json!({
-                    "skill_name": skill_name,
-                    "status": "loaded",
-                    "execution_mode": "inline"
-                }),
-                new_messages: vec![ToolMessage {
-                    content: serde_json::to_string(&value).unwrap_or_else(|_| value.to_string()),
-                    is_meta: true,
-                }],
-                context_modifier: None,
+        let body = skill.body();
+        Ok(ToolResult {
+            data: serde_json::json!({
+                "skill_name": skill_name,
+                "status": "loaded",
+                "execution_mode": "inline"
             }),
-            Err(e) => Err(ToolCallError::ExecutionFailed(format!(
-                "builtin skill '{}' execution failed: {}",
-                skill_name, e
-            ))),
-        }
+            new_messages: vec![ToolMessage {
+                content: body.to_string(),
+                is_meta: true,
+            }],
+            context_modifier: None,
+        })
     }
 }
 
@@ -188,7 +181,7 @@ impl Tool for SkillTool {
 
         // Fallback: Builtin skill registry
         if let Some(skill) = self.builtin_registry.get(&skill_name).await {
-            return self.call_builtin_skill(&skill_name, skill, args).await;
+            return self.call_builtin_skill(&skill_name, skill).await;
         }
 
         Err(ToolCallError::NotFound(skill_name))
@@ -309,15 +302,8 @@ mod tests {
                 dependencies: vec![],
             }
         }
-        fn methods(&self) -> Vec<&str> {
-            vec!["invoke"]
-        }
-        async fn execute(
-            &self,
-            _method: &str,
-            _args: serde_json::Value,
-        ) -> Result<serde_json::Value, closeclaw_skills::SkillError> {
-            Ok(serde_json::json!({"output": "builtin result"}))
+        fn body(&self) -> &str {
+            "builtin body: mock builtin result"
         }
     }
 

@@ -13,100 +13,10 @@ use std::sync::Arc;
 use closeclaw::agent::config::AgentConfig;
 use closeclaw::agent::registry::{create_registry, SharedAgentRegistry};
 use closeclaw_config::agents::{AgentsConfigProvider, ConfigSource, ResolvedAgentConfig};
-use closeclaw_permission::engine::{Action, CommandArgs, Effect, PermissionEngine, RuleSet};
-use closeclaw_permission::rules::{RuleBuilder, RuleSetBuilder};
-use closeclaw_permission::skill_wrapper::SkillPermissionEngineWrapper;
-use closeclaw_skills::Skill;
-use tokio::sync::RwLock;
 
 // ---------------------------------------------------------------------------
 // Helper builders
 // ---------------------------------------------------------------------------
-
-/// Creates a ruleset that grants permissions to any agent (using wildcard patterns).
-/// This allows testing permission engine + agent registry integration without
-/// having to worry about UUID vs name mismatches.
-fn make_test_ruleset() -> RuleSet {
-    RuleSetBuilder::new()
-        .rule(
-            RuleBuilder::new()
-                .name("allow-file-read")
-                .subject_glob("*")
-                .allow()
-                .action(Action::File {
-                    operation: "read".to_string(),
-                    paths: vec!["/home/**".to_string()],
-                })
-                .build()
-                .unwrap(),
-        )
-        .rule(
-            RuleBuilder::new()
-                .name("allow-git-command")
-                .subject_glob("*")
-                .allow()
-                .action(Action::Command {
-                    command: "git".to_string(),
-                    args: CommandArgs::Allowed {
-                        allowed: vec![
-                            "status".to_string(),
-                            "log".to_string(),
-                            "diff".to_string(),
-                            "add".to_string(),
-                            "commit".to_string(),
-                        ],
-                    },
-                })
-                .build()
-                .unwrap(),
-        )
-        .rule(
-            RuleBuilder::new()
-                .name("deny-dangerous-git")
-                .subject_glob("*")
-                .deny()
-                .action(Action::Command {
-                    command: "git".to_string(),
-                    args: CommandArgs::Blocked {
-                        blocked: vec!["reset --hard".to_string(), "push --force".to_string()],
-                    },
-                })
-                .build()
-                .unwrap(),
-        )
-        .rule(
-            RuleBuilder::new()
-                .name("allow-tool-call-file-ops")
-                .subject_glob("*")
-                .allow()
-                .action(Action::ToolCall {
-                    skill: "file_ops".to_string(),
-                    methods: vec!["read".to_string(), "exists".to_string()],
-                })
-                .build()
-                .unwrap(),
-        )
-        .rule(
-            RuleBuilder::new()
-                .name("allow-tool-call-git-ops")
-                .subject_glob("*")
-                .allow()
-                .action(Action::ToolCall {
-                    skill: "git_ops".to_string(),
-                    methods: vec!["status".to_string(), "log".to_string()],
-                })
-                .build()
-                .unwrap(),
-        )
-        .default_file_read(Effect::Deny)
-        .default_command(Effect::Deny)
-        .default_network(Effect::Deny)
-        .default_inter_agent(Effect::Deny)
-        .default_config(Effect::Deny)
-        .build()
-        .unwrap()
-}
-
 // ---------------------------------------------------------------------------
 // Integration Test 1: Agent Registry Config Query
 // Tests populate + get for config storage and parent_id field query
@@ -240,93 +150,24 @@ async fn test_skill_loading_and_execution_chain() {
         registry.register(skill).await;
     }
 
-    // Verify skills loaded
+    // Verify skills loaded (6 builtin skills, no permission_query)
     let skills = registry.list().await;
     assert!(skills.contains(&"file_ops".to_string()));
     assert!(skills.contains(&"git_ops".to_string()));
     assert!(skills.contains(&"search".to_string()));
-    assert!(skills.contains(&"permission_query".to_string()));
+    assert!(skills.contains(&"skill_discovery".to_string()));
     assert!(skills.contains(&"coding_agent".to_string()));
     assert!(skills.contains(&"skill_creator".to_string()));
+    assert_eq!(skills.len(), 6);
 
-    // Get file_ops skill and execute
+    // Verify each skill has a valid body (prompt instructions)
     let file_ops = registry.get("file_ops").await;
     assert!(file_ops.is_some());
     let file_ops = file_ops.unwrap();
+    assert!(!file_ops.body().is_empty());
 
-    // Execute file_ops exists method
-    let result = file_ops
-        .execute(
-            "exists",
-            serde_json::json!({"path": "Cargo.toml", "agent_id": "test-agent"}),
-        )
-        .await;
-    assert!(result.is_ok());
-    let value = result.unwrap();
-    assert!(value.get("exists").is_some());
-
-    // Execute git_ops status
     let git_ops = registry.get("git_ops").await.unwrap();
-    let result = git_ops.execute("status", serde_json::json!({})).await;
-    assert!(result.is_ok());
-}
-
-#[tokio::test]
-async fn test_skill_with_permission_engine_integration() {
-    let rules = make_test_ruleset();
-    let engine = Arc::new(RwLock::new(PermissionEngine::new_with_default_data_root(
-        rules,
-    )));
-
-    // Create permission skill with engine reference
-    let wrapper = Arc::new(SkillPermissionEngineWrapper::new(engine.clone()));
-    let perm_skill = closeclaw_skills::builtin::PermissionSkill::with_engine(wrapper);
-
-    // Populate registry with a test agent config
-    let registry: SharedAgentRegistry = create_registry();
-    let configs = vec![make_resolved_config("test-agent", None)];
-    registry.populate(configs);
-
-    let agent = registry.get("test-agent").unwrap();
-    let agent_id = agent.id.clone();
-
-    // Query exec permission: should be denied (no exec rule)
-    let result = perm_skill
-        .execute(
-            "query",
-            serde_json::json!({
-                "agent_id": agent_id,
-                "action": "exec"
-            }),
-        )
-        .await;
-    assert!(result.is_ok());
-    let value = result.unwrap();
-    assert_eq!(value.get("allowed"), Some(&serde_json::json!(false)));
-    assert!(value.get("reason").is_some());
-
-    // Query file_read: should be allowed (has wildcard file read rule)
-    let result = perm_skill
-        .execute(
-            "query",
-            serde_json::json!({
-                "agent_id": agent_id,
-                "action": "file_read"
-            }),
-        )
-        .await;
-    assert!(result.is_ok());
-
-    // List available actions
-    let result = perm_skill
-        .execute("list_actions", serde_json::json!({}))
-        .await;
-    assert!(result.is_ok());
-    let value = result.unwrap();
-    let actions = value.get("actions").unwrap().as_array().unwrap();
-    assert!(actions.contains(&serde_json::json!("command")));
-    assert!(actions.contains(&serde_json::json!("file_read")));
-    assert!(actions.contains(&serde_json::json!("file_write")));
+    assert!(!git_ops.body().is_empty());
 }
 
 #[tokio::test]

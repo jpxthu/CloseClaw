@@ -159,15 +159,8 @@ mod tests {
                 dependencies: vec![],
             }
         }
-        fn methods(&self) -> Vec<&str> {
-            vec!["invoke"]
-        }
-        async fn execute(
-            &self,
-            _method: &str,
-            _args: serde_json::Value,
-        ) -> Result<serde_json::Value, closeclaw_skills::SkillError> {
-            Ok(serde_json::json!({"output": "builtin result"}))
+        fn body(&self) -> &str {
+            "builtin body: mock builtin result"
         }
     }
 
