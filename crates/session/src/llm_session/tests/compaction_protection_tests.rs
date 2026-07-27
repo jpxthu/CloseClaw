@@ -343,9 +343,9 @@ async fn test_compaction_after_hot_reload_no_diff() {
     assert!(snap1.contains("skill_b"));
 
     // Turn 2: add skill_c via daemon hot-reload
-    provider.set_all_listing("- **skill_a**: desc_a\n- **skill_b**: desc_b\n- **skill_c**: desc_c");
-    provider
-        .set_base_listing("- **skill_a**: desc_a\n- **skill_b**: desc_b\n- **skill_c**: desc_c");
+    let listing_a_b_c = "- **skill_a**: desc_a\n- **skill_b**: desc_b\n- **skill_c**: desc_c";
+    provider.set_all_listing(listing_a_b_c);
+    provider.set_base_listing(listing_a_b_c);
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req2 = fake_ref.last_request().unwrap();
     let tools2 = tool_messages(&req2);
