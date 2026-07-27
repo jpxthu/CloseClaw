@@ -100,6 +100,11 @@ impl ConversationSession {
 
     /// Make a non-streaming LLM call via the injected [`LlmCaller`].
     ///
+    /// Corresponds to the design doc's injection flow: prepares the
+    /// skill listing via [`prepare_turn_skill_listing`], injects it as
+    /// the instruction block via [`build_llm_messages_with_listing`],
+    /// then delegates to the LLM caller.
+    ///
     /// Builds an [`InternalRequest`], consuming any pending
     /// memory-injection slot, and delegates to the caller. Returns
     /// an error if no [`LlmCaller`] has been injected.
@@ -119,6 +124,11 @@ impl ConversationSession {
     }
 
     /// Make a streaming LLM call via the injected [`LlmCaller`].
+    ///
+    /// Corresponds to the design doc's injection flow: prepares the
+    /// skill listing via [`prepare_turn_skill_listing`], injects it as
+    /// the instruction block via [`build_llm_messages_with_listing`],
+    /// then delegates to the LLM caller.
     ///
     /// Returns a [`SessionStream`] that wraps the raw LLM event stream
     /// and accumulates [`ContentBlock`](closeclaw_common::ContentBlock)s
@@ -148,6 +158,12 @@ impl ConversationSession {
     /// Build the messages list for an LLM request, consuming any
     /// pending memory-injection slot.
     ///
+    /// Corresponds to the design doc's "注入当前 turn 的 instruction
+    /// block" section (`docs/design/skills/skill-listing-injection.md`).
+    /// The skill listing is injected as a tool-role message at position 0,
+    /// which is the code-level implementation of the design doc's
+    /// "instruction block" injection.
+    ///
     /// Message assembly order:
     /// 1. Skill listing attachment (tool role, position 0) — per-turn
     ///    incremental diff from the [`SkillListingProvider`] when
@@ -170,6 +186,10 @@ impl ConversationSession {
         }];
 
         // 1. Skill listing attachment — at position 0 when non-empty.
+        //    This is the code-level implementation of the design doc's
+        //    "instruction block" injection (tool-role message at
+        //    position 0 corresponds to the instruction block concept
+        //    in docs/design/skills/skill-listing-injection.md).
         let skill_listing_inserted = if let Some(listing) = skill_listing {
             if !listing.is_empty() {
                 messages.insert(
