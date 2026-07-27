@@ -305,6 +305,14 @@ mod tests {
         fn body(&self) -> &str {
             "builtin body: mock builtin result"
         }
+        fn listing_meta(&self) -> closeclaw_skills::SkillListingMeta {
+            closeclaw_skills::SkillListingMeta {
+                when_to_use: "when to use mock builtin".into(),
+                user_invocable: true,
+                paths: vec![],
+                effort: SkillEffort::Small,
+            }
+        }
     }
 
     #[tokio::test]

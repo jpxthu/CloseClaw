@@ -9,6 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::shutdown::ShutdownHandle as DaemonShutdownHandle;
+use closeclaw_skills::BuiltinSkillRegistry;
 use closeclaw_slash::SlashDispatcher;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -99,25 +100,167 @@ impl closeclaw_common::skill_registry::SkillRegistryQuery for SkillRegistryWrapp
 // SkillListingProvider
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Newtype wrapper around `Arc<RwLock<Option<DiskSkillRegistry>>>` to
-/// satisfy the orphan rule when implementing `SkillListingProvider`.
+/// Newtype wrapper holding both `DiskSkillRegistry` and `BuiltinSkillRegistry`
+/// to satisfy the orphan rule when implementing `SkillListingProvider`.
 ///
-/// Delegates to `DiskSkillRegistry::generate_listing` for per-turn
-/// skill listing injection into `ConversationSession`.
-pub struct SkillListingProviderWrapper(
-    pub Arc<std::sync::RwLock<Option<closeclaw_skills::DiskSkillRegistry>>>,
-);
+/// Merges listings from both registries with priority-based deduplication:
+/// disk skills override builtin skills when names collide.
+pub struct SkillListingProviderWrapper {
+    pub disk: Arc<std::sync::RwLock<Option<closeclaw_skills::DiskSkillRegistry>>>,
+    pub builtin: Arc<BuiltinSkillRegistry>,
+}
 
-impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
-    fn generate_listing(&self, agent_id: Option<&str>, agent_skills: Option<&[String]>) -> String {
-        self.0
+impl SkillListingProviderWrapper {
+    pub fn new(
+        disk: Arc<std::sync::RwLock<Option<closeclaw_skills::DiskSkillRegistry>>>,
+        builtin: Arc<BuiltinSkillRegistry>,
+    ) -> Self {
+        Self { disk, builtin }
+    }
+
+    /// Merge listings from both registries, deduplicating by name.
+    ///
+    /// Disk skills use `SkillSource` for priority ordering (Project > Agent >
+    /// Global > ExtraDirs > Bundled). Builtin skills are treated as `Bundled`
+    /// (lowest priority). When names collide, the higher-priority skill wins.
+    fn merged_listing(&self, agent_id: Option<&str>, agent_skills: Option<&[String]>) -> String {
+        let disk = self.collect_disk_listings(agent_id, agent_skills);
+        let builtin = self.collect_builtin_listings(agent_skills);
+        Self::merge_and_sort_listings(disk, builtin)
+    }
+
+    /// Collect listing entries from the disk skill registry.
+    ///
+    /// Resolves the effective whitelist (explicit `agent_skills` override,
+    /// falling back to the agent skills query) and delegates to
+    /// [`DiskSkillRegistry::listing_entries`] which handles
+    /// `user_invocable` / conditional / whitelist filtering and
+    /// `(source, name)` sorting.
+    fn collect_disk_listings(
+        &self,
+        agent_id: Option<&str>,
+        agent_skills: Option<&[String]>,
+    ) -> Vec<(String, u8)> {
+        self.disk
             .read()
             .ok()
             .and_then(|g| {
-                g.as_ref()
-                    .map(|r| r.generate_listing(agent_id, agent_skills))
+                g.as_ref().map(|r| {
+                    let resolved_whitelist = agent_skills.map(|w| w.to_vec()).or_else(|| {
+                        r.agent_skills_query()
+                            .and_then(|q| q.get_agent_skills(agent_id.unwrap_or("")))
+                    });
+                    let resolved_ref = resolved_whitelist.as_deref();
+                    r.listing_entries(resolved_ref)
+                        .into_iter()
+                        .map(|(line, source)| (line, source as u8))
+                        .collect()
+                })
             })
             .unwrap_or_default()
+    }
+
+    /// Collect listing entries from the builtin skill registry.
+    ///
+    /// Filters by `user_invocable`, exclusion of conditional skills
+    /// (non-empty `paths`), and whitelist membership.
+    fn collect_builtin_listings(&self, agent_skills: Option<&[String]>) -> Vec<(String, u8)> {
+        let rt = tokio::runtime::Handle::current();
+        let entries = rt.block_on(self.builtin.sorted_skills());
+        entries
+            .into_iter()
+            .filter(|(m, meta)| {
+                meta.user_invocable
+                    && meta.paths.is_empty()
+                    && agent_skills.map_or(true, |w| {
+                        w == ["*"] || w.iter().any(|s| s.as_str() == m.name.as_str())
+                    })
+            })
+            .map(|(m, meta)| {
+                let line = BuiltinSkillRegistry::render_single_listing(&m, &meta);
+                (line, 4u8) // Bundled priority
+            })
+            .collect()
+    }
+
+    /// Merge two sorted listing vectors, deduplicating by skill name.
+    ///
+    /// Disk entries take precedence over builtin entries when names
+    /// collide. The final output is sorted by `(priority, name)`.
+    fn merge_and_sort_listings(disk: Vec<(String, u8)>, builtin: Vec<(String, u8)>) -> String {
+        let mut builtin_by_name: std::collections::HashMap<String, (String, u8)> = builtin
+            .into_iter()
+            .map(|(line, pri)| (extract_name(&line), (line, pri)))
+            .collect();
+        let mut seen = std::collections::HashSet::new();
+        let mut merged: Vec<(String, u8)> = Vec::new();
+
+        for (line, src) in disk {
+            let name = extract_name(&line);
+            seen.insert(name);
+            merged.push((line, src));
+        }
+        for (name, (line, pri)) in builtin_by_name.drain() {
+            if !seen.contains(&name) {
+                merged.push((line, pri));
+            }
+        }
+
+        merged.sort_by(|a, b| {
+            a.1.cmp(&b.1)
+                .then_with(|| extract_name(&a.0).cmp(&extract_name(&b.0)))
+        });
+        merged
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Merge conditional matches from both registries, deduplicating by name.
+    fn merged_conditional_matches(
+        &self,
+        paths: &[std::path::PathBuf],
+    ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+        let mut disk_matches: Vec<closeclaw_common::ConditionalSkillMatch> = self
+            .disk
+            .read()
+            .ok()
+            .and_then(|g| g.as_ref().map(|r| r.find_conditional_matches(paths)))
+            .unwrap_or_default();
+
+        let disk_names: std::collections::HashSet<String> =
+            disk_matches.iter().map(|m| m.name.clone()).collect();
+
+        let builtin_matches = {
+            let rt = tokio::runtime::Handle::current();
+            rt.block_on(self.builtin.find_conditional_matches(paths))
+        };
+
+        // Builtin matches that don't collide with disk matches
+        for m in builtin_matches {
+            if !disk_names.contains(&m.name) {
+                disk_matches.push(m);
+            }
+        }
+
+        disk_matches
+    }
+}
+
+/// Extract the skill name from a listing line.
+///
+/// Listing lines have the format `- **{name}**: ...`.
+fn extract_name(line: &str) -> String {
+    line.trim_start_matches("- **")
+        .split_once("**:")
+        .map(|(name, _)| name.to_string())
+        .unwrap_or_default()
+}
+
+impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
+    fn generate_listing(&self, agent_id: Option<&str>, agent_skills: Option<&[String]>) -> String {
+        self.merged_listing(agent_id, agent_skills)
     }
 
     fn generate_listing_excluding_conditional(
@@ -125,25 +268,14 @@ impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
         agent_id: Option<&str>,
         agent_skills: Option<&[String]>,
     ) -> String {
-        self.0
-            .read()
-            .ok()
-            .and_then(|g| {
-                g.as_ref()
-                    .map(|r| r.generate_listing_excluding_conditional(agent_id, agent_skills))
-            })
-            .unwrap_or_default()
+        self.merged_listing(agent_id, agent_skills)
     }
 
     fn find_conditional_matches(
         &self,
         paths: &[std::path::PathBuf],
     ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
-        self.0
-            .read()
-            .ok()
-            .and_then(|g| g.as_ref().map(|r| r.find_conditional_matches(paths)))
-            .unwrap_or_default()
+        self.merged_conditional_matches(paths)
     }
 }
 

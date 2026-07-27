@@ -39,7 +39,8 @@ pub async fn resolve_skill<'a>(
 #[cfg(test)]
 mod tests {
     use super::{resolve_skill, DiskSkillRegistry, ResolvedSkill};
-    use crate::registry::{BuiltinSkillRegistry, Skill, SkillManifest};
+    use crate::disk::types::SkillEffort;
+    use crate::registry::{BuiltinSkillRegistry, Skill, SkillListingMeta, SkillManifest};
     use async_trait::async_trait;
     use std::sync::Arc;
 
@@ -58,6 +59,14 @@ mod tests {
         }
         fn body(&self) -> &str {
             "bundled body"
+        }
+        fn listing_meta(&self) -> SkillListingMeta {
+            SkillListingMeta {
+                when_to_use: "bundled skill".to_string(),
+                user_invocable: false,
+                paths: vec![],
+                effort: SkillEffort::Unknown,
+            }
         }
     }
 

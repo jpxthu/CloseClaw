@@ -81,6 +81,56 @@ fn test_builtin_skills_all_have_body() {
     }
 }
 
+#[test]
+fn test_builtin_skills_all_have_listing_meta() {
+    let skills = BuiltinSkills::all();
+    for skill in &skills {
+        let meta = skill.listing_meta();
+        assert!(
+            !meta.when_to_use.is_empty(),
+            "skill '{}' listing_meta.when_to_use should not be empty",
+            skill.manifest().name
+        );
+        assert!(
+            !meta.effort.to_string().is_empty(),
+            "skill '{}' listing_meta.effort should not be empty",
+            skill.manifest().name
+        );
+    }
+}
+
+#[test]
+fn test_skill_creator_and_coding_agent_are_user_invocable() {
+    let skills = BuiltinSkills::all();
+    for skill in &skills {
+        let name = skill.manifest().name;
+        let meta = skill.listing_meta();
+        if name == "skill_creator" || name == "coding_agent" {
+            assert!(
+                meta.user_invocable,
+                "skill '{}' should be user_invocable",
+                name
+            );
+        }
+    }
+}
+
+#[test]
+fn test_file_ops_and_git_ops_are_not_user_invocable() {
+    let skills = BuiltinSkills::all();
+    for skill in &skills {
+        let name = skill.manifest().name;
+        let meta = skill.listing_meta();
+        if name == "file_ops" || name == "git_ops" {
+            assert!(
+                !meta.user_invocable,
+                "skill '{}' should not be user_invocable",
+                name
+            );
+        }
+    }
+}
+
 #[tokio::test]
 async fn test_skill_registry_with_builtins() {
     use crate::registry::BuiltinSkillRegistry;

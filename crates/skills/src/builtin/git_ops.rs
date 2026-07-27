@@ -1,5 +1,6 @@
 //! Git operations skill
-use crate::registry::{Skill, SkillManifest};
+use crate::disk::types::SkillEffort;
+use crate::registry::{Skill, SkillListingMeta, SkillManifest};
 use async_trait::async_trait;
 
 #[derive(Default)]
@@ -36,5 +37,14 @@ You have access to the `exec` tool. Use it to run git commands:
 - **Diff**: `exec` with `git diff`
 
 Always ensure changes are staged before committing. Confirm destructive operations (force push, reset) with the user."#
+    }
+
+    fn listing_meta(&self) -> SkillListingMeta {
+        SkillListingMeta {
+            when_to_use: "Use when the agent needs to perform git operations like commit, push, pull, or diff".to_string(),
+            user_invocable: false,
+            paths: vec![],
+            effort: SkillEffort::Small,
+        }
     }
 }
