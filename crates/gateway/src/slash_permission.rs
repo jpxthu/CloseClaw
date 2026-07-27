@@ -723,7 +723,14 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             .await;
     }
 
-    async fn execute_compact(&self, session_id: &str, instruction: Option<String>) {
+    async fn execute_compact(
+        &self,
+        session_id: &str,
+        instruction: Option<String>,
+    ) -> Result<
+        closeclaw_session::compaction::CompactionResult,
+        closeclaw_session::compaction::CompactionError,
+    > {
         if let Some(sh) = self.session_handler.as_ref() {
             let compact_cmd = match &instruction {
                 Some(inst) => format!("/compact {}", inst),
@@ -731,6 +738,12 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             };
             sh.handle_compact_command(session_id, &compact_cmd).await;
         }
+        // TODO(Step 1.3): Replace with SessionManager::compact() call
+        Err(
+            closeclaw_session::compaction::CompactionError::LLMCallFailed(
+                "not yet implemented".to_string(),
+            ),
+        )
     }
 
     async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction) {

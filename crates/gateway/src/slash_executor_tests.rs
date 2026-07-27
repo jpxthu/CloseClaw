@@ -18,6 +18,7 @@ use closeclaw_common::session_lookup::{PendingMessage, SessionLookup};
 use closeclaw_common::session_types::ReasoningLevel;
 use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 use closeclaw_common::verbosity::VerbosityLevel;
+use closeclaw_session::compaction::{CompactionError, CompactionResult};
 
 use crate::slash_executor::SlashResultExecutor;
 
@@ -102,9 +103,26 @@ impl SlashEffectExecutor for MockExecutor {
         *self.new_session_called.lock().unwrap() = true;
     }
 
-    async fn execute_compact(&self, _session_id: &str, instruction: Option<String>) {
+    async fn execute_compact(
+        &self,
+        _session_id: &str,
+        instruction: Option<String>,
+    ) -> Result<CompactionResult, CompactionError> {
         *self.compact_called.lock().unwrap() = true;
         *self.compact_instruction.lock().unwrap() = instruction;
+        Ok(CompactionResult {
+            performed: true,
+            original_tokens: 100,
+            compacted_tokens: 50,
+            message: "\u{538b}\u{7f29}\u{5b8c}\u{6210}\u{ff1a}100 \u{2192} 50 \u{5b57}\u{7b26}"
+                .to_string(),
+            before_char_count: 100,
+            after_char_count: 50,
+            before_token_count: 25,
+            after_token_count: 13,
+            boundary_message: "[Session Compaction] summary".to_string(),
+            is_auto: false,
+        })
     }
 
     async fn execute_system_append(&self, _session_id: &str, action: &SystemAppendAction) {
@@ -286,7 +304,9 @@ async fn test_compact_calls_executor_and_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "对话历史已压缩"));
+            assert!(
+                matches!(&blocks[0], ContentBlock::Text(t) if t == "\u{538b}\u{7f29}\u{5b8c}\u{6210}\u{ff1a}100 \u{2192} 50 \u{5b57}\u{7b26}")
+            );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -313,7 +333,9 @@ async fn test_compact_with_instruction_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "对话历史已压缩"));
+            assert!(
+                matches!(&blocks[0], ContentBlock::Text(t) if t == "\u{538b}\u{7f29}\u{5b8c}\u{6210}\u{ff1a}100 \u{2192} 50 \u{5b57}\u{7b26}")
+            );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
