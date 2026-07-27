@@ -497,11 +497,11 @@
   },
   {
     "path": "docs/design/skills/README.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-07-24T13:37:58.108861+08:00",
+    "commit": "0477573b3f01ca090d7491fef41fa5d216c19f86",
+    "commit_time": "2026-07-27T17:01:22+08:00",
+    "confirmed_time": "2026-07-27T17:09:10.155556+08:00",
     "comment": "",
-    "blocked_reason": "doc-contradictions"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/system_prompt/appends.md",

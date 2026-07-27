@@ -14,10 +14,29 @@ impl ConversationSession {
     /// Compute the skill listing for the current turn without
     /// mutating session state.
     ///
+    /// Implements the design doc's "incremental update" mechanism
+    /// (see `docs/design/skills/skill-listing-injection.md`):
+    ///
+    /// - The daemon handles file-change-driven hot reload (re-scan +
+    ///   cache invalidation) *before* this turn executes.
+    /// - This function handles path-matching conditional activation
+    ///   (via [`prepare_turn_skill_listing`]) and computes a
+    ///   line-level diff that captures **both** sources of change in
+    ///   a single atomic operation.
+    ///
+    /// The design doc describes a conceptual two-step merge ("first
+    /// update file-change increments, then process conditional
+    /// activation increments"). In this implementation the merge is
+    /// implicit: the full listing already includes activated
+    /// conditionals, so a line-level diff against the previous
+    /// snapshot captures all additions and removals regardless of
+    /// their source. This is logically equivalent to the design
+    /// doc's two-step model.
+    ///
     /// On the first turn (no snapshot), generates a full listing
-    /// excluding conditional skills. On subsequent turns, generates the
-    /// current listing (including activated conditional skills) and
-    /// computes a line-level diff against the previous snapshot.
+    /// excluding conditional skills. On subsequent turns, generates
+    /// the current listing (including activated conditional skills)
+    /// and computes a line-level diff against the previous snapshot.
     ///
     /// Uses the current `activated_conditional_skills` set.
     ///
