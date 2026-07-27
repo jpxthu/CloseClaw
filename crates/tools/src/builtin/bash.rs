@@ -14,13 +14,15 @@ use crate::bash::CommandSandbox;
 use crate::permission_check::{
     check_command_permission, check_tool_permission, CommandPermissionResult, PermDeps,
 };
-use crate::security::{BashSecurityAnalyzer, ParseResult};
+use crate::security::{BashSecurityAnalyzer, ParseResult, TrustLevel};
 use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use closeclaw_common::ToolExecState;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::engine::engine_risk::RiskLevel;
+use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -469,6 +471,80 @@ async fn execute_bash_call(
     }
     let sec_result = analyze_security(command)?;
 
+    // Trust-level branching: malicious/uncertain commands are routed
+    // through the approval flow before the normal permission checks.
+    match sec_result.trust_level {
+        TrustLevel::Malicious => {
+            // Design doc: malicious → intercept + notify owner.
+            // Route through approval flow for owner notification, then
+            // immediately block (return error, do not execute).
+            let (_, session_mgr, _, approval_flow) = deps;
+            let caller = Caller {
+                user_id: String::new(),
+                agent: ctx.agent_id.clone(),
+                creator_id: String::new(),
+            };
+            let body = PermissionRequestBody::CommandExec {
+                agent: ctx.agent_id.clone(),
+                cmd: command.to_string(),
+                args: vec![],
+            };
+            let sid = ctx.session_id.as_deref().unwrap_or("");
+            let is_sub_agent =
+                crate::permission_check::is_session_sub_agent(session_mgr, sid).await;
+            let mut flow = approval_flow.lock().await;
+            // submit_denial() enqueues the request and notifies the owner.
+            // We intentionally ignore the return value — the command is
+            // always blocked regardless of whether the owner is notified.
+            flow.submit_denial(&caller, &body, RiskLevel::Critical, sid, is_sub_agent);
+            drop(flow);
+            return Err(ToolCallError::ExecutionFailed(format!(
+                "Blocked: malicious command detected — {}",
+                sec_result.reason.unwrap_or_else(|| "unknown reason".into())
+            )));
+        }
+        TrustLevel::Uncertain => {
+            // Design doc: uncertain → approval flow.
+            // Submit to approval queue; if accepted, return approval_pending
+            // to the agent. If rejected (sub-agent / duplicate), block.
+            let (_, session_mgr, _, approval_flow) = deps;
+            let caller = Caller {
+                user_id: String::new(),
+                agent: ctx.agent_id.clone(),
+                creator_id: String::new(),
+            };
+            let body = PermissionRequestBody::CommandExec {
+                agent: ctx.agent_id.clone(),
+                cmd: command.to_string(),
+                args: vec![],
+            };
+            let sid = ctx.session_id.as_deref().unwrap_or("");
+            let is_sub_agent =
+                crate::permission_check::is_session_sub_agent(session_mgr, sid).await;
+            let mut flow = approval_flow.lock().await;
+            let risk = RiskLevel::High;
+            let reason = sec_result
+                .reason
+                .unwrap_or_else(|| "untrusted syntax".into());
+            if let Some(request_id) = flow.submit_denial(&caller, &body, risk, sid, is_sub_agent) {
+                drop(flow);
+                return Ok(ToolResult {
+                    data: crate::builtin::approval_utils::build_approval_pending(request_id),
+                    new_messages: vec![],
+                    context_modifier: None,
+                });
+            }
+            drop(flow);
+            return Err(ToolCallError::ExecutionFailed(format!(
+                "Blocked: uncertain command — {}",
+                reason
+            )));
+        }
+        TrustLevel::Trusted => {
+            // Continue with normal permission checks below.
+        }
+    }
+
     // Level 1: ToolCall - verify agent may invoke Bash tool
     if let Some(r) = check_tool_permission(deps, ctx, "bash", "call").await? {
         return Ok(r);
@@ -786,3 +862,7 @@ fn build_manual_background_result(task: &closeclaw_tasks::BackgroundTask) -> Too
 #[cfg(test)]
 #[path = "bash_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "bash_approval_tests.rs"]
+mod approval_tests;
