@@ -3,6 +3,7 @@ use super::DiskSkill;
 use super::DiskSkillRegistry;
 use std::path::{Path, PathBuf};
 
+mod refactor_verify;
 mod user_invocable;
 
 fn skill(name: &str, source: SkillSource) -> DiskSkill {
