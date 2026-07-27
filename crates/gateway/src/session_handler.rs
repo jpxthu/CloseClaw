@@ -559,6 +559,13 @@ pub(crate) async fn apply_compact_result(
         let mut cs = cs.write().await;
         cs.apply_transcript_op(TranscriptOp::Rewrite, vec![boundary]);
         cs.mark_compacted();
+        // Explicitly preserve skill listing state across compaction.
+        // Design doc: "对话压缩时受 Session 模块保护"
+        // (see docs/design/skills/skill-listing-injection.md).
+        // skill_listing_snapshot and activated_conditional_skills are
+        // session-level fields that must survive the transcript rewrite
+        // so the next turn can correctly recompute the incremental diff.
+        cs.preserve_listing_on_compaction();
     }
     // Rebuild system prompt after compaction so skills stay fresh.
     // The write guard above is now dropped, so we can safely acquire

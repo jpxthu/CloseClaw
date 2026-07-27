@@ -98,6 +98,46 @@ impl ConversationSession {
         }
     }
 
+    /// Preserve skill listing state across conversation compaction.
+    ///
+    /// Implements the design doc's description of "对话压缩时受
+    /// Session 模块保护" (conversation compaction is protected by the
+    /// Session module). See
+    /// `docs/design/skills/skill-listing-injection.md`.
+    ///
+    /// Skill listing state (`skill_listing_snapshot` and
+    /// `activated_conditional_skills`) is session-level state that
+    /// must survive compaction. During compaction, the transcript is
+    /// rewritten via [`super::transcript_ops::apply_transcript_op`],
+    /// but these fields are independent of the transcript and are not
+    /// affected by that operation. This method explicitly documents
+    /// the protection intent and ensures the state remains intact:
+    ///
+    /// - `skill_listing_snapshot` remains valid for the next turn's
+    ///   incremental diff computation in [`compute_skill_listing_for_turn`].
+    /// - `activated_conditional_skills` persists so conditionally
+    ///   activated skills remain available in subsequent turns.
+    ///
+    /// Called by the gateway layer after compaction completes, before
+    /// the next turn re-computes the listing.
+    pub fn preserve_listing_on_compaction(&mut self) {
+        // skill_listing_snapshot and activated_conditional_skills are
+        // session-level fields independent of the transcript. They are
+        // not cleared by apply_transcript_op (which only replaces
+        // self.messages and updates last_activity_at). This method
+        // makes the protection explicit per the design doc.
+        //
+        // Future-proofing: if transcript_ops ever clears additional
+        // session state, this method provides a single place to add
+        // preservation logic for skill listing fields.
+        tracing::debug!(
+            session_id = %self.session_id,
+            has_snapshot = self.skill_listing_snapshot.is_some(),
+            activated_count = self.activated_conditional_skills.len(),
+            "preserve_listing_on_compaction: skill listing state retained"
+        );
+    }
+
     /// Apply the skill listing state update after a turn.
     ///
     /// Updates the snapshot and activated conditional skills set.
