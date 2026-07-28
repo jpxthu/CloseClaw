@@ -2,19 +2,18 @@
 //!
 //! Extracted from `session_handler.rs` to keep impl blocks under the
 //! 100-line project limit. This module hosts the compaction pipeline:
-//! token estimation, warning/blocking state handling, auto-compact
+//! token estimation, warning state handling, auto-compact
 //! execution, and circuit-breaker notification.
 
 use super::session_handler::SessionMessageHandler;
 use crate::session_manager::compact::{load_compact_inputs, PreloadedCompactInputs};
-use crate::session_manager::SessionManager;
 use crate::OutputTx;
 use closeclaw_common::RunningStats;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::Message as ChatMessage;
 use closeclaw_llm::ProviderModelKnowledge;
-use closeclaw_session::compaction::{CompactionMessage, CompactionService, TokenWarningState};
+use closeclaw_session::compaction::{CompactionMessage, TokenWarningState};
 use std::sync::Arc;
 
 // ── Compaction: token estimation + state handling ──
@@ -35,15 +34,6 @@ impl SessionMessageHandler {
             *warned = true;
         }
         send_output(&self.output_tx, "⚠️ 对话即将压缩，可输入 /compact 手动管理").await;
-    }
-
-    /// Handle the Blocking token state: log and inject circuit-breaker notice.
-    async fn handle_blocking_state(&self, session_id: &str) {
-        tracing::warn!(
-            session_id,
-            "auto compact: blocking state, skipping (handled by caller)"
-        );
-        self.inject_circuit_breaker_notification(session_id).await;
     }
 
     /// Estimate tokens and determine the warning state for the current conversation.
@@ -106,9 +96,6 @@ impl SessionMessageHandler {
                     stats,
                 };
                 self.run_auto_compact(session_id, preloaded).await;
-            }
-            TokenWarningState::Blocking => {
-                self.handle_blocking_state(session_id).await;
             }
         }
     }
@@ -228,39 +215,6 @@ pub(crate) async fn send_output(output_tx: &OutputTx, text: &str) {
     if let Some(tx) = guard.as_ref() {
         let _ = tx.send((text.to_string(), vec![])).await;
     }
-}
-
-/// Check if the session is in a blocking state (context window nearly full).
-pub(crate) async fn is_blocking_state(
-    svc: &Arc<tokio::sync::Mutex<CompactionService>>,
-    sm: &Arc<SessionManager>,
-    session_id: &str,
-    model_knowledge: Option<&ProviderModelKnowledge>,
-) -> bool {
-    let Some((model, mut llm_messages, stats)) = load_compact_inputs(sm, session_id).await else {
-        return false;
-    };
-    {
-        let svc_guard = svc.lock().await;
-        truncate_messages(&mut llm_messages, svc_guard.config().max_history_messages);
-    }
-    let compaction_msgs: Vec<CompactionMessage> = llm_messages
-        .iter()
-        .map(|m| CompactionMessage {
-            role: m.role.clone(),
-            content: m.content.clone(),
-        })
-        .collect();
-    let cpt = svc.lock().await.config().chars_per_token;
-    let tokens =
-        closeclaw_session::compaction::estimate_total_tokens(&stats, &compaction_msgs, cpt);
-    let kb_window = model_knowledge.and_then(|kb| find_context_window_for_model(kb, &model));
-    matches!(
-        svc.lock()
-            .await
-            .token_warning_state(tokens, &model, kb_window),
-        TokenWarningState::Blocking
-    )
 }
 
 /// Truncate `llm_messages` to the most recent `max` entries.
