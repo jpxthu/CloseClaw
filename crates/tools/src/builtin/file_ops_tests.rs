@@ -205,8 +205,12 @@ async fn test_edit_input_schema_has_all_fields() {
     let schema = tool.input_schema();
     let props = schema.pointer("/properties").unwrap().as_object().unwrap();
     assert!(props.contains_key("path"));
+    assert!(props.contains_key("edits"));
     assert!(props.contains_key("oldText"));
     assert!(props.contains_key("newText"));
+    assert!(props.contains_key("replace_all"));
+    let required = schema.pointer("/required").unwrap().as_array().unwrap();
+    assert!(required.contains(&serde_json::json!("path")));
 }
 
 #[tokio::test]

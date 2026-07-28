@@ -95,25 +95,6 @@ async fn write_file(path: &str, content: &str) -> Result<ToolResult, ToolCallErr
     })
 }
 
-/// Apply a targeted text replacement in a file.
-async fn edit_file(path: &str, old: &str, new: &str) -> Result<ToolResult, ToolCallError> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| ToolCallError::ExecutionFailed(format!("{path}: {e}")))?;
-    if !content.contains(old) {
-        return Err(ToolCallError::ExecutionFailed(format!(
-            "oldText not found verbatim in {path}"
-        )));
-    }
-    let updated = content.replacen(old, new, 1);
-    std::fs::write(path, &updated)
-        .map_err(|e| ToolCallError::ExecutionFailed(format!("{path}: {e}")))?;
-    Ok(ToolResult {
-        data: serde_json::json!({ "content": updated }),
-        new_messages: vec![],
-        context_modifier: None,
-    })
-}
-
 /// Recursively grep for pattern matches in a directory.
 fn grep_walk(dir: &Path, re: &Regex, results: &mut Vec<Value>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -343,6 +324,93 @@ impl EditTool {
     }
 }
 
+/// Parse the `edits` array from args, falling back to the legacy
+/// `oldText`/`newText` single-edit format.
+///
+/// Returns `(edits_vec, replace_all)`.
+fn parse_edits(
+    args: &Value,
+) -> Result<(Vec<crate::builtin::edit_match::EditOp>, bool), ToolCallError> {
+    let replace_all = args.get("replace_all") == Some(&Value::Bool(true));
+
+    if let Some(arr) = args.get("edits").and_then(Value::as_array) {
+        if arr.is_empty() {
+            return Err(ToolCallError::InvalidArgs(
+                "edits array must not be empty".to_string(),
+            ));
+        }
+        let mut edits = Vec::with_capacity(arr.len());
+        for (i, item) in arr.iter().enumerate() {
+            let old_text = item
+                .get("oldText")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| {
+                    ToolCallError::InvalidArgs(format!(
+                        "edits[{i}]: oldText is required and must not be empty"
+                    ))
+                })?;
+            let new_text = item.get("newText").and_then(Value::as_str).unwrap_or("");
+            if old_text == new_text {
+                return Err(ToolCallError::InvalidArgs(format!(
+                    "edits[{i}]: oldText and newText must be different"
+                )));
+            }
+            edits.push(crate::builtin::edit_match::EditOp {
+                old_text: old_text.to_string(),
+                new_text: new_text.to_string(),
+            });
+        }
+        return Ok((edits, replace_all));
+    }
+
+    // Legacy single-edit format: oldText + newText at top level.
+    let old_text = args
+        .get("oldText")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            ToolCallError::InvalidArgs("missing required parameter: oldText or edits".to_string())
+        })?;
+    let new_text = args.get("newText").and_then(Value::as_str).unwrap_or("");
+    if old_text == new_text {
+        return Err(ToolCallError::InvalidArgs(
+            "oldText and newText must be different".to_string(),
+        ));
+    }
+    Ok((
+        vec![crate::builtin::edit_match::EditOp {
+            old_text: old_text.to_string(),
+            new_text: new_text.to_string(),
+        }],
+        replace_all,
+    ))
+}
+
+/// Staleness check: verify file mtime matches what was recorded during
+/// the last Read. Returns Ok(()) if the file was never read (backward
+/// compatible) or if mtime is consistent; Err otherwise.
+async fn check_staleness(ctx: &ToolContext, path: &str) -> Result<(), ToolCallError> {
+    let session = match ctx.session.as_ref() {
+        Some(s) => s,
+        None => return Ok(()), // test scenario — no session
+    };
+    let recorded_mtime = session.get_file_mtime(path);
+    if recorded_mtime.is_none() {
+        // File was never read — allow (backward compatible).
+        return Ok(());
+    }
+    let recorded = recorded_mtime.unwrap();
+    let current_mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
+    match current_mtime {
+        Some(current) if current == recorded => Ok(()),
+        Some(_) => Err(ToolCallError::ExecutionFailed(
+            "file has been modified since last read; re-read the file before editing".to_string(),
+        )),
+        None => Ok(()), // can't determine mtime — allow
+    }
+}
+
 #[async_trait]
 impl Tool for EditTool {
     fn name(&self) -> &str {
@@ -353,14 +421,15 @@ impl Tool for EditTool {
     }
 
     fn summary(&self) -> String {
-        "Apply a targeted edit to a file".to_string()
+        "Apply targeted edits to a file".to_string()
     }
 
     fn detail(&self) -> String {
-        "Apply a targeted edit to an existing file using exact text replacement.\
-         Takes `path`, `oldText` (exact string to replace), and `newText` (replacement).\
-         Only one replacement is performed per call.\
-         Fails if `oldText` is not found verbatim in the file.\
+        "Apply targeted edits to an existing file using exact text replacement.\
+         Accepts an `edits` array where each element has `oldText` and `newText`.\
+         Supports multiple replacements in a single call with non-incremental matching.\
+         Falls back to legacy `oldText`/`newText` single-edit format.\
+         Fails if any `oldText` is not found in the file.\
          Destructive: modifies the file in place."
             .to_string()
     }
@@ -373,16 +442,38 @@ impl Tool for EditTool {
                     "type": "string",
                     "description": "Absolute or workdir-relative file path"
                 },
+                "edits": {
+                    "type": "array",
+                    "description": "Array of edit operations, each with oldText and newText",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "oldText": {
+                                "type": "string",
+                                "description": "Exact text to search for and replace"
+                            },
+                            "newText": {
+                                "type": "string",
+                                "description": "Replacement text"
+                            }
+                        },
+                        "required": ["oldText", "newText"]
+                    }
+                },
                 "oldText": {
                     "type": "string",
-                    "description": "Exact text to search for and replace"
+                    "description": "Legacy: exact text to search for (use edits array instead)"
                 },
                 "newText": {
                     "type": "string",
-                    "description": "Replacement text"
+                    "description": "Legacy: replacement text (use edits array instead)"
+                },
+                "replace_all": {
+                    "type": "boolean",
+                    "description": "Replace all occurrences instead of requiring exactly one match"
                 }
             },
-            "required": ["path", "oldText", "newText"]
+            "required": ["path"]
         })
     }
 
@@ -397,21 +488,31 @@ impl Tool for EditTool {
 
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         let path = required_str(&args, "path")?;
-        let old_text = required_str(&args, "oldText")?;
-        let new_text = args.get("newText").and_then(Value::as_str).unwrap_or("");
+        let (edits, replace_all) = parse_edits(&args)?;
         let deps = (
             self.permission_engine.clone(),
             self.session_manager.clone(),
             self.config_manager.clone(),
             self.approval_flow.clone(),
         );
-        check_and_execute(
-            &deps,
-            ctx,
-            path,
-            "write",
-            edit_file(path, old_text, new_text),
-        )
+        let path_owned = path.to_string();
+        check_and_execute(&deps, ctx, path, "write", async move {
+            // Staleness check: ensure file hasn't changed since last Read.
+            check_staleness(ctx, &path_owned).await?;
+
+            let content = std::fs::read_to_string(&path_owned)
+                .map_err(|e| ToolCallError::ExecutionFailed(format!("{path_owned}: {e}")))?;
+            let updated =
+                crate::builtin::edit_match::match_and_apply(&content, &edits, replace_all)
+                    .map_err(|e| ToolCallError::ExecutionFailed(e.to_string()))?;
+            std::fs::write(&path_owned, &updated)
+                .map_err(|e| ToolCallError::ExecutionFailed(format!("{path_owned}: {e}")))?;
+            Ok(ToolResult {
+                data: serde_json::json!({ "content": updated }),
+                new_messages: vec![],
+                context_modifier: None,
+            })
+        })
         .await
     }
 }
