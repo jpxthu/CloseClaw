@@ -211,9 +211,7 @@ pub(crate) fn parse_step_selection_arg(args: &str) -> Option<Vec<usize>> {
 
 /// `/auto` — directly enter Auto Mode.
 ///
-/// - Without arguments: switches to Auto Mode without a plan file.
-/// - With a plan file path: validates the file exists, initializes
-///   `PlanState`, and switches to Auto Mode.
+/// `/auto` does not accept any arguments.
 /// - If already in Auto Mode: replies with a notification.
 /// - If in Plan Mode: injects `ExitPlan` transition before switching.
 pub struct AutoModeHandler {
@@ -241,7 +239,7 @@ impl SlashHandler for AutoModeHandler {
         false
     }
 
-    async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
+    async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
         let Some(conv) = self
             .session_manager
             .get_conversation_session(&ctx.session_id)
@@ -250,35 +248,14 @@ impl SlashHandler for AutoModeHandler {
             return SlashResult::Reply("当前会话未激活".to_owned());
         };
 
-        // Read current mode and workdir in a single lock acquisition.
-        let (current_mode, workdir) = {
+        // Read current mode in a single lock acquisition.
+        let current_mode = {
             let cs = conv.read().await;
-            (cs.session_mode(), cs.workdir().to_path_buf())
+            cs.session_mode()
         };
 
         if current_mode == SessionMode::Auto {
             return SlashResult::Reply("已在 Auto Mode".to_owned());
-        }
-
-        let plan_arg = args.trim();
-        let plan_file_path = if plan_arg.is_empty() {
-            None
-        } else {
-            let path = std::path::PathBuf::from(plan_arg);
-            if !path.exists() {
-                return SlashResult::Reply(format!("plan 文件不存在：{}", path.display()));
-            }
-            Some(path)
-        };
-
-        // Initialize PlanState when a plan file is provided.
-        if let Some(ref path) = plan_file_path {
-            let mut plan_state = PlanState::new();
-            plan_state.plan_file_path = path.to_string_lossy().to_string();
-            plan_state.phase = PlanPhase::FinalPlan;
-            self.session_manager
-                .set_plan_state(&ctx.session_id, plan_state)
-                .await;
         }
 
         // Inject ExitPlan transition when leaving Plan Mode.
@@ -288,18 +265,9 @@ impl SlashHandler for AutoModeHandler {
                 .await;
         }
 
-        let plan_file_path_for_result = plan_file_path.map(|p| {
-            // Ensure the path is absolute for persistence.
-            if p.is_absolute() {
-                p
-            } else {
-                workdir.join(p)
-            }
-        });
-
         SlashResult::SetMode {
             mode: "auto".to_owned(),
-            plan_file_path: plan_file_path_for_result,
+            plan_file_path: None,
             initial_input: None,
             reply_message: Some("已切换到 Auto 模式".to_owned()),
         }
