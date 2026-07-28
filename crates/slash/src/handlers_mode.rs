@@ -506,7 +506,7 @@ impl SlashHandler for ModeHandler {
     }
 
     fn immediate(&self, _cmd: &str) -> bool {
-        true
+        false
     }
 
     async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {

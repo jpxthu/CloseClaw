@@ -125,8 +125,9 @@ impl SlashEffectExecutor for MockExecutor {
         *self.stop_called.lock().unwrap() = true;
     }
 
-    async fn execute_new_session(&self, _session_id: &str, _channel: &str) {
+    async fn execute_new_session(&self, _session_id: &str, _channel: &str) -> String {
         *self.new_session_called.lock().unwrap() = true;
+        "mock-new-session-id".into()
     }
 
     async fn execute_compact(
@@ -280,7 +281,9 @@ async fn test_new_session_calls_executor_and_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "已创建新 session"));
+            assert!(
+                matches!(&blocks[0], ContentBlock::Text(t) if t == "已创建新 session：mock-new-session-id")
+            );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -466,7 +469,9 @@ async fn test_exec_failure_forwards_error_to_user() {
     #[async_trait]
     impl SlashEffectExecutor for FailingMockExecutor {
         async fn execute_stop(&self, _: &str, _: bool, _: bool) {}
-        async fn execute_new_session(&self, _: &str, _: &str) {}
+        async fn execute_new_session(&self, _: &str, _: &str) -> String {
+            "fail-mock-id".into()
+        }
         async fn execute_compact(
             &self,
             _: &str,
@@ -628,7 +633,9 @@ async fn test_side_effect_context_new_session_delivered() {
     assert_eq!(actions.len(), 1);
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "已创建新 session"));
+            assert!(
+                matches!(&blocks[0], ContentBlock::Text(t) if t == "已创建新 session：mock-new-session-id")
+            );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }

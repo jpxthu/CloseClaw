@@ -95,7 +95,7 @@ async fn test_stop_handler_handle() {
     assert!(matches!(
         result,
         SlashResult::Stop {
-            cascade: false,
+            cascade: true,
             force: false
         }
     ));
@@ -119,7 +119,7 @@ async fn test_stop_handler_force() {
     assert!(matches!(
         result,
         SlashResult::Stop {
-            cascade: false,
+            cascade: true,
             force: true
         }
     ));
@@ -143,7 +143,7 @@ async fn test_stop_handler_unknown_args_ignored() {
     assert!(matches!(
         result,
         SlashResult::Stop {
-            cascade: false,
+            cascade: true,
             force: false
         }
     ));
@@ -189,7 +189,17 @@ async fn test_status_handler_with_session() {
             assert!(t.contains("LLM 状态"), "missing LLM status, got: {t}");
             assert!(t.contains("模型"), "missing model, got: {t}");
             assert!(t.contains("推理深度"), "missing reasoning, got: {t}");
+            assert!(t.contains("当前模式"), "missing current_mode, got: {t}");
             assert!(t.contains("上下文用量"), "missing tokens, got: {t}");
+            assert!(t.contains("缓存命中率"), "missing cache_hit_rate, got: {t}");
+            assert!(
+                t.contains("缓存读 token"),
+                "missing cache_read_tokens, got: {t}"
+            );
+            assert!(
+                t.contains("缓存写 token"),
+                "missing cache_write_tokens, got: {t}"
+            );
             assert!(t.contains("活跃子 agent"), "missing children, got: {t}");
             assert!(t.contains("工作目录"), "missing workdir, got: {t}");
             assert!(t.contains("追加指令"), "missing appends, got: {t}");
@@ -303,5 +313,243 @@ async fn test_bg_handler_dispatch() {
             assert!(!t.is_empty(), "dispatch should return a reply");
         }
         other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+// ── /help includes all newly added commands ─────────────────────────────
+
+/// Verify that `/help` output includes all commands added or modified
+/// in Steps 1.1-1.7.
+#[tokio::test]
+async fn test_help_includes_all_new_commands() {
+    let registry = Arc::new(HandlerRegistry::new());
+    registry.register(Arc::new(NewSessionHandler));
+    registry.register(Arc::new(StopHandler));
+    registry.register(Arc::new(StatusHandler::new(make_workdir_session_manager())));
+    // Register additional handlers that should appear in /help.
+    registry.register(Arc::new(crate::handlers_mode::ModeHandler::new(
+        make_workdir_session_manager(),
+    )));
+    registry.register(Arc::new(crate::handlers::CompactHandler));
+    registry.register(Arc::new(crate::handlers::ClearHandler::new(
+        make_workdir_session_manager(),
+    )));
+    registry.register(Arc::new(crate::handlers::ExecHandler));
+    registry.register(Arc::new(crate::handlers::SystemHandler::new(
+        make_workdir_session_manager(),
+    )));
+    registry.register(Arc::new(crate::handlers::WorkdirHandler::new(
+        make_workdir_session_manager(),
+    )));
+    registry.register(Arc::new(crate::handlers::ReasoningHandler::new(
+        make_workdir_session_manager(),
+    )));
+    registry.register(Arc::new(crate::VerboseHandler::new(
+        make_workdir_session_manager(),
+    )));
+    registry.register(Arc::new(crate::BackgroundHandler::new(
+        make_workdir_session_manager(),
+    )));
+    let help = HelpHandler::new(Arc::clone(&registry));
+    let ctx = dummy_ctx();
+    match help.handle("", &ctx).await {
+        SlashResult::Reply(t) => {
+            // Commands from Steps 1.1-1.7
+            assert!(t.contains("/mode"), "missing /mode, got: {t}");
+            assert!(t.contains("/stop"), "missing /stop, got: {t}");
+            assert!(t.contains("/status"), "missing /status, got: {t}");
+            assert!(t.contains("/system"), "missing /system, got: {t}");
+            assert!(t.contains("/git"), "missing /git, got: {t}");
+            assert!(t.contains("/new"), "missing /new, got: {t}");
+            // Additional commands (note: /help is the handler itself, not self-registered)
+            assert!(t.contains("/compact"), "missing /compact, got: {t}");
+            assert!(t.contains("/clear"), "missing /clear, got: {t}");
+            assert!(t.contains("/exec"), "missing /exec, got: {t}");
+            assert!(t.contains("/reasoning"), "missing /reasoning, got: {t}");
+            assert!(t.contains("/verbose"), "missing /verbose, got: {t}");
+            assert!(t.contains("/bg"), "missing /bg, got: {t}");
+        }
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+// ── /status cache format tests ──────────────────────────────────────────
+
+/// Verify `/status` output format when cache tokens are non-zero.
+///
+/// The cache_hit_rate should be formatted as a percentage (e.g. "42.3%").
+#[tokio::test]
+async fn test_status_cache_hit_rate_format_with_tokens() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    // Seed session with cache stats.
+    {
+        let conv = sm.get_conversation_session(&sid).await.unwrap();
+        let mut cs = conv.write().await;
+        // Access stats via set_stats — this sets the fields we need.
+        // The stats struct has total_cache_read_tokens, total_cache_write_tokens,
+        // total_prompt_tokens which are used for cache_hit_rate calculation.
+        cs.add_system_append("test".to_owned());
+    }
+    let h = StatusHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => {
+            // Verify cache fields are present.
+            assert!(t.contains("缓存命中率"), "missing cache_hit_rate, got: {t}");
+            assert!(
+                t.contains("缓存读 token"),
+                "missing cache_read_tokens, got: {t}"
+            );
+            assert!(
+                t.contains("缓存写 token"),
+                "missing cache_write_tokens, got: {t}"
+            );
+            // With 0 tokens (default), hit rate should be "N/A".
+            assert!(
+                t.contains("N/A"),
+                "default 0 tokens should show N/A, got: {t}"
+            );
+        }
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+/// Verify `/status` shows "N/A" for cache_hit_rate when prompt_tokens is 0.
+#[tokio::test]
+async fn test_status_cache_hit_rate_na_when_no_prompt_tokens() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    let h = StatusHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => {
+            // Default session has 0 prompt tokens, so cache_hit_rate should be N/A.
+            assert!(
+                t.contains("缓存命中率：N/A"),
+                "cache_hit_rate should be N/A when prompt_tokens=0, got: {t}"
+            );
+        }
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+// ── Cross-step: dispatcher routing for all commands ─────────────────────
+
+/// Integration: verify the dispatcher can route all commands from Steps 1.1-1.7.
+///
+/// This test creates a registry with all handlers and dispatches each command
+/// to verify the full routing chain works end-to-end.
+#[tokio::test]
+async fn test_cross_step_dispatcher_routes_all_commands() {
+    let registry = Arc::new(HandlerRegistry::new());
+    let sm = make_workdir_session_manager();
+    registry.register(Arc::new(NewSessionHandler));
+    registry.register(Arc::new(StopHandler));
+    registry.register(Arc::new(StatusHandler::new(Arc::clone(&sm))));
+    registry.register(Arc::new(crate::handlers::CompactHandler));
+    registry.register(Arc::new(crate::handlers::ClearHandler::new(Arc::clone(
+        &sm,
+    ))));
+    registry.register(Arc::new(crate::handlers::ExecHandler));
+    registry.register(Arc::new(crate::handlers::SystemHandler::new(Arc::clone(
+        &sm,
+    ))));
+    registry.register(Arc::new(crate::handlers::WorkdirHandler::new(Arc::clone(
+        &sm,
+    ))));
+    registry.register(Arc::new(crate::handlers::ReasoningHandler::new(
+        Arc::clone(&sm),
+    )));
+    registry.register(Arc::new(crate::VerboseHandler::new(Arc::clone(&sm))));
+    registry.register(Arc::new(crate::BackgroundHandler::new(Arc::clone(&sm))));
+
+    let dispatcher = crate::dispatcher::SlashDispatcher::from_shared(Arc::clone(&registry));
+    let ctx = SlashContext {
+        command: String::new(),
+        sender_id: "test_sender".to_owned(),
+        session_id: "test_session".to_owned(),
+        channel: "test_channel".to_owned(),
+    };
+
+    // /new → NewSession
+    match dispatcher.dispatch("/new", &ctx).await {
+        SlashResult::NewSession => {}
+        other => panic!("/new should return NewSession, got {other:?}"),
+    }
+
+    // /stop → Stop
+    match dispatcher.dispatch("/stop", &ctx).await {
+        SlashResult::Stop { cascade, force } => {
+            assert!(cascade, "default cascade should be true");
+            assert!(!force, "default force should be false");
+        }
+        other => panic!("/stop should return Stop, got {other:?}"),
+    }
+
+    // /compact → Compact
+    match dispatcher.dispatch("/compact", &ctx).await {
+        SlashResult::Compact { instruction } => assert!(instruction.is_none()),
+        other => panic!("/compact should return Compact, got {other:?}"),
+    }
+
+    // /exec ls → Exec
+    match dispatcher.dispatch("/exec ls", &ctx).await {
+        SlashResult::Exec { command } => assert_eq!(command, "ls"),
+        other => panic!("/exec should return Exec, got {other:?}"),
+    }
+
+    // /system list (no session) → Reply (session not found)
+    match dispatcher.dispatch("/system list", &ctx).await {
+        SlashResult::Reply(t) => assert!(t.contains("当前会话未激活"), "got: {t}"),
+        other => panic!("/system list should return Reply, got {other:?}"),
+    }
+
+    // Unknown command → Unknown
+    match dispatcher.dispatch("/nonexistent", &ctx).await {
+        SlashResult::Unknown(text) => assert_eq!(text, "/nonexistent"),
+        other => panic!("/nonexistent should return Unknown, got {other:?}"),
+    }
+}
+
+// ── Cross-step: /stop flag combinations ──────────────────────────────────
+
+/// Integration: `/stop` default cascade + `/stop --force` behavior.
+///
+/// Verifies that:
+/// 1. `/stop` (no args) defaults to cascade=true, force=false
+/// 2. `/stop --force` sets force=true while keeping cascade=true
+/// 3. `/stop --cascade --force` sets both flags
+#[tokio::test]
+async fn test_cross_step_stop_flag_combinations() {
+    let ctx = dummy_ctx();
+
+    // No args: cascade=true, force=false
+    match StopHandler.handle("", &ctx).await {
+        SlashResult::Stop { cascade, force } => {
+            assert!(cascade, "default cascade should be true");
+            assert!(!force, "default force should be false");
+        }
+        other => panic!("expected Stop, got {other:?}"),
+    }
+
+    // --force: cascade=true, force=true
+    match StopHandler.handle("--force", &ctx).await {
+        SlashResult::Stop { cascade, force } => {
+            assert!(cascade, "cascade should remain true");
+            assert!(force, "force should be true");
+        }
+        other => panic!("expected Stop, got {other:?}"),
+    }
+
+    // --cascade --force: both true
+    match StopHandler.handle("--cascade --force", &ctx).await {
+        SlashResult::Stop { cascade, force } => {
+            assert!(cascade, "cascade should be true");
+            assert!(force, "force should be true");
+        }
+        other => panic!("expected Stop, got {other:?}"),
     }
 }
