@@ -298,7 +298,15 @@ impl Tool for WriteTool {
             self.config_manager.clone(),
             self.approval_flow.clone(),
         );
-        check_and_execute(&deps, ctx, path, "write", write_file(path, content)).await
+        let path_owned = path.to_string();
+        check_and_execute(&deps, ctx, path, "write", async move {
+            // Staleness check: ensure file hasn't changed since last Read.
+            if Path::new(&path_owned).exists() {
+                check_staleness(ctx, &path_owned).await?;
+            }
+            write_file(&path_owned, content).await
+        })
+        .await
     }
 }
 
