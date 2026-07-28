@@ -47,6 +47,9 @@ tree-sitter-bash = "0.23"
 regex = "1.10"
 regex-lite = "0.1"
 
+# Unicode normalization for fuzzy matching
+unicode-normalization = "0.1"
+
 # Date/time
 chrono = { version = "0.4", features = ["serde"] }
 
