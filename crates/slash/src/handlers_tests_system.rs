@@ -104,7 +104,26 @@ async fn test_system_list_empty() {
     let ctx = make_ctx(&sid);
     match h.handle("list", &ctx).await {
         SlashResult::Reply(text) => {
-            assert_eq!(text, "当前无追加指令", "got: {text}");
+            assert_eq!(text, "无追加指令", "got: {text}");
+        }
+        _other => panic!("expected Reply"),
+    }
+}
+
+#[tokio::test]
+async fn test_system_no_args_empty() {
+    // /system (no args) with empty appends should also return "无追加指令"
+    let sm = make_sm();
+    let sid = create_test_session(&sm).await;
+
+    let h = SystemHandler::new(Arc::clone(&sm));
+    let ctx = make_ctx(&sid);
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(text) => {
+            assert_eq!(
+                text, "无追加指令",
+                "/system no-args empty list should match design doc: {text}"
+            );
         }
         _other => panic!("expected Reply"),
     }

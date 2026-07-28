@@ -291,7 +291,7 @@ impl SlashHandler for SystemHandler {
                 let cs = conv.read().await;
                 let appends = cs.system_appends();
                 if appends.is_empty() {
-                    SlashResult::Reply("当前无追加指令".to_owned())
+                    SlashResult::Reply("无追加指令".to_owned())
                 } else {
                     let list: String = appends
                         .iter()

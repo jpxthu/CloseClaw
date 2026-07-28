@@ -151,9 +151,10 @@ impl SlashEffectExecutor for MockExecutor {
         })
     }
 
-    async fn execute_system_append(&self, _session_id: &str, action: &SystemAppendAction) {
+    async fn execute_system_append(&self, _session_id: &str, action: &SystemAppendAction) -> usize {
         *self.system_append_called.lock().unwrap() = true;
         *self.system_append_action.lock().unwrap() = Some(action.clone());
+        1
     }
 
     async fn execute_set_reasoning(&self, _session_id: &str, _level: ReasoningLevel) {
@@ -395,7 +396,7 @@ async fn test_system_append_add_calls_executor_and_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "已追加指令"));
+            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "已追加指令 #1"));
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -422,7 +423,7 @@ async fn test_system_append_clear_calls_executor_and_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "已清除追加指令"));
+            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "已清除 1 条追加指令"));
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -479,7 +480,9 @@ async fn test_exec_failure_forwards_error_to_user() {
         ) -> Result<CompactionResult, CompactionError> {
             unimplemented!()
         }
-        async fn execute_system_append(&self, _: &str, _: &SystemAppendAction) {}
+        async fn execute_system_append(&self, _: &str, _: &SystemAppendAction) -> usize {
+            0
+        }
         async fn execute_set_reasoning(&self, _: &str, _: ReasoningLevel) {}
         async fn execute_set_verbosity(&self, _: &str, _: VerbosityLevel) {}
         async fn execute_set_mode(&self, _: &str, _: &str) {}
