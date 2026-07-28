@@ -443,25 +443,6 @@ async fn test_execute_handler_no_session() {
 }
 
 #[tokio::test]
-async fn test_execute_handler_not_in_plan_mode() {
-    let sm = make_session_manager_with_storage();
-    let sid = create_test_session(&sm).await;
-    let h = ExecuteHandler::new(Arc::clone(&sm));
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid;
-    match h.handle("", &ctx).await {
-        SlashResult::SetMode {
-            mode,
-            plan_file_path,
-        } => {
-            assert_eq!(mode, "auto", "should switch to auto mode");
-            assert!(plan_file_path.is_none(), "no plan file expected");
-        }
-        other => panic!("expected SetMode{{mode: \"auto\", plan_file_path: None}}, got {other:?}"),
-    }
-}
-
-#[tokio::test]
 async fn test_execute_handler_normal_mode_enters_auto() {
     let sm = make_session_manager_with_storage();
     let sid = create_test_session(&sm).await;
