@@ -67,9 +67,9 @@ pub trait SlashEffectExecutor: Send + Sync {
 
     /// Execute a shell command for the given agent.
     ///
-    /// The implementation evaluates command-level permissions via the
-    /// permission engine, then runs the command and returns output as
-    /// `ContentBlock::Text`. Returns a rejection message on permission denial.
+    /// The implementation runs the command and returns output as
+    /// `ContentBlock::Text`. Permission is evaluated at the Gateway layer
+    /// (check_slash_permission) before the executor is invoked.
     async fn execute_exec(
         &self,
         session_id: &str,

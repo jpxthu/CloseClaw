@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::{Gateway, GatewayConfig, GatewaySlashExecutor, HandleResult, SessionManager};
+use crate::{Gateway, GatewayConfig, HandleResult, SessionManager};
 use closeclaw_common::slash_router::{SlashContext, SlashHandler, SlashResult, SlashRouter};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
@@ -744,8 +744,7 @@ async fn test_non_immediate_idle_executes_normally() {
 // delegates to `SessionMessageHandler::send_reply()`. In unit tests the
 // session_handler is None, so the text is silently dropped. The behavioral
 // contract (handler skipped, dispatch returns SlashHandled) is verified
-// below. The actual text content is validated by executor-level tests
-// (check_command_permission returns Err with "权限不足" prefix).
+// below.
 
 /// 边界值 (edge-case): denial when the deny rule has an empty name.
 /// Verifies the Gateway handles edge-case denial reasons without panic.
@@ -815,69 +814,6 @@ async fn test_permission_allow_after_deny_transition() {
 }
 
 // ===========================================================================
-// Step 1.4: Executor-layer text verification tests
-// ===========================================================================
-//
-// Directly call `GatewaySlashExecutor::check_command_permission` and verify
-// the returned `Err(Vec<ContentBlock>)` contains "权限不足：" prefix.
-
-/// Shared helper: build a `GatewaySlashExecutor` with an optional permission engine.
-fn build_executor(
-    engine: Option<Arc<tokio::sync::RwLock<PermissionEngine>>>,
-) -> GatewaySlashExecutor {
-    let config = GatewayConfig {
-        name: "test".to_owned(),
-        rate_limit_per_minute: 0,
-        max_message_size: 0,
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        ReasoningLevel::default(),
-    ));
-    GatewaySlashExecutor::new(sm, None, engine)
-}
-
-/// Helper: build a `GatewaySlashExecutor` without a permission engine.
-fn no_engine_executor() -> GatewaySlashExecutor {
-    build_executor(None)
-}
-
-/// Helper: build a `GatewaySlashExecutor` with a deny-all engine.
-fn deny_engine_executor() -> GatewaySlashExecutor {
-    build_executor(Some(deny_engine()))
-}
-
-/// Helper: extract the first text content from a `Vec<ContentBlock>`.
-fn first_text(blocks: &[closeclaw_common::processor::ContentBlock]) -> &str {
-    for b in blocks {
-        if let closeclaw_common::processor::ContentBlock::Text(t) = b {
-            return t;
-        }
-    }
-    panic!("no Text block found in ContentBlock list")
-}
-
-/// Verify executor-layer text: no permission engine → Err with
-/// "权限不足：权限引擎未配置".
-#[tokio::test]
-async fn test_executor_check_permission_no_engine() {
-    let executor = no_engine_executor();
-    let err = executor
-        .check_command_permission("test-agent", "ls", &[])
-        .await;
-    let err = err.expect_err("should deny when engine is None");
-    let text = first_text(&err);
-    assert!(
-        text.starts_with("权限不足："),
-        "error text must start with '权限不足：', got: {text}"
-    );
-    assert_eq!(text, "权限不足：权限引擎未配置");
-}
-
-// ===========================================================================
 // Owner short-circuit path test
 // ===========================================================================
 
@@ -901,21 +837,5 @@ async fn test_owner_slash_direct_dispatch() {
         counter.load(Ordering::SeqCst),
         1,
         "owner should bypass permission engine and invoke handler"
-    );
-}
-
-/// Verify executor-layer text: deny engine → Err with
-/// "权限不足：<reason>".
-#[tokio::test]
-async fn test_executor_check_permission_denied_with_reason() {
-    let executor = deny_engine_executor();
-    let err = executor
-        .check_command_permission("test-agent", "rm", &["-rf".to_owned(), "/".to_owned()])
-        .await;
-    let err = err.expect_err("should deny with deny-all engine");
-    let text = first_text(&err);
-    assert!(
-        text.starts_with("权限不足："),
-        "error text must start with '权限不足：', got: {text}"
     );
 }

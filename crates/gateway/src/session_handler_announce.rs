@@ -381,7 +381,7 @@ impl SessionMessageHandler {
             "health check: sending recovery notification to user"
         );
         // Inject as assistant message into transcript (design-doc requirement).
-        if let Some(cs) = session_manager.get_conversation_session(&session_id).await {
+        if let Some(cs) = session_manager.get_conversation_session(session_id).await {
             cs.write()
                 .await
                 .append_transcript("assistant", vec![ContentBlock::Text(message.clone())]);

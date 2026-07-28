@@ -422,6 +422,73 @@ async fn test_exec_calls_execute_exec_and_sends_result() {
     }
 }
 
+#[tokio::test]
+async fn test_exec_failure_forwards_error_to_user() {
+    // When execute_exec returns error output, it should be forwarded
+    // to the user as-is via ReplyAction::Reply.
+    struct FailingMockExecutor;
+
+    #[allow(dead_code)]
+    impl FailingMockExecutor {
+        fn new() -> Self {
+            Self
+        }
+    }
+
+    #[async_trait]
+    impl SlashEffectExecutor for FailingMockExecutor {
+        async fn execute_stop(&self, _: &str, _: bool, _: bool) {}
+        async fn execute_new_session(&self, _: &str, _: &str) {}
+        async fn execute_compact(
+            &self,
+            _: &str,
+            _: Option<String>,
+        ) -> Result<CompactionResult, CompactionError> {
+            unimplemented!()
+        }
+        async fn execute_system_append(&self, _: &str, _: &SystemAppendAction) {}
+        async fn execute_set_reasoning(&self, _: &str, _: ReasoningLevel) {}
+        async fn execute_set_verbosity(&self, _: &str, _: VerbosityLevel) {}
+        async fn execute_set_mode(&self, _: &str, _: &str) {}
+        async fn execute_exec(&self, _: &str, _: &str, _: &str) -> Vec<ContentBlock> {
+            vec![ContentBlock::Text(
+                "命令执行失败：No such file or directory (os error 2)".into(),
+            )]
+        }
+    }
+
+    let (tx, mut rx) = mpsc::channel(16);
+    let executor: Arc<dyn SlashEffectExecutor> = Arc::new(FailingMockExecutor::new());
+    let ctx = SideEffectContext {
+        session_id: "sess-fail".into(),
+        channel: "feishu".into(),
+        session_manager: Arc::new(MockSessionLookup),
+        reply_tx: tx,
+        executor,
+    };
+
+    SlashResult::Exec {
+        command: "/nonexistent/cmd".into(),
+    }
+    .execute(&ctx)
+    .await;
+    drop(ctx);
+
+    let mut actions = drain_actions(&mut rx).await;
+    assert_eq!(actions.len(), 1);
+    match actions.remove(0) {
+        ReplyAction::Reply(blocks) => {
+            assert_eq!(blocks.len(), 1);
+            assert!(
+                matches!(&blocks[0], ContentBlock::Text(t) if t.contains("命令执行失败")),
+                "error message should be forwarded to user, got: {:?}",
+                &blocks[0],
+            );
+        }
+        other => panic!("expected ReplyAction::Reply, got {other:?}"),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests — Unknown
 // ---------------------------------------------------------------------------
