@@ -20,7 +20,8 @@ use tracing;
 ///
 /// - With arguments: creates a plan file in the session's workdir,
 ///   returns `SlashResult::SetMode` with the plan file path.
-/// - Without arguments: replies with a usage hint.
+/// - Without arguments (or `--path` without title): enters Plan Mode
+///   without creating a plan file.
 pub struct PlanModeHandler {
     session_manager: Arc<SessionManager>,
 }
@@ -87,6 +88,14 @@ impl SlashHandler for PlanModeHandler {
         // No title (either no args or --path without title): enter Plan Mode
         // without creating a plan file.
         if !has_title {
+            // If --path was provided, persist explicit_path in PlanState.
+            if explicit_path.is_some() {
+                let mut plan_state = PlanState::new();
+                plan_state.explicit_path = explicit_path;
+                self.session_manager
+                    .set_plan_state(&ctx.session_id, plan_state)
+                    .await;
+            }
             return SlashResult::SetMode {
                 mode: "plan".to_owned(),
                 plan_file_path: None,

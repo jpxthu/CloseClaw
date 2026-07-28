@@ -651,21 +651,8 @@ async fn test_mode_handler_no_args_normal_mode() {
     }
 }
 
-#[tokio::test]
-async fn test_mode_handler_invalid_exact_match() {
-    let sm = make_session_manager();
-    let h = ModeHandler::new(sm);
-    let ctx = dummy_ctx();
-    match h.handle("invalid", &ctx).await {
-        SlashResult::Reply(text) => {
-            assert_eq!(
-                text, "无效模式。可用：normal, plan, auto",
-                "should match doc-specified error format exactly"
-            );
-        }
-        other => panic!("expected Reply error, got {other:?}"),
-    }
-}
+// NOTE: test_mode_handler_invalid_exact_match removed — it duplicates
+// test_mode_handler_invalid_mode which already asserts the exact doc format.
 
 // ── PlanModeHandler transition tests (Step 1.3 — Gap 1 transitions) ─────
 
