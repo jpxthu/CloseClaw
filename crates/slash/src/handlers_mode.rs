@@ -337,17 +337,18 @@ impl SlashHandler for ExecuteHandler {
         else {
             return SlashResult::Reply("当前会话未激活".to_owned());
         };
-        {
-            let cs = conv.read().await;
-            if cs.session_mode() != SessionMode::Plan {
-                return SlashResult::Reply(
-                    "/execute 需要在 Plan Mode 下使用。先用 /plan <任务描述> 进入 Plan Mode。"
-                        .to_owned(),
-                );
-            }
+
+        let current_mode = conv.read().await.session_mode();
+
+        // Non-Plan Mode: directly enter Auto Mode without a plan file.
+        if current_mode != SessionMode::Plan {
+            return SlashResult::SetMode {
+                mode: "auto".to_owned(),
+                plan_file_path: None,
+            };
         }
 
-        // Step 2: Load plan_state from checkpoint
+        // Plan Mode: load plan_state and transition to Auto Mode.
         let mut plan_state = match self.session_manager.get_plan_state(&ctx.session_id).await {
             Some(ps) => ps,
             None => {
@@ -509,11 +510,6 @@ impl SlashHandler for ModeHandler {
             let cs = conv.read().await;
             let mode = cs.session_mode();
             return SlashResult::Reply(format!("当前会话模式：{mode}"));
-        }
-
-        // Auto Mode should be entered via the dedicated /auto command.
-        if arg.eq_ignore_ascii_case("auto") {
-            return SlashResult::Reply("请使用 /auto 命令直接进入 Auto Mode。".to_owned());
         }
 
         // With argument — validate and return SetMode.
