@@ -123,12 +123,15 @@ impl SlashResultExecutor for SlashResult {
             SlashResult::SetMode {
                 mode,
                 plan_file_path,
+                initial_input: _,
+                reply_message,
             } => {
                 ctx.executor.execute_set_mode(&ctx.session_id, &mode).await;
-                let mut reply = format!("Mode set to: {mode}");
-                if let Some(path) = &plan_file_path {
-                    reply.push_str(&format!("\nPlan file: {}", path.display()));
-                }
+                let reply = if let Some(msg) = reply_message {
+                    msg
+                } else {
+                    format!("Mode set to: {mode}")
+                };
                 let _ = ctx
                     .reply_tx
                     .send(ReplyAction::Reply(vec![ContentBlock::Text(reply)]))

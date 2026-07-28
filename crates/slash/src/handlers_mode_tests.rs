@@ -102,6 +102,7 @@ async fn test_plan_mode_handler_with_args_sets_plan_file_path() {
         SlashResult::SetMode {
             mode,
             plan_file_path,
+            ..
         } => {
             assert_eq!(mode, "plan");
             assert!(
@@ -144,6 +145,7 @@ async fn test_plan_mode_handler_no_args_enters_plan_mode() {
         SlashResult::SetMode {
             mode,
             plan_file_path,
+            ..
         } => {
             assert_eq!(mode, "plan");
             assert!(
@@ -162,6 +164,7 @@ async fn test_plan_mode_handler_no_args_enters_plan_mode() {
         SlashResult::SetMode {
             mode,
             plan_file_path,
+            ..
         } => {
             assert_eq!(mode, "plan");
             assert!(
@@ -214,6 +217,7 @@ async fn test_mode_handler_auto_returns_set_mode() {
         SlashResult::SetMode {
             mode,
             plan_file_path,
+            ..
         } => {
             assert_eq!(mode, "auto", "should switch to auto mode");
             assert!(plan_file_path.is_none(), "no plan file expected");
@@ -235,6 +239,7 @@ async fn test_mode_handler_auto_from_normal_mode() {
         SlashResult::SetMode {
             mode,
             plan_file_path,
+            ..
         } => {
             assert_eq!(mode, "auto", "should switch to auto mode from normal mode");
             assert!(plan_file_path.is_none(), "no plan file expected");
@@ -459,6 +464,7 @@ async fn test_execute_handler_normal_mode_enters_auto() {
         SlashResult::SetMode {
             mode,
             plan_file_path,
+            ..
         } => {
             assert_eq!(mode, "auto", "should enter auto mode from normal mode");
             assert!(plan_file_path.is_none(), "no plan file expected");
@@ -480,6 +486,7 @@ async fn test_execute_handler_auto_mode_enters_auto() {
         SlashResult::SetMode {
             mode,
             plan_file_path,
+            ..
         } => {
             assert_eq!(mode, "auto", "should enter auto mode from auto mode");
             assert!(plan_file_path.is_none(), "no plan file expected");
@@ -531,6 +538,7 @@ async fn test_execute_handler_plan_confirmed() {
         SlashResult::SetMode {
             mode,
             plan_file_path,
+            ..
         } => {
             assert_eq!(mode, "auto", "should switch to auto mode");
             assert!(plan_file_path.is_some(), "should have plan_file_path");
@@ -605,56 +613,32 @@ async fn test_execute_handler_empty_plan_file_path() {
 // ── ModeHandler no-args format tests (Step 1.3 — Gap 2) ──────────────────
 
 #[tokio::test]
-async fn test_mode_handler_no_args_plan_mode() {
+async fn test_mode_handler_no_args_shows_current_mode() {
     let sm = make_session_manager_with_storage();
+    let h = ModeHandler::new(Arc::clone(&sm));
+    // Plan mode
     let sid = create_session_with_plan_mode(&sm).await;
-    let h = ModeHandler::new(Arc::clone(&sm));
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
-        SlashResult::Reply(text) => {
-            assert_eq!(
-                text, "当前模式：Plan",
-                "should show Plan mode with doc format"
-            );
-        }
-        other => panic!("expected Reply with Plan mode, got {other:?}"),
+        SlashResult::Reply(text) => assert_eq!(text, "当前模式：Plan"),
+        other => panic!("expected Reply, got {other:?}"),
     }
-}
-
-#[tokio::test]
-async fn test_mode_handler_no_args_auto_mode() {
-    let sm = make_session_manager_with_storage();
+    // Auto mode
     let sid = create_session_with_auto_mode(&sm).await;
-    let h = ModeHandler::new(Arc::clone(&sm));
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
-        SlashResult::Reply(text) => {
-            assert_eq!(
-                text, "当前模式：Auto",
-                "should show Auto mode with doc format"
-            );
-        }
-        other => panic!("expected Reply with Auto mode, got {other:?}"),
+        SlashResult::Reply(text) => assert_eq!(text, "当前模式：Auto"),
+        other => panic!("expected Reply, got {other:?}"),
     }
-}
-
-#[tokio::test]
-async fn test_mode_handler_no_args_normal_mode() {
-    let sm = make_session_manager_with_storage();
+    // Normal mode
     let sid = create_test_session(&sm).await;
-    let h = ModeHandler::new(Arc::clone(&sm));
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
-        SlashResult::Reply(text) => {
-            assert_eq!(
-                text, "当前模式：Normal",
-                "should show Normal mode with doc format"
-            );
-        }
-        other => panic!("expected Reply with Normal mode, got {other:?}"),
+        SlashResult::Reply(text) => assert_eq!(text, "当前模式：Normal"),
+        other => panic!("expected Reply, got {other:?}"),
     }
 }
 
@@ -674,6 +658,7 @@ async fn test_plan_no_args_from_auto_injects_exit_auto() {
         SlashResult::SetMode {
             mode,
             plan_file_path,
+            ..
         } => {
             assert_eq!(mode, "plan");
             assert!(plan_file_path.is_none(), "no plan file for no-args");
@@ -709,6 +694,7 @@ async fn test_plan_no_args_with_plan_state_injects_reentry() {
         SlashResult::SetMode {
             mode,
             plan_file_path,
+            ..
         } => {
             assert_eq!(mode, "plan");
             assert!(plan_file_path.is_none());
@@ -734,6 +720,7 @@ async fn test_plan_no_args_without_plan_state_no_transition() {
         SlashResult::SetMode {
             mode,
             plan_file_path,
+            ..
         } => {
             assert_eq!(mode, "plan");
             assert!(plan_file_path.is_none());
@@ -765,6 +752,7 @@ async fn test_plan_path_no_title_sets_explicit_path() {
             SlashResult::SetMode {
                 mode,
                 plan_file_path,
+                ..
             } => {
                 assert_eq!(mode, "plan", "should enter Plan Mode for {arg}");
                 assert!(
@@ -812,6 +800,7 @@ async fn test_auto_no_args_enters_auto_mode() {
         SlashResult::SetMode {
             mode,
             plan_file_path,
+            ..
         } => {
             assert_eq!(mode, "auto");
             assert!(plan_file_path.is_none(), "no plan file expected");
@@ -834,6 +823,7 @@ async fn test_auto_with_plan_file_enters_auto_mode() {
         SlashResult::SetMode {
             mode,
             plan_file_path,
+            ..
         } => {
             assert_eq!(mode, "auto");
             assert!(plan_file_path.is_some(), "should have plan_file_path");

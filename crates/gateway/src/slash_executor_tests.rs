@@ -215,6 +215,8 @@ async fn test_set_mode_sends_confirmation() {
     SlashResult::SetMode {
         mode: "plan".into(),
         plan_file_path: None,
+        initial_input: None,
+        reply_message: None,
     }
     .execute(&ctx)
     .await;

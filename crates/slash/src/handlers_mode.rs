@@ -99,6 +99,8 @@ impl SlashHandler for PlanModeHandler {
             return SlashResult::SetMode {
                 mode: "plan".to_owned(),
                 plan_file_path: None,
+                initial_input: None,
+                reply_message: Some("已切换到 Plan 模式".to_owned()),
             };
         }
 
@@ -132,6 +134,8 @@ impl SlashHandler for PlanModeHandler {
         SlashResult::SetMode {
             mode: "plan".to_owned(),
             plan_file_path,
+            initial_input: has_title.then(|| title.to_owned()),
+            reply_message: Some("已切换到 Plan 模式".to_owned()),
         }
     }
 }
@@ -296,6 +300,8 @@ impl SlashHandler for AutoModeHandler {
         SlashResult::SetMode {
             mode: "auto".to_owned(),
             plan_file_path: plan_file_path_for_result,
+            initial_input: None,
+            reply_message: Some("已切换到 Auto 模式".to_owned()),
         }
     }
 }
@@ -320,6 +326,8 @@ impl ExecuteHandler {
         SlashResult::SetMode {
             mode: "auto".to_owned(),
             plan_file_path: None,
+            initial_input: None,
+            reply_message: Some("开始执行".to_owned()),
         }
     }
 
@@ -357,6 +365,8 @@ impl ExecuteHandler {
         SlashResult::SetMode {
             mode: "auto".to_owned(),
             plan_file_path: Some(plan_file_path),
+            initial_input: None,
+            reply_message: Some("开始执行".to_owned()),
         }
     }
 }
@@ -471,6 +481,8 @@ impl SlashHandler for PauseHandler {
         SlashResult::SetMode {
             mode: "plan".to_owned(),
             plan_file_path: Some(plan_file_path),
+            initial_input: None,
+            reply_message: Some("已切换到 Plan 模式".to_owned()),
         }
     }
 }
@@ -554,6 +566,8 @@ impl SlashHandler for ModeHandler {
         SlashResult::SetMode {
             mode: target_mode.to_string(),
             plan_file_path: None,
+            initial_input: None,
+            reply_message: Some("已切换到 Normal 模式".to_owned()),
         }
     }
 }
