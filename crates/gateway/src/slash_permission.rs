@@ -93,9 +93,8 @@ impl Gateway {
         };
         let Some(handler) = dispatcher.get_handler(cmd) else {
             let reply = format!("未知指令：/{cmd}。输入 /help 查看所有可用指令。");
-            if let Some(sh) = self.session_handler.as_ref() {
-                sh.send_reply(reply).await;
-            }
+            self.route_slash_reply(session_id, channel, vec![ContentBlock::Text(reply)])
+                .await;
             return Some(HandleResult::SlashHandled);
         };
 

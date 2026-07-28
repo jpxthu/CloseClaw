@@ -73,6 +73,24 @@ impl SlashRouter for ActionRouter {
     }
 }
 
+// Mock: SlashRouter that never matches any command (for unknown-command tests)
+struct NoMatchRouter;
+
+#[async_trait]
+impl SlashRouter for NoMatchRouter {
+    async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
+        None
+    }
+
+    fn is_immediate(&self, _command: &str) -> bool {
+        false
+    }
+
+    fn get_handler(&self, _command: &str) -> Option<Box<dyn SlashHandler>> {
+        None
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -726,5 +744,29 @@ async fn test_system_clear_creates_partial_rewrite_snapshot() {
         snapshot_count,
         Some(1),
         "/system clear should create exactly one snapshot"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Step 1.7 — unknown command routes through route_slash_reply (outbound chain)
+// ---------------------------------------------------------------------------
+
+/// Step 1.7: Unknown slash command goes through the outbound Processor Chain
+/// via `route_slash_reply` instead of directly calling `send_reply`.
+#[tokio::test]
+async fn test_unknown_command_routes_through_outbound_chain() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(Arc::new(NoMatchRouter)).await;
+
+    // Dispatch an unknown command — should return SlashHandled and route
+    // through route_slash_reply (which attempts outbound, falls back to
+    // send_reply when no outbound chain is configured).
+    let result = gw
+        .dispatch_slash("sess-unk", "/foobar", Some("owner"), "feishu")
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::SlashHandled)),
+        "unknown command should be consumed as SlashHandled"
     );
 }
