@@ -806,7 +806,9 @@ async fn test_new_session_executor_replies_with_session_id() {
         > {
             unimplemented!()
         }
-        async fn execute_system_append(&self, _: &str, _: &SystemAppendAction) {}
+        async fn execute_system_append(&self, _: &str, _: &SystemAppendAction) -> usize {
+            0
+        }
         async fn execute_set_reasoning(
             &self,
             _: &str,

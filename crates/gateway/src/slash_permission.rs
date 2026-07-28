@@ -753,7 +753,7 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             .await
     }
 
-    async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction) {
+    async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction) -> usize {
         let cs: Option<Arc<RwLock<ConversationSession>>> = self
             .session_manager
             .get_conversation_session(session_id)
@@ -763,7 +763,7 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
                 sh.send_reply("session 不存在，无法执行系统指令".to_owned())
                     .await;
             }
-            return;
+            return 0;
         };
         // Create a PartialRewrite snapshot before modifying the system prompt,
         // per design doc: /system is a local rewrite that warrants a snapshot.
@@ -771,24 +771,28 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             .session_manager
             .create_partial_rewrite_snapshot(session_id)
             .await;
-        {
+        let count = {
             let mut cs = cs.write().await;
-            match action {
+            let n = match action {
                 SystemAppendAction::Add(text) => {
-                    cs.add_system_append(text.clone());
+                    // add_system_append returns 0-based index; reply uses 1-based.
+                    cs.add_system_append(text.clone()) + 1
                 }
                 SystemAppendAction::Clear => {
-                    cs.clear_system_appends();
+                    let n = cs.clear_system_appends();
                     // Invalidate static layer cache on clear, so the next
                     // prompt build regenerates from current state.
                     self.session_manager.invalidate_static_cache().await;
+                    n
                 }
-            }
+            };
             // Mark snapshot as complete after successful modification.
             if let Some(ref sid) = snapshot_id {
                 cs.mark_complete_snapshot(sid);
             }
-        }
+            n
+        };
+        count
     }
 
     async fn execute_set_reasoning(

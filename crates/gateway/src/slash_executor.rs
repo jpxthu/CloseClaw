@@ -56,7 +56,10 @@ pub trait SlashEffectExecutor: Send + Sync {
     ) -> Result<CompactionResult, CompactionError>;
 
     /// Apply a system prompt append/clear action.
-    async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction);
+    ///
+    /// Returns the relevant count: for `Add`, the 1-based index of the
+    /// newly appended item; for `Clear`, the number of items cleared.
+    async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction) -> usize;
 
     /// Set the reasoning level for the session.
     async fn execute_set_reasoning(&self, session_id: &str, level: ReasoningLevel);
@@ -196,24 +199,25 @@ impl SlashResultExecutor for SlashResult {
                     .await;
             }
             SlashResult::SystemAppend { action } => {
-                ctx.executor
+                let count = ctx
+                    .executor
                     .execute_system_append(&ctx.session_id, &action)
                     .await;
                 match action {
                     SystemAppendAction::Add(_) => {
                         let _ = ctx
                             .reply_tx
-                            .send(ReplyAction::Reply(vec![ContentBlock::Text(
-                                "已追加指令".into(),
-                            )]))
+                            .send(ReplyAction::Reply(vec![ContentBlock::Text(format!(
+                                "已追加指令 #{count}"
+                            ))]))
                             .await;
                     }
                     SystemAppendAction::Clear => {
                         let _ = ctx
                             .reply_tx
-                            .send(ReplyAction::Reply(vec![ContentBlock::Text(
-                                "已清除追加指令".into(),
-                            )]))
+                            .send(ReplyAction::Reply(vec![ContentBlock::Text(format!(
+                                "已清除 {count} 条追加指令"
+                            ))]))
                             .await;
                     }
                 }
