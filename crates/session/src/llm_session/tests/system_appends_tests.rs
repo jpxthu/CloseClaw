@@ -98,8 +98,6 @@ fn test_system_appends_restore() {
 
 #[test]
 fn test_system_appends_no_truncation() {
-    use super::super::APPEND_SECTION_MAX_LEN;
-
     let mut session = new_session();
 
     // Content exactly at the limit is stored unchanged.
