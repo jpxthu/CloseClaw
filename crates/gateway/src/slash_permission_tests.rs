@@ -770,3 +770,158 @@ async fn test_unknown_command_routes_through_outbound_chain() {
         "unknown command should be consumed as SlashHandled"
     );
 }
+
+// ===========================================================================
+// Step 1.6: /new session ID in reply (execute path verification)
+// ===========================================================================
+
+/// Verify that the NewSession executor produces a reply containing
+/// the new session ID.
+#[tokio::test]
+async fn test_new_session_executor_replies_with_session_id() {
+    use crate::slash_executor::{
+        ReplyAction, SideEffectContext, SlashEffectExecutor, SlashResultExecutor,
+    };
+    use closeclaw_common::processor::ContentBlock;
+    use tokio::sync::mpsc;
+
+    // Build a mock executor that returns a known session ID.
+    struct MockNewSessionExecutor {
+        new_id: String,
+    }
+
+    #[async_trait::async_trait]
+    impl SlashEffectExecutor for MockNewSessionExecutor {
+        async fn execute_stop(&self, _: &str, _: bool, _: bool) {}
+        async fn execute_new_session(&self, _: &str, _: &str) -> String {
+            self.new_id.clone()
+        }
+        async fn execute_compact(
+            &self,
+            _: &str,
+            _: Option<String>,
+        ) -> Result<
+            closeclaw_session::compaction::CompactionResult,
+            closeclaw_session::compaction::CompactionError,
+        > {
+            unimplemented!()
+        }
+        async fn execute_system_append(&self, _: &str, _: &SystemAppendAction) {}
+        async fn execute_set_reasoning(
+            &self,
+            _: &str,
+            _: closeclaw_session::persistence::ReasoningLevel,
+        ) {
+        }
+        async fn execute_set_verbosity(&self, _: &str, _: closeclaw_common::VerbosityLevel) {}
+        async fn execute_set_mode(&self, _: &str, _: &str) {}
+        async fn execute_exec(&self, _: &str, _: &str, _: &str) -> Vec<ContentBlock> {
+            unimplemented!()
+        }
+    }
+
+    let (reply_tx, mut reply_rx) = mpsc::channel(8);
+    let executor: Arc<dyn SlashEffectExecutor> = Arc::new(MockNewSessionExecutor {
+        new_id: "new-session-abc123".to_owned(),
+    });
+    let session_mgr: Arc<dyn closeclaw_common::SessionLookup> =
+        make_gateway().session_manager.clone() as Arc<dyn closeclaw_common::SessionLookup>;
+    let side_effect_ctx = SideEffectContext {
+        session_id: "test-sid".to_owned(),
+        channel: "feishu".to_owned(),
+        session_manager: session_mgr,
+        reply_tx,
+        executor,
+    };
+
+    SlashResult::NewSession.execute(&side_effect_ctx).await;
+    drop(side_effect_ctx);
+
+    // Collect reply actions.
+    let mut replies = Vec::new();
+    while let Some(action) = reply_rx.recv().await {
+        if let ReplyAction::Reply(blocks) = action {
+            for block in blocks {
+                if let ContentBlock::Text(t) = block {
+                    replies.push(t);
+                }
+            }
+        }
+    }
+
+    assert_eq!(replies.len(), 1, "should have exactly one reply");
+    assert!(
+        replies[0].contains("new-session-abc123"),
+        "reply should contain the new session ID, got: {}",
+        replies[0]
+    );
+    assert!(
+        replies[0].starts_with("已创建新 session："),
+        "reply should start with '已创建新 session：', got: {}",
+        replies[0]
+    );
+}
+
+// ===========================================================================
+// Cross-step integration tests (gateway-level)
+// ===========================================================================
+
+/// Integration: `/mode` immediate flag is false — verified through
+/// the gateway busy-queueing mechanism.
+///
+/// When session is busy, `/mode` should be enqueued (not immediate),
+/// confirming the handler's immediate() returns false.
+#[tokio::test]
+async fn test_cross_step_mode_not_immediate_enqueues_when_busy() {
+    let gw = make_gateway();
+    let counter = Arc::new(AtomicU32::new(0));
+    gw.set_slash_dispatcher(counting_router("mode", false, Arc::clone(&counter)))
+        .await;
+
+    // Register a session and set it busy.
+    let cs = {
+        let cs = closeclaw_session::llm_session::ConversationSession::new(
+            "sess-mode-busy".to_owned(),
+            "test-model".to_owned(),
+            std::path::PathBuf::from("/tmp"),
+        );
+        let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
+        {
+            let mut conv = gw.session_manager.conversation_sessions.write().await;
+            conv.insert("sess-mode-busy".to_owned(), cs_arc.clone());
+        }
+        cs_arc
+    };
+    cs.write()
+        .await
+        .set_llm_state(closeclaw_llm::session_state::LlmState::Requesting);
+
+    let result = gw
+        .dispatch_slash("sess-mode-busy", "/mode", Some("user1"), "feishu")
+        .await;
+
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        0,
+        "/mode should be enqueued when busy (not immediate)"
+    );
+
+    // Verify pending message was enqueued.
+    let cs = gw
+        .session_manager
+        .get_conversation_session("sess-mode-busy")
+        .await
+        .unwrap();
+    let cs = cs.read().await;
+    let pending = cs.get_pending_messages();
+    assert_eq!(
+        pending.len(),
+        1,
+        "/mode should be enqueued as pending message"
+    );
+    assert!(
+        pending[0].content.contains("/mode"),
+        "pending message should contain /mode command"
+    );
+}

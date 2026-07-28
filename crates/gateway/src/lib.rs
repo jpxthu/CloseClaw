@@ -50,6 +50,8 @@ pub mod tests_checkpoint;
 mod tests_plugin;
 #[cfg(feature = "full-tests")]
 mod tests_slash_permission;
+#[cfg(feature = "full-tests")]
+mod tests_slash_permission_integration;
 pub mod types;
 use serde_json::json;
 use std::collections::HashMap;
