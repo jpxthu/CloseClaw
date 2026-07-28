@@ -113,7 +113,7 @@ impl SessionMessageHandler {
             *flag = true;
             true
         };
-        let msg = "⚠️ 自动压缩已暂停（连续失败），建议手动 /compact";
+        let msg = "自动压缩已暂停，建议手动 /compact";
         if let Some(cs) = self
             .session_manager
             .get_conversation_session(session_id)
