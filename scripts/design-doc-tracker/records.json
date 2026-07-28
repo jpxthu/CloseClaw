@@ -576,6 +576,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/slash/session-management.md",
+    "commit": "11c973ce97f3626b6b06d6d84fa20cbd8db2a984",
+    "commit_time": "2026-07-29T04:10:53+08:00",
+    "confirmed_time": "2026-07-29T04:17:13.596954+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/system_prompt/appends.md",
     "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
     "commit_time": "2026-07-07T01:07:02+08:00",
