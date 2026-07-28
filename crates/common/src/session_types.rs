@@ -20,10 +20,10 @@ pub enum ReasoningLevel {
 impl std::fmt::Display for ReasoningLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ReasoningLevel::Low => write!(f, "low"),
-            ReasoningLevel::Medium => write!(f, "medium"),
-            ReasoningLevel::High => write!(f, "high"),
-            ReasoningLevel::Max => write!(f, "max"),
+            ReasoningLevel::Low => write!(f, "Low"),
+            ReasoningLevel::Medium => write!(f, "Medium"),
+            ReasoningLevel::High => write!(f, "High"),
+            ReasoningLevel::Max => write!(f, "Max"),
         }
     }
 }
