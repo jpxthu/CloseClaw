@@ -91,40 +91,39 @@ fn test_system_appends_restore() {
     assert!(session.system_appends().is_empty());
 }
 
-// ── test_system_appends_max_len_truncation ───────────────────────────────
+// ── test_system_appends_no_truncation ──────────────────────────────────
+//
+// After the "不截断" fix, `add_system_append` stores content as-is.
+// Length limits are enforced by the caller (SystemHandler), not here.
 
 #[test]
-fn test_system_appends_max_len_truncation() {
-    use super::super::APPEND_SECTION_MAX_LEN;
-
+fn test_system_appends_no_truncation() {
     let mut session = new_session();
 
     // Content exactly at the limit is stored unchanged.
     let at_limit = "x".repeat(APPEND_SECTION_MAX_LEN);
     let idx = session.add_system_append(at_limit.clone());
     assert_eq!(idx, 0);
-    assert_eq!(
-        session.system_appends()[0].chars().count(),
-        APPEND_SECTION_MAX_LEN
-    );
     assert_eq!(session.system_appends()[0], at_limit);
 
-    // Content one char over the limit is truncated to the limit.
+    // Content one char over the limit is stored as-is (no truncation).
     let over_limit = "y".repeat(APPEND_SECTION_MAX_LEN + 1);
-    let idx2 = session.add_system_append(over_limit);
+    let idx2 = session.add_system_append(over_limit.clone());
     assert_eq!(idx2, 1);
+    assert_eq!(session.system_appends()[1], over_limit);
     assert_eq!(
         session.system_appends()[1].chars().count(),
-        APPEND_SECTION_MAX_LEN
+        APPEND_SECTION_MAX_LEN + 1
     );
-    assert!(session.system_appends()[1].chars().all(|c| c == 'y'));
 
-    // Content well over the limit is truncated, not rejected.
+    // Content well over the limit is stored as-is (no truncation).
     let way_over = "z".repeat(APPEND_SECTION_MAX_LEN * 3);
-    session.add_system_append(way_over);
+    let idx3 = session.add_system_append(way_over.clone());
+    assert_eq!(idx3, 2);
+    assert_eq!(session.system_appends()[2], way_over);
     assert_eq!(
         session.system_appends()[2].chars().count(),
-        APPEND_SECTION_MAX_LEN
+        APPEND_SECTION_MAX_LEN * 3
     );
 }
 

@@ -767,19 +767,15 @@ impl ConversationSession {
 /// in #862 and is no longer present.
 impl ConversationSession {
     /// Append `content` to the per-session append-section list.
-    /// Truncates to `APPEND_SECTION_MAX_LEN` (500) chars if needed.
+    ///
+    /// The content is stored as-is. Callers are responsible for
+    /// enforcing length limits (e.g. `SystemHandler` rejects content
+    /// exceeding `APPEND_SECTION_MAX_LEN`).
+    ///
     /// Returns the index of the newly added item (0-based, sequential).
     pub fn add_system_append(&mut self, content: String) -> usize {
-        let truncated: String = if content.chars().count() > APPEND_SECTION_MAX_LEN {
-            content
-                .chars()
-                .take(APPEND_SECTION_MAX_LEN)
-                .collect::<String>()
-        } else {
-            content
-        };
         let next_index = self.system_appends.len();
-        self.system_appends.push(truncated);
+        self.system_appends.push(content);
         next_index
     }
 
