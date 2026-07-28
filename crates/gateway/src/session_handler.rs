@@ -238,22 +238,6 @@ impl SessionMessageHandler {
             self.enqueue_pending(session_id, content).await;
             return HandleResult::MessageQueued;
         }
-        // Reject new requests when context window is nearly full.
-        if super::session_handler_compact::is_blocking_state(
-            &self.compaction_service,
-            &self.session_manager,
-            session_id,
-            self.model_knowledge.as_ref(),
-        )
-        .await
-        {
-            super::session_handler_compact::send_output(
-                &self.output_tx,
-                "Context window nearly full. Please run /compact to compress the session.",
-            )
-            .await;
-            return HandleResult::MessageQueued;
-        }
         // Persist user message before auto-compact so threshold estimation
         // includes the current message (design-doc data-flow: write → truncate → estimate).
         if let Some(cs) = self

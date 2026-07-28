@@ -137,13 +137,14 @@ mod tests {
     }
 
     #[test]
-    fn test_token_warning_state_blocking() {
+    fn test_token_warning_state_auto_compact_low_tokens() {
         let config = CompactConfig::default();
         let service = CompactionService::new(config);
-        // remaining = 3,000 -> Blocking
+        // remaining = 3,000 -> AutoCompactTriggered (was Blocking before Step 1.1;
+        // now merged into AutoCompactTriggered since ≤ buffer_tokens triggers auto-compact)
         assert_eq!(
             service.token_warning_state(997_000, "mini-max", None),
-            TokenWarningState::Blocking
+            TokenWarningState::AutoCompactTriggered
         );
     }
 
