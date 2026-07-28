@@ -133,28 +133,14 @@ fn build_normalized_to_original_map(original: &str, normalized: &str) -> Vec<usi
 
     while ni < norm_chars.len() {
         if oi < orig_chars.len() {
-            let (orig_byte, orig_ch) = orig_chars[oi];
-            let (norm_byte, norm_ch) = norm_chars[ni];
-            let _ = (orig_byte, norm_byte); // used for tracking
-            if orig_ch == norm_ch {
-                // Characters match — map this normalized byte position to
-                // the original byte position.
-                map.push(orig_byte);
-                oi += 1;
-                ni += 1;
-            } else {
-                // Characters differ (e.g. curly quote vs straight quote).
-                // Record the original position for this normalized character
-                // and advance both iterators.
-                map.push(orig_byte);
-                oi += 1;
-                ni += 1;
-            }
+            // Record the original byte position for this normalized character.
+            map.push(orig_chars[oi].0);
+            oi += 1;
         } else {
             // Original exhausted — fill remaining with original length.
             map.push(original.len());
-            ni += 1;
         }
+        ni += 1;
     }
     map
 }
@@ -185,6 +171,24 @@ fn normalized_match_to_original_range(
     start..end
 }
 
+/// Try a single fuzzy normalization strategy: normalize both strings,
+/// search for a match, and map the byte offset back to the original.
+fn try_fuzzy_strategy(
+    original: &str,
+    old_text: &str,
+    normalize: impl Fn(&str) -> String,
+) -> Option<Range<usize>> {
+    let norm_content = normalize(original);
+    let norm_old = normalize(old_text);
+    let offset = norm_content.find(&norm_old)?;
+    Some(normalized_match_to_original_range(
+        original,
+        &norm_content,
+        &norm_old,
+        offset,
+    ))
+}
+
 /// Try fuzzy matching strategies in order. Returns the byte range in the
 /// **original** content if found, `None` otherwise.
 ///
@@ -195,67 +199,11 @@ fn normalized_match_to_original_range(
 /// 4. NFC normalization
 /// 5. NFD normalization
 fn fuzzy_find(original: &str, old_text: &str) -> Option<Range<usize>> {
-    // Strategy 1: quote normalization (1:1 char mapping, safe offset)
-    let norm_content = normalize_quotes(original);
-    let norm_old = normalize_quotes(old_text);
-    if let Some(offset) = norm_content.find(&norm_old) {
-        return Some(normalized_match_to_original_range(
-            original,
-            &norm_content,
-            &norm_old,
-            offset,
-        ));
-    }
-
-    // Strategy 2: trailing whitespace stripping
-    let ws_content = strip_trailing_ws(original);
-    let ws_old = strip_trailing_ws(old_text);
-    if let Some(offset) = ws_content.find(&ws_old) {
-        return Some(normalized_match_to_original_range(
-            original,
-            &ws_content,
-            &ws_old,
-            offset,
-        ));
-    }
-
-    // Strategy 3: combined quotes + whitespace normalization
-    let combined_content = fuzzy_normalize(original);
-    let combined_old = fuzzy_normalize(old_text);
-    if let Some(offset) = combined_content.find(&combined_old) {
-        return Some(normalized_match_to_original_range(
-            original,
-            &combined_content,
-            &combined_old,
-            offset,
-        ));
-    }
-
-    // Strategy 4: NFC normalization
-    let nfc_content = normalize_nfc(original);
-    let nfc_old = normalize_nfc(old_text);
-    if let Some(offset) = nfc_content.find(&nfc_old) {
-        return Some(normalized_match_to_original_range(
-            original,
-            &nfc_content,
-            &nfc_old,
-            offset,
-        ));
-    }
-
-    // Strategy 5: NFD normalization
-    let nfd_content = normalize_nfd(original);
-    let nfd_old = normalize_nfd(old_text);
-    if let Some(offset) = nfd_content.find(&nfd_old) {
-        return Some(normalized_match_to_original_range(
-            original,
-            &nfd_content,
-            &nfd_old,
-            offset,
-        ));
-    }
-
-    None
+    try_fuzzy_strategy(original, old_text, normalize_quotes)
+        .or_else(|| try_fuzzy_strategy(original, old_text, strip_trailing_ws))
+        .or_else(|| try_fuzzy_strategy(original, old_text, fuzzy_normalize))
+        .or_else(|| try_fuzzy_strategy(original, old_text, normalize_nfc))
+        .or_else(|| try_fuzzy_strategy(original, old_text, normalize_nfd))
 }
 
 // ---------------------------------------------------------------------------

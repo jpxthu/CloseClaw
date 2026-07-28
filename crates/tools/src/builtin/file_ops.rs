@@ -205,7 +205,7 @@ impl Tool for ReadTool {
             self.config_manager.clone(),
             self.approval_flow.clone(),
         );
-        let result = check_and_execute(&deps, ctx, path, "read", async {
+        check_and_execute(&deps, ctx, path, "read", async {
             let content = std::fs::read_to_string(path)
                 .map_err(|e| ToolCallError::ExecutionFailed(format!("{path}: {e}")))?;
             // Record file mtime so staleness checks can use it later.
@@ -219,8 +219,7 @@ impl Tool for ReadTool {
                 context_modifier: None,
             })
         })
-        .await;
-        result
+        .await
     }
 }
 
@@ -336,47 +335,45 @@ impl EditTool {
     }
 }
 
-/// Parse the `edits` array from args, falling back to the legacy
-/// `oldText`/`newText` single-edit format.
+/// Parse the `edits` JSON array into a vec of [`EditOp`]s.
 ///
-/// Returns `(edits_vec, replace_all)`.
-fn parse_edits(
-    args: &Value,
-) -> Result<(Vec<crate::builtin::edit_match::EditOp>, bool), ToolCallError> {
-    let replace_all = args.get("replace_all") == Some(&Value::Bool(true));
-
-    if let Some(arr) = args.get("edits").and_then(Value::as_array) {
-        if arr.is_empty() {
-            return Err(ToolCallError::InvalidArgs(
-                "edits array must not be empty".to_string(),
-            ));
-        }
-        let mut edits = Vec::with_capacity(arr.len());
-        for (i, item) in arr.iter().enumerate() {
-            let old_text = item
-                .get("oldText")
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| {
-                    ToolCallError::InvalidArgs(format!(
-                        "edits[{i}]: oldText is required and must not be empty"
-                    ))
-                })?;
-            let new_text = item.get("newText").and_then(Value::as_str).unwrap_or("");
-            if old_text == new_text {
-                return Err(ToolCallError::InvalidArgs(format!(
-                    "edits[{i}]: oldText and newText must be different"
-                )));
-            }
-            edits.push(crate::builtin::edit_match::EditOp {
-                old_text: old_text.to_string(),
-                new_text: new_text.to_string(),
-            });
-        }
-        return Ok((edits, replace_all));
+/// Validates that each element has a non-empty `oldText` distinct from
+/// `newText`.
+fn parse_edits_array(
+    arr: &[Value],
+) -> Result<Vec<crate::builtin::edit_match::EditOp>, ToolCallError> {
+    if arr.is_empty() {
+        return Err(ToolCallError::InvalidArgs(
+            "edits array must not be empty".to_string(),
+        ));
     }
+    let mut edits = Vec::with_capacity(arr.len());
+    for (i, item) in arr.iter().enumerate() {
+        let old_text = item
+            .get("oldText")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                ToolCallError::InvalidArgs(format!(
+                    "edits[{i}]: oldText is required and must not be empty"
+                ))
+            })?;
+        let new_text = item.get("newText").and_then(Value::as_str).unwrap_or("");
+        if old_text == new_text {
+            return Err(ToolCallError::InvalidArgs(format!(
+                "edits[{i}]: oldText and newText must be different"
+            )));
+        }
+        edits.push(crate::builtin::edit_match::EditOp {
+            old_text: old_text.to_string(),
+            new_text: new_text.to_string(),
+        });
+    }
+    Ok(edits)
+}
 
-    // Legacy single-edit format: oldText + newText at top level.
+/// Parse the legacy single-edit format (`oldText`/`newText` at top level).
+fn parse_legacy_edit(args: &Value) -> Result<crate::builtin::edit_match::EditOp, ToolCallError> {
     let old_text = args
         .get("oldText")
         .and_then(Value::as_str)
@@ -390,13 +387,28 @@ fn parse_edits(
             "oldText and newText must be different".to_string(),
         ));
     }
-    Ok((
-        vec![crate::builtin::edit_match::EditOp {
-            old_text: old_text.to_string(),
-            new_text: new_text.to_string(),
-        }],
-        replace_all,
-    ))
+    Ok(crate::builtin::edit_match::EditOp {
+        old_text: old_text.to_string(),
+        new_text: new_text.to_string(),
+    })
+}
+
+/// Parse the `edits` array from args, falling back to the legacy
+/// `oldText`/`newText` single-edit format.
+///
+/// Returns `(edits_vec, replace_all)`.
+fn parse_edits(
+    args: &Value,
+) -> Result<(Vec<crate::builtin::edit_match::EditOp>, bool), ToolCallError> {
+    let replace_all = args.get("replace_all") == Some(&Value::Bool(true));
+
+    if let Some(arr) = args.get("edits").and_then(Value::as_array) {
+        let edits = parse_edits_array(arr)?;
+        return Ok((edits, replace_all));
+    }
+
+    let edit = parse_legacy_edit(args)?;
+    Ok((vec![edit], replace_all))
 }
 
 /// Staleness check: verify file mtime matches what was recorded during
@@ -407,12 +419,10 @@ async fn check_staleness(ctx: &ToolContext, path: &str) -> Result<(), ToolCallEr
         Some(s) => s,
         None => return Ok(()), // test scenario — no session
     };
-    let recorded_mtime = session.get_file_mtime(path);
-    if recorded_mtime.is_none() {
+    let Some(recorded) = session.get_file_mtime(path) else {
         // File was never read — allow (backward compatible).
         return Ok(());
-    }
-    let recorded = recorded_mtime.unwrap();
+    };
     let current_mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
     match current_mtime {
         Some(current) if current == recorded => Ok(()),
