@@ -29,7 +29,29 @@ const COMPACT_REPLY: &str = "压缩完成：100 → 50 字符";
 // Mock implementations
 // ---------------------------------------------------------------------------
 
-struct MockSessionLookup;
+struct PendingMessageSpy {
+    captured: tokio::sync::Mutex<Option<PendingMessage>>,
+}
+
+impl PendingMessageSpy {
+    fn new() -> Self {
+        Self {
+            captured: tokio::sync::Mutex::new(None),
+        }
+    }
+}
+
+struct MockSessionLookup {
+    pending_spy: Arc<PendingMessageSpy>,
+}
+
+impl MockSessionLookup {
+    fn new() -> Self {
+        Self {
+            pending_spy: Arc::new(PendingMessageSpy::new()),
+        }
+    }
+}
 
 #[async_trait]
 impl SessionLookup for MockSessionLookup {
@@ -42,8 +64,9 @@ impl SessionLookup for MockSessionLookup {
     async fn push_pending_message(
         &self,
         _session_id: &str,
-        _msg: PendingMessage,
+        msg: PendingMessage,
     ) -> Result<(), String> {
+        *self.pending_spy.captured.lock().await = Some(msg);
         Ok(())
     }
 
@@ -163,17 +186,20 @@ fn make_ctx() -> (
     SideEffectContext,
     mpsc::Receiver<ReplyAction>,
     Arc<MockExecutor>,
+    Arc<PendingMessageSpy>,
 ) {
     let (tx, rx) = mpsc::channel(16);
     let executor = Arc::new(MockExecutor::new());
+    let lookup = Arc::new(MockSessionLookup::new());
+    let spy = lookup.pending_spy.clone();
     let ctx = SideEffectContext {
         session_id: "sess-1".into(),
         channel: "feishu".into(),
-        session_manager: Arc::new(MockSessionLookup),
+        session_manager: lookup,
         reply_tx: tx,
         executor: executor.clone(),
     };
-    (ctx, rx, executor)
+    (ctx, rx, executor, spy)
 }
 
 async fn drain_actions(rx: &mut mpsc::Receiver<ReplyAction>) -> Vec<ReplyAction> {
@@ -190,7 +216,7 @@ async fn drain_actions(rx: &mut mpsc::Receiver<ReplyAction>) -> Vec<ReplyAction>
 
 #[tokio::test]
 async fn test_reply_sends_text_block() {
-    let (ctx, mut rx, _exec) = make_ctx();
+    let (ctx, mut rx, _exec, _spy) = make_ctx();
     SlashResult::Reply("hello world".into()).execute(&ctx).await;
     drop(ctx);
 
@@ -211,7 +237,7 @@ async fn test_reply_sends_text_block() {
 
 #[tokio::test]
 async fn test_set_mode_sends_confirmation() {
-    let (ctx, mut rx, exec) = make_ctx();
+    let (ctx, mut rx, exec, _spy) = make_ctx();
     SlashResult::SetMode {
         mode: "plan".into(),
         plan_file_path: None,
@@ -243,7 +269,7 @@ async fn test_set_mode_sends_confirmation() {
 
 #[tokio::test]
 async fn test_new_session_calls_executor_and_sends_reply() {
-    let (ctx, mut rx, exec) = make_ctx();
+    let (ctx, mut rx, exec, _spy) = make_ctx();
     SlashResult::NewSession.execute(&ctx).await;
     drop(ctx);
 
@@ -266,7 +292,7 @@ async fn test_new_session_calls_executor_and_sends_reply() {
 
 #[tokio::test]
 async fn test_stop_calls_executor_and_sends_reply() {
-    let (ctx, mut rx, exec) = make_ctx();
+    let (ctx, mut rx, exec, _spy) = make_ctx();
     SlashResult::Stop {
         cascade: false,
         force: false,
@@ -294,7 +320,7 @@ async fn test_stop_calls_executor_and_sends_reply() {
 
 #[tokio::test]
 async fn test_compact_calls_executor_and_sends_reply() {
-    let (ctx, mut rx, exec) = make_ctx();
+    let (ctx, mut rx, exec, _spy) = make_ctx();
     SlashResult::Compact { instruction: None }
         .execute(&ctx)
         .await;
@@ -316,7 +342,7 @@ async fn test_compact_calls_executor_and_sends_reply() {
 
 #[tokio::test]
 async fn test_compact_with_instruction_sends_reply() {
-    let (ctx, mut rx, exec) = make_ctx();
+    let (ctx, mut rx, exec, _spy) = make_ctx();
     SlashResult::Compact {
         instruction: Some("keep recent".into()),
     }
@@ -347,7 +373,7 @@ async fn test_compact_with_instruction_sends_reply() {
 
 #[tokio::test]
 async fn test_system_append_add_calls_executor_and_sends_reply() {
-    let (ctx, mut rx, exec) = make_ctx();
+    let (ctx, mut rx, exec, _spy) = make_ctx();
     SlashResult::SystemAppend {
         action: SystemAppendAction::Add("rule: be concise".into()),
     }
@@ -374,7 +400,7 @@ async fn test_system_append_add_calls_executor_and_sends_reply() {
 
 #[tokio::test]
 async fn test_system_append_clear_calls_executor_and_sends_reply() {
-    let (ctx, mut rx, exec) = make_ctx();
+    let (ctx, mut rx, exec, _spy) = make_ctx();
     SlashResult::SystemAppend {
         action: SystemAppendAction::Clear,
     }
@@ -405,7 +431,7 @@ async fn test_system_append_clear_calls_executor_and_sends_reply() {
 
 #[tokio::test]
 async fn test_exec_calls_execute_exec_and_sends_result() {
-    let (ctx, mut rx, _exec) = make_ctx();
+    let (ctx, mut rx, _exec, _spy) = make_ctx();
     SlashResult::Exec {
         command: "ls -la".into(),
     }
@@ -464,7 +490,7 @@ async fn test_exec_failure_forwards_error_to_user() {
     let ctx = SideEffectContext {
         session_id: "sess-fail".into(),
         channel: "feishu".into(),
-        session_manager: Arc::new(MockSessionLookup),
+        session_manager: Arc::new(MockSessionLookup::new()),
         reply_tx: tx,
         executor,
     };
@@ -497,7 +523,7 @@ async fn test_exec_failure_forwards_error_to_user() {
 
 #[tokio::test]
 async fn test_unknown_sends_unknown_command_text() {
-    let (ctx, mut rx, _exec) = make_ctx();
+    let (ctx, mut rx, _exec, _spy) = make_ctx();
     SlashResult::Unknown("nope".into()).execute(&ctx).await;
     drop(ctx);
 
@@ -518,7 +544,7 @@ async fn test_unknown_sends_unknown_command_text() {
 
 #[tokio::test]
 async fn test_set_reasoning_calls_executor_and_sends_reply() {
-    let (ctx, mut rx, exec) = make_ctx();
+    let (ctx, mut rx, exec, _spy) = make_ctx();
     SlashResult::SetReasoning {
         level: ReasoningLevel::Max,
     }
@@ -545,7 +571,7 @@ async fn test_set_reasoning_calls_executor_and_sends_reply() {
 
 #[tokio::test]
 async fn test_set_verbosity_calls_executor_and_sends_reply() {
-    let (ctx, mut rx, exec) = make_ctx();
+    let (ctx, mut rx, exec, _spy) = make_ctx();
     SlashResult::SetVerbosity {
         level: VerbosityLevel::Off,
     }
@@ -574,7 +600,7 @@ async fn test_set_verbosity_calls_executor_and_sends_reply() {
 async fn test_side_effect_context_normal_reply_delivered() {
     // When reply_tx is alive, execute() should send the action through
     // the channel and the receiver should get it.
-    let (ctx, mut rx, _exec) = make_ctx();
+    let (ctx, mut rx, _exec, _spy) = make_ctx();
     SlashResult::Reply("ping".into()).execute(&ctx).await;
     drop(ctx);
 
@@ -592,7 +618,7 @@ async fn test_side_effect_context_normal_reply_delivered() {
 #[tokio::test]
 async fn test_side_effect_context_new_session_delivered() {
     // Verify full end-to-end: executor called + reply sent through alive channel.
-    let (ctx, mut rx, exec) = make_ctx();
+    let (ctx, mut rx, exec, _spy) = make_ctx();
     SlashResult::NewSession.execute(&ctx).await;
     drop(ctx);
 
@@ -614,7 +640,7 @@ async fn test_side_effect_context_new_session_delivered() {
 
 #[tokio::test]
 async fn test_inject_meta_calls_system_append_and_sends_reply() {
-    let (ctx, mut rx, exec) = make_ctx();
+    let (ctx, mut rx, exec, _spy) = make_ctx();
     SlashResult::InjectMeta {
         content: "skill body content here".into(),
     }
@@ -641,7 +667,7 @@ async fn test_inject_meta_calls_system_append_and_sends_reply() {
 
 #[tokio::test]
 async fn test_inject_meta_uses_add_action_variant() {
-    let (ctx, _rx, exec) = make_ctx();
+    let (ctx, _rx, exec, _spy) = make_ctx();
     SlashResult::InjectMeta {
         content: "injected instructions".into(),
     }
@@ -657,6 +683,108 @@ async fn test_inject_meta_uses_add_action_variant() {
         }
         other => panic!("expected SystemAppendAction::Add, got {other:?}"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tests — SetMode: reply_message
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_set_mode_with_reply_message_uses_custom_message() {
+    let (ctx, mut rx, _exec, _spy) = make_ctx();
+    SlashResult::SetMode {
+        mode: "plan".into(),
+        plan_file_path: None,
+        initial_input: None,
+        reply_message: Some("已切换到 Plan 模式".into()),
+    }
+    .execute(&ctx)
+    .await;
+    drop(ctx);
+
+    let actions = drain_actions(&mut rx).await;
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => {
+            assert_eq!(blocks.len(), 1);
+            assert!(
+                matches!(&blocks[0], ContentBlock::Text(t) if t == "已切换到 Plan 模式"),
+                "should use custom reply_message, got: {:?}",
+                &blocks[0],
+            );
+        }
+        other => panic!("expected ReplyAction::Reply, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_set_mode_without_reply_message_uses_default() {
+    let (ctx, mut rx, _exec, _spy) = make_ctx();
+    SlashResult::SetMode {
+        mode: "auto".into(),
+        plan_file_path: None,
+        initial_input: None,
+        reply_message: None,
+    }
+    .execute(&ctx)
+    .await;
+    drop(ctx);
+
+    let actions = drain_actions(&mut rx).await;
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => {
+            assert_eq!(blocks.len(), 1);
+            assert!(
+                matches!(&blocks[0], ContentBlock::Text(t) if t == "Mode set to: auto"),
+                "should use default English message, got: {:?}",
+                &blocks[0],
+            );
+        }
+        other => panic!("expected ReplyAction::Reply, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_set_mode_with_initial_input_pushes_pending_message() {
+    let (ctx, _rx, _exec, spy) = make_ctx();
+    SlashResult::SetMode {
+        mode: "plan".into(),
+        plan_file_path: None,
+        initial_input: Some("实现一个新功能".into()),
+        reply_message: None,
+    }
+    .execute(&ctx)
+    .await;
+    drop(ctx);
+    // Channel closed after drop — spy is still accessible.
+
+    let pending = spy.captured.lock().await;
+    let msg = pending
+        .as_ref()
+        .expect("push_pending_message should have been called");
+    assert_eq!(msg.content, "实现一个新功能");
+    assert_eq!(msg.role.as_deref(), Some("user"));
+}
+
+#[tokio::test]
+async fn test_set_mode_without_initial_input_no_pending_message() {
+    let (ctx, _rx, _exec, spy) = make_ctx();
+    SlashResult::SetMode {
+        mode: "plan".into(),
+        plan_file_path: None,
+        initial_input: None,
+        reply_message: None,
+    }
+    .execute(&ctx)
+    .await;
+    drop(ctx);
+
+    let pending = spy.captured.lock().await;
+    assert!(
+        pending.is_none(),
+        "push_pending_message should NOT be called when initial_input is None"
+    );
 }
 
 // NOTE: ReplyAction::TriggerCompact and ReplyAction::Nothing are not produced
@@ -679,7 +807,7 @@ async fn test_side_effect_context_closed_channel_no_panic() {
     let ctx = SideEffectContext {
         session_id: "sess-closed".into(),
         channel: "feishu".into(),
-        session_manager: Arc::new(MockSessionLookup),
+        session_manager: Arc::new(MockSessionLookup::new()),
         reply_tx: tx,
         executor,
     };
@@ -699,7 +827,7 @@ async fn test_side_effect_context_new_session_closed_channel() {
     let ctx = SideEffectContext {
         session_id: "sess-closed-ns".into(),
         channel: "telegram".into(),
-        session_manager: Arc::new(MockSessionLookup),
+        session_manager: Arc::new(MockSessionLookup::new()),
         reply_tx: tx,
         executor: executor.clone(),
     };
