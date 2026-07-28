@@ -707,7 +707,7 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         }
     }
 
-    async fn execute_new_session(&self, _session_id: &str, channel: &str) {
+    async fn execute_new_session(&self, _session_id: &str, channel: &str) -> String {
         // force_new_for_channel creates a fresh session for the channel and
         // updates the channel→session mapping so subsequent messages route to it.
         let agent_id = self
@@ -715,10 +715,9 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             .get_chat_id(_session_id)
             .await
             .unwrap_or_default();
-        let _new_id = self
-            .session_manager
+        self.session_manager
             .force_new_for_channel(channel, &agent_id)
-            .await;
+            .await
     }
 
     async fn execute_compact(
