@@ -10,16 +10,12 @@
 //! The `output_tx` channel is used to surface LLM response text to callers.
 
 use super::Gateway;
-use crate::session_manager::compact::{load_compact_inputs, PreloadedCompactInputs};
 use crate::session_manager::SessionManager;
 use crate::shutdown_handle::ShutdownHandle;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_llm::Message as ChatMessage;
 use closeclaw_llm::ProviderModelKnowledge;
-use closeclaw_session::compaction::{
-    CompactConfig, CompactionMessage, CompactionResult, CompactionService, TokenWarningState,
-};
+use closeclaw_session::compaction::{CompactConfig, CompactionResult, CompactionService};
 use closeclaw_session::run_health::TranscriptOp;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -112,6 +108,13 @@ pub struct SessionMessageHandler {
     /// Normal. Prevents duplicate warning messages within the same
     /// threshold interval.
     pub(super) has_warned: Arc<std::sync::Mutex<bool>>,
+    /// Dedup flag for circuit-breaker notification messages.
+    ///
+    /// Set to `true` after the first "auto compact suspended" message is
+    /// sent when the breaker trips, reset to `false` when the breaker
+    /// resets (manual compact success). Prevents duplicate messages
+    /// across consecutive auto-compact checks while the breaker is active.
+    pub(super) has_circuit_break_notified: Arc<std::sync::Mutex<bool>>,
 }
 
 // ── Construction ──
@@ -137,6 +140,7 @@ impl SessionMessageHandler {
             model_knowledge: None,
             metrics_emitter: None,
             has_warned: Arc::new(std::sync::Mutex::new(false)),
+            has_circuit_break_notified: Arc::new(std::sync::Mutex::new(false)),
         }
     }
     /// Create a new handler without an output channel (used in tests).
@@ -159,6 +163,7 @@ impl SessionMessageHandler {
             model_knowledge: None,
             metrics_emitter: None,
             has_warned: Arc::new(std::sync::Mutex::new(false)),
+            has_circuit_break_notified: Arc::new(std::sync::Mutex::new(false)),
         }
     }
     /// Attach a back-reference (weak) to the owning [`Gateway`].
@@ -234,7 +239,7 @@ impl SessionMessageHandler {
             return HandleResult::MessageQueued;
         }
         // Reject new requests when context window is nearly full.
-        if is_blocking_state(
+        if super::session_handler_compact::is_blocking_state(
             &self.compaction_service,
             &self.session_manager,
             session_id,
@@ -242,7 +247,7 @@ impl SessionMessageHandler {
         )
         .await
         {
-            send_output(
+            super::session_handler_compact::send_output(
                 &self.output_tx,
                 "Context window nearly full. Please run /compact to compress the session.",
             )
@@ -267,147 +272,8 @@ impl SessionMessageHandler {
 impl SessionMessageHandler {
     /// Send a text reply through the output channel (used by slash handlers).
     pub async fn send_reply(&self, text: String) {
-        send_output(&self.output_tx, &text).await;
+        super::session_handler_compact::send_output(&self.output_tx, &text).await;
     }
-
-    pub(super) async fn check_and_run_auto_compact(&self, session_id: &str) {
-        let Some((model, mut llm_messages, stats)) =
-            load_compact_inputs(&self.session_manager, session_id).await
-        else {
-            return;
-        };
-        // Truncate history before token estimation if configured.
-        {
-            let svc = self.compaction_service.lock().await;
-            truncate_messages(&mut llm_messages, svc.config().max_history_messages);
-        }
-        let compaction_msgs: Vec<CompactionMessage> = llm_messages
-            .iter()
-            .map(|m| CompactionMessage {
-                role: m.role.clone(),
-                content: m.content.clone(),
-            })
-            .collect();
-        let cpt = {
-            let svc = self.compaction_service.lock().await;
-            svc.config().chars_per_token
-        };
-        let tokens =
-            closeclaw_session::compaction::estimate_total_tokens(&stats, &compaction_msgs, cpt);
-        let kb_window = self
-            .model_knowledge
-            .as_ref()
-            .and_then(|kb| find_context_window_for_model(kb, &model));
-        let warning = {
-            let svc = self.compaction_service.lock().await;
-            svc.token_warning_state(tokens, &model, kb_window)
-        };
-        match warning {
-            TokenWarningState::Normal => {
-                *self.has_warned.lock().expect("has_warned poisoned") = false;
-            }
-            TokenWarningState::Warning => {
-                tracing::warn!(
-                    session_id,
-                    tokens,
-                    model = %model,
-                    "token warning: approaching context limit"
-                );
-                let should_warn = {
-                    let warned = self.has_warned.lock().expect("has_warned poisoned");
-                    !*warned
-                };
-                if should_warn {
-                    send_output(&self.output_tx, "⚠️ 对话即将压缩，可输入 /compact 手动管理").await;
-                    *self.has_warned.lock().expect("has_warned poisoned") = true;
-                }
-            }
-            TokenWarningState::AutoCompactTriggered => {
-                let preloaded = PreloadedCompactInputs {
-                    model,
-                    llm_messages,
-                    stats,
-                };
-                self.run_auto_compact(session_id, preloaded).await;
-            }
-            TokenWarningState::Blocking => {
-                tracing::warn!(
-                    session_id,
-                    "auto compact: blocking state, skipping (handled by caller)"
-                );
-            }
-        }
-    }
-
-    /// Execute auto-compaction: check breaker, snapshot, compact, finalize.
-    async fn run_auto_compact(&self, session_id: &str, preloaded: PreloadedCompactInputs) {
-        {
-            let breaker = self.compaction_service.lock().await;
-            if breaker.consecutive_failures() >= breaker.config().max_consecutive_failures {
-                return;
-            }
-        }
-        // Build ChatFn: pure LLM forwarding layer.
-        let fc = Arc::clone(&self.fallback_client);
-        let chat_fn = build_chat_fn(fc);
-        // Lock CompactionService and call SessionManager::compact.
-        // SessionManager::compact handles apply/rollback internally.
-        let mut svc = self.compaction_service.lock().await;
-        let result = self
-            .session_manager
-            .compact(session_id, None, true, &mut svc, &chat_fn, Some(preloaded))
-            .await;
-        drop(svc);
-        match result {
-            Ok(r) => {
-                tracing::info!(
-                    session_id,
-                    before = r.before_char_count,
-                    after = r.after_char_count,
-                    "auto compact completed"
-                );
-            }
-            Err(e) => {
-                tracing::warn!(session_id, error = %e, "auto compact failed");
-                self.compaction_service.lock().await.record_failure();
-            }
-        }
-    }
-}
-
-// ── Compaction helpers ──
-
-/// Build a [`ChatFn`] that forwards messages directly to the LLM client.
-///
-/// The returned closure is a pure forwarding layer: it converts
-/// [`CompactionMessage`]s to [`LlmMessage`]s, constructs a
-/// [`ChatRequest`], and calls `fc.chat(request)`. It does **not**
-/// build its own system prompt — the caller (typically
-/// [`CompactionService::compact`]) is responsible for injecting the
-/// system prompt into the messages slice.
-pub(crate) fn build_chat_fn(fc: Arc<FallbackClient>) -> closeclaw_session::compaction::ChatFn {
-    Arc::new(move |model, messages| {
-        let fc = Arc::clone(&fc);
-        Box::pin(async move {
-            use closeclaw_llm::{ChatRequest, Message as LlmMessage};
-
-            let llm_messages: Vec<LlmMessage> = messages
-                .iter()
-                .map(|m| LlmMessage {
-                    role: m.role.clone(),
-                    content: m.content.clone(),
-                })
-                .collect();
-            let request = ChatRequest {
-                model,
-                messages: llm_messages,
-                temperature: 0.0,
-                max_tokens: Some(4096),
-            };
-            let (response, retries) = fc.chat(request).await.map_err(|e| e.to_string())?;
-            Ok((response.content, retries))
-        })
-    })
 }
 
 /// LlmCaller adapter for `UnifiedFallbackClient`.
@@ -471,22 +337,6 @@ impl crate::memory::active_searcher_llm::LlmCaller for ActiveSearcherLlmCaller {
         }
     }
 }
-// ── Compaction helpers ──
-/// Look up a model's context window from the knowledge base.
-///
-/// Searches across all known providers. Returns `Some(context_window)`
-/// when the model is found in the knowledge base, `None` otherwise.
-///
-/// Known providers: minimax, glm, volcengine, deepseek, mimo.
-fn find_context_window_for_model(knowledge: &ProviderModelKnowledge, model: &str) -> Option<u32> {
-    const PROVIDERS: &[&str] = &["minimax", "glm", "volcengine", "deepseek", "mimo"];
-    for provider in PROVIDERS {
-        if let Some(params) = knowledge.find(provider, model) {
-            return Some(params.context_window);
-        }
-    }
-    None
-}
 
 /// Replace session messages with boundary message on compaction.
 ///
@@ -532,62 +382,5 @@ pub(crate) async fn apply_compact_result(
     // rather than being cleared.
     if let Some(sid) = snapshot_id {
         sm.complete_pre_compaction_snapshot(session_id, sid).await;
-    }
-}
-
-pub(crate) async fn send_output(output_tx: &OutputTx, text: &str) {
-    let guard = output_tx.read().await;
-    if let Some(tx) = guard.as_ref() {
-        let _ = tx.send((text.to_string(), vec![])).await;
-    }
-}
-/// Check if the session is in a blocking state (context window nearly full).
-pub(crate) async fn is_blocking_state(
-    svc: &Arc<tokio::sync::Mutex<CompactionService>>,
-    sm: &Arc<SessionManager>,
-    session_id: &str,
-    model_knowledge: Option<&ProviderModelKnowledge>,
-) -> bool {
-    let Some((model, mut llm_messages, stats)) = load_compact_inputs(sm, session_id).await else {
-        return false;
-    };
-    // Apply message truncation before token estimation so that a
-    // configured `max_history_messages` is respected.  Without this,
-    // the function would over-estimate tokens and incorrectly report
-    // Blocking when the effective history is shorter.
-    {
-        let svc_guard = svc.lock().await;
-        truncate_messages(&mut llm_messages, svc_guard.config().max_history_messages);
-    }
-    let compaction_msgs: Vec<CompactionMessage> = llm_messages
-        .iter()
-        .map(|m| CompactionMessage {
-            role: m.role.clone(),
-            content: m.content.clone(),
-        })
-        .collect();
-    let cpt = svc.lock().await.config().chars_per_token;
-    let tokens =
-        closeclaw_session::compaction::estimate_total_tokens(&stats, &compaction_msgs, cpt);
-    let kb_window = model_knowledge.and_then(|kb| find_context_window_for_model(kb, &model));
-    matches!(
-        svc.lock()
-            .await
-            .token_warning_state(tokens, &model, kb_window),
-        TokenWarningState::Blocking
-    )
-}
-
-/// Truncate `llm_messages` to the most recent `max` entries.
-///
-/// If `max` is `None` or the list is already within the limit, this is a
-/// no-op.  System prompts are unaffected because `llm_messages` only
-/// contains user/assistant turns (see [`build_compact_messages`]).
-fn truncate_messages(llm_messages: &mut Vec<ChatMessage>, max: Option<usize>) {
-    if let Some(max) = max {
-        if llm_messages.len() > max {
-            let drain = llm_messages.len() - max;
-            llm_messages.drain(..drain);
-        }
     }
 }

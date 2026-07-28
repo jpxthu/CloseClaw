@@ -742,7 +742,7 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
 
         // Build ChatFn: pure LLM forwarding layer.
         let fc = Arc::clone(&sh.fallback_client);
-        let chat_fn = crate::session_handler::build_chat_fn(fc);
+        let chat_fn = crate::session_handler_compact::build_chat_fn(fc);
 
         // Lock CompactionService and call SessionManager::compact.
         let mut svc = sh.compaction_service.lock().await;

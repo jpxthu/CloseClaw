@@ -27,6 +27,7 @@ mod outbound_tests;
 mod receiving_transition_tests;
 pub mod session_handler;
 mod session_handler_announce;
+mod session_handler_compact;
 mod session_handler_dispatch;
 mod session_handler_streaming;
 pub mod session_manager;
@@ -810,6 +811,8 @@ pub mod notification_tests;
 #[cfg(feature = "full-tests")]
 #[path = "priority_prompt_tests.rs"]
 pub mod priority_prompt_tests;
+#[cfg(test)]
+pub mod session_handler_circuit_breaker_tests;
 #[cfg(feature = "full-tests")]
 pub mod session_handler_dynamic_tests;
 #[cfg(test)]
