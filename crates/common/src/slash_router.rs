@@ -36,6 +36,12 @@ pub enum SlashResult {
         /// Optional plan file path, set when entering Plan Mode with
         /// a task description via `/plan <task>`.
         plan_file_path: Option<PathBuf>,
+        /// Optional initial input to forward to the Agent.
+        /// Set when `/plan <task>` provides a task description.
+        initial_input: Option<String>,
+        /// Optional custom reply message (overrides default English reply).
+        /// Set by handlers to return doc-specified Chinese replies.
+        reply_message: Option<String>,
     },
     /// Create a new session.
     NewSession,

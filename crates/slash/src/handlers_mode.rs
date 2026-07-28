@@ -99,6 +99,8 @@ impl SlashHandler for PlanModeHandler {
             return SlashResult::SetMode {
                 mode: "plan".to_owned(),
                 plan_file_path: None,
+                initial_input: None,
+                reply_message: Some("已切换到 Plan 模式".to_owned()),
             };
         }
 
@@ -132,6 +134,8 @@ impl SlashHandler for PlanModeHandler {
         SlashResult::SetMode {
             mode: "plan".to_owned(),
             plan_file_path,
+            initial_input: has_title.then(|| title.to_owned()),
+            reply_message: Some("已切换到 Plan 模式".to_owned()),
         }
     }
 }
@@ -207,9 +211,7 @@ pub(crate) fn parse_step_selection_arg(args: &str) -> Option<Vec<usize>> {
 
 /// `/auto` — directly enter Auto Mode.
 ///
-/// - Without arguments: switches to Auto Mode without a plan file.
-/// - With a plan file path: validates the file exists, initializes
-///   `PlanState`, and switches to Auto Mode.
+/// `/auto` does not accept any arguments.
 /// - If already in Auto Mode: replies with a notification.
 /// - If in Plan Mode: injects `ExitPlan` transition before switching.
 pub struct AutoModeHandler {
@@ -237,7 +239,7 @@ impl SlashHandler for AutoModeHandler {
         false
     }
 
-    async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
+    async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
         let Some(conv) = self
             .session_manager
             .get_conversation_session(&ctx.session_id)
@@ -246,35 +248,14 @@ impl SlashHandler for AutoModeHandler {
             return SlashResult::Reply("当前会话未激活".to_owned());
         };
 
-        // Read current mode and workdir in a single lock acquisition.
-        let (current_mode, workdir) = {
+        // Read current mode in a single lock acquisition.
+        let current_mode = {
             let cs = conv.read().await;
-            (cs.session_mode(), cs.workdir().to_path_buf())
+            cs.session_mode()
         };
 
         if current_mode == SessionMode::Auto {
             return SlashResult::Reply("已在 Auto Mode".to_owned());
-        }
-
-        let plan_arg = args.trim();
-        let plan_file_path = if plan_arg.is_empty() {
-            None
-        } else {
-            let path = std::path::PathBuf::from(plan_arg);
-            if !path.exists() {
-                return SlashResult::Reply(format!("plan 文件不存在：{}", path.display()));
-            }
-            Some(path)
-        };
-
-        // Initialize PlanState when a plan file is provided.
-        if let Some(ref path) = plan_file_path {
-            let mut plan_state = PlanState::new();
-            plan_state.plan_file_path = path.to_string_lossy().to_string();
-            plan_state.phase = PlanPhase::FinalPlan;
-            self.session_manager
-                .set_plan_state(&ctx.session_id, plan_state)
-                .await;
         }
 
         // Inject ExitPlan transition when leaving Plan Mode.
@@ -284,18 +265,11 @@ impl SlashHandler for AutoModeHandler {
                 .await;
         }
 
-        let plan_file_path_for_result = plan_file_path.map(|p| {
-            // Ensure the path is absolute for persistence.
-            if p.is_absolute() {
-                p
-            } else {
-                workdir.join(p)
-            }
-        });
-
         SlashResult::SetMode {
             mode: "auto".to_owned(),
-            plan_file_path: plan_file_path_for_result,
+            plan_file_path: None,
+            initial_input: None,
+            reply_message: Some("已切换到 Auto 模式".to_owned()),
         }
     }
 }
@@ -320,6 +294,8 @@ impl ExecuteHandler {
         SlashResult::SetMode {
             mode: "auto".to_owned(),
             plan_file_path: None,
+            initial_input: None,
+            reply_message: Some("开始执行".to_owned()),
         }
     }
 
@@ -357,6 +333,8 @@ impl ExecuteHandler {
         SlashResult::SetMode {
             mode: "auto".to_owned(),
             plan_file_path: Some(plan_file_path),
+            initial_input: None,
+            reply_message: Some("开始执行".to_owned()),
         }
     }
 }
@@ -471,6 +449,8 @@ impl SlashHandler for PauseHandler {
         SlashResult::SetMode {
             mode: "plan".to_owned(),
             plan_file_path: Some(plan_file_path),
+            initial_input: None,
+            reply_message: Some("已切换到 Plan 模式".to_owned()),
         }
     }
 }
@@ -484,12 +464,34 @@ impl SlashHandler for PauseHandler {
 ///   `SlashResult::SetMode` to trigger the mode switch.
 pub struct ModeHandler {
     session_manager: Arc<SessionManager>,
+    plan_handler: Option<Arc<PlanModeHandler>>,
+    auto_handler: Option<Arc<AutoModeHandler>>,
 }
 
 impl ModeHandler {
     /// Create a new ModeHandler operating on the given session manager.
     pub fn new(session_manager: Arc<SessionManager>) -> Self {
-        Self { session_manager }
+        Self {
+            session_manager,
+            plan_handler: None,
+            auto_handler: None,
+        }
+    }
+
+    /// Create a ModeHandler with delegated plan/auto handlers.
+    ///
+    /// `/mode plan` and `/mode auto` are delegated to the corresponding
+    /// handlers so they produce the same side effects as `/plan` and `/auto`.
+    pub fn with_handlers(
+        session_manager: Arc<SessionManager>,
+        plan_handler: Arc<PlanModeHandler>,
+        auto_handler: Arc<AutoModeHandler>,
+    ) -> Self {
+        Self {
+            session_manager,
+            plan_handler: Some(plan_handler),
+            auto_handler: Some(auto_handler),
+        }
     }
 }
 
@@ -528,10 +530,29 @@ impl SlashHandler for ModeHandler {
             return SlashResult::Reply(format!("当前模式：{mode_str}"));
         }
 
-        // With argument — validate and return SetMode.
-        let Some(target_mode) = SessionMode::from_str_opt(arg) else {
+        // Split mode name from remaining args: "plan 任务描述" → ("plan", "任务描述")
+        let (mode_str, remaining_args) = match arg.split_once(char::is_whitespace) {
+            Some((m, rest)) => (m, rest),
+            None => (arg, ""),
+        };
+
+        let Some(target_mode) = SessionMode::from_str_opt(mode_str) else {
             return SlashResult::Reply("无效模式。可用：normal, plan, auto".to_owned());
         };
+
+        // Delegate /mode plan and /mode auto to their dedicated handlers
+        // so the behavior is equivalent to /plan and /auto.
+        if target_mode == SessionMode::Plan {
+            if let Some(ref plan_handler) = self.plan_handler {
+                return plan_handler.handle(remaining_args, ctx).await;
+            }
+        }
+        if target_mode == SessionMode::Auto {
+            if let Some(ref auto_handler) = self.auto_handler {
+                // /auto no longer accepts args, so pass empty string.
+                return auto_handler.handle("", ctx).await;
+            }
+        }
 
         // Read current mode for ExitAuto detection.
         let current_mode = self
@@ -554,6 +575,8 @@ impl SlashHandler for ModeHandler {
         SlashResult::SetMode {
             mode: target_mode.to_string(),
             plan_file_path: None,
+            initial_input: None,
+            reply_message: Some("已切换到 Normal 模式".to_owned()),
         }
     }
 }
