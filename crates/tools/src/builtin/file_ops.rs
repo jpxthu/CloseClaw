@@ -69,17 +69,6 @@ fn required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, ToolCallError
         .ok_or_else(|| ToolCallError::InvalidArgs(format!("missing required parameter: {key}")))
 }
 
-/// Read a file and return its content as JSON.
-async fn read_file(path: &str) -> Result<ToolResult, ToolCallError> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| ToolCallError::ExecutionFailed(format!("{path}: {e}")))?;
-    Ok(ToolResult {
-        data: serde_json::json!({ "content": content }),
-        new_messages: vec![],
-        context_modifier: None,
-    })
-}
-
 /// Write content to a file, creating parent directories as needed.
 async fn write_file(path: &str, content: &str) -> Result<ToolResult, ToolCallError> {
     if let Some(parent) = Path::new(path).parent() {
@@ -216,7 +205,22 @@ impl Tool for ReadTool {
             self.config_manager.clone(),
             self.approval_flow.clone(),
         );
-        check_and_execute(&deps, ctx, path, "read", read_file(path)).await
+        let result = check_and_execute(&deps, ctx, path, "read", async {
+            let content = std::fs::read_to_string(path)
+                .map_err(|e| ToolCallError::ExecutionFailed(format!("{path}: {e}")))?;
+            // Record file mtime so staleness checks can use it later.
+            if let Some(session) = ctx.session.as_ref() {
+                let mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
+                session.record_file_read(path, mtime).await;
+            }
+            Ok(ToolResult {
+                data: serde_json::json!({ "content": content }),
+                new_messages: vec![],
+                context_modifier: None,
+            })
+        })
+        .await;
+        result
     }
 }
 
