@@ -425,7 +425,7 @@ async fn test_reasoning_handler_no_args_returns_current_level() {
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
-        SlashResult::Reply(t) => assert!(t.contains("high"), "got: {t}"),
+        SlashResult::Reply(t) => assert!(t.contains("High"), "got: {t}"),
         _other => panic!("expected Reply"),
     }
 }
