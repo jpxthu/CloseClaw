@@ -93,6 +93,7 @@ Owner 需要子 Agent 的权限不超出父 Agent：
 
 - 父 Agent 派生子 Agent 时，子 Agent 的实际权限 = 子 Agent 自身权限 ∩ 父 Agent 权限 ∩ 继承的 User 权限。
 - 权限沿 spawn 链路只能变窄，不能变宽。
+- 链路中所有父 Agent 的 Deny 规则沿链路向子 Agent 传播——每增加一级深度，Deny 约束只增不减。子 Agent 的权限评估除交集计算外，还需额外检查父 Agent 传入的 Deny 约束。
 - 子 Agent 被拒绝时静默返回，不触发审批流程。
 
 ### F10. 无直接用户交互场景的降级处理
