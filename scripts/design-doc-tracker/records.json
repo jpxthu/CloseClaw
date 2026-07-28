@@ -568,6 +568,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/slash/reasoning.md",
+    "commit": "e8ce7e6f00ea256d6218882a4ace14d6dccc7629",
+    "commit_time": "2026-07-29T04:03:45+08:00",
+    "confirmed_time": "2026-07-29T04:10:12.760005+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/system_prompt/appends.md",
     "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
     "commit_time": "2026-07-07T01:07:02+08:00",
