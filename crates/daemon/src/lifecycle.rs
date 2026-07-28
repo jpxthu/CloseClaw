@@ -674,11 +674,16 @@ impl Daemon {
         slash_registry.register(Arc::new(NewSessionHandler));
         slash_registry.register(Arc::new(StopHandler));
         slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(session_manager))));
-        slash_registry.register(Arc::new(PlanModeHandler::new(Arc::clone(session_manager))));
-        slash_registry.register(Arc::new(ModeHandler::new(Arc::clone(session_manager))));
+        let plan_handler = Arc::new(PlanModeHandler::new(Arc::clone(session_manager)));
+        let auto_handler = Arc::new(AutoModeHandler::new(Arc::clone(session_manager)));
+        slash_registry.register(plan_handler.clone() as Arc<dyn closeclaw_common::SlashHandler>);
+        slash_registry.register(Arc::new(ModeHandler::with_handlers(
+            Arc::clone(session_manager),
+            plan_handler,
+            auto_handler,
+        )));
         slash_registry.register(Arc::new(ExecuteHandler::new(Arc::clone(session_manager))));
         slash_registry.register(Arc::new(PauseHandler::new(Arc::clone(session_manager))));
-        slash_registry.register(Arc::new(AutoModeHandler::new(Arc::clone(session_manager))));
         slash_registry.register(Arc::new(BackgroundHandler::new(Arc::clone(
             session_manager,
         ))));

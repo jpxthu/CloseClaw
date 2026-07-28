@@ -464,12 +464,34 @@ impl SlashHandler for PauseHandler {
 ///   `SlashResult::SetMode` to trigger the mode switch.
 pub struct ModeHandler {
     session_manager: Arc<SessionManager>,
+    plan_handler: Option<Arc<PlanModeHandler>>,
+    auto_handler: Option<Arc<AutoModeHandler>>,
 }
 
 impl ModeHandler {
     /// Create a new ModeHandler operating on the given session manager.
     pub fn new(session_manager: Arc<SessionManager>) -> Self {
-        Self { session_manager }
+        Self {
+            session_manager,
+            plan_handler: None,
+            auto_handler: None,
+        }
+    }
+
+    /// Create a ModeHandler with delegated plan/auto handlers.
+    ///
+    /// `/mode plan` and `/mode auto` are delegated to the corresponding
+    /// handlers so they produce the same side effects as `/plan` and `/auto`.
+    pub fn with_handlers(
+        session_manager: Arc<SessionManager>,
+        plan_handler: Arc<PlanModeHandler>,
+        auto_handler: Arc<AutoModeHandler>,
+    ) -> Self {
+        Self {
+            session_manager,
+            plan_handler: Some(plan_handler),
+            auto_handler: Some(auto_handler),
+        }
     }
 }
 
@@ -508,10 +530,29 @@ impl SlashHandler for ModeHandler {
             return SlashResult::Reply(format!("当前模式：{mode_str}"));
         }
 
-        // With argument — validate and return SetMode.
-        let Some(target_mode) = SessionMode::from_str_opt(arg) else {
+        // Split mode name from remaining args: "plan 任务描述" → ("plan", "任务描述")
+        let (mode_str, remaining_args) = match arg.split_once(char::is_whitespace) {
+            Some((m, rest)) => (m, rest),
+            None => (arg, ""),
+        };
+
+        let Some(target_mode) = SessionMode::from_str_opt(mode_str) else {
             return SlashResult::Reply("无效模式。可用：normal, plan, auto".to_owned());
         };
+
+        // Delegate /mode plan and /mode auto to their dedicated handlers
+        // so the behavior is equivalent to /plan and /auto.
+        if target_mode == SessionMode::Plan {
+            if let Some(ref plan_handler) = self.plan_handler {
+                return plan_handler.handle(remaining_args, ctx).await;
+            }
+        }
+        if target_mode == SessionMode::Auto {
+            if let Some(ref auto_handler) = self.auto_handler {
+                // /auto no longer accepts args, so pass empty string.
+                return auto_handler.handle("", ctx).await;
+            }
+        }
 
         // Read current mode for ExitAuto detection.
         let current_mode = self
