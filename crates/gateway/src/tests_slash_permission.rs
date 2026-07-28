@@ -273,9 +273,13 @@ fn clone_result(r: &SlashResult) -> SlashResult {
         SlashResult::SetMode {
             mode,
             plan_file_path,
+            initial_input,
+            reply_message,
         } => SlashResult::SetMode {
             mode: mode.clone(),
             plan_file_path: plan_file_path.clone(),
+            initial_input: initial_input.clone(),
+            reply_message: reply_message.clone(),
         },
         SlashResult::SystemAppend { action } => SlashResult::SystemAppend {
             action: action.clone(),
