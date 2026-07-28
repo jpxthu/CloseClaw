@@ -95,7 +95,7 @@ async fn test_stop_handler_handle() {
     assert!(matches!(
         result,
         SlashResult::Stop {
-            cascade: false,
+            cascade: true,
             force: false
         }
     ));
@@ -119,7 +119,7 @@ async fn test_stop_handler_force() {
     assert!(matches!(
         result,
         SlashResult::Stop {
-            cascade: false,
+            cascade: true,
             force: true
         }
     ));
@@ -143,7 +143,7 @@ async fn test_stop_handler_unknown_args_ignored() {
     assert!(matches!(
         result,
         SlashResult::Stop {
-            cascade: false,
+            cascade: true,
             force: false
         }
     ));
