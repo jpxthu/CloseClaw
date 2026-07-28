@@ -564,7 +564,7 @@ async fn test_set_reasoning_calls_executor_and_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设置为 max"));
+            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 Max"));
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
