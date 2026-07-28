@@ -389,19 +389,25 @@ impl WorkdirHandler {
         SlashResult::Reply(cs.workdir().display().to_string())
     }
 
-    /// Handle `/git <args>`: route subcommands and return git status.
+    /// Handle `/git <args>`: route subcommands through Exec for Permission approval.
     ///
-    /// Supported subcommands:
-    /// - `status` (default): show branch and uncommitted changes.
+    /// Supported read-only subcommands: status, log, diff, branch, show.
+    /// All subcommands are routed as `SlashResult::Exec { command }` so the
+    /// Gateway's Permission module evaluates them uniformly.
     ///
     /// Returns an error for unknown subcommands.
-    async fn handle_git(&self, args: &str, ctx: &SlashContext) -> SlashResult {
+    async fn handle_git(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
         let sub = Self::parse_git_subcommand(args);
         match sub.as_deref() {
-            Some("status") | None => self.git_status(ctx).await,
-            Some(unknown) => {
-                SlashResult::Reply(format!("未知子指令：{unknown}。/git 支持：status"))
+            Some("status" | "log" | "diff" | "branch" | "show") | None => {
+                let full_command = format!("git {args}");
+                SlashResult::Exec {
+                    command: full_command,
+                }
             }
+            Some(unknown) => SlashResult::Reply(format!(
+                "未知子指令：{unknown}。/git 支持：status, log, diff, branch, show"
+            )),
         }
     }
 
@@ -409,26 +415,6 @@ impl WorkdirHandler {
     fn parse_git_subcommand(args: &str) -> Option<String> {
         let token = args.split_whitespace().next()?;
         Some(token.to_owned())
-    }
-
-    /// `/git status` implementation: read session workdir, call
-    /// [`build_git_status_for`], format the reply.
-    async fn git_status(&self, ctx: &SlashContext) -> SlashResult {
-        let Some(conv) = self
-            .session_manager
-            .get_conversation_session(&ctx.session_id)
-            .await
-        else {
-            return SlashResult::Reply("当前会话未激活".to_owned());
-        };
-        let path_str = {
-            let cs = conv.read().await;
-            cs.workdir().to_string_lossy().to_string()
-        };
-        match build_git_status_for(&path_str) {
-            Some(status) => SlashResult::Reply(status),
-            None => SlashResult::Reply("当前目录不是 git 仓库".to_owned()),
-        }
     }
 }
 
@@ -444,6 +430,10 @@ impl SlashHandler for WorkdirHandler {
 
     fn immediate(&self, _cmd: &str) -> bool {
         false
+    }
+
+    fn requires_permission(&self) -> bool {
+        true
     }
 
     async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {

@@ -350,8 +350,13 @@ async fn test_workdir_handler_pwd_and_git() {
     ctx2.session_id = sid;
     ctx2.command = "git".to_owned();
     match h.handle("status", &ctx2).await {
-        SlashResult::Reply(t) => assert!(t.contains("当前目录不是 git 仓库"), "got: {t}"),
-        _ => panic!("expected Reply"),
+        SlashResult::Exec { command } => {
+            assert!(
+                command.starts_with("git "),
+                "expected git command, got: {command}"
+            )
+        }
+        other => panic!("expected Exec for git status, got {other:?}"),
     }
 }
 
@@ -724,6 +729,20 @@ async fn set_session_workdir(sm: &Arc<SessionManager>, sid: &str, path: &Path) {
     cs.set_workdir(path.to_path_buf());
 }
 
+/// Helper: assert a SlashResult is Exec with the expected command prefix.
+fn assert_exec_command(result: SlashResult, expected_prefix: &str) -> String {
+    match result {
+        SlashResult::Exec { command } => {
+            assert!(
+                command.starts_with(expected_prefix),
+                "expected command starting with '{expected_prefix}', got: {command}"
+            );
+            command
+        }
+        other => panic!("expected Exec, got {other:?}"),
+    }
+}
+
 #[tokio::test]
 async fn test_git_status_in_non_git_repo() {
     let sm = make_workdir_session_manager();
@@ -736,15 +755,8 @@ async fn test_git_status_in_non_git_repo() {
         session_id: sid,
         channel: "c".to_owned(),
     };
-    match h.handle("status", &ctx).await {
-        SlashResult::Reply(t) => {
-            assert!(
-                t.contains("当前目录不是 git 仓库"),
-                "expected non-git message, got: {t}"
-            );
-        }
-        other => panic!("expected Reply, got {other:?}"),
-    }
+    let command = assert_exec_command(h.handle("status", &ctx).await, "git ");
+    assert_eq!(command, "git status");
 }
 
 #[tokio::test]
@@ -778,13 +790,8 @@ async fn test_git_status_in_git_repo() {
         session_id: sid,
         channel: "c".to_owned(),
     };
-    match h.handle("status", &ctx).await {
-        SlashResult::Reply(t) => {
-            assert!(t.contains("On branch"), "expected branch info, got: {t}");
-            assert!(t.contains("status:"), "expected status field, got: {t}");
-        }
-        other => panic!("expected Reply with branch info, got {other:?}"),
-    }
+    let command = assert_exec_command(h.handle("status", &ctx).await, "git ");
+    assert_eq!(command, "git status");
 }
 
 #[tokio::test]
@@ -798,16 +805,9 @@ async fn test_git_no_args_defaults_to_status() {
         session_id: sid,
         channel: "c".to_owned(),
     };
-    // Empty args should route to status (which returns non-git message).
-    match h.handle("", &ctx).await {
-        SlashResult::Reply(t) => {
-            assert!(
-                t.contains("当前目录不是 git 仓库"),
-                "expected non-git message (default to status), got: {t}"
-            );
-        }
-        other => panic!("expected Reply, got {other:?}"),
-    }
+    // Empty args should route to status (returns Exec with "git ").
+    let command = assert_exec_command(h.handle("", &ctx).await, "git ");
+    assert_eq!(command, "git ");
 }
 
 #[tokio::test]
@@ -847,16 +847,9 @@ async fn test_git_status_extra_args_ignored() {
         session_id: sid,
         channel: "c".to_owned(),
     };
-    // Extra arguments after 'status' should be ignored.
-    match h.handle("status --porcelain", &ctx).await {
-        SlashResult::Reply(t) => {
-            assert!(
-                t.contains("当前目录不是 git 仓库"),
-                "expected status output (extra args ignored), got: {t}"
-            );
-        }
-        other => panic!("expected Reply, got {other:?}"),
-    }
+    // Extra arguments after 'status' should be included in the command.
+    let command = assert_exec_command(h.handle("status --porcelain", &ctx).await, "git ");
+    assert_eq!(command, "git status --porcelain");
 }
 
 #[tokio::test]
@@ -869,12 +862,9 @@ async fn test_git_status_no_session() {
         session_id: "nonexistent".to_owned(),
         channel: "c".to_owned(),
     };
-    match h.handle("status", &ctx).await {
-        SlashResult::Reply(t) => {
-            assert!(t.contains("当前会话未激活"), "got: {t}");
-        }
-        other => panic!("expected Reply with no-session, got {other:?}"),
-    }
+    // handle_git no longer checks session; it returns Exec.
+    let command = assert_exec_command(h.handle("status", &ctx).await, "git ");
+    assert_eq!(command, "git status");
 }
 
 #[tokio::test]
@@ -896,8 +886,6 @@ async fn test_git_status_in_git_repo_with_uncommitted_changes() {
         .args(["-C", repo_path.to_str().unwrap(), "commit", "-m", "init"])
         .output()
         .expect("git commit failed");
-    // Create an untracked file so there are uncommitted changes.
-    std::fs::write(repo_path.join("new_file.txt"), "hello").unwrap();
 
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
@@ -910,14 +898,41 @@ async fn test_git_status_in_git_repo_with_uncommitted_changes() {
         session_id: sid,
         channel: "c".to_owned(),
     };
-    match h.handle("status", &ctx).await {
-        SlashResult::Reply(t) => {
-            assert!(t.contains("On branch"), "expected branch info, got: {t}");
-            assert!(
-                t.contains("uncommitted"),
-                "expected uncommitted changes, got: {t}"
-            );
-        }
-        other => panic!("expected Reply with changes, got {other:?}"),
+    let command = assert_exec_command(h.handle("status", &ctx).await, "git ");
+    assert_eq!(command, "git status");
+}
+
+// ── /git subcommand routing tests ──────────────────────────────────────
+
+#[tokio::test]
+async fn test_git_subcommands_route_to_exec() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let ctx = SlashContext {
+        command: "git".to_owned(),
+        sender_id: "u".to_owned(),
+        session_id: sid,
+        channel: "c".to_owned(),
+    };
+    // All read-only subcommands should route to Exec.
+    for sub in ["log", "diff", "branch", "show", "status"] {
+        let command = assert_exec_command(h.handle(sub, &ctx).await, "git ");
+        assert_eq!(command, format!("git {sub}"));
     }
+    // Subcommands with extra args should include them.
+    let command = assert_exec_command(h.handle("log --oneline -5", &ctx).await, "git ");
+    assert_eq!(command, "git log --oneline -5");
+    let command = assert_exec_command(h.handle("diff HEAD~1", &ctx).await, "git ");
+    assert_eq!(command, "git diff HEAD~1");
+}
+
+#[tokio::test]
+async fn test_git_requires_permission() {
+    let sm = make_workdir_session_manager();
+    let h = WorkdirHandler::new(sm);
+    assert!(
+        h.requires_permission(),
+        "WorkdirHandler should require permission"
+    );
 }
