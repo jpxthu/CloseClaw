@@ -132,33 +132,40 @@ async fn test_plan_mode_handler_with_whitespace_args_returns_set_mode() {
 }
 
 #[tokio::test]
-async fn test_plan_mode_handler_no_args_returns_usage() {
+async fn test_plan_mode_handler_no_args_enters_plan_mode() {
     let h = make_plan_handler();
     let ctx = dummy_ctx();
     match h.handle("", &ctx).await {
-        SlashResult::Reply(text) => {
+        SlashResult::SetMode {
+            mode,
+            plan_file_path,
+        } => {
+            assert_eq!(mode, "plan");
             assert!(
-                text.contains("用法"),
-                "should contain usage hint, got: {text}"
+                plan_file_path.is_none(),
+                "no plan file expected for no-args"
             );
-            assert!(text.contains("/plan"), "should mention /plan, got: {text}");
         }
-        other => panic!("expected Reply with usage, got {other:?}"),
+        other => panic!("expected SetMode{{mode: \"plan\", plan_file_path: None}}, got {other:?}"),
     }
 }
 
 #[tokio::test]
-async fn test_plan_mode_handler_whitespace_only_args_returns_usage() {
+async fn test_plan_mode_handler_whitespace_only_args_enters_plan_mode() {
     let h = make_plan_handler();
     let ctx = dummy_ctx();
     match h.handle("   ", &ctx).await {
-        SlashResult::Reply(text) => {
+        SlashResult::SetMode {
+            mode,
+            plan_file_path,
+        } => {
+            assert_eq!(mode, "plan");
             assert!(
-                text.contains("用法"),
-                "should contain usage hint, got: {text}"
+                plan_file_path.is_none(),
+                "no plan file expected for whitespace-only args"
             );
         }
-        other => panic!("expected Reply with usage, got {other:?}"),
+        other => panic!("expected SetMode{{mode: \"plan\", plan_file_path: None}}, got {other:?}"),
     }
 }
 

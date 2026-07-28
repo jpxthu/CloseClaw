@@ -47,21 +47,9 @@ impl SlashHandler for PlanModeHandler {
     }
 
     async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
-        if args.trim().is_empty() {
-            return SlashResult::Reply(
-                "用法：/plan [--path standard|interview] <任务描述>\n进入 Plan Mode 进行任务规划。"
-                    .to_owned(),
-            );
-        }
-
         // Parse --path argument and extract task title
         let (explicit_path, title) = parse_plan_path_arg(args.trim());
-        if title.trim().is_empty() {
-            return SlashResult::Reply(
-                "用法：/plan [--path standard|interview] <任务描述>\n进入 Plan Mode 进行任务规划。"
-                    .to_owned(),
-            );
-        }
+        let has_title = !title.trim().is_empty();
 
         // Read conversation session once to get both mode and workdir,
         // avoiding a second async read lock acquisition.
@@ -83,7 +71,6 @@ impl SlashHandler for PlanModeHandler {
         //   than reentry notification)
         // - Plan Mode re-entry (from Normal or other) → Reentry
         if exiting_auto {
-            // Exiting Auto Mode via /plan — inject ExitAuto transition.
             self.session_manager
                 .set_pending_mode_transition(&ctx.session_id, ModeTransition::ExitAuto)
                 .await;
@@ -95,6 +82,15 @@ impl SlashHandler for PlanModeHandler {
                     .set_pending_mode_transition(&ctx.session_id, ModeTransition::Reentry)
                     .await;
             }
+        }
+
+        // No title (either no args or --path without title): enter Plan Mode
+        // without creating a plan file.
+        if !has_title {
+            return SlashResult::SetMode {
+                mode: "plan".to_owned(),
+                plan_file_path: None,
+            };
         }
 
         let plan_file_path = if let Some(ref workdir) = workdir {
@@ -515,15 +511,17 @@ impl SlashHandler for ModeHandler {
                 return SlashResult::Reply("当前会话未激活".to_owned());
             };
             let cs = conv.read().await;
-            let mode = cs.session_mode();
-            return SlashResult::Reply(format!("当前会话模式：{mode}"));
+            let mode_str = match cs.session_mode() {
+                SessionMode::Normal => "Normal",
+                SessionMode::Plan => "Plan",
+                SessionMode::Auto => "Auto",
+            };
+            return SlashResult::Reply(format!("当前模式：{mode_str}"));
         }
 
         // With argument — validate and return SetMode.
         let Some(target_mode) = SessionMode::from_str_opt(arg) else {
-            return SlashResult::Reply(format!(
-                "无效的会话模式：{arg}。可选值：normal, plan, auto"
-            ));
+            return SlashResult::Reply("无效模式。可用：normal, plan, auto".to_owned());
         };
 
         // Read current mode for ExitAuto detection.
