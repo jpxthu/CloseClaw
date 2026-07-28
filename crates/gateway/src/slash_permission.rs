@@ -319,11 +319,9 @@ impl Gateway {
         let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel(8);
         let session_mgr: Arc<dyn closeclaw_common::SessionLookup> =
             self.session_manager.clone() as Arc<dyn closeclaw_common::SessionLookup>;
-        let perm_engine = self.permission_engine.read().await.clone();
         let executor: Arc<dyn SlashEffectExecutor> = Arc::new(GatewaySlashExecutor {
             session_manager: Arc::clone(&self.session_manager),
             session_handler: self.session_handler.clone(),
-            permission_engine: perm_engine,
         });
         let side_effect_ctx = SideEffectContext {
             session_id: session_id.to_owned(),
@@ -633,7 +631,6 @@ impl Gateway {
 pub(crate) struct GatewaySlashExecutor {
     session_manager: Arc<SessionManager>,
     session_handler: Option<Arc<SessionMessageHandler>>,
-    permission_engine: Option<Arc<tokio::sync::RwLock<PermissionEngine>>>,
 }
 
 #[async_trait::async_trait]
@@ -863,7 +860,7 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
     async fn execute_exec(
         &self,
         _session_id: &str,
-        agent_id: &str,
+        _agent_id: &str,
         command: &str,
     ) -> Vec<ContentBlock> {
         let command = command.trim();
@@ -875,10 +872,9 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         let cmd = parts.first().cloned().unwrap_or_default();
         let args = parts[1..].to_vec();
 
-        match self.check_command_permission(agent_id, &cmd, &args).await {
-            Ok(()) => self.run_command(&cmd, &args).await,
-            Err(blocks) => blocks,
-        }
+        // Permission is evaluated at the Gateway layer (check_slash_permission).
+        // The executor layer no longer performs redundant permission checks.
+        self.run_command(&cmd, &args).await
     }
 }
 
@@ -890,53 +886,11 @@ impl GatewaySlashExecutor {
     pub(crate) fn new(
         session_manager: Arc<SessionManager>,
         session_handler: Option<Arc<SessionMessageHandler>>,
-        permission_engine: Option<Arc<tokio::sync::RwLock<PermissionEngine>>>,
     ) -> Self {
         Self {
             session_manager,
             session_handler,
-            permission_engine,
         }
-    }
-
-    /// Check permission for a command execution request.
-    /// Returns `Ok(())` if allowed, or `Err(blocks)` with a denial message.
-    pub(crate) async fn check_command_permission(
-        &self,
-        agent_id: &str,
-        cmd: &str,
-        args: &[String],
-    ) -> Result<(), Vec<ContentBlock>> {
-        let Some(engine) = self.permission_engine.as_ref() else {
-            return Err(vec![ContentBlock::Text(
-                "权限不足：权限引擎未配置".to_owned(),
-            )]);
-        };
-        // Note: user_id is hardcoded to "owner" because this executor layer
-        // does not receive the actual sender_id (see design doc: permission is
-        // fully handled at the Gateway layer). Commands executed here are
-        // already permission-gated at the Gateway level, so evaluating with
-        // "owner" identity aligns with the design doc's "Owner default Allow"
-        // principle — the Gateway's Branch 1 short-circuit already bypasses
-        // this check for real owner senders.
-        let caller = Caller {
-            user_id: "owner".to_owned(),
-            agent: agent_id.to_owned(),
-            creator_id: String::new(),
-        };
-        let request = PermissionRequest::WithCaller {
-            caller,
-            request: PermissionRequestBody::CommandExec {
-                agent: agent_id.to_owned(),
-                cmd: cmd.to_owned(),
-                args: args.to_vec(),
-            },
-        };
-        let response = engine.read().await.evaluate(request, None);
-        if let PermissionResponse::Denied { reason, .. } = response {
-            return Err(vec![ContentBlock::Text(format!("权限不足：{reason}"))]);
-        }
-        Ok(())
     }
 
     /// Execute a command and format stdout/stderr into ContentBlocks.
