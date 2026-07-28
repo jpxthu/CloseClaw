@@ -10,10 +10,10 @@ mod tests {
     #[test]
     fn test_reasoning_level_basics() {
         assert_eq!(ReasoningLevel::default(), ReasoningLevel::High);
-        assert_eq!(ReasoningLevel::Low.to_string(), "low");
-        assert_eq!(ReasoningLevel::Medium.to_string(), "medium");
-        assert_eq!(ReasoningLevel::High.to_string(), "high");
-        assert_eq!(ReasoningLevel::Max.to_string(), "max");
+        assert_eq!(ReasoningLevel::Low.to_string(), "Low");
+        assert_eq!(ReasoningLevel::Medium.to_string(), "Medium");
+        assert_eq!(ReasoningLevel::High.to_string(), "High");
+        assert_eq!(ReasoningLevel::Max.to_string(), "Max");
         // serde roundtrip
         for level in [
             ReasoningLevel::Low,

@@ -454,6 +454,41 @@ fn test_build_request_does_not_inject_reasoning_level() {
     }
 }
 
+// ── reasoning_level logging tests ──────────────────────────────────────────
+#[test]
+fn test_build_request_logs_non_high_reasoning_level() {
+    let proto = AnthropicProtocol::new();
+    // Non-High levels are logged as downgraded; body itself is unaffected.
+    let non_high_levels = [
+        ReasoningLevel::Low,
+        ReasoningLevel::Medium,
+        ReasoningLevel::Max,
+    ];
+    for level in non_high_levels {
+        let mut request = make_request();
+        request.reasoning_level = level;
+        let body = proto.build_request(&request).unwrap();
+        // No reasoning fields injected (same as High behavior)
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+        assert!(body.get("reasoning_level").is_none());
+        // Body is still valid with required fields
+        assert!(body.get("model").is_some());
+        assert!(body.get("messages").is_some());
+    }
+}
+
+#[test]
+fn test_build_request_high_level_passes_through() {
+    let proto = AnthropicProtocol::new();
+    let mut request = make_request();
+    request.reasoning_level = ReasoningLevel::High;
+    let body = proto.build_request(&request).unwrap();
+    assert!(body.get("thinking").is_none());
+    assert!(body.get("reasoning_effort").is_none());
+    assert!(body.get("reasoning_level").is_none());
+}
+
 // ── messages cache_control tests ──────────────────────────────────────────
 #[test]
 fn test_messages_cache_control_single_message() {
