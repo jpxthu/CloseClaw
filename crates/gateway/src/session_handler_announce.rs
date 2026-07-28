@@ -343,7 +343,7 @@ impl SessionMessageHandler {
     ) -> bool {
         match action {
             RecoverableAction::NotifyUser { message } => {
-                Self::handle_notify_user(session_manager, session_id, message, output_tx).await
+                Self::handle_notify_user(session_manager, &session_id, message, output_tx).await
             }
             RecoverableAction::Stop { reason } => Self::handle_stop(session_id, reason),
             RecoverableAction::Retry {
@@ -371,7 +371,7 @@ impl SessionMessageHandler {
     /// user via `output_tx`.
     async fn handle_notify_user(
         session_manager: Arc<SessionManager>,
-        session_id: String,
+        session_id: &str,
         message: String,
         output_tx: OutputTx,
     ) -> bool {

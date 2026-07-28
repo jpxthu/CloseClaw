@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::*;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::llm_session::ChatSession;
@@ -104,7 +106,6 @@ async fn test_recovery_stop_returns_true() {
 async fn test_retry_executes_delay_and_reinvokes() {
     let sm = make_sm();
     // Create a session so get_conversation_session returns Some.
-    use std::collections::HashMap;
     let msg = crate::Message {
         id: "msg_1".into(),
         from: "alice".into(),
@@ -141,7 +142,6 @@ async fn test_retry_executes_delay_and_reinvokes() {
 #[tokio::test]
 async fn test_retry_no_instruction() {
     let sm = make_sm();
-    use std::collections::HashMap;
     let msg = crate::Message {
         id: "msg_1".into(),
         from: "alice".into(),
@@ -173,7 +173,6 @@ async fn test_retry_no_instruction() {
 #[tokio::test]
 async fn test_retry_with_instruction_injects_message() {
     let sm = make_sm();
-    use std::collections::HashMap;
     let msg = crate::Message {
         id: "msg_1".into(),
         from: "alice".into(),
@@ -216,7 +215,6 @@ async fn test_retry_with_instruction_injects_message() {
 #[tokio::test]
 async fn test_retry_no_instruction_no_injection() {
     let sm = make_sm();
-    use std::collections::HashMap;
     let msg = crate::Message {
         id: "msg_1".into(),
         from: "alice".into(),
@@ -288,7 +286,6 @@ async fn test_healthy_turn_no_recovery_action() {
 #[tokio::test]
 async fn test_notify_user_injects_transcript_and_sends() {
     let sm = make_sm();
-    use std::collections::HashMap;
     let msg = crate::Message {
         id: "msg_1".into(),
         from: "alice".into(),
@@ -365,7 +362,6 @@ async fn test_notify_user_missing_session_graceful_fallback() {
 #[tokio::test]
 async fn test_notify_user_no_tx_transcript_still_injected() {
     let sm = make_sm();
-    use std::collections::HashMap;
     let msg = crate::Message {
         id: "msg_1".into(),
         from: "alice".into(),
@@ -410,7 +406,6 @@ async fn test_notify_user_no_tx_transcript_still_injected() {
 #[tokio::test]
 async fn test_notify_user_multiple_messages_separate_entries() {
     let sm = make_sm();
-    use std::collections::HashMap;
     let msg = crate::Message {
         id: "msg_1".into(),
         from: "alice".into(),
