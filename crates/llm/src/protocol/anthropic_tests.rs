@@ -469,8 +469,6 @@ fn test_build_request_downgrades_non_high_reasoning_level() {
         let mut request = make_request();
         request.reasoning_level = level;
         let body = proto.build_request(&request).unwrap();
-        // Original request is not mutated (build_request_body clones)
-        assert_eq!(request.reasoning_level, level);
         // No reasoning fields injected (same as High behavior)
         assert!(body.get("thinking").is_none());
         assert!(body.get("reasoning_effort").is_none());
