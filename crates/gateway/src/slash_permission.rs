@@ -863,7 +863,7 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
     async fn execute_exec(
         &self,
         _session_id: &str,
-        agent_id: &str,
+        _agent_id: &str,
         command: &str,
     ) -> Vec<ContentBlock> {
         let command = command.trim();
@@ -875,10 +875,9 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         let cmd = parts.first().cloned().unwrap_or_default();
         let args = parts[1..].to_vec();
 
-        match self.check_command_permission(agent_id, &cmd, &args).await {
-            Ok(()) => self.run_command(&cmd, &args).await,
-            Err(blocks) => blocks,
-        }
+        // Permission is evaluated at the Gateway layer (check_slash_permission).
+        // The executor layer no longer performs redundant permission checks.
+        self.run_command(&cmd, &args).await
     }
 }
 
@@ -901,6 +900,7 @@ impl GatewaySlashExecutor {
 
     /// Check permission for a command execution request.
     /// Returns `Ok(())` if allowed, or `Err(blocks)` with a denial message.
+    #[allow(dead_code)]
     pub(crate) async fn check_command_permission(
         &self,
         agent_id: &str,
