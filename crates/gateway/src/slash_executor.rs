@@ -44,7 +44,9 @@ pub trait SlashEffectExecutor: Send + Sync {
     async fn execute_stop(&self, session_id: &str, cascade: bool, force: bool);
 
     /// Create a new session for the given channel.
-    async fn execute_new_session(&self, session_id: &str, channel: &str);
+    ///
+    /// Returns the new session_id.
+    async fn execute_new_session(&self, session_id: &str, channel: &str) -> String;
 
     /// Trigger context compaction with an optional custom instruction.
     async fn execute_compact(
@@ -157,14 +159,15 @@ impl SlashResultExecutor for SlashResult {
                 }
             }
             SlashResult::NewSession => {
-                ctx.executor
+                let new_id = ctx
+                    .executor
                     .execute_new_session(&ctx.session_id, &ctx.channel)
                     .await;
                 let _ = ctx
                     .reply_tx
-                    .send(ReplyAction::Reply(vec![ContentBlock::Text(
-                        "已创建新 session".into(),
-                    )]))
+                    .send(ReplyAction::Reply(vec![ContentBlock::Text(format!(
+                        "已创建新 session：{new_id}"
+                    ))]))
                     .await;
             }
             SlashResult::Stop { cascade, force } => {

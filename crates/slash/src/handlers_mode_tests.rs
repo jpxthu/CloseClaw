@@ -203,10 +203,10 @@ fn test_mode_handler_commands_and_description() {
 }
 
 #[test]
-fn test_mode_handler_is_immediate() {
+fn test_mode_handler_is_not_immediate() {
     let sm = make_session_manager();
     let h = ModeHandler::new(sm);
-    assert!(h.immediate("mode"));
+    assert!(!h.immediate("mode"));
 }
 
 #[tokio::test]
