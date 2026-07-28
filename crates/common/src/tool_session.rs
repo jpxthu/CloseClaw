@@ -12,6 +12,7 @@
 
 use std::io;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use async_trait::async_trait;
 
@@ -139,5 +140,18 @@ pub trait ToolSession: Send + Sync {
     /// Returns `true` if the session is in active Waiting (yielding).
     fn is_waiting(&self) -> bool {
         false
+    }
+
+    /// Record the mtime of a file after it has been read.
+    ///
+    /// Called by `ReadTool` so that subsequent `EditTool` / `WriteTool`
+    /// invocations can verify the file has not been modified externally.
+    async fn record_file_read(&self, _path: &str, _mtime: Option<SystemTime>) {}
+
+    /// Retrieve the mtime that was recorded when the file was last read.
+    ///
+    /// Returns `None` if the file has never been read in this session.
+    fn get_file_mtime(&self, _path: &str) -> Option<SystemTime> {
+        None
     }
 }
