@@ -116,7 +116,7 @@ async fn assert_circuit_breaker_notified(sm: &SessionManager, sid: &str) {
     let notified = msgs.iter().any(|m| {
         m.role == "assistant"
             && m.content_blocks.iter().any(|b| match b {
-                ContentBlock::Text(t) => t.contains("自动压缩已暂停"),
+                ContentBlock::Text(t) => t == "自动压缩已暂停，建议手动 /compact",
                 _ => false,
             })
     });
@@ -133,7 +133,7 @@ async fn assert_circuit_breaker_not_notified(sm: &SessionManager, sid: &str) {
     let notified = msgs.iter().any(|m| {
         m.role == "assistant"
             && m.content_blocks.iter().any(|b| match b {
-                ContentBlock::Text(t) => t.contains("自动压缩已暂停"),
+                ContentBlock::Text(t) => t == "自动压缩已暂停，建议手动 /compact",
                 _ => false,
             })
     });
@@ -169,7 +169,7 @@ async fn count_notifications(sm: &SessionManager, sid: &str) -> usize {
         .filter(|m| {
             m.role == "assistant"
                 && m.content_blocks.iter().any(|b| match b {
-                    ContentBlock::Text(t) => t.contains("自动压缩已暂停"),
+                    ContentBlock::Text(t) => t == "自动压缩已暂停，建议手动 /compact",
                     _ => false,
                 })
         })
@@ -268,7 +268,7 @@ async fn test_circuit_breaker_notification_reset_after_success() {
             .filter(|m| {
                 !(m.role == "assistant"
                     && m.content_blocks.iter().any(|b| match b {
-                        ContentBlock::Text(t) => t.contains("自动压缩已暂停"),
+                        ContentBlock::Text(t) => t == "自动压缩已暂停，建议手动 /compact",
                         _ => false,
                     }))
             })

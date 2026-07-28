@@ -259,10 +259,6 @@ impl CompactionService {
         let remaining = context_window.saturating_sub(used_tokens);
         let buffer_tokens = self.config.auto_compact_buffer_tokens;
 
-        // Blocking: ≤ buffer_tokens / 4 tokens left
-        if remaining <= buffer_tokens / 4 {
-            return TokenWarningState::Blocking;
-        }
         // Auto-compact triggered: ≤ buffer_tokens tokens left
         if remaining <= buffer_tokens {
             return TokenWarningState::AutoCompactTriggered;
@@ -404,6 +400,4 @@ pub enum TokenWarningState {
     Warning,
     /// Auto-compact triggered — compaction should run.
     AutoCompactTriggered,
-    /// Blocking state — context window nearly full, blocking new requests.
-    Blocking,
 }
