@@ -552,6 +552,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/slash/mode-switching.md",
+    "commit": "b2d1d5608f98117949098c84e4dc7d644d649f06",
+    "commit_time": "2026-07-29T00:11:18+08:00",
+    "confirmed_time": "2026-07-29T00:18:41.411151+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/system_prompt/appends.md",
     "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
     "commit_time": "2026-07-07T01:07:02+08:00",
