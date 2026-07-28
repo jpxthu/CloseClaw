@@ -237,7 +237,7 @@ impl SlashResultExecutor for SlashResult {
                 let _ = ctx
                     .reply_tx
                     .send(ReplyAction::Reply(vec![ContentBlock::Text(format!(
-                        "推理深度已设置为 {level}"
+                        "推理深度已设为 {level}"
                     ))]))
                     .await;
             }
