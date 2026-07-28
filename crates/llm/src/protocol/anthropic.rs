@@ -99,7 +99,7 @@ fn build_request_body(request: &InternalRequest) -> Result<serde_json::Value> {
             provider = "anthropic",
             model = %request.model,
             from = %request.reasoning_level,
-            to = "high",
+            to = %ReasoningLevel::High,
             "reasoning level downgraded: Anthropic supports High only"
         );
     }

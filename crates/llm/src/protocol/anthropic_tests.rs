@@ -454,12 +454,11 @@ fn test_build_request_does_not_inject_reasoning_level() {
     }
 }
 
-// ── reasoning_level downgrade tests ───────────────────────────────────────
+// ── reasoning_level logging tests ──────────────────────────────────────────
 #[test]
-fn test_build_request_downgrades_non_high_reasoning_level() {
+fn test_build_request_logs_non_high_reasoning_level() {
     let proto = AnthropicProtocol::new();
-    // Non-High levels should be downgraded to High internally;
-    // externally the body should still not contain any reasoning fields.
+    // Non-High levels are logged as downgraded; body itself is unaffected.
     let non_high_levels = [
         ReasoningLevel::Low,
         ReasoningLevel::Medium,
