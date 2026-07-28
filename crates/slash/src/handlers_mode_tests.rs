@@ -134,8 +134,12 @@ async fn test_plan_mode_handler_with_whitespace_args_returns_set_mode() {
 
 #[tokio::test]
 async fn test_plan_mode_handler_no_args_enters_plan_mode() {
-    let h = make_plan_handler();
-    let ctx = dummy_ctx();
+    let sm = make_session_manager_with_storage();
+    let sid = create_test_session(&sm).await;
+    let h = PlanModeHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid.clone();
+    // Empty args
     match h.handle("", &ctx).await {
         SlashResult::SetMode {
             mode,
@@ -149,12 +153,11 @@ async fn test_plan_mode_handler_no_args_enters_plan_mode() {
         }
         other => panic!("expected SetMode{{mode: \"plan\", plan_file_path: None}}, got {other:?}"),
     }
-}
-
-#[tokio::test]
-async fn test_plan_mode_handler_whitespace_only_args_enters_plan_mode() {
-    let h = make_plan_handler();
-    let ctx = dummy_ctx();
+    assert!(
+        sm.get_plan_state(&sid).await.is_none(),
+        "PlanState should NOT be set when /plan is invoked without args"
+    );
+    // Whitespace-only args — same behavior
     match h.handle("   ", &ctx).await {
         SlashResult::SetMode {
             mode,
@@ -168,6 +171,10 @@ async fn test_plan_mode_handler_whitespace_only_args_enters_plan_mode() {
         }
         other => panic!("expected SetMode{{mode: \"plan\", plan_file_path: None}}, got {other:?}"),
     }
+    assert!(
+        sm.get_plan_state(&sid).await.is_none(),
+        "PlanState should NOT be set when /plan is invoked with whitespace-only args"
+    );
 }
 
 // ── ModeHandler tests ──────────────────────────────────────────────────────
@@ -741,25 +748,41 @@ async fn test_plan_no_args_without_plan_state_no_transition() {
     }
 }
 
+// ── Step 1.5: /plan --path explicit_path tests ──────────────────────────
+
 #[tokio::test]
-async fn test_plan_path_standard_no_title_enters_plan_mode() {
+async fn test_plan_path_no_title_sets_explicit_path() {
     let sm = make_session_manager_with_storage();
-    let sid = create_test_session(&sm).await;
-    let h = PlanModeHandler::new(Arc::clone(&sm));
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid;
-    match h.handle("--path standard", &ctx).await {
-        SlashResult::SetMode {
-            mode,
-            plan_file_path,
-        } => {
-            assert_eq!(mode, "plan", "should enter Plan Mode");
-            assert!(
-                plan_file_path.is_none(),
-                "no plan file when --path has no title"
-            );
+    for (arg, expected) in &[
+        ("--path interview", PlanPath::Interview),
+        ("--path standard", PlanPath::Standard),
+    ] {
+        let sid = create_test_session(&sm).await;
+        let h = PlanModeHandler::new(Arc::clone(&sm));
+        let mut ctx = dummy_ctx();
+        ctx.session_id = sid.clone();
+        match h.handle(arg, &ctx).await {
+            SlashResult::SetMode {
+                mode,
+                plan_file_path,
+            } => {
+                assert_eq!(mode, "plan", "should enter Plan Mode for {arg}");
+                assert!(
+                    plan_file_path.is_none(),
+                    "no plan file for --path without title"
+                );
+            }
+            other => panic!("expected SetMode{{mode: \"plan\"}} for {arg}, got {other:?}"),
         }
-        other => panic!("expected SetMode{{mode: \"plan\", plan_file_path: None}}, got {other:?}"),
+        let ps = sm
+            .get_plan_state(&sid)
+            .await
+            .expect("PlanState should be set");
+        assert_eq!(
+            ps.explicit_path,
+            Some(*expected),
+            "explicit_path should be {expected:?} after {arg}"
+        );
     }
 }
 
