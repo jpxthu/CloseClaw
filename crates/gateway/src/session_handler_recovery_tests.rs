@@ -276,3 +276,186 @@ async fn test_healthy_turn_no_recovery_action() {
     // This is verified by the fact that handle_recovery_action is only
     // called when verdict.status != Healthy.
 }
+
+// =========================================================================
+// Step 1.2: NotifyUser transcript injection tests
+// =========================================================================
+
+/// NotifyUser injects assistant message into transcript AND sends via output_tx.
+///
+/// Verifies the design-doc requirement that failure notifications are
+/// injected as assistant messages into the transcript.
+#[tokio::test]
+async fn test_notify_user_injects_transcript_and_sends() {
+    let sm = make_sm();
+    use std::collections::HashMap;
+    let msg = crate::Message {
+        id: "msg_1".into(),
+        from: "alice".into(),
+        to: "bob".into(),
+        content: "hello".into(),
+        channel: "ch".into(),
+        timestamp: chrono::Utc::now().timestamp(),
+        metadata: HashMap::new(),
+        thread_id: None,
+    };
+    let sid = sm.find_or_create("ch", &msg, None).await.unwrap();
+
+    let (output_tx, mut rx) = make_output_tx(true);
+    let action = closeclaw_session::run_health::RecoverableAction::NotifyUser {
+        message: "health issue detected".to_string(),
+    };
+    let skip_drain =
+        SessionMessageHandler::test_handle_recovery_action(&sm, &sid, action, &output_tx, &None)
+            .await;
+    assert!(!skip_drain);
+
+    // Verify transcript injection.
+    let cs = sm.get_conversation_session(&sid).await.expect("session");
+    let msgs = cs.read().await.messages().to_vec();
+    let assistant_msgs: Vec<_> = msgs.iter().filter(|m| m.role == "assistant").collect();
+    assert_eq!(
+        assistant_msgs.len(),
+        1,
+        "should have 1 assistant message in transcript"
+    );
+    match &assistant_msgs[0].content_blocks[0] {
+        closeclaw_llm::types::ContentBlock::Text(t) => {
+            assert_eq!(t, "health issue detected");
+        }
+        other => panic!("expected Text block, got {:?}", other),
+    }
+
+    // Verify output_tx also receives the message.
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    let (text, _blocks) = rx.try_recv().expect("should receive message");
+    assert_eq!(text, "health issue detected");
+}
+
+/// NotifyUser when session does not exist: graceful fallback.
+///
+/// When session_manager.get_conversation_session returns None, the
+/// notification should still be sent via output_tx without panic.
+#[tokio::test]
+async fn test_notify_user_missing_session_graceful_fallback() {
+    let sm = make_sm();
+    let (output_tx, mut rx) = make_output_tx(true);
+    let action = closeclaw_session::run_health::RecoverableAction::NotifyUser {
+        message: "session not found".to_string(),
+    };
+    let skip_drain = SessionMessageHandler::test_handle_recovery_action(
+        &sm,
+        "nonexistent-session-id",
+        action,
+        &output_tx,
+        &None,
+    )
+    .await;
+    assert!(!skip_drain);
+    // output_tx should still receive the message even without transcript injection.
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    let (text, _blocks) = rx.try_recv().expect("should receive message");
+    assert_eq!(text, "session not found");
+}
+
+/// NotifyUser without output_tx: transcript injection still works.
+///
+/// When output_tx has no sender (None), the transcript injection should
+/// still succeed.
+#[tokio::test]
+async fn test_notify_user_no_tx_transcript_still_injected() {
+    let sm = make_sm();
+    use std::collections::HashMap;
+    let msg = crate::Message {
+        id: "msg_1".into(),
+        from: "alice".into(),
+        to: "bob".into(),
+        content: "hello".into(),
+        channel: "ch".into(),
+        timestamp: chrono::Utc::now().timestamp(),
+        metadata: HashMap::new(),
+        thread_id: None,
+    };
+    let sid = sm.find_or_create("ch", &msg, None).await.unwrap();
+
+    let (output_tx, _rx) = make_output_tx(false);
+    let action = closeclaw_session::run_health::RecoverableAction::NotifyUser {
+        message: "no tx test".to_string(),
+    };
+    let skip_drain =
+        SessionMessageHandler::test_handle_recovery_action(&sm, &sid, action, &output_tx, &None)
+            .await;
+    assert!(!skip_drain);
+    // Transcript should still have the assistant message.
+    let cs = sm.get_conversation_session(&sid).await.expect("session");
+    let msgs = cs.read().await.messages().to_vec();
+    let assistant_msgs: Vec<_> = msgs.iter().filter(|m| m.role == "assistant").collect();
+    assert_eq!(
+        assistant_msgs.len(),
+        1,
+        "transcript should contain assistant message even without output_tx"
+    );
+    match &assistant_msgs[0].content_blocks[0] {
+        closeclaw_llm::types::ContentBlock::Text(t) => {
+            assert_eq!(t, "no tx test");
+        }
+        other => panic!("expected Text block, got {:?}", other),
+    }
+}
+
+/// NotifyUser injects multiple distinct messages into transcript.
+///
+/// Verifies that multiple NotifyUser calls each produce separate
+/// assistant messages in the transcript.
+#[tokio::test]
+async fn test_notify_user_multiple_messages_separate_entries() {
+    let sm = make_sm();
+    use std::collections::HashMap;
+    let msg = crate::Message {
+        id: "msg_1".into(),
+        from: "alice".into(),
+        to: "bob".into(),
+        content: "hello".into(),
+        channel: "ch".into(),
+        timestamp: chrono::Utc::now().timestamp(),
+        metadata: HashMap::new(),
+        thread_id: None,
+    };
+    let sid = sm.find_or_create("ch", &msg, None).await.unwrap();
+
+    let (output_tx, _rx) = make_output_tx(true);
+    // First notification.
+    let action1 = closeclaw_session::run_health::RecoverableAction::NotifyUser {
+        message: "first notification".to_string(),
+    };
+    let _ =
+        SessionMessageHandler::test_handle_recovery_action(&sm, &sid, action1, &output_tx, &None)
+            .await;
+    // Second notification.
+    let action2 = closeclaw_session::run_health::RecoverableAction::NotifyUser {
+        message: "second notification".to_string(),
+    };
+    let _ =
+        SessionMessageHandler::test_handle_recovery_action(&sm, &sid, action2, &output_tx, &None)
+            .await;
+
+    // Verify both assistant messages are present.
+    let cs = sm.get_conversation_session(&sid).await.expect("session");
+    let msgs = cs.read().await.messages().to_vec();
+    let assistant_msgs: Vec<_> = msgs.iter().filter(|m| m.role == "assistant").collect();
+    assert_eq!(
+        assistant_msgs.len(),
+        2,
+        "should have 2 assistant messages in transcript"
+    );
+    // Verify content.
+    let texts: Vec<String> = assistant_msgs
+        .iter()
+        .filter_map(|m| match &m.content_blocks[0] {
+            closeclaw_llm::types::ContentBlock::Text(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(texts[0], "first notification");
+    assert_eq!(texts[1], "second notification");
+}
