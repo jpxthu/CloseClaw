@@ -343,7 +343,7 @@ impl SessionMessageHandler {
     ) -> bool {
         match action {
             RecoverableAction::NotifyUser { message } => {
-                Self::handle_notify_user(session_id, message, output_tx)
+                Self::handle_notify_user(session_manager, session_id, message, output_tx).await
             }
             RecoverableAction::Stop { reason } => Self::handle_stop(session_id, reason),
             RecoverableAction::Retry {
@@ -363,18 +363,39 @@ impl SessionMessageHandler {
         }
     }
 
-    /// Handle NotifyUser: send message to user, don't skip drain.
-    fn handle_notify_user(session_id: String, message: String, output_tx: OutputTx) -> bool {
+    /// Handle NotifyUser: inject transcript + send message to user, don't
+    /// skip drain.
+    ///
+    /// Writes the notification as an assistant message to the transcript
+    /// (design-doc §失败类别与处理) and simultaneously sends it to the
+    /// user via `output_tx`.
+    async fn handle_notify_user(
+        session_manager: Arc<SessionManager>,
+        session_id: String,
+        message: String,
+        output_tx: OutputTx,
+    ) -> bool {
         tracing::warn!(
             session_id = %session_id,
             message = %message,
             "health check: sending recovery notification to user"
         );
-        let msg = message.clone();
+        // Inject as assistant message into transcript (design-doc requirement).
+        if let Some(cs) = session_manager.get_conversation_session(&session_id).await {
+            cs.write()
+                .await
+                .append_transcript("assistant", vec![ContentBlock::Text(message.clone())]);
+        } else {
+            tracing::warn!(
+                session_id = %session_id,
+                "handle_notify_user: session not found, skipping transcript injection"
+            );
+        }
+        // Also send to user via output_tx.
         tokio::spawn(async move {
             let guard = output_tx.read().await;
             if let Some(tx) = guard.as_ref() {
-                let _ = tx.send((msg, vec![])).await;
+                let _ = tx.send((message, vec![])).await;
             }
         });
         false
