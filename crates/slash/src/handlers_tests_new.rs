@@ -189,7 +189,17 @@ async fn test_status_handler_with_session() {
             assert!(t.contains("LLM 状态"), "missing LLM status, got: {t}");
             assert!(t.contains("模型"), "missing model, got: {t}");
             assert!(t.contains("推理深度"), "missing reasoning, got: {t}");
+            assert!(t.contains("当前模式"), "missing current_mode, got: {t}");
             assert!(t.contains("上下文用量"), "missing tokens, got: {t}");
+            assert!(t.contains("缓存命中率"), "missing cache_hit_rate, got: {t}");
+            assert!(
+                t.contains("缓存读 token"),
+                "missing cache_read_tokens, got: {t}"
+            );
+            assert!(
+                t.contains("缓存写 token"),
+                "missing cache_write_tokens, got: {t}"
+            );
             assert!(t.contains("活跃子 agent"), "missing children, got: {t}");
             assert!(t.contains("工作目录"), "missing workdir, got: {t}");
             assert!(t.contains("追加指令"), "missing appends, got: {t}");

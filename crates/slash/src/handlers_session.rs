@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
 use closeclaw_common::slash_router::SlashResult;
+use closeclaw_common::SessionMode;
 use closeclaw_common::VerbosityLevel;
 use closeclaw_gateway::SessionManager;
 use closeclaw_session::llm_session::{ChatSession, ConversationSession};
@@ -191,7 +192,25 @@ impl SlashHandler for StatusHandler {
 
         let model = cs.model();
         let reasoning = cs.reasoning_level();
-        let total_tokens = cs.stats().total_tokens;
+        let mode = cs.session_mode();
+        let mode_label = match mode {
+            SessionMode::Normal => "Normal",
+            SessionMode::Plan => "Plan",
+            SessionMode::Auto => "Auto",
+        };
+        let stats = cs.stats();
+        let total_tokens = stats.total_tokens;
+        let total_prompt_tokens = stats.total_prompt_tokens;
+        let cache_read_tokens = stats.total_cache_read_tokens;
+        let cache_write_tokens = stats.total_cache_write_tokens;
+        let cache_hit_rate = if total_prompt_tokens == 0 {
+            "N/A".to_owned()
+        } else {
+            format!(
+                "{:.1}%",
+                cache_read_tokens as f64 / total_prompt_tokens as f64 * 100.0
+            )
+        };
 
         // Count active child handles (Weak references that are still alive).
         let child_handles = cs.child_handles.read().unwrap_or_else(|e| e.into_inner());
@@ -207,13 +226,15 @@ impl SlashHandler for StatusHandler {
         let workdir = cs.workdir().display();
         let appends = cs.system_appends();
 
-        // TODO: 「当前模式」字段暂不可用（需 mode 基础设施）
-
         let mut lines = vec![
             format!("LLM 状态：{llm_status}"),
             format!("模型：{model}"),
             format!("推理深度：{reasoning}"),
+            format!("当前模式：{mode_label}"),
             format!("上下文用量：{total_tokens} tokens"),
+            format!("缓存命中率：{cache_hit_rate}"),
+            format!("缓存读 token：{cache_read_tokens}"),
+            format!("缓存写 token：{cache_write_tokens}"),
             format!("活跃子 agent：{active_children}"),
             format!("工作目录：{workdir}"),
         ];
