@@ -12,8 +12,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use closeclaw_common::processor::ContentBlock;
+use closeclaw_common::session_lookup::{PendingMessage, SessionLookup};
 use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
-use closeclaw_common::SessionLookup;
 use closeclaw_common::{ReasoningLevel, VerbosityLevel};
 use closeclaw_session::compaction::{CompactionError, CompactionResult};
 
@@ -122,8 +122,8 @@ impl SlashResultExecutor for SlashResult {
             }
             SlashResult::SetMode {
                 mode,
-                plan_file_path,
-                initial_input: _,
+                plan_file_path: _,
+                initial_input,
                 reply_message,
             } => {
                 ctx.executor.execute_set_mode(&ctx.session_id, &mode).await;
@@ -136,6 +136,25 @@ impl SlashResultExecutor for SlashResult {
                     .reply_tx
                     .send(ReplyAction::Reply(vec![ContentBlock::Text(reply)]))
                     .await;
+                // Inject initial_input as a user-role pending message
+                if let Some(input) = initial_input {
+                    let pending_msg = PendingMessage::with_role(
+                        format!("slash-initial-{}", chrono::Utc::now().timestamp_millis()),
+                        input,
+                        "user".to_string(),
+                    );
+                    if let Err(e) = ctx
+                        .session_manager
+                        .push_pending_message(&ctx.session_id, pending_msg)
+                        .await
+                    {
+                        tracing::warn!(
+                            session_id = %ctx.session_id,
+                            error = %e,
+                            "failed to push initial_input pending message"
+                        );
+                    }
+                }
             }
             SlashResult::NewSession => {
                 ctx.executor
