@@ -191,7 +191,7 @@ async fn test_mode_handler_set_plan() {
 }
 
 #[tokio::test]
-async fn test_mode_handler_auto_blocked() {
+async fn test_mode_handler_auto_returns_set_mode() {
     let sm = make_session_manager();
     let h = ModeHandler::new(sm);
     let ctx = dummy_ctx();
