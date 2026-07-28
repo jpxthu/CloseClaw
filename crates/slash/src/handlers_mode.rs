@@ -309,6 +309,51 @@ impl ExecuteHandler {
     pub fn new(session_manager: Arc<SessionManager>) -> Self {
         Self { session_manager }
     }
+
+    /// Non-Plan Mode: directly enter Auto Mode without a plan file.
+    fn handle_non_plan_mode(&self) -> SlashResult {
+        SlashResult::SetMode {
+            mode: "auto".to_owned(),
+            plan_file_path: None,
+        }
+    }
+
+    /// Plan Mode: load plan_state → ExitPlan → SetMode auto.
+    async fn handle_plan_mode(
+        &self,
+        ctx: &SlashContext,
+        step_selection: Option<Vec<usize>>,
+    ) -> SlashResult {
+        let mut plan_state = match self.session_manager.get_plan_state(&ctx.session_id).await {
+            Some(ps) => ps,
+            None => {
+                return SlashResult::Reply(
+                    "当前没有活跃的 plan。请先用 /plan <任务描述> 创建一个 plan。".to_owned(),
+                );
+            }
+        };
+
+        if plan_state.plan_file_path.is_empty() {
+            return SlashResult::Reply("当前 plan 没有关联的 plan 文件，无法执行。".to_owned());
+        }
+
+        let plan_file_path = std::path::PathBuf::from(&plan_state.plan_file_path);
+
+        plan_state.step_selection = step_selection;
+
+        self.session_manager
+            .set_plan_state(&ctx.session_id, plan_state)
+            .await;
+
+        self.session_manager
+            .set_pending_mode_transition(&ctx.session_id, ModeTransition::ExitPlan)
+            .await;
+
+        SlashResult::SetMode {
+            mode: "auto".to_owned(),
+            plan_file_path: Some(plan_file_path),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -326,10 +371,8 @@ impl SlashHandler for ExecuteHandler {
     }
 
     async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
-        // Parse optional step_selection from args (e.g., "/execute 0,1,2")
         let step_selection = parse_step_selection_arg(args.trim());
 
-        // Step 1: Check session is in Plan Mode
         let Some(conv) = self
             .session_manager
             .get_conversation_session(&ctx.session_id)
@@ -337,49 +380,14 @@ impl SlashHandler for ExecuteHandler {
         else {
             return SlashResult::Reply("当前会话未激活".to_owned());
         };
-        {
-            let cs = conv.read().await;
-            if cs.session_mode() != SessionMode::Plan {
-                return SlashResult::Reply(
-                    "/execute 需要在 Plan Mode 下使用。先用 /plan <任务描述> 进入 Plan Mode。"
-                        .to_owned(),
-                );
-            }
+
+        let current_mode = conv.read().await.session_mode();
+
+        if current_mode != SessionMode::Plan {
+            return self.handle_non_plan_mode();
         }
 
-        // Step 2: Load plan_state from checkpoint
-        let mut plan_state = match self.session_manager.get_plan_state(&ctx.session_id).await {
-            Some(ps) => ps,
-            None => {
-                return SlashResult::Reply(
-                    "当前没有活跃的 plan。请先用 /plan <任务描述> 创建一个 plan。".to_owned(),
-                );
-            }
-        };
-
-        if plan_state.plan_file_path.is_empty() {
-            return SlashResult::Reply("当前 plan 没有关联的 plan 文件，无法执行。".to_owned());
-        }
-
-        let plan_file_path = std::path::PathBuf::from(&plan_state.plan_file_path);
-
-        // Store step_selection in plan_state for the execution engine.
-        plan_state.step_selection = step_selection;
-
-        // Persist updated plan state
-        self.session_manager
-            .set_plan_state(&ctx.session_id, plan_state)
-            .await;
-
-        // Plan exists — inject ExitPlan transition notification before switching to Auto Mode.
-        self.session_manager
-            .set_pending_mode_transition(&ctx.session_id, ModeTransition::ExitPlan)
-            .await;
-
-        SlashResult::SetMode {
-            mode: "auto".to_owned(),
-            plan_file_path: Some(plan_file_path),
-        }
+        self.handle_plan_mode(ctx, step_selection).await
     }
 }
 
@@ -509,11 +517,6 @@ impl SlashHandler for ModeHandler {
             let cs = conv.read().await;
             let mode = cs.session_mode();
             return SlashResult::Reply(format!("当前会话模式：{mode}"));
-        }
-
-        // Auto Mode should be entered via the dedicated /auto command.
-        if arg.eq_ignore_ascii_case("auto") {
-            return SlashResult::Reply("请使用 /auto 命令直接进入 Auto Mode。".to_owned());
         }
 
         // With argument — validate and return SetMode.
