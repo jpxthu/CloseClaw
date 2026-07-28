@@ -270,6 +270,10 @@ impl SlashHandler for SystemHandler {
             "add" | "+" => {
                 if remaining.is_empty() {
                     SlashResult::Reply("用法：/system add <要追加的指令>".to_owned())
+                } else if remaining.chars().count() > 500 {
+                    SlashResult::Reply(
+                        "追加内容超过 500 字符限制，不截断。请精简后重试。".to_owned(),
+                    )
                 } else {
                     SlashResult::SystemAppend {
                         action: SystemAppendAction::Add(remaining.to_owned()),
