@@ -343,7 +343,7 @@ impl SessionMessageHandler {
             return HandleResult::MessageQueued;
         }
         // Reject new requests when context window is nearly full.
-        if super::session_handler::is_blocking_state(
+        if super::session_handler_compact::is_blocking_state(
             &self.compaction_service,
             &self.session_manager,
             session_id,
@@ -351,12 +351,21 @@ impl SessionMessageHandler {
         )
         .await
         {
-            super::session_handler::send_output(
+            super::session_handler_compact::send_output(
                 &self.output_tx,
                 "Context window nearly full. Please run /compact to compress the session.",
             )
             .await;
             return HandleResult::MessageQueued;
+        }
+        // Persist user message before auto-compact so threshold estimation
+        // includes the current message (design-doc data-flow: write → truncate → estimate).
+        if let Some(cs) = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await
+        {
+            cs.write().await.append_user_message(&content);
         }
         self.check_and_run_auto_compact(session_id).await;
         self.dispatch_llm_call(session_id, content, meta, Some(gateway), Some(plugin))
