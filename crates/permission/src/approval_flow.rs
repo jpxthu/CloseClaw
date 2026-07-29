@@ -37,7 +37,7 @@ use crate::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse, RuleSet,
 };
 use closeclaw_common::permission_op::{InitialPermissionSet, UserCreationRequest};
-use closeclaw_common::{ModeTransition, PendingMessage, PlanPhase, SessionLookup, SessionMode};
+use closeclaw_common::{PendingMessage, PlanPhase, SessionLookup, SessionMode};
 
 use super::approval::{
     ApprovalMode, ApprovalQueue, ApproveOrDeny, EnqueueRequest, RejectWhitelistReason,
@@ -924,8 +924,7 @@ impl ApprovalFlow {
         sm.set_plan_state(&new_session_id, child_plan_state).await;
         sm.set_session_mode(&new_session_id, SessionMode::Auto)
             .await;
-        sm.set_pending_mode_transition(&new_session_id, ModeTransition::ExitPlan)
-            .await;
+        // Mode transition injection removed (design doc §6)
         Self::notify_new_session_mode_switch(sm, &new_session_id).await;
     }
 }
@@ -944,8 +943,7 @@ impl ApprovalFlow {
         plan_state.step_selection = plan_meta.as_ref().and_then(|m| m.step_selection.clone());
         sm.set_plan_state(session_id, plan_state.clone()).await;
         sm.set_session_mode(session_id, SessionMode::Auto).await;
-        sm.set_pending_mode_transition(session_id, ModeTransition::ExitPlan)
-            .await;
+        // Mode transition injection removed (design doc §6)
         let mode_msg = PendingMessage::with_role(
             format!("approval-mode-{}", chrono::Utc::now().timestamp_millis()),
             "✅ Plan approved, entering Auto Mode".to_string(),

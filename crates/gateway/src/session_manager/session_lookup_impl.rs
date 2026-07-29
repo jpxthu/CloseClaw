@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use super::SessionManager;
-use closeclaw_common::{ModeTransition, PendingMessage, SessionLookup};
+use closeclaw_common::{PendingMessage, SessionLookup};
 
 #[async_trait]
 impl SessionLookup for SessionManager {
@@ -32,12 +32,6 @@ impl SessionLookup for SessionManager {
     async fn set_session_mode(&self, session_id: &str, mode: closeclaw_common::SessionMode) {
         if let Some(cs) = self.get_conversation_session(session_id).await {
             cs.write().await.set_session_mode(mode);
-        }
-    }
-
-    async fn set_pending_mode_transition(&self, session_id: &str, transition: ModeTransition) {
-        if let Some(cs) = self.get_conversation_session(session_id).await {
-            cs.write().await.set_pending_mode_transition(transition);
         }
     }
 }

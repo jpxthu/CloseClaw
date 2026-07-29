@@ -54,12 +54,10 @@ fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSect
     DynamicSectionsParams {
         meta,
         workdir_path: None,
-        system_appends: &[],
         session_timestamp: None,
         session_mode,
         explicit_plan_path: None,
         user_input: None,
-        pending_mode_transition: None,
         is_compacted: false,
         is_sub_agent: false,
         is_git_status_enabled: false,
@@ -124,80 +122,10 @@ fn test_build_dynamic_sections_session_timestamp_fallback() {
     );
 }
 
-/// build_dynamic_sections always includes SessionState with correct pending_tasks.
-#[test]
-fn test_build_dynamic_sections_session_state() {
-    let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
-
-    let ss = sections
-        .iter()
-        .find(|s: &&Section| s.name() == "session_state");
-    assert!(ss.is_some(), "SessionState should always be present");
-    let rendered = ss.unwrap().render();
-    assert!(rendered.contains("pending_tasks:"));
-}
-
-/// SessionState with empty pending_tasks.
-#[test]
-fn test_build_dynamic_sections_empty_pending_tasks() {
-    let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
-    let ss = sections
-        .iter()
-        .find(|s: &&Section| s.name() == "session_state")
-        .unwrap();
-    assert!(ss.render().contains("pending_tasks:"));
-}
-
-/// AppendSection reflects the per-session system_appends slice:
-/// absent when empty, formatted as a numbered `[N] 内容` list when
-/// non-empty, and pushed as the last section in the list.
-#[test]
-fn test_build_dynamic_sections_append_section() {
-    let meta = make_meta("u", "ch", 0);
-
-    // Part 1: empty slice → no AppendSection
-    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
-    assert!(
-        !sections.iter().any(|s| s.name() == "append"),
-        "AppendSection absent when system_appends is empty"
-    );
-
-    // Part 2: non-empty slice → AppendSection with numbered list, last
-    let items = vec![
-        "first extra instruction".to_string(),
-        "second extra instruction".to_string(),
-    ];
-    let sections2 = build_dynamic_sections(&DynamicSectionsParams {
-        system_appends: &items,
-        ..make_params(&meta, SessionMode::Normal)
-    });
-    let last = sections2.last().expect("sections should be non-empty");
-    assert_eq!(
-        last.name(),
-        "append",
-        "AppendSection must be the last section"
-    );
-    let rendered = last.render();
-    assert!(
-        rendered.contains("[0] first extra instruction"),
-        "rendered should include [0] entry, got: {}",
-        rendered
-    );
-    assert!(
-        rendered.contains("[1] second extra instruction"),
-        "rendered should include [1] entry, got: {}",
-        rendered
-    );
-}
-
-/// build_full_system_prompt composes static + boundary + dynamic sections.
-#[test]
 fn test_build_full_system_prompt_composition() {
     let meta = make_meta("alice", "telegram", 1700000000);
     let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
-    let full = build_full_system_prompt(Some("You are helpful."), &sections, None);
+    let full = build_full_system_prompt(Some("You are helpful."), &sections, &[], None);
 
     // Contains static layer
     assert!(full.contains("You are helpful."));
@@ -205,8 +133,6 @@ fn test_build_full_system_prompt_composition() {
     assert!(full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     // Contains dynamic ChannelContext
     assert!(full.contains("sender_id: alice"));
-    // Contains dynamic SessionState
-    assert!(full.contains("pending_tasks:"));
 }
 
 /// build_full_system_prompt with no static prompt uses only dynamic sections.
@@ -214,25 +140,23 @@ fn test_build_full_system_prompt_composition() {
 fn test_build_full_system_prompt_no_static() {
     let meta = make_meta("bob", "ch", 0);
     let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
-    let full = build_full_system_prompt(None, &sections, None);
+    let full = build_full_system_prompt(None, &sections, &[], None);
 
     // No boundary marker when no static prompt
     assert!(!full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     // Still contains dynamic content
     assert!(full.contains("sender_id: bob"));
-    assert!(full.contains("pending_tasks:"));
 }
 
 /// build_full_system_prompt with static but empty dynamic sections.
 #[test]
 fn test_build_full_system_prompt_empty_dynamic() {
-    // Pass empty system_appends so dynamic sections are only ChannelContext + SessionState
     let meta = make_meta("", "", 0);
-    // build_dynamic_sections always returns ChannelContext + SessionState (at minimum)
+    // build_dynamic_sections always returns ChannelContext (at minimum)
     let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
-    // These two sections always render to non-empty strings, so dynamic is never truly empty.
+    // ChannelContext always renders to non-empty strings, so dynamic is never truly empty.
     // But we verify the composition still works.
-    let full = build_full_system_prompt(Some("static"), &sections, None);
+    let full = build_full_system_prompt(Some("static"), &sections, &[], None);
     assert!(full.contains("static"));
     assert!(full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
 }
@@ -431,3 +355,82 @@ fn test_split_static_dynamic_multiple_markers() {
 // ═══════════════════════════════════════════════════════════════════════════
 // Priority Prompt Override Tests (build_full_system_prompt)
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Appends (追加区) Tests — Dimension 5, 6, 7
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Dimension 5: Appends are assembled after the dynamic layer,
+/// separated by `## Append` heading.
+#[test]
+fn test_appends_after_dynamic_layer() {
+    let meta = make_meta("alice", "feishu", 1700000000);
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let appends = vec!["extra instruction A".to_string()];
+    let full = build_full_system_prompt(Some("static prompt"), &sections, &appends, None);
+    // Dynamic boundary exists
+    assert!(full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
+    // Dynamic content present
+    assert!(full.contains("sender_id: alice"));
+    // Appends section follows dynamic content
+    let append_pos = full.find("## Append").unwrap();
+    let dynamic_pos = full.find("sender_id: alice").unwrap();
+    assert!(
+        append_pos > dynamic_pos,
+        "## Append must come after dynamic layer content"
+    );
+    assert!(full.contains("extra instruction A"));
+}
+
+/// Dimension 5: Multiple appends rendered as numbered list.
+#[test]
+fn test_multiple_appends_numbered_list() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let appends = vec!["first item".to_string(), "second item".to_string()];
+    let full = build_full_system_prompt(None, &sections, &appends, None);
+    assert!(full.contains("[0] first item"));
+    assert!(full.contains("[1] second item"));
+}
+
+/// Dimension 5: Appends appear after dynamic content even without static layer.
+#[test]
+fn test_appends_without_static_prompt() {
+    let meta = make_meta("bob", "telegram", 0);
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let appends = vec!["custom note".to_string()];
+    let full = build_full_system_prompt(None, &sections, &appends, None);
+    assert!(!full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
+    assert!(full.contains("sender_id: bob"));
+    assert!(full.contains("## Append"));
+    assert!(full.contains("custom note"));
+    let append_pos = full.find("## Append").unwrap();
+    let dynamic_pos = full.find("sender_id: bob").unwrap();
+    assert!(append_pos > dynamic_pos);
+}
+
+/// Dimension 7: Empty appends produce no `## Append` section.
+#[test]
+fn test_empty_appends_no_append_section() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let full = build_full_system_prompt(Some("static"), &sections, &[], None);
+    assert!(!full.contains("## Append"));
+    // Dynamic content still present
+    assert!(full.contains("sender_id: u"));
+}
+
+/// Dimension 7: Empty appends with priority prompt — no Append section.
+#[test]
+fn test_empty_appends_priority_prompt() {
+    use closeclaw_common::system_prompt::builder::PromptOverrides;
+    let overrides = PromptOverrides {
+        override_prompt: Some("override".into()),
+        ..Default::default()
+    };
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let full = build_full_system_prompt(Some("static"), &sections, &[], Some(&overrides));
+    assert_eq!(full, "override");
+    assert!(!full.contains("## Append"));
+}

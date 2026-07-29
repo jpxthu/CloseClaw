@@ -10,23 +10,19 @@ use crate::builder::PromptOverrides;
 use crate::plan_path::analyze_plan_path;
 use crate::sections::Section;
 use crate::workdir;
-use closeclaw_common::{
-    DynamicPromptBuilder, DynamicPromptContext, ModeTransition, PlanPath, SessionMode,
-};
+use closeclaw_common::{DynamicPromptBuilder, DynamicPromptContext, PlanPath, SessionMode};
 use closeclaw_gateway::session_handler::MessageMetadata;
 
 /// Parameters for [`build_dynamic_sections`].
 ///
 /// Bundles all per-request state needed to construct dynamic system prompt
-/// sections (ChannelContext, SessionState, ModeInstruction, etc.).
+/// sections (ChannelContext, WorkingDirectory, ModeInstruction, GitStatus).
 pub struct DynamicSectionsParams<'a> {
     /// Inbound message metadata (sender, channel, timestamp).
     pub meta: &'a MessageMetadata,
     /// When `Some`, injects a `WorkingDirectory` section and builds git
     /// status for that path.
     pub workdir_path: Option<&'a str>,
-    /// Per-session append list (`/system` subcommand).
-    pub system_appends: &'a [String],
     /// Session creation timestamp override for ChannelContext.
     pub session_timestamp: Option<i64>,
     /// Current session mode (Normal / Plan / Auto).
@@ -35,8 +31,6 @@ pub struct DynamicSectionsParams<'a> {
     pub explicit_plan_path: Option<PlanPath>,
     /// User input text for automatic plan-path analysis.
     pub user_input: Option<&'a str>,
-    /// One-shot mode transition to inject (should be `take`'d by caller).
-    pub pending_mode_transition: Option<ModeTransition>,
     /// Whether the session context has been compacted (for sparse prompt injection).
     pub is_compacted: bool,
     /// Whether this prompt is for a sub-agent (for sub-agent sparse injection).
@@ -47,8 +41,14 @@ pub struct DynamicSectionsParams<'a> {
 
 /// Build dynamic sections from metadata and session state.
 ///
-/// Constructs ChannelContext, SessionState, and optionally WorkingDirectory,
-/// GitStatus, and AppendSection based on the provided parameters.
+/// Constructs exactly the four dynamic sections defined by the design doc:
+/// - **ModeInstruction** (when not Normal mode)
+/// - **ChannelContext** (always)
+/// - **WorkingDirectory** (when `workdir_path` is provided)
+/// - **GitStatus** (when enabled and workdir is a git repo)
+///
+/// Appends (追加区) are NOT built here; they are assembled independently
+/// in [`build_full_system_prompt`] or by the caller.
 pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
 
@@ -73,13 +73,8 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
         });
     }
 
-    // Inject one-shot mode transition notification.
-    // The value was already `take`'d by the session layer, so this is
-    // a one-shot injection: the section appears only in the prompt
-    // build immediately following the transition.
-    if let Some(transition) = params.pending_mode_transition {
-        sections.push(Section::ModeTransition { transition });
-    }
+    // Mode transition injection removed (design doc §6 — transition prompts
+    // are no longer injected via System Prompt sections).
 
     sections.push(Section::ChannelContext {
         chat_name: params.meta.chat_name.clone(),
@@ -92,10 +87,6 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
             .unwrap_or_default(),
     });
 
-    sections.push(Section::SessionState {
-        pending_tasks: vec![],
-    });
-
     if let Some(path) = params.workdir_path {
         sections.push(Section::WorkingDirectory(path.to_string()));
 
@@ -104,17 +95,6 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
                 sections.push(Section::GitStatus(status));
             }
         }
-    }
-
-    if !params.system_appends.is_empty() {
-        let body: String = params
-            .system_appends
-            .iter()
-            .enumerate()
-            .map(|(idx, content)| format!("[{}] {}", idx, content))
-            .collect::<Vec<_>>()
-            .join("\n");
-        sections.push(Section::AppendSection(body));
     }
 
     sections
@@ -155,9 +135,10 @@ pub fn split_static_dynamic(full_prompt: &str) -> (Option<String>, Option<String
     }
 }
 
-/// Compose a full system prompt from static layer + dynamic sections.
+/// Compose a full system prompt from static layer + dynamic sections + appends.
 ///
-/// Inserts `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` between static and dynamic layers.
+/// Inserts `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` between static and dynamic layers,
+/// then appends the appends section at the end.
 ///
 /// When `overrides` is provided and contains a non-None priority prompt,
 /// the resolution order is:
@@ -166,11 +147,12 @@ pub fn split_static_dynamic(full_prompt: &str) -> (Option<String>, Option<String
 ///   3. `custom_prompt`   — user-defined custom prompt
 ///
 /// On a priority hit the matched prompt **replaces** the static layer and
-/// dynamic layers (ChannelContext / SessionState / GitStatus) are **not**
-/// injected — only `AppendSection` entries are appended.
+/// dynamic layers (ChannelContext / GitStatus) are **not**
+/// injected — only `appends` entries are appended at the end.
 pub fn build_full_system_prompt(
     static_prompt: Option<&str>,
     dynamic_sections: &[Section],
+    appends: &[String],
     overrides: Option<&PromptOverrides>,
 ) -> String {
     // Check priority prompt overrides (override > agent > custom)
@@ -182,26 +164,19 @@ pub fn build_full_system_prompt(
             .or(ov.custom_prompt.as_deref());
 
         if let Some(base) = priority {
-            // Filter AppendSection from dynamic sections to append separately
-            let append_parts: Vec<&str> = dynamic_sections
-                .iter()
-                .filter_map(|s| match s {
-                    Section::AppendSection(body) => Some(body.as_str()),
-                    _ => None,
-                })
-                .collect();
-
-            if append_parts.is_empty() {
+            // Priority prompt replaces static + dynamic layers; only appends are appended.
+            if appends.is_empty() {
                 return base.to_string();
             }
-            let append_body = append_parts.join("\n");
+            let append_body = render_appends(appends);
             return format!("{}\n\n## Append\n{}\n", base, append_body);
         }
     }
 
-    // Normal path: static + all dynamic sections
+    // Normal path: static + dynamic sections + appends
     let dynamic_rendered: String = dynamic_sections.iter().map(|s| s.render()).collect();
-    if let Some(static_prompt) = static_prompt {
+    let append_rendered = render_appends(appends);
+    let mut result = if let Some(static_prompt) = static_prompt {
         if dynamic_rendered.is_empty() {
             static_prompt.to_string()
         } else {
@@ -212,7 +187,23 @@ pub fn build_full_system_prompt(
         }
     } else {
         dynamic_rendered
+    };
+    if !append_rendered.is_empty() {
+        result.push_str("\n\n## Append\n");
+        result.push_str(&append_rendered);
+        result.push('\n');
     }
+    result
+}
+
+/// Format appends as a numbered list for the append section.
+fn render_appends(appends: &[String]) -> String {
+    appends
+        .iter()
+        .enumerate()
+        .map(|(idx, content)| format!("[{}] {}", idx, content))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 // ── DynamicPromptBuilder adapter ───────────────────────────────────────────
@@ -244,34 +235,13 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
                 .or(ov.custom_prompt.as_deref());
 
             if let Some(base) = priority {
-                // Override replaces the static layer; only AppendSection
-                // entries from the dynamic side are preserved.
-                let sections = build_dynamic_sections(&DynamicSectionsParams {
-                    meta: &meta,
-                    workdir_path: None,
-                    system_appends: context.system_appends,
-                    session_timestamp: None,
-                    session_mode: context.session_mode,
-                    explicit_plan_path: None,
-                    user_input: context.user_input,
-                    pending_mode_transition: context.pending_mode_transition,
-                    is_compacted: context.is_compacted,
-                    is_sub_agent: context.is_sub_agent,
-                    is_git_status_enabled: context.is_git_status_enabled,
-                });
-                let append_parts: Vec<&str> = sections
-                    .iter()
-                    .filter_map(|s| match s {
-                        Section::AppendSection(body) => Some(body.as_str()),
-                        _ => None,
-                    })
-                    .collect();
-                let dynamic = if append_parts.is_empty() {
-                    None
-                } else {
-                    Some(append_parts.join("\n"))
-                };
-                return (Some(base.to_string()), dynamic);
+                // Override replaces the static layer; only appends are preserved.
+                if context.system_appends.is_empty() {
+                    return (Some(base.to_string()), None);
+                }
+                let append_body = render_appends(context.system_appends);
+                let dynamic = format!("\n\n## Append\n{}\n", append_body);
+                return (Some(base.to_string()), Some(dynamic));
             }
         }
 
@@ -281,24 +251,27 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
         let sections = build_dynamic_sections(&DynamicSectionsParams {
             meta: &meta,
             workdir_path: workdir_str.as_deref(),
-            system_appends: context.system_appends,
             session_timestamp: None, // use meta.timestamp, not session created_at
             session_mode: context.session_mode,
             explicit_plan_path: None,
             user_input: context.user_input,
-            pending_mode_transition: context.pending_mode_transition,
             is_compacted: context.is_compacted,
             is_sub_agent: context.is_sub_agent,
             is_git_status_enabled: context.is_git_status_enabled,
         });
-        let dynamic_rendered = if sections.is_empty() {
+        let mut dynamic_rendered: String = sections.iter().map(|s| s.render()).collect();
+        // Append the appends section directly (independent of dynamic sections)
+        if !context.system_appends.is_empty() {
+            let append_body = render_appends(context.system_appends);
+            dynamic_rendered.push_str("\n\n## Append\n");
+            dynamic_rendered.push_str(&append_body);
+            dynamic_rendered.push('\n');
+        }
+        let dynamic = if dynamic_rendered.is_empty() {
             None
         } else {
-            Some(sections.iter().map(|s| s.render()).collect())
+            Some(dynamic_rendered)
         };
-        (
-            context.system_prompt.map(|s| s.to_string()),
-            dynamic_rendered,
-        )
+        (context.system_prompt.map(|s| s.to_string()), dynamic)
     }
 }

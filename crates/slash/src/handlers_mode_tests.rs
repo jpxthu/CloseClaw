@@ -9,7 +9,6 @@ use crate::handlers_mode::{
 };
 use closeclaw_common::plan_state::PlanPath;
 use closeclaw_common::slash_router::SlashResult;
-use closeclaw_common::ModeTransition;
 use closeclaw_gateway::session_manager::SessionManager;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -635,94 +634,6 @@ async fn test_mode_handler_no_args_shows_current_mode() {
 
 // ── PlanModeHandler transition tests (Step 1.3 — Gap 1 transitions) ─────
 
-#[tokio::test]
-async fn test_plan_no_args_from_auto_injects_exit_auto() {
-    let sm = make_session_manager_with_storage();
-    let sid = create_session_with_auto_mode(&sm).await;
-    let h = PlanModeHandler::new(Arc::clone(&sm));
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid.clone();
-    match h.handle("", &ctx).await {
-        SlashResult::SetMode {
-            mode,
-            plan_file_path,
-            ..
-        } => {
-            assert_eq!(mode, "plan");
-            assert!(plan_file_path.is_none(), "no plan file for no-args");
-            let conv = sm.get_conversation_session(&sid).await.unwrap();
-            let transition = conv.read().await.take_pending_mode_transition();
-            assert!(
-                matches!(transition, Some(ModeTransition::ExitAuto)),
-                "should inject ExitAuto when leaving Auto Mode, got {transition:?}"
-            );
-        }
-        other => panic!("expected SetMode{{mode: \"plan\"}}, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn test_plan_no_args_with_plan_state_injects_reentry() {
-    let sm = make_session_manager_with_storage();
-    let sid = create_session_with_plan_mode(&sm).await;
-    // Set a plan_state with non-empty plan_file_path to trigger reentry
-    sm.set_plan_state(
-        &sid,
-        closeclaw_common::PlanState {
-            phase: closeclaw_common::PlanPhase::Research,
-            plan_file_path: "/some/plan.md".to_string(),
-            ..closeclaw_common::PlanState::new()
-        },
-    )
-    .await;
-    let h = PlanModeHandler::new(Arc::clone(&sm));
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid.clone();
-    match h.handle("", &ctx).await {
-        SlashResult::SetMode {
-            mode,
-            plan_file_path,
-            ..
-        } => {
-            assert_eq!(mode, "plan");
-            assert!(plan_file_path.is_none());
-            let conv = sm.get_conversation_session(&sid).await.unwrap();
-            let transition = conv.read().await.take_pending_mode_transition();
-            assert!(
-                matches!(transition, Some(ModeTransition::Reentry)),
-                "should inject Reentry when re-entering Plan Mode, got {transition:?}"
-            );
-        }
-        other => panic!("expected SetMode{{mode: \"plan\"}}, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn test_plan_no_args_without_plan_state_no_transition() {
-    let sm = make_session_manager_with_storage();
-    let sid = create_test_session(&sm).await;
-    let h = PlanModeHandler::new(Arc::clone(&sm));
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid.clone();
-    match h.handle("", &ctx).await {
-        SlashResult::SetMode {
-            mode,
-            plan_file_path,
-            ..
-        } => {
-            assert_eq!(mode, "plan");
-            assert!(plan_file_path.is_none());
-            let conv = sm.get_conversation_session(&sid).await.unwrap();
-            let transition = conv.read().await.take_pending_mode_transition();
-            assert!(
-                transition.is_none(),
-                "no transition expected from Normal Mode with no plan_state, got {transition:?}"
-            );
-        }
-        other => panic!("expected SetMode{{mode: \"plan\"}}, got {other:?}"),
-    }
-}
-
 // ── Step 1.5: /plan --path explicit_path tests ──────────────────────────
 
 #[tokio::test]
@@ -794,27 +705,6 @@ async fn test_auto_no_args_enters_auto_mode() {
             assert!(plan_file_path.is_none(), "no plan file expected");
         }
         other => panic!("expected SetMode{{mode: \"auto\", ..}}, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn test_auto_from_plan_mode_injects_exit_plan() {
-    let sm = make_session_manager_with_storage();
-    let sid = create_session_with_plan_mode(&sm).await;
-    let h = AutoModeHandler::new(Arc::clone(&sm));
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid.clone();
-    match h.handle("", &ctx).await {
-        SlashResult::SetMode { mode, .. } => {
-            assert_eq!(mode, "auto");
-            let conv = sm.get_conversation_session(&sid).await.unwrap();
-            let transition = conv.read().await.take_pending_mode_transition();
-            assert!(
-                matches!(transition, Some(closeclaw_common::ModeTransition::ExitPlan)),
-                "should inject ExitPlan transition, got {transition:?}"
-            );
-        }
-        other => panic!("expected SetMode from Plan Mode, got {other:?}"),
     }
 }
 
