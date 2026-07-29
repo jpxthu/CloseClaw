@@ -611,9 +611,9 @@
     "path": "docs/design/slash/workdir.md",
     "commit": "",
     "commit_time": "",
-    "confirmed_time": "2026-07-29T14:40:38.829454+08:00",
+    "confirmed_time": "2026-07-29T14:56:51.830194+08:00",
     "comment": "",
-    "blocked_reason": "F2b确认文档内部矛盾：1)/git写操作-架构节说审批通过后执行，数据流节说不执行；2)/git status-架构节说直接执行，数据流节说需Permission审批"
+    "blocked_reason": "git只读命令:架构节说直接执行,数据流节说需Permission审批; git写操作:架构节说审批通过后执行,数据流节说不执行"
   },
   {
     "path": "docs/design/system_prompt/appends.md",
