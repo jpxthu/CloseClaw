@@ -18,55 +18,29 @@ use closeclaw_permission::engine::engine_types::{
     Action, Defaults, Effect, Rule, RuleSet, Subject,
 };
 use closeclaw_session::persistence::ReasoningLevel;
-
 // ---------------------------------------------------------------------------
 // Mock handlers
 // ---------------------------------------------------------------------------
-
-/// Safe handler — does NOT require permission.
-struct SafeHandler;
-
-#[async_trait::async_trait]
-impl SlashHandler for SafeHandler {
-    fn commands(&self) -> &[&str] {
-        &["help"]
-    }
-
-    fn description(&self) -> &str {
-        "Help command"
-    }
-
-    async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
-        SlashResult::Reply("help!".to_owned())
-    }
+/// Simple handler with configurable `requires_permission`.
+struct SimpleHandler {
+    command: &'static str,
+    requires_permission: bool,
 }
-
-/// Risky handler — overrides `requires_permission()` to `true`.
-///
-/// `SlashHandler::requires_permission()` has a default of `false`; this
-/// override is what makes `/exec` take Branch 2 (engine path) in
-/// `dispatch_slash`.
-struct RiskyHandler;
-
 #[async_trait::async_trait]
-impl SlashHandler for RiskyHandler {
+impl SlashHandler for SimpleHandler {
     fn commands(&self) -> &[&str] {
-        &["exec"]
+        std::slice::from_ref(&self.command)
     }
-
     fn description(&self) -> &str {
-        "Execute a shell command"
+        "Simple test handler"
     }
-
     fn requires_permission(&self) -> bool {
-        true
+        self.requires_permission
     }
-
     async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
-        SlashResult::Reply(format!("exec: {args}"))
+        SlashResult::Reply(format!("{}: {args}", self.command))
     }
 }
-
 /// Handler that records how many times `handle()` was invoked.
 ///
 /// Used to assert that `dispatch_slash` either invokes or skips a handler
@@ -76,27 +50,22 @@ struct CountingHandler {
     requires_permission: bool,
     counter: Arc<AtomicU32>,
 }
-
 #[async_trait::async_trait]
 impl SlashHandler for CountingHandler {
     fn commands(&self) -> &[&str] {
         std::slice::from_ref(&self.command)
     }
-
     fn description(&self) -> &str {
         "Counting handler"
     }
-
     fn requires_permission(&self) -> bool {
         self.requires_permission
     }
-
     async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
         self.counter.fetch_add(1, Ordering::SeqCst);
         SlashResult::Reply("counted".to_owned())
     }
 }
-
 /// Handler that captures the most recent `SlashContext` it was invoked with.
 ///
 /// Used to verify that `dispatch_slash` populates `SlashContext.channel`
@@ -111,11 +80,9 @@ impl SlashHandler for CapturingHandler {
     fn commands(&self) -> &[&str] {
         std::slice::from_ref(&self.command)
     }
-
     fn description(&self) -> &str {
         "Capturing handler"
     }
-
     async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
         *self.last_ctx.lock().expect("ctx mutex poisoned") = Some(SlashContext {
             command: ctx.command.clone(),
@@ -126,16 +93,13 @@ impl SlashHandler for CapturingHandler {
         SlashResult::Reply("captured".to_owned())
     }
 }
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
 // ---------------------------------------------------------------------------
 // Mock routers (implement SlashRouter)
 // ---------------------------------------------------------------------------
-
-/// A router that dispatches to SafeHandler ("help") and RiskyHandler ("exec").
+/// A router that dispatches to SimpleHandler for "help" and "exec".
 struct DefaultTestRouter;
 
 #[async_trait::async_trait]
@@ -148,13 +112,18 @@ impl SlashRouter for DefaultTestRouter {
     }
     fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>> {
         match command {
-            "help" => Some(Box::new(SafeHandler)),
-            "exec" => Some(Box::new(RiskyHandler)),
+            "help" => Some(Box::new(SimpleHandler {
+                command: "help",
+                requires_permission: false,
+            })),
+            "exec" => Some(Box::new(SimpleHandler {
+                command: "exec",
+                requires_permission: true,
+            })),
             _ => None,
         }
     }
 }
-
 /// A router that handles no commands (empty registry equivalent).
 struct EmptyRouter;
 
@@ -170,7 +139,6 @@ impl SlashRouter for EmptyRouter {
         None
     }
 }
-
 /// A router that dispatches to a single CountingHandler.
 struct CountingRouter {
     command: &'static str,
@@ -198,7 +166,6 @@ impl SlashRouter for CountingRouter {
         }
     }
 }
-
 /// A router that dispatches to a single CapturingHandler.
 struct CapturingRouter {
     command: &'static str,
@@ -224,7 +191,6 @@ impl SlashRouter for CapturingRouter {
         }
     }
 }
-
 /// A router that dispatches to a single ImmediateCountingHandler.
 struct ImmediateCountingRouter {
     command: &'static str,
@@ -304,7 +270,6 @@ fn clone_result(r: &SlashResult) -> SlashResult {
         },
     }
 }
-
 /// A router that dispatches to a single ResultHandler.
 struct ResultRouter {
     command: &'static str,
@@ -336,7 +301,6 @@ impl SlashRouter for ResultRouter {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
 fn make_gateway() -> Arc<Gateway> {
     let config = GatewayConfig {
         name: "test".to_owned(),
@@ -352,11 +316,9 @@ fn make_gateway() -> Arc<Gateway> {
     ));
     Arc::new(Gateway::new(config, sm))
 }
-
 fn make_dispatcher() -> Arc<dyn SlashRouter> {
     Arc::new(DefaultTestRouter)
 }
-
 /// Build a dispatcher that contains a `CountingHandler` for a given command.
 fn counting_dispatcher(
     command: &'static str,
@@ -369,7 +331,6 @@ fn counting_dispatcher(
         counter,
     })
 }
-
 /// Build a dispatcher that contains a `CapturingHandler` for a given command.
 fn capturing_dispatcher(
     command: &'static str,
@@ -377,7 +338,6 @@ fn capturing_dispatcher(
 ) -> Arc<dyn SlashRouter> {
     Arc::new(CapturingRouter { command, last_ctx })
 }
-
 /// A PermissionEngine that always denies.
 fn deny_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
     let rules = RuleSet {
@@ -401,7 +361,6 @@ fn deny_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
         PermissionEngine::new_with_default_data_root(rules),
     ))
 }
-
 /// A PermissionEngine that always allows (all rules are Allow).
 fn allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
     let rules = RuleSet {
@@ -438,7 +397,6 @@ fn allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn test_slash_not_entering_agent_session() {
     let gw = make_gateway();
@@ -457,7 +415,6 @@ async fn test_slash_not_entering_agent_session() {
         .await;
     assert!(result.is_none());
 }
-
 #[tokio::test]
 async fn test_unknown_slash_command_returns_reply() {
     let gw = make_gateway();
@@ -471,7 +428,6 @@ async fn test_unknown_slash_command_returns_reply() {
     // 应该返回 Some(HandleResult::SlashHandled)，不是 None
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
 }
-
 #[tokio::test]
 async fn test_slash_context_channel_propagates() {
     // `dispatch_slash`'s `channel` argument must be visible to the handler
@@ -525,7 +481,6 @@ impl SlashHandler for ImmediateCountingHandler {
         SlashResult::Reply("counted".to_owned())
     }
 }
-
 /// Build a dispatcher that contains an `ImmediateCountingHandler` for a given command.
 fn immediate_counting_dispatcher(
     command: &'static str,
@@ -533,7 +488,6 @@ fn immediate_counting_dispatcher(
 ) -> Arc<dyn SlashRouter> {
     Arc::new(ImmediateCountingRouter { command, counter })
 }
-
 /// Handler that returns a configurable [`SlashResult`].
 struct ResultHandler {
     command: &'static str,
@@ -556,7 +510,6 @@ impl SlashHandler for ResultHandler {
         clone_result(&self.result)
     }
 }
-
 fn result_dispatcher(command: &'static str, result: SlashResult) -> Arc<dyn SlashRouter> {
     Arc::new(ResultRouter {
         command,
@@ -564,7 +517,6 @@ fn result_dispatcher(command: &'static str, result: SlashResult) -> Arc<dyn Slas
         requires_permission: false,
     })
 }
-
 #[tokio::test]
 async fn test_execute_route_reply_variant() {
     let gw = make_gateway();
@@ -576,7 +528,6 @@ async fn test_execute_route_reply_variant() {
     let result = gw.dispatch_slash("s1", "/echo", Some("u1"), "feishu").await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
 }
-
 #[tokio::test]
 async fn test_execute_route_system_append_variant() {
     use closeclaw_common::slash_router::SystemAppendAction;
@@ -597,7 +548,6 @@ async fn test_execute_route_system_append_variant() {
 // ===========================================================================
 // Busy-queueing: non-immediate slash commands enqueued when session is busy
 // ===========================================================================
-
 /// Helper: register a `ConversationSession` in the gateway's session manager
 /// and return the Arc so the test can set it busy/idle.
 async fn register_session(
@@ -617,7 +567,6 @@ async fn register_session(
     }
     cs_arc
 }
-
 #[tokio::test]
 async fn test_non_immediate_busy_enqueues_and_returns_slash_handled() {
     // Non-immediate command + session busy → enqueued, handler NOT invoked,
@@ -661,7 +610,6 @@ async fn test_non_immediate_busy_enqueues_and_returns_slash_handled() {
         "pending message should contain the slash command"
     );
 }
-
 #[tokio::test]
 async fn test_immediate_busy_executes_normally() {
     // Immediate command + session busy → handler IS invoked (no enqueue).
@@ -700,7 +648,6 @@ async fn test_immediate_busy_executes_normally() {
         "immediate command must NOT be enqueued"
     );
 }
-
 #[tokio::test]
 async fn test_non_immediate_idle_executes_normally() {
     // Non-immediate command + session idle → handler IS invoked (no enqueue).
@@ -797,7 +744,6 @@ async fn test_permission_denied_empty_rule_name() {
         "handler IS invoked, but execute() is skipped even with empty rule name denial"
     );
 }
-
 /// 状态转换 (state transition): non-owner + engine Allow → handler IS
 /// invoked. Verifies the full allow path after the "权限不足" denial
 /// path was exercised, confirming state transitions correctly.
@@ -824,7 +770,6 @@ async fn test_permission_allow_after_deny_transition() {
 // ===========================================================================
 // Owner short-circuit path test
 // ===========================================================================
-
 /// Owner short-circuit: `sender_id == "owner"` bypasses the permission
 /// engine entirely. Even with a deny-all engine, the owner's command
 /// should be dispatched to the handler.
@@ -851,7 +796,6 @@ async fn test_owner_slash_direct_dispatch() {
 // ===========================================================================
 // Step 1.5: Exec.requires_permission bypass test
 // ===========================================================================
-
 /// Handler that returns `Exec { requires_permission: false }`,
 /// simulating a read-only git subcommand.
 struct ExecNoPermissionHandler;
@@ -861,15 +805,12 @@ impl SlashHandler for ExecNoPermissionHandler {
     fn commands(&self) -> &[&str] {
         &["git"]
     }
-
     fn description(&self) -> &str {
         "Git read-only command"
     }
-
     fn requires_permission(&self) -> bool {
         false
     }
-
     async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
         SlashResult::Exec {
             command: "git status".to_owned(),
@@ -896,7 +837,6 @@ impl SlashRouter for ExecNoPermissionRouter {
         }
     }
 }
-
 /// Step 1.5: `Exec { requires_permission: false }` bypasses the permission
 /// engine entirely, even for a non-owner sender with a deny-all engine.
 #[tokio::test]
@@ -915,5 +855,146 @@ async fn test_exec_no_permission_bypass() {
     assert!(
         matches!(result, Some(HandleResult::SlashHandled)),
         "Exec with requires_permission: false should be dispatched without permission check"
+    );
+}
+
+// ===========================================================================
+// Step 1.2: WorkdirHandler permission routing tests
+// ===========================================================================
+//
+// Simulates WorkdirHandler behavior: /git write commands require permission,
+// /git read-only commands and /cd, /pwd do not.
+//
+// These tests exercise the three-branch permission routing for the
+// specific case of the WorkdirHandler:
+// 1. /git commit → Exec { requires_permission: true } → deny engine blocks non-owner
+// 2. /git status → Exec { requires_permission: false } → bypasses permission engine
+// 3. /cd, /pwd → Reply(...) → unaffected by permission engine
+// 4. Owner on /git commit → owner short-circuits, bypasses engine
+
+/// WorkdirHandler mock: inspects git args to determine permission requirement.
+struct WorkdirHandler;
+
+#[async_trait::async_trait]
+impl SlashHandler for WorkdirHandler {
+    fn commands(&self) -> &[&str] {
+        &["git", "cd", "pwd"]
+    }
+    fn description(&self) -> &str {
+        "Workdir command handler"
+    }
+    async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
+        if args.starts_with("status")
+            || args.starts_with("log")
+            || args.starts_with("diff")
+            || args.starts_with("branch")
+            || args.starts_with("show")
+        {
+            SlashResult::Exec {
+                command: format!("git {args}"),
+                requires_permission: false,
+            }
+        } else if !args.is_empty() {
+            SlashResult::Exec {
+                command: format!("git {args}"),
+                requires_permission: true,
+            }
+        } else {
+            SlashResult::Reply("usage: /git <command>".to_owned())
+        }
+    }
+}
+
+struct WorkdirRouter;
+
+#[async_trait::async_trait]
+impl SlashRouter for WorkdirRouter {
+    async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
+        None
+    }
+    fn is_immediate(&self, _command: &str) -> bool {
+        false
+    }
+    fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>> {
+        match command {
+            "git" | "cd" | "pwd" => Some(Box::new(WorkdirHandler)),
+            _ => None,
+        }
+    }
+}
+/// /git commit (write command) triggers permission engine for non-owner.
+/// With a deny-all engine, the command is blocked (handler invoked but
+/// execute skipped).
+#[tokio::test]
+async fn test_git_commit_non_owner_triggers_permission_engine() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(Arc::new(WorkdirRouter)).await;
+    gw.set_permission_engine(deny_engine()).await;
+
+    let result = gw
+        .dispatch_slash("sess1", "/git commit -m test", Some("user1"), "feishu")
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::SlashHandled)),
+        "/git commit for non-owner with deny engine should be denied"
+    );
+}
+/// /git status (read-only command) does NOT trigger permission engine.
+/// Bypasses engine via Exec { requires_permission: false }.
+#[tokio::test]
+async fn test_git_status_readonly_bypasses_permission_engine() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(Arc::new(WorkdirRouter)).await;
+    gw.set_permission_engine(deny_engine()).await;
+
+    let result = gw
+        .dispatch_slash("sess2", "/git status", Some("user1"), "feishu")
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::SlashHandled)),
+        "/git status should bypass permission engine and succeed"
+    );
+}
+/// /cd and /pwd return Reply results, unaffected by permission engine.
+#[tokio::test]
+async fn test_cd_pwd_unaffected_by_permission_engine() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(Arc::new(WorkdirRouter)).await;
+    gw.set_permission_engine(deny_engine()).await;
+
+    let result_cd = gw
+        .dispatch_slash("sess3", "/cd /tmp", Some("user1"), "feishu")
+        .await;
+    assert!(
+        matches!(result_cd, Some(HandleResult::SlashHandled)),
+        "/cd should succeed regardless of permission engine"
+    );
+
+    let result_pwd = gw
+        .dispatch_slash("sess3", "/pwd", Some("user1"), "feishu")
+        .await;
+    assert!(
+        matches!(result_pwd, Some(HandleResult::SlashHandled)),
+        "/pwd should succeed regardless of permission engine"
+    );
+}
+/// Owner on /git commit still directly executes (owner short-circuit).
+/// Even with a deny-all engine, the owner's write command bypasses
+/// the permission engine.
+#[tokio::test]
+async fn test_git_commit_owner_bypasses_permission_engine() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(Arc::new(WorkdirRouter)).await;
+    gw.set_permission_engine(deny_engine()).await;
+
+    let result = gw
+        .dispatch_slash("sess4", "/git commit -m test", Some("owner"), "feishu")
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::SlashHandled)),
+        "/git commit for owner should bypass permission engine"
     );
 }
