@@ -126,6 +126,99 @@ impl Gateway {
             .await
     }
 
+    /// Build a [`PermissionRequest`] for the given slash command.
+    ///
+    /// Resolves the agent ID from the session, fetches agent permissions
+    /// from the config manager, and constructs a
+    /// [`PermissionRequest::WithCaller`] suitable for the permission engine.
+    async fn build_permission_request(
+        &self,
+        cmd: &str,
+        sender_id: Option<&str>,
+        session_id: &str,
+    ) -> (
+        PermissionRequest,
+        Arc<dyn AgentPermissionProvider + Send + Sync>,
+    ) {
+        let agent_id = self
+            .session_manager
+            .get_chat_id(session_id)
+            .await
+            .unwrap_or_default();
+
+        let agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync> =
+            match self.session_manager.get_config_manager().await {
+                Some(cm) => cm.agent_permissions(),
+                None => Arc::new(LazyAgentPermissions::new(std::path::PathBuf::new())),
+            };
+
+        let caller = Caller {
+            user_id: sender_id.unwrap_or("").to_owned(),
+            agent: agent_id.clone(),
+            creator_id: String::new(),
+        };
+        let request = PermissionRequest::WithCaller {
+            caller,
+            request: PermissionRequestBody::SlashCommand {
+                agent: agent_id,
+                command: cmd.to_owned(),
+            },
+        };
+        (request, agent_permissions)
+    }
+
+    /// Permission engine check: Owner short-circuit + engine evaluation.
+    ///
+    /// Checks whether a slash command should be allowed based solely on
+    /// the permission engine, without consulting the handler's
+    /// `requires_permission()`. Used directly by `execute_and_route` for
+    /// `SlashResult::Exec { requires_permission: true }` to bypass
+    /// handler-level checks.
+    async fn check_engine_permission(
+        &self,
+        cmd: &str,
+        sender_id: Option<&str>,
+        session_id: &str,
+    ) -> bool {
+        if sender_id == Some("owner") {
+            return true;
+        }
+
+        let engine_guard = self.permission_engine.read().await;
+        let Some(engine) = engine_guard.as_ref() else {
+            tracing::warn!(
+                cmd,
+                "permission engine not configured; denying slash command"
+            );
+            self.send_reply_if_available("权限不足：权限引擎未配置")
+                .await;
+            return false;
+        };
+
+        let (request, agent_permissions) = self
+            .build_permission_request(cmd, sender_id, session_id)
+            .await;
+
+        // Chain-aware permission check: dimension-level intersection
+        // with the parent agent chain.
+        let response = engine
+            .read()
+            .await
+            .evaluate_with_chain(
+                request,
+                &*self.session_manager,
+                session_id,
+                agent_permissions.as_ref(),
+            )
+            .await;
+        if let PermissionResponse::Denied { reason, .. } = response {
+            self.send_reply_if_available(&format!("权限不足：{reason}"))
+                .await;
+            return false;
+        }
+        true
+    }
+
     /// Three-branch permission check. Returns `true` if the command may
     /// proceed, `false` if it was denied (reply already sent).
     async fn check_slash_permission(
@@ -154,61 +247,8 @@ impl Gateway {
         drop(dispatcher_guard);
 
         // Branch 2: 高危指令走权限引擎
-        let engine_guard = self.permission_engine.read().await;
-        let Some(engine) = engine_guard.as_ref() else {
-            tracing::warn!(
-                cmd,
-                "permission engine not configured; denying high-risk slash command"
-            );
-            self.send_reply_if_available("权限不足：权限引擎未配置")
-                .await;
-            return false;
-        };
-
-        let agent_id = self
-            .session_manager
-            .get_chat_id(session_id)
+        self.check_engine_permission(cmd, sender_id, session_id)
             .await
-            .unwrap_or_default();
-
-        // Build agent_permissions map from config_manager for chain intersection.
-        let agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync> =
-            match self.session_manager.get_config_manager().await {
-                Some(cm) => cm.agent_permissions(),
-                None => Arc::new(LazyAgentPermissions::new(std::path::PathBuf::new())),
-            };
-
-        let caller = Caller {
-            user_id: sender_id.unwrap_or("").to_owned(),
-            agent: agent_id.clone(),
-            creator_id: String::new(),
-        };
-        let request = PermissionRequest::WithCaller {
-            caller,
-            request: PermissionRequestBody::SlashCommand {
-                agent: agent_id.clone(),
-                command: cmd.to_owned(),
-            },
-        };
-
-        // Chain-aware permission check: dimension-level intersection
-        // with the parent agent chain.
-        let response = engine
-            .read()
-            .await
-            .evaluate_with_chain(
-                request,
-                &*self.session_manager,
-                session_id,
-                agent_permissions.as_ref(),
-            )
-            .await;
-        if let PermissionResponse::Denied { reason, .. } = response {
-            self.send_reply_if_available(&format!("权限不足：{reason}"))
-                .await;
-            return false;
-        }
-        true
     }
 
     async fn send_reply_if_available(&self, text: &str) {
@@ -306,14 +346,32 @@ impl Gateway {
         }
 
         // Permission check AFTER handler returns SlashResult but BEFORE execute.
-        // For Exec results, the handler's requires_permission field controls whether
-        // the permission engine is invoked: false → bypass, true → check.
+        //
+        // For Exec results, the handler's requires_permission field controls
+        // whether the permission engine is invoked:
+        //   - false → bypass entirely (read-only, no engine check needed)
+        //   - true  → call check_engine_permission directly (skip handler-level
+        //             requires_permission() check, go straight to the engine)
+        // For all other result types, use the full check_slash_permission path.
         match &result {
             SlashResult::Exec {
                 requires_permission: false,
                 ..
             } => {
                 // No permission check needed — skip directly to execution.
+            }
+            SlashResult::Exec {
+                requires_permission: true,
+                ..
+            } => {
+                // Exec with write intent: go through the permission engine,
+                // bypassing the handler-level requires_permission() check.
+                if !self
+                    .check_engine_permission(cmd_name, sender_id, session_id)
+                    .await
+                {
+                    return Some(HandleResult::SlashHandled);
+                }
             }
             _ => {
                 if !self
