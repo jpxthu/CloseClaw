@@ -25,7 +25,6 @@ fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSect
     DynamicSectionsParams {
         meta,
         workdir_path: None,
-        system_appends: &[],
         session_timestamp: None,
         session_mode,
         explicit_plan_path: None,
