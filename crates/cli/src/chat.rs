@@ -15,7 +15,7 @@ use closeclaw_common::LlmCaller;
 use closeclaw_common::NoopMetricsEmitter;
 use closeclaw_config::providers::{ConfigProvider, CredentialsProvider, SystemConfigData};
 use closeclaw_config::{ConfigManager, ConfigSection};
-use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
+use closeclaw_gateway::{Gateway, GatewayConfig, HandleResult, SessionManager};
 use closeclaw_llm::anthropic::AnthropicProvider;
 use closeclaw_llm::fallback::{FallbackClient, ModelEntry};
 use closeclaw_llm::mimo::MimoProvider;
@@ -27,6 +27,13 @@ use closeclaw_processor_chain as processor_chain;
 use closeclaw_slash::dispatcher::SlashDispatcher;
 use closeclaw_slash::registry::HandlerRegistry;
 use closeclaw_slash::{ClearHandler, HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
+
+/// Whether the REPL should wait for streaming to complete.
+///
+/// Extracted from the `repl_loop` condition for testability.
+pub(crate) fn should_wait_for_streaming(result: Option<HandleResult>, session_key: &str) -> bool {
+    matches!(result, Some(HandleResult::LlmStarted)) && !session_key.is_empty()
+}
 
 /// Why the REPL loop exited.
 enum ExitReason {
@@ -401,6 +408,7 @@ async fn build_session_handler(
 async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, _sender_id: &str) -> ExitReason {
     let _ = agent_id; // unused; isolation handled by upstream Gateway/SessionManager
     let plugin = TerminalPlugin::new();
+    let session_manager = gateway.session_manager();
 
     loop {
         print!("> ");
@@ -453,6 +461,28 @@ async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, _sender_id: &str) -> 
             return ExitReason::Quit;
         }
 
+        // Extract session routing fields for streaming completion wait.
+        let session_key = processed
+            .metadata
+            .get("session_key")
+            .cloned()
+            .unwrap_or_default();
+        let sender_id = processed
+            .metadata
+            .get("sender_id")
+            .cloned()
+            .unwrap_or_default();
+        let peer_id = processed
+            .metadata
+            .get("peer_id")
+            .cloned()
+            .unwrap_or_default();
+        let account_id = processed
+            .metadata
+            .get("account_id")
+            .cloned()
+            .unwrap_or_default();
+
         let result = gateway
             .handle_inbound_message(processed, Some(&msg_sender_id), &msg_platform)
             .await;
@@ -461,8 +491,50 @@ async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, _sender_id: &str) -> 
             eprintln!("(no response — session handler not configured)");
         }
 
-        // Allow the streaming response to flush to stdout.
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // Wait for streaming to complete when LLM is started.
+        // Uses Notify + is_session_busy polling to avoid fixed sleep.
+        if should_wait_for_streaming(result, &session_key) {
+            let notify = Arc::new(tokio::sync::Notify::new());
+            let notify_clone = Arc::clone(&notify);
+            let sm = Arc::clone(session_manager);
+            let channel = msg_platform.clone();
+
+            tokio::spawn(async move {
+                let acc = if account_id.is_empty() {
+                    None
+                } else {
+                    Some(account_id.as_str())
+                };
+
+                // Look up the existing session without creating/resolving.
+                if let Some(session_id) = sm
+                    .lookup_session_from_routing(&channel, &sender_id, &peer_id, acc)
+                    .await
+                {
+                    // Poll until the session is no longer busy (streaming done).
+                    // Timeout after 30s to prevent infinite loops.
+                    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                        if !sm.is_session_busy(&session_id).await {
+                            break;
+                        }
+                        if tokio::time::Instant::now() >= deadline {
+                            tracing::warn!(
+                                session_id = %session_id,
+                                "streaming wait timed out after 30s"
+                            );
+                            break;
+                        }
+                    }
+                }
+                notify_clone.notify_one();
+            });
+
+            // Wait for streaming completion signal.
+            notify.notified().await;
+        }
+
         println!();
     }
 }

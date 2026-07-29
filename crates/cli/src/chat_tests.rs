@@ -443,6 +443,62 @@ async fn test_init_llm_registry_mimo_via_try_register_provider() {
     );
 }
 
+// ── REPL streaming wait condition tests (Step 1.5) ─────────────────────────
+
+use super::chat::should_wait_for_streaming;
+use closeclaw_gateway::HandleResult;
+
+/// `LlmStarted` with a non-empty session_key triggers the streaming wait.
+#[test]
+fn test_should_wait_llm_started_with_session_key() {
+    assert!(should_wait_for_streaming(
+        Some(HandleResult::LlmStarted),
+        "session-abc"
+    ));
+}
+
+/// Non-`LlmStarted` results skip the streaming wait.
+#[test]
+fn test_should_wait_message_queued_skips() {
+    assert!(!should_wait_for_streaming(
+        Some(HandleResult::MessageQueued),
+        "session-abc"
+    ));
+}
+
+/// `SlashHandled` result skips the streaming wait.
+#[test]
+fn test_should_wait_slash_handled_skips() {
+    assert!(!should_wait_for_streaming(
+        Some(HandleResult::SlashHandled),
+        "session-abc"
+    ));
+}
+
+/// `ApprovalProcessed` result skips the streaming wait.
+#[test]
+fn test_should_wait_approval_processed_skips() {
+    assert!(!should_wait_for_streaming(
+        Some(HandleResult::ApprovalProcessed),
+        "session-abc"
+    ));
+}
+
+/// `None` result (no session handler) skips the streaming wait.
+#[test]
+fn test_should_wait_none_result_skips() {
+    assert!(!should_wait_for_streaming(None, "session-abc"));
+}
+
+/// `LlmStarted` with empty session_key skips the streaming wait.
+#[test]
+fn test_should_wait_llm_started_empty_session_key() {
+    assert!(!should_wait_for_streaming(
+        Some(HandleResult::LlmStarted),
+        ""
+    ));
+}
+
 // ── peer_id "cli" verification (Step 1.2) ──────────────────────────────────
 
 /// Verify that `process_inbound_chain` receives "cli" as the peer_id,
@@ -517,6 +573,7 @@ fn test_normalized_to_inbound_platform() {
         media_refs: vec![],
         thread_id: None,
         account_id: "owner".to_string(),
+        chat_name: String::new(),
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.platform, "terminal");
@@ -535,6 +592,7 @@ fn test_normalized_to_inbound_peer_id() {
         media_refs: vec![],
         thread_id: None,
         account_id: "owner".to_string(),
+        chat_name: String::new(),
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.peer_id, "cli");
@@ -553,6 +611,7 @@ fn test_normalized_to_inbound_sender_id() {
         media_refs: vec![],
         thread_id: None,
         account_id: "owner".to_string(),
+        chat_name: String::new(),
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.sender_id, "custom-sender-42");
@@ -572,6 +631,7 @@ fn test_normalized_to_inbound_timestamp() {
         media_refs: vec![],
         thread_id: None,
         account_id: "owner".to_string(),
+        chat_name: String::new(),
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.timestamp_ms, ts);
@@ -590,6 +650,7 @@ fn test_normalized_to_inbound_account_id_present() {
         media_refs: vec![],
         thread_id: None,
         account_id: "owner".to_string(),
+        chat_name: String::new(),
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.account_id.as_deref(), Some("owner"));
@@ -627,6 +688,7 @@ fn test_normalized_to_inbound_content_preserved() {
         media_refs: vec![],
         thread_id: None,
         account_id: "owner".to_string(),
+        chat_name: String::new(),
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.content, "line1\nline2");
