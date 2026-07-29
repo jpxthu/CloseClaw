@@ -113,21 +113,21 @@ fn test_verbosity_from_metadata_with_valid_value() {
 }
 
 #[test]
-fn test_verbosity_from_metadata_missing_defaults_to_normal() {
+fn test_verbosity_from_metadata_missing_defaults_to_full() {
     let metadata = HashMap::new();
     assert_eq!(
         VerbosityFilter::verbosity_from_metadata(&metadata),
-        VerbosityLevel::Normal
+        VerbosityLevel::Full
     );
 }
 
 #[test]
-fn test_verbosity_from_metadata_invalid_defaults_to_normal() {
+fn test_verbosity_from_metadata_invalid_defaults_to_full() {
     let mut metadata = HashMap::new();
     metadata.insert("verbosity_level".to_string(), "invalid".to_string());
     assert_eq!(
         VerbosityFilter::verbosity_from_metadata(&metadata),
-        VerbosityLevel::Normal
+        VerbosityLevel::Full
     );
 }
 
