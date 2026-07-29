@@ -18,7 +18,7 @@ use closeclaw_gateway::session_handler::MessageMetadata;
 /// Parameters for [`build_dynamic_sections`].
 ///
 /// Bundles all per-request state needed to construct dynamic system prompt
-/// sections (ChannelContext, SessionState, ModeInstruction, etc.).
+/// sections (ChannelContext, ModeInstruction, etc.).
 pub struct DynamicSectionsParams<'a> {
     /// Inbound message metadata (sender, channel, timestamp).
     pub meta: &'a MessageMetadata,
@@ -47,7 +47,7 @@ pub struct DynamicSectionsParams<'a> {
 
 /// Build dynamic sections from metadata and session state.
 ///
-/// Constructs ChannelContext, SessionState, and optionally WorkingDirectory,
+/// Constructs ChannelContext and optionally WorkingDirectory,
 /// GitStatus, and AppendSection based on the provided parameters.
 pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
@@ -90,10 +90,6 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
             .or_else(|| chrono::DateTime::from_timestamp(params.meta.timestamp, 0))
             .map(|dt| dt.to_rfc3339())
             .unwrap_or_default(),
-    });
-
-    sections.push(Section::SessionState {
-        pending_tasks: vec![],
     });
 
     if let Some(path) = params.workdir_path {
@@ -166,7 +162,7 @@ pub fn split_static_dynamic(full_prompt: &str) -> (Option<String>, Option<String
 ///   3. `custom_prompt`   — user-defined custom prompt
 ///
 /// On a priority hit the matched prompt **replaces** the static layer and
-/// dynamic layers (ChannelContext / SessionState / GitStatus) are **not**
+/// dynamic layers (ChannelContext / GitStatus) are **not**
 /// injected — only `AppendSection` entries are appended.
 pub fn build_full_system_prompt(
     static_prompt: Option<&str>,

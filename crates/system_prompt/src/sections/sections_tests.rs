@@ -29,16 +29,6 @@ fn test_section_render_channel_context() {
 }
 
 #[test]
-fn test_section_render_session_state() {
-    let s = Section::SessionState {
-        pending_tasks: vec!["task1".to_string(), "task2".to_string()],
-    };
-    let rendered = s.render();
-    assert!(rendered.contains("task1"));
-    assert!(!s.is_cacheable());
-}
-
-#[test]
 fn test_invalidate_section() {
     put_cached_section("test_section", "old content".to_string(), Some(100));
     assert_eq!(
@@ -150,9 +140,6 @@ fn test_section_variants_name_and_cacheable() {
             sender_id: "s".into(),
             timestamp: "t".into(),
         },
-        Section::SessionState {
-            pending_tasks: vec![],
-        },
         Section::AppendSection("a".into()),
         Section::GitStatus("g".into()),
         Section::WorkingDirectory("/x/workspaces/a/b/".into()),
@@ -172,7 +159,6 @@ fn test_section_variants_name_and_cacheable() {
         ("memory", true),
         ("heartbeat", true),
         ("channel_context", false),
-        ("session_state", false),
         ("append", false),
         ("git_status", false),
         ("working_directory", false),

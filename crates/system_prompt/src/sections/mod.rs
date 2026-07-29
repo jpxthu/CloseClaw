@@ -34,9 +34,6 @@ pub enum Section {
         sender_id: String,
         timestamp: String,
     },
-    SessionState {
-        pending_tasks: Vec<String>,
-    },
     AppendSection(String),
     GitStatus(String),
     WorkingDirectory(String),
@@ -74,7 +71,6 @@ impl Section {
             Section::HeartbeatSection(_) => "heartbeat",
 
             Section::ChannelContext { .. } => "channel_context",
-            Section::SessionState { .. } => "session_state",
             Section::AppendSection(_) => "append",
             Section::GitStatus(_) => "git_status",
             Section::WorkingDirectory(_) => "working_directory",
@@ -82,20 +78,6 @@ impl Section {
             Section::ModeTransition { .. } => "mode_transition",
         }
     }
-    fn format_session_state(&self, pending_tasks: &[String]) -> String {
-        let tasks_str = if pending_tasks.is_empty() {
-            "  (none)".to_string()
-        } else {
-            pending_tasks
-                .iter()
-                .enumerate()
-                .map(|(i, t)| format!("  {}. {}", i + 1, t))
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        format!("## Session State\n- pending_tasks:\n{}\n", tasks_str)
-    }
-
     /// Render the section as a string for the system prompt
     pub fn render(&self) -> String {
         match self {
@@ -122,7 +104,6 @@ impl Section {
                     chat_name, sender_id, timestamp
                 )
             }
-            Section::SessionState { pending_tasks } => self.format_session_state(pending_tasks),
             Section::AppendSection(content) => {
                 format!("## Append\n{}\n", content)
             }

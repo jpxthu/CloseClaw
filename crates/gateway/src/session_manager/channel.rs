@@ -72,7 +72,7 @@ impl SessionManager {
         }
         conv_session.set_prompt_overrides(self.get_prompt_overrides().await);
         // Inject dynamic prompt builder for per-request dynamic-layer
-        // injection (ChannelContext, SessionState, etc.).
+        // injection (ChannelContext, etc.).
         if let Some(dpb) = self.get_dynamic_prompt_builder().await {
             conv_session.set_dynamic_prompt_builder(dpb);
         }

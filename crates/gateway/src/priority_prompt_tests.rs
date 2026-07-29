@@ -86,7 +86,7 @@ fn test_priority_override_mutual_exclusivity() {
 }
 
 /// Test (c): On priority hit, only AppendSection is appended;
-/// no ChannelContext/SessionState/GitStatus.
+/// no ChannelContext/GitStatus.
 #[test]
 fn test_priority_hit_only_appends_append_section() {
     let overrides = PromptOverrides {
@@ -116,10 +116,7 @@ fn test_priority_hit_only_appends_append_section() {
         !full.contains("sender_id: alice"),
         "ChannelContext should not appear on priority hit"
     );
-    assert!(
-        !full.contains("pending_tasks:"),
-        "SessionState should not appear on priority hit"
-    );
+
     assert!(
         !full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"),
         "Boundary marker should not appear on priority hit",
@@ -149,7 +146,6 @@ fn test_priority_hit_multiple_appends() {
     assert!(full.contains("first"));
     assert!(full.contains("second"));
     assert!(!full.contains("sender_id"));
-    assert!(!full.contains("pending_tasks:"));
 }
 
 /// Test (d): When no override matches, normal behavior is preserved.
@@ -166,7 +162,6 @@ fn test_priority_no_hit_normal_behavior() {
     assert!(full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     // Dynamic layers injected
     assert!(full.contains("sender_id: bob"));
-    assert!(full.contains("pending_tasks:"));
 }
 
 /// Test (e): None overrides behaves identically to normal path.
@@ -191,6 +186,5 @@ fn test_priority_none_overrides_normal_behavior() {
     // Both contain static + dynamic
     assert!(full_none.contains("static"));
     assert!(full_none.contains("sender_id: carol"));
-    assert!(full_none.contains("pending_tasks:"));
     assert!(full_none.contains("appendix"));
 }

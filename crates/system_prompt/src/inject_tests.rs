@@ -368,24 +368,6 @@ fn test_plan_mode_auto_analysis_ambiguous_input() {
     assert!(!rendered.contains("Standard Path"));
 }
 
-/// ModeInstruction appears before SessionState in dynamic sections.
-#[test]
-fn test_mode_instruction_before_session_state() {
-    let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        explicit_plan_path: Some(PlanPath::Interview),
-        ..make_params(&meta, SessionMode::Plan)
-    });
-    let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
-    let ss_idx = sections.iter().position(|s| s.name() == "session_state");
-    assert!(mode_idx.is_some());
-    assert!(ss_idx.is_some());
-    assert!(
-        mode_idx.unwrap() < ss_idx.unwrap(),
-        "ModeInstruction should come before SessionState"
-    );
-}
-
 // ── ChannelContext chat_name tests ────────────────────────────────────────────
 
 /// ChannelContext must render the actual chat_name from metadata,

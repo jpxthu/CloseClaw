@@ -124,32 +124,6 @@ fn test_build_dynamic_sections_session_timestamp_fallback() {
     );
 }
 
-/// build_dynamic_sections always includes SessionState with correct pending_tasks.
-#[test]
-fn test_build_dynamic_sections_session_state() {
-    let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
-
-    let ss = sections
-        .iter()
-        .find(|s: &&Section| s.name() == "session_state");
-    assert!(ss.is_some(), "SessionState should always be present");
-    let rendered = ss.unwrap().render();
-    assert!(rendered.contains("pending_tasks:"));
-}
-
-/// SessionState with empty pending_tasks.
-#[test]
-fn test_build_dynamic_sections_empty_pending_tasks() {
-    let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
-    let ss = sections
-        .iter()
-        .find(|s: &&Section| s.name() == "session_state")
-        .unwrap();
-    assert!(ss.render().contains("pending_tasks:"));
-}
-
 /// AppendSection reflects the per-session system_appends slice:
 /// absent when empty, formatted as a numbered `[N] 内容` list when
 /// non-empty, and pushed as the last section in the list.
@@ -205,8 +179,6 @@ fn test_build_full_system_prompt_composition() {
     assert!(full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     // Contains dynamic ChannelContext
     assert!(full.contains("sender_id: alice"));
-    // Contains dynamic SessionState
-    assert!(full.contains("pending_tasks:"));
 }
 
 /// build_full_system_prompt with no static prompt uses only dynamic sections.
@@ -220,17 +192,16 @@ fn test_build_full_system_prompt_no_static() {
     assert!(!full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     // Still contains dynamic content
     assert!(full.contains("sender_id: bob"));
-    assert!(full.contains("pending_tasks:"));
 }
 
 /// build_full_system_prompt with static but empty dynamic sections.
 #[test]
 fn test_build_full_system_prompt_empty_dynamic() {
-    // Pass empty system_appends so dynamic sections are only ChannelContext + SessionState
+    // Pass empty system_appends so dynamic sections are only ChannelContext
     let meta = make_meta("", "", 0);
-    // build_dynamic_sections always returns ChannelContext + SessionState (at minimum)
+    // build_dynamic_sections always returns ChannelContext (at minimum)
     let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
-    // These two sections always render to non-empty strings, so dynamic is never truly empty.
+    // ChannelContext always renders to non-empty strings, so dynamic is never truly empty.
     // But we verify the composition still works.
     let full = build_full_system_prompt(Some("static"), &sections, None);
     assert!(full.contains("static"));
