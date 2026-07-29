@@ -76,15 +76,38 @@ Agent 可以将子任务委托给其他 Agent（子 session），并等待结果
 
 > **交叉引用**：`/verbose` 指令控制信息展示等级，详见 [slash §F11](slash.md)。
 
+### F11. Session 活跃维度
+
+Session 在任意时刻可以同时处于多个活跃维度，每个维度是一个布尔标志。活跃维度由 session 运行时维护，不进入持久化。
+
+- **llm_active**：LLM 正在推理或流式输出
+- **foreground_tool_active**：Agent 调用了工具并等待其返回结果以继续推理（同步调用）
+- **background_tool_active**：Agent 异步发出了工具调用，不阻塞当前推理流程
+- **child_active**：Session 有未完成的子 session（已 spawn 但未完成/未终止）
+
+基于活跃维度，session 有以下复合状态：
+
+- **idle**：llm_active 和 foreground_tool_active 均为 false——session 可以立即接收新用户消息，消息分派规则见 F10
+- **inactive**：所有活跃维度均为 false，且距上次用户活动超过配置的 inactive 时长——触发归档判定，详见 F6
+
+活跃维度由各消费方按需组合使用：
+
+- 用户消息分派：idle 时直接分派；非 idle 时的阻塞规则见 F10
+- 归档判定：inactive 时触发归档，详见 F6
+- Workflow 验收：任一活跃维度为 true 时不注入验收清单
+
+> **交叉引用**：Workflow 对 session 活跃维度的使用详见 [workflow §F3](workflow.md)。
+
 ### F6. 会话归档与清理
 
-闲置的会话自动归档，过期归档自动清理，用户无需手动管理。
+inactive 的会话自动归档，过期归档自动清理，用户无需手动管理。
 
-- 超过配置空闲时间的 session 自动归档：标记 archived 状态，从活跃路由中移除
+- inactive 的 session 自动归档：标记 archived 状态，从活跃路由中移除
+- inactive 判定依据 session 活跃维度（详见 F11）：所有活跃维度均为 false，且距上次用户活动超过配置的 inactive 时长
 - 已归档超过配置清理时间的 session 彻底删除（元数据 + 对话记录）
-- 每个 Agent 可独立配置空闲时间和清理时间，主 Agent 与子 Agent 分别设置
-- 未配置时按默认配置（空闲 30 分钟归档、清理永不过期）
-- 归档前检查 session 是否有未完成操作，有则跳过本次归档
+- 每个 Agent 可独立配置 inactive 时长和清理时间，主 Agent 与子 Agent 分别设置
+- 未配置时按默认配置（inactive 30 分钟归档、清理永不过期）
+- 归档前检查 session 是否有活跃维度为 true，有则跳过本次归档
 - 系统对活跃 session 和文件系统做双向一致性校验——有元数据无对话记录视为损坏并清理，有对话记录无元数据视为孤儿文件并清理
 
 ### F7. 运行健康与安全
@@ -117,9 +140,11 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 
 ### F10. 消息排队
 
-当 Agent 正在执行操作时，任何来源的消息自动排队等待处理。
+用户消息按以下阻塞规则分派。idle 的定义见 F11。
 
-- Agent 忙碌时，所有消息进入 FIFO 等待队列，空闲后按序分派处理
+- llm_active 或 foreground_tool_active 时：用户消息进入 FIFO 等待队列。LLM 推理结束后注入；前台工具结果返回后与用户消息一起注入
+- background_tool_active 或 child_active 时：用户消息立即注入——session 有其他机制（后台工具完成通知、子 session 完成通知）提醒 Agent 还有后台任务待处理，Agent 自行判断如何应对
+- 非用户消息（子 session 完成通知、后台工具结果、记忆注入等）始终注入 session 消息队列，不参与用户消息排队
 
 > **交叉引用**：斜杠指令的排队/立即语义由 Gateway 路由决策决定，详见 [gateway §F5](gateway.md)。
 
@@ -141,5 +166,5 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 - **可靠性**：对话记录不能因系统重启或异常崩溃而丢失。正在执行的操作在崩溃后能被识别和通知
 - **可恢复性**：系统重启后，所有活跃 session 应在秒级完成扫描和恢复
 - **性能**：Agent 的回复应在流式模式下实时逐字展示，首 token 延迟不受 session 管理开销影响。后台维护任务（归档清理）不应影响用户对话的响应延迟
-- **可配置性**：每个 Agent 的会话空闲时间、归档清理周期可独立配置，主/子 Agent 分别设置
+- **可配置性**：每个 Agent 的 inactive 时长、归档清理周期可独立配置，主/子 Agent 分别设置
 - **可观测性**：用户可以查看跨轮次的 token 消耗统计和缓存命中率
