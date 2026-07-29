@@ -10,6 +10,7 @@
 use super::inject::{build_dynamic_sections, DynamicSectionsParams};
 use closeclaw_common::{PlanPath, SessionMode};
 use closeclaw_gateway::session_handler::MessageMetadata;
+use std::collections::HashSet;
 
 fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
     MessageMetadata {
@@ -347,4 +348,102 @@ fn test_git_status_not_injected_without_workdir() {
         !has_git_status,
         "GitStatus must not appear when workdir_path is None"
     );
+}
+
+// ── Dimension 1: Full happy path ─────────────────────────────────────────
+
+/// build_dynamic_sections produces exactly the four section types defined
+/// by the design doc when all conditions are met: non-Normal mode (→
+/// ModeInstruction), workdir present (→ WorkingDirectory), git status
+/// enabled in a git repo (→ GitStatus), and always ChannelContext.
+#[test]
+fn test_happy_path_all_four_sections() {
+    let meta = make_meta("user1", "feishu", 1700000000);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        workdir_path: Some(env!("CARGO_MANIFEST_DIR")),
+        is_git_status_enabled: true,
+        session_mode: SessionMode::Auto,
+        ..make_params(&meta, SessionMode::Auto)
+    });
+    let names: HashSet<&str> = sections.iter().map(|s| s.name()).collect();
+    assert!(names.contains("mode_instruction"));
+    assert!(names.contains("channel_context"));
+    assert!(names.contains("working_directory"));
+    assert!(names.contains("git_status"));
+    assert_eq!(names.len(), 4, "exactly four section types expected");
+}
+
+/// Section ordering: ModeInstruction → ChannelContext →
+/// WorkingDirectory → GitStatus.
+#[test]
+fn test_happy_path_section_ordering() {
+    let meta = make_meta("user1", "feishu", 1700000000);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        workdir_path: Some(env!("CARGO_MANIFEST_DIR")),
+        is_git_status_enabled: true,
+        session_mode: SessionMode::Plan,
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let names: Vec<&str> = sections.iter().map(|s| s.name()).collect();
+    assert_eq!(names[0], "mode_instruction");
+    assert_eq!(names[1], "channel_context");
+    assert_eq!(names[2], "working_directory");
+    assert_eq!(names[3], "git_status");
+}
+
+// ── Dimension 3: No workdir → no WorkingDirectory, no GitStatus ─────────
+
+/// When workdir_path is None, neither WorkingDirectory nor GitStatus
+/// should appear, regardless of session mode or git status flag.
+#[test]
+fn test_no_workdir_excludes_working_directory_and_git_status() {
+    let meta = make_meta("user1", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        workdir_path: None,
+        is_git_status_enabled: true,
+        session_mode: SessionMode::Auto,
+        ..make_params(&meta, SessionMode::Auto)
+    });
+    let names: HashSet<&str> = sections.iter().map(|s| s.name()).collect();
+    assert!(!names.contains("working_directory"));
+    assert!(!names.contains("git_status"));
+    // ModeInstruction and ChannelContext should still be present
+    assert!(names.contains("mode_instruction"));
+    assert!(names.contains("channel_context"));
+}
+
+// ── Dimension 4: GitStatus disabled → no GitStatus ──────────────────────
+
+/// With workdir present but is_git_status_enabled=false, WorkingDirectory
+/// is injected but GitStatus is not, even in a valid git repo.
+#[test]
+fn test_git_status_disabled_with_workdir_no_git_section() {
+    let meta = make_meta("user1", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        workdir_path: Some(env!("CARGO_MANIFEST_DIR")),
+        is_git_status_enabled: false,
+        ..make_params(&meta, SessionMode::Normal)
+    });
+    let names: HashSet<&str> = sections.iter().map(|s| s.name()).collect();
+    assert!(names.contains("working_directory"));
+    assert!(!names.contains("git_status"));
+}
+
+// ── Negative: no removed Section types appear ────────────────────────────
+
+/// Verify build_dynamic_sections never produces SessionState,
+/// ModeTransition, or AppendSection (all removed from dynamic layer).
+#[test]
+fn test_no_removed_section_types() {
+    let meta = make_meta("user1", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        workdir_path: Some(env!("CARGO_MANIFEST_DIR")),
+        is_git_status_enabled: true,
+        session_mode: SessionMode::Plan,
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let names: HashSet<&str> = sections.iter().map(|s| s.name()).collect();
+    assert!(!names.contains("session_state"));
+    assert!(!names.contains("mode_transition"));
+    assert!(!names.contains("append_section"));
 }

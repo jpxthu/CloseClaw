@@ -186,3 +186,50 @@ fn test_priority_none_overrides_normal_behavior() {
     assert!(full_none.contains("sender_id: carol"));
     assert!(full_none.contains("appendix"));
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Dimension 6: Priority prompt + appends — appends still attached
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// When a priority prompt is active, appends must still be appended
+/// at the end of the output, after the priority prompt text.
+#[test]
+fn test_priority_prompt_appends_still_attached() {
+    let overrides = PromptOverrides {
+        override_prompt: Some("priority override".into()),
+        ..Default::default()
+    };
+    let meta = make_meta("dave", "feishu", 0);
+    let dynamic = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let appends = vec!["appendix item".to_string()];
+    let full = build_full_system_prompt(Some("static"), &dynamic, &appends, Some(&overrides));
+    // Priority prompt is the base
+    assert!(full.contains("priority override"));
+    // Appends are present
+    assert!(full.contains("## Append"));
+    assert!(full.contains("appendix item"));
+    // Dynamic layers are NOT injected (priority replaces them)
+    assert!(!full.contains("sender_id: dave"));
+    assert!(!full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
+    // Append section comes after the priority prompt
+    let priority_pos = full.find("priority override").unwrap();
+    let append_pos = full.find("## Append").unwrap();
+    assert!(append_pos > priority_pos);
+}
+
+/// Agent prompt priority + appends: appends attached after agent prompt.
+#[test]
+fn test_agent_prompt_priority_with_appends() {
+    let overrides = PromptOverrides {
+        agent_prompt: Some("agent-level prompt".into()),
+        ..Default::default()
+    };
+    let meta = make_meta("u", "ch", 0);
+    let dynamic = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let appends = vec!["extra".to_string()];
+    let full = build_full_system_prompt(Some("static"), &dynamic, &appends, Some(&overrides));
+    assert!(full.contains("agent-level prompt"));
+    assert!(full.contains("## Append"));
+    assert!(full.contains("extra"));
+    assert!(!full.contains("sender_id"));
+}

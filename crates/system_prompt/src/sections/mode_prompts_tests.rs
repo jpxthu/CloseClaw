@@ -257,117 +257,6 @@ fn test_subagent_sparse_paragraph_break() {
 }
 
 // ===========================================================================
-// 6. MODE_REENTRY — section 6 Re-entry
-// ===========================================================================
-
-#[test]
-fn test_mode_reentry_multiline() {
-    assert_multiline("MODE_REENTRY", MODE_REENTRY);
-}
-
-#[test]
-fn test_mode_reentry_title_newline() {
-    assert_newline_after_title("MODE_REENTRY", MODE_REENTRY, "## Re-entering Plan Mode");
-}
-
-#[test]
-fn test_mode_reentry_content_integrity() {
-    // Title → blank line → intro
-    assert!(
-        MODE_REENTRY.contains("## Re-entering Plan Mode\n\nYou are"),
-        "MODE_REENTRY: title should be followed by blank line then intro"
-    );
-    // "Before proceeding" should be on its own line
-    assert!(
-        MODE_REENTRY.contains("\nBefore proceeding"),
-        "MODE_REENTRY: 'Before proceeding' should start on new line"
-    );
-    // Numbered steps
-    assert!(
-        MODE_REENTRY.contains("1. Read the existing"),
-        "MODE_REENTRY: missing step 1"
-    );
-    assert!(
-        MODE_REENTRY.contains("2. Evaluate"),
-        "MODE_REENTRY: missing step 2"
-    );
-    assert!(
-        MODE_REENTRY.contains("3. Decide"),
-        "MODE_REENTRY: missing step 3"
-    );
-    assert!(
-        MODE_REENTRY.contains("4. Always edit"),
-        "MODE_REENTRY: missing step 4"
-    );
-    // Bullet sub-items
-    assert!(
-        MODE_REENTRY.contains("- Different task"),
-        "MODE_REENTRY: missing 'Different task' bullet"
-    );
-    assert!(
-        MODE_REENTRY.contains("- Same task"),
-        "MODE_REENTRY: missing 'Same task' bullet"
-    );
-    // Design doc verbatim for step 4
-    assert!(
-        MODE_REENTRY.contains("before submitting for approval"),
-        "MODE_REENTRY: step 4 should contain 'before submitting for approval'"
-    );
-}
-
-// ===========================================================================
-// 7. MODE_EXIT_PLAN — section 6 Exit
-// ===========================================================================
-
-#[test]
-fn test_mode_exit_plan_multiline() {
-    assert_multiline("MODE_EXIT_PLAN", MODE_EXIT_PLAN);
-}
-
-#[test]
-fn test_mode_exit_plan_title_newline() {
-    assert_newline_after_title("MODE_EXIT_PLAN", MODE_EXIT_PLAN, "## Exited Plan Mode");
-}
-
-#[test]
-fn test_mode_exit_plan_content_integrity() {
-    assert!(
-        MODE_EXIT_PLAN.contains("## Exited Plan Mode\n\nYou have exited"),
-        "MODE_EXIT_PLAN: title should be followed by blank line then body"
-    );
-    assert!(
-        MODE_EXIT_PLAN.contains("can now make edits"),
-        "MODE_EXIT_PLAN: missing expected text"
-    );
-}
-
-// ===========================================================================
-// 8. MODE_EXIT_AUTO — section 6 Auto Mode Exit
-// ===========================================================================
-
-#[test]
-fn test_mode_exit_auto_multiline() {
-    assert_multiline("MODE_EXIT_AUTO", MODE_EXIT_AUTO);
-}
-
-#[test]
-fn test_mode_exit_auto_title_newline() {
-    assert_newline_after_title("MODE_EXIT_AUTO", MODE_EXIT_AUTO, "## Exited Auto Mode");
-}
-
-#[test]
-fn test_mode_exit_auto_content_integrity() {
-    assert!(
-        MODE_EXIT_AUTO.contains("## Exited Auto Mode\n\nYou have exited"),
-        "MODE_EXIT_AUTO: title should be followed by blank line then body"
-    );
-    assert!(
-        MODE_EXIT_AUTO.contains("ask clarifying questions"),
-        "MODE_EXIT_AUTO: missing expected text"
-    );
-}
-
-// ===========================================================================
 // Regression: PLAN_MODE_CONSTRAINT and STANDARD_PATH_PHASES unchanged
 // ===========================================================================
 
@@ -476,19 +365,6 @@ fn test_standard_sparse_approval_prohibition() {
     );
 }
 
-/// Verify MODE_REENTRY step 4 matches design doc.
-#[test]
-fn test_mode_reentry_step4_alignment() {
-    assert!(
-        MODE_REENTRY.contains("before submitting for approval"),
-        "MODE_REENTRY: step 4 must match design doc 'before submitting for approval'"
-    );
-    assert!(
-        !MODE_REENTRY.contains("to reflect the current plan state"),
-        "MODE_REENTRY: old step 4 text must be removed"
-    );
-}
-
 // ===========================================================================
 // Title format: every ## / ### header must be followed by \n
 // ===========================================================================
@@ -516,19 +392,4 @@ fn test_all_interview_titles_format() {
 #[test]
 fn test_all_auto_mode_titles_format() {
     assert_all_titles_have_newlines("AUTO_MODE_PROMPT", AUTO_MODE_PROMPT);
-}
-
-#[test]
-fn test_all_mode_reentry_titles_format() {
-    assert_all_titles_have_newlines("MODE_REENTRY", MODE_REENTRY);
-}
-
-#[test]
-fn test_all_mode_exit_plan_titles_format() {
-    assert_all_titles_have_newlines("MODE_EXIT_PLAN", MODE_EXIT_PLAN);
-}
-
-#[test]
-fn test_all_mode_exit_auto_titles_format() {
-    assert_all_titles_have_newlines("MODE_EXIT_AUTO", MODE_EXIT_AUTO);
 }
