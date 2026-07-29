@@ -1,6 +1,7 @@
 //! Edit-match engine: non-incremental matching, overlapping checks, and
 //! fuzzy-match fallback for the `EditTool`.
 
+use std::cmp::Reverse;
 use std::ops::Range;
 
 // ---------------------------------------------------------------------------
@@ -306,7 +307,7 @@ pub fn match_and_apply(
     }
 
     // Phase 3: reverse-order replacement.
-    matches.sort_by(|a, b| b.byte_range.start.cmp(&a.byte_range.start));
+    matches.sort_by_key(|m| Reverse(m.byte_range.start));
 
     let mut result = content.to_string();
     for m in &matches {
