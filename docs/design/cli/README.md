@@ -2,7 +2,8 @@
 
 ## 概述
 
-CLI 是 CloseClaw 的命令行接口模块。它包含两层：通过终端进行对话交互的 CLI Chat（terminal 消息渠道的 IMPlugin 实现）和对 daemon 的直接管理操作（CLI Admin）。
+- 关联需求文档：[requirements/cli.md](../requirements/cli.md)
+- 核心职责：CLI 是 CloseClaw 的命令行接口模块。它包含两层：通过终端进行对话交互的 CLI Chat（terminal 消息渠道的 IMPlugin 实现）和对 daemon 的直接管理操作（CLI Admin）。
 
 ## 架构
 
@@ -81,6 +82,6 @@ stdout / 文件写入 / 进程管理
 
 ## 模块关系
 
-- **上游**：操作系统终端（stdin / 命令参数）、用户
-- **下游**：Gateway（Chat 层产 NormalizedMessage 入站、消费 ContentBlock[] 出站）、Daemon（run/stop 启停、管理 RPC）、Config 模块（config 命令写配置）、Permission 模块（rule 命令管理权限规则）、LLM 模块（config setup 向导调用模型发现）
+- **上游**：操作系统终端（stdin / 命令参数）、用户、Gateway（Chat 层出站方向通过 IMPlugin trait 调用 TerminalPlugin 发送渲染结果）
+- **下游**：Gateway（Chat 层产 NormalizedMessage 入站路由，消费 ContentBlock[] 出站）、daemon（run/stop 启停、管理 RPC）、Config 模块（config 命令写配置）、Permission 模块（rule 命令管理权限规则）、LLM 模块（config setup 向导调用模型发现）
 - **无关**：IM Adapter 各平台实现（terminal 渠道与飞书/Discord 平级，实现位于 cli/ 模块，无相互调用）
