@@ -252,16 +252,24 @@ async fn test_cross_step_git_all_subcommands_with_args() {
     for (args, expected) in subcommands_with_args {
         let result = h.handle(args, &ctx).await;
         match result {
-            SlashResult::Exec { command } => {
+            SlashResult::Exec {
+                command,
+                requires_permission,
+            } => {
                 assert_eq!(&command, expected, "for args: {args}");
+                // Read-only subcommands should not require permission
+                assert!(
+                    !requires_permission,
+                    "read-only subcommand '{args}' should not require permission"
+                );
             }
             other => panic!("expected Exec for '{args}', got {other:?}"),
         }
     }
-    // Handler should require permission.
+    // Handler-level requires_permission should be false (default).
     assert!(
-        h.requires_permission(),
-        "WorkdirHandler should require permission for all git subcommands"
+        !h.requires_permission(),
+        "WorkdirHandler should not require permission at handler level"
     );
 }
 
@@ -281,8 +289,15 @@ async fn test_cross_step_git_write_subcommand_routes_to_exec() {
     };
     // After Step 1.1, all subcommands route to Exec.
     match h.handle("push origin main", &ctx).await {
-        SlashResult::Exec { command } => {
+        SlashResult::Exec {
+            command,
+            requires_permission,
+        } => {
             assert_eq!(command, "git push origin main");
+            assert!(
+                requires_permission,
+                "write subcommand should require permission"
+            );
         }
         other => panic!("expected Exec, got {other:?}"),
     }

@@ -57,7 +57,13 @@ pub enum SlashResult {
     /// Append to system prompt.
     SystemAppend { action: SystemAppendAction },
     /// Execute a sub-command.
-    Exec { command: String },
+    Exec {
+        command: String,
+        /// Whether this command requires permission evaluation before
+        /// execution. Defaults to `true` — handlers that construct `Exec`
+        /// must explicitly set this to `false` for read-only commands.
+        requires_permission: bool,
+    },
     /// Set the reasoning level for the current session.
     SetReasoning {
         level: crate::session_types::ReasoningLevel,

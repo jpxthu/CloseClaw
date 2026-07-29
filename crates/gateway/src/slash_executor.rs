@@ -222,7 +222,10 @@ impl SlashResultExecutor for SlashResult {
                     }
                 }
             }
-            SlashResult::Exec { command } => {
+            SlashResult::Exec {
+                command,
+                requires_permission: _,
+            } => {
                 let agent_id = ctx
                     .session_manager
                     .get_chat_id(&ctx.session_id)

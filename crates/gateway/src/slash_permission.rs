@@ -306,13 +306,23 @@ impl Gateway {
         }
 
         // Permission check AFTER handler returns SlashResult but BEFORE execute.
-        // Handler is allowed to run (returns context), but high-risk side effects
-        // are blocked if permission is denied.
-        if !self
-            .check_slash_permission(cmd_name, sender_id, session_id)
-            .await
-        {
-            return Some(HandleResult::SlashHandled);
+        // For Exec results, the handler's requires_permission field controls whether
+        // the permission engine is invoked: false → bypass, true → check.
+        match &result {
+            SlashResult::Exec {
+                requires_permission: false,
+                ..
+            } => {
+                // No permission check needed — skip directly to execution.
+            }
+            _ => {
+                if !self
+                    .check_slash_permission(cmd_name, sender_id, session_id)
+                    .await
+                {
+                    return Some(HandleResult::SlashHandled);
+                }
+            }
         }
 
         let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel(8);

@@ -188,7 +188,7 @@ impl SkillListingProviderWrapper {
             .into_iter()
             .filter(|(m, meta)| {
                 meta.user_invocable
-                    && !(exclude_conditional && !meta.paths.is_empty())
+                    && (meta.paths.is_empty() || !exclude_conditional)
                     && agent_skills.map_or(true, |w| {
                         w == ["*"] || w.iter().any(|s| s.as_str() == m.name.as_str())
                     })

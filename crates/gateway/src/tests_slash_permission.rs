@@ -259,8 +259,12 @@ fn clone_result(r: &SlashResult) -> SlashResult {
         SlashResult::Compact { instruction } => SlashResult::Compact {
             instruction: instruction.clone(),
         },
-        SlashResult::Exec { command } => SlashResult::Exec {
+        SlashResult::Exec {
+            command,
+            requires_permission,
+        } => SlashResult::Exec {
             command: command.clone(),
+            requires_permission: *requires_permission,
         },
         SlashResult::SetReasoning { level } => SlashResult::SetReasoning { level: *level },
         SlashResult::SetVerbosity { level } => SlashResult::SetVerbosity { level: *level },
@@ -841,5 +845,75 @@ async fn test_owner_slash_direct_dispatch() {
         counter.load(Ordering::SeqCst),
         1,
         "owner should bypass permission engine and invoke handler"
+    );
+}
+
+// ===========================================================================
+// Step 1.5: Exec.requires_permission bypass test
+// ===========================================================================
+
+/// Handler that returns `Exec { requires_permission: false }`,
+/// simulating a read-only git subcommand.
+struct ExecNoPermissionHandler;
+
+#[async_trait::async_trait]
+impl SlashHandler for ExecNoPermissionHandler {
+    fn commands(&self) -> &[&str] {
+        &["git"]
+    }
+
+    fn description(&self) -> &str {
+        "Git read-only command"
+    }
+
+    fn requires_permission(&self) -> bool {
+        false
+    }
+
+    async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
+        SlashResult::Exec {
+            command: "git status".to_owned(),
+            requires_permission: false,
+        }
+    }
+}
+
+struct ExecNoPermissionRouter;
+
+#[async_trait::async_trait]
+impl SlashRouter for ExecNoPermissionRouter {
+    async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
+        None
+    }
+    fn is_immediate(&self, _command: &str) -> bool {
+        false
+    }
+    fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>> {
+        if command == "git" {
+            Some(Box::new(ExecNoPermissionHandler))
+        } else {
+            None
+        }
+    }
+}
+
+/// Step 1.5: `Exec { requires_permission: false }` bypasses the permission
+/// engine entirely, even for a non-owner sender with a deny-all engine.
+#[tokio::test]
+async fn test_exec_no_permission_bypass() {
+    let gw = make_gateway();
+    gw.set_slash_dispatcher(Arc::new(ExecNoPermissionRouter))
+        .await;
+    gw.set_permission_engine(deny_engine()).await;
+
+    // Non-owner with deny-all engine should still succeed because
+    // requires_permission: false skips the permission check.
+    let result = gw
+        .dispatch_slash("sess-git", "/git status", Some("user1"), "feishu")
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::SlashHandled)),
+        "Exec with requires_permission: false should be dispatched without permission check"
     );
 }

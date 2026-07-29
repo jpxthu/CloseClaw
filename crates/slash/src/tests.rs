@@ -291,7 +291,10 @@ async fn test_exec_handler_handle_returns_exec_result() {
         channel: "c".to_owned(),
     };
     match ExecHandler.handle("ls -la", &ctx).await {
-        SlashResult::Exec { command } => assert_eq!(command, "ls -la"),
+        SlashResult::Exec {
+            command,
+            requires_permission: _,
+        } => assert_eq!(command, "ls -la"),
         other => panic!("expected Exec, got {other:?}"),
     }
 }
@@ -305,7 +308,10 @@ async fn test_exec_handler_empty_args() {
         channel: "c".to_owned(),
     };
     match ExecHandler.handle("", &ctx).await {
-        SlashResult::Exec { command } => assert_eq!(command, ""),
+        SlashResult::Exec {
+            command,
+            requires_permission: _,
+        } => assert_eq!(command, ""),
         other => panic!("expected Exec, got {other:?}"),
     }
 }

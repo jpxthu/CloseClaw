@@ -225,6 +225,7 @@ impl SlashHandler for ExecHandler {
     async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
         SlashResult::Exec {
             command: args.to_owned(),
+            requires_permission: true,
         }
     }
 }
@@ -323,12 +324,18 @@ impl SlashHandler for SystemHandler {
 ///   mutate its workdir in place, and reply with the new path plus the
 ///   current git branch (if any).
 /// - `/pwd`: read `ConversationSession::workdir` and reply with the path.
-/// - `/git <args>`: placeholder reply — full implementation will route
-///   through the permission engine for read-only git subcommands.
+/// - `/git <args>`: read-only subcommands (status, log, diff, branch,
+///   show) execute without permission; write subcommands require
+///   permission approval.
 ///
 /// `immediate()` returns `false` so `/cd` queues behind a running LLM turn
 /// (consistent with the design doc — workdir changes should not interrupt
 /// in-flight LLM work).
+/// Git subcommands that are read-only and do not require permission
+/// approval. All other git subcommands (e.g. commit, push, reset)
+/// require permission.
+const READ_ONLY_GIT_SUBCOMMANDS: &[&str] = &["status", "log", "diff", "branch", "show"];
+
 pub struct WorkdirHandler {
     session_manager: Arc<SessionManager>,
 }
@@ -389,10 +396,8 @@ impl WorkdirHandler {
         SlashResult::Reply(cs.workdir().display().to_string())
     }
 
-    /// Handle `/git <args>`: route all subcommands through Exec for Permission approval.
-    ///
-    /// All subcommands are routed as `SlashResult::Exec { command }` so the
-    /// Gateway's Permission module evaluates them uniformly.
+    /// Handle `/git <args>`: read-only subcommands execute without
+    /// permission; write subcommands require permission approval.
     async fn handle_git(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
         if args.trim().is_empty() {
             return SlashResult::Reply(
@@ -400,8 +405,11 @@ impl WorkdirHandler {
                     .to_owned(),
             );
         }
+        let first_token = args.split_whitespace().next().unwrap_or("");
+        let requires_permission = !READ_ONLY_GIT_SUBCOMMANDS.contains(&first_token);
         SlashResult::Exec {
             command: format!("git {args}"),
+            requires_permission,
         }
     }
 }
@@ -418,10 +426,6 @@ impl SlashHandler for WorkdirHandler {
 
     fn immediate(&self, _cmd: &str) -> bool {
         false
-    }
-
-    fn requires_permission(&self) -> bool {
-        true
     }
 
     async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {

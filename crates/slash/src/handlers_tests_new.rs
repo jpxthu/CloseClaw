@@ -497,7 +497,10 @@ async fn test_cross_step_dispatcher_routes_all_commands() {
 
     // /exec ls → Exec
     match dispatcher.dispatch("/exec ls", &ctx).await {
-        SlashResult::Exec { command } => assert_eq!(command, "ls"),
+        SlashResult::Exec {
+            command,
+            requires_permission: _,
+        } => assert_eq!(command, "ls"),
         other => panic!("/exec should return Exec, got {other:?}"),
     }
 
