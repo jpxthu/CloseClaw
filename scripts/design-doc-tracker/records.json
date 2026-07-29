@@ -611,9 +611,9 @@
     "path": "docs/design/slash/workdir.md",
     "commit": "",
     "commit_time": "",
-    "confirmed_time": "2026-07-29T13:55:35.298863+08:00",
+    "confirmed_time": "2026-07-29T14:25:18.647928+08:00",
     "comment": "",
-    "blocked_reason": "internal-contradiction-arch-vs-dataflow"
+    "blocked_reason": "doc_problem: git权限流程描述不一致-F2b第3次确认-Issue1985"
   },
   {
     "path": "docs/design/system_prompt/appends.md",
