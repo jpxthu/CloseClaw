@@ -265,12 +265,12 @@ async fn test_cross_step_git_all_subcommands_with_args() {
     );
 }
 
-// ── Cross-step: /git unknown subcommand error message ───────────────────
+// ── Cross-step: /git subcommand routes to Exec ─────────────────────────
 
-/// Integration: unknown git subcommands return a helpful error message
-/// listing supported subcommands.
+/// Integration: all git subcommands (including write operations) route to Exec
+/// so the Permission module can evaluate them.
 #[tokio::test]
-async fn test_cross_step_git_unknown_subcommand_error_message() {
+async fn test_cross_step_git_write_subcommand_routes_to_exec() {
     let sm = make_sm();
     let h = WorkdirHandler::new(sm);
     let ctx = SlashContext {
@@ -279,18 +279,11 @@ async fn test_cross_step_git_unknown_subcommand_error_message() {
         session_id: "s".to_owned(),
         channel: "c".to_owned(),
     };
+    // After Step 1.1, all subcommands route to Exec.
     match h.handle("push origin main", &ctx).await {
-        SlashResult::Reply(text) => {
-            assert!(text.contains("push"), "should echo bad subcommand: {text}");
-            assert!(
-                text.contains("status"),
-                "should list supported subcommands: {text}"
-            );
-            assert!(text.contains("log"), "should list log: {text}");
-            assert!(text.contains("diff"), "should list diff: {text}");
-            assert!(text.contains("branch"), "should list branch: {text}");
-            assert!(text.contains("show"), "should list show: {text}");
+        SlashResult::Exec { command } => {
+            assert_eq!(command, "git push origin main");
         }
-        other => panic!("expected Reply with error, got {other:?}"),
+        other => panic!("expected Exec, got {other:?}"),
     }
 }
