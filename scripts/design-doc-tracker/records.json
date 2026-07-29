@@ -592,6 +592,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/slash/system-append.md",
+    "commit": "1e08486d0255b5022ab8bea066eedec200b13c8f",
+    "commit_time": "2026-07-29T08:19:56+08:00",
+    "confirmed_time": "2026-07-29T08:26:56.399731+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/system_prompt/appends.md",
     "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
     "commit_time": "2026-07-07T01:07:02+08:00",
@@ -604,6 +612,14 @@
     "commit": "301e8738867e1ab3cea88a44f323b0eddf460e95",
     "commit_time": "2026-07-17T23:13:58+08:00",
     "confirmed_time": "2026-07-17T23:22:20.392895+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/tools/bash-security.md",
+    "commit": "791bb3262c9cbb8ab98878cbc3985770d6cb013c",
+    "commit_time": "2026-07-29T08:12:30+08:00",
+    "confirmed_time": "2026-07-29T08:19:00.496845+08:00",
     "comment": "",
     "blocked_reason": ""
   }
