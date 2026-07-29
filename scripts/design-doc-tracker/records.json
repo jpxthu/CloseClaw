@@ -49,9 +49,9 @@
   },
   {
     "path": "docs/design/cli/README.md",
-    "commit": "fd5c66940305f5cf621f0672c3b6756322bd7849",
-    "commit_time": "2026-07-05T01:04:25+08:00",
-    "confirmed_time": "2026-07-05T01:24:44.447706+08:00",
+    "commit": "b2e15a11bce2359f526e8cd7c4675bb301f8f500",
+    "commit_time": "2026-07-29T21:51:03+08:00",
+    "confirmed_time": "2026-07-29T22:00:14.364628+08:00",
     "comment": "",
     "blocked_reason": ""
   },
