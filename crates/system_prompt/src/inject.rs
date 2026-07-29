@@ -10,9 +10,7 @@ use crate::builder::PromptOverrides;
 use crate::plan_path::analyze_plan_path;
 use crate::sections::Section;
 use crate::workdir;
-use closeclaw_common::{
-    DynamicPromptBuilder, DynamicPromptContext, ModeTransition, PlanPath, SessionMode,
-};
+use closeclaw_common::{DynamicPromptBuilder, DynamicPromptContext, PlanPath, SessionMode};
 use closeclaw_gateway::session_handler::MessageMetadata;
 
 /// Parameters for [`build_dynamic_sections`].
@@ -35,8 +33,6 @@ pub struct DynamicSectionsParams<'a> {
     pub explicit_plan_path: Option<PlanPath>,
     /// User input text for automatic plan-path analysis.
     pub user_input: Option<&'a str>,
-    /// One-shot mode transition to inject (should be `take`'d by caller).
-    pub pending_mode_transition: Option<ModeTransition>,
     /// Whether the session context has been compacted (for sparse prompt injection).
     pub is_compacted: bool,
     /// Whether this prompt is for a sub-agent (for sub-agent sparse injection).
@@ -73,13 +69,8 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
         });
     }
 
-    // Inject one-shot mode transition notification.
-    // The value was already `take`'d by the session layer, so this is
-    // a one-shot injection: the section appears only in the prompt
-    // build immediately following the transition.
-    if let Some(transition) = params.pending_mode_transition {
-        sections.push(Section::ModeTransition { transition });
-    }
+    // Mode transition injection removed (design doc §6 — transition prompts
+    // are no longer injected via System Prompt sections).
 
     sections.push(Section::ChannelContext {
         chat_name: params.meta.chat_name.clone(),
@@ -250,7 +241,6 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
                     session_mode: context.session_mode,
                     explicit_plan_path: None,
                     user_input: context.user_input,
-                    pending_mode_transition: context.pending_mode_transition,
                     is_compacted: context.is_compacted,
                     is_sub_agent: context.is_sub_agent,
                     is_git_status_enabled: context.is_git_status_enabled,
@@ -282,7 +272,6 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
             session_mode: context.session_mode,
             explicit_plan_path: None,
             user_input: context.user_input,
-            pending_mode_transition: context.pending_mode_transition,
             is_compacted: context.is_compacted,
             is_sub_agent: context.is_sub_agent,
             is_git_status_enabled: context.is_git_status_enabled,

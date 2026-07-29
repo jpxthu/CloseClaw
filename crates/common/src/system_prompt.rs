@@ -8,7 +8,6 @@ use std::path::Path;
 use async_trait::async_trait;
 
 use crate::bootstrap::BootstrapMode;
-use crate::mode_transition::ModeTransition;
 use crate::request_context::RequestContext;
 use crate::session_mode::SessionMode;
 
@@ -80,11 +79,6 @@ pub struct DynamicPromptContext<'a> {
     pub overrides: Option<&'a PromptOverrides>,
     /// The user's original input text, used for plan-path analysis.
     pub user_input: Option<&'a str>,
-    /// Pending mode transition to inject as a one-shot system prompt section.
-    ///
-    /// When `Some`, the dynamic builder pushes a `Section::ModeTransition`
-    /// and clears the slot (one-shot injection).
-    pub pending_mode_transition: Option<ModeTransition>,
     /// Whether the session context has been compacted (for sparse prompt injection).
     pub is_compacted: bool,
     /// Whether this prompt is for a sub-agent (for sub-agent sparse injection).

@@ -274,7 +274,6 @@ impl ConversationSession {
                 .rev()
                 .find(|m| m.role == "user")
                 .map(|m| m.content.as_str());
-            let pending_transition = self.take_pending_mode_transition();
             let context = DynamicPromptContext {
                 system_prompt: self.system_prompt.as_deref(),
                 ctx: &ctx,
@@ -284,7 +283,6 @@ impl ConversationSession {
                 session_mode: self.session_mode(),
                 overrides: self.prompt_overrides.as_ref(),
                 user_input,
-                pending_mode_transition: pending_transition,
                 is_compacted: self.is_compacted,
                 is_sub_agent: self.is_sub_agent,
                 is_git_status_enabled: self.is_git_status_enabled,

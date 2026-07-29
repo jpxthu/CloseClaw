@@ -127,50 +127,6 @@ fn test_invalidate_skill_listing() {
 // Coverage for all remaining Section variants after WorkspaceSection removal
 // -----------------------------------------------------------------------
 
-#[test]
-fn test_section_variants_name_and_cacheable() {
-    // Declare sections as owned values first to avoid temporary drops.
-    let sections: Vec<Section> = vec![
-        Section::RoleSection("r".into()),
-        Section::ToolsSection("t".into()),
-        Section::MemorySection("m".into()),
-        Section::HeartbeatSection("h".into()),
-        Section::ChannelContext {
-            chat_name: "c".into(),
-            sender_id: "s".into(),
-            timestamp: "t".into(),
-        },
-        Section::AppendSection("a".into()),
-        Section::GitStatus("g".into()),
-        Section::WorkingDirectory("/x/workspaces/a/b/".into()),
-        Section::ModeInstruction {
-            mode: SessionMode::Plan,
-            plan_path: Some(PlanPath::Standard),
-            sparse: false,
-            sub_agent: false,
-        },
-        Section::ModeTransition {
-            transition: ModeTransition::Reentry,
-        },
-    ];
-    let expected: Vec<(&str, bool)> = vec![
-        ("role", true),
-        ("tools", false),
-        ("memory", true),
-        ("heartbeat", true),
-        ("channel_context", false),
-        ("append", false),
-        ("git_status", false),
-        ("working_directory", false),
-        ("mode_instruction", false),
-        ("mode_transition", false),
-    ];
-    for (sec, (expected_name, expected_cacheable)) in sections.iter().zip(expected.iter()) {
-        assert_eq!(sec.name(), *expected_name);
-        assert_eq!(sec.is_cacheable(), *expected_cacheable);
-    }
-}
-
 // -----------------------------------------------------------------------
 // ModeInstruction tests
 // -----------------------------------------------------------------------
@@ -233,33 +189,6 @@ fn test_mode_instruction_plan_standard_and_interview() {
     assert!(r.contains("When to Converge"));
     assert!(r.contains("The Loop"));
     assert!(!r.contains("Standard Path"));
-}
-
-#[test]
-fn test_mode_transition_renders_correct_text() {
-    let reentry = Section::ModeTransition {
-        transition: ModeTransition::Reentry,
-    };
-    assert_eq!(reentry.name(), "mode_transition");
-    assert!(!reentry.is_cacheable());
-    let r = reentry.render();
-    assert!(r.contains("## Re-entering Plan Mode"));
-    assert!(r.contains("returning to plan mode"));
-    assert!(r.contains("Read the existing plan file"));
-
-    let exit_plan = Section::ModeTransition {
-        transition: ModeTransition::ExitPlan,
-    };
-    let r = exit_plan.render();
-    assert!(r.contains("## Exited Plan Mode"));
-    assert!(r.contains("can now make edits, run tools"));
-
-    let exit_auto = Section::ModeTransition {
-        transition: ModeTransition::ExitAuto,
-    };
-    let r = exit_auto.render();
-    assert!(r.contains("## Exited Auto Mode"));
-    assert!(r.contains("ask clarifying questions"));
 }
 
 // -----------------------------------------------------------------------
@@ -598,38 +527,4 @@ fn test_auto_mode_sub_agent_false_sparse_regression() {
         output.contains("Auto mode still active"),
         "Auto Mode sparse without sub_agent should output AUTO_MODE_SPARSE"
     );
-}
-
-// ── ModeTransition section rendering ───────────────────────────────────────
-
-#[test]
-fn test_section_render_mode_transition_reentry() {
-    let s = Section::ModeTransition {
-        transition: ModeTransition::Reentry,
-    };
-    assert_eq!(s.name(), "mode_transition");
-    assert!(!s.is_cacheable());
-    let rendered = s.render();
-    assert!(rendered.contains("Re-entering Plan Mode"));
-    assert!(rendered.contains("Read the existing plan file"));
-}
-
-#[test]
-fn test_section_render_mode_transition_exit_plan() {
-    let s = Section::ModeTransition {
-        transition: ModeTransition::ExitPlan,
-    };
-    let rendered = s.render();
-    assert!(rendered.contains("Exited Plan Mode"));
-    assert!(rendered.contains("can now make edits"));
-}
-
-#[test]
-fn test_section_render_mode_transition_exit_auto() {
-    let s = Section::ModeTransition {
-        transition: ModeTransition::ExitAuto,
-    };
-    let rendered = s.render();
-    assert!(rendered.contains("Exited Auto Mode"));
-    assert!(rendered.contains("ask clarifying questions"));
 }

@@ -15,7 +15,6 @@ pub mod llm_streaming;
 pub mod llm_types;
 pub mod metrics;
 pub mod middleware;
-pub mod mode_transition;
 pub mod notifier;
 #[cfg(test)]
 pub mod notifier_tests;
@@ -79,7 +78,6 @@ pub use llm_streaming::{StreamDone, StreamingSink};
 pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinition};
 pub use metrics::{MetricsEmitter, NoopMetricsEmitter};
 pub use middleware::{MiddlewareError, OutboundMiddleware};
-pub use mode_transition::ModeTransition;
 pub use notifier::{NoopNotifier, PlanStateNotifier};
 pub use permission_check::{
     ExecutionPermissionCheck, PermissionChecker, PermissionDenied, SpawnPermissionError,

@@ -9,7 +9,7 @@ use crate::handler::SlashHandler;
 use closeclaw_common::plan_state::PlanPath;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::slash_router::SlashResult;
-use closeclaw_common::{ModeTransition, PlanPhase, PlanState, SessionLookup};
+use closeclaw_common::{PlanPhase, PlanState};
 use closeclaw_gateway::SessionManager;
 use closeclaw_session::plan_file;
 use tracing;
@@ -52,38 +52,22 @@ impl SlashHandler for PlanModeHandler {
         let (explicit_path, title) = parse_plan_path_arg(args.trim());
         let has_title = !title.trim().is_empty();
 
-        // Read conversation session once to get both mode and workdir,
+        // Read conversation session once to get the workdir,
         // avoiding a second async read lock acquisition.
-        let (exiting_auto, workdir) = if let Some(conv) = self
+        let workdir = if let Some(conv) = self
             .session_manager
             .get_conversation_session(&ctx.session_id)
             .await
         {
             let cs = conv.read().await;
-            let exiting_auto = cs.session_mode() == SessionMode::Auto;
             let workdir = cs.workdir().to_path_buf();
-            (exiting_auto, Some(workdir))
+            Some(workdir)
         } else {
-            (false, None)
+            None
         };
 
-        // Inject mode transition based on prior state.
-        // - Auto Mode exit → ExitAuto (priority: leaving Auto is more important
-        //   than reentry notification)
-        // - Plan Mode re-entry (from Normal or other) → Reentry
-        if exiting_auto {
-            self.session_manager
-                .set_pending_mode_transition(&ctx.session_id, ModeTransition::ExitAuto)
-                .await;
-        } else if let Some(prev_plan_state) =
-            self.session_manager.get_plan_state(&ctx.session_id).await
-        {
-            if !prev_plan_state.plan_file_path.is_empty() {
-                self.session_manager
-                    .set_pending_mode_transition(&ctx.session_id, ModeTransition::Reentry)
-                    .await;
-            }
-        }
+        // Mode transition injection removed (design doc §6 — transition prompts
+        // are no longer injected via System Prompt sections).
 
         // No title (either no args or --path without title): enter Plan Mode
         // without creating a plan file.
@@ -258,13 +242,6 @@ impl SlashHandler for AutoModeHandler {
             return SlashResult::Reply("已在 Auto Mode".to_owned());
         }
 
-        // Inject ExitPlan transition when leaving Plan Mode.
-        if current_mode == SessionMode::Plan {
-            self.session_manager
-                .set_pending_mode_transition(&ctx.session_id, ModeTransition::ExitPlan)
-                .await;
-        }
-
         SlashResult::SetMode {
             mode: "auto".to_owned(),
             plan_file_path: None,
@@ -324,10 +301,6 @@ impl ExecuteHandler {
 
         self.session_manager
             .set_plan_state(&ctx.session_id, plan_state)
-            .await;
-
-        self.session_manager
-            .set_pending_mode_transition(&ctx.session_id, ModeTransition::ExitPlan)
             .await;
 
         SlashResult::SetMode {
@@ -440,11 +413,6 @@ impl SlashHandler for PauseHandler {
             .set_plan_state(&ctx.session_id, plan_state)
             .await;
 
-        // Inject Reentry transition (re-entering Plan Mode).
-        self.session_manager
-            .set_pending_mode_transition(&ctx.session_id, ModeTransition::Reentry)
-            .await;
-
         // Step 4: Switch session mode back to Plan Mode
         SlashResult::SetMode {
             mode: "plan".to_owned(),
@@ -552,24 +520,6 @@ impl SlashHandler for ModeHandler {
                 // /auto no longer accepts args, so pass empty string.
                 return auto_handler.handle("", ctx).await;
             }
-        }
-
-        // Read current mode for ExitAuto detection.
-        let current_mode = self
-            .session_manager
-            .get_conversation_session(&ctx.session_id)
-            .await;
-        let current_mode = if let Some(conv) = current_mode {
-            Some(conv.read().await.session_mode())
-        } else {
-            None
-        };
-
-        // Inject ExitAuto transition when leaving Auto Mode.
-        if current_mode == Some(SessionMode::Auto) && target_mode != SessionMode::Auto {
-            self.session_manager
-                .set_pending_mode_transition(&ctx.session_id, ModeTransition::ExitAuto)
-                .await;
         }
 
         SlashResult::SetMode {

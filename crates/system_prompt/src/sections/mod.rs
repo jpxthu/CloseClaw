@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 use std::sync::RwLock;
 use std::time::SystemTime;
 
-use closeclaw_common::{ModeTransition, PlanPath, SessionMode};
+use closeclaw_common::{PlanPath, SessionMode};
 
 mod mode_prompts;
 
@@ -46,11 +46,6 @@ pub enum Section {
         sparse: bool,
         sub_agent: bool,
     },
-    /// Mode transition notification, injected when the session
-    /// transitions between modes (e.g. re-entry, exit).
-    ModeTransition {
-        transition: ModeTransition,
-    },
 }
 
 impl Section {
@@ -75,7 +70,6 @@ impl Section {
             Section::GitStatus(_) => "git_status",
             Section::WorkingDirectory(_) => "working_directory",
             Section::ModeInstruction { .. } => "mode_instruction",
-            Section::ModeTransition { .. } => "mode_transition",
         }
     }
     /// Render the section as a string for the system prompt
@@ -120,7 +114,6 @@ impl Section {
                 sparse,
                 sub_agent,
             } => render_mode_instruction_with_flags(*mode, *plan_path, *sparse, *sub_agent),
-            Section::ModeTransition { transition } => render_mode_transition(transition),
         }
     }
 }
@@ -173,15 +166,6 @@ pub(crate) fn render_mode_instruction_with_flags(
         };
     }
     render_mode_instruction(mode, plan_path)
-}
-
-/// Render a mode transition prompt — design doc section 6.
-fn render_mode_transition(transition: &ModeTransition) -> String {
-    match transition {
-        ModeTransition::Reentry => MODE_REENTRY.to_string(),
-        ModeTransition::ExitPlan => MODE_EXIT_PLAN.to_string(),
-        ModeTransition::ExitAuto => MODE_EXIT_AUTO.to_string(),
-    }
 }
 
 /// Render Standard Path instructions (4 Phases).
