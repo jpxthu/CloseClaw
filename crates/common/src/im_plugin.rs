@@ -149,6 +149,10 @@ pub struct NormalizedMessage {
     /// Tenant/account identifier for multi-tenant session isolation.
     #[serde(default)]
     pub account_id: String,
+
+    /// Actual chat/group name (e.g. Feishu group title), or empty.
+    #[serde(default)]
+    pub chat_name: String,
 }
 
 // ---------------------------------------------------------------------------

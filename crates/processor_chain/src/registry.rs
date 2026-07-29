@@ -146,6 +146,7 @@ impl ProcessorRegistry {
             media_refs: Vec::new(),
             thread_id: None,
             account_id: String::new(),
+            chat_name: String::new(),
         };
         let mut ctx = MessageContext::from_normalized(synthetic);
         ctx.metadata = llm_output.metadata.clone();
@@ -286,6 +287,7 @@ impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
                 media_refs: Vec::new(),
                 thread_id: None,
                 account_id: String::new(),
+                chat_name: String::new(),
             },
         );
         ctx.metadata = msg.metadata.clone();

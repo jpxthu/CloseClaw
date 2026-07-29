@@ -446,11 +446,16 @@ impl Gateway {
             .ok()
             .and_then(|slot| slot.as_ref().map(Arc::clone));
         if let (Some(gw), Some(plugin)) = (gw_arc, self.get_plugin(channel).await) {
+            let chat_name = processed
+                .metadata
+                .get("chat_name")
+                .cloned()
+                .unwrap_or_default();
             let meta = crate::session_handler::MessageMetadata {
                 sender_id: sender_id.unwrap_or("").to_string(),
                 channel: channel.to_string(),
                 timestamp: chrono::Utc::now().timestamp(),
-                chat_name: String::new(),
+                chat_name,
             };
             let result = handler
                 .handle_message_with_gateway(&session_id, content, meta, &gw, &plugin)
@@ -763,6 +768,7 @@ impl Gateway {
             media_refs: input.media_refs.clone(),
             thread_id: input.thread_id.clone(),
             account_id: input.account_id.clone().unwrap_or_default(),
+            chat_name: String::new(),
         };
 
         match registry.process_inbound(normalized).await {
