@@ -126,6 +126,47 @@ impl Gateway {
             .await
     }
 
+    /// Build a [`PermissionRequest`] for the given slash command.
+    ///
+    /// Resolves the agent ID from the session, fetches agent permissions
+    /// from the config manager, and constructs a
+    /// [`PermissionRequest::WithCaller`] suitable for the permission engine.
+    async fn build_permission_request(
+        &self,
+        cmd: &str,
+        sender_id: Option<&str>,
+        session_id: &str,
+    ) -> (
+        PermissionRequest,
+        Arc<dyn AgentPermissionProvider + Send + Sync>,
+    ) {
+        let agent_id = self
+            .session_manager
+            .get_chat_id(session_id)
+            .await
+            .unwrap_or_default();
+
+        let agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync> =
+            match self.session_manager.get_config_manager().await {
+                Some(cm) => cm.agent_permissions(),
+                None => Arc::new(LazyAgentPermissions::new(std::path::PathBuf::new())),
+            };
+
+        let caller = Caller {
+            user_id: sender_id.unwrap_or("").to_owned(),
+            agent: agent_id.clone(),
+            creator_id: String::new(),
+        };
+        let request = PermissionRequest::WithCaller {
+            caller,
+            request: PermissionRequestBody::SlashCommand {
+                agent: agent_id,
+                command: cmd.to_owned(),
+            },
+        };
+        (request, agent_permissions)
+    }
+
     /// Permission engine check: Owner short-circuit + engine evaluation.
     ///
     /// Checks whether a slash command should be allowed based solely on
@@ -139,7 +180,6 @@ impl Gateway {
         sender_id: Option<&str>,
         session_id: &str,
     ) -> bool {
-        // Owner short-circuit: owner bypasses the permission engine entirely.
         if sender_id == Some("owner") {
             return true;
         }
@@ -155,31 +195,9 @@ impl Gateway {
             return false;
         };
 
-        let agent_id = self
-            .session_manager
-            .get_chat_id(session_id)
-            .await
-            .unwrap_or_default();
-
-        // Build agent_permissions map from config_manager for chain intersection.
-        let agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync> =
-            match self.session_manager.get_config_manager().await {
-                Some(cm) => cm.agent_permissions(),
-                None => Arc::new(LazyAgentPermissions::new(std::path::PathBuf::new())),
-            };
-
-        let caller = Caller {
-            user_id: sender_id.unwrap_or("").to_owned(),
-            agent: agent_id.clone(),
-            creator_id: String::new(),
-        };
-        let request = PermissionRequest::WithCaller {
-            caller,
-            request: PermissionRequestBody::SlashCommand {
-                agent: agent_id.clone(),
-                command: cmd.to_owned(),
-            },
-        };
+        let (request, agent_permissions) = self
+            .build_permission_request(cmd, sender_id, session_id)
+            .await;
 
         // Chain-aware permission check: dimension-level intersection
         // with the parent agent chain.
