@@ -69,17 +69,6 @@ fn test_ordering_without_transition_mode_instruction_then_channel() {
     );
 }
 
-// ── ExitPlan in Plan→Auto scenario ──────────────────────────────────────────
-
-/// Simulates Plan→Auto transition: ModeInstruction is for Auto mode,
-/// and ExitPlan transition is injected.
-// ── Reentry in Normal/Plan scenario ─────────────────────────────────────────
-
-/// Reentry is injected when re-entering Plan Mode from Normal mode
-/// with an existing plan.
-// ── ExitAuto in Auto→Normal scenario ────────────────────────────────────────
-
-/// ExitAuto is injected when leaving Auto Mode for Normal.
 // ── ModeInstruction basic tests (migrated from inject.rs) ──────────────────
 
 /// Plan mode injects a ModeInstruction section with "Plan" content.

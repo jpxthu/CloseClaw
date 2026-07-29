@@ -229,6 +229,3 @@ or otherwise make any changes to the system.\n\
 \n\
 You are only allowed to take READ-ONLY actions. Answer the spawning\n\
 agent's query comprehensively, using the available read-only tools.";
-
-// (Mode Transition constants removed — design doc §6 transition prompts
-// are no longer injected via System Prompt sections.)

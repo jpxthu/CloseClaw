@@ -236,18 +236,12 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
 
             if let Some(base) = priority {
                 // Override replaces the static layer; only appends are preserved.
-                let append_parts: Vec<String> = context
-                    .system_appends
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, content)| format!("[{}] {}", idx, content))
-                    .collect();
-                let dynamic = if append_parts.is_empty() {
-                    None
-                } else {
-                    Some(append_parts.join("\n"))
-                };
-                return (Some(base.to_string()), dynamic);
+                if context.system_appends.is_empty() {
+                    return (Some(base.to_string()), None);
+                }
+                let append_body = render_appends(context.system_appends);
+                let dynamic = format!("\n\n## Append\n{}\n", append_body);
+                return (Some(base.to_string()), Some(dynamic));
             }
         }
 
