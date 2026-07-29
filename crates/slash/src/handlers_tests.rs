@@ -795,7 +795,7 @@ async fn test_git_status_in_git_repo() {
 }
 
 #[tokio::test]
-async fn test_git_no_args_defaults_to_status() {
+async fn test_git_no_args_returns_usage() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
     let h = WorkdirHandler::new(Arc::clone(&sm));
@@ -805,13 +805,15 @@ async fn test_git_no_args_defaults_to_status() {
         session_id: sid,
         channel: "c".to_owned(),
     };
-    // Empty args should route to status (returns Exec with "git ").
-    let command = assert_exec_command(h.handle("", &ctx).await, "git ");
-    assert_eq!(command, "git ");
+    // Empty args should return usage hint (not route to status).
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => assert!(t.contains("用法"), "got: {t}"),
+        other => panic!("expected Reply with usage, got {other:?}"),
+    }
 }
 
 #[tokio::test]
-async fn test_git_unknown_subcommand() {
+async fn test_git_unknown_subcommand_routes_to_exec() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
     let h = WorkdirHandler::new(Arc::clone(&sm));
@@ -821,19 +823,9 @@ async fn test_git_unknown_subcommand() {
         session_id: sid,
         channel: "c".to_owned(),
     };
-    match h.handle("unknown", &ctx).await {
-        SlashResult::Reply(t) => {
-            assert!(
-                t.contains("未知子指令"),
-                "expected unknown subcommand, got: {t}"
-            );
-            assert!(
-                t.contains("unknown"),
-                "should echo the bad subcommand, got: {t}"
-            );
-        }
-        other => panic!("expected Reply with unknown, got {other:?}"),
-    }
+    // After Step 1.1, all subcommands (including unknown) route to Exec.
+    let command = assert_exec_command(h.handle("unknown", &ctx).await, "git ");
+    assert_eq!(command, "git unknown");
 }
 
 #[tokio::test]
@@ -903,6 +895,29 @@ async fn test_git_status_in_git_repo_with_uncommitted_changes() {
 }
 
 // ── /git subcommand routing tests ──────────────────────────────────────
+
+#[tokio::test]
+async fn test_git_write_subcommands_route_to_exec() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let ctx = SlashContext {
+        command: "git".to_owned(),
+        sender_id: "u".to_owned(),
+        session_id: sid,
+        channel: "c".to_owned(),
+    };
+    // Write subcommands should route to Exec (Permission module gates them).
+    for sub in [
+        "commit -m \"test\"",
+        "push origin main",
+        "merge feature",
+        "rebase main",
+    ] {
+        let command = assert_exec_command(h.handle(sub, &ctx).await, "git ");
+        assert_eq!(command, format!("git {sub}"));
+    }
+}
 
 #[tokio::test]
 async fn test_git_subcommands_route_to_exec() {
