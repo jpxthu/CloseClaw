@@ -82,7 +82,7 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
     }
 
     sections.push(Section::ChannelContext {
-        chat_name: params.meta.channel.clone(),
+        chat_name: params.meta.chat_name.clone(),
         sender_id: params.meta.sender_id.clone(),
         timestamp: params
             .session_timestamp
