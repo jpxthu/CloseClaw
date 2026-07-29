@@ -331,7 +331,6 @@ impl SlashHandler for SystemHandler {
 /// `immediate()` returns `false` so `/cd` queues behind a running LLM turn
 /// (consistent with the design doc — workdir changes should not interrupt
 /// in-flight LLM work).
-
 /// Git subcommands that are read-only and do not require permission
 /// approval. All other git subcommands (e.g. commit, push, reset)
 /// require permission.
@@ -406,7 +405,7 @@ impl WorkdirHandler {
                     .to_owned(),
             );
         }
-        let first_token = args.trim().split_whitespace().next().unwrap_or("");
+        let first_token = args.split_whitespace().next().unwrap_or("");
         let requires_permission = !READ_ONLY_GIT_SUBCOMMANDS.contains(&first_token);
         SlashResult::Exec {
             command: format!("git {args}"),
