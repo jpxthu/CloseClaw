@@ -608,6 +608,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/slash/workdir.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-07-29T11:44:58.094878+08:00",
+    "comment": "",
+    "blocked_reason": "blocked: doc contradiction + permission bypass"
+  },
+  {
     "path": "docs/design/system_prompt/appends.md",
     "commit": "ec0679a5c516bf88827e2975a124168e9862b27c",
     "commit_time": "2026-07-07T01:07:02+08:00",
