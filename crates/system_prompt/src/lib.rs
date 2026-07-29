@@ -2,7 +2,8 @@
 //!
 //! Provides a layered System Prompt building system with:
 //! - Static section caching (role, workspace, tools, memory, heartbeat)
-//! - Dynamic section per-request injection (channel_context, working_directory, mode_instruction, git_status)
+//! - Dynamic section per-request injection
+//!   (channel_context, working_directory, mode_instruction, git_status)
 //! - Workdir context and gitStatus integration
 //! - `/system`, `/cd`, `/pwd`, `/git` slash commands
 //!
