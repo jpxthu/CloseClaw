@@ -7,16 +7,16 @@ use serde::{Deserialize, Serialize};
 
 /// Verbosity level — controls outbound content filtering.
 ///
-/// - `Full`: no filtering
-/// - `Normal`: remove `Thinking` content blocks (default)
+/// - `Full`: no filtering (default)
+/// - `Normal`: remove `Thinking` content blocks
 /// - `Off`: only keep `Text` content blocks
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum VerbosityLevel {
-    /// No filtering — include all content blocks.
+    /// No filtering — include all content blocks. (default)
+    #[default]
     Full,
     /// Remove Thinking content blocks.
-    #[default]
     Normal,
     /// Only keep Text content blocks.
     Off,
@@ -50,8 +50,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_is_normal() {
-        assert_eq!(VerbosityLevel::default(), VerbosityLevel::Normal);
+    fn test_default_is_full() {
+        assert_eq!(VerbosityLevel::default(), VerbosityLevel::Full);
     }
 
     #[test]
