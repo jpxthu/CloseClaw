@@ -611,9 +611,9 @@
     "path": "docs/design/slash/workdir.md",
     "commit": "",
     "commit_time": "",
-    "confirmed_time": "2026-07-29T13:44:49.689187+08:00",
+    "confirmed_time": "2026-07-29T13:55:35.298863+08:00",
     "comment": "",
-    "blocked_reason": "docs contradict: arch says execute after approval, dataflow says do not execute"
+    "blocked_reason": "internal-contradiction-arch-vs-dataflow"
   },
   {
     "path": "docs/design/system_prompt/appends.md",
