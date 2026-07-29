@@ -350,7 +350,10 @@ async fn test_workdir_handler_pwd_and_git() {
     ctx2.session_id = sid;
     ctx2.command = "git".to_owned();
     match h.handle("status", &ctx2).await {
-        SlashResult::Exec { command } => {
+        SlashResult::Exec {
+            command,
+            requires_permission: _,
+        } => {
             assert!(
                 command.starts_with("git "),
                 "expected git command, got: {command}"
@@ -732,7 +735,10 @@ async fn set_session_workdir(sm: &Arc<SessionManager>, sid: &str, path: &Path) {
 /// Helper: assert a SlashResult is Exec with the expected command prefix.
 fn assert_exec_command(result: SlashResult, expected_prefix: &str) -> String {
     match result {
-        SlashResult::Exec { command } => {
+        SlashResult::Exec {
+            command,
+            requires_permission: _,
+        } => {
             assert!(
                 command.starts_with(expected_prefix),
                 "expected command starting with '{expected_prefix}', got: {command}"
@@ -946,8 +952,49 @@ async fn test_git_subcommands_route_to_exec() {
 async fn test_git_requires_permission() {
     let sm = make_workdir_session_manager();
     let h = WorkdirHandler::new(sm);
+    // WorkdirHandler no longer overrides requires_permission(); the default
+    // from the trait is false. Permission gating is now per-Exec-result.
     assert!(
-        h.requires_permission(),
-        "WorkdirHandler should require permission"
+        !h.requires_permission(),
+        "WorkdirHandler should not require permission at handler level"
     );
+}
+
+// ── Step 1.1: requires_permission field tests ─────────────────────────
+
+/// Verify per-subcommand requires_permission: false for read-only, true for
+/// write.
+#[tokio::test]
+async fn test_git_read_write_requires_permission() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let ctx = SlashContext {
+        command: "git".to_owned(),
+        sender_id: "u".to_owned(),
+        session_id: sid,
+        channel: "c".to_owned(),
+    };
+    // Read-only: requires_permission = false
+    match h.handle("status", &ctx).await {
+        SlashResult::Exec {
+            command,
+            requires_permission,
+        } => {
+            assert_eq!(command, "git status");
+            assert!(!requires_permission);
+        }
+        other => panic!("expected Exec, got {other:?}"),
+    }
+    // Write: requires_permission = true
+    match h.handle("commit -m \"test\"", &ctx).await {
+        SlashResult::Exec {
+            command,
+            requires_permission,
+        } => {
+            assert_eq!(command, "git commit -m \"test\"");
+            assert!(requires_permission);
+        }
+        other => panic!("expected Exec, got {other:?}"),
+    }
 }

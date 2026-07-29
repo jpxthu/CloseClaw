@@ -259,8 +259,12 @@ fn clone_result(r: &SlashResult) -> SlashResult {
         SlashResult::Compact { instruction } => SlashResult::Compact {
             instruction: instruction.clone(),
         },
-        SlashResult::Exec { command } => SlashResult::Exec {
+        SlashResult::Exec {
+            command,
+            requires_permission: _,
+        } => SlashResult::Exec {
             command: command.clone(),
+            requires_permission: true,
         },
         SlashResult::SetReasoning { level } => SlashResult::SetReasoning { level: *level },
         SlashResult::SetVerbosity { level } => SlashResult::SetVerbosity { level: *level },
