@@ -126,39 +126,29 @@ impl Gateway {
             .await
     }
 
-    /// Three-branch permission check. Returns `true` if the command may
-    /// proceed, `false` if it was denied (reply already sent).
-    async fn check_slash_permission(
+    /// Permission engine check: Owner short-circuit + engine evaluation.
+    ///
+    /// Checks whether a slash command should be allowed based solely on
+    /// the permission engine, without consulting the handler's
+    /// `requires_permission()`. Used directly by `execute_and_route` for
+    /// `SlashResult::Exec { requires_permission: true }` to bypass
+    /// handler-level checks.
+    async fn check_engine_permission(
         &self,
         cmd: &str,
         sender_id: Option<&str>,
         session_id: &str,
     ) -> bool {
-        // Branch 1: Owner 短路
+        // Owner short-circuit: owner bypasses the permission engine entirely.
         if sender_id == Some("owner") {
             return true;
         }
 
-        // Branch 3: 普通指令直通
-        let dispatcher_guard = self.slash_dispatcher.read().await;
-        let dispatcher = match dispatcher_guard.as_ref() {
-            Some(d) => d,
-            None => return true,
-        };
-        let Some(handler) = dispatcher.get_handler(cmd) else {
-            return true;
-        };
-        if !handler.requires_permission() {
-            return true;
-        }
-        drop(dispatcher_guard);
-
-        // Branch 2: 高危指令走权限引擎
         let engine_guard = self.permission_engine.read().await;
         let Some(engine) = engine_guard.as_ref() else {
             tracing::warn!(
                 cmd,
-                "permission engine not configured; denying high-risk slash command"
+                "permission engine not configured; denying slash command"
             );
             self.send_reply_if_available("权限不足：权限引擎未配置")
                 .await;
@@ -209,6 +199,38 @@ impl Gateway {
             return false;
         }
         true
+    }
+
+    /// Three-branch permission check. Returns `true` if the command may
+    /// proceed, `false` if it was denied (reply already sent).
+    async fn check_slash_permission(
+        &self,
+        cmd: &str,
+        sender_id: Option<&str>,
+        session_id: &str,
+    ) -> bool {
+        // Branch 1: Owner 短路
+        if sender_id == Some("owner") {
+            return true;
+        }
+
+        // Branch 3: 普通指令直通
+        let dispatcher_guard = self.slash_dispatcher.read().await;
+        let dispatcher = match dispatcher_guard.as_ref() {
+            Some(d) => d,
+            None => return true,
+        };
+        let Some(handler) = dispatcher.get_handler(cmd) else {
+            return true;
+        };
+        if !handler.requires_permission() {
+            return true;
+        }
+        drop(dispatcher_guard);
+
+        // Branch 2: 高危指令走权限引擎
+        self.check_engine_permission(cmd, sender_id, session_id)
+            .await
     }
 
     async fn send_reply_if_available(&self, text: &str) {
@@ -306,14 +328,32 @@ impl Gateway {
         }
 
         // Permission check AFTER handler returns SlashResult but BEFORE execute.
-        // For Exec results, the handler's requires_permission field controls whether
-        // the permission engine is invoked: false → bypass, true → check.
+        //
+        // For Exec results, the handler's requires_permission field controls
+        // whether the permission engine is invoked:
+        //   - false → bypass entirely (read-only, no engine check needed)
+        //   - true  → call check_engine_permission directly (skip handler-level
+        //             requires_permission() check, go straight to the engine)
+        // For all other result types, use the full check_slash_permission path.
         match &result {
             SlashResult::Exec {
                 requires_permission: false,
                 ..
             } => {
                 // No permission check needed — skip directly to execution.
+            }
+            SlashResult::Exec {
+                requires_permission: true,
+                ..
+            } => {
+                // Exec with write intent: go through the permission engine,
+                // bypassing the handler-level requires_permission() check.
+                if !self
+                    .check_engine_permission(cmd_name, sender_id, session_id)
+                    .await
+                {
+                    return Some(HandleResult::SlashHandled);
+                }
             }
             _ => {
                 if !self
