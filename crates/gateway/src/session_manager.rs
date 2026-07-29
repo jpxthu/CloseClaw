@@ -472,6 +472,46 @@ impl SessionManager {
             None => false,
         }
     }
+
+    /// Look up an existing session_id from routing fields without creating
+    /// a new session. Returns `None` if no matching session exists.
+    ///
+    /// This avoids the side effects of [`resolve`] (session creation,
+    /// checkpoint persistence, etc.) and is suitable for lightweight
+    /// polling (e.g. streaming-completion wait).
+    pub async fn lookup_session_from_routing(
+        &self,
+        channel: &str,
+        from: &str,
+        to: &str,
+        account_id: Option<&str>,
+    ) -> Option<String> {
+        let msg = Message {
+            id: String::new(),
+            from: from.to_string(),
+            to: to.to_string(),
+            content: String::new(),
+            channel: channel.to_string(),
+            timestamp: 0,
+            metadata: std::collections::HashMap::new(),
+            thread_id: None,
+        };
+        let routing_key = Self::compute_routing_key(channel, &msg, account_id);
+        let session_id = {
+            let registry = self.key_registry.read().await;
+            registry.get(&routing_key).cloned()
+        }?;
+        // Verify the session is still active (exists in sessions map).
+        let exists = {
+            let sessions = self.sessions.read().await;
+            sessions.contains_key(&session_id)
+        };
+        if exists {
+            Some(session_id)
+        } else {
+            None
+        }
+    }
     /// Returns `true` if the session is in active Waiting (yielding).
     pub async fn is_session_yielding(&self, sid: &str) -> bool {
         if let Some(cs) = self.get_conversation_session(sid).await {

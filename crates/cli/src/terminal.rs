@@ -8,6 +8,7 @@
 use async_trait::async_trait;
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::processor::DslParseResult;
+use closeclaw_common::streaming::DefaultStreamingRenderer;
 use closeclaw_common::AdapterError;
 use closeclaw_common::{IMPlugin, MessageType, NormalizedMessage, RenderedOutput};
 use std::io::{self, BufRead, Write};
@@ -103,6 +104,7 @@ fn current_timestamp() -> i64 {
 pub struct TerminalPlugin {
     adapter: TerminalAdapter,
     renderer: TerminalRenderer,
+    streaming_renderer: std::sync::Mutex<DefaultStreamingRenderer>,
 }
 
 impl TerminalPlugin {
@@ -111,6 +113,7 @@ impl TerminalPlugin {
         Self {
             adapter: TerminalAdapter::new(),
             renderer: TerminalRenderer::new(),
+            streaming_renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
         }
     }
 
@@ -121,6 +124,7 @@ impl TerminalPlugin {
         Self {
             adapter: TerminalAdapter::new(),
             renderer: TerminalRenderer::with_ansi(ansi),
+            streaming_renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
         }
     }
 }
@@ -146,6 +150,10 @@ impl IMPlugin for TerminalPlugin {
             .await
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
         Ok(result)
+    }
+
+    fn streaming_renderer(&self) -> Option<&std::sync::Mutex<DefaultStreamingRenderer>> {
+        Some(&self.streaming_renderer)
     }
 
     fn render(
