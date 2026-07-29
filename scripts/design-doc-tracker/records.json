@@ -611,9 +611,9 @@
     "path": "docs/design/slash/workdir.md",
     "commit": "",
     "commit_time": "",
-    "confirmed_time": "2026-07-29T13:34:19.210288+08:00",
+    "confirmed_time": "2026-07-29T13:55:35.298863+08:00",
     "comment": "",
-    "blocked_reason": "architecture-vs-dataflow-contradiction-on-git-commit"
+    "blocked_reason": "internal-contradiction-arch-vs-dataflow"
   },
   {
     "path": "docs/design/system_prompt/appends.md",
