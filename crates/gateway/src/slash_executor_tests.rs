@@ -438,6 +438,7 @@ async fn test_exec_calls_execute_exec_and_sends_result() {
     let (ctx, mut rx, _exec, _spy) = make_ctx();
     SlashResult::Exec {
         command: "ls -la".into(),
+        requires_permission: true,
     }
     .execute(&ctx)
     .await;
@@ -505,6 +506,7 @@ async fn test_exec_failure_forwards_error_to_user() {
 
     SlashResult::Exec {
         command: "/nonexistent/cmd".into(),
+        requires_permission: true,
     }
     .execute(&ctx)
     .await;
