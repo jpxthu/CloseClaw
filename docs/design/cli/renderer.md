@@ -100,7 +100,7 @@ RenderedOutput { msg_type: "text", payload: ANSI 文本 }
 TerminalPlugin 的 send 方法将 payload 写入 stdout
 ```
 
-> **流式路径**：不走 TerminalRenderer 的批量渲染逻辑。ContentBlock[] 经统一预处理（Verbosity → DslParser → 出站日志）后，IM Adapter 以流式模式驱动渲染。TerminalPlugin 逐行产生增量 RenderedOutput 后立即写入 stdout。流式机制详见 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)。
+> **流式路径**：不走 TerminalRenderer 的批量渲染逻辑。ContentBlock[] 经统一预处理（VerbosityFilter → DslParser 零开销透传）后，IM Adapter 以流式模式驱动渲染。TerminalPlugin 逐行产生增量 RenderedOutput 后立即写入 stdout。流式结束后，DslParser 完整解析 → OutboundRawLog 写入出站日志。详见 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)。
 
 ## 模块关系
 
