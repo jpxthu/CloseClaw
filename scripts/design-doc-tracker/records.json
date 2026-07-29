@@ -606,5 +606,13 @@
     "confirmed_time": "2026-07-17T23:22:20.392895+08:00",
     "comment": "",
     "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/tools/bash-security.md",
+    "commit": "791bb3262c9cbb8ab98878cbc3985770d6cb013c",
+    "commit_time": "2026-07-29T08:12:30+08:00",
+    "confirmed_time": "2026-07-29T08:19:00.496845+08:00",
+    "comment": "",
+    "blocked_reason": ""
   }
 ]
