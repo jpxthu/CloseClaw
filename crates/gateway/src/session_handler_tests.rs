@@ -923,11 +923,13 @@ fn test_to_request_context_maps_fields() {
         sender_id: "ou_sender_123".into(),
         channel: "feishu".into(),
         timestamp: 1700000000,
+        chat_name: "test-group".into(),
     };
     let ctx = meta.to_request_context();
     assert_eq!(ctx.sender_id, "ou_sender_123");
     assert_eq!(ctx.channel, "feishu");
     assert_eq!(ctx.timestamp, 1700000000);
+    assert_eq!(ctx.chat_name, "test-group");
 }
 
 /// `default_meta()` produces a RequestContext with empty sender/channel
@@ -951,9 +953,11 @@ fn test_to_request_context_empty_fields() {
         sender_id: String::new(),
         channel: String::new(),
         timestamp: 0,
+        chat_name: String::new(),
     };
     let ctx = meta.to_request_context();
     assert!(ctx.sender_id.is_empty());
     assert!(ctx.channel.is_empty());
     assert_eq!(ctx.timestamp, 0);
+    assert!(ctx.chat_name.is_empty());
 }

@@ -14,6 +14,7 @@ fn make_normalized(account_id: &str) -> NormalizedMessage {
         media_refs: vec![],
         thread_id: None,
         account_id: account_id.into(),
+        chat_name: String::new(),
     }
 }
 

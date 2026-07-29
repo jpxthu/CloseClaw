@@ -430,6 +430,76 @@ impl FeishuAdapter {
         })
     }
 
+    /// Fetch the chat (group) name for a given chat_id via Feishu API.
+    ///
+    /// Returns `Some(name)` on success, or `None` on failure (which logs
+    /// a warning and degrades gracefully — chat_name defaults to empty).
+    pub async fn fetch_chat_name(&self, chat_id: &str) -> Option<String> {
+        #[derive(Deserialize)]
+        struct FeishuChatResponse {
+            code: i32,
+            msg: String,
+            data: Option<FeishuChatData>,
+        }
+
+        #[derive(Deserialize)]
+        struct FeishuChatData {
+            name: Option<String>,
+        }
+
+        let token = match self.get_tenant_token().await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!(
+                    chat_id = %chat_id,
+                    error = %e,
+                    "Failed to get tenant token for chat info"
+                );
+                return None;
+            }
+        };
+
+        let resp: FeishuChatResponse = match self
+            .http_client
+            .get(format!("{}/im/v1/chats/{}", self.base_url, chat_id))
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+        {
+            Ok(r) => match r.json().await {
+                Ok(j) => j,
+                Err(e) => {
+                    tracing::warn!(
+                        chat_id = %chat_id,
+                        error = %e,
+                        "Failed to parse chat info response"
+                    );
+                    return None;
+                }
+            },
+            Err(e) => {
+                tracing::warn!(
+                    chat_id = %chat_id,
+                    error = %e,
+                    "Failed to fetch chat info"
+                );
+                return None;
+            }
+        };
+
+        if resp.code != 0 {
+            tracing::warn!(
+                code = resp.code,
+                msg = %resp.msg,
+                chat_id = %chat_id,
+                "Failed to fetch chat info"
+            );
+            return None;
+        }
+
+        resp.data.and_then(|d| d.name)
+    }
+
     /// Extract readable text from a message's raw content based on msg_type.
     fn extract_text_from_message(
         &self,
@@ -618,6 +688,9 @@ impl FeishuAdapter {
             .prepend_quote_blockquote(original_parent_id.as_deref(), &text)
             .await;
 
+        // Fetch the chat name for the group chat.
+        let chat_name = self.fetch_chat_name(&event.event.chat_id).await;
+
         Ok(Some(NormalizedMessage {
             platform: "feishu".to_string(),
             sender_id: sender_open_id.clone(),
@@ -628,6 +701,7 @@ impl FeishuAdapter {
             media_refs,
             thread_id,
             account_id: sender_open_id,
+            chat_name: chat_name.unwrap_or_default(),
         }))
     }
 

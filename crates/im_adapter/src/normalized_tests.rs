@@ -80,6 +80,7 @@ fn test_roundtrip_message_type_non_default() {
         media_refs: vec![],
         thread_id: None,
         account_id: String::new(),
+        chat_name: String::new(),
     };
     let json = serde_json::to_string(&msg).unwrap();
     let back: NormalizedMessage = serde_json::from_str(&json).unwrap();
@@ -136,6 +137,7 @@ fn test_roundtrip_message_with_media_refs() {
         ],
         thread_id: None,
         account_id: String::new(),
+        chat_name: String::new(),
     };
     let json = serde_json::to_string(&msg).unwrap();
     let back: NormalizedMessage = serde_json::from_str(&json).unwrap();
@@ -163,6 +165,7 @@ fn test_roundtrip_all_new_fields_populated() {
         }],
         thread_id: Some("omt_123".into()),
         account_id: "tenant_999".into(),
+        chat_name: String::new(),
     };
     let json = serde_json::to_string(&msg).unwrap();
     let back: NormalizedMessage = serde_json::from_str(&json).unwrap();
@@ -210,6 +213,7 @@ fn test_normalized_message_debug_contains_key_fields() {
         media_refs: vec![],
         thread_id: None,
         account_id: String::new(),
+        chat_name: String::new(),
     };
     let debug = format!("{:?}", msg);
     assert!(debug.contains("NormalizedMessage"));
@@ -235,6 +239,7 @@ fn test_normalized_message_clone() {
         }],
         thread_id: Some("t".into()),
         account_id: "a".into(),
+        chat_name: String::new(),
     };
     let cloned = msg.clone();
     assert_eq!(cloned.platform, msg.platform);

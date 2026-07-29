@@ -31,6 +31,7 @@ fn make_normalized(content: &str) -> NormalizedMessage {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
+        chat_name: String::new(),
     }
 }
 
@@ -498,6 +499,7 @@ async fn test_normalized_message_directly_into_processor_chain() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: "acct_1".to_string(),
+        chat_name: String::new(),
     };
 
     let result = registry.process_inbound(msg).await.unwrap();
@@ -521,6 +523,7 @@ async fn test_normalized_message_empty_content() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: "owner".to_string(),
+        chat_name: String::new(),
     };
 
     let result = registry.process_inbound(msg).await.unwrap();
@@ -544,6 +547,7 @@ async fn test_normalized_message_with_special_characters() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
+        chat_name: String::new(),
     };
 
     let result = registry.process_inbound(msg).await.unwrap();
@@ -568,6 +572,7 @@ async fn test_normalized_message_timestamp_is_i64_millis() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
+        chat_name: String::new(),
     };
     // Verify timestamp is i64 milliseconds (not DateTime<Utc>).
     assert!(msg.timestamp > 1_000_000_000_000);
@@ -588,6 +593,7 @@ async fn test_normalized_message_passthrough_no_processors() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
+        chat_name: String::new(),
     };
 
     let result = registry.process_inbound(msg).await.unwrap();

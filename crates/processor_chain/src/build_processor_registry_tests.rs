@@ -29,6 +29,7 @@ fn make_normalized_message() -> NormalizedMessage {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
+        chat_name: String::new(),
     }
 }
 

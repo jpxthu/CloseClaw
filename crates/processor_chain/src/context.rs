@@ -79,6 +79,7 @@ mod tests {
             media_refs: Vec::new(),
             thread_id: None,
             account_id: String::new(),
+            chat_name: String::new(),
         };
         let ctx = MessageContext::from_normalized(msg.clone());
         assert_eq!(ctx.content, "hello");

@@ -31,6 +31,8 @@ pub struct RequestContext {
     pub channel: String,
     /// Unix timestamp (seconds) when the message was created.
     pub timestamp: i64,
+    /// Actual chat/group name (e.g. Feishu group title), or empty.
+    pub chat_name: String,
 }
 
 #[cfg(test)]
@@ -43,11 +45,13 @@ mod tests {
             sender_id: "ou_ser".to_string(),
             channel: "slack".to_string(),
             timestamp: 42,
+            chat_name: "my-group".to_string(),
         };
         let json = serde_json::to_string(&ctx).unwrap();
         let restored: RequestContext = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.sender_id, "ou_ser");
         assert_eq!(restored.channel, "slack");
         assert_eq!(restored.timestamp, 42);
+        assert_eq!(restored.chat_name, "my-group");
     }
 }

@@ -15,6 +15,7 @@ fn make_ctx(content: &str, channel: &str) -> MessageContext {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
+        chat_name: String::new(),
     };
     let mut ctx = MessageContext::from_normalized(msg);
     ctx.metadata
@@ -114,6 +115,7 @@ async fn test_outbound_and_independent_from_inbound() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
+        chat_name: String::new(),
     };
     let inbound_ctx = MessageContext::from_normalized(msg);
     inbound.process(&inbound_ctx).await.unwrap();
