@@ -4,7 +4,10 @@ mod tests {
     use crate::terminal::*;
     use std::collections::HashMap;
 
-    use closeclaw_common::processor::{DslInstruction, DslParseResult};
+    use closeclaw_common::processor::{
+        ContentBlockType, ContentDelta, DslInstruction, DslParseResult, StreamEvent,
+    };
+    use closeclaw_common::streaming::StreamingRenderer;
     use closeclaw_common::{MessageType, NormalizedMessage};
     use closeclaw_im_adapter::plugin::IMPlugin;
     use closeclaw_im_adapter::RenderedOutput;
@@ -454,5 +457,277 @@ mod tests {
         assert!(text.contains(DIM));
         assert!(text.contains(RESET));
         assert!(text.contains("[Button: Go (action: start)]"));
+    }
+
+    // =====================================================================
+    // Streaming renderer tests (Step 1.3)
+    // =====================================================================
+
+    /// streaming_renderer() returns Some for TerminalPlugin.
+    #[test]
+    fn test_streaming_renderer_returns_some() {
+        let plugin = TerminalPlugin::new();
+        assert!(plugin.streaming_renderer().is_some());
+    }
+
+    /// streaming_renderer() returns Some for TerminalPlugin::with_ansi(true).
+    #[test]
+    fn test_streaming_renderer_returns_some_with_ansi() {
+        let plugin = TerminalPlugin::with_ansi(true);
+        assert!(plugin.streaming_renderer().is_some());
+    }
+
+    /// streaming_renderer() returns Some for TerminalPlugin::default().
+    #[test]
+    fn test_streaming_renderer_returns_some_default() {
+        let plugin = TerminalPlugin::default();
+        assert!(plugin.streaming_renderer().is_some());
+    }
+
+    /// Handle a single text BlockDelta and verify streaming output is non-empty.
+    #[test]
+    fn test_streaming_handle_block_delta_produces_output() {
+        let plugin = TerminalPlugin::new();
+        let renderer = plugin.streaming_renderer().unwrap();
+        let mut r = renderer.lock().unwrap();
+
+        let event = StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "Hello, ".to_string(),
+            },
+        };
+        let _output = r.handle_event(event);
+        // Text deltas are accumulated in a line buffer; partial text
+        // may not produce text_messages until a line boundary is hit.
+        // We only verify the call succeeds without panicking.
+        // Subsequent delta completes a line to produce output.
+        let event2 = StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "world!\n".to_string(),
+            },
+        };
+        let output2 = r.handle_event(event2);
+        assert!(
+            !output2.text_messages.is_empty(),
+            "expected text_messages after line-ending delta"
+        );
+        assert_eq!(output2.text_messages[0], "Hello, world!");
+    }
+
+    /// Flush drains remaining buffered content.
+    #[test]
+    fn test_streaming_flush_drains_buffer() {
+        let plugin = TerminalPlugin::new();
+        let renderer = plugin.streaming_renderer().unwrap();
+        let mut r = renderer.lock().unwrap();
+
+        // Send a delta without a trailing newline.
+        r.handle_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "partial line".to_string(),
+            },
+        });
+
+        // Flush should emit the remaining content.
+        let output = r.flush();
+        assert!(
+            !output.text_messages.is_empty(),
+            "flush should drain buffered content"
+        );
+        assert_eq!(output.text_messages[0], "partial line");
+    }
+
+    /// Flush on empty state returns empty output.
+    #[test]
+    fn test_streaming_flush_empty_returns_empty() {
+        let plugin = TerminalPlugin::new();
+        let renderer = plugin.streaming_renderer().unwrap();
+        let mut r = renderer.lock().unwrap();
+
+        let output = r.flush();
+        assert!(
+            output.text_messages.is_empty(),
+            "flush on empty buffer should return empty"
+        );
+    }
+
+    /// Empty text delta does not panic and produces no output.
+    #[test]
+    fn test_streaming_empty_text_delta() {
+        let plugin = TerminalPlugin::new();
+        let renderer = plugin.streaming_renderer().unwrap();
+        let mut r = renderer.lock().unwrap();
+
+        let output = r.handle_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: String::new(),
+            },
+        });
+        assert!(
+            output.text_messages.is_empty(),
+            "empty text delta should not produce output"
+        );
+    }
+
+    /// Rapid consecutive deltas accumulate correctly.
+    #[test]
+    fn test_streaming_rapid_consecutive_deltas() {
+        let plugin = TerminalPlugin::new();
+        let renderer = plugin.streaming_renderer().unwrap();
+        let mut r = renderer.lock().unwrap();
+
+        let mut all_text = String::new();
+        for i in 0..100 {
+            let out = r.handle_event(StreamEvent::BlockDelta {
+                index: 0,
+                delta: ContentDelta::Text {
+                    text: format!("{}", i),
+                },
+            });
+            for line in &out.text_messages {
+                all_text.push_str(line);
+            }
+        }
+        let output = r.flush();
+        for line in &output.text_messages {
+            all_text.push_str(line);
+        }
+        // All digits 0-99 should appear in the combined output.
+        for i in 0..100 {
+            assert!(
+                all_text.contains(&i.to_string()),
+                "missing digit {} in rapid delta output",
+                i
+            );
+        }
+    }
+
+    /// Code block content is handled without panicking.
+    #[test]
+    fn test_streaming_code_block_content() {
+        let plugin = TerminalPlugin::new();
+        let renderer = plugin.streaming_renderer().unwrap();
+        let mut r = renderer.lock().unwrap();
+
+        let mut all_text = Vec::new();
+        // Simulate code block boundaries.
+        let out = r.handle_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "```rust\nfn main() {\n    println!(\"hi\");\n}\n```\n".to_string(),
+            },
+        });
+        all_text.extend(out.text_messages);
+        let out = r.flush();
+        all_text.extend(out.text_messages);
+        let combined = all_text.join("");
+        assert!(
+            !combined.is_empty(),
+            "code block content should produce output"
+        );
+        assert!(combined.contains("fn main()"));
+        assert!(combined.contains("println!"));
+    }
+
+    /// BlockStart and BlockEnd events are accepted without error.
+    #[test]
+    fn test_streaming_block_start_end_no_panic() {
+        let plugin = TerminalPlugin::new();
+        let renderer = plugin.streaming_renderer().unwrap();
+        let mut r = renderer.lock().unwrap();
+
+        r.handle_event(StreamEvent::BlockStart {
+            index: 0,
+            block_type: ContentBlockType::Text,
+        });
+        r.handle_event(StreamEvent::BlockEnd {
+            index: 0,
+            block_type: ContentBlockType::Text,
+        });
+        let output = r.flush();
+        // No panic, output may be empty.
+        let _ = output;
+    }
+
+    /// Full streaming lifecycle: BlockStart → BlockDelta → BlockEnd → flush.
+    #[test]
+    fn test_streaming_full_lifecycle() {
+        let plugin = TerminalPlugin::new();
+        let renderer = plugin.streaming_renderer().unwrap();
+        let mut r = renderer.lock().unwrap();
+
+        let mut all_text = Vec::new();
+        r.handle_event(StreamEvent::BlockStart {
+            index: 0,
+            block_type: ContentBlockType::Text,
+        });
+        let out = r.handle_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "The answer is ".to_string(),
+            },
+        });
+        all_text.extend(out.text_messages);
+        let out = r.handle_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "42.\n".to_string(),
+            },
+        });
+        all_text.extend(out.text_messages);
+        r.handle_event(StreamEvent::BlockEnd {
+            index: 0,
+            block_type: ContentBlockType::Text,
+        });
+        let output = r.flush();
+        all_text.extend(output.text_messages);
+        assert_eq!(all_text, vec!["The answer is 42."]);
+    }
+
+    /// MessageEnd event is accepted and flush drains remaining content.
+    #[test]
+    fn test_streaming_message_end_triggers_flush() {
+        let plugin = TerminalPlugin::new();
+        let renderer = plugin.streaming_renderer().unwrap();
+        let mut r = renderer.lock().unwrap();
+
+        let mut all_text = Vec::new();
+        let out = r.handle_event(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "line one\nline two".to_string(),
+            },
+        });
+        all_text.extend(out.text_messages);
+        // MessageEnd should not panic; flush drains the rest.
+        r.handle_event(StreamEvent::MessageEnd {
+            usage: None,
+            finish_reason: Some("stop".to_string()),
+        });
+        let out = r.flush();
+        all_text.extend(out.text_messages);
+        assert!(
+            !all_text.is_empty(),
+            "flush after MessageEnd should drain buffer"
+        );
+    }
+
+    /// Streaming renderer is independent across TerminalPlugin instances.
+    #[test]
+    fn test_streaming_renderer_independent_across_instances() {
+        let plugin_a = TerminalPlugin::new();
+        let plugin_b = TerminalPlugin::new();
+
+        let ra = plugin_a.streaming_renderer().unwrap();
+        let rb = plugin_b.streaming_renderer().unwrap();
+
+        // They should be different Mutex instances.
+        let ptr_a: *const std::sync::Mutex<_> = ra;
+        let ptr_b: *const std::sync::Mutex<_> = rb;
+        assert_ne!(ptr_a, ptr_b, "plugins should have independent renderers");
     }
 }
