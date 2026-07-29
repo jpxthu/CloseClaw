@@ -216,6 +216,10 @@ pub struct ConversationSession {
     /// current pending operations without requiring a reference to
     /// the Gateway's `CheckpointManager`.
     checkpoint_storage: Option<Arc<dyn crate::persistence::PersistenceService>>,
+    /// Whether the session has the git_status config switch enabled.
+    /// When `true`, the dynamic builder may inject a GitStatus section
+    /// if the working directory is a git repository.
+    is_git_status_enabled: bool,
 }
 // `impl ConversationSession` is split across multiple blocks so each
 // block stays under the CONTRIBUTING.md 100-line cap. Block A
@@ -276,6 +280,7 @@ impl ConversationSession {
             dynamic_prompt_builder: None,
             manual_background_signal: Arc::new(tokio::sync::Notify::new()),
             checkpoint_storage: None,
+            is_git_status_enabled: false,
         }
     }
 
@@ -436,6 +441,14 @@ impl ConversationSession {
     /// apply overrides when rebuilding its system prompt.
     pub fn set_prompt_overrides(&mut self, overrides: Option<PromptOverrides>) {
         self.prompt_overrides = overrides;
+    }
+
+    /// Set the git_status config switch for this session.
+    ///
+    /// Called by Gateway after session creation so the dynamic builder
+    /// can conditionally inject a GitStatus section.
+    pub fn set_git_status(&mut self, is_git_status_enabled: bool) {
+        self.is_git_status_enabled = is_git_status_enabled;
     }
 
     /// Set the snapshot meta store for persisting snapshot metadata.

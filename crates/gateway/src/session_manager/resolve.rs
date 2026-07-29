@@ -191,6 +191,10 @@ impl SessionManager {
                                 .await;
                             // Inject checkpoint storage for pending-operation persistence.
                             self.inject_checkpoint_storage(&mut conv_session).await;
+                            // Apply session config (git_status switch).
+                            if let Some(cfg) = self.get_session_config_for_agent(&agent_id).await {
+                                conv_session.set_git_status(cfg.is_git_status_enabled);
+                            }
                             {
                                 let mut cs = self.conversation_sessions.write().await;
                                 cs.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
@@ -479,6 +483,10 @@ impl SessionManager {
                                 .await;
                             // Inject checkpoint storage for pending-operation persistence.
                             self.inject_checkpoint_storage(&mut conv_session).await;
+                            // Apply session config (git_status switch).
+                            if let Some(cfg) = self.get_session_config_for_agent(&agent_id).await {
+                                conv_session.set_git_status(cfg.is_git_status_enabled);
+                            }
                             {
                                 let mut cs = self.conversation_sessions.write().await;
                                 cs.insert(archived_id.clone(), Arc::new(RwLock::new(conv_session)));
@@ -650,6 +658,10 @@ impl SessionManager {
             .await;
         // Inject checkpoint storage for pending-operation persistence.
         self.inject_checkpoint_storage(&mut conv_session).await;
+        // Apply session config (git_status switch).
+        if let Some(cfg) = self.get_session_config_for_agent(&agent_id).await {
+            conv_session.set_git_status(cfg.is_git_status_enabled);
+        }
         {
             let mut conv_sessions = self.conversation_sessions.write().await;
             conv_sessions.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));

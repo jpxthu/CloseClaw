@@ -287,6 +287,7 @@ impl ConversationSession {
                 pending_mode_transition: pending_transition,
                 is_compacted: self.is_compacted,
                 is_sub_agent: self.is_sub_agent,
+                is_git_status_enabled: self.is_git_status_enabled,
             };
             builder.build_prompt_parts(&context)
         } else {

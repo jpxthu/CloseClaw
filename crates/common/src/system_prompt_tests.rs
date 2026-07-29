@@ -89,6 +89,7 @@ fn test_dynamic_prompt_context_fields() {
         pending_mode_transition: None,
         is_compacted: false,
         is_sub_agent: false,
+        is_git_status_enabled: false,
     };
     assert_eq!(dpctx.system_prompt, Some("static"));
     assert_eq!(dpctx.ctx.sender_id, "ou_test");
@@ -119,6 +120,7 @@ fn test_dynamic_prompt_context_with_appends_and_overrides() {
         pending_mode_transition: None,
         is_compacted: false,
         is_sub_agent: false,
+        is_git_status_enabled: false,
     };
     assert!(dpctx.system_prompt.is_none());
     assert_eq!(dpctx.system_appends.len(), 2);

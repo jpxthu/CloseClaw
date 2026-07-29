@@ -249,7 +249,7 @@ mod tests {
         mem.add_expired_session("session-x".into());
 
         let mock_config = MockConfig::with_agents(vec!["agent-x".into()]);
-        *mock_config.session_config.lock().unwrap() = PerAgentSessionConfig::new(30, 0);
+        *mock_config.session_config.lock().unwrap() = PerAgentSessionConfig::new(30, 0, false);
         let config: Arc<dyn SessionConfigProvider> = Arc::new(mock_config);
 
         let storage: Arc<dyn PersistenceService> = mem.clone() as _;
