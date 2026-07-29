@@ -701,13 +701,13 @@ async fn test_streaming_non_text_block_rendered_and_sent() {
         .await
         .unwrap();
 
-    // Step 1.1: Thinking blocks are not sent via send_render_block in Normal
-    // mode (default). Only Text block is sent during streaming.
+    // Step 1.6: In Full mode (default), both Thinking and Text blocks are
+    // sent via send_render_block during streaming.
     let sent = plugin.drain_sent();
     assert_eq!(
         sent.len(),
-        1,
-        "only Text should be sent during streaming in Normal mode"
+        2,
+        "both Thinking and Text should be sent during streaming in Full mode"
     );
 
     // Mock is passthrough, so Thinking block is still in content_blocks
