@@ -386,6 +386,94 @@ fn test_mode_instruction_before_session_state() {
     );
 }
 
+// ── ChannelContext chat_name tests ────────────────────────────────────────────
+
+/// ChannelContext must render the actual chat_name from metadata,
+/// not the channel type string.
+#[test]
+fn test_channel_context_renders_actual_chat_name() {
+    let meta = MessageMetadata {
+        sender_id: "ou_sender1".to_string(),
+        channel: "feishu".to_string(),
+        timestamp: 1700000000,
+        chat_name: "Dev Team".to_string(),
+    };
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let channel_ctx = sections
+        .iter()
+        .find(|s| s.name() == "channel_context")
+        .expect("ChannelContext section should be present");
+    let rendered = channel_ctx.render();
+    assert!(
+        rendered.contains("chat_name: Dev Team"),
+        "ChannelContext should render the actual chat_name, got: {}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("chat_name: feishu"),
+        "ChannelContext must NOT render the channel type as chat_name"
+    );
+}
+
+/// When chat_name is empty, ChannelContext must render the empty string
+/// gracefully (fallback path).
+#[test]
+fn test_channel_context_empty_chat_name_fallback() {
+    let meta = MessageMetadata {
+        sender_id: "ou_sender1".to_string(),
+        channel: "feishu".to_string(),
+        timestamp: 1700000000,
+        chat_name: String::new(),
+    };
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let channel_ctx = sections
+        .iter()
+        .find(|s| s.name() == "channel_context")
+        .expect("ChannelContext section should be present");
+    let rendered = channel_ctx.render();
+    assert!(
+        rendered.contains("chat_name: "),
+        "ChannelContext should render chat_name even when empty, got: {}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("chat_name: feishu"),
+        "Empty chat_name fallback must NOT fall back to channel type"
+    );
+}
+
+/// ChannelContext with different channel types always uses chat_name,
+/// regardless of which IM platform.
+#[test]
+fn test_channel_context_chat_name_independent_of_channel_type() {
+    let channels = ["feishu", "telegram", "discord", "slack"];
+    for ch in channels {
+        let meta = MessageMetadata {
+            sender_id: "u1".to_string(),
+            channel: ch.to_string(),
+            timestamp: 0,
+            chat_name: "My Group".to_string(),
+        };
+        let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+        let rendered = sections
+            .iter()
+            .find(|s| s.name() == "channel_context")
+            .unwrap()
+            .render();
+        assert!(
+            rendered.contains("chat_name: My Group"),
+            "Channel '{}' should render chat_name, got: {}",
+            ch,
+            rendered
+        );
+        assert!(
+            !rendered.contains(&format!("chat_name: {}", ch)),
+            "Channel '{}' must NOT use channel type as chat_name",
+            ch
+        );
+    }
+}
+
 // ── GitStatus config switch tests ──────────────────────────────────────────
 
 /// When `git_status_enabled` is false (default), GitStatus section must
