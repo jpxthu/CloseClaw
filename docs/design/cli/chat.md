@@ -2,7 +2,7 @@
 
 ## 概述
 
-CLI Chat 是 terminal 消息渠道的对话交互功能。它实现 IMPlugin trait，以 platform="terminal" 注册到 Gateway 的 Plugin Registry，将终端输入输出接入完整的出入站消息链路。
+CLI Chat 是 terminal 消息渠道的对话交互功能，通过 `closeclaw chat` 命令启动。它实现 IMPlugin trait，以 platform="terminal" 注册到 Gateway 的 Plugin Registry，将终端输入输出接入完整的出入站消息链路。此功能依赖 daemon 已运行。
 
 ## 架构
 
@@ -16,17 +16,12 @@ CLI Chat 的实现实体是 TerminalPlugin（IMPlugin trait 的 terminal 渠道�
   → Processor Chain 入站（RawLog → SessionRouter → ContentNormalizer）
   → Gateway 路由
   ├─ / 开头 → SlashDispatcher
-  └─ 普通文本 → Session
-  → LLM
+  └─ 普通文本 → Session → LLM → ContentBlock[]
 
 出站
   ContentBlock[]
     ↓
-  Verbosity 过滤
-    ↓
-  Processor Chain 出站（DslParser）
-    ↓
-  Gateway 记录出站日志
+  Processor Chain 出站（VerbosityFilter → DslParser → OutboundRawLog）
     ↓
   TerminalPlugin
     ↓
@@ -37,7 +32,7 @@ CLI Chat 的实现实体是 TerminalPlugin（IMPlugin trait 的 terminal 渠道�
   TerminalPlugin 发送到 stdout
 ```
 
-> **流式路径**：LLM 流式输出时，ContentBlock[] 走与批量相同的预处理路径（Verbosity → Processor Chain DslParser → 出站日志）。DslParser 对流式文本零开销透传。之后 IM Adapter 以流式模式渲染——TerminalRenderer 以逐行模式产生增量 RenderedOutput，由 TerminalPlugin 立即写入 stdout。详见 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)。
+> **流式路径**：LLM 流式输出时，ContentBlock[] 走与批量相同的预处理路径（Verbosity → DslParser 零开销透传）。流式渲染由 IM Adapter 模块的流式渲染组件驱动，TerminalPlugin 逐行产生增量 RenderedOutput 后立即写入 stdout，不经过 TerminalRenderer 批量渲染。流式结束后，DslParser 完整解析 → OutboundRawLog 写入出站日志。详见 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)。
 
 ### 入站：TerminalAdapter
 
@@ -74,7 +69,7 @@ stdin 逐行/逐段读取用户输入
 TerminalAdapter 解析并封装 NormalizedMessage（内部含空内容过滤，空内容不产出 NormalizedMessage）。终端字段取值见上文架构节。
   ↓
 Processor Chain 入站
-  ├── RawLog：记录原始输入到日志
+  ├── RawLog：记录原始用户输入文本到日志
   ├── SessionRouter：根据平台、用户和端点计算 session key
   └── ContentNormalizer：文本标准化（去除控制字符和 ANSI 转义序列、压缩空行、去尾空格）
   ↓
@@ -83,11 +78,17 @@ Processor Chain 出产的处理后消息 → Gateway 路由
   └── 普通文本 → Session → LLM → ContentBlock[]
   ↓
 Processor Chain 出站
-  └── DslParser：扫描并剥离 DSL 指令行到 metadata（与通用 DslParser 行为一致，不按平台过滤）
-  ↓
-Gateway 记录出站日志
+  ├── VerbosityFilter：按 Session Verbosity 等级过滤 ContentBlock[]
+  ├── DslParser：扫描并剥离 DSL 指令行到 metadata（与通用 DslParser 行为一致，不按平台过滤）
+  └── OutboundRawLog：写入出站日志
   ↓
 TerminalPlugin 调用 TerminalRenderer 执行渲染
+  ↓
+终端检测 + DSL 预处理
+  ├── 终端能力检测：确定渲染模式（ANSI / 纯文本）+ 获取终端可用宽度
+  └── DSL 交互元素预处理：按钮 / 选择器 → 纯文本提示行；其他 DSL → 忽略
+  ↓
+逐块渲染
   ├── Text 块 → ANSI 格式化文本
   ├── Thinking 块 → 折叠块（[Thinking] … [end of thinking]）
   ├── ToolUse 块 → 工具调用展示
@@ -101,7 +102,7 @@ RenderedOutput { msg_type: "text", payload: ANSI 文本 }
 TerminalPlugin 的 send 方法写入 stdout
 ```
 
-> **流式路径**：LLM 流式输出时，不走 TerminalRenderer 批量渲染路径。ContentBlock[] 经统一预处理后，IM Adapter 以流式模式渲染——TerminalRenderer 以逐行模式产生增量 RenderedOutput，由 TerminalPlugin 立即写入 stdout。流式文本经 Processor Chain（DslParser 零开销透传），出站日志在 Processor Chain 后统一记录。详见 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)。
+> **流式路径**：LLM 流式输出时，不走 TerminalRenderer 批量渲染路径。ContentBlock[] 经统一预处理（Verbosity → DslParser 零开销透传）后，IM Adapter 流式渲染组件驱动，TerminalPlugin 逐行产生增量 RenderedOutput 后立即写入 stdout。流式结束后，DslParser 完整解析 → OutboundRawLog 写入出站日志。详见 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)。
 
 ## 模块关系
 
