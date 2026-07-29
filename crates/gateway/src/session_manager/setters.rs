@@ -241,6 +241,19 @@ impl SessionManager {
         }
     }
 
+    /// Look up session config for an agent by querying the session config
+    /// provider via the config manager.
+    pub(crate) async fn get_session_config_for_agent(
+        &self,
+        agent_id: &str,
+    ) -> Option<closeclaw_config::session::PerAgentSessionConfig> {
+        use closeclaw_common::AgentRole;
+        let cm = self.config_manager.read().await;
+        let cm = cm.as_ref()?;
+        let provider = cm.session_config_provider()?;
+        Some(provider.session_config_for(agent_id, AgentRole::MainAgent))
+    }
+
     /// Register a callback to invalidate the static-layer section cache.
     ///
     /// The daemon (composition root) injects this so that gateway code

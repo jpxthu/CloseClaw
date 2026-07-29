@@ -34,6 +34,7 @@ fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSect
         pending_mode_transition: None,
         is_compacted: false,
         is_sub_agent: false,
+        is_git_status_enabled: false,
     }
 }
 
@@ -381,5 +382,84 @@ fn test_mode_instruction_before_session_state() {
     assert!(
         mode_idx.unwrap() < ss_idx.unwrap(),
         "ModeInstruction should come before SessionState"
+    );
+}
+
+// ── GitStatus config switch tests ──────────────────────────────────────────
+
+/// When `git_status_enabled` is false (default), GitStatus section must
+/// NOT be injected even when the workdir is a valid git repository.
+#[test]
+fn test_git_status_disabled_excludes_section() {
+    let meta = make_meta("u", "ch", 0);
+    // CARGO_MANIFEST_DIR is a git repo, but git_status is disabled
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        workdir_path: Some(env!("CARGO_MANIFEST_DIR")),
+        is_git_status_enabled: false,
+        ..make_params(&meta, SessionMode::Normal)
+    });
+    let has_git_status = sections.iter().any(|s| s.name() == "git_status");
+    assert!(
+        !has_git_status,
+        "git_status_enabled=false must not inject GitStatus even for a git repo"
+    );
+    // WorkingDirectory should still be present
+    let has_workdir = sections.iter().any(|s| s.name() == "working_directory");
+    assert!(
+        has_workdir,
+        "WorkingDirectory should still be injected regardless of git_status"
+    );
+}
+
+/// When `git_status_enabled` is true and the workdir is a git repo,
+/// GitStatus section MUST be injected.
+#[test]
+fn test_git_status_enabled_includes_section_for_git_repo() {
+    let meta = make_meta("u", "ch", 0);
+    // CARGO_MANIFEST_DIR is a git repo
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        workdir_path: Some(env!("CARGO_MANIFEST_DIR")),
+        is_git_status_enabled: true,
+        ..make_params(&meta, SessionMode::Normal)
+    });
+    let has_git_status = sections.iter().any(|s| s.name() == "git_status");
+    assert!(
+        has_git_status,
+        "git_status_enabled=true should inject GitStatus for a git repo"
+    );
+}
+
+/// When `git_status_enabled` is true but the workdir is NOT a git repo,
+/// GitStatus section must NOT be injected (build_git_status_for returns None).
+#[test]
+fn test_git_status_enabled_skips_section_for_non_git_repo() {
+    let meta = make_meta("u", "ch", 0);
+    // /tmp is typically not a git repo
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        workdir_path: Some("/tmp"),
+        is_git_status_enabled: true,
+        ..make_params(&meta, SessionMode::Normal)
+    });
+    let has_git_status = sections.iter().any(|s| s.name() == "git_status");
+    assert!(
+        !has_git_status,
+        "git_status_enabled=true should not inject GitStatus for a non-git path"
+    );
+}
+
+/// When workdir_path is None, GitStatus section must never appear
+/// regardless of git_status_enabled setting.
+#[test]
+fn test_git_status_not_injected_without_workdir() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        workdir_path: None,
+        is_git_status_enabled: true,
+        ..make_params(&meta, SessionMode::Normal)
+    });
+    let has_git_status = sections.iter().any(|s| s.name() == "git_status");
+    assert!(
+        !has_git_status,
+        "GitStatus must not appear when workdir_path is None"
     );
 }

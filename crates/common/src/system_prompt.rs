@@ -89,6 +89,11 @@ pub struct DynamicPromptContext<'a> {
     pub is_compacted: bool,
     /// Whether this prompt is for a sub-agent (for sub-agent sparse injection).
     pub is_sub_agent: bool,
+    /// Whether the session has the git_status config switch enabled.
+    ///
+    /// When `true`, the dynamic builder may inject a GitStatus section
+    /// if the working directory is a git repository.
+    pub is_git_status_enabled: bool,
 }
 
 /// Builder for the dynamic portion of the system prompt.

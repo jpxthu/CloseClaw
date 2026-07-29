@@ -41,6 +41,8 @@ pub struct DynamicSectionsParams<'a> {
     pub is_compacted: bool,
     /// Whether this prompt is for a sub-agent (for sub-agent sparse injection).
     pub is_sub_agent: bool,
+    /// When `true`, injects GitStatus section when workdir is a git repo.
+    pub is_git_status_enabled: bool,
 }
 
 /// Build dynamic sections from metadata and session state.
@@ -97,8 +99,10 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
     if let Some(path) = params.workdir_path {
         sections.push(Section::WorkingDirectory(path.to_string()));
 
-        if let Some(status) = workdir::build_git_status_for(path) {
-            sections.push(Section::GitStatus(status));
+        if params.is_git_status_enabled {
+            if let Some(status) = workdir::build_git_status_for(path) {
+                sections.push(Section::GitStatus(status));
+            }
         }
     }
 
@@ -252,6 +256,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
                     pending_mode_transition: context.pending_mode_transition,
                     is_compacted: context.is_compacted,
                     is_sub_agent: context.is_sub_agent,
+                    is_git_status_enabled: context.is_git_status_enabled,
                 });
                 let append_parts: Vec<&str> = sections
                     .iter()
@@ -283,6 +288,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
             pending_mode_transition: context.pending_mode_transition,
             is_compacted: context.is_compacted,
             is_sub_agent: context.is_sub_agent,
+            is_git_status_enabled: context.is_git_status_enabled,
         });
         let dynamic_rendered = if sections.is_empty() {
             None
