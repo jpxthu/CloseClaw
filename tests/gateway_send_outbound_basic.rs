@@ -105,6 +105,7 @@ impl IMPlugin for TrackingPlugin {
             media_refs: vec![],
             thread_id: None,
             account_id: String::new(),
+            chat_name: String::new(),
         }))
     }
 

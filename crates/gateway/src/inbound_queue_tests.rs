@@ -246,6 +246,7 @@ impl IMPlugin for EmptyTextBypassPlugin {
             media_refs: vec![],
             thread_id: None,
             account_id: "u1".into(),
+            chat_name: String::new(),
         }))
     }
 
@@ -294,6 +295,7 @@ impl IMPlugin for NonTextEmptyContentPlugin {
             media_refs: vec![],
             thread_id: None,
             account_id: "u1".into(),
+            chat_name: String::new(),
         }))
     }
 
@@ -380,6 +382,7 @@ impl IMPlugin for EmptyStringTextPlugin {
             media_refs: vec![],
             thread_id: None,
             account_id: "u1".into(),
+            chat_name: String::new(),
         }))
     }
 
@@ -427,6 +430,7 @@ impl IMPlugin for NormalTextPlugin {
             media_refs: vec![],
             thread_id: None,
             account_id: "u1".into(),
+            chat_name: String::new(),
         }))
     }
 

@@ -171,6 +171,7 @@ async fn test_dynamic_layer_timestamp_is_per_request() {
         sender_id: "u1".into(),
         channel: "feishu".into(),
         timestamp: 1000,
+        chat_name: String::new(),
     });
     let _ = session.invoke_llm("first").await.unwrap();
     let ctx1 = builder_ref.last_context().unwrap();
@@ -181,6 +182,7 @@ async fn test_dynamic_layer_timestamp_is_per_request() {
         sender_id: "u1".into(),
         channel: "feishu".into(),
         timestamp: 2000,
+        chat_name: String::new(),
     });
     let _ = session.invoke_llm("second").await.unwrap();
     let ctx2 = builder_ref.last_context().unwrap();
@@ -284,6 +286,7 @@ async fn test_dynamic_builder_receives_correct_context() {
         sender_id: "ou_sender".into(),
         channel: "telegram".into(),
         timestamp: 5555,
+        chat_name: String::new(),
     });
     let _ = session.invoke_llm("test").await.unwrap();
 
@@ -308,6 +311,7 @@ fn test_request_context_set_get_roundtrip() {
         sender_id: "ou_new".into(),
         channel: "slack".into(),
         timestamp: 7777,
+        chat_name: String::new(),
     });
     let got = session.request_context();
     assert_eq!(got.sender_id, "ou_new");

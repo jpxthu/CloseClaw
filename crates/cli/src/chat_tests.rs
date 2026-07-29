@@ -608,6 +608,7 @@ fn test_normalized_to_inbound_account_id_empty() {
         media_refs: vec![],
         thread_id: None,
         account_id: String::new(),
+        chat_name: String::new(),
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.account_id.as_deref(), Some(""));
@@ -644,6 +645,7 @@ fn test_normalized_to_inbound_message_id_format() {
         media_refs: vec![],
         thread_id: None,
         account_id: String::new(),
+        chat_name: String::new(),
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.message_id, "cli-u99-42");
