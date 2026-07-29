@@ -609,11 +609,11 @@
   },
   {
     "path": "docs/design/slash/workdir.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-07-29T14:56:51.830194+08:00",
+    "commit": "3aa593694cc61c4d271ac894c87175a8c120c736",
+    "commit_time": "2026-07-29T17:34:21+08:00",
+    "confirmed_time": "2026-07-29T17:49:45.540808+08:00",
     "comment": "",
-    "blocked_reason": "git只读命令:架构节说直接执行,数据流节说需Permission审批; git写操作:架构节说审批通过后执行,数据流节说不执行"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/system_prompt/appends.md",
