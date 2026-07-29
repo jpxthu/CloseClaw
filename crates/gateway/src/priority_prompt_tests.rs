@@ -4,7 +4,9 @@
 
 use super::session_handler::MessageMetadata;
 use closeclaw_common::system_prompt::builder::PromptOverrides;
-use closeclaw_common::system_prompt::inject::{build_dynamic_sections, build_full_system_prompt};
+use closeclaw_common::system_prompt::inject::{
+    build_dynamic_sections, build_full_system_prompt, DynamicSectionsParams,
+};
 use closeclaw_common::SessionMode;
 
 fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
@@ -13,6 +15,20 @@ fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
         channel: channel.to_string(),
         timestamp: ts,
         chat_name: String::new(),
+    }
+}
+
+fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSectionsParams<'_> {
+    DynamicSectionsParams {
+        meta,
+        workdir_path: None,
+        session_timestamp: None,
+        session_mode,
+        explicit_plan_path: None,
+        user_input: None,
+        is_compacted: false,
+        is_sub_agent: false,
+        is_git_status_enabled: false,
     }
 }
 
@@ -26,8 +42,8 @@ fn test_priority_override_wins_over_agent_and_custom() {
         custom_prompt: Some("custom prompt".into()),
     };
     let meta = make_meta("u", "ch", 0);
-    let dynamic = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
-    let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
+    let dynamic = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let full = build_full_system_prompt(Some("static"), &dynamic, &[], Some(&overrides));
 
     assert!(full.contains("override prompt"));
     assert!(!full.contains("agent prompt"));
@@ -43,8 +59,8 @@ fn test_priority_agent_wins_over_custom() {
         custom_prompt: Some("custom prompt".into()),
     };
     let meta = make_meta("u", "ch", 0);
-    let dynamic = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
-    let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
+    let dynamic = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let full = build_full_system_prompt(Some("static"), &dynamic, &[], Some(&overrides));
 
     assert!(full.contains("agent prompt"));
     assert!(!full.contains("custom prompt"));
@@ -59,8 +75,8 @@ fn test_priority_custom_fallback() {
         custom_prompt: Some("custom prompt".into()),
     };
     let meta = make_meta("u", "ch", 0);
-    let dynamic = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
-    let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
+    let dynamic = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let full = build_full_system_prompt(Some("static"), &dynamic, &[], Some(&overrides));
 
     assert!(full.contains("custom prompt"));
 }
@@ -74,8 +90,8 @@ fn test_priority_override_mutual_exclusivity() {
         custom_prompt: Some("custom ignored".into()),
     };
     let meta = make_meta("u", "ch", 0);
-    let dynamic = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
-    let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
+    let dynamic = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let full = build_full_system_prompt(Some("static"), &dynamic, &[], Some(&overrides));
 
     // Only override prompt appears
     assert!(full.contains("override wins"));
@@ -85,30 +101,22 @@ fn test_priority_override_mutual_exclusivity() {
     assert!(!full.contains("static"));
 }
 
-/// Test (c): On priority hit, only AppendSection is appended;
-/// no ChannelContext/SessionState/GitStatus.
+/// Test (c): On priority hit, only appends are appended; no ChannelContext/GitStatus.
 #[test]
-fn test_priority_hit_only_appends_append_section() {
+fn test_priority_hit_only_appends() {
     let overrides = PromptOverrides {
         override_prompt: Some("override prompt".into()),
         agent_prompt: None,
         custom_prompt: None,
     };
     let meta = make_meta("alice", "telegram", 1700000000);
-    let dynamic = build_dynamic_sections(
-        &meta,
-        None,
-        &["extra instruction".into()],
-        None,
-        SessionMode::Normal,
-        None,
-        None,
-    );
-    let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
+    let dynamic = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let appends = vec!["extra instruction".to_string()];
+    let full = build_full_system_prompt(Some("static"), &dynamic, &appends, Some(&overrides));
 
     // Override prompt is the base
     assert!(full.contains("override prompt"));
-    // AppendSection is present
+    // Appends are present
     assert!(full.contains("extra instruction"));
     assert!(full.contains("## Append"));
     // Dynamic layers are NOT injected
@@ -116,17 +124,14 @@ fn test_priority_hit_only_appends_append_section() {
         !full.contains("sender_id: alice"),
         "ChannelContext should not appear on priority hit"
     );
-    assert!(
-        !full.contains("pending_tasks:"),
-        "SessionState should not appear on priority hit"
-    );
+
     assert!(
         !full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"),
         "Boundary marker should not appear on priority hit",
     );
 }
 
-/// Test (c): AppendSection with multiple entries on priority hit.
+/// Test (c): Multiple appends on priority hit.
 #[test]
 fn test_priority_hit_multiple_appends() {
     let overrides = PromptOverrides {
@@ -134,22 +139,14 @@ fn test_priority_hit_multiple_appends() {
         ..Default::default()
     };
     let meta = make_meta("u", "ch", 0);
-    let dynamic = build_dynamic_sections(
-        &meta,
-        None,
-        &["first".into(), "second".into()],
-        None,
-        SessionMode::Normal,
-        None,
-        None,
-    );
-    let full = build_full_system_prompt(Some("static"), &dynamic, Some(&overrides));
+    let dynamic = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let appends = vec!["first".to_string(), "second".to_string()];
+    let full = build_full_system_prompt(Some("static"), &dynamic, &appends, Some(&overrides));
 
     assert!(full.contains("agent prompt"));
     assert!(full.contains("first"));
     assert!(full.contains("second"));
     assert!(!full.contains("sender_id"));
-    assert!(!full.contains("pending_tasks:"));
 }
 
 /// Test (d): When no override matches, normal behavior is preserved.
@@ -157,8 +154,8 @@ fn test_priority_hit_multiple_appends() {
 fn test_priority_no_hit_normal_behavior() {
     let overrides = PromptOverrides::default(); // all None
     let meta = make_meta("bob", "feishu", 1700000000);
-    let dynamic = build_dynamic_sections(&meta, None, &[], None, SessionMode::Normal, None, None);
-    let full = build_full_system_prompt(Some("static prompt"), &dynamic, Some(&overrides));
+    let dynamic = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let full = build_full_system_prompt(Some("static prompt"), &dynamic, &[], Some(&overrides));
 
     // Static prompt is preserved
     assert!(full.contains("static prompt"));
@@ -166,31 +163,73 @@ fn test_priority_no_hit_normal_behavior() {
     assert!(full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     // Dynamic layers injected
     assert!(full.contains("sender_id: bob"));
-    assert!(full.contains("pending_tasks:"));
 }
 
 /// Test (e): None overrides behaves identically to normal path.
 #[test]
 fn test_priority_none_overrides_normal_behavior() {
     let meta = make_meta("carol", "ch", 1700000000);
-    let dynamic = build_dynamic_sections(
-        &meta,
-        None,
-        &["appendix".into()],
-        None,
-        SessionMode::Normal,
-        None,
-        None,
+    let dynamic = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let appends = vec!["appendix".to_string()];
+    let full_none = build_full_system_prompt(Some("static"), &dynamic, &appends, None);
+    let full_default = build_full_system_prompt(
+        Some("static"),
+        &dynamic,
+        &appends,
+        Some(&PromptOverrides::default()),
     );
-    let full_none = build_full_system_prompt(Some("static"), &dynamic, None);
-    let full_default =
-        build_full_system_prompt(Some("static"), &dynamic, Some(&PromptOverrides::default()));
 
     // Both should produce the same output
     assert_eq!(full_none, full_default);
     // Both contain static + dynamic
     assert!(full_none.contains("static"));
     assert!(full_none.contains("sender_id: carol"));
-    assert!(full_none.contains("pending_tasks:"));
     assert!(full_none.contains("appendix"));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Dimension 6: Priority prompt + appends — appends still attached
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// When a priority prompt is active, appends must still be appended
+/// at the end of the output, after the priority prompt text.
+#[test]
+fn test_priority_prompt_appends_still_attached() {
+    let overrides = PromptOverrides {
+        override_prompt: Some("priority override".into()),
+        ..Default::default()
+    };
+    let meta = make_meta("dave", "feishu", 0);
+    let dynamic = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let appends = vec!["appendix item".to_string()];
+    let full = build_full_system_prompt(Some("static"), &dynamic, &appends, Some(&overrides));
+    // Priority prompt is the base
+    assert!(full.contains("priority override"));
+    // Appends are present
+    assert!(full.contains("## Append"));
+    assert!(full.contains("appendix item"));
+    // Dynamic layers are NOT injected (priority replaces them)
+    assert!(!full.contains("sender_id: dave"));
+    assert!(!full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
+    // Append section comes after the priority prompt
+    let priority_pos = full.find("priority override").unwrap();
+    let append_pos = full.find("## Append").unwrap();
+    assert!(append_pos > priority_pos);
+}
+
+/// Agent prompt priority + appends: appends attached after agent prompt.
+#[test]
+fn test_agent_prompt_priority_with_appends() {
+    let overrides = PromptOverrides {
+        agent_prompt: Some("agent-level prompt".into()),
+        ..Default::default()
+    };
+    let meta = make_meta("u", "ch", 0);
+    let dynamic = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let appends = vec!["extra".to_string()];
+    let full = build_full_system_prompt(Some("static"), &dynamic, &appends, Some(&overrides));
+    assert!(full.contains("agent-level prompt"));
+    assert!(full.contains("## Append"));
+    assert!(full.contains("extra"));
+    assert!(!full.contains("sender_id"));
 }

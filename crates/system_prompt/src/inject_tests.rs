@@ -1,17 +1,16 @@
 //! Unit tests for `inject::build_dynamic_sections`.
 //!
-//! Tests the one-shot injection of `ModeTransition` sections and ordering
-//! guarantees in the dynamic section list.
+//! Tests ordering guarantees and content correctness of the dynamic
+//! section list.
 //!
 //! Covers Step 1.6 test dimensions:
-//! - One-shot injection: transition appears exactly once per set+take cycle
-//! - Repeated transitions: consecutive mode switches each produce one transition
-//! - Boundary: Normal→Normal produces no transition
-//! - Ordering: ModeInstruction → ModeTransition → ChannelContext
+//! - Boundary: Normal→Normal produces no mode instruction
+//! - Ordering: ModeInstruction → ChannelContext
 
 use super::inject::{build_dynamic_sections, DynamicSectionsParams};
-use closeclaw_common::{ModeTransition, PlanPath, SessionMode};
+use closeclaw_common::{PlanPath, SessionMode};
 use closeclaw_gateway::session_handler::MessageMetadata;
+use std::collections::HashSet;
 
 fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
     MessageMetadata {
@@ -27,92 +26,19 @@ fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSect
     DynamicSectionsParams {
         meta,
         workdir_path: None,
-        system_appends: &[],
         session_timestamp: None,
         session_mode,
         explicit_plan_path: None,
         user_input: None,
-        pending_mode_transition: None,
         is_compacted: false,
         is_sub_agent: false,
         is_git_status_enabled: false,
     }
 }
 
-// ── One-shot injection ──────────────────────────────────────────────────────
-
-/// After a ModeTransition is injected once, the next build with `None`
-/// must NOT contain a transition section.
-#[test]
-fn test_one_shot_injection_transition_appears_exactly_once() {
-    let meta = make_meta("u", "ch", 0);
-
-    // First build — with ExitPlan transition
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        pending_mode_transition: Some(ModeTransition::ExitPlan),
-        ..make_params(&meta, SessionMode::Auto)
-    });
-    let has_transition = sections.iter().any(|s| s.name() == "mode_transition");
-    assert!(has_transition, "first build should include transition");
-
-    // Second build — without transition (simulates take happened)
-    let sections2 = build_dynamic_sections(&make_params(&meta, SessionMode::Auto));
-    let has_transition2 = sections2.iter().any(|s| s.name() == "mode_transition");
-    assert!(
-        !has_transition2,
-        "second build should NOT include transition (one-shot)"
-    );
-}
-
-// ── Repeated transitions ────────────────────────────────────────────────────
-
-/// Consecutive mode switches each produce exactly one transition section.
-#[test]
-fn test_repeated_transitions_each_produces_one() {
-    let meta = make_meta("u", "ch", 0);
-
-    // Switch 1: ExitPlan
-    let s1 = build_dynamic_sections(&DynamicSectionsParams {
-        pending_mode_transition: Some(ModeTransition::ExitPlan),
-        ..make_params(&meta, SessionMode::Auto)
-    });
-    let t1 = s1.iter().find(|s| s.name() == "mode_transition").unwrap();
-    assert!(t1.render().contains("Exited Plan Mode"));
-
-    // Switch 2: Reentry
-    let s2 = build_dynamic_sections(&DynamicSectionsParams {
-        explicit_plan_path: Some(PlanPath::Standard),
-        pending_mode_transition: Some(ModeTransition::Reentry),
-        ..make_params(&meta, SessionMode::Plan)
-    });
-    let t2 = s2.iter().find(|s| s.name() == "mode_transition").unwrap();
-    assert!(t2.render().contains("Re-entering Plan Mode"));
-
-    // Switch 3: ExitAuto
-    let s3 = build_dynamic_sections(&DynamicSectionsParams {
-        pending_mode_transition: Some(ModeTransition::ExitAuto),
-        ..make_params(&meta, SessionMode::Normal)
-    });
-    let t3 = s3.iter().find(|s| s.name() == "mode_transition").unwrap();
-    assert!(t3.render().contains("Exited Auto Mode"));
-}
-
 // ── Boundary: Normal→Normal ─────────────────────────────────────────────────
 
-/// Staying in Normal mode with no transition produces no ModeTransition section.
-#[test]
-fn test_normal_to_normal_no_transition() {
-    let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
-    let has_transition = sections.iter().any(|s| s.name() == "mode_transition");
-    assert!(
-        !has_transition,
-        "Normal→Normal should not inject any transition"
-    );
-}
-
-/// Even with an explicit ModeTransition::None-like scenario, Normal mode
-/// should not produce a ModeInstruction section either.
+/// Even Normal mode should not produce a ModeInstruction section.
 #[test]
 fn test_normal_mode_no_mode_instruction() {
     let meta = make_meta("u", "ch", 0);
@@ -125,37 +51,7 @@ fn test_normal_mode_no_mode_instruction() {
 
 // ── Ordering ────────────────────────────────────────────────────────────────
 
-/// ModeTransition appears after ModeInstruction and before ChannelContext.
-#[test]
-fn test_ordering_mode_instruction_then_transition_then_channel() {
-    let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        explicit_plan_path: Some(PlanPath::Standard),
-        pending_mode_transition: Some(ModeTransition::Reentry),
-        ..make_params(&meta, SessionMode::Plan)
-    });
-
-    let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
-    let transition_idx = sections.iter().position(|s| s.name() == "mode_transition");
-    let channel_idx = sections.iter().position(|s| s.name() == "channel_context");
-
-    assert!(mode_idx.is_some(), "ModeInstruction should be present");
-    assert!(transition_idx.is_some(), "ModeTransition should be present");
-    assert!(channel_idx.is_some(), "ChannelContext should be present");
-
-    let m = mode_idx.unwrap();
-    let t = transition_idx.unwrap();
-    let c = channel_idx.unwrap();
-    assert!(
-        m < t,
-        "ModeInstruction ({m}) should come before ModeTransition ({t})"
-    );
-    assert!(
-        t < c,
-        "ModeTransition ({t}) should come before ChannelContext ({c})"
-    );
-}
-
+/// ModeInstruction appears before ChannelContext.
 /// Without a pending transition, ModeInstruction is still followed by ChannelContext.
 #[test]
 fn test_ordering_without_transition_mode_instruction_then_channel() {
@@ -170,98 +66,6 @@ fn test_ordering_without_transition_mode_instruction_then_channel() {
     assert!(
         mode_idx.unwrap() < channel_idx.unwrap(),
         "ModeInstruction should come before ChannelContext even without transition"
-    );
-}
-
-// ── ExitPlan in Plan→Auto scenario ──────────────────────────────────────────
-
-/// Simulates Plan→Auto transition: ModeInstruction is for Auto mode,
-/// and ExitPlan transition is injected.
-#[test]
-fn test_plan_to_auto_transition_exit_plan() {
-    let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        pending_mode_transition: Some(ModeTransition::ExitPlan),
-        ..make_params(&meta, SessionMode::Auto)
-    });
-
-    // Auto mode instruction should be present
-    let mode_sec = sections.iter().find(|s| s.name() == "mode_instruction");
-    assert!(
-        mode_sec.is_some(),
-        "Auto mode should inject ModeInstruction"
-    );
-    let rendered = mode_sec.unwrap().render();
-    assert!(
-        rendered.contains("Auto"),
-        "ModeInstruction should be for Auto mode"
-    );
-
-    // ExitPlan transition should be present
-    let transition = sections.iter().find(|s| s.name() == "mode_transition");
-    assert!(
-        transition.is_some(),
-        "ExitPlan transition should be injected"
-    );
-    let rendered = transition.unwrap().render();
-    assert!(
-        rendered.contains("Exited Plan Mode"),
-        "Transition should render ExitPlan content"
-    );
-}
-
-// ── Reentry in Normal/Plan scenario ─────────────────────────────────────────
-
-/// Reentry is injected when re-entering Plan Mode from Normal mode
-/// with an existing plan.
-#[test]
-fn test_reentry_plan_mode_with_existing_plan() {
-    let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        explicit_plan_path: Some(PlanPath::Standard),
-        pending_mode_transition: Some(ModeTransition::Reentry),
-        ..make_params(&meta, SessionMode::Plan)
-    });
-
-    let transition = sections.iter().find(|s| s.name() == "mode_transition");
-    assert!(
-        transition.is_some(),
-        "Reentry transition should be injected"
-    );
-    let rendered = transition.unwrap().render();
-    assert!(
-        rendered.contains("Re-entering Plan Mode"),
-        "Reentry transition should render correct content"
-    );
-}
-
-// ── ExitAuto in Auto→Normal scenario ────────────────────────────────────────
-
-/// ExitAuto is injected when leaving Auto Mode for Normal.
-#[test]
-fn test_exit_auto_from_auto_to_normal() {
-    let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        pending_mode_transition: Some(ModeTransition::ExitAuto),
-        ..make_params(&meta, SessionMode::Normal)
-    });
-
-    // Normal mode should NOT have ModeInstruction
-    assert!(
-        !sections.iter().any(|s| s.name() == "mode_instruction"),
-        "Normal mode should not have ModeInstruction"
-    );
-
-    // But ExitAuto transition should be present
-    let transition = sections.iter().find(|s| s.name() == "mode_transition");
-    assert!(
-        transition.is_some(),
-        "ExitAuto transition should be injected"
-    );
-    let rendered = transition.unwrap().render();
-    assert!(
-        rendered.contains("Exited Auto Mode"),
-        "ExitAuto should render correct content"
     );
 }
 
@@ -366,24 +170,6 @@ fn test_plan_mode_auto_analysis_ambiguous_input() {
         .render();
     assert!(rendered.contains("Interview Path"));
     assert!(!rendered.contains("Standard Path"));
-}
-
-/// ModeInstruction appears before SessionState in dynamic sections.
-#[test]
-fn test_mode_instruction_before_session_state() {
-    let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        explicit_plan_path: Some(PlanPath::Interview),
-        ..make_params(&meta, SessionMode::Plan)
-    });
-    let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
-    let ss_idx = sections.iter().position(|s| s.name() == "session_state");
-    assert!(mode_idx.is_some());
-    assert!(ss_idx.is_some());
-    assert!(
-        mode_idx.unwrap() < ss_idx.unwrap(),
-        "ModeInstruction should come before SessionState"
-    );
 }
 
 // ── ChannelContext chat_name tests ────────────────────────────────────────────
@@ -551,4 +337,102 @@ fn test_git_status_not_injected_without_workdir() {
         !has_git_status,
         "GitStatus must not appear when workdir_path is None"
     );
+}
+
+// ── Dimension 1: Full happy path ─────────────────────────────────────────
+
+/// build_dynamic_sections produces exactly the four section types defined
+/// by the design doc when all conditions are met: non-Normal mode (→
+/// ModeInstruction), workdir present (→ WorkingDirectory), git status
+/// enabled in a git repo (→ GitStatus), and always ChannelContext.
+#[test]
+fn test_happy_path_all_four_sections() {
+    let meta = make_meta("user1", "feishu", 1700000000);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        workdir_path: Some(env!("CARGO_MANIFEST_DIR")),
+        is_git_status_enabled: true,
+        session_mode: SessionMode::Auto,
+        ..make_params(&meta, SessionMode::Auto)
+    });
+    let names: HashSet<&str> = sections.iter().map(|s| s.name()).collect();
+    assert!(names.contains("mode_instruction"));
+    assert!(names.contains("channel_context"));
+    assert!(names.contains("working_directory"));
+    assert!(names.contains("git_status"));
+    assert_eq!(names.len(), 4, "exactly four section types expected");
+}
+
+/// Section ordering: ModeInstruction → ChannelContext →
+/// WorkingDirectory → GitStatus.
+#[test]
+fn test_happy_path_section_ordering() {
+    let meta = make_meta("user1", "feishu", 1700000000);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        workdir_path: Some(env!("CARGO_MANIFEST_DIR")),
+        is_git_status_enabled: true,
+        session_mode: SessionMode::Plan,
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let names: Vec<&str> = sections.iter().map(|s| s.name()).collect();
+    assert_eq!(names[0], "mode_instruction");
+    assert_eq!(names[1], "channel_context");
+    assert_eq!(names[2], "working_directory");
+    assert_eq!(names[3], "git_status");
+}
+
+// ── Dimension 3: No workdir → no WorkingDirectory, no GitStatus ─────────
+
+/// When workdir_path is None, neither WorkingDirectory nor GitStatus
+/// should appear, regardless of session mode or git status flag.
+#[test]
+fn test_no_workdir_excludes_working_directory_and_git_status() {
+    let meta = make_meta("user1", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        workdir_path: None,
+        is_git_status_enabled: true,
+        session_mode: SessionMode::Auto,
+        ..make_params(&meta, SessionMode::Auto)
+    });
+    let names: HashSet<&str> = sections.iter().map(|s| s.name()).collect();
+    assert!(!names.contains("working_directory"));
+    assert!(!names.contains("git_status"));
+    // ModeInstruction and ChannelContext should still be present
+    assert!(names.contains("mode_instruction"));
+    assert!(names.contains("channel_context"));
+}
+
+// ── Dimension 4: GitStatus disabled → no GitStatus ──────────────────────
+
+/// With workdir present but is_git_status_enabled=false, WorkingDirectory
+/// is injected but GitStatus is not, even in a valid git repo.
+#[test]
+fn test_git_status_disabled_with_workdir_no_git_section() {
+    let meta = make_meta("user1", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        workdir_path: Some(env!("CARGO_MANIFEST_DIR")),
+        is_git_status_enabled: false,
+        ..make_params(&meta, SessionMode::Normal)
+    });
+    let names: HashSet<&str> = sections.iter().map(|s| s.name()).collect();
+    assert!(names.contains("working_directory"));
+    assert!(!names.contains("git_status"));
+}
+
+// ── Negative: no removed Section types appear ────────────────────────────
+
+/// Verify build_dynamic_sections never produces SessionState,
+/// ModeTransition, or AppendSection (all removed from dynamic layer).
+#[test]
+fn test_no_removed_section_types() {
+    let meta = make_meta("user1", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        workdir_path: Some(env!("CARGO_MANIFEST_DIR")),
+        is_git_status_enabled: true,
+        session_mode: SessionMode::Plan,
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let names: HashSet<&str> = sections.iter().map(|s| s.name()).collect();
+    assert!(!names.contains("session_state"));
+    assert!(!names.contains("mode_transition"));
+    assert!(!names.contains("append_section"));
 }

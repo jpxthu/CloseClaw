@@ -36,7 +36,6 @@ impl closeclaw_common::session_lookup::SessionLookup for MockSessionLookup {
     }
     async fn set_plan_state(&self, _: &str, _: closeclaw_common::PlanState) {}
     async fn set_session_mode(&self, _: &str, _: closeclaw_common::SessionMode) {}
-    async fn set_pending_mode_transition(&self, _: &str, _: closeclaw_common::ModeTransition) {}
 }
 
 // ── Counting mock ─────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 //!
 //! Maps execution progress changes to per-session `system_appends`
 //! entries using a fixed prefix marker so the progress is automatically
-//! included in the system prompt via `AppendSection`.
+//! included in the system prompt via the appends parameter.
 //!
 //! Convention: the progress append item starts with [`PROGRESS_APPEND_PREFIX`]
 //! so that subsequent updates **replace** the existing entry instead of

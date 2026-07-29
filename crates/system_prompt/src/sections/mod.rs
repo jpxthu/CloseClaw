@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 use std::sync::RwLock;
 use std::time::SystemTime;
 
-use closeclaw_common::{ModeTransition, PlanPath, SessionMode};
+use closeclaw_common::{PlanPath, SessionMode};
 
 mod mode_prompts;
 
@@ -34,10 +34,6 @@ pub enum Section {
         sender_id: String,
         timestamp: String,
     },
-    SessionState {
-        pending_tasks: Vec<String>,
-    },
-    AppendSection(String),
     GitStatus(String),
     WorkingDirectory(String),
     /// Mode-specific instruction section, injected when session mode is
@@ -48,11 +44,6 @@ pub enum Section {
         plan_path: Option<PlanPath>,
         sparse: bool,
         sub_agent: bool,
-    },
-    /// Mode transition notification, injected when the session
-    /// transitions between modes (e.g. re-entry, exit).
-    ModeTransition {
-        transition: ModeTransition,
     },
 }
 
@@ -74,28 +65,11 @@ impl Section {
             Section::HeartbeatSection(_) => "heartbeat",
 
             Section::ChannelContext { .. } => "channel_context",
-            Section::SessionState { .. } => "session_state",
-            Section::AppendSection(_) => "append",
             Section::GitStatus(_) => "git_status",
             Section::WorkingDirectory(_) => "working_directory",
             Section::ModeInstruction { .. } => "mode_instruction",
-            Section::ModeTransition { .. } => "mode_transition",
         }
     }
-    fn format_session_state(&self, pending_tasks: &[String]) -> String {
-        let tasks_str = if pending_tasks.is_empty() {
-            "  (none)".to_string()
-        } else {
-            pending_tasks
-                .iter()
-                .enumerate()
-                .map(|(i, t)| format!("  {}. {}", i + 1, t))
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        format!("## Session State\n- pending_tasks:\n{}\n", tasks_str)
-    }
-
     /// Render the section as a string for the system prompt
     pub fn render(&self) -> String {
         match self {
@@ -122,10 +96,6 @@ impl Section {
                     chat_name, sender_id, timestamp
                 )
             }
-            Section::SessionState { pending_tasks } => self.format_session_state(pending_tasks),
-            Section::AppendSection(content) => {
-                format!("## Append\n{}\n", content)
-            }
             Section::GitStatus(content) => {
                 format!("## Git Status\n{}\n", content)
             }
@@ -139,7 +109,6 @@ impl Section {
                 sparse,
                 sub_agent,
             } => render_mode_instruction_with_flags(*mode, *plan_path, *sparse, *sub_agent),
-            Section::ModeTransition { transition } => render_mode_transition(transition),
         }
     }
 }
@@ -192,15 +161,6 @@ pub(crate) fn render_mode_instruction_with_flags(
         };
     }
     render_mode_instruction(mode, plan_path)
-}
-
-/// Render a mode transition prompt — design doc section 6.
-fn render_mode_transition(transition: &ModeTransition) -> String {
-    match transition {
-        ModeTransition::Reentry => MODE_REENTRY.to_string(),
-        ModeTransition::ExitPlan => MODE_EXIT_PLAN.to_string(),
-        ModeTransition::ExitAuto => MODE_EXIT_AUTO.to_string(),
-    }
 }
 
 /// Render Standard Path instructions (4 Phases).
