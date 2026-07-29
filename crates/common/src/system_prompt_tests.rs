@@ -76,6 +76,7 @@ fn test_dynamic_prompt_context_fields() {
         sender_id: "ou_test".into(),
         channel: "feishu".into(),
         timestamp: 1000,
+        chat_name: "test-group".into(),
     };
     let dpctx = DynamicPromptContext {
         system_prompt: Some("static"),

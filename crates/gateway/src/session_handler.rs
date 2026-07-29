@@ -30,6 +30,8 @@ pub struct MessageMetadata {
     pub channel: String,
     /// Unix timestamp (seconds) when the message was created.
     pub timestamp: i64,
+    /// Actual chat/group name (e.g. Feishu group title), or empty.
+    pub chat_name: String,
 }
 
 impl MessageMetadata {
@@ -38,6 +40,7 @@ impl MessageMetadata {
             sender_id: String::new(),
             channel: String::new(),
             timestamp: chrono::Utc::now().timestamp(),
+            chat_name: String::new(),
         }
     }
 
@@ -48,6 +51,7 @@ impl MessageMetadata {
             sender_id: self.sender_id.clone(),
             channel: self.channel.clone(),
             timestamp: self.timestamp,
+            chat_name: self.chat_name.clone(),
         }
     }
 }

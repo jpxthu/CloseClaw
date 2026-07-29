@@ -450,6 +450,7 @@ impl Gateway {
                 sender_id: sender_id.unwrap_or("").to_string(),
                 channel: channel.to_string(),
                 timestamp: chrono::Utc::now().timestamp(),
+                chat_name: String::new(),
             };
             let result = handler
                 .handle_message_with_gateway(&session_id, content, meta, &gw, &plugin)
