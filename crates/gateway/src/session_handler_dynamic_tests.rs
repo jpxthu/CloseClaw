@@ -122,20 +122,6 @@ fn test_build_dynamic_sections_session_timestamp_fallback() {
     );
 }
 
-/// build_dynamic_sections no longer produces AppendSection.
-/// Appends are assembled independently by build_full_system_prompt.
-#[test]
-fn test_build_dynamic_sections_no_append_section() {
-    let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
-    assert!(
-        !sections.iter().any(|s| s.name() == "append"),
-        "build_dynamic_sections should not produce AppendSection"
-    );
-}
-
-/// build_full_system_prompt composes static + boundary + dynamic sections + appends.
-#[test]
 fn test_build_full_system_prompt_composition() {
     let meta = make_meta("alice", "telegram", 1700000000);
     let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));

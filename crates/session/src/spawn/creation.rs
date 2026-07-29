@@ -201,7 +201,7 @@ fn wire_session_dependencies(
     }
     cs.set_prompt_overrides(ctx.prompt_overrides());
     // Inject dynamic prompt builder so child sessions can build
-    // per-request dynamic layers (ChannelContext, SessionState, etc.).
+    // per-request dynamic layers (ChannelContext, WorkingDirectory, ModeInstruction, GitStatus).
     if let Some(dpb) = ctx.dynamic_prompt_builder() {
         cs.set_dynamic_prompt_builder(dpb);
     }

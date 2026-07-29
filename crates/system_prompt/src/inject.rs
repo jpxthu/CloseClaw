@@ -16,7 +16,7 @@ use closeclaw_gateway::session_handler::MessageMetadata;
 /// Parameters for [`build_dynamic_sections`].
 ///
 /// Bundles all per-request state needed to construct dynamic system prompt
-/// sections (ChannelContext, ModeInstruction, etc.).
+/// sections (ChannelContext, WorkingDirectory, ModeInstruction, GitStatus).
 pub struct DynamicSectionsParams<'a> {
     /// Inbound message metadata (sender, channel, timestamp).
     pub meta: &'a MessageMetadata,
@@ -41,8 +41,11 @@ pub struct DynamicSectionsParams<'a> {
 
 /// Build dynamic sections from metadata and session state.
 ///
-/// Constructs ModeInstruction (when not Normal), ChannelContext, and optionally
-/// WorkingDirectory and GitStatus based on the provided parameters.
+/// Constructs exactly the four dynamic sections defined by the design doc:
+/// - **ModeInstruction** (when not Normal mode)
+/// - **ChannelContext** (always)
+/// - **WorkingDirectory** (when `workdir_path` is provided)
+/// - **GitStatus** (when enabled and workdir is a git repo)
 ///
 /// Appends (追加区) are NOT built here; they are assembled independently
 /// in [`build_full_system_prompt`] or by the caller.

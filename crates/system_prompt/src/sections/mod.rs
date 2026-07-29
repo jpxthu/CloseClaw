@@ -34,7 +34,6 @@ pub enum Section {
         sender_id: String,
         timestamp: String,
     },
-    AppendSection(String),
     GitStatus(String),
     WorkingDirectory(String),
     /// Mode-specific instruction section, injected when session mode is
@@ -66,7 +65,6 @@ impl Section {
             Section::HeartbeatSection(_) => "heartbeat",
 
             Section::ChannelContext { .. } => "channel_context",
-            Section::AppendSection(_) => "append",
             Section::GitStatus(_) => "git_status",
             Section::WorkingDirectory(_) => "working_directory",
             Section::ModeInstruction { .. } => "mode_instruction",
@@ -97,9 +95,6 @@ impl Section {
                     "## Channel Context\n- chat_name: {}\n- sender_id: {}\n- timestamp: {}\n",
                     chat_name, sender_id, timestamp
                 )
-            }
-            Section::AppendSection(content) => {
-                format!("## Append\n{}\n", content)
             }
             Section::GitStatus(content) => {
                 format!("## Git Status\n{}\n", content)
