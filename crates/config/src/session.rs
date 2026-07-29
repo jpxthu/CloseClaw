@@ -33,14 +33,18 @@ pub struct PerAgentSessionConfig {
     pub idle_minutes: i64,
     /// Purge-after timeout in minutes (0 = never purge)
     pub purge_after_minutes: i64,
+    /// Whether to inject GitStatus section into dynamic prompt (default: false)
+    #[serde(default, rename = "gitStatus")]
+    pub is_git_status_enabled: bool,
 }
 
 impl PerAgentSessionConfig {
     /// Create a new PerAgentSessionConfig with the given values
-    pub fn new(idle_minutes: i64, purge_after_minutes: i64) -> Self {
+    pub fn new(idle_minutes: i64, purge_after_minutes: i64, is_git_status_enabled: bool) -> Self {
         Self {
             idle_minutes,
             purge_after_minutes,
+            is_git_status_enabled,
         }
     }
 }
@@ -50,6 +54,7 @@ impl Default for PerAgentSessionConfig {
         Self {
             idle_minutes: DEFAULT_IDLE_MINUTES,
             purge_after_minutes: DEFAULT_PURGE_AFTER_MINUTES,
+            is_git_status_enabled: false,
         }
     }
 }
@@ -679,3 +684,9 @@ mod plan_config_tests {
         assert_eq!(cfg.identifier_format, IdentifierFormat::Timestamp);
     }
 }
+
+// ── git_status config switch tests ─────────────────────────────────────────
+
+#[cfg(test)]
+#[path = "session_git_status_tests.rs"]
+mod session_git_status_tests;
