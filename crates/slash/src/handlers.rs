@@ -389,32 +389,20 @@ impl WorkdirHandler {
         SlashResult::Reply(cs.workdir().display().to_string())
     }
 
-    /// Handle `/git <args>`: route subcommands through Exec for Permission approval.
+    /// Handle `/git <args>`: route all subcommands through Exec for Permission approval.
     ///
-    /// Supported read-only subcommands: status, log, diff, branch, show.
     /// All subcommands are routed as `SlashResult::Exec { command }` so the
     /// Gateway's Permission module evaluates them uniformly.
-    ///
-    /// Returns an error for unknown subcommands.
     async fn handle_git(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
-        let sub = Self::parse_git_subcommand(args);
-        match sub.as_deref() {
-            Some("status" | "log" | "diff" | "branch" | "show") | None => {
-                let full_command = format!("git {args}");
-                SlashResult::Exec {
-                    command: full_command,
-                }
-            }
-            Some(unknown) => SlashResult::Reply(format!(
-                "未知子指令：{unknown}。/git 支持：status, log, diff, branch, show"
-            )),
+        if args.trim().is_empty() {
+            return SlashResult::Reply(
+                "用法：/git <subcommand> [args]\n示例：/git status, /git commit -m \"msg\""
+                    .to_owned(),
+            );
         }
-    }
-
-    /// Parse the first token from `args` as a subcommand.
-    fn parse_git_subcommand(args: &str) -> Option<String> {
-        let token = args.split_whitespace().next()?;
-        Some(token.to_owned())
+        SlashResult::Exec {
+            command: format!("git {args}"),
+        }
     }
 }
 
