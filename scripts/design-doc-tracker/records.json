@@ -611,9 +611,9 @@
     "path": "docs/design/slash/workdir.md",
     "commit": "",
     "commit_time": "",
-    "confirmed_time": "2026-07-29T11:44:58.094878+08:00",
+    "confirmed_time": "2026-07-29T13:07:44.562879+08:00",
     "comment": "",
-    "blocked_reason": "blocked: doc contradiction + permission bypass"
+    "blocked_reason": "doc-internal-contradiction"
   },
   {
     "path": "docs/design/system_prompt/appends.md",
