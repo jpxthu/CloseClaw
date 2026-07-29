@@ -65,9 +65,9 @@
   },
   {
     "path": "docs/design/cli/chat.md",
-    "commit": "7def703a6b119bac448063b5d826764eec8c989d",
-    "commit_time": "2026-07-04T13:05:11+08:00",
-    "confirmed_time": "2026-07-04T13:14:16.197746+08:00",
+    "commit": "45628254df0133a5f7003eba2542f548867c4102",
+    "commit_time": "2026-07-29T21:31:35+08:00",
+    "confirmed_time": "2026-07-29T21:50:08.156163+08:00",
     "comment": "",
     "blocked_reason": ""
   },
