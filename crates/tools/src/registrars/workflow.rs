@@ -25,6 +25,12 @@ impl WorkflowToolsRegistrar {
     }
 }
 
+impl Default for WorkflowToolsRegistrar {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl ToolRegistrar for WorkflowToolsRegistrar {
     fn name(&self) -> &str {
