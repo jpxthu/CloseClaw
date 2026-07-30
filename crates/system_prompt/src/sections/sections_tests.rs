@@ -7,10 +7,10 @@ use super::*;
 use tempfile::tempdir;
 
 #[test]
-fn test_section_render_role() {
-    let s = Section::RoleSection("You are a helpful assistant.".to_string());
+fn test_section_render_memory() {
+    let s = Section::MemorySection("You are a helpful assistant.".to_string());
     let rendered = s.render();
-    assert!(rendered.contains("## Role"));
+    assert!(rendered.contains("## Memory"));
     assert!(rendered.contains("You are a helpful assistant"));
     assert!(s.is_cacheable());
 }
