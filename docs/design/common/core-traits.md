@@ -10,7 +10,7 @@
 
 ### PromptFragmentProvider
 
-**用途**：统一抽象 system prompt 静态层各数据来源（bootstrap 文件、ToolRegistry、DiskSkillRegistry、MEMORY.md），System Prompt Builder 通过收集已注册的 Provider 并依次调用组装静态层内容。
+**用途**：统一抽象 system prompt 静态层各数据来源（bootstrap 文件、ToolRegistry、MEMORY.md），System Prompt Builder 通过收集已注册的 Provider 并依次调用组装静态层内容。
 
 **接口契约**：
 
@@ -21,9 +21,9 @@
 | 片段生成 | 根据 [FragmentContext](shared-types.md#fragmentcontext) 产出 [PromptFragment](shared-types.md#promptfragment)。无内容时返回空（文件缺失、agent 无可见 skill 等），Builder 自动跳过 |
 | 缓存键 | Section 级缓存的标识。不可缓存时返回空。文件型 Provider 基于文件修改时间生成键，注册表型 Provider 由各自注册表管理失效 |
 
-四个标准 Provider（BootstrapFragmentProvider / ToolsFragmentProvider / SkillsFragmentProvider / MemoryFragmentProvider）的定义和 Provider 注册编排流程详见 [fragment-provider](../system_prompt/fragment-provider.md)。
+三个标准 Provider（BootstrapFragmentProvider / ToolsFragmentProvider / MemoryFragmentProvider）的定义和 Provider 注册编排流程详见 [fragment-provider](../system_prompt/fragment-provider.md)。
 
-兜底规则：所有 Provider 均返回空时，使用默认 prompt。无 workspace 目录时 BootstrapFragmentProvider 返回空，静态层仅含工具和 skill 片段。
+兜底规则：所有 Provider 均返回空时，使用默认 prompt。无 workspace 目录时 BootstrapFragmentProvider 返回空，静态层仅含工具片段。
 
 ### ToolRegistrar
 
@@ -60,7 +60,7 @@
 
 ### Tool trait
 
-**用途**：所有工具的统一切入点接口。每个工具实现此 trait，ToolRegistry 通过此接口统一管理工具的标识、描述和输入模式。Tools 模块提供此 trait 的具体定义。
+**用途**：所有工具的统一切入点接口。每个工具实现此 trait，ToolRegistry 通过此接口统一管理工具的标识、描述和输入模式。Tools 模块提供该 trait 的实现说明和工具注册流程。
 
 **接口契约**：
 
@@ -105,7 +105,7 @@ core-traits 本身不参与运行时数据流。trait 接口在依赖注入时�
 2. 构建触发（session 创建/恢复/compaction）
 3. Builder 构建 [FragmentContext](shared-types.md#fragmentcontext)（agent 标识 + bootstrap 模式 + 工作目录）
 4. 按优先级遍历 Provider → 检查缓存（命中则复用，未命中则调用片段生成）→ 跳过返回空的 → 按序拼接产出 [PromptFragment](shared-types.md#promptfragment)
-5. 写入 ConversationSession 的 system prompt 字段
+5. 写入 [ConversationSession](../session/README.md) 的 system prompt 字段
 
 缓存由 Builder 内部管理，详细缓存策略和失效规则见 [fragment-provider](../system_prompt/fragment-provider.md)。
 
@@ -122,7 +122,7 @@ core-traits 本身不参与运行时数据流。trait 接口在依赖注入时�
   - **system_prompt**（实现 BootstrapFragmentProvider，System Prompt Builder 收集所有 Provider 并触发生成）
   - **tools**（实现 ToolsFragmentProvider 和 CoreToolsRegistrar，提供 ToolRegistry 具体实现，收集 ToolRegistrar 实现者并编排调用）
   - **session**（实现 SessionToolsRegistrar）
-  - **skills**（实现 SkillsFragmentProvider 和 SkillsToolsRegistrar）
+  - **skills**（实现 SkillsToolsRegistrar）
   - **memory**（实现 MemoryFragmentProvider）
   - **im_adapter**（实现 ImAdapterToolsRegistrar；各平台插件实现 IMPlugin trait，Gateway 通过 Plugin Registry 消费）
   - **gateway**（消费 IMPlugin trait，维护平台到插件的 Plugin Registry 映射）
