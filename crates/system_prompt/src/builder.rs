@@ -346,8 +346,6 @@ mod tests {
         reset_sections();
         let sections = vec![Section::ChannelContext {
             chat_name: "test".into(),
-            sender_id: "u1".into(),
-            timestamp: "t".into(),
         }];
         let result1 = build_system_prompt(sections.clone(), None);
         let result2 = build_system_prompt(sections, None);
