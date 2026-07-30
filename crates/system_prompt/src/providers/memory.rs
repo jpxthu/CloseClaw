@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use closeclaw_common::BootstrapMode;
 
 use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
 use crate::sections::load_cached_file_section;
@@ -63,10 +64,14 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
     }
 
     fn priority(&self) -> u32 {
-        4
+        3
     }
 
     async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
+        if ctx.bootstrap_mode == BootstrapMode::Minimal {
+            return None;
+        }
+
         let memory_path = self.resolve_path(ctx);
         let content = load_cached_file_section("memory", &memory_path)?;
 
@@ -104,7 +109,7 @@ mod tests {
     fn test_provider_name_and_priority() {
         let provider = MemoryFragmentProvider::new();
         assert_eq!(provider.name(), "memory");
-        assert_eq!(provider.priority(), 4);
+        assert_eq!(provider.priority(), 3);
     }
 
     #[tokio::test]
@@ -244,5 +249,68 @@ mod tests {
             ..FragmentContext::test_default()
         };
         assert!(provider.cache_key(&ctx).is_none());
+    }
+
+    // --- bootstrap_mode tests ---
+
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_generate_minimal_mode_returns_none() {
+        crate::sections::invalidate_all_sections();
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("MEMORY.md"), "Remember something").unwrap();
+        let provider = MemoryFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_mode: BootstrapMode::Minimal,
+            ..FragmentContext::test_default()
+        };
+        assert!(provider.generate(&ctx).await.is_none());
+    }
+
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_generate_full_mode_reads_memory() {
+        crate::sections::invalidate_all_sections();
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("MEMORY.md"), "Full mode memory").unwrap();
+        let provider = MemoryFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_mode: BootstrapMode::Full,
+            ..FragmentContext::test_default()
+        };
+        let fragment = provider.generate(&ctx).await;
+        assert!(fragment.is_some());
+        let frag = fragment.unwrap();
+        assert_eq!(frag.section_title, "## Memory");
+        assert_eq!(frag.section_type, SectionType::Memory);
+        assert_eq!(frag.content, "Full mode memory");
+    }
+
+    #[tokio::test]
+    async fn test_generate_no_workspace_dir_returns_none() {
+        let provider = MemoryFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: PathBuf::from("/nonexistent/path/to/workspace"),
+            ..FragmentContext::test_default()
+        };
+        assert!(provider.generate(&ctx).await.is_none());
+    }
+
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_generate_with_path_and_minimal_mode_returns_none() {
+        crate::sections::invalidate_all_sections();
+        let tmp = tempfile::tempdir().unwrap();
+        let abs_path = tmp.path().join("MEMORY.md");
+        fs::write(&abs_path, "Should not be read").unwrap();
+        let provider = MemoryFragmentProvider::with_path(&abs_path);
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_mode: BootstrapMode::Minimal,
+            ..FragmentContext::test_default()
+        };
+        assert!(provider.generate(&ctx).await.is_none());
     }
 }
