@@ -372,7 +372,7 @@ impl crate::TaskManager for BackgroundTaskManager {
     async fn drain_notifications(&self) -> Vec<CompletionNotification> {
         let mut notifications = self.pending_notifications().await;
         // Sort by priority descending: Now > Next > Later
-        notifications.sort_by(|a, b| b.priority.cmp(&a.priority));
+        notifications.sort_by_key(|b| std::cmp::Reverse(b.priority));
         notifications
     }
 
