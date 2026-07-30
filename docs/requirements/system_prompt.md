@@ -94,9 +94,7 @@ System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机�
 
 ### F9. 动态指令持久化
 
-Owner 追加的动态指令通过 session 检查点持久化，确保跨会话保留。持久化行为和恢复语义由 session 模块定义。
-
-> **交叉引用**：追加区的持久化、压缩豁免和恢复行为，详见 [session §F2](session.md)（Agent 角色与能力配置）。
+> **交叉引用**：动态指令通过 session 检查点持久化，跨会话保留。详见 [session §F2](session.md)（Agent 角色与能力配置）。
 
 ## 关联设计文档
 

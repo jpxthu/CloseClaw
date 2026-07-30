@@ -49,21 +49,21 @@ Session 重建时触发 Agent 的 system prompt 重新注入，注入内容反�
 - 连续压缩失败后自动暂停（熔断），手动 `/compact` 成功后自动恢复
 - 压缩前自动创建运行快照，压缩异常时可回滚
 
-### F4. 子 Agent 委托与协调
+### F4. 子 Session 委托与协调
 
-Agent 可以将子任务委托给其他 Agent（子 session），并等待结果后继续决策。支持并行委托多个子 Agent。
+Agent 可以将子任务委托给子 Session，并等待结果后继续决策。支持并行委托多个子 Session。
 
-- Agent 通过 sessions_spawn 创建子 session，子 Agent 执行完成后自动通知父 Agent
-- Agent 通过 sessions_yield 主动暂停当前对话，等待所有子 Agent 完成后再恢复
-- Agent 通过 sessions_steer 向已有子 session 发送新任务
-- Agent 通过 sessions_kill 终止子 session（级联终止该子 session 及其所有后代）
-- 子 Agent 完成后结果由消息队列自动注入父 Agent（带去重保护），详见 [session §F9](session.md#f9-消息注入)。Agent 不需要轮询子 Agent 状态
-- 当前 session 及所有子 session 可被终止，级联生效
+- Agent 通过 sessions_spawn 创建子 Session，子 Session 执行完成后自动通知父 Session
+- Agent 通过 sessions_yield 主动暂停当前对话，等待所有子 Session 完成后再恢复
+- Agent 通过 sessions_steer 向已有子 Session 发送新任务
+- Agent 通过 sessions_kill 终止子 Session（级联终止该子 Session 及其所有后代）
+- 子 Session 完成后结果由消息队列自动注入父 Session（带去重保护），详见 [session §F9](session.md#f9-消息注入)。Agent 不需要轮询子 Session 状态
+- 当前 Session 及所有子 Session 可被终止，级联生效
 
 > **交叉引用**：`/stop` 指令触发 session 终止，详见 [slash §F3](slash.md)。
-- 子 Agent 超过预期时长（timeout_warning）时，系统向父 Agent 注入超时预警通知；子 Agent 继续执行，完成后正常回传结果
-- 子 Agent 超过硬超时（timeout）时，系统终止该子 Agent 并级联终止其所有后代，并通知父 Agent
-- sessions_yield 不是硬阻塞：任何消息（用户消息、子 Agent 完成通知、子 Agent 超时预警通知）都会解除等待，恢复父 Agent 的 turn。Agent 不需要主动查询子 Agent 状态
+- 子 Session 超过预期时长（timeout_warning）时，系统向父 Session 注入超时预警通知；子 Session 继续执行，完成后正常回传结果
+- 子 Session 超过硬超时（timeout）时，系统终止该子 Session 并级联终止其所有后代，并通知父 Session
+- sessions_yield 不是硬阻塞：任何消息（用户消息、子 Session 完成通知、子 Session 超时预警通知）都会解除等待，恢复父 Session 的 turn
 
 ### F5. LLM 交互控制
 
@@ -107,7 +107,7 @@ inactive 的会话自动归档，过期归档自动清理，用户无需手动�
 - inactive 的 session 自动归档：标记为归档（archived）状态，从活跃路由中移除
 - inactive 判定依据 session 活跃维度（详见 F11）：所有活跃维度均为 false，且距上次用户活动超过配置的 inactive 时长
 - 已归档超过配置清理时间的 session 彻底删除（元数据 + 对话记录）
-- 每个 Agent 可独立配置 inactive 时长和清理时间，主 Agent 与子 Agent 可以分别设置
+- 每个 Agent 可独立配置 inactive 时长和清理时间，主 Session 与子 Session 可以分别设置
 - 未配置时按默认配置（inactive 30 分钟归档、清理永不过期）
 - 归档前检查 session 是否有活跃维度为 true，有则跳过本次归档
 - 系统对活跃 session 和文件系统做双向一致性校验——有元数据无对话记录视为损坏并清理，有对话记录无元数据视为孤儿文件并清理
@@ -119,7 +119,7 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 - 每轮对话结束后自动检测：响应超时、空响应、结构化异常等问题
 - 可配置可选的 Hook 审查（轻量 LLM 质量门禁），检测 Agent 是否只计划不执行、是否陷入工具调用死循环
 - 对话历史发生破坏性操作（压缩、system prompt 修改）前自动创建快照，异常时可回滚到上一个安全状态
-- 系统崩溃时，自动识别未完成的工具调用、子 session 生成和出站消息。出站消息自动重投递；其余操作注入恢复通知，由 Agent 决策如何处理（详见 F1）
+- 系统崩溃时，自动识别未完成的工具调用、子 Session 生成和出站消息。出站消息自动重投递；其余操作注入恢复通知，由 Agent 决策如何处理（详见 F1）
 
 ### F8. 工作目录
 
@@ -134,7 +134,7 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 后台任务和记忆搜索结果以消息形式注入对话流，Agent 在后续轮次中按常规对话流程处理。
 
 - 后台工具完成时，结果按优先级（now > next > later）注入消息队列
-- 子 Agent 完成时，结果注入父 Agent 的消息队列，带去重保护
+- 子 Session 完成时，结果注入父 Session 的消息队列，带去重保护
 - 记忆注入通过 session 提供的记忆注入槽位实现，具体内容与注入位置由 memory 模块定义
 
 > **交叉引用**：记忆搜索结果的注入位置规则详见 [memory §F4](memory.md)
@@ -145,8 +145,8 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 用户消息按以下阻塞规则分派。idle 的定义见 F11。
 
 - llm_active 或 foreground_tool_active 时：用户消息进入 FIFO 等待队列。LLM 推理结束后注入；前台工具结果返回后与用户消息一起注入
-- background_tool_active 或 child_active 时：用户消息立即注入——session 有其他机制（后台工具完成通知、子 session 完成通知）提醒 Agent 还有后台任务待处理，Agent 自行判断如何应对
-- 非用户消息（子 session 完成通知、后台工具结果、记忆注入等）与用户消息遵循相同的阻塞规则：llm_active 或 foreground_tool_active 时进入等待队列（排在用户消息前面），background_tool_active 或 child_active 时立即注入
+- background_tool_active 或 child_active 时：用户消息立即注入——session 有其他机制（后台工具完成通知、子 Session 完成通知）提醒 Agent 还有后台任务待处理，Agent 自行判断如何应对
+- 非用户消息（子 Session 完成通知、后台工具结果、记忆注入等）与用户消息遵循相同的阻塞规则：llm_active 或 foreground_tool_active 时进入等待队列（排在用户消息前面），background_tool_active 或 child_active 时立即注入
 
 > **交叉引用**：斜杠指令的排队/立即语义由 Gateway 路由决策决定，详见 [gateway §F5](gateway.md)。
 
@@ -168,5 +168,5 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 - **可靠性**：对话记录不能因系统重启或异常崩溃而丢失。正在执行的操作在崩溃后能被识别和通知
 - **可恢复性**：系统重启后，所有活跃 session 应在秒级完成扫描和恢复
 - **性能**：Agent 的回复应在流式模式下实时逐字展示，首 token 延迟不受 session 管理开销影响。后台维护任务（归档清理）不应影响用户对话的响应延迟
-- **可配置性**：每个 Agent 的 inactive 时长、归档清理周期可独立配置，主/子 Agent 分别设置
+- **可配置性**：每个 Agent 的 inactive 时长、归档清理周期可独立配置，主 Session 与子 Session 可以分别设置
 - **可观测性**：用户可以查看跨轮次的 token 消耗统计和缓存命中率
