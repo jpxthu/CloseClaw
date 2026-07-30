@@ -105,7 +105,7 @@ inactive 的会话自动归档，过期归档自动清理，用户无需手动�
 - inactive 的 session 自动归档：标记 archived 状态，从活跃路由中移除
 - inactive 判定依据 session 活跃维度（详见 F11）：所有活跃维度均为 false，且距上次用户活动超过配置的 inactive 时长
 - 已归档超过配置清理时间的 session 彻底删除（元数据 + 对话记录）
-- 每个 Agent 可独立配置 inactive 时长和清理时间，主 Agent 与子 Agent 分别设置
+- 每个 Agent 可独立配置 inactive 时长和清理时间，主 Agent 与子 Agent 可以分别设置
 - 未配置时按默认配置（inactive 30 分钟归档、清理永不过期）
 - 归档前检查 session 是否有活跃维度为 true，有则跳过本次归档
 - 系统对活跃 session 和文件系统做双向一致性校验——有元数据无对话记录视为损坏并清理，有对话记录无元数据视为孤儿文件并清理
@@ -144,7 +144,7 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 
 - llm_active 或 foreground_tool_active 时：用户消息进入 FIFO 等待队列。LLM 推理结束后注入；前台工具结果返回后与用户消息一起注入
 - background_tool_active 或 child_active 时：用户消息立即注入——session 有其他机制（后台工具完成通知、子 session 完成通知）提醒 Agent 还有后台任务待处理，Agent 自行判断如何应对
-- 非用户消息（子 session 完成通知、后台工具结果、记忆注入等）始终注入 session 消息队列，不参与用户消息排队
+- 非用户消息（子 session 完成通知、后台工具结果、记忆注入等）与用户消息遵循相同的阻塞规则：llm_active 或 foreground_tool_active 时进入等待队列（排在用户消息前面），background_tool_active 或 child_active 时立即注入
 
 > **交叉引用**：斜杠指令的排队/立即语义由 Gateway 路由决策决定，详见 [gateway §F5](gateway.md)。
 
