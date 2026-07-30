@@ -26,57 +26,50 @@ use closeclaw_tools::ToolRegistry;
 
 /// Provider-driven system prompt builder.
 ///
-/// Holds `Arc` references to the four registries needed by the standard
-/// providers and assembles the prompt by asking each provider for its
-/// fragment, sorted by priority.
+/// Holds a list of registered [`PromptFragmentProvider`] instances,
+/// sorted by priority. Providers are created once at construction time
+/// and reused across all `build()` invocations.
 pub struct PromptBuilder {
-    tool_registry: Arc<ToolRegistry>,
-    agent_tools: Option<Vec<String>>,
-    agent_disallowed_tools: Option<Vec<String>>,
-    session_mode: Option<SessionMode>,
+    providers: Vec<Box<dyn PromptFragmentProvider>>,
 }
 
 impl PromptBuilder {
-    /// Create a new builder with the required registries.
+    /// Create a new builder with the standard providers registered.
+    ///
+    /// The three standard providers (Bootstrap, Tools, Memory) are created
+    /// here and sorted by priority. They are reused across all `build()`
+    /// invocations.
     pub fn new(
         tool_registry: Arc<ToolRegistry>,
         agent_tools: Option<Vec<String>>,
         agent_disallowed_tools: Option<Vec<String>>,
         session_mode: Option<SessionMode>,
     ) -> Self {
-        Self {
-            tool_registry,
-            agent_tools,
-            agent_disallowed_tools,
-            session_mode,
-        }
+        let mut providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+            Box::new(BootstrapFragmentProvider::new()),
+            Box::new(ToolsFragmentProvider::new(
+                Arc::clone(&tool_registry),
+                agent_tools,
+                agent_disallowed_tools,
+                session_mode,
+            )),
+            Box::new(MemoryFragmentProvider::new()),
+        ];
+        providers.sort_by_key(|p| p.priority());
+
+        Self { providers }
     }
 
     /// Build the system prompt from the given context.
     ///
-    /// Sorts providers by priority, checks section-level cache before
-    /// calling `generate()`, skips `None` results, concatenates fragments,
-    /// and falls back to `DEFAULT_PROMPT` when no provider contributes.
+    /// Iterates the pre-registered providers, checks section-level cache
+    /// before calling `generate()`, skips `None` results, concatenates
+    /// fragments, and falls back to `DEFAULT_PROMPT` when no provider
+    /// contributes.
     pub async fn build(&self, ctx: &FragmentContext) -> String {
-        // Create the three standard providers (skill listing moved to per-turn injection).
-        let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
-            Box::new(BootstrapFragmentProvider::new()),
-            Box::new(ToolsFragmentProvider::new(
-                Arc::clone(&self.tool_registry),
-                self.agent_tools.clone(),
-                self.agent_disallowed_tools.clone(),
-                self.session_mode,
-            )),
-            Box::new(MemoryFragmentProvider::new()),
-        ];
-
-        // Sort by priority (lower first).
-        let mut sorted = providers;
-        sorted.sort_by_key(|p| p.priority());
-
         let mut fragments: Vec<String> = Vec::new();
 
-        for provider in &sorted {
+        for provider in &self.providers {
             // Check section-level cache.
             if let Some(key) = provider.cache_key(ctx) {
                 if let Some(cached) = get_cached_section(&key, None) {
@@ -395,8 +388,22 @@ mod tests {
     fn test_prompt_builder_new() {
         let tool_reg = Arc::new(ToolRegistry::new());
         let builder = PromptBuilder::new(tool_reg, None, None, None);
-        // Just verify construction succeeds.
-        assert!(builder.agent_tools.is_none());
+        // Verify construction succeeds, providers are registered, and list is non-empty.
+        assert!(!builder.providers.is_empty());
+        assert_eq!(builder.providers.len(), 3);
+    }
+
+    #[test]
+    fn test_prompt_builder_providers_sorted_by_priority() {
+        let tool_reg = Arc::new(ToolRegistry::new());
+        let builder = PromptBuilder::new(tool_reg, None, None, None);
+        let priorities: Vec<u32> = builder.providers.iter().map(|p| p.priority()).collect();
+        // Bootstrap=1, Tools=2, Memory=3
+        assert_eq!(priorities, vec![1, 2, 3]);
+        // Verify provider names match expected order.
+        assert_eq!(builder.providers[0].name(), "bootstrap");
+        assert_eq!(builder.providers[1].name(), "tools");
+        assert_eq!(builder.providers[2].name(), "memory");
     }
 
     #[tokio::test]
