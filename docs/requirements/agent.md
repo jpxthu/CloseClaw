@@ -9,7 +9,7 @@ Agent 模块定义每个 AI Agent 的身份和能力边界，通过配置文件�
 > 交叉引用：
 >
 > - Agent 的配置加载与热重载依赖 [config 需求](config.md)
-> - 子 Agent 委托与协调依赖 [session 需求：子 Agent 委托与协调](session.md#f4-子-agent-委托与协调)
+> - 子 Session 委托与协调依赖 [session 需求：子 Session 委托与协调](session.md#f4-子-session-委托与协调)
 > - 权限继承依赖 [permission 需求：子 Agent 权限继承](permission.md#f9-子-agent-权限继承)
 >
 > 各相应章节中已标注引用。
@@ -80,7 +80,7 @@ Agent 可以创建子 Agent 来执行子任务。默认创建的子 Agent 为一
 - **超时预警**（timeout_warning）：子 Agent 的预期执行时长。未指定时使用目标 Agent 配置或全局默认值，可在 spawn 时覆盖
 - **硬超时**（timeout）：子 Agent 的绝对最大执行时长。未指定时使用目标 Agent 配置或全局默认值（默认 48 小时），可在 spawn 时覆盖
 
-> **交叉引用**：超时预警和硬超时的执行行为（预警通知、终止与级联终止）详见 [session §F4](session.md)（子 Agent 委托与协调）。
+> **交叉引用**：超时预警和硬超时的执行行为（预警通知、终止与级联终止）详见 [session §F4](session.md)（子 Session 委托与协调）。
 
 子 Agent 的最终模型按以下优先级确定：显式指定的模型 > 父 Agent 配置中的子 Agent 默认模型 > 目标 Agent 配置的模型 > 系统默认模型。
 
@@ -102,17 +102,15 @@ Fork 是子 Agent 创建中「上下文模式」的具体实现：子 Agent 在�
 
 层级深度受父 Agent 配置和目标 Agent 配置的双重约束：取两者中更严格的值生效。即使父 Agent 允许更多层级，目标 Agent 可以主动收窄自己的子树深度。
 
-### F10. 子 Agent 结果回传
+### F10. 子 Session 结果回传
 
-一次性执行的子 Agent 完成后，执行结果自动回传给父 Agent。
+> **交叉引用**：一次性执行的子 Session 完成后，执行结果自动回传给父 Session，带去重保护。详见 [session §F4](session.md)（子 Session 委托与协调）。
 
-> **交叉引用**：结果回传的推送机制、去重保护等详细行为详见 [session §F4](session.md)（子 Agent 委托与协调）。
+### F11. 持久子 Session 控制
 
-### F11. 持久子 Agent 控制
+持久存活的子 Session 允许父 Session 在运行期间下发新任务或终止子 Session 树。
 
-持久存活的子 Agent 允许父 Agent 进行运行时控制：steer（发送新任务）、kill（终止子 Agent 及其所有后代）。
-
-> **交叉引用**：steer/kill 的完整操作语义、级联清理顺序、生命周期联动（session 正常结束/超时时的自动清理）详见 [session §F4](session.md)（子 Agent 委托与协调）。系统重启恢复时的降级处理详见 [session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：steer/kill 的完整操作语义、级联清理、生命周期联动详见 [session §F4](session.md)（子 Session 委托与协调）。系统重启恢复时的降级处理详见 [session §F1](session.md)（对话持久化与恢复）。
 
 ### F12. Agent 权限继承
 
@@ -136,7 +134,7 @@ Fork 是子 Agent 创建中「上下文模式」的具体实现：子 Agent 在�
 
 系统维护 Agent 之间的创建层级关系，记录每个会话对应的目标 Agent ID。
 
-> **交叉引用**：父子 session 关系维护、查询接口（子会话/子树/父会话）、级联清理与重启降级恢复由 Session 模块负责（详见 [session §F1](session.md)（对话持久化与恢复）、[session §F4](session.md)（子 Agent 委托与协调））。
+> **交叉引用**：父子 session 关系维护、查询接口（子会话/子树/父会话）、级联清理与重启降级恢复由 Session 模块负责（详见 [session §F1](session.md)（对话持久化与恢复）、[session §F4](session.md)（子 Session 委托与协调））。
 
 ## 关联设计文档
 

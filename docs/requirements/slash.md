@@ -26,9 +26,9 @@ Owner 和 User 可以创建新会话，以及强行终止当前 Agent 运行。
 
 **指令**：
 - `/new`：创建新会话
-- `/stop`：终止当前 LLM 调用及所有子 Agent（Immediate）
+- `/stop`：终止当前 session 运行（Immediate）
 
-> **交叉引用**：会话创建、停止、归档的完整生命周期定义在 [session §F1](session.md)（对话持久化与恢复）与 [session §F4](session.md)（子 Agent 委托与协调）。
+> **交叉引用**：会话创建、停止、归档的完整生命周期定义在 [session §F1](session.md)（对话持久化与恢复）与 [session §F4](session.md)（子 Session 委托与协调）。
 
 ### F4. 状态查询
 
