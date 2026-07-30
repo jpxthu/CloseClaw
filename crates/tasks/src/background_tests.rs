@@ -4,6 +4,7 @@
 //! `background.rs`'s `#[cfg(test)] mod tests`.
 
 use super::*;
+use crate::TaskManager;
 use std::time::Duration;
 use tempfile::TempDir;
 
@@ -399,9 +400,7 @@ async fn test_backgroundize_captures_child_output() {
     );
 }
 
-// =========================================================================
-// TaskState — type-level tests
-// =========================================================================
+// --- TaskState — type-level tests ---
 
 #[test]
 fn test_task_state_running() {
@@ -489,9 +488,7 @@ fn test_task_state_equality_distinct_variants() {
     );
 }
 
-// =========================================================================
-// BackgroundTask — construction and derived traits
-// =========================================================================
+// --- BackgroundTask — construction and derived traits ---
 
 #[test]
 fn test_background_task_fields() {
@@ -539,9 +536,7 @@ fn test_background_task_debug() {
     assert!(debug.contains("debug-id"));
 }
 
-// =========================================================================
-// BackgroundTaskError — Display and variant tests
-// =========================================================================
+// --- BackgroundTaskError — Display and variant tests ---
 
 #[test]
 fn test_background_task_error_spawn_failed_display() {
@@ -602,6 +597,7 @@ async fn insert_handle(
         output_path: output_path.clone(),
         kill_tx: None,
         notified: false,
+        created_at: tokio::time::Instant::now(),
     };
     mgr.tasks.lock().await.insert(task_id.to_owned(), handle);
     output_path
@@ -772,6 +768,7 @@ async fn test_cleanup_finished_cleanup_io_error() {
         output_path: output,
         kill_tx: None,
         notified: false,
+        created_at: tokio::time::Instant::now(),
     };
     mgr.tasks.lock().await.insert("io-err".to_owned(), handle);
 
@@ -781,9 +778,7 @@ async fn test_cleanup_finished_cleanup_io_error() {
     assert!(mgr.get_task("io-err").await.is_none());
 }
 
-// =========================================================================
-// Step 1.5 — Summary text verification (Step 1.1 验证)
-// =========================================================================
+// --- Step 1.5 — Summary text verification (Step 1.1 验证) ---
 
 /// Verify that a completion notification carries the correct summary
 /// text: "Background command '<command>' completed".
@@ -816,9 +811,7 @@ async fn test_failure_notification_summary_text() {
     );
 }
 
-// =========================================================================
-// Step 1.5 — Dedup via notified flag (Step 1.2 验证)
-// =========================================================================
+// --- Step 1.5 — Dedup via notified flag (Step 1.2 验证) ---
 
 /// When `notified` is already `true` before `finalize_state` runs,
 /// no completion notification should be pushed. This simulates the
@@ -845,9 +838,7 @@ async fn test_finalize_state_skips_notification_when_notified() {
     );
 }
 
-// =========================================================================
-// Step 1.5 — Killed state: finalize_state early return (Step 1.2 验证)
-// =========================================================================
+// --- Step 1.5 — Killed state: finalize_state early return (Step 1.2 验证) ---
 
 /// A killed task should not produce any completion notification.
 /// `finalize_state` returns early when state is `Killed`.
@@ -894,9 +885,7 @@ async fn test_killed_task_with_notified_produces_no_notification() {
     );
 }
 
-// =========================================================================
-// NotificationPriority — ordering and derive tests
-// =========================================================================
+// --- NotificationPriority — ordering and derive tests ---
 
 /// Verify that `NotificationPriority` derives `Ord` with
 /// `Now > Next > Later` ordering.
@@ -976,4 +965,35 @@ fn test_notification_priority_debug() {
     assert_eq!(format!("{:?}", NotificationPriority::Now), "Now");
     assert_eq!(format!("{:?}", NotificationPriority::Next), "Next");
     assert_eq!(format!("{:?}", NotificationPriority::Later), "Later");
+}
+
+// --- list_running_tasks — Step 1.4 ---
+
+#[tokio::test]
+async fn test_list_running_empty() {
+    let (mgr, _tmp) = test_manager();
+    assert!(mgr.list_running_tasks().await.is_empty());
+}
+
+#[tokio::test]
+async fn test_list_running_returns_correct_info() {
+    let (mgr, _tmp) = test_manager();
+    let task = mgr.spawn("sleep 60", _tmp.path(), false).await.unwrap();
+    let r = mgr.list_running_tasks().await;
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].task_id, task.id);
+    assert_eq!(r[0].command, "sleep 60");
+    mgr.kill(&task.id).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_list_running_excludes_completed() {
+    let (mgr, _tmp) = test_manager();
+    let fast = mgr.spawn("true", _tmp.path(), false).await.unwrap();
+    let slow = mgr.spawn("sleep 60", _tmp.path(), false).await.unwrap();
+    let _ = wait_for_completion(&mgr, &fast.id).await;
+    let r = mgr.list_running_tasks().await;
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].task_id, slow.id);
+    mgr.kill(&slow.id).await.unwrap();
 }
