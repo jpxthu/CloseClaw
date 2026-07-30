@@ -47,7 +47,7 @@ pub(crate) async fn init_skill_hot_reload(
             .join(id)
             .join("skills")
     });
-    let project_root_buf = project_root.map(|p| p.to_path_buf());
+    let project_root_buf = project_root.map(|p| p.join(".closeclaw").join("skills"));
     let scan_config = build_scan_config(
         global_dir.clone(),
         agent_skills_dir.clone(),
@@ -131,9 +131,8 @@ fn build_skill_dirs(
         }
     }
     if let Some(pr) = project_root {
-        let pr_skills = pr.join("skills");
-        if pr_skills.exists() {
-            dirs.push(pr_skills);
+        if pr.exists() {
+            dirs.push(pr);
         }
     }
     dirs
@@ -357,17 +356,18 @@ mod tests {
     }
 
     /// build_skill_dirs includes project skills dir when the directory exists on disk.
+    /// Note: project_root passed to build_skill_dirs is already the skills dir
+    /// (i.e. `<project-root>/.closeclaw/skills/`), not the project root itself.
     #[test]
     fn test_build_skill_dirs_includes_project_layer_when_exists() {
         let tmp = TempDir::new().unwrap();
-        let project_root = tmp.path().join("my/project");
-        let project_skills = project_root.join("skills");
-        std::fs::create_dir_all(&project_skills).unwrap();
+        let project_skills_dir = tmp.path().join("my/project/.closeclaw/skills");
+        std::fs::create_dir_all(&project_skills_dir).unwrap();
 
-        let skill_dirs = build_skill_dirs(None, None, Some(project_root));
+        let skill_dirs = build_skill_dirs(None, None, Some(project_skills_dir.clone()));
 
         assert_eq!(skill_dirs.len(), 1);
-        assert!(skill_dirs.contains(&project_skills));
+        assert!(skill_dirs.contains(&project_skills_dir));
     }
 
     /// build_skill_dirs skips nonexistent directories without panicking.
@@ -375,10 +375,10 @@ mod tests {
     fn test_build_skill_dirs_skips_nonexistent_directories() {
         let tmp = TempDir::new().unwrap();
         let agent_skills_dir = tmp.path().join("agents/eda/skills");
-        let project_root = tmp.path().join("my/project");
+        let project_skills_dir = tmp.path().join("my/project/.closeclaw/skills");
         // Intentionally do NOT create these dirs
 
-        let skill_dirs = build_skill_dirs(None, Some(agent_skills_dir), Some(project_root));
+        let skill_dirs = build_skill_dirs(None, Some(agent_skills_dir), Some(project_skills_dir));
 
         assert!(skill_dirs.is_empty());
     }
@@ -409,20 +409,20 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let global_dir = tmp.path().join("global_skills");
         let agent_skills_dir = tmp.path().join("agents/eda/skills");
-        let project_root = tmp.path().join("my/project");
+        let project_skills_dir = tmp.path().join("my/project/.closeclaw/skills");
         std::fs::create_dir_all(&global_dir).unwrap();
         std::fs::create_dir_all(&agent_skills_dir).unwrap();
-        std::fs::create_dir_all(project_root.join("skills")).unwrap();
+        std::fs::create_dir_all(&project_skills_dir).unwrap();
 
         let skill_dirs = build_skill_dirs(
             Some(global_dir.clone()),
             Some(agent_skills_dir.clone()),
-            Some(project_root.clone()),
+            Some(project_skills_dir.clone()),
         );
 
         assert_eq!(skill_dirs.len(), 3);
         assert!(skill_dirs.contains(&global_dir));
         assert!(skill_dirs.contains(&agent_skills_dir));
-        assert!(skill_dirs.contains(&project_root.join("skills")));
+        assert!(skill_dirs.contains(&project_skills_dir));
     }
 }
