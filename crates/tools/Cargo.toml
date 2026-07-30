@@ -14,6 +14,7 @@ closeclaw-agent = { path = "../agent" }
 closeclaw-session = { path = "../session" }
 closeclaw-llm = { path = "../llm" }
 closeclaw-gateway = { path = "../gateway" }
+closeclaw-workflow = { path = "../workflow" }
 closeclaw-skills = { path = "../skills" }
 closeclaw-permission = { path = "../permission" }
 
