@@ -24,10 +24,8 @@ use self::mode_prompts::*;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Section {
     // --- Static sections (cached) ---
-    RoleSection(String),
     ToolsSection(String),
     MemorySection(String),
-    HeartbeatSection(String),
     // --- Dynamic sections (always rebuilt) ---
     ChannelContext {
         chat_name: String,
@@ -48,19 +46,14 @@ pub enum Section {
 impl Section {
     /// Returns true if this section is cacheable (static)
     pub fn is_cacheable(&self) -> bool {
-        matches!(
-            self,
-            Section::RoleSection(_) | Section::MemorySection(_) | Section::HeartbeatSection(_)
-        )
+        matches!(self, Section::MemorySection(_))
     }
 
     /// Returns the section name for cache key purposes
     pub fn name(&self) -> &'static str {
         match self {
-            Section::RoleSection(_) => "role",
             Section::ToolsSection(_) => "tools",
             Section::MemorySection(_) => "memory",
-            Section::HeartbeatSection(_) => "heartbeat",
 
             Section::ChannelContext { .. } => "channel_context",
             Section::GitStatus(_) => "git_status",
@@ -71,17 +64,11 @@ impl Section {
     /// Render the section as a string for the system prompt
     pub fn render(&self) -> String {
         match self {
-            Section::RoleSection(content) => {
-                format!("## Role\n{}\n", content)
-            }
             Section::ToolsSection(content) => {
                 format!("## Tools\n{}\n", content)
             }
             Section::MemorySection(content) => {
                 format!("## Memory\n{}\n", content)
-            }
-            Section::HeartbeatSection(content) => {
-                format!("## Heartbeat Context\n{}\n", content)
             }
 
             Section::ChannelContext { chat_name } => {

@@ -127,7 +127,6 @@ fn render_sections(sections: Vec<Section>) -> Vec<String> {
 
 /// Render a single section to string.
 fn render_section(section: Section) -> String {
-    let name = section.name();
     let is_static = section.is_cacheable();
 
     if is_static {
@@ -142,25 +141,7 @@ fn render_section(section: Section) -> String {
                     section.render()
                 }
             }
-            Section::HeartbeatSection(_) => {
-                let path = Path::new("HEARTBEAT.md");
-                if path.exists() {
-                    crate::sections::load_cached_file_section("heartbeat", path)
-                        .map(|c| Section::HeartbeatSection(c).render())
-                        .unwrap_or_default()
-                } else {
-                    section.render()
-                }
-            }
-            _ => {
-                if let Some(cached) = get_cached_section(name, None) {
-                    cached
-                } else {
-                    let rendered = section.render();
-                    put_cached_section(name, rendered.clone(), None);
-                    rendered
-                }
-            }
+            _ => unreachable!("is_cacheable() only returns true for MemorySection"),
         }
     } else {
         section.render()
@@ -294,9 +275,9 @@ mod tests {
     #[test]
     fn test_build_system_prompt_renders_sections() {
         reset_sections();
-        let sections = vec![Section::RoleSection("role content".to_string())];
+        let sections = vec![Section::MemorySection("memory content".to_string())];
         let result = build_system_prompt(sections, None);
-        assert!(result.contains("role content"));
+        assert!(result.contains("memory content"));
     }
 
     #[test]
@@ -310,9 +291,9 @@ mod tests {
     #[test]
     fn test_build_system_prompt_with_append() {
         reset_sections();
-        let sections = vec![Section::RoleSection("role content".to_string())];
+        let sections = vec![Section::MemorySection("memory content".to_string())];
         let result = build_system_prompt(sections, Some("additional info".to_string()));
-        assert!(result.contains("role content"));
+        assert!(result.contains("memory content"));
         assert!(result.contains("additional info"));
         assert!(result.contains("## Append"));
     }
@@ -320,7 +301,7 @@ mod tests {
     #[test]
     fn test_build_append_section_appended() {
         reset_sections();
-        let sections = vec![Section::RoleSection("base".to_string())];
+        let sections = vec![Section::MemorySection("base".to_string())];
         let result = build_system_prompt(sections, Some("extra notes".to_string()));
         assert!(result.contains("base"));
         assert!(result.contains("extra notes"));
@@ -329,7 +310,7 @@ mod tests {
     #[test]
     fn test_append_section_not_shown_when_empty() {
         reset_sections();
-        let sections = vec![Section::RoleSection("base".to_string())];
+        let sections = vec![Section::MemorySection("base".to_string())];
         let result = build_system_prompt(sections, None);
         assert!(!result.contains("## Append"));
     }

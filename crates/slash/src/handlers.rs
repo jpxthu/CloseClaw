@@ -71,6 +71,7 @@ impl SlashHandler for ClearHandler {
     }
 
     async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
+        self.session_manager.invalidate_static_cache().await;
         self.session_manager
             .rebuild_system_prompt_for_session(&ctx.session_id)
             .await;
