@@ -8,7 +8,7 @@ Skills 模块提供可复用技能插件体系——用户创建 SKILL.md 文件
 
 ## 架构
 
-Skills 模块由三个核心组件构成：磁盘加载层、注册中心层、执行层。技能按五层优先级来源组织——前四层为磁盘目录，Bundled 层为编译期内置数据。其中 ExtraDirs 为 Agent 配置中指定的外部复用路径。
+Skills 模块由三个核心组件构成：磁盘加载层、注册中心层、执行层。技能按五层优先级来源组织——前四层为磁盘目录，Bundled 层为编译期内置数据。其中 ExtraDirs 为由配置指定的外部复用路径。
 
 ```
 五层技能来源（优先级从高到低）
@@ -37,7 +37,7 @@ Skills 模块由三个核心组件构成：磁盘加载层、注册中心层、�
 |------|------|
 | [skill-definition.md](skill-definition.md) | Skill 定义：frontmatter 字段、目录优先级、磁盘加载、注册中心、错误处理 |
 | [skill-listing-injection.md](skill-listing-injection.md) | 技能清单生成：过滤、排序、格式化、文件监听触发热重载 |
-| [skill-execution.md](skill-execution.md) | 技能调用：inline 执行流程、正文按需加载、SkillCreator 工具 |
+| [skill-execution.md](skill-execution.md) | 技能调用：inline 执行、Bundled 原生执行、SkillCreator 技能、斜杠命令调用 |
 
 ## 数据流
 
@@ -47,13 +47,16 @@ Session 启动时，磁盘加载层按优先级从低到高依次扫描四层文
 
 ### 技能调用
 
-Agent 决策调用某个技能 → 通过 SkillTool 发起调用 → 从注册中心查找技能实例 → 按需加载技能正文 → 正文注入对话上下文 → Agent 按指令继续执行。
+Agent 决策调用某个技能 → 通过 SkillTool 发起调用 → 从注册中心查找技能实例 → 按技能类型分流：
 
-技能正文统一采用 inline 执行——直接展开到当前 Agent 上下文，不创建隔离子 Agent。
+- 磁盘技能：按需加载正文 → 变量替换 → 正文注入对话上下文 → Agent 按指令继续执行
+- Bundled 技能：trait 方法分发执行 → 结果以 meta message 注入对话上下文
+
+详见 [skill-execution.md](skill-execution.md)。
 
 ## 模块关系
 
-- **上游**：Agent 运行时（调度技能调用）、Session 模块（查询技能清单以生成 per-turn attachment）
+- **上游**：Agent 运行时（Agent-in-Session 决策调用技能）、Agent 配置（提供 agent-id）、Session 模块（查询技能清单以生成 per-turn attachment）
 - **下游**：文件系统（扫描目录、读取 SKILL.md）
-- **无关**：processor_chain（skill 不参与消息出站处理）、renderer（skill 不参与平台渲染）、system_prompt（技能清单不进入 system prompt 任何分区）、权限引擎（Agent 运行时校验工具权限，skills 模块不直接调用）
+- **无关**：processor_chain（skill 不参与消息出站处理）、renderer（skill 不参与平台渲染）、system_prompt（技能清单不进入 system prompt 任何分区）、权限引擎（Agent 运行时校验工具权限和管理技能白名单；skills 模块作为纯数据提供方，不反向查询权限状态）
 - **共享类型**：Skill 元数据结构（优先级层级、frontmatter 字段），定义于 [skill-definition.md](skill-definition.md)

@@ -16,7 +16,7 @@ DiskSkillRegistry + BuiltinSkillRegistry ─── 数据源
 │  过滤：user-invocable 已声明           │
 │        paths 已声明 → 不在初始清单     │
 │  排序：来源优先级高→低 → 字母序        │
-│  格式化：- **{name}**: {description}   │
+│  格式化：4 种变体，详见 §格式化        │
 └────────────────┬──────────────────────┘
                  │
                  ▼
@@ -47,18 +47,20 @@ DiskSkillRegistry + BuiltinSkillRegistry ─── 数据源
 
 ### 格式化
 
-根据 skill 的字段组合有三种变体，effort 字段有值时统一追加在末尾：
+根据 skill 的字段组合有四种变体，effort 字段有值时统一追加在末尾：
 
 - 基础格式（无 when-to-use、无 paths）：
   `- **{name}**: {description}`
 - 含决策提示（有 when-to-use、无 paths）：
   `- **{name}**: {description} — {when-to-use}`
+- 含条件激活标记（有 paths、无 when-to-use）：
+  `- **{name}**: {description} ⚡ auto-activates on: {glob patterns}`
 - 含决策提示与条件激活标记（有 when-to-use、有 paths）：
   `- **{name}**: {description} — {when-to-use} ⚡ auto-activates on: {glob patterns}`
 
 以上任一格式中，若 skill 声明了 `effort` 字段，在末尾追加 `[effort: {effort}]`。
 
-带 ⚡ 标记的第三种变体仅用于条件激活后的增量注入，不出现在初始清单中。
+带 ⚡ 标记的两种变体仅用于条件激活后的增量注入，不出现在初始清单中。
 
 清单为空时不生成，Session 模块不注入空 attachment。
 
@@ -67,6 +69,8 @@ DiskSkillRegistry + BuiltinSkillRegistry ─── 数据源
 增量注入由 Session 模块负责——Session 保持上一 turn 的清单状态，收到新清单后计算 diff，仅将变更条目作为 attachment 注入。增量注入保持与初始注入相同的格式与位置，确保不破坏 Agent 对话上下文的连续性。
 
 文件变更触发的增量更新和路径匹配触发的条件激活在同一个 turn 可能同时发生。Session 模块合并两种来源的增量后统一注入，处理顺序为：先更新文件变更引起的增量，再处理条件激活的增量。
+
+增量注入与对话压缩由 Session 模块统一协调：对话压缩时技能清单受 Session 模块保护，不会被截断；压缩完成后若同一 turn 有增量注入需求，则先恢复受保护的清单区间再追加变更条目，保证增量和压缩两种操作互不破坏。
 
 ### 文件监听与热重载
 
@@ -89,12 +93,11 @@ DiskSkillRegistry + BuiltinSkillRegistry ─── 数据源
 3. 过滤：user-invocable 已声明
    - paths 已声明 → 排除（条件激活）
 4. 排序：来源优先级降序 → 同来源内字母序升序
-5. 格式化为摘要文本 → 返回给 Session 模块
-6. Session 模块将其作为 per-turn attachment 注入 instruction block
+5. 若过滤后无条目 → 返回空，Session 模块不注入 attachment
+6. 格式化为摘要文本 → 返回给 Session 模块
+7. Session 模块将其作为 per-turn attachment 注入 instruction block
 
-### 增量更新
-
-1. 技能文件变更
+### 增量更新流程
 2. 文件监听器捕获事件
 3. 300ms debounce
 4. 使 listing 缓存失效
@@ -103,9 +106,9 @@ DiskSkillRegistry + BuiltinSkillRegistry ─── 数据源
 7. Session 模块对比上一 turn 的清单，计算增量
 8. 仅注入变化条目
 
-### 条件激活
+### 条件激活流程
 
-1. Agent 操作文件路径匹配某 skill 的 paths 模式
+1. Agent 操作文件路径匹配某 skill 的 paths 模式（paths 为 glob 模式，详见 [skill-definition.md](skill-definition.md) §Frontmatter 字段）
 2. Session 模块内部标记该 skill 为激活
 3. 下一 turn 增量注入该 skill 的清单条目
 4. Agent 看到后可在后续 turn 调用该 skill
