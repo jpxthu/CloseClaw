@@ -15,7 +15,7 @@ use crate::permission_check::{
     check_command_permission, check_tool_permission, CommandPermissionResult, PermDeps,
 };
 use crate::security::{BashSecurityAnalyzer, ParseResult, TrustLevel};
-use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use closeclaw_common::ToolExecState;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
@@ -128,19 +128,6 @@ impl Tool for BashTool {
          Background tasks notify automatically on completion - do not poll. \
          Use run_in_background for commands expected to exceed 10 seconds."
             .to_string()
-    }
-
-    #[rustfmt::skip]
-    fn generate_prompt(&self, context: &PromptGenerationContext) -> String {
-        let Some(wd) = &context.workdir else { return self.detail() };
-        let mut s = format!(" Working directory: {}.", wd.path);
-        if wd.has_git {
-            if let Some(b) = &wd.branch { s.push_str(&format!(" Branch: {}.", b)); }
-            if wd.recent_changes > 0 {
-                s.push_str(&format!(" {} uncommitted change(s).", wd.recent_changes));
-            }
-        }
-        format!("{}{}", self.detail(), s)
     }
 
     fn input_schema(&self) -> Value {
