@@ -110,7 +110,7 @@ Gateway / SessionManager  ← session 生命周期协调者
       → 查不到 archived → 双重确认该会话路由键下无 active session
         → 若有 → 注册已有 session 到映射表（自愈，不创建新 session）
         → 若无 → 创建新 session → 注册到映射表
-          → 构建 system prompt（注入 bootstrap、工具列表、skill 列表）
+          → 构建 system prompt（注入 bootstrap、工具列表）
           → 初始化执行状态（Idle）
           → 首次持久化（写入 checkpoint 和 transcript）
 ```
@@ -217,7 +217,7 @@ active-searcher 写入槽位（tool role 摘要 + 位置模式）
 
 ### 下游
 
-- **System Prompt Builder**：注入链路依赖此模块完成 bootstrap/tools/skills 的组装。
+- **System Prompt Builder**：注入链路依赖此模块完成 bootstrap、工具列表的组装。
 - **LLM Client（UnifiedChatClient）**：ConversationSession 构建 API 请求发送给 LLM Client，经内部五层链路（CacheAdapter → Plugin → Protocol → Provider）完成调用；stop 时通过 cancel token 取消进行中的请求。
 - **ToolRegistry**：通过 [ToolRegistrar](../common/core-traits.md#toolregistrar) trait 向 ToolRegistry 注册 sessions 分组工具（sessions_spawn / sessions_steer / sessions_kill）；注入时获取工具列表（ToolsSection）。skill 清单由 Session 每 turn 从 DiskSkillRegistry 获取，不经过 system prompt 注入。
 - **PersistenceService**：CheckpointManager 通过此 trait 调用具体存储后端。

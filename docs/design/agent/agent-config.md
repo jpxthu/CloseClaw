@@ -133,7 +133,7 @@ ID 取并集，去重（注册清单中注释掉的 ID 跳过）
   ↓
 对每个注册 ID：
   优先加载项目级 agents/<id>/config.json（不存在回退用户级）
-  permissions.json 同路径同优先级加载
+  permissions.json 遵循同路径解析规则和同优先级（实际由 Permission 模块在 evaluate() 时延迟加载）
   ↓
 字段级覆盖合并（项目级字段覆盖用户级字段）
   ↓
