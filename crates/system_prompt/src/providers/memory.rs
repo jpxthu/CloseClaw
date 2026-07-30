@@ -3,6 +3,8 @@
 //! Reads `MEMORY.md` from the agent's working directory and wraps the
 //! content as a [`PromptFragment`].
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use async_trait::async_trait;
@@ -86,7 +88,9 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
         })
     }
 
-    /// File-backed — keyed by mtime so the builder can skip regeneration.
+    /// File-backed — keyed by path + mtime so the builder can skip
+    /// regeneration. The path hash ensures different workspaces with
+    /// identical mtime values produce distinct cache keys.
     fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
         let path = self.resolve_path(ctx);
         let meta = std::fs::metadata(&path).ok()?;
@@ -96,7 +100,9 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .ok()?
             .as_secs();
-        Some(format!("memory:{}", mtime))
+        let mut hasher = DefaultHasher::new();
+        path.to_string_lossy().hash(&mut hasher);
+        Some(format!("memory:{:x}:{}", hasher.finish(), mtime))
     }
 }
 
@@ -174,9 +180,34 @@ mod tests {
             bootstrap_dir: tmp.path().to_path_buf(),
             ..FragmentContext::test_default()
         };
-        let key = provider.cache_key(&ctx);
-        assert!(key.is_some());
-        assert!(key.unwrap().starts_with("memory:"));
+        let key = provider.cache_key(&ctx).unwrap();
+        // Format: memory:<path_hash>:<mtime>
+        let parts: Vec<&str> = key.split(':').collect();
+        assert_eq!(parts[0], "memory");
+        assert_eq!(parts.len(), 3, "key should have 3 colon-separated parts");
+    }
+
+    #[test]
+    fn test_cache_key_unique_per_path() {
+        let tmp1 = tempfile::tempdir().unwrap();
+        let tmp2 = tempfile::tempdir().unwrap();
+        fs::write(tmp1.path().join("MEMORY.md"), "same content").unwrap();
+        fs::write(tmp2.path().join("MEMORY.md"), "same content").unwrap();
+        let provider = MemoryFragmentProvider::new();
+        let ctx1 = FragmentContext {
+            bootstrap_dir: tmp1.path().to_path_buf(),
+            ..FragmentContext::test_default()
+        };
+        let ctx2 = FragmentContext {
+            bootstrap_dir: tmp2.path().to_path_buf(),
+            ..FragmentContext::test_default()
+        };
+        let key1 = provider.cache_key(&ctx1).unwrap();
+        let key2 = provider.cache_key(&ctx2).unwrap();
+        // Different paths must produce different keys even with same
+        // mtime (mtime is not guaranteed identical here, but the path
+        // hash component will differ).
+        assert_ne!(key1, key2);
     }
 
     // --- with_path tests ---
@@ -231,9 +262,10 @@ mod tests {
             bootstrap_dir: tmp.path().to_path_buf(),
             ..FragmentContext::test_default()
         };
-        let key = provider.cache_key(&ctx);
-        assert!(key.is_some());
-        assert!(key.unwrap().starts_with("memory:"));
+        let key = provider.cache_key(&ctx).unwrap();
+        let parts: Vec<&str> = key.split(':').collect();
+        assert_eq!(parts[0], "memory");
+        assert_eq!(parts.len(), 3);
     }
 
     #[test]
