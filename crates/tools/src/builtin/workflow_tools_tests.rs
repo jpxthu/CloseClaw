@@ -4,21 +4,7 @@
 use crate::{Tool, ToolCallError, ToolResult};
 use serde_json::json;
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn test_ctx() -> crate::ToolContext {
-    crate::ToolContext {
-        agent_id: "test-agent".into(),
-        workdir: None,
-        session_id: None,
-        call_id: None,
-        session: None,
-        session_mode: None,
-        manual_background_signal: None,
-    }
-}
+use super::test_helpers::test_ctx;
 
 fn assert_tool_metadata(tool: &dyn Tool, expected_name: &str, expected_group: &str) {
     assert_eq!(tool.name(), expected_name);

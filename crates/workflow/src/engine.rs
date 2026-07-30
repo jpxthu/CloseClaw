@@ -90,8 +90,7 @@ impl WorkflowEngine {
     /// Handle an agent `workflow_verify` call.
     ///
     /// Returns [`VerifyAction::Jump`] if the current step has jump
-    /// questions, or [`VerifyAction::Blocked`] if there are no jump
-    /// questions and the step cannot proceed.
+    /// questions, or if a default transition matches and is executed.
     ///
     /// # Errors
     ///

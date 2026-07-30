@@ -13,6 +13,20 @@ use crate::{Tool, ToolCallError, ToolFlags, ToolResult};
 use async_trait::async_trait;
 use serde_json::Value;
 
+/// Shared ToolFlags for all workflow tools.
+///
+/// Workflow tools are system-level tools that must be immediately
+/// visible to the agent, so `is_deferred_by_default` is `false`.
+fn workflow_flags() -> ToolFlags {
+    ToolFlags {
+        is_concurrency_safe: false,
+        is_read_only: false,
+        is_destructive: false,
+        is_expensive: false,
+        is_deferred_by_default: false,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // WorkflowStartTool
 // ---------------------------------------------------------------------------
@@ -57,13 +71,7 @@ impl Tool for WorkflowStartTool {
     }
 
     fn flags(&self) -> ToolFlags {
-        ToolFlags {
-            is_concurrency_safe: false,
-            is_read_only: false,
-            is_destructive: false,
-            is_expensive: false,
-            is_deferred_by_default: false,
-        }
+        workflow_flags()
     }
 
     async fn call(
@@ -129,13 +137,7 @@ impl Tool for WorkflowVerifyTool {
     }
 
     fn flags(&self) -> ToolFlags {
-        ToolFlags {
-            is_concurrency_safe: false,
-            is_read_only: false,
-            is_destructive: false,
-            is_expensive: false,
-            is_deferred_by_default: false,
-        }
+        workflow_flags()
     }
 
     async fn call(
@@ -196,13 +198,7 @@ impl Tool for WorkflowJumpTool {
     }
 
     fn flags(&self) -> ToolFlags {
-        ToolFlags {
-            is_concurrency_safe: false,
-            is_read_only: false,
-            is_destructive: false,
-            is_expensive: false,
-            is_deferred_by_default: false,
-        }
+        workflow_flags()
     }
 
     async fn call(
@@ -273,13 +269,7 @@ impl Tool for WorkflowBlockedTool {
     }
 
     fn flags(&self) -> ToolFlags {
-        ToolFlags {
-            is_concurrency_safe: false,
-            is_read_only: false,
-            is_destructive: false,
-            is_expensive: false,
-            is_deferred_by_default: false,
-        }
+        workflow_flags()
     }
 
     async fn call(

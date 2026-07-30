@@ -21,6 +21,9 @@ pub mod skill_creator;
 pub mod skill_tool;
 pub mod workflow_tools;
 
+#[cfg(test)]
+pub(crate) mod test_helpers;
+
 pub use bash::BashTool;
 pub use coding_agent::CodingAgentTool;
 pub use execute_plan::ExecutePlanTool;

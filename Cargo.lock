@@ -902,6 +902,7 @@ dependencies = [
  "closeclaw-session",
  "closeclaw-skills",
  "closeclaw-tasks",
+ "closeclaw-workflow",
  "futures",
  "glob",
  "regex",
