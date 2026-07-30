@@ -386,12 +386,17 @@ fn test_handle_verify_no_jumps_default_transition() {
 }
 
 #[test]
-fn test_handle_verify_no_jumps_no_transitions_blocks() {
+fn test_handle_verify_no_jumps_no_transitions_returns_error() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    let action = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
-    assert_eq!(action, VerifyAction::Blocked);
-    assert_eq!(run.phase, Phase::Blocked);
+    let result = WorkflowEngine::handle_verify(&mut run, &wf);
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        crate::error::WorkflowError::NoMatchingTransition
+    ));
+    // Phase must NOT be changed to Blocked.
+    assert_eq!(run.phase, Phase::Executing);
 }
 
 // ---------------------------------------------------------------------------
@@ -608,7 +613,7 @@ fn test_is_complete_false_when_executing() {
 // ===========================================================================
 
 #[test]
-fn test_e2e_single_step_no_jumps() {
+fn test_e2e_single_step_no_jumps_blocked_via_over_limit() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
     assert_eq!(run.phase, Phase::Executing);
@@ -622,9 +627,20 @@ fn test_e2e_single_step_no_jumps() {
     WorkflowEngine::on_verify_injected(&mut run, wf.verify_retry_limit);
     assert_eq!(run.pending_verify, 1);
 
-    // Handle verify → no jumps, no transitions → blocked
-    let action = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
-    assert_eq!(action, VerifyAction::Blocked);
+    // Handle verify → no jumps, no transitions → error (not blocked)
+    let result = WorkflowEngine::handle_verify(&mut run, &wf);
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        crate::error::WorkflowError::NoMatchingTransition
+    ));
+    // Phase remains Executing (error does not change phase).
+    assert_eq!(run.phase, Phase::Executing);
+
+    // Blocked is only triggered by verify retry overflow.
+    for _ in 0..4 {
+        WorkflowEngine::on_verify_injected(&mut run, 3);
+    }
     assert_eq!(run.phase, Phase::Blocked);
 }
 
@@ -726,11 +742,20 @@ fn test_e2e_owner_terminate_from_blocked() {
     let wf = goto_to_blockable_workflow();
     let mut run = WorkflowEngine::start(&wf);
 
-    // Default goto goes to step 1, then no jumps → blocked
+    // Default goto goes to step 1.
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(run.current_step, 1);
     WorkflowEngine::on_goal_injected(&mut run);
-    let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
+
+    // Step 1 has no transitions → handle_verify returns error (not blocked).
+    let result = WorkflowEngine::handle_verify(&mut run, &wf);
+    assert!(result.is_err());
+    assert_eq!(run.phase, Phase::Executing);
+
+    // Blocked is reached via verify retry overflow.
+    for _ in 0..4 {
+        WorkflowEngine::on_verify_injected(&mut run, 3);
+    }
     assert_eq!(run.phase, Phase::Blocked);
 
     // Owner terminates

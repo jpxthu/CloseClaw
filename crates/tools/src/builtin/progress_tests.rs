@@ -15,18 +15,7 @@ fn make_tool() -> (ProgressTool, Arc<Mutex<PlanState>>) {
     (tool, ps)
 }
 
-/// Helper: make a minimal ToolContext for testing.
-fn test_ctx() -> crate::ToolContext {
-    crate::ToolContext {
-        agent_id: "test".into(),
-        workdir: None,
-        session_id: None,
-        call_id: None,
-        session: None,
-        session_mode: None,
-        manual_background_signal: None,
-    }
-}
+use super::test_helpers::test_ctx;
 
 #[tokio::test]
 async fn test_progress_tool_name_group() {
