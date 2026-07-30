@@ -883,3 +883,7 @@ mod tests;
 #[cfg(test)]
 #[path = "bash_approval_tests.rs"]
 mod approval_tests;
+
+#[cfg(test)]
+#[path = "bash_timeout_tests.rs"]
+mod timeout_tests;

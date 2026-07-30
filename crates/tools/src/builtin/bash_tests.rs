@@ -97,6 +97,9 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
     async fn drain_notifications(&self) -> Vec<closeclaw_tasks::CompletionNotification> {
         vec![]
     }
+    async fn list_running_tasks(&self) -> Vec<closeclaw_tasks::RunningTaskInfo> {
+        vec![]
+    }
     async fn cleanup_finished(&self) {}
 }
 
