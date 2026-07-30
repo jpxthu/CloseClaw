@@ -92,6 +92,8 @@ pub(crate) struct TaskHandle {
     pub(crate) output_path: PathBuf,
     pub(crate) kill_tx: Option<oneshot::Sender<()>>,
     pub(crate) notified: bool,
+    /// Wall-clock time when the task was created.
+    pub(crate) created_at: tokio::time::Instant,
 }
 
 // ---------------------------------------------------------------------------
@@ -356,14 +358,13 @@ impl crate::TaskManager for BackgroundTaskManager {
     }
 
     async fn list_running_tasks(&self) -> Vec<crate::task_manager::RunningTaskInfo> {
-        // Full implementation (with created_at / elapsed_secs) in Step 1.2.
         let map = lock_map(&self.tasks).await;
         map.values()
             .filter(|h| matches!(h.state, TaskState::Running { .. }))
             .map(|h| crate::task_manager::RunningTaskInfo {
                 task_id: h.id.clone(),
                 command: h.command.clone(),
-                elapsed_secs: 0,
+                elapsed_secs: h.created_at.elapsed().as_secs(),
             })
             .collect()
     }
@@ -587,6 +588,7 @@ async fn insert_initial_handle(
         output_path: output_path.to_path_buf(),
         kill_tx: None,
         notified: false,
+        created_at: tokio::time::Instant::now(),
     };
     let mut map = lock_map(tasks).await;
     map.insert(task_id.to_owned(), handle);
