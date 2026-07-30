@@ -43,7 +43,7 @@ Skills 模块由三个核心组件构成：磁盘加载层、注册中心层、�
 
 ### 加载与注册
 
-Session 启动时，磁盘加载层按优先级从低到高依次扫描：先加载低优先级层（内置），后加载高优先级层（项目级）。实际扫描顺序为 Bundled → ExtraDirs → Global → Agent → Project。BuiltinSkillRegistry 在启动时由编译期嵌入的内置数据初始化，不参与磁盘扫描。高优先级层中的同名技能覆盖低优先级层中已加载的。加载完成后注册中心冻结，技能集合在 session 内不可变（热重载除外）。
+Session 启动时，磁盘加载层按优先级从低到高依次扫描四层文件系统目录。实际扫描顺序为 ExtraDirs → Global → Agent → Project（优先级从低到高）。BuiltinSkillRegistry 在启动时由编译期嵌入的内置数据初始化，Bundled 技能不参与磁盘扫描，通过 BuiltinSkillRegistry 独立加载。高优先级层中的同名技能覆盖低优先级层中已加载的。加载完成后注册中心冻结，技能集合在 session 内不可变（热重载除外）。
 
 ### 技能调用
 
@@ -56,4 +56,4 @@ Agent 决策调用某个技能 → 通过 SkillTool 发起调用 → 从注册�
 - **上游**：Agent 运行时（调度技能调用）、Session 模块（查询技能清单以生成 per-turn attachment）
 - **下游**：文件系统（扫描目录、读取 SKILL.md）
 - **无关**：processor_chain（skill 不参与消息出站处理）、renderer（skill 不参与平台渲染）、system_prompt（技能清单不进入 system prompt 任何分区）、权限引擎（Agent 运行时校验工具权限，skills 模块不直接调用）
-- **共享类型**：无
+- **共享类型**：Skill 元数据结构（优先级层级、frontmatter 字段），定义于 [skill-definition.md](skill-definition.md)
