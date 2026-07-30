@@ -533,9 +533,13 @@ impl SessionMessageHandler {
             return;
         };
         let notifications = tm.drain_notifications().await;
-        if notifications.is_empty() {
+        let running_tasks = tm.list_running_tasks().await;
+
+        // Early return only if both are empty.
+        if notifications.is_empty() && running_tasks.is_empty() {
             return;
         }
+
         let Some(cs) = session_manager.get_conversation_session(session_id).await else {
             tracing::warn!(
                 session_id = %session_id,
@@ -561,6 +565,19 @@ impl SessionMessageHandler {
                     .map(|s| format!("。建议：{}", s))
                     .unwrap_or_default()
             );
+            cs_write.inject_system_message(text);
+        }
+
+        // Inject running task summary so the agent sees active
+        // background tasks without querying individually.
+        if !running_tasks.is_empty() {
+            let mut text = String::from("[后台任务] 当前运行中的后台任务：");
+            for task in &running_tasks {
+                text.push_str(&format!(
+                    "\n- {} (ID: {}, 已运行 {} 秒)",
+                    task.command, task.task_id, task.elapsed_secs
+                ));
+            }
             cs_write.inject_system_message(text);
         }
         drop(cs_write);
