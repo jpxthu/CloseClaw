@@ -443,6 +443,29 @@ impl ToolRegistryImpl {
 // ToolRegistryQuery — bridge to closeclaw_common trait
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Build a [`ToolDescriptor`] from a tool reference.
+///
+/// This is the single definition for converting a `Tool` trait object into
+/// a `ToolDescriptor`, used by both [`get_tool_descriptors`] and
+/// [`get_tool_detail`] to avoid duplication.
+fn build_descriptor(tool: &Arc<dyn Tool>) -> closeclaw_common::tool_registry::ToolDescriptor {
+    let flags = tool.flags();
+    closeclaw_common::tool_registry::ToolDescriptor {
+        name: tool.name().to_string(),
+        group: tool.group().to_string(),
+        summary: tool.summary().to_string(),
+        detail: tool.detail(),
+        input_schema: tool.input_schema(),
+        flags: closeclaw_common::tool_registry::ToolFlags {
+            is_concurrency_safe: flags.is_concurrency_safe,
+            is_read_only: flags.is_read_only,
+            is_destructive: flags.is_destructive,
+            is_expensive: flags.is_expensive,
+            is_deferred_by_default: flags.is_deferred_by_default,
+        },
+    }
+}
+
 #[async_trait::async_trait]
 impl closeclaw_common::tool_registry::ToolRegistryQuery for ToolRegistryImpl {
     async fn list_tool_names(&self) -> Vec<String> {
@@ -472,22 +495,7 @@ impl closeclaw_common::tool_registry::ToolRegistryQuery for ToolRegistryImpl {
                 }
                 !disallowed.iter().any(|n| n == name)
             })
-            .map(|t| {
-                let flags = t.flags();
-                closeclaw_common::tool_registry::ToolDescriptor {
-                    name: t.name().to_string(),
-                    group: t.group().to_string(),
-                    detail: t.detail(),
-                    input_schema: t.input_schema(),
-                    flags: closeclaw_common::tool_registry::ToolFlags {
-                        is_concurrency_safe: flags.is_concurrency_safe,
-                        is_read_only: flags.is_read_only,
-                        is_destructive: flags.is_destructive,
-                        is_expensive: flags.is_expensive,
-                        is_deferred_by_default: flags.is_deferred_by_default,
-                    },
-                }
-            })
+            .map(|t| build_descriptor(t))
             .collect()
     }
 
@@ -499,6 +507,23 @@ impl closeclaw_common::tool_registry::ToolRegistryQuery for ToolRegistryImpl {
     async fn get_tool_schema(&self, name: &str) -> Option<serde_json::Value> {
         let guard = self.tools.read().await;
         guard.get(name).map(|t| t.input_schema())
+    }
+
+    async fn get_tool_detail(
+        &self,
+        name: &str,
+    ) -> Option<closeclaw_common::tool_registry::ToolDescriptor> {
+        let guard = self.tools.read().await;
+        guard.get(name).map(build_descriptor)
+    }
+
+    async fn list_tool_names_by_group(&self, group: &str) -> Vec<String> {
+        let guard = self.tools.read().await;
+        guard
+            .values()
+            .filter(|t| t.group() == group)
+            .map(|t| t.name().to_string())
+            .collect()
     }
 }
 

@@ -953,3 +953,9 @@ async fn test_plan_mode_hides_plan_approval_tool() {
         "plan_approval should be hidden in Plan mode, got: {section}"
     );
 }
+
+// =========================================================================
+// ToolRegistryQuery trait-level tests: get_tool_detail & list_tool_names_by_group
+// =========================================================================
+
+mod tool_registry_query_tests;
