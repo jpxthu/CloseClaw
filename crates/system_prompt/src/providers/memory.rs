@@ -250,4 +250,52 @@ mod tests {
         };
         assert!(provider.cache_key(&ctx).is_none());
     }
+
+    // --- bootstrap_mode tests ---
+
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_generate_minimal_mode_returns_none() {
+        crate::sections::invalidate_all_sections();
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("MEMORY.md"), "Remember something").unwrap();
+        let provider = MemoryFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_mode: BootstrapMode::Minimal,
+            ..FragmentContext::test_default()
+        };
+        assert!(provider.generate(&ctx).await.is_none());
+    }
+
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_generate_full_mode_reads_memory() {
+        crate::sections::invalidate_all_sections();
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("MEMORY.md"), "Full mode memory").unwrap();
+        let provider = MemoryFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_mode: BootstrapMode::Full,
+            ..FragmentContext::test_default()
+        };
+        let fragment = provider.generate(&ctx).await;
+        assert!(fragment.is_some());
+        let frag = fragment.unwrap();
+        assert_eq!(frag.section_title, "## Memory");
+        assert_eq!(frag.section_type, SectionType::Memory);
+        assert_eq!(frag.content, "Full mode memory");
+    }
+
+    #[test]
+    fn test_generate_no_workspace_dir_returns_none() {
+        let provider = MemoryFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: PathBuf::from("/nonexistent/path/to/workspace"),
+            ..FragmentContext::test_default()
+        };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        assert!(rt.block_on(provider.generate(&ctx)).is_none());
+    }
 }
