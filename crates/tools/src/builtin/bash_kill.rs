@@ -7,7 +7,7 @@
 //! foreground/background kill integration in Step 1.4. The
 //! extraction keeps the public surface of `BashTool` unchanged:
 //! `bash.rs` re-imports [`build_result`], [`process_output`],
-//! [`read_pipe`], [`BackgroundKillHandle`], and [`BashKillHandle`]
+//! [`BackgroundKillHandle`] and [`BashKillHandle`]
 //! from this module and the rest of the project uses them via
 //! `crate::builtin::bash_kill::{...}`.
 //!
@@ -17,7 +17,7 @@
 //! - [`OutputProcessed`] — result of [`process_output`]
 //! - [`BashKillHandle`] / [`BackgroundKillHandle`] — `KillHandle`
 //!   adapters for foreground child processes and background tasks
-//! - Output processing: [`read_pipe`], [`safe_truncate`],
+//! - Output processing: [`safe_truncate`],
 //!   [`process_output`], [`persist_output`]
 //! - Result building: [`build_result`]
 
@@ -25,8 +25,6 @@ use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-
-use tokio::io::AsyncReadExt;
 
 use crate::ToolResult;
 use closeclaw_common::tool_session::KillHandle;
@@ -155,28 +153,6 @@ impl KillHandle for BackgroundKillHandle {
                 "BackgroundKillHandle::kill called outside a tokio runtime",
             )),
         }
-    }
-}
-
-// ── read_pipe ────────────────────────────────────────────────────────────
-
-/// Drain an optional async reader into a `String`. Used to collect
-/// stdout / stderr from a foreground `tokio::process::Child` after
-/// the child has exited.
-pub(crate) async fn read_pipe<R>(pipe: Option<R>) -> String
-where
-    R: tokio::io::AsyncRead + Unpin,
-{
-    match pipe {
-        Some(mut r) => {
-            let mut buf = Vec::new();
-            // Best-effort: a broken pipe should not turn into an
-            // error result; the upstream `child.wait()` will
-            // surface real failures.
-            let _ = r.read_to_end(&mut buf).await;
-            String::from_utf8_lossy(&buf).to_string()
-        }
-        None => String::new(),
     }
 }
 

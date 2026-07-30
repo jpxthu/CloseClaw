@@ -16,6 +16,7 @@ use crate::permission_check::{
 };
 use crate::security::{BashSecurityAnalyzer, ParseResult, TrustLevel};
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use closeclaw_common::tool_session::ToolProgress;
 use closeclaw_common::ToolExecState;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
@@ -30,11 +31,11 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use tokio::io::AsyncReadExt;
+
 use tokio::sync::Mutex as TokioMutex;
 
-use super::bash_kill::{
-    build_result, process_output, read_pipe, BackgroundKillHandle, BashKillHandle,
-};
+use super::bash_kill::{build_result, process_output, BackgroundKillHandle, BashKillHandle};
 
 /// Outcome of foreground tool execution, distinguishing between
 /// normal completion and auto-backgroundizing on timeout.
@@ -52,6 +53,9 @@ enum ForegroundOutcome {
     /// Contains the ToolResult and the background task ID.
     AutoBackground(ToolResult, String),
 }
+
+/// Progress reporting interval (2 seconds).
+const PROGRESS_INTERVAL_MS: u64 = 2_000;
 
 /// Auto-backgroundize timeout (15 seconds).
 const AUTO_BG_TIMEOUT_MS: u64 = 15_000;
@@ -281,45 +285,6 @@ async fn backgroundize_child(
         Ok((build_auto_background_result(&task), task_id))
     }
 }
-
-/// Wait on the child, then return either a normal result or auto-backgroundize.
-async fn wait_child(
-    wait_result: Result<
-        Result<std::process::ExitStatus, std::io::Error>,
-        tokio::time::error::Elapsed,
-    >,
-    child: tokio::process::Child,
-    stdout_handle: Option<tokio::process::ChildStdout>,
-    stderr_handle: Option<tokio::process::ChildStderr>,
-    command: &str,
-    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
-) -> ForegroundOutcome {
-    match wait_result {
-        Ok(Ok(status)) => {
-            let exit_code = status.code().unwrap_or(-1);
-            let stdout_raw = read_pipe(stdout_handle).await;
-            let stderr_raw = read_pipe(stderr_handle).await;
-            let stdout_p = process_output(&stdout_raw);
-            let stderr_p = process_output(&stderr_raw);
-            ForegroundOutcome::Completed(build_result(
-                command, stdout_p, stderr_p, exit_code, false,
-            ))
-        }
-        Ok(Err(e)) => ForegroundOutcome::Failed(format!("failed to wait on command: {}", e)),
-        Err(_elapsed) => {
-            auto_backgroundize_foreground(
-                child,
-                stdout_handle,
-                stderr_handle,
-                command,
-                bg_manager,
-                false,
-            )
-            .await
-        }
-    }
-}
-
 /// Auto-backgroundize a foreground child and return a [`ForegroundOutcome`].
 ///
 /// On failure, returns [`ForegroundOutcome::Failed`].
@@ -346,6 +311,121 @@ async fn auto_backgroundize_foreground(
     }
 }
 
+/// Read from an optional async reader incrementally, counting lines and bytes.
+///
+/// Returns `(accumulated_output, total_lines, total_bytes)` when the
+/// reader is exhausted or the cancel signal fires.
+async fn read_pipe_incremental<R>(
+    pipe: Option<R>,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
+) -> (String, usize, usize)
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let Some(mut reader) = pipe else {
+        return (String::new(), 0, 0);
+    };
+    let mut output = String::new();
+    let mut total_lines: usize = 0;
+    let mut total_bytes: usize = 0;
+    let mut buf = [0u8; 8192];
+    loop {
+        tokio::select! {
+            result = reader.read(&mut buf) => {
+                match result {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let chunk = String::from_utf8_lossy(&buf[..n]);
+                        total_lines += chunk.lines().count();
+                        total_bytes += n;
+                        output.push_str(&chunk);
+                    }
+                    Err(_) => break,
+                }
+            }
+            _ = cancel.changed() => break,
+        }
+    }
+    (output, total_lines, total_bytes)
+}
+/// Read stdout/stderr incrementally with periodic progress reporting.
+///
+/// Spawns a progress-monitoring task that reports accumulated output
+/// statistics via the session every [`PROGRESS_INTERVAL_MS`]. Returns
+/// the final output strings and cumulative line/byte counts.
+async fn read_with_progress(
+    stdout_handle: Option<tokio::process::ChildStdout>,
+    stderr_handle: Option<tokio::process::ChildStderr>,
+    session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
+    call_id: Option<&str>,
+) -> (String, String, usize, usize) {
+    let start_time = std::time::Instant::now();
+    let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+
+    // Spawn progress reporting task.
+    let progress_session = session.map(Arc::clone);
+    let progress_call_id = call_id.map(str::to_string);
+    let mut progress_rx = cancel_rx.clone();
+    let progress_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_millis(PROGRESS_INTERVAL_MS));
+        interval.tick().await; // Skip first immediate tick
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let elapsed = start_time.elapsed();
+                    if elapsed.as_secs() >= 2 {
+                        if let (Some(s), Some(cid)) =
+                            (&progress_session, &progress_call_id)
+                        {
+                            s.report_tool_progress(
+                                cid,
+                                ToolProgress {
+                                    lines: 0,
+                                    bytes: 0,
+                                    elapsed,
+                                },
+                            )
+                            .await;
+                        }
+                    }
+                }
+                _ = progress_rx.changed() => break,
+            }
+        }
+    });
+
+    // Read both pipes concurrently (clone receiver for each future).
+    let (stdout_result, stderr_result) = tokio::join!(
+        read_pipe_incremental(stdout_handle, cancel_rx.clone()),
+        read_pipe_incremental(stderr_handle, cancel_rx),
+    );
+    let (stdout_raw, s_lines, s_bytes) = stdout_result;
+    let (stderr_raw, e_lines, e_bytes) = stderr_result;
+
+    // Cancel progress reporting.
+    let _ = cancel_tx.send(true);
+    let _ = progress_handle.await;
+
+    let total_lines = s_lines + e_lines;
+    let total_bytes = s_bytes + e_bytes;
+
+    // Final progress report with actual output stats.
+    if let (Some(s), Some(cid)) = (session, call_id) {
+        let elapsed = start_time.elapsed();
+        s.report_tool_progress(
+            cid,
+            ToolProgress {
+                lines: total_lines,
+                bytes: total_bytes,
+                elapsed,
+            },
+        )
+        .await;
+    }
+
+    (stdout_raw, stderr_raw, total_lines, total_bytes)
+}
+
 /// Wait on a foreground child process, with timeout.
 ///
 /// The child is shared with the [`BashKillHandle`] via
@@ -366,6 +446,8 @@ async fn handle_foreground_result(
     bg_timeout: Duration,
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
     manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
+    session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
+    call_id: Option<&str>,
 ) -> ForegroundOutcome {
     let (stdout_handle, stderr_handle) = {
         let mut guard = child_arc.lock().expect("child mutex poisoned");
@@ -377,6 +459,7 @@ async fn handle_foreground_result(
         .expect("child mutex poisoned")
         .take()
         .expect("child present after spawn");
+
     tokio::select! {
         biased;
         _ = notify_or_pending(manual_bg_signal) => {
@@ -385,7 +468,37 @@ async fn handle_foreground_result(
             ).await
         }
         result = tokio::time::timeout(bg_timeout, child.wait()) => {
-            wait_child(result, child, stdout_handle, stderr_handle, command, bg_manager).await
+            match result {
+                Ok(Ok(status)) => {
+                    let exit_code = status.code().unwrap_or(-1);
+                    let (stdout_raw, stderr_raw, _lines, _bytes) =
+                        read_with_progress(
+                            stdout_handle, stderr_handle, session, call_id,
+                        )
+                        .await;
+                    let stdout_p = process_output(&stdout_raw);
+                    let stderr_p = process_output(&stderr_raw);
+                    ForegroundOutcome::Completed(build_result(
+                        command, stdout_p, stderr_p, exit_code, false,
+                    ))
+                }
+                Ok(Err(e)) => {
+                    ForegroundOutcome::Failed(format!(
+                        "failed to wait on command: {}", e
+                    ))
+                }
+                Err(_elapsed) => {
+                    auto_backgroundize_foreground(
+                        child,
+                        stdout_handle,
+                        stderr_handle,
+                        command,
+                        bg_manager,
+                        false,
+                    )
+                    .await
+                }
+            }
         }
     }
 }
@@ -756,9 +869,16 @@ async fn execute_foreground_command(
         )
     };
 
-    let outcome =
-        handle_foreground_result(child_arc, command, bg_timeout, bg_manager, manual_bg_signal)
-            .await;
+    let outcome = handle_foreground_result(
+        child_arc,
+        command,
+        bg_timeout,
+        bg_manager,
+        manual_bg_signal,
+        session,
+        call_id,
+    )
+    .await;
 
     Ok((outcome, registered_call_id))
 }
