@@ -399,9 +399,7 @@ async fn test_backgroundize_captures_child_output() {
     );
 }
 
-// =========================================================================
-// TaskState — type-level tests
-// =========================================================================
+// --- TaskState — type-level tests ---
 
 #[test]
 fn test_task_state_running() {
@@ -489,9 +487,7 @@ fn test_task_state_equality_distinct_variants() {
     );
 }
 
-// =========================================================================
-// BackgroundTask — construction and derived traits
-// =========================================================================
+// --- BackgroundTask — construction and derived traits ---
 
 #[test]
 fn test_background_task_fields() {
@@ -539,9 +535,7 @@ fn test_background_task_debug() {
     assert!(debug.contains("debug-id"));
 }
 
-// =========================================================================
-// BackgroundTaskError — Display and variant tests
-// =========================================================================
+// --- BackgroundTaskError — Display and variant tests ---
 
 #[test]
 fn test_background_task_error_spawn_failed_display() {
@@ -602,6 +596,7 @@ async fn insert_handle(
         output_path: output_path.clone(),
         kill_tx: None,
         notified: false,
+        created_at: tokio::time::Instant::now(),
     };
     mgr.tasks.lock().await.insert(task_id.to_owned(), handle);
     output_path
@@ -772,6 +767,7 @@ async fn test_cleanup_finished_cleanup_io_error() {
         output_path: output,
         kill_tx: None,
         notified: false,
+        created_at: tokio::time::Instant::now(),
     };
     mgr.tasks.lock().await.insert("io-err".to_owned(), handle);
 
@@ -781,9 +777,7 @@ async fn test_cleanup_finished_cleanup_io_error() {
     assert!(mgr.get_task("io-err").await.is_none());
 }
 
-// =========================================================================
-// Step 1.5 — Summary text verification (Step 1.1 验证)
-// =========================================================================
+// --- Step 1.5 — Summary text verification (Step 1.1 验证) ---
 
 /// Verify that a completion notification carries the correct summary
 /// text: "Background command '<command>' completed".
@@ -816,9 +810,7 @@ async fn test_failure_notification_summary_text() {
     );
 }
 
-// =========================================================================
-// Step 1.5 — Dedup via notified flag (Step 1.2 验证)
-// =========================================================================
+// --- Step 1.5 — Dedup via notified flag (Step 1.2 验证) ---
 
 /// When `notified` is already `true` before `finalize_state` runs,
 /// no completion notification should be pushed. This simulates the
@@ -845,9 +837,7 @@ async fn test_finalize_state_skips_notification_when_notified() {
     );
 }
 
-// =========================================================================
-// Step 1.5 — Killed state: finalize_state early return (Step 1.2 验证)
-// =========================================================================
+// --- Step 1.5 — Killed state: finalize_state early return (Step 1.2 验证) ---
 
 /// A killed task should not produce any completion notification.
 /// `finalize_state` returns early when state is `Killed`.
@@ -894,85 +884,55 @@ async fn test_killed_task_with_notified_produces_no_notification() {
     );
 }
 
-// =========================================================================
-// NotificationPriority — ordering and derive tests
-// =========================================================================
+// --- NotificationPriority — ordering and derive tests ---
 
 /// Verify that `NotificationPriority` derives `Ord` with
 /// `Now > Next > Later` ordering.
 #[test]
-fn test_notification_priority_ordering() {
+fn test_notification_priority_traits() {
+    // Ord / PartialOrd ordering
     assert!(NotificationPriority::Now > NotificationPriority::Next);
     assert!(NotificationPriority::Next > NotificationPriority::Later);
-    assert!(NotificationPriority::Now > NotificationPriority::Later);
-}
-
-/// Verify that `NotificationPriority` partial ordering is consistent.
-#[test]
-fn test_notification_priority_partial_ord_consistency() {
     assert!(
         NotificationPriority::Now.partial_cmp(&NotificationPriority::Next)
             == Some(std::cmp::Ordering::Greater)
     );
-    assert!(
-        NotificationPriority::Next.partial_cmp(&NotificationPriority::Later)
-            == Some(std::cmp::Ordering::Greater)
-    );
-}
 
-/// Verify that `NotificationPriority` variants are ordered correctly
-/// when used in a `Vec::sort_by` with `Ord` derive.
-#[test]
-fn test_notification_priority_vec_sort() {
+    // Vec sort via Ord derive
     let mut priorities = vec![
         NotificationPriority::Later,
         NotificationPriority::Now,
         NotificationPriority::Next,
-        NotificationPriority::Later,
-        NotificationPriority::Now,
     ];
     priorities.sort();
-    // Ord derive: Later(0) < Next(1) < Now(2) → ascending sort
     assert_eq!(
         priorities,
         vec![
             NotificationPriority::Later,
-            NotificationPriority::Later,
             NotificationPriority::Next,
-            NotificationPriority::Now,
             NotificationPriority::Now,
         ]
     );
-}
 
-/// Verify `NotificationPriority` derives `Clone` and `Copy`.
-#[test]
-fn test_notification_priority_clone_copy() {
+    // Clone + Copy
     let p = NotificationPriority::Now;
     let cloned = p.clone();
     let copied = p;
     assert_eq!(p, cloned);
     assert_eq!(p, copied);
-}
 
-/// Verify `NotificationPriority` derives `Serialize` / `Deserialize`.
-#[test]
-fn test_notification_priority_serde_roundtrip() {
-    let variants = [
+    // Serialize / Deserialize roundtrip
+    for v in [
         NotificationPriority::Now,
         NotificationPriority::Next,
         NotificationPriority::Later,
-    ];
-    for v in variants {
+    ] {
         let json = serde_json::to_string(&v).unwrap();
         let parsed: NotificationPriority = serde_json::from_str(&json).unwrap();
         assert_eq!(v, parsed);
     }
-}
 
-/// Verify `NotificationPriority` derives `Debug`.
-#[test]
-fn test_notification_priority_debug() {
+    // Debug
     assert_eq!(format!("{:?}", NotificationPriority::Now), "Now");
     assert_eq!(format!("{:?}", NotificationPriority::Next), "Next");
     assert_eq!(format!("{:?}", NotificationPriority::Later), "Later");
