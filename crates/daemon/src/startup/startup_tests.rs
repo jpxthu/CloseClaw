@@ -64,7 +64,7 @@ fn test_all_component_entries_deps_match_design_doc() {
     );
     assert_eq!(
         dep_map[&SystemPromptBuilder],
-        vec![AgentRegistry, SkillsRegistry]
+        vec![AgentRegistry, SkillsRegistry, ToolsRegistry]
     );
     assert_eq!(
         dep_map[&ApprovalFlow],
@@ -106,8 +106,7 @@ fn test_topo_sort_six_layers_match_design_doc() {
     );
 
     // Layer 3: ArchiveSweeper, AnnounceSweeper, DreamingScheduler, IMAdapters,
-    //          PermissionEngine, SkillWatcher, SpawnController,
-    //          SystemPromptBuilder, ToolsRegistry
+    //          PermissionEngine, SkillWatcher, SpawnController, ToolsRegistry
     assert_eq!(
         layers[2],
         vec![
@@ -118,16 +117,15 @@ fn test_topo_sort_six_layers_match_design_doc() {
             PermissionEngine,
             SkillWatcher,
             SpawnController,
-            SystemPromptBuilder,
             ToolsRegistry,
         ],
         "Layer 3 mismatch"
     );
 
-    // Layer 4: ApprovalFlow, SessionManager
+    // Layer 4: ApprovalFlow, SessionManager, SystemPromptBuilder
     assert_eq!(
         layers[3],
-        vec![ApprovalFlow, SessionManager],
+        vec![ApprovalFlow, SessionManager, SystemPromptBuilder],
         "Layer 4 mismatch"
     );
 
@@ -388,10 +386,9 @@ fn test_validate_layers_catches_wrong_spawn_controller_layer() {
             IMAdapters,
             PermissionEngine,
             SkillWatcher,
-            SystemPromptBuilder,
             ToolsRegistry,
         ],
-        vec![ApprovalFlow, SessionManager],
+        vec![ApprovalFlow, SessionManager, SystemPromptBuilder],
         vec![Gateway],
         vec![AdminRpcServer],
     ];
@@ -423,10 +420,14 @@ fn test_validate_layers_catches_wrong_admin_rpc_server_layer() {
             PermissionEngine,
             SkillWatcher,
             SpawnController,
-            SystemPromptBuilder,
             ToolsRegistry,
         ],
-        vec![ApprovalFlow, SessionManager, AdminRpcServer], // Wrong: AdminRpcServer here
+        vec![
+            ApprovalFlow,
+            SessionManager,
+            SystemPromptBuilder,
+            AdminRpcServer,
+        ], // Wrong: AdminRpcServer here
         vec![Gateway],
         vec![],
     ];
