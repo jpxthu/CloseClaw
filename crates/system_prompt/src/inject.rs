@@ -23,8 +23,6 @@ pub struct DynamicSectionsParams<'a> {
     /// When `Some`, injects a `WorkingDirectory` section and builds git
     /// status for that path.
     pub workdir_path: Option<&'a str>,
-    /// Session creation timestamp override for ChannelContext.
-    pub session_timestamp: Option<i64>,
     /// Current session mode (Normal / Plan / Auto).
     pub session_mode: SessionMode,
     /// Explicit plan path for Plan Mode (overrides auto-analysis).
@@ -55,13 +53,6 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
     // 1. ChannelContext (always injected)
     sections.push(Section::ChannelContext {
         chat_name: params.meta.chat_name.clone(),
-        sender_id: params.meta.sender_id.clone(),
-        timestamp: params
-            .session_timestamp
-            .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
-            .or_else(|| chrono::DateTime::from_timestamp(params.meta.timestamp, 0))
-            .map(|dt| dt.to_rfc3339())
-            .unwrap_or_default(),
     });
 
     // 2. WorkingDirectory (when workdir_path is provided)
@@ -256,7 +247,6 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
         let sections = build_dynamic_sections(&DynamicSectionsParams {
             meta: &meta,
             workdir_path: workdir_str.as_deref(),
-            session_timestamp: None, // use meta.timestamp, not session created_at
             session_mode: context.session_mode,
             explicit_plan_path: None,
             user_input: context.user_input,
