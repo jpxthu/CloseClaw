@@ -24,9 +24,10 @@ Gateway 是消息路由中枢。User 通过不同 IM 平台发送的消息由 Ga
 ### F4. 普通消息路由到对话
 
 - 经类型识别后且不以 `/` 开头的文本消息进入 LLM 对话流程
-- 系统自动根据消息来源（平台、发送者、Session 标识）查找已有 Session 或创建新 Session
+- Session 查找、创建与归档恢复由 Session 模块负责（含用户提示语），Gateway 仅传入路由字段，命中 session 后进入下一步路由决策
+
+> **交叉引用**：详见 [session §F1](session.md)（对话持久化与恢复）。
 - 若对应 Session 正忙（正在处理中），新消息进入该 Session 的待处理队列，向 User 回复"⏳ 正在排队..."
-- 若 Session 处于归档状态，系统自动触发恢复流程，向 User 回复"正在恢复会话..."
 - Session 查找异常或创建失败时，向 User 回复错误提示
 
 ### F5. 斜杠指令拦截与分派
