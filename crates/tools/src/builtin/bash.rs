@@ -204,11 +204,10 @@ fn truncate_summary(command: &str) -> String {
     }
 }
 
-/// Parse and clamp the `timeout` parameter. Default 120 000 ms, max 600 000 ms.
+/// Parse and clamp the agent-specified timeout parameter.
 ///
-/// Returns `Some(ms)` when the agent explicitly provides a timeout,
-/// or `None` when no timeout is specified (allowing callers to use
-/// their own defaults).
+/// Returns `None` when no timeout is provided.
+/// Max 600 000 ms.
 fn parse_timeout(args: &Value) -> Option<u64> {
     let raw = args.get("timeout").and_then(Value::as_f64)?;
     let ms = raw.max(0.0) as u64;
@@ -726,6 +725,7 @@ async fn execute_background_command(
 /// Registers the tool call, spawns the child, registers the kill handle,
 /// waits for completion, and returns the outcome. Caller is responsible
 /// for setting the final tool state and deregistering.
+#[allow(clippy::too_many_arguments)]
 async fn execute_foreground_command(
     command: &str,
     cwd: &str,
