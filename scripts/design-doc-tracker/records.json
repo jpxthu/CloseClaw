@@ -640,6 +640,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/system_prompt/kv-cache.md",
+    "commit": "64e4d9dc254d6b8a70a449f80a8fbce723a90fdb",
+    "commit_time": "2026-07-30T19:56:32+08:00",
+    "confirmed_time": "2026-07-30T20:14:05.366906+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/tools/background-tasks.md",
     "commit": "301e8738867e1ab3cea88a44f323b0eddf460e95",
     "commit_time": "2026-07-17T23:13:58+08:00",
