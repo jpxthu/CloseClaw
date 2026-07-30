@@ -5,7 +5,7 @@
 //!
 //! Covers Step 1.6 test dimensions:
 //! - Boundary: Normal→Normal produces no mode instruction
-//! - Ordering: ModeInstruction → ChannelContext
+//! - Ordering: ChannelContext → WorkingDirectory → ModeInstruction → GitStatus
 
 use super::inject::{build_dynamic_sections, DynamicSectionsParams};
 use closeclaw_common::{PlanPath, SessionMode};
@@ -51,21 +51,21 @@ fn test_normal_mode_no_mode_instruction() {
 
 // ── Ordering ────────────────────────────────────────────────────────────────
 
-/// ModeInstruction appears before ChannelContext.
-/// Without a pending transition, ModeInstruction is still followed by ChannelContext.
+/// ChannelContext appears before ModeInstruction.
+/// ChannelContext is always first, followed by ModeInstruction when active.
 #[test]
-fn test_ordering_without_transition_mode_instruction_then_channel() {
+fn test_ordering_without_transition_channel_then_mode_instruction() {
     let meta = make_meta("u", "ch", 0);
     let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Auto));
 
-    let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
     let channel_idx = sections.iter().position(|s| s.name() == "channel_context");
+    let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
 
-    assert!(mode_idx.is_some());
     assert!(channel_idx.is_some());
+    assert!(mode_idx.is_some());
     assert!(
-        mode_idx.unwrap() < channel_idx.unwrap(),
-        "ModeInstruction should come before ChannelContext even without transition"
+        channel_idx.unwrap() < mode_idx.unwrap(),
+        "ChannelContext should come before ModeInstruction"
     );
 }
 
@@ -362,8 +362,8 @@ fn test_happy_path_all_four_sections() {
     assert_eq!(names.len(), 4, "exactly four section types expected");
 }
 
-/// Section ordering: ModeInstruction → ChannelContext →
-/// WorkingDirectory → GitStatus.
+/// Section ordering: ChannelContext → WorkingDirectory →
+/// ModeInstruction → GitStatus.
 #[test]
 fn test_happy_path_section_ordering() {
     let meta = make_meta("user1", "feishu", 1700000000);
@@ -374,9 +374,9 @@ fn test_happy_path_section_ordering() {
         ..make_params(&meta, SessionMode::Plan)
     });
     let names: Vec<&str> = sections.iter().map(|s| s.name()).collect();
-    assert_eq!(names[0], "mode_instruction");
-    assert_eq!(names[1], "channel_context");
-    assert_eq!(names[2], "working_directory");
+    assert_eq!(names[0], "channel_context");
+    assert_eq!(names[1], "working_directory");
+    assert_eq!(names[2], "mode_instruction");
     assert_eq!(names[3], "git_status");
 }
 

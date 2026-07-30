@@ -42,9 +42,9 @@ pub struct DynamicSectionsParams<'a> {
 /// Build dynamic sections from metadata and session state.
 ///
 /// Constructs exactly the four dynamic sections defined by the design doc:
-/// - **ModeInstruction** (when not Normal mode)
 /// - **ChannelContext** (always)
 /// - **WorkingDirectory** (when `workdir_path` is provided)
+/// - **ModeInstruction** (when not Normal mode)
 /// - **GitStatus** (when enabled and workdir is a git repo)
 ///
 /// Appends (追加区) are NOT built here; they are assembled independently
@@ -52,7 +52,24 @@ pub struct DynamicSectionsParams<'a> {
 pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
 
-    // Inject mode-specific instructions when not in Normal mode.
+    // 1. ChannelContext (always injected)
+    sections.push(Section::ChannelContext {
+        chat_name: params.meta.chat_name.clone(),
+        sender_id: params.meta.sender_id.clone(),
+        timestamp: params
+            .session_timestamp
+            .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
+            .or_else(|| chrono::DateTime::from_timestamp(params.meta.timestamp, 0))
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_default(),
+    });
+
+    // 2. WorkingDirectory (when workdir_path is provided)
+    if let Some(path) = params.workdir_path {
+        sections.push(Section::WorkingDirectory(path.to_string()));
+    }
+
+    // 3. ModeInstruction (when not Normal mode)
     if params.session_mode != SessionMode::Normal {
         // In Plan Mode, resolve the path: explicit override or auto-analysis.
         let resolved_plan_path = if params.session_mode == SessionMode::Plan {
@@ -76,20 +93,8 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
     // Mode transition injection removed (design doc §6 — transition prompts
     // are no longer injected via System Prompt sections).
 
-    sections.push(Section::ChannelContext {
-        chat_name: params.meta.chat_name.clone(),
-        sender_id: params.meta.sender_id.clone(),
-        timestamp: params
-            .session_timestamp
-            .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
-            .or_else(|| chrono::DateTime::from_timestamp(params.meta.timestamp, 0))
-            .map(|dt| dt.to_rfc3339())
-            .unwrap_or_default(),
-    });
-
+    // 4. GitStatus (when enabled and workdir is a git repo)
     if let Some(path) = params.workdir_path {
-        sections.push(Section::WorkingDirectory(path.to_string()));
-
         if params.is_git_status_enabled {
             if let Some(status) = workdir::build_git_status_for(path) {
                 sections.push(Section::GitStatus(status));
