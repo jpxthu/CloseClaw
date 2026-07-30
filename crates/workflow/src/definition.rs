@@ -13,6 +13,9 @@ pub struct Workflow {
     pub name: String,
     /// Description of what this workflow does.
     pub description: String,
+    /// Definition version string (default: "0.1").
+    #[serde(default)]
+    pub version: Option<String>,
     /// Whether Agent can call workflow_blocked (default: false).
     #[serde(default)]
     pub allow_blocked: bool,

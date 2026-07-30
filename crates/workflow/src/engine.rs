@@ -33,7 +33,10 @@ impl WorkflowEngine {
     pub fn start(workflow: &Workflow) -> WorkflowRun {
         WorkflowRun {
             workflow_id: workflow.id.clone(),
-            definition_version: "0.1".to_string(),
+            definition_version: workflow
+                .version
+                .clone()
+                .unwrap_or_else(|| "0.1".to_string()),
             current_step: 0,
             phase: Phase::Executing,
             step_history: Vec::new(),
@@ -87,8 +90,7 @@ impl WorkflowEngine {
     /// Handle an agent `workflow_verify` call.
     ///
     /// Returns [`VerifyAction::Jump`] if the current step has jump
-    /// questions, or [`VerifyAction::Blocked`] if there are no jump
-    /// questions and the step cannot proceed.
+    /// questions, or if a default transition matches and is executed.
     ///
     /// # Errors
     ///
@@ -131,13 +133,12 @@ impl WorkflowEngine {
             }
         }
 
-        // No transitions matched and no jump — block.
-        run.phase = Phase::Blocked;
+        // No transitions matched and no jump — error (not a blocked state).
         tracing::debug!(
             step = run.current_step,
-            "no transitions matched, entering blocked"
+            "no transitions matched, returning error"
         );
-        Ok(VerifyAction::Blocked)
+        Err(WorkflowError::NoMatchingTransition)
     }
 
     /// Handle an agent `workflow_jump` call.
