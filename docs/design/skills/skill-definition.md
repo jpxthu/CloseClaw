@@ -87,4 +87,4 @@ Skill 被 Agent 调用时，从注册中心查找 skill 实例，按需加载正
 
 - **上游**：Session 启动流程（触发磁盘加载）、Agent 配置（提供 ExtraDirs 和 agent-id）、文件系统（读取 SKILL.md 文件）
 - **下游**：skill-listing-injection（消费注册中心数据生成技能清单，供 Agent 调度决策使用）、skill-execution（消费注册中心数据按需加载正文）
-- **共享类型**：无
+- **共享类型**：Skill 元数据结构（优先级层级、frontmatter 字段），定义于本文档，被 skill-listing-injection 和 skill-execution 消费
