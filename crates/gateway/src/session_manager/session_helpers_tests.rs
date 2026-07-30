@@ -256,17 +256,27 @@ fn test_generate_session_id_hex_is_8_lowercase() {
 }
 
 #[test]
-fn test_generate_session_id_timestamp_is_valid_unix_seconds() {
+fn test_generate_session_id_timestamp_is_yyyymmddhhmmss() {
     let id = generate_session_id("agent");
     let parts: Vec<&str> = id.split('_').collect();
-    let ts: i64 = parts[1]
-        .parse()
-        .expect("timestamp part should be a valid integer");
-    // Should be after 2020-01-01 (1577836800) and before year 2100
-    assert!(ts > 1_577_836_800, "timestamp should be after 2020: {}", ts);
+    let ts = parts[1];
+    // Must be exactly 14 digits
+    assert_eq!(
+        ts.len(),
+        14,
+        "timestamp part should be 14 chars (YYYYMMDDhhmmss): {:?}",
+        ts
+    );
     assert!(
-        ts < 4_102_444_800,
-        "timestamp should be before 2100: {}",
+        ts.chars().all(|c| c.is_ascii_digit()),
+        "timestamp part should be all digits: {:?}",
+        ts
+    );
+    // Validate the format is plausible (year 2000-2099)
+    let year: u32 = ts[0..4].parse().unwrap();
+    assert!(
+        (2000..=2099).contains(&year),
+        "year should be 2000-2099: {:?}",
         ts
     );
 }

@@ -28,11 +28,11 @@ fn test_generate_session_id_format() {
     let parts: Vec<&str> = id.split('_').collect();
     assert_eq!(parts.len(), 3, "expected 3 parts: {}", id);
     assert_eq!(parts[0], "agent-1");
-    // Timestamp is Unix seconds (10 digits currently, grows to 11 in 2286)
-    let ts_len = parts[1].len();
-    assert!(
-        ts_len >= 10 && ts_len <= 11,
-        "timestamp part should be 10-11 chars: {}",
+    // Timestamp is YYYYMMDDhhmmss (14 digits)
+    assert_eq!(
+        parts[1].len(),
+        14,
+        "timestamp part should be 14 chars (YYYYMMDDhhmmss): {}",
         parts[1]
     );
     assert!(
@@ -40,12 +40,14 @@ fn test_generate_session_id_format() {
         "timestamp part should be all digits: {}",
         parts[1]
     );
-    // Verify it's a reasonable Unix timestamp (>= 2020-01-01)
-    let ts: i64 = parts[1].parse().expect("timestamp should parse as i64");
+    // Validate the format is plausible (year 2000-2099)
+    let year: u32 = parts[1][0..4]
+        .parse()
+        .expect("timestamp year should parse as u32");
     assert!(
-        ts >= 1577836800,
-        "timestamp should be >= 2020-01-01 Unix seconds: {}",
-        ts
+        (2000..=2099).contains(&year),
+        "year should be 2000-2099: {}",
+        parts[1]
     );
     assert_eq!(parts[2].len(), 8, "hex part not 8 chars: {}", parts[2]);
     assert!(
