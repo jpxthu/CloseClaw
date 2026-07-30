@@ -77,6 +77,8 @@ pub struct ToolDescriptor {
     pub name: String,
     /// Tool group (e.g. "file", "search", "session").
     pub group: String,
+    /// Brief summary for the tool list.
+    pub summary: String,
     /// Brief description for the system prompt.
     pub detail: String,
     /// JSON Schema for the tool's input parameters.
@@ -199,6 +201,17 @@ pub trait ToolRegistryQuery: Send + Sync {
 
     /// Get the JSON Schema for a tool's input parameters.
     async fn get_tool_schema(&self, name: &str) -> Option<Value>;
+
+    /// Get full details for a tool by name.
+    ///
+    /// Returns the complete [`ToolDescriptor`] including summary,
+    /// or `None` if the tool does not exist.
+    async fn get_tool_detail(&self, name: &str) -> Option<ToolDescriptor>;
+
+    /// List all tool names belonging to the given group.
+    ///
+    /// Returns an empty `Vec` if no tools belong to the group.
+    async fn list_tool_names_by_group(&self, group: &str) -> Vec<String>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

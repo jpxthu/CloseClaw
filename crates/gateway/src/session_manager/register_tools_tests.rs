@@ -38,6 +38,12 @@ impl ToolRegistryQuery for MockRegistry {
     async fn get_tool_schema(&self, _name: &str) -> Option<serde_json::Value> {
         None
     }
+    async fn get_tool_detail(&self, _name: &str) -> Option<closeclaw_common::ToolDescriptor> {
+        None
+    }
+    async fn list_tool_names_by_group(&self, _group: &str) -> Vec<String> {
+        vec![]
+    }
 }
 
 #[async_trait::async_trait]
@@ -237,6 +243,12 @@ impl ToolRegistryQuery for TrackingRegistry {
     }
     async fn get_tool_schema(&self, _name: &str) -> Option<serde_json::Value> {
         None
+    }
+    async fn get_tool_detail(&self, _name: &str) -> Option<closeclaw_common::ToolDescriptor> {
+        None
+    }
+    async fn list_tool_names_by_group(&self, _group: &str) -> Vec<String> {
+        vec![]
     }
 }
 
