@@ -26,27 +26,26 @@ fn test_section_render_channel_context() {
 }
 
 #[test]
-fn test_invalidate_section() {
-    put_cached_section("test_section", "old content".to_string(), Some(100));
+fn test_section_cache_invalidate() {
+    let mut cache = SectionCache::new();
+    cache.put("test_section", "old content".to_string(), Some(100));
     assert_eq!(
-        get_cached_section("test_section", Some(100)),
+        cache.get("test_section", Some(100)),
         Some("old content".to_string())
     );
 
-    invalidate_section("test_section");
-    assert_eq!(get_cached_section("test_section", Some(100)), None);
+    cache.invalidate("test_section");
+    assert_eq!(cache.get("test_section", Some(100)), None);
 }
 
 #[test]
-fn test_cache_stale_on_mtime_change() {
-    put_cached_section("file_section", "v1".to_string(), Some(100));
+fn test_section_cache_stale_on_mtime_change() {
+    let mut cache = SectionCache::new();
+    cache.put("file_section", "v1".to_string(), Some(100));
     // Same mtime → cache hit
-    assert_eq!(
-        get_cached_section("file_section", Some(100)),
-        Some("v1".to_string())
-    );
+    assert_eq!(cache.get("file_section", Some(100)), Some("v1".to_string()));
     // Different mtime → cache stale
-    assert_eq!(get_cached_section("file_section", Some(200)), None);
+    assert_eq!(cache.get("file_section", Some(200)), None);
 }
 
 #[test]
@@ -55,19 +54,21 @@ fn test_load_cached_file_section_fresh() {
     let file_path = dir.path().join("test.txt");
     std::fs::write(&file_path, "hello world").unwrap();
 
+    let mut cache = SectionCache::new();
+
     // First load — cache miss, should read from file
-    let result = load_cached_file_section("test", &file_path);
+    let result = load_cached_file_section(&mut cache, "test", &file_path);
     assert_eq!(result, Some("hello world".to_string()));
 
     // Second load — cache hit, same content
-    let result2 = load_cached_file_section("test", &file_path);
+    let result2 = load_cached_file_section(&mut cache, "test", &file_path);
     assert_eq!(result2, Some("hello world".to_string()));
 
     // Modify file — cache should be stale
     // Sleep 1s to ensure mtime changes (filesystem mtime resolution is 1s)
     std::thread::sleep(std::time::Duration::from_secs(1));
     std::fs::write(&file_path, "updated content").unwrap();
-    let result3 = load_cached_file_section("test", &file_path);
+    let result3 = load_cached_file_section(&mut cache, "test", &file_path);
     assert_eq!(result3, Some("updated content".to_string()));
 }
 
@@ -104,20 +105,21 @@ fn test_sanitize_workdir_path() {
 }
 
 #[test]
-fn test_invalidate_skill_listing() {
+fn test_section_cache_invalidate_skill_listing() {
+    let mut cache = SectionCache::new();
     // Pre-populate the skill_listing cache with known content
-    put_cached_section("skill_listing", "old skill content".to_string(), Some(999));
+    cache.put("skill_listing", "old skill content".to_string(), Some(999));
     // Verify it's cached
     assert_eq!(
-        get_cached_section("skill_listing", Some(999)),
+        cache.get("skill_listing", Some(999)),
         Some("old skill content".to_string())
     );
 
-    // Invalidate via the public API
-    invalidate_skill_listing();
+    // Invalidate via the SectionCache method
+    cache.invalidate_skill_listing();
 
     // Cache should be cleared
-    assert_eq!(get_cached_section("skill_listing", Some(999)), None);
+    assert_eq!(cache.get("skill_listing", Some(999)), None);
 }
 
 // -----------------------------------------------------------------------

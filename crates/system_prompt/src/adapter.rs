@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use crate::builder::WorkspaceBuildConfig;
+#[allow(deprecated)]
 use crate::sections::invalidate_all_sections;
 
 /// Production implementation of [`SystemPromptBuilder`].
@@ -129,6 +130,7 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
     ///
     /// Called when workspace files, tools, or skills change so the next
     /// `build_prompt()` call regenerates the static layer.
+    #[allow(deprecated)]
     async fn invalidate_cache(&self) {
         invalidate_all_sections();
     }

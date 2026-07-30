@@ -6,7 +6,7 @@ use crate::fragment::{FragmentContext, PromptFragmentProvider};
 use crate::providers::bootstrap::BootstrapFragmentProvider;
 use crate::providers::memory::MemoryFragmentProvider;
 use crate::providers::tools::ToolsFragmentProvider;
-use crate::sections::{get_cached_section, put_cached_section, Section};
+use crate::sections::{Section, SectionCache};
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::BootstrapMode;
 use std::path::Path;
@@ -31,6 +31,7 @@ use closeclaw_tools::ToolRegistry;
 /// and reused across all `build()` invocations.
 pub struct PromptBuilder {
     providers: Vec<Box<dyn PromptFragmentProvider>>,
+    cache: SectionCache,
 }
 
 impl PromptBuilder {
@@ -57,7 +58,15 @@ impl PromptBuilder {
         ];
         providers.sort_by_key(|p| p.priority());
 
-        Self { providers }
+        Self {
+            providers,
+            cache: SectionCache::new(),
+        }
+    }
+
+    /// Get a mutable reference to the instance cache for external invalidation.
+    pub fn cache_mut(&mut self) -> &mut SectionCache {
+        &mut self.cache
     }
 
     /// Build the system prompt from the given context.
@@ -66,13 +75,13 @@ impl PromptBuilder {
     /// before calling `generate()`, skips `None` results, concatenates
     /// fragments, and falls back to `DEFAULT_PROMPT` when no provider
     /// contributes.
-    pub async fn build(&self, ctx: &FragmentContext) -> String {
+    pub async fn build(&mut self, ctx: &FragmentContext) -> String {
         let mut fragments: Vec<String> = Vec::new();
 
         for provider in &self.providers {
             // Check section-level cache.
             if let Some(key) = provider.cache_key(ctx) {
-                if let Some(cached) = get_cached_section(&key, None) {
+                if let Some(cached) = self.cache.get(&key, None) {
                     fragments.push(cached);
                     continue;
                 }
@@ -86,7 +95,7 @@ impl PromptBuilder {
                 };
                 // Cache the rendered fragment.
                 if let Some(key) = provider.cache_key(ctx) {
-                    put_cached_section(&key, rendered.clone(), None);
+                    self.cache.put(&key, rendered.clone(), None);
                 }
                 fragments.push(rendered);
             }
@@ -126,26 +135,12 @@ fn render_sections(sections: Vec<Section>) -> Vec<String> {
 }
 
 /// Render a single section to string.
+///
+/// In the provider-driven pipeline, MemorySection is handled by
+/// [`MemoryFragmentProvider`]. This function is only called for dynamic
+/// sections in `build_from_workspace` and the legacy `build_system_prompt`.
 fn render_section(section: Section) -> String {
-    let is_static = section.is_cacheable();
-
-    if is_static {
-        match section {
-            Section::MemorySection(_) => {
-                let path = Path::new("MEMORY.md");
-                if path.exists() {
-                    crate::sections::load_cached_file_section("memory", path)
-                        .map(|c| Section::MemorySection(c).render())
-                        .unwrap_or_default()
-                } else {
-                    section.render()
-                }
-            }
-            _ => unreachable!("is_cacheable() only returns true for MemorySection"),
-        }
-    } else {
-        section.render()
-    }
+    section.render()
 }
 
 /// Append the current append_section to a base prompt.
@@ -216,7 +211,7 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
         .tool_registry
         .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
 
-    let builder = PromptBuilder::new(
+    let mut builder = PromptBuilder::new(
         tool_registry,
         config.agent_tools,
         config.agent_disallowed_tools,
@@ -257,11 +252,8 @@ mod tests {
     use super::*;
 
     /// Clear cached sections to prevent cross-test pollution.
-    #[cfg(test)]
-    use crate::sections::invalidate_all_sections;
-
     fn reset_sections() {
-        invalidate_all_sections();
+        // No-op: cache is now instance-based per PromptBuilder
     }
 
     #[test]
@@ -390,7 +382,7 @@ mod tests {
     #[tokio::test]
     async fn test_prompt_builder_build_fallback_default() {
         let tool_reg = Arc::new(ToolRegistry::new());
-        let builder = PromptBuilder::new(tool_reg, None, None, None);
+        let mut builder = PromptBuilder::new(tool_reg, None, None, None);
 
         // No bootstrap_dir → BootstrapFragmentProvider returns None
         // Empty tool registry → ToolsFragmentProvider returns None
@@ -403,12 +395,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_prompt_builder_build_with_memory() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("MEMORY.md"), "remember X").unwrap();
 
         let tool_reg = Arc::new(ToolRegistry::new());
-        let builder = PromptBuilder::new(tool_reg, None, None, None);
+        let mut builder = PromptBuilder::new(tool_reg, None, None, None);
 
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_path_buf(),
@@ -423,7 +414,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_from_workspace_override_mode() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         // BOOTSTRAP.md is only loaded in Full mode, not Minimal.
         std::fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap only in full").unwrap();
@@ -449,7 +439,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_from_workspace_no_override_defaults_to_full() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         // BOOTSTRAP.md is only loaded in Full mode.
         std::fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap only in full").unwrap();

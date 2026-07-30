@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use closeclaw_common::BootstrapMode;
 
 use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
-use crate::sections::load_cached_file_section;
+use crate::sections::read_file_section;
 
 /// Provider that contributes the long-term memory (`MEMORY.md`) to the
 /// system prompt. The file is read from the agent's working directory
@@ -73,7 +73,7 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
         }
 
         let memory_path = self.resolve_path(ctx);
-        let content = load_cached_file_section("memory", &memory_path)?;
+        let (content, _mtime) = read_file_section(&memory_path)?;
 
         if content.is_empty() {
             return None;
@@ -126,7 +126,6 @@ mod tests {
     #[serial_test::serial]
     #[tokio::test]
     async fn test_generate_empty_memory_file_returns_none() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("MEMORY.md"), "").unwrap();
         let provider = MemoryFragmentProvider::new();
@@ -140,7 +139,6 @@ mod tests {
     #[serial_test::serial]
     #[tokio::test]
     async fn test_generate_with_memory_content() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("MEMORY.md"), "Remember X and Y").unwrap();
         let provider = MemoryFragmentProvider::new();
@@ -192,7 +190,6 @@ mod tests {
     #[serial_test::serial]
     #[tokio::test]
     async fn test_generate_with_custom_relative_path() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         let custom_dir = tmp.path().join("memory");
         fs::create_dir_all(&custom_dir).unwrap();
@@ -210,7 +207,6 @@ mod tests {
     #[serial_test::serial]
     #[tokio::test]
     async fn test_generate_with_custom_absolute_path() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         let abs_path = tmp.path().join("absolute_MEMORY.md");
         fs::write(&abs_path, "Absolute path content").unwrap();
@@ -256,7 +252,6 @@ mod tests {
     #[serial_test::serial]
     #[tokio::test]
     async fn test_generate_minimal_mode_returns_none() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("MEMORY.md"), "Remember something").unwrap();
         let provider = MemoryFragmentProvider::new();
@@ -271,7 +266,6 @@ mod tests {
     #[serial_test::serial]
     #[tokio::test]
     async fn test_generate_full_mode_reads_memory() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("MEMORY.md"), "Full mode memory").unwrap();
         let provider = MemoryFragmentProvider::new();
@@ -301,7 +295,6 @@ mod tests {
     #[serial_test::serial]
     #[tokio::test]
     async fn test_generate_with_path_and_minimal_mode_returns_none() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         let abs_path = tmp.path().join("MEMORY.md");
         fs::write(&abs_path, "Should not be read").unwrap();

@@ -2,9 +2,7 @@
 
 use crate::builder::PromptBuilder;
 use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
-use crate::sections::{
-    get_cached_section, invalidate_all_sections, invalidate_section, put_cached_section,
-};
+use crate::sections::SectionCache;
 use async_trait::async_trait;
 use closeclaw_tools::ToolRegistry;
 use std::sync::Arc;
@@ -175,68 +173,60 @@ async fn test_empty_provider_skipped() {
 }
 
 // ---------------------------------------------------------------------------
-// Cache hit / miss
+// Cache hit / miss (using SectionCache instance)
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn test_cache_hit_skips_generate() {
-    invalidate_all_sections();
-
+    let mut cache = SectionCache::new();
     // Pre-populate the cache with a known key.
-    put_cached_section("mock-cache-key", "cached content".to_string(), None);
+    cache.put("mock-cache-key", "cached content".to_string(), None);
 
     let provider =
         MockProvider::with_fragment("cached", 1, "fresh content").with_cache_key("mock-cache-key");
     let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(provider)];
 
-    let result = build_from_mocks(providers).await;
+    let result = build_from_mocks_with_cache(providers, &mut cache).await;
     // Should use cached content, not the provider's fresh content.
     assert!(result.contains("cached content"));
     assert!(!result.contains("fresh content"));
-
-    invalidate_all_sections();
 }
 
 #[tokio::test]
 async fn test_cache_miss_calls_generate() {
-    invalidate_all_sections();
+    let mut cache = SectionCache::new();
 
     let provider =
         MockProvider::with_fragment("fresh", 1, "generated content").with_cache_key("fresh-key");
     let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(provider)];
 
-    let result = build_from_mocks(providers).await;
+    let result = build_from_mocks_with_cache(providers, &mut cache).await;
     // Provider was called and generated fresh content.
     assert!(result.contains("generated content"));
-
-    invalidate_all_sections();
 }
 
 #[tokio::test]
 async fn test_cache_invalidation_triggers_regenerate() {
-    invalidate_all_sections();
-
+    let mut cache = SectionCache::new();
     // Cache with old content.
-    put_cached_section("regen-key", "old content".to_string(), None);
+    cache.put("regen-key", "old content".to_string(), None);
 
     let provider =
         MockProvider::with_fragment("regen", 1, "new content").with_cache_key("regen-key");
     let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(provider)];
 
     // Before invalidation → cache hit → old content.
-    let result = build_from_mocks(providers).await;
+    let result = build_from_mocks_with_cache(providers, &mut cache).await;
     assert!(result.contains("old content"));
 
     // Invalidate → cache miss → provider generates new content.
-    invalidate_section("regen-key");
+    cache.invalidate("regen-key");
     let provider2 =
         MockProvider::with_fragment("regen", 1, "new content").with_cache_key("regen-key");
     let providers2: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(provider2)];
-    let result2 = build_from_mocks(providers2).await;
+    let result2 = build_from_mocks_with_cache(providers2, &mut cache).await;
     assert!(result2.contains("new content"));
     assert!(!result2.contains("old content"));
-
-    invalidate_all_sections();
 }
 
 // ---------------------------------------------------------------------------
@@ -245,9 +235,8 @@ async fn test_cache_invalidation_triggers_regenerate() {
 
 #[tokio::test]
 async fn test_mixed_empty_and_cached_providers() {
-    invalidate_all_sections();
-
-    put_cached_section("mix-cache", "cached data".to_string(), None);
+    let mut cache = SectionCache::new();
+    cache.put("mix-cache", "cached data".to_string(), None);
 
     let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
         Box::new(MockProvider::empty("empty1", 1)),
@@ -257,11 +246,9 @@ async fn test_mixed_empty_and_cached_providers() {
         Box::new(MockProvider::empty("empty2", 3)),
     ];
 
-    let result = build_from_mocks(providers).await;
+    let result = build_from_mocks_with_cache(providers, &mut cache).await;
     assert!(result.contains("cached data"));
     assert!(!result.contains("fresh data"));
-
-    invalidate_all_sections();
 }
 
 // ---------------------------------------------------------------------------
@@ -270,14 +257,23 @@ async fn test_mixed_empty_and_cached_providers() {
 
 /// Assemble a prompt string from mock providers using the same logic as
 /// `PromptBuilder::build` but without real registries.
-async fn build_from_mocks(mut providers: Vec<Box<dyn PromptFragmentProvider>>) -> String {
+async fn build_from_mocks(providers: Vec<Box<dyn PromptFragmentProvider>>) -> String {
+    let mut cache = SectionCache::new();
+    build_from_mocks_with_cache(providers, &mut cache).await
+}
+
+/// Assemble a prompt string with an explicit cache instance for testing.
+async fn build_from_mocks_with_cache(
+    mut providers: Vec<Box<dyn PromptFragmentProvider>>,
+    cache: &mut SectionCache,
+) -> String {
     providers.sort_by_key(|p| p.priority());
 
     let mut fragments: Vec<String> = Vec::new();
 
     for provider in &providers {
         if let Some(key) = provider.cache_key(&FragmentContext::test_default()) {
-            if let Some(cached) = get_cached_section(&key, None) {
+            if let Some(cached) = cache.get(&key, None) {
                 fragments.push(cached);
                 continue;
             }
@@ -286,7 +282,7 @@ async fn build_from_mocks(mut providers: Vec<Box<dyn PromptFragmentProvider>>) -
         if let Some(fragment) = provider.generate(&FragmentContext::test_default()).await {
             let rendered = format!("{}\n{}\n", fragment.section_title, fragment.content);
             if let Some(key) = provider.cache_key(&FragmentContext::test_default()) {
-                put_cached_section(&key, rendered.clone(), None);
+                cache.put(&key, rendered.clone(), None);
             }
             fragments.push(rendered);
         }
@@ -305,9 +301,8 @@ async fn build_from_mocks(mut providers: Vec<Box<dyn PromptFragmentProvider>>) -
 
 #[tokio::test]
 async fn test_prompt_builder_no_skill_listing_in_output() {
-    invalidate_all_sections();
     let tool_reg = Arc::new(ToolRegistry::new());
-    let builder = PromptBuilder::new(tool_reg, None, None, None);
+    let mut builder = PromptBuilder::new(tool_reg, None, None, None);
     let ctx = FragmentContext::test_default();
     let result = builder.build(&ctx).await;
     assert!(
