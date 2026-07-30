@@ -340,4 +340,89 @@ mod tests {
         assert_eq!(scan_config.agent_skills_dir, Some(agent_dir));
         assert_eq!(scan_config.project_root, Some(project_root));
     }
+
+    // --- Step 1.4 tests: hot reload watch dirs include Agent and Project layers ---
+
+    /// build_skill_dirs includes agent_skills_dir when the directory exists on disk.
+    #[test]
+    fn test_build_skill_dirs_includes_agent_layer_when_exists() {
+        let tmp = TempDir::new().unwrap();
+        let agent_skills_dir = tmp.path().join("agents/eda/skills");
+        std::fs::create_dir_all(&agent_skills_dir).unwrap();
+
+        let skill_dirs = build_skill_dirs(None, Some(agent_skills_dir.clone()), None);
+
+        assert_eq!(skill_dirs.len(), 1);
+        assert!(skill_dirs.contains(&agent_skills_dir));
+    }
+
+    /// build_skill_dirs includes project skills dir when the directory exists on disk.
+    #[test]
+    fn test_build_skill_dirs_includes_project_layer_when_exists() {
+        let tmp = TempDir::new().unwrap();
+        let project_root = tmp.path().join("my/project");
+        let project_skills = project_root.join("skills");
+        std::fs::create_dir_all(&project_skills).unwrap();
+
+        let skill_dirs = build_skill_dirs(None, None, Some(project_root));
+
+        assert_eq!(skill_dirs.len(), 1);
+        assert!(skill_dirs.contains(&project_skills));
+    }
+
+    /// build_skill_dirs skips nonexistent directories without panicking.
+    #[test]
+    fn test_build_skill_dirs_skips_nonexistent_directories() {
+        let tmp = TempDir::new().unwrap();
+        let agent_skills_dir = tmp.path().join("agents/eda/skills");
+        let project_root = tmp.path().join("my/project");
+        // Intentionally do NOT create these dirs
+
+        let skill_dirs = build_skill_dirs(None, Some(agent_skills_dir), Some(project_root));
+
+        assert!(skill_dirs.is_empty());
+    }
+
+    /// build_skill_dirs includes both global and agent dirs when both exist.
+    #[test]
+    fn test_build_skill_dirs_includes_global_and_agent_when_both_exist() {
+        let tmp = TempDir::new().unwrap();
+        let global_dir = tmp.path().join("global_skills");
+        let agent_skills_dir = tmp.path().join("agents/eda/skills");
+        std::fs::create_dir_all(&global_dir).unwrap();
+        std::fs::create_dir_all(&agent_skills_dir).unwrap();
+
+        let skill_dirs = build_skill_dirs(
+            Some(global_dir.clone()),
+            Some(agent_skills_dir.clone()),
+            None,
+        );
+
+        assert_eq!(skill_dirs.len(), 2);
+        assert!(skill_dirs.contains(&global_dir));
+        assert!(skill_dirs.contains(&agent_skills_dir));
+    }
+
+    /// build_skill_dirs includes all three layers when all dirs exist.
+    #[test]
+    fn test_build_skill_dirs_includes_all_three_layers() {
+        let tmp = TempDir::new().unwrap();
+        let global_dir = tmp.path().join("global_skills");
+        let agent_skills_dir = tmp.path().join("agents/eda/skills");
+        let project_root = tmp.path().join("my/project");
+        std::fs::create_dir_all(&global_dir).unwrap();
+        std::fs::create_dir_all(&agent_skills_dir).unwrap();
+        std::fs::create_dir_all(project_root.join("skills")).unwrap();
+
+        let skill_dirs = build_skill_dirs(
+            Some(global_dir.clone()),
+            Some(agent_skills_dir.clone()),
+            Some(project_root.clone()),
+        );
+
+        assert_eq!(skill_dirs.len(), 3);
+        assert!(skill_dirs.contains(&global_dir));
+        assert!(skill_dirs.contains(&agent_skills_dir));
+        assert!(skill_dirs.contains(&project_root.join("skills")));
+    }
 }
