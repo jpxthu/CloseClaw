@@ -16,10 +16,13 @@ Session 模块为用户提供 Agent 对话上下文的持久化、可恢复与�
 > **交叉引用**：新 session 由 `/new` 指令触发创建，详见 [slash §F3](slash.md)。
 - 归档的 session 被访问时自动恢复，恢复时用户收到「正在恢复会话…」提示，恢复后 Agent 看到的 system prompt 从最新配置文件重建
 - 系统重启时，自动扫描所有活跃 session，对有未完成操作的 session 注入恢复通知。崩溃前未发送的出站消息自动重投递
-- 
+
+
 ### F2. Agent 角色与能力配置
 
-Session 创建、归档恢复、对话压缩完成时，触发 Agent 的 system prompt 重新注入，注入内容反映当前最新的 bootstrap 文件、Skill 和工具定义。
+Session 重建时触发 Agent 的 system prompt 重新注入，注入内容反映当前最新的 bootstrap 文件、Skill 和工具定义。
+
+> **交叉引用**：完整触发事件清单与缓存失效策略详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 > **交叉引用**：技能清单的格式和热重载机制详见 [skills §F4](skills.md)（技能清单）、[skills §F5](skills.md)（热重载）。
 
 - 用户追加的 system prompt 自定义指令持久化保存，归档恢复后完整保留，不参与对话压缩
@@ -54,7 +57,7 @@ Agent 可以将子任务委托给其他 Agent（子 session），并等待结果
 - Agent 通过 sessions_yield 主动暂停当前对话，等待所有子 Agent 完成后再恢复
 - Agent 通过 sessions_steer 向已有子 session 发送新任务
 - Agent 通过 sessions_kill 终止子 session（级联终止该子 session 及其所有后代）
-- 子 Agent 完成后，结果通过消息队列注入父 Agent 的对话流。Agent 不需要轮询子 Agent 状态
+- 子 Agent 完成后结果由消息队列自动注入父 Agent（带去重保护），详见 [session §F9](session.md#f9-消息注入)。Agent 不需要轮询子 Agent 状态
 - 当前 session 及所有子 session 可被终止，级联生效
 
 > **交叉引用**：`/stop` 指令触发 session 终止，详见 [slash §F3](slash.md)。
@@ -66,10 +69,9 @@ Agent 可以将子任务委托给其他 Agent（子 session），并等待结果
 
 用户控制 LLM 调用的推理深度，Agent 的回复实时流式推送给用户。
 
-- 推理深度支持四档（Low / Medium / High / Max）和 off 状态。运行时设置优先级高于全局配置默认值
+- Session 维护当前生效的推理深度作为运行时状态
 
-> **交叉引用**：推理深度的查询与设置由 `/reasoning` 指令完成，详见 [slash §F10](slash.md)。
-- 模型不支持的推理档位自动降级到支持的最接近档位
+> **交叉引用**：推理深度档位定义、默认值、优先级和模型能力降级策略详见 [llm §F4](llm.md)（推理强度控制）。运行时设置由 `/reasoning` 指令完成，详见 [slash §F10](slash.md)。
 - 流式输出：Agent 回复经出站管道实时渲染后逐步呈现给用户。流式响应出错时，已渲染给用户的内容保留可见，不完整回复不写入消息历史
 - Thinking 内容在流式渲染时省略，但保留在消息历史中供后续轮次参考
 - Thinking 内容的显示行为可被用户覆盖
@@ -90,7 +92,7 @@ Session 在任意时刻可以同时处于多个活跃维度，每个维度是一
 - **idle**：llm_active 和 foreground_tool_active 均为 false——session 可以立即接收新用户消息，消息分派规则见 F10
 - **inactive**：所有活跃维度均为 false，且距上次用户活动超过配置的 inactive 时长——触发归档判定，详见 F6
 
-活跃维度由各消费方按需组合使用：
+活跃维度由各消费方按需使用：
 
 - 用户消息分派：idle 时直接分派；非 idle 时的阻塞规则见 F10
 - 归档判定：inactive 时触发归档，详见 F6
@@ -102,7 +104,7 @@ Session 在任意时刻可以同时处于多个活跃维度，每个维度是一
 
 inactive 的会话自动归档，过期归档自动清理，用户无需手动管理。
 
-- inactive 的 session 自动归档：标记 archived 状态，从活跃路由中移除
+- inactive 的 session 自动归档：标记为归档（archived）状态，从活跃路由中移除
 - inactive 判定依据 session 活跃维度（详见 F11）：所有活跃维度均为 false，且距上次用户活动超过配置的 inactive 时长
 - 已归档超过配置清理时间的 session 彻底删除（元数据 + 对话记录）
 - 每个 Agent 可独立配置 inactive 时长和清理时间，主 Agent 与子 Agent 可以分别设置
