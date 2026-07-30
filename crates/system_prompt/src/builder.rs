@@ -6,11 +6,11 @@ use crate::fragment::{FragmentContext, PromptFragmentProvider};
 use crate::providers::bootstrap::BootstrapFragmentProvider;
 use crate::providers::memory::MemoryFragmentProvider;
 use crate::providers::tools::ToolsFragmentProvider;
-use crate::sections::{get_cached_section, put_cached_section, Section};
+use crate::sections::{Section, SectionCache};
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::BootstrapMode;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 /// Re-export the common PromptOverrides type.
 pub use closeclaw_common::system_prompt::PromptOverrides;
@@ -31,6 +31,7 @@ use closeclaw_tools::ToolRegistry;
 /// and reused across all `build()` invocations.
 pub struct PromptBuilder {
     providers: Vec<Box<dyn PromptFragmentProvider>>,
+    cache: Arc<RwLock<SectionCache>>,
 }
 
 impl PromptBuilder {
@@ -45,6 +46,26 @@ impl PromptBuilder {
         agent_disallowed_tools: Option<Vec<String>>,
         session_mode: Option<SessionMode>,
     ) -> Self {
+        Self::new_with_cache(
+            tool_registry,
+            agent_tools,
+            agent_disallowed_tools,
+            session_mode,
+            Arc::new(RwLock::new(SectionCache::new())),
+        )
+    }
+
+    /// Create a builder with a shared cache instance.
+    ///
+    /// Used when the cache must be shared across multiple builders
+    /// (e.g. for cross-session invalidation via `SystemPromptBuilder`).
+    pub fn new_with_cache(
+        tool_registry: Arc<ToolRegistry>,
+        agent_tools: Option<Vec<String>>,
+        agent_disallowed_tools: Option<Vec<String>>,
+        session_mode: Option<SessionMode>,
+        shared_cache: Arc<RwLock<SectionCache>>,
+    ) -> Self {
         let mut providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
             Box::new(BootstrapFragmentProvider::new()),
             Box::new(ToolsFragmentProvider::new(
@@ -57,7 +78,15 @@ impl PromptBuilder {
         ];
         providers.sort_by_key(|p| p.priority());
 
-        Self { providers }
+        Self {
+            providers,
+            cache: shared_cache,
+        }
+    }
+
+    /// Get a reference to the shared cache for external invalidation.
+    pub fn shared_cache(&self) -> &Arc<RwLock<SectionCache>> {
+        &self.cache
     }
 
     /// Build the system prompt from the given context.
@@ -72,7 +101,8 @@ impl PromptBuilder {
         for provider in &self.providers {
             // Check section-level cache.
             if let Some(key) = provider.cache_key(ctx) {
-                if let Some(cached) = get_cached_section(&key, None) {
+                let cache = self.cache.read().unwrap();
+                if let Some(cached) = cache.get(&key, None) {
                     fragments.push(cached);
                     continue;
                 }
@@ -86,7 +116,10 @@ impl PromptBuilder {
                 };
                 // Cache the rendered fragment.
                 if let Some(key) = provider.cache_key(ctx) {
-                    put_cached_section(&key, rendered.clone(), None);
+                    self.cache
+                        .write()
+                        .unwrap()
+                        .put(&key, rendered.clone(), None);
                 }
                 fragments.push(rendered);
             }
@@ -126,26 +159,12 @@ fn render_sections(sections: Vec<Section>) -> Vec<String> {
 }
 
 /// Render a single section to string.
+///
+/// In the provider-driven pipeline, MemorySection is handled by
+/// [`MemoryFragmentProvider`]. This function is only called for dynamic
+/// sections in `build_from_workspace` and the legacy `build_system_prompt`.
 fn render_section(section: Section) -> String {
-    let is_static = section.is_cacheable();
-
-    if is_static {
-        match section {
-            Section::MemorySection(_) => {
-                let path = Path::new("MEMORY.md");
-                if path.exists() {
-                    crate::sections::load_cached_file_section("memory", path)
-                        .map(|c| Section::MemorySection(c).render())
-                        .unwrap_or_default()
-                } else {
-                    section.render()
-                }
-            }
-            _ => unreachable!("is_cacheable() only returns true for MemorySection"),
-        }
-    } else {
-        section.render()
-    }
+    section.render()
 }
 
 /// Append the current append_section to a base prompt.
@@ -198,6 +217,19 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
     workspace_root: P,
     config: WorkspaceBuildConfig,
 ) -> String {
+    build_from_workspace_with_cache(workspace_root, config, None).await
+}
+
+/// Build a system prompt from a workspace directory with a shared cache.
+///
+/// When `shared_cache` is `Some`, the builder reuses the provided cache
+/// instance (for cross-session invalidation). Otherwise creates a fresh,
+/// isolated cache (default behavior).
+pub async fn build_from_workspace_with_cache<P: AsRef<Path>>(
+    workspace_root: P,
+    config: WorkspaceBuildConfig,
+    shared_cache: Option<Arc<RwLock<SectionCache>>>,
+) -> String {
     let root = workspace_root.as_ref();
 
     // Resolve bootstrap mode for FragmentContext.
@@ -216,12 +248,21 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
         .tool_registry
         .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
 
-    let builder = PromptBuilder::new(
-        tool_registry,
-        config.agent_tools,
-        config.agent_disallowed_tools,
-        config.session_mode,
-    );
+    let builder = match shared_cache {
+        Some(cache) => PromptBuilder::new_with_cache(
+            tool_registry,
+            config.agent_tools,
+            config.agent_disallowed_tools,
+            config.session_mode,
+            cache,
+        ),
+        None => PromptBuilder::new(
+            tool_registry,
+            config.agent_tools,
+            config.agent_disallowed_tools,
+            config.session_mode,
+        ),
+    };
 
     let static_layer = builder.build(&ctx).await;
 
@@ -256,14 +297,6 @@ mod tests {
     use super::super::sections::Section;
     use super::*;
 
-    /// Clear cached sections to prevent cross-test pollution.
-    #[cfg(test)]
-    use crate::sections::invalidate_all_sections;
-
-    fn reset_sections() {
-        invalidate_all_sections();
-    }
-
     #[test]
     fn test_prompt_overrides_default() {
         let overrides = PromptOverrides::default();
@@ -274,7 +307,6 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_renders_sections() {
-        reset_sections();
         let sections = vec![Section::MemorySection("memory content".to_string())];
         let result = build_system_prompt(sections, None);
         assert!(result.contains("memory content"));
@@ -282,7 +314,6 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_fallback_default() {
-        reset_sections();
         let sections = vec![];
         let result = build_system_prompt(sections, None);
         assert!(result.contains(DEFAULT_PROMPT));
@@ -290,7 +321,6 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_with_append() {
-        reset_sections();
         let sections = vec![Section::MemorySection("memory content".to_string())];
         let result = build_system_prompt(sections, Some("additional info".to_string()));
         assert!(result.contains("memory content"));
@@ -300,7 +330,6 @@ mod tests {
 
     #[test]
     fn test_build_append_section_appended() {
-        reset_sections();
         let sections = vec![Section::MemorySection("base".to_string())];
         let result = build_system_prompt(sections, Some("extra notes".to_string()));
         assert!(result.contains("base"));
@@ -309,7 +338,6 @@ mod tests {
 
     #[test]
     fn test_append_section_not_shown_when_empty() {
-        reset_sections();
         let sections = vec![Section::MemorySection("base".to_string())];
         let result = build_system_prompt(sections, None);
         assert!(!result.contains("## Append"));
@@ -317,7 +345,6 @@ mod tests {
 
     #[test]
     fn test_dynamic_sections_not_cached() {
-        reset_sections();
         let sections = vec![Section::ChannelContext {
             chat_name: "test".into(),
         }];
@@ -403,7 +430,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_prompt_builder_build_with_memory() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("MEMORY.md"), "remember X").unwrap();
 
@@ -423,7 +449,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_from_workspace_override_mode() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         // BOOTSTRAP.md is only loaded in Full mode, not Minimal.
         std::fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap only in full").unwrap();
@@ -449,7 +474,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_from_workspace_no_override_defaults_to_full() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         // BOOTSTRAP.md is only loaded in Full mode.
         std::fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap only in full").unwrap();

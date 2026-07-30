@@ -26,27 +26,26 @@ fn test_section_render_channel_context() {
 }
 
 #[test]
-fn test_invalidate_section() {
-    put_cached_section("test_section", "old content".to_string(), Some(100));
+fn test_section_cache_invalidate() {
+    let mut cache = SectionCache::new();
+    cache.put("test_section", "old content".to_string(), Some(100));
     assert_eq!(
-        get_cached_section("test_section", Some(100)),
+        cache.get("test_section", Some(100)),
         Some("old content".to_string())
     );
 
-    invalidate_section("test_section");
-    assert_eq!(get_cached_section("test_section", Some(100)), None);
+    cache.invalidate("test_section");
+    assert_eq!(cache.get("test_section", Some(100)), None);
 }
 
 #[test]
-fn test_cache_stale_on_mtime_change() {
-    put_cached_section("file_section", "v1".to_string(), Some(100));
+fn test_section_cache_stale_on_mtime_change() {
+    let mut cache = SectionCache::new();
+    cache.put("file_section", "v1".to_string(), Some(100));
     // Same mtime → cache hit
-    assert_eq!(
-        get_cached_section("file_section", Some(100)),
-        Some("v1".to_string())
-    );
+    assert_eq!(cache.get("file_section", Some(100)), Some("v1".to_string()));
     // Different mtime → cache stale
-    assert_eq!(get_cached_section("file_section", Some(200)), None);
+    assert_eq!(cache.get("file_section", Some(200)), None);
 }
 
 #[test]
@@ -55,19 +54,22 @@ fn test_load_cached_file_section_fresh() {
     let file_path = dir.path().join("test.txt");
     std::fs::write(&file_path, "hello world").unwrap();
 
+    let mut cache = SectionCache::new();
+
     // First load — cache miss, should read from file
-    let result = load_cached_file_section("test", &file_path);
+    let result = load_cached_file_section(&mut cache, "test", &file_path);
     assert_eq!(result, Some("hello world".to_string()));
 
     // Second load — cache hit, same content
-    let result2 = load_cached_file_section("test", &file_path);
+    let result2 = load_cached_file_section(&mut cache, "test", &file_path);
     assert_eq!(result2, Some("hello world".to_string()));
 
-    // Modify file — cache should be stale
-    // Sleep 1s to ensure mtime changes (filesystem mtime resolution is 1s)
-    std::thread::sleep(std::time::Duration::from_secs(1));
+    // Simulate staleness by manually inserting a cache entry with a stale mtime,
+    // then verify load_cached_file_section reloads the fresh content.
+    cache.invalidate("test");
+    cache.put("test", "stale content".to_string(), Some(0)); // mtime=0 is always stale
     std::fs::write(&file_path, "updated content").unwrap();
-    let result3 = load_cached_file_section("test", &file_path);
+    let result3 = load_cached_file_section(&mut cache, "test", &file_path);
     assert_eq!(result3, Some("updated content".to_string()));
 }
 
@@ -104,20 +106,166 @@ fn test_sanitize_workdir_path() {
 }
 
 #[test]
-fn test_invalidate_skill_listing() {
+fn test_section_cache_invalidate_skill_listing() {
+    let mut cache = SectionCache::new();
     // Pre-populate the skill_listing cache with known content
-    put_cached_section("skill_listing", "old skill content".to_string(), Some(999));
+    cache.put("skill_listing", "old skill content".to_string(), Some(999));
     // Verify it's cached
     assert_eq!(
-        get_cached_section("skill_listing", Some(999)),
+        cache.get("skill_listing", Some(999)),
         Some("old skill content".to_string())
     );
 
-    // Invalidate via the public API
-    invalidate_skill_listing();
+    // Invalidate via the SectionCache method
+    cache.invalidate_skill_listing();
 
     // Cache should be cleared
-    assert_eq!(get_cached_section("skill_listing", Some(999)), None);
+    assert_eq!(cache.get("skill_listing", Some(999)), None);
+}
+
+// -----------------------------------------------------------------------
+// Step 1.5: SectionCache instance isolation tests
+// -----------------------------------------------------------------------
+
+/// Two independent SectionCache instances do not share entries.
+#[test]
+fn test_section_cache_isolation_between_instances() {
+    let mut cache_a = SectionCache::new();
+    let mut cache_b = SectionCache::new();
+
+    cache_a.put("key-a", "value-a".to_string(), None);
+    cache_b.put("key-b", "value-b".to_string(), None);
+
+    // cache_a has key-a but not key-b
+    assert_eq!(cache_a.get("key-a", None), Some("value-a".to_string()));
+    assert_eq!(cache_a.get("key-b", None), None);
+
+    // cache_b has key-b but not key-a
+    assert_eq!(cache_b.get("key-b", None), Some("value-b".to_string()));
+    assert_eq!(cache_b.get("key-a", None), None);
+}
+
+/// Invalidating one instance does not affect the other.
+#[test]
+fn test_section_cache_invalidate_isolation() {
+    let mut cache_a = SectionCache::new();
+    let mut cache_b = SectionCache::new();
+
+    cache_a.put("shared-key", "from-a".to_string(), None);
+    cache_b.put("shared-key", "from-b".to_string(), None);
+
+    cache_a.invalidate("shared-key");
+
+    // cache_a entry removed
+    assert_eq!(cache_a.get("shared-key", None), None);
+    // cache_b entry still present
+    assert_eq!(cache_b.get("shared-key", None), Some("from-b".to_string()));
+}
+
+// -----------------------------------------------------------------------
+// Step 1.5: Edge case tests
+// -----------------------------------------------------------------------
+
+/// Empty cache returns None for any key.
+#[test]
+fn test_section_cache_empty_returns_none() {
+    let cache = SectionCache::new();
+    assert_eq!(cache.get("any-key", None), None);
+    assert_eq!(cache.get("any-key", Some(123)), None);
+}
+
+/// Cache hit returns the stored content.
+#[test]
+fn test_section_cache_hit_returns_content() {
+    let mut cache = SectionCache::new();
+    cache.put("my-key", "my-content".to_string(), None);
+    assert_eq!(cache.get("my-key", None), Some("my-content".to_string()));
+}
+
+/// Cache miss (key not present) returns None.
+#[test]
+fn test_section_cache_miss_returns_none() {
+    let mut cache = SectionCache::new();
+    cache.put("existing-key", "value".to_string(), None);
+    assert_eq!(cache.get("nonexistent-key", None), None);
+}
+
+// -----------------------------------------------------------------------
+// Step 1.5: State transition lifecycle tests
+// -----------------------------------------------------------------------
+
+/// Cache lifecycle: empty → put → hit → invalidate → miss → put → hit.
+#[test]
+fn test_section_cache_lifecycle_empty_to_populated_to_invalidated_to_rebuilt() {
+    let mut cache = SectionCache::new();
+
+    // 1. Empty: miss
+    assert_eq!(cache.get("lifecycle", None), None);
+
+    // 2. Put: hit
+    cache.put("lifecycle", "v1".to_string(), None);
+    assert_eq!(cache.get("lifecycle", None), Some("v1".to_string()));
+
+    // 3. Invalidate: miss
+    cache.invalidate("lifecycle");
+    assert_eq!(cache.get("lifecycle", None), None);
+
+    // 4. Put again (rebuild): hit
+    cache.put("lifecycle", "v2".to_string(), None);
+    assert_eq!(cache.get("lifecycle", None), Some("v2".to_string()));
+}
+
+/// invalidate_all clears the entire cache.
+#[test]
+fn test_section_cache_invalidate_all_clears_all() {
+    let mut cache = SectionCache::new();
+    cache.put("k1", "v1".to_string(), None);
+    cache.put("k2", "v2".to_string(), None);
+    cache.put("k3", "v3".to_string(), None);
+
+    cache.invalidate_all();
+
+    assert_eq!(cache.get("k1", None), None);
+    assert_eq!(cache.get("k2", None), None);
+    assert_eq!(cache.get("k3", None), None);
+}
+
+/// invalidate_all on empty cache is a no-op.
+#[test]
+fn test_section_cache_invalidate_all_on_empty_is_noop() {
+    let mut cache = SectionCache::new();
+    cache.invalidate_all(); // should not panic
+    assert_eq!(cache.get("anything", None), None);
+}
+
+/// Cache with mtime validation: stale entry returns None.
+#[test]
+fn test_section_cache_mtime_stale_returns_none() {
+    let mut cache = SectionCache::new();
+    cache.put("mtime-key", "content".to_string(), Some(100));
+
+    // Same mtime → hit
+    assert_eq!(
+        cache.get("mtime-key", Some(100)),
+        Some("content".to_string())
+    );
+
+    // Different mtime → stale → miss
+    assert_eq!(cache.get("mtime-key", Some(200)), None);
+}
+
+/// Cache without mtime (mtime=None) always hits regardless of current_mtime.
+#[test]
+fn test_section_cache_no_mtime_always_hits() {
+    let mut cache = SectionCache::new();
+    cache.put("no-mtime-key", "content".to_string(), None);
+
+    // No stored mtime → always hit
+    assert_eq!(cache.get("no-mtime-key", None), Some("content".to_string()));
+    assert_eq!(
+        cache.get("no-mtime-key", Some(999)),
+        Some("content".to_string())
+    );
 }
 
 // -----------------------------------------------------------------------

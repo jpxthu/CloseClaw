@@ -14,16 +14,21 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use crate::builder::WorkspaceBuildConfig;
-use crate::sections::invalidate_all_sections;
+use crate::sections::SectionCache;
 
 /// Production implementation of [`SystemPromptBuilder`].
 ///
 /// Wraps the existing [`PromptBuilder`] pipeline to implement the
 /// cross-crate trait used by session handlers.
+///
+/// Holds a shared [`SectionCache`] so that invalidation from any call
+/// site (slash handler, skill watcher, compaction callback) reaches
+/// all session builders.
 pub struct SystemPromptBuilderAdapter {
     tool_registry: Arc<ToolRegistry>,
     agent_registry: Arc<RwLock<AgentRegistry>>,
     workspace_dir: PathBuf,
+    shared_cache: Arc<RwLock<SectionCache>>,
 }
 
 impl SystemPromptBuilderAdapter {
@@ -34,6 +39,7 @@ impl SystemPromptBuilderAdapter {
     /// * `agent_registry` — shared agent config registry for bootstrap_mode lookup
     /// * `workspace_dir` — root workspace directory; per-agent paths are
     ///   derived as `{workspace_dir}/agents/{agent_id}`
+    #[cfg(test)]
     pub fn new(
         tool_registry: Arc<ToolRegistry>,
         agent_registry: Arc<RwLock<AgentRegistry>>,
@@ -43,7 +49,34 @@ impl SystemPromptBuilderAdapter {
             tool_registry,
             agent_registry,
             workspace_dir,
+            shared_cache: Arc::new(RwLock::new(SectionCache::new())),
         }
+    }
+
+    /// Create a new adapter with a shared cache instance.
+    ///
+    /// Used when the caller needs to share the cache across multiple
+    /// components (e.g. daemon + skill watcher).
+    pub fn new_with_cache(
+        tool_registry: Arc<ToolRegistry>,
+        agent_registry: Arc<RwLock<AgentRegistry>>,
+        workspace_dir: PathBuf,
+        shared_cache: Arc<RwLock<SectionCache>>,
+    ) -> Self {
+        Self {
+            tool_registry,
+            agent_registry,
+            workspace_dir,
+            shared_cache,
+        }
+    }
+
+    /// Get a reference to the shared section cache.
+    ///
+    /// Allows external callers (e.g. daemon, skill watcher) to hold a
+    /// clone of the `Arc` and invalidate the same cache.
+    pub fn shared_cache(&self) -> &Arc<RwLock<SectionCache>> {
+        &self.shared_cache
     }
 
     /// Resolve the agent-level tools config from the registry.
@@ -119,7 +152,12 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
             effective_spawn_budget: None,
         };
 
-        let static_layer = crate::builder::build_from_workspace(&workspace_path, config).await;
+        let static_layer = crate::builder::build_from_workspace_with_cache(
+            &workspace_path,
+            config,
+            Some(Arc::clone(&self.shared_cache)),
+        )
+        .await;
 
         // Step 5: Apply PromptOverrides (override > agent > custom).
         apply_overrides(&static_layer, overrides)
@@ -130,7 +168,7 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
     /// Called when workspace files, tools, or skills change so the next
     /// `build_prompt()` call regenerates the static layer.
     async fn invalidate_cache(&self) {
-        invalidate_all_sections();
+        self.shared_cache.write().unwrap().invalidate_all();
     }
 }
 

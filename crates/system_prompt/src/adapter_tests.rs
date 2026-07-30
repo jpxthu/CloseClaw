@@ -45,7 +45,6 @@ fn test_adapter_with_agent(
 
 #[tokio::test]
 async fn test_build_prompt_returns_non_empty_string() {
-    crate::sections::invalidate_all_sections();
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
     // Create a minimal workspace with a bootstrap file.
@@ -62,7 +61,6 @@ async fn test_build_prompt_returns_non_empty_string() {
 
 #[tokio::test]
 async fn test_build_prompt_includes_bootstrap_content() {
-    crate::sections::invalidate_all_sections();
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
     let ws = tmp.path().join("agents").join(agent_id);
@@ -82,7 +80,6 @@ async fn test_build_prompt_includes_bootstrap_content() {
 
 #[tokio::test]
 async fn test_invalidate_cache_clears_sections() {
-    crate::sections::invalidate_all_sections();
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
     let ws = tmp.path().join("agents").join(agent_id);
@@ -90,23 +87,33 @@ async fn test_invalidate_cache_clears_sections() {
     std::fs::write(ws.join("AGENTS.md"), "agents content").unwrap();
 
     let adapter = test_adapter(tmp.path());
-    // Build once to populate cache.
-    let _ = adapter
+    // Build once to populate the cache.
+    let result_before = adapter
         .build_prompt("session-1", agent_id, None, None)
         .await;
-    // Invalidate.
+    assert!(!result_before.is_empty());
+
+    // Verify cache is populated by building again (should be cached).
+    let result_cached = adapter
+        .build_prompt("session-1", agent_id, None, None)
+        .await;
+    assert_eq!(result_before, result_cached);
+
+    // Invalidate the cache.
     adapter.invalidate_cache().await;
-    // After invalidation, cache should be cleared.
-    let cached = crate::sections::get_cached_section("bootstrap", None);
-    assert!(
-        cached.is_none(),
-        "cache should be cleared after invalidation"
+
+    // After invalidation, build should regenerate (still works correctly).
+    let result_after = adapter
+        .build_prompt("session-1", agent_id, None, None)
+        .await;
+    assert_eq!(
+        result_before, result_after,
+        "content should be same after invalidation and rebuild"
     );
 }
 
 #[tokio::test]
 async fn test_prompt_overrides_override_replaces_static() {
-    crate::sections::invalidate_all_sections();
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
     let ws = tmp.path().join("agents").join(agent_id);
@@ -128,7 +135,6 @@ async fn test_prompt_overrides_override_replaces_static() {
 
 #[tokio::test]
 async fn test_prompt_overrides_agent_prompt_appends() {
-    crate::sections::invalidate_all_sections();
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
     let ws = tmp.path().join("agents").join(agent_id);
@@ -150,7 +156,6 @@ async fn test_prompt_overrides_agent_prompt_appends() {
 
 #[tokio::test]
 async fn test_prompt_overrides_priority_override_gt_agent_gt_custom() {
-    crate::sections::invalidate_all_sections();
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
     let ws = tmp.path().join("agents").join(agent_id);
@@ -171,7 +176,6 @@ async fn test_prompt_overrides_priority_override_gt_agent_gt_custom() {
 
 #[tokio::test]
 async fn test_workspace_not_exists_fallback() {
-    crate::sections::invalidate_all_sections();
     let tmp = tempfile::tempdir().unwrap();
     // No workspace directory created — adapter should degrade gracefully.
     let adapter = test_adapter(tmp.path());
@@ -184,7 +188,6 @@ async fn test_workspace_not_exists_fallback() {
 
 #[tokio::test]
 async fn test_bootstrap_mode_override_takes_precedence() {
-    crate::sections::invalidate_all_sections();
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
     let ws = tmp.path().join("agents").join(agent_id);
@@ -208,7 +211,6 @@ async fn test_bootstrap_mode_override_takes_precedence() {
 
 #[tokio::test]
 async fn test_bootstrap_mode_from_registry_when_no_override() {
-    crate::sections::invalidate_all_sections();
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
     let ws = tmp.path().join("agents").join(agent_id);

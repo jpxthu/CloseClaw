@@ -10,7 +10,7 @@
 use closeclaw_skills::{
     init_disk_skills, start_skill_watcher, DiskSkillRegistry, ScanConfig, SkillWatcherHandle,
 };
-use closeclaw_system_prompt::sections::invalidate_skill_listing;
+use closeclaw_system_prompt::sections::SectionCache;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tracing::info;
@@ -23,15 +23,16 @@ use tracing::info;
 /// listing cache → next turn update attachment content."
 ///
 /// When skill files change, the watcher callback re-scans the
-/// registry and calls [`invalidate_skill_listing`] to clear the
-/// cached listing. The Session module then picks up the fresh
-/// listing on the next turn via `compute_skill_listing_for_turn`.
+/// registry and invalidates the `skill_listing` entry on the shared
+/// [`SectionCache`], so the next system prompt build regenerates
+/// from the current registry state.
 ///
 /// Returns the shared skill registry and the watcher handle
 /// (RAII: stops on drop).
 pub(crate) async fn init_skill_hot_reload(
     config_dir: &str,
     project_root: Option<&Path>,
+    shared_cache: Arc<RwLock<SectionCache>>,
 ) -> anyhow::Result<(
     Arc<RwLock<Option<DiskSkillRegistry>>>,
     Option<SkillWatcherHandle>,
@@ -91,7 +92,7 @@ pub(crate) async fn init_skill_hot_reload(
                 }
 
                 // Invalidate cache so next build picks up new listing
-                invalidate_skill_listing();
+                shared_cache.write().unwrap().invalidate_skill_listing();
 
                 tracing::info!("skill registry reloaded after file change");
             }),

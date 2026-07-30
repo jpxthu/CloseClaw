@@ -41,7 +41,7 @@ use closeclaw_session::persistence::PersistenceService;
 use closeclaw_session::storage::SqliteStorage;
 use closeclaw_skills::builtin::builtin_skills;
 use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry, SkillWatcherHandle};
-use closeclaw_system_prompt::invalidate_all_sections;
+use closeclaw_system_prompt::sections::SectionCache;
 use closeclaw_tools::ToolRegistry;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -218,13 +218,22 @@ impl Daemon {
         Arc<RwLock<Option<DiskSkillRegistry>>>,
         Arc<ToolRegistry>,
         Option<SkillWatcherHandle>,
+        Arc<RwLock<SectionCache>>,
     )> {
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
         info!("Agent registry initialized");
+        let shared_cache = Arc::new(RwLock::new(SectionCache::new()));
         let (skill_registry, skill_watcher) =
-            skill_reload::init_skill_hot_reload(config_dir, None).await?;
+            skill_reload::init_skill_hot_reload(config_dir, None, Arc::clone(&shared_cache))
+                .await?;
         let tool_registry = Arc::new(ToolRegistry::new());
-        Ok((agent_registry, skill_registry, tool_registry, skill_watcher))
+        Ok((
+            agent_registry,
+            skill_registry,
+            tool_registry,
+            skill_watcher,
+            shared_cache,
+        ))
     }
 
     /// Phase 3: Core services — Gateway, SessionManager, IM plugins, SlashDispatcher.
@@ -406,6 +415,7 @@ pub(crate) struct Phase5Deps<'a> {
     pub approval_flow: &'a Arc<tokio::sync::Mutex<ApprovalFlow>>,
     pub gateway: &'a Arc<Gateway>,
     pub slash_registry: &'a Arc<closeclaw_slash::registry::HandlerRegistry>,
+    pub shared_cache: &'a Arc<RwLock<SectionCache>>,
 }
 
 // --- Phase 4-5 initialization ---
@@ -617,6 +627,7 @@ impl Daemon {
             approval_flow,
             gateway,
             slash_registry,
+            shared_cache,
         } = deps;
         let (sweeper_tx, sweeper_rx) = watch::channel(());
         let (announce_sweeper_tx, announce_sweeper_rx) = watch::channel(());
@@ -673,10 +684,11 @@ impl Daemon {
             Arc::new(std::sync::RwLock::new(new_reg))
         };
         let prompt_builder_adapter = Arc::new(
-            closeclaw_system_prompt::adapter::SystemPromptBuilderAdapter::new(
+            closeclaw_system_prompt::adapter::SystemPromptBuilderAdapter::new_with_cache(
                 Arc::clone(tool_registry),
                 adapter_registry,
                 data_dir.to_path_buf(),
+                Arc::clone(shared_cache),
             ),
         ) as Arc<dyn closeclaw_common::SystemPromptBuilder>;
         session_manager
@@ -740,8 +752,11 @@ impl Daemon {
         // can invalidate section caches without gateway depending on
         // closeclaw-system-prompt directly.
         session_manager
-            .set_cache_invalidator(Arc::new(|| {
-                invalidate_all_sections();
+            .set_cache_invalidator(Arc::new({
+                let shared_cache = Arc::clone(shared_cache);
+                move || {
+                    shared_cache.write().unwrap().invalidate_all();
+                }
             }))
             .await;
         // Inject dynamic prompt builder so resolve() and

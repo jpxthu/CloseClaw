@@ -6,8 +6,6 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::sync::LazyLock;
-use std::sync::RwLock;
 use std::time::SystemTime;
 
 use closeclaw_common::{PlanPath, SessionMode};
@@ -175,29 +173,46 @@ struct CacheEntry {
     file_mtime: Option<u64>,
 }
 
-/// Process-wide section cache
-static SECTION_CACHE: LazyLock<RwLock<HashMap<String, CacheEntry>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
+/// Session-scoped section cache.
+///
+/// Each [`PromptBuilder`](crate::builder::PromptBuilder) instance holds
+/// its own `SectionCache`, ensuring per-session isolation. This replaces
+/// the former process-wide `static SECTION_CACHE`.
+pub struct SectionCache {
+    entries: HashMap<String, CacheEntry>,
+}
 
-/// Get a cached section if still valid (mtime matches)
-pub fn get_cached_section(name: &str, current_mtime: Option<u64>) -> Option<String> {
-    let cache = SECTION_CACHE.read().ok()?;
-    let entry = cache.get(name)?;
+impl Default for SectionCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-    // If mtime was provided, validate it matches
-    if let (Some(cached_mtime), Some(current)) = (entry.file_mtime, current_mtime) {
-        if cached_mtime != current {
-            return None; // stale
+impl SectionCache {
+    /// Create an empty cache.
+    pub fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
         }
     }
 
-    Some(entry.content.clone())
-}
+    /// Get a cached section if still valid (mtime matches).
+    pub fn get(&self, name: &str, current_mtime: Option<u64>) -> Option<String> {
+        let entry = self.entries.get(name)?;
 
-/// Put a section into the cache (public for use by builder)
-pub fn put_cached_section(name: &str, content: String, file_mtime: Option<u64>) {
-    if let Ok(mut cache) = SECTION_CACHE.write() {
-        cache.insert(
+        // If mtime was provided, validate it matches
+        if let (Some(cached_mtime), Some(current)) = (entry.file_mtime, current_mtime) {
+            if cached_mtime != current {
+                return None; // stale
+            }
+        }
+
+        Some(entry.content.clone())
+    }
+
+    /// Put a section into the cache.
+    pub fn put(&mut self, name: &str, content: String, file_mtime: Option<u64>) {
+        self.entries.insert(
             name.to_string(),
             CacheEntry {
                 content,
@@ -205,28 +220,24 @@ pub fn put_cached_section(name: &str, content: String, file_mtime: Option<u64>) 
             },
         );
     }
-}
 
-/// Manually invalidate a named section
-pub fn invalidate_section(name: &str) {
-    if let Ok(mut cache) = SECTION_CACHE.write() {
-        cache.remove(name);
+    /// Invalidate (remove) a single named section.
+    pub fn invalidate(&mut self, name: &str) {
+        self.entries.remove(name);
     }
-}
 
-/// Invalidate all cached sections
-pub fn invalidate_all_sections() {
-    if let Ok(mut cache) = SECTION_CACHE.write() {
-        cache.clear();
+    /// Invalidate all cached sections.
+    pub fn invalidate_all(&mut self) {
+        self.entries.clear();
     }
-}
 
-/// Invalidate the skill listing section cache.
-///
-/// Call this when skill files change so the next system prompt build
-/// regenerates the listing from the current registry state.
-pub fn invalidate_skill_listing() {
-    invalidate_section("skill_listing");
+    /// Invalidate the skill listing section cache.
+    ///
+    /// Call this when skill files change so the next system prompt build
+    /// regenerates the listing from the current registry state.
+    pub fn invalidate_skill_listing(&mut self) {
+        self.invalidate("skill_listing");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -247,17 +258,21 @@ pub fn read_file_section<P: AsRef<Path>>(path: P) -> Option<(String, u64)> {
     Some((content, mtime))
 }
 
-/// Load and cache a static file-based section
+/// Load and cache a static file-based section.
 /// Returns cached value if mtime unchanged; otherwise reloads and caches.
-pub fn load_cached_file_section(name: &str, path: &Path) -> Option<String> {
+pub fn load_cached_file_section(
+    cache: &mut SectionCache,
+    name: &str,
+    path: &Path,
+) -> Option<String> {
     let (content, mtime) = read_file_section(path)?;
 
-    if let Some(cached) = get_cached_section(name, Some(mtime)) {
+    if let Some(cached) = cache.get(name, Some(mtime)) {
         return Some(cached);
     }
 
     // Cache miss or stale — store and return
-    put_cached_section(name, content.clone(), Some(mtime));
+    cache.put(name, content.clone(), Some(mtime));
     Some(content)
 }
 
