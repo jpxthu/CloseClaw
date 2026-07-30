@@ -33,7 +33,10 @@ impl WorkflowEngine {
     pub fn start(workflow: &Workflow) -> WorkflowRun {
         WorkflowRun {
             workflow_id: workflow.id.clone(),
-            definition_version: "0.1".to_string(),
+            definition_version: workflow
+                .version
+                .clone()
+                .unwrap_or_else(|| "0.1".to_string()),
             current_step: 0,
             phase: Phase::Executing,
             step_history: Vec::new(),
