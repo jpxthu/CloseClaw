@@ -19,12 +19,9 @@ fn test_section_render_role() {
 fn test_section_render_channel_context() {
     let s = Section::ChannelContext {
         chat_name: "test-chat".to_string(),
-        sender_id: "ou_123".to_string(),
-        timestamp: "2026-04-10T15:00:00+08:00".to_string(),
     };
     let rendered = s.render();
     assert!(rendered.contains("chat_name: test-chat"));
-    assert!(rendered.contains("sender_id: ou_123"));
     assert!(!s.is_cacheable());
 }
 

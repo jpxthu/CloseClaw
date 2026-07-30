@@ -31,8 +31,6 @@ pub enum Section {
     // --- Dynamic sections (always rebuilt) ---
     ChannelContext {
         chat_name: String,
-        sender_id: String,
-        timestamp: String,
     },
     GitStatus(String),
     WorkingDirectory(String),
@@ -86,15 +84,8 @@ impl Section {
                 format!("## Heartbeat Context\n{}\n", content)
             }
 
-            Section::ChannelContext {
-                chat_name,
-                sender_id,
-                timestamp,
-            } => {
-                format!(
-                    "## Channel Context\n- chat_name: {}\n- sender_id: {}\n- timestamp: {}\n",
-                    chat_name, sender_id, timestamp
-                )
+            Section::ChannelContext { chat_name } => {
+                format!("## Channel Context\n- chat_name: {}\n", chat_name)
             }
             Section::GitStatus(content) => {
                 format!("## Git Status\n{}\n", content)

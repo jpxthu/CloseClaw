@@ -10,7 +10,6 @@ name = "closeclaw_system_prompt"
 path = "src/lib.rs"
 
 [dependencies]
-chrono = { version = "0.4", features = ["serde"] }
 closeclaw-common = { path = "../common" }
 closeclaw-agent = { path = "../agent" }
 closeclaw-gateway = { path = "../gateway" }
