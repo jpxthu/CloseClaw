@@ -231,4 +231,113 @@ mod tests {
         assert!(scan_config.agent_skills_dir.is_none());
         assert!(scan_config.project_root.is_none());
     }
+
+    // --- Step 1.3 tests: Agent layer and Project layer scanning ---
+
+    /// Normal path: agent_skills_dir points to parent/agents/<id>/skills.
+    #[test]
+    fn test_agent_skills_dir_points_to_parent_agents_id_skills() {
+        let tmp = TempDir::new().unwrap();
+        let config_dir = tmp.path().join("home/user/.closeclaw/eda");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
+        // Simulate what init_skill_hot_reload does: extract agent_id from
+        // config_dir and compute the agent skills directory.
+        let agent_id = config_dir.file_name().unwrap().to_str().unwrap();
+        let agent_skills_dir = config_dir
+            .parent()
+            .unwrap()
+            .join("agents")
+            .join(agent_id)
+            .join("skills");
+
+        let expected = tmp.path().join("home/user/.closeclaw/agents/eda/skills");
+        assert_eq!(agent_skills_dir, expected);
+
+        let scan_config = build_scan_config(None, Some(agent_skills_dir.clone()), None);
+        assert_eq!(scan_config.agent_skills_dir, Some(expected));
+    }
+
+    /// Normal path: project_root is correctly set in ScanConfig.
+    #[test]
+    fn test_project_root_set_in_scan_config() {
+        let tmp = TempDir::new().unwrap();
+        let project_root = tmp.path().join("my/project");
+        std::fs::create_dir_all(&project_root).unwrap();
+
+        let scan_config = build_scan_config(None, None, Some(project_root.clone()));
+        assert_eq!(scan_config.project_root, Some(project_root));
+    }
+
+    /// Boundary: config_dir is root path (no parent) → agent_skills_dir
+    /// calculation doesn't panic; parent().unwrap_or(config_path) handles it.
+    #[test]
+    fn test_agent_skills_dir_no_panic_when_config_dir_is_root() {
+        // When config_dir is "/", file_name() is None, so agent_id = None.
+        // agent_skills_dir computation is skipped (map on None).
+        let agent_id = Path::new("/").file_name().and_then(|s| s.to_str());
+        assert!(agent_id.is_none());
+
+        // Simulate the compute: agent_skills_dir = None (no agent_id)
+        let agent_skills_dir: Option<PathBuf> = agent_id.map(|id| {
+            Path::new("/")
+                .parent()
+                .unwrap_or(Path::new("/"))
+                .join("agents")
+                .join(id)
+                .join("skills")
+        });
+        assert!(agent_skills_dir.is_none());
+
+        // build_scan_config should work fine with None agent_skills_dir
+        let scan_config = build_scan_config(None, agent_skills_dir, None);
+        assert!(scan_config.agent_skills_dir.is_none());
+    }
+
+    /// Boundary: agent_id is None → agent_skills_dir is None.
+    #[test]
+    fn test_agent_skills_dir_none_when_agent_id_is_none() {
+        // Explicitly pass None for agent_skills_dir to simulate the case
+        // where agent_id extraction failed (e.g. config_dir has no meaningful
+        // agent name component).
+        let agent_skills_dir: Option<PathBuf> = None;
+
+        let scan_config = build_scan_config(None, agent_skills_dir, None);
+        assert!(scan_config.agent_skills_dir.is_none());
+    }
+
+    /// Boundary: project_root is None → ScanConfig.project_root is None.
+    #[test]
+    fn test_project_root_none_when_not_provided() {
+        let scan_config = build_scan_config(None, None, None);
+        assert!(scan_config.project_root.is_none());
+    }
+
+    /// Boundary: both agent_skills_dir and project_root are None.
+    #[test]
+    fn test_scan_config_defaults_all_none() {
+        let scan_config = build_scan_config(None, None, None);
+        assert!(scan_config.global_dir.is_none());
+        assert!(scan_config.agent_skills_dir.is_none());
+        assert!(scan_config.project_root.is_none());
+        assert!(scan_config.extra_dirs.is_empty());
+    }
+
+    /// Normal path: all three dirs provided → all set in ScanConfig.
+    #[test]
+    fn test_scan_config_all_dirs_present() {
+        let tmp = TempDir::new().unwrap();
+        let global_dir = tmp.path().join("global_skills");
+        let agent_dir = tmp.path().join("agent_skills");
+        let project_root = tmp.path().join("project");
+
+        let scan_config = build_scan_config(
+            Some(global_dir.clone()),
+            Some(agent_dir.clone()),
+            Some(project_root.clone()),
+        );
+        assert_eq!(scan_config.global_dir, Some(global_dir));
+        assert_eq!(scan_config.agent_skills_dir, Some(agent_dir));
+        assert_eq!(scan_config.project_root, Some(project_root));
+    }
 }
