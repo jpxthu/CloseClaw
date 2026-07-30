@@ -632,6 +632,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/system_prompt/fragment-provider.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-07-30T15:14:18.858578+08:00",
+    "comment": "",
+    "blocked_reason": "两篇设计文档内部矛盾：core-traits.md列出4个Provider含SkillsFragmentProvider，fragment-provider.md列出3个不含。另有缓存机制描述粒度差异。需Owner确认Provider数量权威来源。"
+  },
+  {
     "path": "docs/design/tools/background-tasks.md",
     "commit": "301e8738867e1ab3cea88a44f323b0eddf460e95",
     "commit_time": "2026-07-17T23:13:58+08:00",
