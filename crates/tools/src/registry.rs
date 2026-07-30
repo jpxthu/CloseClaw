@@ -495,7 +495,7 @@ impl closeclaw_common::tool_registry::ToolRegistryQuery for ToolRegistryImpl {
                 }
                 !disallowed.iter().any(|n| n == name)
             })
-            .map(|t| build_descriptor(t))
+            .map(build_descriptor)
             .collect()
     }
 
