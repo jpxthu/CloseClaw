@@ -287,10 +287,10 @@ async fn test_excluded_command_sleep_not_auto_backgrounded() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_excluded_command_with_agent_timeout_uses_it() {
+async fn test_excluded_command_ignores_agent_timeout_uses_cap() {
     let tmp = TempDir::new().unwrap();
-    // `true` is excluded; agent specifies 60s → bg_timeout = 60s.
-    // Quick command completes normally.
+    // `true` is excluded; agent specifies 60s → bg_timeout = 120s (cap).
+    // Quick command completes normally — agent timeout is ignored.
     let (outcome, _) = execute_foreground_command(
         "true",
         tmp.path().to_str().unwrap(),
@@ -308,7 +308,38 @@ async fn test_excluded_command_with_agent_timeout_uses_it() {
             assert_eq!(result.data["exitCode"], json!(0));
         }
         other => panic!(
-            "excluded command with agent timeout should complete in foreground, got: {:?}",
+            "excluded command should complete in foreground (120s cap), got: {:?}",
+            other
+        ),
+    }
+}
+
+/// Excluded command with agent timeout: verify bg_timeout uses 120s cap,
+/// NOT the agent-specified value. A sleep that exceeds agent timeout
+/// but stays under 120s should still complete in foreground.
+#[tokio::test]
+async fn test_excluded_command_sleep_ignores_agent_timeout() {
+    let tmp = TempDir::new().unwrap();
+    // Agent says 1s timeout, but excluded commands use 120s cap.
+    // `sleep 0.5` exceeds agent timeout (1s) but is well under 120s.
+    let (outcome, _) = execute_foreground_command(
+        "sleep 0.5",
+        tmp.path().to_str().unwrap(),
+        Some(1_000),
+        &bg_trait(),
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("execute_foreground_command should succeed");
+
+    match outcome {
+        ForegroundOutcome::Completed(result) => {
+            assert_eq!(result.data["exitCode"], json!(0));
+        }
+        other => panic!(
+            "excluded command sleep should use 120s cap not agent 1s timeout, got: {:?}",
             other
         ),
     }
