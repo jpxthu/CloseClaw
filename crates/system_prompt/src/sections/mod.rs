@@ -241,35 +241,6 @@ impl SectionCache {
 }
 
 // ---------------------------------------------------------------------------
-// Deprecated global function stubs (backward compatibility)
-// ---------------------------------------------------------------------------
-// These functions were removed as part of the section-cache instance
-// migration. They are kept as no-op stubs to maintain compilation for
-// callers that will be updated in Step 1.3.
-
-/// Deprecated: Use `SectionCache::invalidate_all()` on an instance.
-#[deprecated(note = "Use SectionCache instance methods instead; will be removed in Step 1.3")]
-pub fn invalidate_all_sections() {}
-
-/// Deprecated: Use `SectionCache::invalidate()` on an instance.
-#[deprecated(note = "Use SectionCache instance methods instead; will be removed in Step 1.3")]
-pub fn invalidate_section(_name: &str) {}
-
-/// Deprecated: Use `SectionCache::get()` on an instance.
-#[deprecated(note = "Use SectionCache instance methods instead; will be removed in Step 1.3")]
-pub fn get_cached_section(_name: &str, _mtime: Option<u64>) -> Option<String> {
-    None
-}
-
-/// Deprecated: Use `SectionCache::put()` on an instance.
-#[deprecated(note = "Use SectionCache instance methods instead; will be removed in Step 1.3")]
-pub fn put_cached_section(_name: &str, _content: String, _mtime: Option<u64>) {}
-
-/// Deprecated: Use `SectionCache::invalidate_skill_listing()` on an instance.
-#[deprecated(note = "Use SectionCache instance methods instead; will be removed in Step 1.3")]
-pub fn invalidate_skill_listing() {}
-
-// ---------------------------------------------------------------------------
 // File-based section helpers
 // ---------------------------------------------------------------------------
 

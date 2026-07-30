@@ -91,7 +91,7 @@ async fn test_invalidate_cache_does_not_panic() {
     let _ = adapter
         .build_prompt("session-1", agent_id, None, None)
         .await;
-    // invalidate_cache should not panic (currently a no-op stub).
+    // invalidate_cache should not panic.
     adapter.invalidate_cache().await;
 }
 

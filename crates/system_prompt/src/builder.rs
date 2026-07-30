@@ -10,7 +10,7 @@ use crate::sections::{Section, SectionCache};
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::BootstrapMode;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 /// Re-export the common PromptOverrides type.
 pub use closeclaw_common::system_prompt::PromptOverrides;
@@ -31,7 +31,7 @@ use closeclaw_tools::ToolRegistry;
 /// and reused across all `build()` invocations.
 pub struct PromptBuilder {
     providers: Vec<Box<dyn PromptFragmentProvider>>,
-    cache: SectionCache,
+    cache: Arc<RwLock<SectionCache>>,
 }
 
 impl PromptBuilder {
@@ -60,13 +60,42 @@ impl PromptBuilder {
 
         Self {
             providers,
-            cache: SectionCache::new(),
+            cache: Arc::new(RwLock::new(SectionCache::new())),
         }
     }
 
-    /// Get a mutable reference to the instance cache for external invalidation.
-    pub fn cache_mut(&mut self) -> &mut SectionCache {
-        &mut self.cache
+    /// Create a builder with a shared cache instance.
+    ///
+    /// Used when the cache must be shared across multiple builders
+    /// (e.g. for cross-session invalidation via `SystemPromptBuilder`).
+    pub fn new_with_cache(
+        tool_registry: Arc<ToolRegistry>,
+        agent_tools: Option<Vec<String>>,
+        agent_disallowed_tools: Option<Vec<String>>,
+        session_mode: Option<SessionMode>,
+        shared_cache: Arc<RwLock<SectionCache>>,
+    ) -> Self {
+        let mut providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+            Box::new(BootstrapFragmentProvider::new()),
+            Box::new(ToolsFragmentProvider::new(
+                Arc::clone(&tool_registry),
+                agent_tools,
+                agent_disallowed_tools,
+                session_mode,
+            )),
+            Box::new(MemoryFragmentProvider::new()),
+        ];
+        providers.sort_by_key(|p| p.priority());
+
+        Self {
+            providers,
+            cache: shared_cache,
+        }
+    }
+
+    /// Get a reference to the shared cache for external invalidation.
+    pub fn shared_cache(&self) -> &Arc<RwLock<SectionCache>> {
+        &self.cache
     }
 
     /// Build the system prompt from the given context.
@@ -81,10 +110,13 @@ impl PromptBuilder {
         for provider in &self.providers {
             // Check section-level cache.
             if let Some(key) = provider.cache_key(ctx) {
-                if let Some(cached) = self.cache.get(&key, None) {
+                let cache = self.cache.read().unwrap();
+                if let Some(cached) = cache.get(&key, None) {
+                    drop(cache);
                     fragments.push(cached);
                     continue;
                 }
+                drop(cache);
             }
 
             if let Some(fragment) = provider.generate(ctx).await {
@@ -95,7 +127,10 @@ impl PromptBuilder {
                 };
                 // Cache the rendered fragment.
                 if let Some(key) = provider.cache_key(ctx) {
-                    self.cache.put(&key, rendered.clone(), None);
+                    self.cache
+                        .write()
+                        .unwrap()
+                        .put(&key, rendered.clone(), None);
                 }
                 fragments.push(rendered);
             }
@@ -193,6 +228,19 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
     workspace_root: P,
     config: WorkspaceBuildConfig,
 ) -> String {
+    build_from_workspace_with_cache(workspace_root, config, None).await
+}
+
+/// Build a system prompt from a workspace directory with a shared cache.
+///
+/// When `shared_cache` is `Some`, the builder reuses the provided cache
+/// instance (for cross-session invalidation). Otherwise creates a fresh,
+/// isolated cache (default behavior).
+pub async fn build_from_workspace_with_cache<P: AsRef<Path>>(
+    workspace_root: P,
+    config: WorkspaceBuildConfig,
+    shared_cache: Option<Arc<RwLock<SectionCache>>>,
+) -> String {
     let root = workspace_root.as_ref();
 
     // Resolve bootstrap mode for FragmentContext.
@@ -211,12 +259,21 @@ pub async fn build_from_workspace<P: AsRef<Path>>(
         .tool_registry
         .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
 
-    let mut builder = PromptBuilder::new(
-        tool_registry,
-        config.agent_tools,
-        config.agent_disallowed_tools,
-        config.session_mode,
-    );
+    let mut builder = match shared_cache {
+        Some(cache) => PromptBuilder::new_with_cache(
+            tool_registry,
+            config.agent_tools,
+            config.agent_disallowed_tools,
+            config.session_mode,
+            cache,
+        ),
+        None => PromptBuilder::new(
+            tool_registry,
+            config.agent_tools,
+            config.agent_disallowed_tools,
+            config.session_mode,
+        ),
+    };
 
     let static_layer = builder.build(&ctx).await;
 
