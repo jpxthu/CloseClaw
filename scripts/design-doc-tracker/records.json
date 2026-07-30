@@ -601,9 +601,9 @@
   },
   {
     "path": "docs/design/slash/verbose.md",
-    "commit": "87c0bc732c9e3ed02aae3fc20d6ee755b365d875",
-    "commit_time": "2026-07-29T09:28:04+08:00",
-    "confirmed_time": "2026-07-29T09:37:43.534575+08:00",
+    "commit": "fc210030968af14617b693303acfe9276d8768e1",
+    "commit_time": "2026-07-30T19:38:41+08:00",
+    "confirmed_time": "2026-07-30T19:48:01.814208+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -633,11 +633,11 @@
   },
   {
     "path": "docs/design/system_prompt/fragment-provider.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-07-30T16:14:48.730260+08:00",
+    "commit": "01feb45bde123b8c0dfb4f8c726b257aeb2cc5fb",
+    "commit_time": "2026-07-30T19:48:52+08:00",
+    "confirmed_time": "2026-07-30T19:54:39.015299+08:00",
     "comment": "",
-    "blocked_reason": "core-traits.md与fragment-provider.md标准Provider数量不一致:core-traits列出4个含SkillsFragmentProvider,fragment-provider列出3个不含,代码实现3个.需Owner确认."
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/tools/background-tasks.md",
