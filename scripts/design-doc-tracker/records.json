@@ -633,9 +633,17 @@
   },
   {
     "path": "docs/design/system_prompt/fragment-provider.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-07-30T16:14:48.730260+08:00",
+    "commit": "01feb45bde123b8c0dfb4f8c726b257aeb2cc5fb",
+    "commit_time": "2026-07-30T19:48:52+08:00",
+    "confirmed_time": "2026-07-30T19:54:39.015299+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/system_prompt/kv-cache.md",
+    "commit": "64e4d9dc254d6b8a70a449f80a8fbce723a90fdb",
+    "commit_time": "2026-07-30T19:56:32+08:00",
+    "confirmed_time": "2026-07-30T20:14:05.366906+08:00",
     "comment": "",
     "blocked_reason": ""
   },
