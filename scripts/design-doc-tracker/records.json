@@ -609,9 +609,9 @@
   },
   {
     "path": "docs/design/slash/workdir.md",
-    "commit": "3aa593694cc61c4d271ac894c87175a8c120c736",
-    "commit_time": "2026-07-29T17:34:21+08:00",
-    "confirmed_time": "2026-07-29T17:49:45.540808+08:00",
+    "commit": "e61f74622f17a7693012d68cc08170823912cc77",
+    "commit_time": "2026-07-30T00:24:05+08:00",
+    "confirmed_time": "2026-07-30T10:00:56.882282+08:00",
     "comment": "",
     "blocked_reason": ""
   },
