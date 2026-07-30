@@ -388,8 +388,22 @@ mod tests {
     fn test_prompt_builder_new() {
         let tool_reg = Arc::new(ToolRegistry::new());
         let builder = PromptBuilder::new(tool_reg, None, None, None);
-        // Just verify construction succeeds and providers are registered.
+        // Verify construction succeeds, providers are registered, and list is non-empty.
+        assert!(!builder.providers.is_empty());
         assert_eq!(builder.providers.len(), 3);
+    }
+
+    #[test]
+    fn test_prompt_builder_providers_sorted_by_priority() {
+        let tool_reg = Arc::new(ToolRegistry::new());
+        let builder = PromptBuilder::new(tool_reg, None, None, None);
+        let priorities: Vec<u32> = builder.providers.iter().map(|p| p.priority()).collect();
+        // Bootstrap=1, Tools=2, Memory=3
+        assert_eq!(priorities, vec![1, 2, 3]);
+        // Verify provider names match expected order.
+        assert_eq!(builder.providers[0].name(), "bootstrap");
+        assert_eq!(builder.providers[1].name(), "tools");
+        assert_eq!(builder.providers[2].name(), "memory");
     }
 
     #[tokio::test]
