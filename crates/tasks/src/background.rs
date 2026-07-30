@@ -611,3 +611,7 @@ fn make_public_task(
 #[cfg(test)]
 #[path = "background_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "list_running_tasks_tests.rs"]
+mod list_running_tasks_tests;

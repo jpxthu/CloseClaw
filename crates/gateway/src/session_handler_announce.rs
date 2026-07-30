@@ -527,23 +527,36 @@ impl SessionMessageHandler {
             .drain_and_inject_announces_filtered(session_id, |p| *p < NotificationPriority::Now)
             .await;
 
-        // Drain background task completion notifications and inject as
-        // system messages so the agent sees them on the next turn.
+        // Drain background task notifications and inject into conversation.
         let Some(tm) = session_manager.get_task_manager().await else {
             return;
         };
         let notifications = tm.drain_notifications().await;
         let running_tasks = tm.list_running_tasks().await;
-
-        // Early return only if both are empty.
         if notifications.is_empty() && running_tasks.is_empty() {
             return;
         }
+        Self::inject_task_notifications(
+            session_manager,
+            session_id,
+            &notifications,
+            &running_tasks,
+        )
+        .await;
+    }
 
+    /// Inject background task notifications and running task summary into
+    /// the conversation session as system messages.
+    async fn inject_task_notifications(
+        session_manager: &Arc<SessionManager>,
+        session_id: &str,
+        notifications: &[closeclaw_tasks::CompletionNotification],
+        running_tasks: &[closeclaw_tasks::RunningTaskInfo],
+    ) {
         let Some(cs) = session_manager.get_conversation_session(session_id).await else {
             tracing::warn!(
                 session_id = %session_id,
-                "drain_announces_rest: session not found for task notifications"
+                "inject_task_notifications: session not found"
             );
             return;
         };
@@ -567,12 +580,9 @@ impl SessionMessageHandler {
             );
             cs_write.inject_system_message(text);
         }
-
-        // Inject running task summary so the agent sees active
-        // background tasks without querying individually.
         if !running_tasks.is_empty() {
             let mut text = String::from("[后台任务] 当前运行中的后台任务：");
-            for task in &running_tasks {
+            for task in running_tasks {
                 text.push_str(&format!(
                     "\n- {} (ID: {}, 已运行 {} 秒)",
                     task.command, task.task_id, task.elapsed_secs
