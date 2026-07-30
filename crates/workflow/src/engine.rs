@@ -134,13 +134,12 @@ impl WorkflowEngine {
             }
         }
 
-        // No transitions matched and no jump — block.
-        run.phase = Phase::Blocked;
+        // No transitions matched and no jump — error (not a blocked state).
         tracing::debug!(
             step = run.current_step,
-            "no transitions matched, entering blocked"
+            "no transitions matched, returning error"
         );
-        Ok(VerifyAction::Blocked)
+        Err(WorkflowError::NoMatchingTransition)
     }
 
     /// Handle an agent `workflow_jump` call.
