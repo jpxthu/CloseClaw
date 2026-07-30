@@ -103,7 +103,7 @@ pub(crate) struct TaskHandle {
 /// Manages the full lifecycle of background tasks.
 pub struct BackgroundTaskManager {
     tasks: TaskMap,
-    temp_dir: PathBuf,
+    pub(crate) temp_dir: PathBuf,
     notifications: Arc<Mutex<Vec<CompletionNotification>>>,
 }
 
@@ -614,6 +614,10 @@ fn make_public_task(
 #[cfg(test)]
 #[path = "background_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cleanup_finished_tests.rs"]
+mod cleanup_finished_tests;
 
 #[cfg(test)]
 #[path = "list_running_tasks_tests.rs"]

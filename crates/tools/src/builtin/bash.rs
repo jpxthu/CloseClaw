@@ -850,7 +850,7 @@ fn build_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult
     }
 }
 
-/// Build a [`ToolResult`] for an auto-backgrounded command (15s timeout).
+/// Build a [`ToolResult`] for an auto-backgrounded command.
 fn build_auto_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
     ToolResult {
         data: serde_json::json!({
