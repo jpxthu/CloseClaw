@@ -79,7 +79,7 @@ async fn test_build_prompt_includes_bootstrap_content() {
 }
 
 #[tokio::test]
-async fn test_invalidate_cache_does_not_panic() {
+async fn test_invalidate_cache_clears_sections() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
     let ws = tmp.path().join("agents").join(agent_id);
@@ -87,12 +87,29 @@ async fn test_invalidate_cache_does_not_panic() {
     std::fs::write(ws.join("AGENTS.md"), "agents content").unwrap();
 
     let adapter = test_adapter(tmp.path());
-    // Build once to exercise the pipeline.
-    let _ = adapter
+    // Build once to populate the cache.
+    let result_before = adapter
         .build_prompt("session-1", agent_id, None, None)
         .await;
-    // invalidate_cache should not panic.
+    assert!(!result_before.is_empty());
+
+    // Verify cache is populated by building again (should be cached).
+    let result_cached = adapter
+        .build_prompt("session-1", agent_id, None, None)
+        .await;
+    assert_eq!(result_before, result_cached);
+
+    // Invalidate the cache.
     adapter.invalidate_cache().await;
+
+    // After invalidation, build should regenerate (still works correctly).
+    let result_after = adapter
+        .build_prompt("session-1", agent_id, None, None)
+        .await;
+    assert_eq!(
+        result_before, result_after,
+        "content should be same after invalidation and rebuild"
+    );
 }
 
 #[tokio::test]

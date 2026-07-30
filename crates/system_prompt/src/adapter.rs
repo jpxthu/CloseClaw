@@ -39,6 +39,7 @@ impl SystemPromptBuilderAdapter {
     /// * `agent_registry` — shared agent config registry for bootstrap_mode lookup
     /// * `workspace_dir` — root workspace directory; per-agent paths are
     ///   derived as `{workspace_dir}/agents/{agent_id}`
+    #[cfg(test)]
     pub fn new(
         tool_registry: Arc<ToolRegistry>,
         agent_registry: Arc<RwLock<AgentRegistry>>,

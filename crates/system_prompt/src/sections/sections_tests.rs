@@ -64,9 +64,10 @@ fn test_load_cached_file_section_fresh() {
     let result2 = load_cached_file_section(&mut cache, "test", &file_path);
     assert_eq!(result2, Some("hello world".to_string()));
 
-    // Modify file — cache should be stale
-    // Sleep 1s to ensure mtime changes (filesystem mtime resolution is 1s)
-    std::thread::sleep(std::time::Duration::from_secs(1));
+    // Simulate staleness by manually inserting a cache entry with a stale mtime,
+    // then verify load_cached_file_section reloads the fresh content.
+    cache.invalidate("test");
+    cache.put("test", "stale content".to_string(), Some(0)); // mtime=0 is always stale
     std::fs::write(&file_path, "updated content").unwrap();
     let result3 = load_cached_file_section(&mut cache, "test", &file_path);
     assert_eq!(result3, Some("updated content".to_string()));

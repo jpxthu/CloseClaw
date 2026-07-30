@@ -46,22 +46,13 @@ impl PromptBuilder {
         agent_disallowed_tools: Option<Vec<String>>,
         session_mode: Option<SessionMode>,
     ) -> Self {
-        let mut providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
-            Box::new(BootstrapFragmentProvider::new()),
-            Box::new(ToolsFragmentProvider::new(
-                Arc::clone(&tool_registry),
-                agent_tools,
-                agent_disallowed_tools,
-                session_mode,
-            )),
-            Box::new(MemoryFragmentProvider::new()),
-        ];
-        providers.sort_by_key(|p| p.priority());
-
-        Self {
-            providers,
-            cache: Arc::new(RwLock::new(SectionCache::new())),
-        }
+        Self::new_with_cache(
+            tool_registry,
+            agent_tools,
+            agent_disallowed_tools,
+            session_mode,
+            Arc::new(RwLock::new(SectionCache::new())),
+        )
     }
 
     /// Create a builder with a shared cache instance.
@@ -104,7 +95,7 @@ impl PromptBuilder {
     /// before calling `generate()`, skips `None` results, concatenates
     /// fragments, and falls back to `DEFAULT_PROMPT` when no provider
     /// contributes.
-    pub async fn build(&mut self, ctx: &FragmentContext) -> String {
+    pub async fn build(&self, ctx: &FragmentContext) -> String {
         let mut fragments: Vec<String> = Vec::new();
 
         for provider in &self.providers {
@@ -112,11 +103,9 @@ impl PromptBuilder {
             if let Some(key) = provider.cache_key(ctx) {
                 let cache = self.cache.read().unwrap();
                 if let Some(cached) = cache.get(&key, None) {
-                    drop(cache);
                     fragments.push(cached);
                     continue;
                 }
-                drop(cache);
             }
 
             if let Some(fragment) = provider.generate(ctx).await {
@@ -259,7 +248,7 @@ pub async fn build_from_workspace_with_cache<P: AsRef<Path>>(
         .tool_registry
         .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
 
-    let mut builder = match shared_cache {
+    let builder = match shared_cache {
         Some(cache) => PromptBuilder::new_with_cache(
             tool_registry,
             config.agent_tools,
@@ -308,11 +297,6 @@ mod tests {
     use super::super::sections::Section;
     use super::*;
 
-    /// Clear cached sections to prevent cross-test pollution.
-    fn reset_sections() {
-        // No-op: cache is now instance-based per PromptBuilder
-    }
-
     #[test]
     fn test_prompt_overrides_default() {
         let overrides = PromptOverrides::default();
@@ -323,7 +307,6 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_renders_sections() {
-        reset_sections();
         let sections = vec![Section::MemorySection("memory content".to_string())];
         let result = build_system_prompt(sections, None);
         assert!(result.contains("memory content"));
@@ -331,7 +314,6 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_fallback_default() {
-        reset_sections();
         let sections = vec![];
         let result = build_system_prompt(sections, None);
         assert!(result.contains(DEFAULT_PROMPT));
@@ -339,7 +321,6 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_with_append() {
-        reset_sections();
         let sections = vec![Section::MemorySection("memory content".to_string())];
         let result = build_system_prompt(sections, Some("additional info".to_string()));
         assert!(result.contains("memory content"));
@@ -349,7 +330,6 @@ mod tests {
 
     #[test]
     fn test_build_append_section_appended() {
-        reset_sections();
         let sections = vec![Section::MemorySection("base".to_string())];
         let result = build_system_prompt(sections, Some("extra notes".to_string()));
         assert!(result.contains("base"));
@@ -358,7 +338,6 @@ mod tests {
 
     #[test]
     fn test_append_section_not_shown_when_empty() {
-        reset_sections();
         let sections = vec![Section::MemorySection("base".to_string())];
         let result = build_system_prompt(sections, None);
         assert!(!result.contains("## Append"));
@@ -366,7 +345,6 @@ mod tests {
 
     #[test]
     fn test_dynamic_sections_not_cached() {
-        reset_sections();
         let sections = vec![Section::ChannelContext {
             chat_name: "test".into(),
         }];
@@ -439,7 +417,7 @@ mod tests {
     #[tokio::test]
     async fn test_prompt_builder_build_fallback_default() {
         let tool_reg = Arc::new(ToolRegistry::new());
-        let mut builder = PromptBuilder::new(tool_reg, None, None, None);
+        let builder = PromptBuilder::new(tool_reg, None, None, None);
 
         // No bootstrap_dir → BootstrapFragmentProvider returns None
         // Empty tool registry → ToolsFragmentProvider returns None
@@ -456,7 +434,7 @@ mod tests {
         std::fs::write(tmp.path().join("MEMORY.md"), "remember X").unwrap();
 
         let tool_reg = Arc::new(ToolRegistry::new());
-        let mut builder = PromptBuilder::new(tool_reg, None, None, None);
+        let builder = PromptBuilder::new(tool_reg, None, None, None);
 
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_path_buf(),

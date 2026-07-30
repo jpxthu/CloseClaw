@@ -302,7 +302,7 @@ async fn build_from_mocks_with_cache(
 #[tokio::test]
 async fn test_prompt_builder_no_skill_listing_in_output() {
     let tool_reg = Arc::new(ToolRegistry::new());
-    let mut builder = PromptBuilder::new(tool_reg, None, None, None);
+    let builder = PromptBuilder::new(tool_reg, None, None, None);
     let ctx = FragmentContext::test_default();
     let result = builder.build(&ctx).await;
     assert!(
@@ -327,7 +327,6 @@ async fn test_prompt_builder_instance_isolation() {
     // Verify they have separate cache instances
     let cache_a = builder_a.shared_cache();
     let cache_b = builder_b.shared_cache();
-    assert!(Arc::ptr_eq(cache_a, cache_b) || !Arc::ptr_eq(cache_a, cache_b));
     // The key assertion: they are different Arc instances
     assert!(
         !Arc::ptr_eq(cache_a, cache_b),
