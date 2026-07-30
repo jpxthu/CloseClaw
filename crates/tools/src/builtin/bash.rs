@@ -757,8 +757,9 @@ async fn execute_foreground_command(
     }
 
     let bg_timeout = if auto_backgroundize_excluded(command) {
-        // Excluded commands: use agent timeout or default 120s
-        Duration::from_millis(agent_timeout_ms.unwrap_or(120_000))
+        // Excluded commands are never auto-backgrounded per design doc.
+        // Use cap timeout as safety net; agent timeout is ignored.
+        Duration::from_millis(AUTO_BG_TIMEOUT_CAP_MS)
     } else {
         // Non-excluded: agent timeout (capped) or system default 15s
         Duration::from_millis(

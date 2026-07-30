@@ -604,7 +604,7 @@ async fn test_failure_notification_summary_text() {
     let notifs = mgr.pending_notifications().await;
     assert_eq!(notifs.len(), 1);
     assert_eq!(
-        notifs[0].summary, "Background command 'false' completed",
+        notifs[0].summary, "Background command 'false' failed (exit code 1)",
         "failure summary should match the expected format"
     );
 }

@@ -545,7 +545,20 @@ async fn finalize_state(
             return;
         }
         h.notified = true;
-        let summary = format!("Background command '{}' completed", h.command);
+        let summary = match &new_state {
+            TaskState::Completed { .. } => {
+                format!("Background command '{}' completed", h.command)
+            }
+            TaskState::Failed { exit_code } => {
+                format!(
+                    "Background command '{}' failed (exit code {})",
+                    h.command, exit_code
+                )
+            }
+            TaskState::Killed | TaskState::Running { .. } => {
+                unreachable!("only Completed or Failed at this point")
+            }
+        };
         let notif = CompletionNotification {
             task_id: h.id.clone(),
             command: h.command.clone(),
