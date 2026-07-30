@@ -9,6 +9,7 @@
 //!
 //! Issue: #166
 
+pub mod adapter;
 pub mod builder;
 pub mod fragment;
 pub mod inject;

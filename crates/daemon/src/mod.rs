@@ -157,10 +157,9 @@ impl Daemon {
                 PermissionEngine,
                 SkillWatcher,
                 SpawnController,
-                SystemPromptBuilder,
                 ToolsRegistry,
             ],
-            vec![ApprovalFlow, SessionManager],
+            vec![ApprovalFlow, SessionManager, SystemPromptBuilder],
             vec![Gateway],
             vec![AdminRpcServer],
         ]
@@ -659,6 +658,31 @@ impl Daemon {
             gateway,
         };
         let config_watcher = registries::populate_registries(&ctx).await;
+
+        // Create SystemPromptBuilderAdapter and inject into SessionManager.
+        // This bridges the SystemPromptBuilder trait (used by ConversationSession
+        // for static-layer prompt construction) to the Provider-driven pipeline.
+        //
+        // AgentRegistry uses DashMap internally (interior mutability), but the
+        // adapter API requires Arc<std::sync::RwLock<AgentRegistry>> — snapshot
+        // the current configs into a new RwLock-wrapped registry.
+        let adapter_registry = {
+            let new_reg = closeclaw_agent::registry::AgentRegistry::new();
+            let configs: Vec<_> = agent_registry.iter().map(|e| e.value().clone()).collect();
+            new_reg.populate(configs);
+            Arc::new(std::sync::RwLock::new(new_reg))
+        };
+        let prompt_builder_adapter = Arc::new(
+            closeclaw_system_prompt::adapter::SystemPromptBuilderAdapter::new(
+                Arc::clone(tool_registry),
+                adapter_registry,
+                data_dir.to_path_buf(),
+            ),
+        ) as Arc<dyn closeclaw_common::SystemPromptBuilder>;
+        session_manager
+            .set_system_prompt_builder(prompt_builder_adapter)
+            .await;
+        info!("SystemPromptBuilder adapter injected into SessionManager");
 
         // Register SkillSlashHandler for all user-invocable skills.
         // Must happen after populate_registries so DiskSkillRegistry is loaded.
