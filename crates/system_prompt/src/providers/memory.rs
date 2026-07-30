@@ -3,13 +3,15 @@
 //! Reads `MEMORY.md` from the agent's working directory and wraps the
 //! content as a [`PromptFragment`].
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use async_trait::async_trait;
 use closeclaw_common::BootstrapMode;
 
 use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
-use crate::sections::load_cached_file_section;
+use crate::sections::read_file_section;
 
 /// Provider that contributes the long-term memory (`MEMORY.md`) to the
 /// system prompt. The file is read from the agent's working directory
@@ -73,7 +75,7 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
         }
 
         let memory_path = self.resolve_path(ctx);
-        let content = load_cached_file_section("memory", &memory_path)?;
+        let (content, _mtime) = read_file_section(&memory_path)?;
 
         if content.is_empty() {
             return None;
@@ -86,7 +88,9 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
         })
     }
 
-    /// File-backed — keyed by mtime so the builder can skip regeneration.
+    /// File-backed — keyed by path + mtime so the builder can skip
+    /// regeneration. The path hash ensures different workspaces with
+    /// identical mtime values produce distinct cache keys.
     fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
         let path = self.resolve_path(ctx);
         let meta = std::fs::metadata(&path).ok()?;
@@ -96,7 +100,9 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .ok()?
             .as_secs();
-        Some(format!("memory:{}", mtime))
+        let mut hasher = DefaultHasher::new();
+        path.to_string_lossy().hash(&mut hasher);
+        Some(format!("memory:{:x}:{}", hasher.finish(), mtime))
     }
 }
 
@@ -126,7 +132,6 @@ mod tests {
     #[serial_test::serial]
     #[tokio::test]
     async fn test_generate_empty_memory_file_returns_none() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("MEMORY.md"), "").unwrap();
         let provider = MemoryFragmentProvider::new();
@@ -140,7 +145,6 @@ mod tests {
     #[serial_test::serial]
     #[tokio::test]
     async fn test_generate_with_memory_content() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("MEMORY.md"), "Remember X and Y").unwrap();
         let provider = MemoryFragmentProvider::new();
@@ -176,9 +180,34 @@ mod tests {
             bootstrap_dir: tmp.path().to_path_buf(),
             ..FragmentContext::test_default()
         };
-        let key = provider.cache_key(&ctx);
-        assert!(key.is_some());
-        assert!(key.unwrap().starts_with("memory:"));
+        let key = provider.cache_key(&ctx).unwrap();
+        // Format: memory:<path_hash>:<mtime>
+        let parts: Vec<&str> = key.split(':').collect();
+        assert_eq!(parts[0], "memory");
+        assert_eq!(parts.len(), 3, "key should have 3 colon-separated parts");
+    }
+
+    #[test]
+    fn test_cache_key_unique_per_path() {
+        let tmp1 = tempfile::tempdir().unwrap();
+        let tmp2 = tempfile::tempdir().unwrap();
+        fs::write(tmp1.path().join("MEMORY.md"), "same content").unwrap();
+        fs::write(tmp2.path().join("MEMORY.md"), "same content").unwrap();
+        let provider = MemoryFragmentProvider::new();
+        let ctx1 = FragmentContext {
+            bootstrap_dir: tmp1.path().to_path_buf(),
+            ..FragmentContext::test_default()
+        };
+        let ctx2 = FragmentContext {
+            bootstrap_dir: tmp2.path().to_path_buf(),
+            ..FragmentContext::test_default()
+        };
+        let key1 = provider.cache_key(&ctx1).unwrap();
+        let key2 = provider.cache_key(&ctx2).unwrap();
+        // Different paths must produce different keys even with same
+        // mtime (mtime is not guaranteed identical here, but the path
+        // hash component will differ).
+        assert_ne!(key1, key2);
     }
 
     // --- with_path tests ---
@@ -192,7 +221,6 @@ mod tests {
     #[serial_test::serial]
     #[tokio::test]
     async fn test_generate_with_custom_relative_path() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         let custom_dir = tmp.path().join("memory");
         fs::create_dir_all(&custom_dir).unwrap();
@@ -210,7 +238,6 @@ mod tests {
     #[serial_test::serial]
     #[tokio::test]
     async fn test_generate_with_custom_absolute_path() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         let abs_path = tmp.path().join("absolute_MEMORY.md");
         fs::write(&abs_path, "Absolute path content").unwrap();
@@ -235,9 +262,10 @@ mod tests {
             bootstrap_dir: tmp.path().to_path_buf(),
             ..FragmentContext::test_default()
         };
-        let key = provider.cache_key(&ctx);
-        assert!(key.is_some());
-        assert!(key.unwrap().starts_with("memory:"));
+        let key = provider.cache_key(&ctx).unwrap();
+        let parts: Vec<&str> = key.split(':').collect();
+        assert_eq!(parts[0], "memory");
+        assert_eq!(parts.len(), 3);
     }
 
     #[test]
@@ -256,7 +284,6 @@ mod tests {
     #[serial_test::serial]
     #[tokio::test]
     async fn test_generate_minimal_mode_returns_none() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("MEMORY.md"), "Remember something").unwrap();
         let provider = MemoryFragmentProvider::new();
@@ -271,7 +298,6 @@ mod tests {
     #[serial_test::serial]
     #[tokio::test]
     async fn test_generate_full_mode_reads_memory() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("MEMORY.md"), "Full mode memory").unwrap();
         let provider = MemoryFragmentProvider::new();
@@ -301,7 +327,6 @@ mod tests {
     #[serial_test::serial]
     #[tokio::test]
     async fn test_generate_with_path_and_minimal_mode_returns_none() {
-        crate::sections::invalidate_all_sections();
         let tmp = tempfile::tempdir().unwrap();
         let abs_path = tmp.path().join("MEMORY.md");
         fs::write(&abs_path, "Should not be read").unwrap();

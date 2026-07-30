@@ -34,8 +34,7 @@ fn make_sm() -> Arc<SessionManager> {
 }
 
 /// Verify that /clear fires the cache_invalidator callback,
-/// which is responsible for clearing SECTION_CACHE via
-/// `invalidate_all_sections()`.
+/// which is responsible for clearing the shared SectionCache.
 #[tokio::test]
 async fn test_clear_fires_cache_invalidator_callback() {
     let sm = make_sm();

@@ -25,7 +25,7 @@ impl Daemon {
         let (startup_layers, _phase_components) = Self::resolve_startup_order()?;
         Self::log_startup_order(&startup_layers);
         let (config_manager, storage, data_dir) = Self::init_phase_1_foundation(config_dir)?;
-        let (agent_registry, skill_registry, tool_registry, skill_watcher) =
+        let (agent_registry, skill_registry, tool_registry, skill_watcher, shared_cache) =
             Self::init_phase_2_registries(config_dir).await?;
         let (gateway, session_manager, shutdown, dirty_sessions, slash_registry) =
             Self::init_phase_3_core_services(
@@ -71,6 +71,7 @@ impl Daemon {
                 approval_flow: &approval_flow,
                 gateway: &gateway,
                 slash_registry: &slash_registry,
+                shared_cache: &shared_cache,
             },
             &data_dir,
         )
