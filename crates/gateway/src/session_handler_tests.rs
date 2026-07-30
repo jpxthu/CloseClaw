@@ -13,8 +13,8 @@ use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::run_health::TranscriptOp;
 use closeclaw_tasks::{
-    BackgroundTask, BackgroundTaskError, CompletionNotification, NotificationPriority, TaskManager,
-    TaskState,
+    BackgroundTask, BackgroundTaskError, CompletionNotification, NotificationPriority,
+    RunningTaskInfo, TaskManager, TaskState,
 };
 
 /// Create a `SessionMessageHandler` with a mock LLM caller injected
@@ -282,6 +282,9 @@ impl TaskManager for MockTaskManager {
     }
     async fn drain_notifications(&self) -> Vec<CompletionNotification> {
         std::mem::take(&mut *self.notifications.lock().await)
+    }
+    async fn list_running_tasks(&self) -> Vec<RunningTaskInfo> {
+        vec![]
     }
     async fn cleanup_finished(&self) {
         // no-op for gateway tests

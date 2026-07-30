@@ -25,8 +25,8 @@ use chrono::Utc;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::llm_session::{AnnounceEvent, ChatSession};
 use closeclaw_tasks::{
-    BackgroundTask, BackgroundTaskError, CompletionNotification, NotificationPriority, TaskManager,
-    TaskState,
+    BackgroundTask, BackgroundTaskError, CompletionNotification, NotificationPriority,
+    RunningTaskInfo, TaskManager, TaskState,
 };
 use serial_test::serial;
 use std::collections::HashSet;
@@ -981,6 +981,10 @@ impl TaskManager for MockTaskManager {
 
     async fn drain_notifications(&self) -> Vec<CompletionNotification> {
         std::mem::take(&mut *self.notifications.lock().unwrap())
+    }
+
+    async fn list_running_tasks(&self) -> Vec<RunningTaskInfo> {
+        vec![]
     }
 
     async fn cleanup_finished(&self) {}
