@@ -16,10 +16,13 @@ Session 模块为用户提供 Agent 对话上下文的持久化、可恢复与�
 > **交叉引用**：新 session 由 `/new` 指令触发创建，详见 [slash §F3](slash.md)。
 - 归档的 session 被访问时自动恢复，恢复时用户收到「正在恢复会话…」提示，恢复后 Agent 看到的 system prompt 从最新配置文件重建
 - 系统重启时，自动扫描所有活跃 session，对有未完成操作的 session 注入恢复通知。崩溃前未发送的出站消息自动重投递
-- 
+
+
 ### F2. Agent 角色与能力配置
 
-Session 创建、归档恢复、对话压缩完成时，触发 Agent 的 system prompt 重新注入，注入内容反映当前最新的 bootstrap 文件、Skill 和工具定义。
+Session 重建时触发 Agent 的 system prompt 重新注入，注入内容反映当前最新的 bootstrap 文件、Skill 和工具定义。
+
+> **交叉引用**：完整触发事件清单与缓存失效策略详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 > **交叉引用**：技能清单的格式和热重载机制详见 [skills §F4](skills.md)（技能清单）、[skills §F5](skills.md)（热重载）。
 
 - 用户追加的 system prompt 自定义指令持久化保存，归档恢复后完整保留，不参与对话压缩
@@ -54,7 +57,7 @@ Agent 可以将子任务委托给其他 Agent（子 session），并等待结果
 - Agent 通过 sessions_yield 主动暂停当前对话，等待所有子 Agent 完成后再恢复
 - Agent 通过 sessions_steer 向已有子 session 发送新任务
 - Agent 通过 sessions_kill 终止子 session（级联终止该子 session 及其所有后代）
-- 子 Agent 完成后，结果通过消息队列注入父 Agent 的对话流。Agent 不需要轮询子 Agent 状态
+- 子 Agent 完成后结果由消息队列自动注入父 Agent（带去重保护），详见 [session §F9](session.md#f9-消息注入)。Agent 不需要轮询子 Agent 状态
 - 当前 session 及所有子 session 可被终止，级联生效
 
 > **交叉引用**：`/stop` 指令触发 session 终止，详见 [slash §F3](slash.md)。
@@ -66,25 +69,47 @@ Agent 可以将子任务委托给其他 Agent（子 session），并等待结果
 
 用户控制 LLM 调用的推理深度，Agent 的回复实时流式推送给用户。
 
-- 推理深度支持四档（Low / Medium / High / Max）和 off 状态。运行时设置优先级高于全局配置默认值
+- Session 维护当前生效的推理深度作为运行时状态
 
-> **交叉引用**：推理深度的查询与设置由 `/reasoning` 指令完成，详见 [slash §F10](slash.md)。
-- 模型不支持的推理档位自动降级到支持的最接近档位
+> **交叉引用**：推理深度档位定义、默认值、优先级和模型能力降级策略详见 [llm §F4](llm.md)（推理强度控制）。运行时设置由 `/reasoning` 指令完成，详见 [slash §F10](slash.md)。
 - 流式输出：Agent 回复经出站管道实时渲染后逐步呈现给用户。流式响应出错时，已渲染给用户的内容保留可见，不完整回复不写入消息历史
 - Thinking 内容在流式渲染时省略，但保留在消息历史中供后续轮次参考
 - Thinking 内容的显示行为可被用户覆盖
 
 > **交叉引用**：`/verbose` 指令控制信息展示等级，详见 [slash §F11](slash.md)。
 
+### F11. Session 活跃维度
+
+Session 在任意时刻可以同时处于多个活跃维度，每个维度是一个布尔标志。活跃维度由 session 运行时维护，不进入持久化。
+
+- **llm_active**：LLM 正在推理或流式输出
+- **foreground_tool_active**：Agent 调用了工具并等待其返回结果以继续推理（同步调用）
+- **background_tool_active**：Agent 异步发出了工具调用，不阻塞当前推理流程
+- **child_active**：Session 有未完成的子 session（已 spawn 但未完成/未终止）
+
+基于活跃维度，session 有以下复合状态：
+
+- **idle**：llm_active 和 foreground_tool_active 均为 false——session 可以立即接收新用户消息，消息分派规则见 F10
+- **inactive**：所有活跃维度均为 false，且距上次用户活动超过配置的 inactive 时长——触发归档判定，详见 F6
+
+活跃维度由各消费方按需使用：
+
+- 用户消息分派：idle 时直接分派；非 idle 时的阻塞规则见 F10
+- 归档判定：inactive 时触发归档，详见 F6
+- Workflow 验收：任一活跃维度为 true 时不注入验收清单
+
+> **交叉引用**：Workflow 对 session 活跃维度的使用详见 [workflow §F3](workflow.md)。
+
 ### F6. 会话归档与清理
 
-闲置的会话自动归档，过期归档自动清理，用户无需手动管理。
+inactive 的会话自动归档，过期归档自动清理，用户无需手动管理。
 
-- 超过配置空闲时间的 session 自动归档：标记 archived 状态，从活跃路由中移除
+- inactive 的 session 自动归档：标记为归档（archived）状态，从活跃路由中移除
+- inactive 判定依据 session 活跃维度（详见 F11）：所有活跃维度均为 false，且距上次用户活动超过配置的 inactive 时长
 - 已归档超过配置清理时间的 session 彻底删除（元数据 + 对话记录）
-- 每个 Agent 可独立配置空闲时间和清理时间，主 Agent 与子 Agent 分别设置
-- 未配置时按默认配置（空闲 30 分钟归档、清理永不过期）
-- 归档前检查 session 是否有未完成操作，有则跳过本次归档
+- 每个 Agent 可独立配置 inactive 时长和清理时间，主 Agent 与子 Agent 可以分别设置
+- 未配置时按默认配置（inactive 30 分钟归档、清理永不过期）
+- 归档前检查 session 是否有活跃维度为 true，有则跳过本次归档
 - 系统对活跃 session 和文件系统做双向一致性校验——有元数据无对话记录视为损坏并清理，有对话记录无元数据视为孤儿文件并清理
 
 ### F7. 运行健康与安全
@@ -117,9 +142,11 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 
 ### F10. 消息排队
 
-当 Agent 正在执行操作时，任何来源的消息自动排队等待处理。
+用户消息按以下阻塞规则分派。idle 的定义见 F11。
 
-- Agent 忙碌时，所有消息进入 FIFO 等待队列，空闲后按序分派处理
+- llm_active 或 foreground_tool_active 时：用户消息进入 FIFO 等待队列。LLM 推理结束后注入；前台工具结果返回后与用户消息一起注入
+- background_tool_active 或 child_active 时：用户消息立即注入——session 有其他机制（后台工具完成通知、子 session 完成通知）提醒 Agent 还有后台任务待处理，Agent 自行判断如何应对
+- 非用户消息（子 session 完成通知、后台工具结果、记忆注入等）与用户消息遵循相同的阻塞规则：llm_active 或 foreground_tool_active 时进入等待队列（排在用户消息前面），background_tool_active 或 child_active 时立即注入
 
 > **交叉引用**：斜杠指令的排队/立即语义由 Gateway 路由决策决定，详见 [gateway §F5](gateway.md)。
 
@@ -141,5 +168,5 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 - **可靠性**：对话记录不能因系统重启或异常崩溃而丢失。正在执行的操作在崩溃后能被识别和通知
 - **可恢复性**：系统重启后，所有活跃 session 应在秒级完成扫描和恢复
 - **性能**：Agent 的回复应在流式模式下实时逐字展示，首 token 延迟不受 session 管理开销影响。后台维护任务（归档清理）不应影响用户对话的响应延迟
-- **可配置性**：每个 Agent 的会话空闲时间、归档清理周期可独立配置，主/子 Agent 分别设置
+- **可配置性**：每个 Agent 的 inactive 时长、归档清理周期可独立配置，主/子 Agent 分别设置
 - **可观测性**：用户可以查看跨轮次的 token 消耗统计和缓存命中率
