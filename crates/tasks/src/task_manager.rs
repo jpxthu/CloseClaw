@@ -5,6 +5,20 @@
 
 use crate::{BackgroundTask, BackgroundTaskError, CompletionNotification};
 
+/// Lightweight summary of a currently running background task.
+///
+/// Returned by [`TaskManager::list_running_tasks`] so the caller
+/// can inject a running-task digest without querying individual tasks.
+#[derive(Debug, Clone)]
+pub struct RunningTaskInfo {
+    /// Unique identifier of the background task.
+    pub task_id: String,
+    /// The original shell command.
+    pub command: String,
+    /// Seconds elapsed since the task was created.
+    pub elapsed_secs: u64,
+}
+
 /// Trait for managing background tasks.
 ///
 /// Implemented by [`BackgroundTaskManager`](crate::BackgroundTaskManager);
@@ -41,6 +55,12 @@ pub trait TaskManager: Send + Sync {
 
     /// Get a background task by ID.
     async fn get_task(&self, task_id: &str) -> Option<BackgroundTask>;
+
+    /// List all currently running background tasks.
+    ///
+    /// Returns a snapshot of tasks in the [`TaskState::Running`] state,
+    /// each summarised as a [`RunningTaskInfo`].
+    async fn list_running_tasks(&self) -> Vec<RunningTaskInfo>;
 
     /// Drain all pending completion notifications.
     async fn drain_notifications(&self) -> Vec<CompletionNotification>;

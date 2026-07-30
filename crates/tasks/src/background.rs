@@ -355,6 +355,19 @@ impl crate::TaskManager for BackgroundTaskManager {
         self.get_task(task_id).await
     }
 
+    async fn list_running_tasks(&self) -> Vec<crate::task_manager::RunningTaskInfo> {
+        // Full implementation (with created_at / elapsed_secs) in Step 1.2.
+        let map = lock_map(&self.tasks).await;
+        map.values()
+            .filter(|h| matches!(h.state, TaskState::Running { .. }))
+            .map(|h| crate::task_manager::RunningTaskInfo {
+                task_id: h.id.clone(),
+                command: h.command.clone(),
+                elapsed_secs: 0,
+            })
+            .collect()
+    }
+
     async fn drain_notifications(&self) -> Vec<CompletionNotification> {
         self.pending_notifications().await
     }
