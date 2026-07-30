@@ -54,7 +54,7 @@
 - **CredentialsProvider**：按供应商分文件加载 `credentials/` 目录下的凭据，运行时根据 models 等业务配置中的供应商引用按需注入凭据值。加载失败不阻塞 daemon 启动，仅影响需要该供应商的功能。
 - **凭据分离**：credentials 作为 config 子目录，按供应商分文件存储敏感凭据，与业务配置物理隔离。models 等业务配置只引用供应商名称（以及可选的 api_key 字段作为凭据引用键），凭据由 CredentialsProvider 查表注入实际值。凭据文件创建时设置仅 Owner 可读的文件系统权限。
 - **AgentsConfigProvider**：管理 Agent 注册清单（`config/agents.json`），一个显式的 Agent ID 列表。只列出已显式注册的 ID，不在列表中的 Agent 即使目录存在也不加载。支持 JSONC 格式，注释掉某行即取消注册。
-- **AgentDirectoryProvider**：根据注册清单中的 ID，扫描 `agents/` 目录加载每个 Agent 的 `config.json` 和 `permissions.json`。支持多级加载（项目级优先于用户级），同 ID 的配置进行字段级覆盖合并。仅加载注册清单中列出的 ID，目录中存在但未被注册的 Agent 配置会被忽略。
+- **AgentDirectoryProvider**：根据注册清单中的 ID，扫描 `agents/` 目录加载每个 Agent 的 `config.json`。支持多级加载（项目级优先于用户级），同 ID 的配置进行字段级覆盖合并。仅加载注册清单中列出的 ID，目录中存在但未被注册的 Agent 配置会被忽略。
 
   AgentDirectoryProvider 独立于 ConfigProvider 体系——它不实现 ConfigProvider 接口，由 ConfigManager 直接持有和调用。启动时从 AgentsConfigProvider 获取注册清单，扫描 agents/ 目录完成多级加载和字段合并。热重载时在收到 agents.json 变更通知后重新扫描。
 
@@ -89,7 +89,7 @@ Config 模块启动时
   ↓
 AgentDirectoryProvider 读取注册清单
   ├─ 扫描 agents/ 目录（用户级 + 项目级）
-  ├─ 对每个注册 ID，加载 config.json + permissions.json
+  ├─ 对每个注册 ID，加载 config.json
   ├─ 字段级覆盖合并（项目 > 用户）
   └─ 补齐默认值 → 生成 ResolvedAgentConfig[]（字段定义见 agent/agent-config.md）
   ↓
@@ -106,8 +106,7 @@ Daemon 正常运行，热重载监听器后台运行
 取 ID 并集，仅加载清单中列出的 ID
   ↓
 对每个注册 ID：
-  ├─ 优先加载项目级 agents/<id>/config.json（不存在回退用户级）
-  └─ agents/<id>/permissions.json 同优先级独立加载
+  └─ 优先加载项目级 agents/<id>/config.json（不存在回退用户级）
   ↓
 字段级覆盖合并（项目 > 用户）
   ↓
