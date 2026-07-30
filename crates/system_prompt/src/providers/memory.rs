@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use closeclaw_common::BootstrapMode;
 
 use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
 use crate::sections::load_cached_file_section;
@@ -63,10 +64,14 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
     }
 
     fn priority(&self) -> u32 {
-        4
+        3
     }
 
     async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
+        if ctx.bootstrap_mode == BootstrapMode::Minimal {
+            return None;
+        }
+
         let memory_path = self.resolve_path(ctx);
         let content = load_cached_file_section("memory", &memory_path)?;
 
@@ -104,7 +109,7 @@ mod tests {
     fn test_provider_name_and_priority() {
         let provider = MemoryFragmentProvider::new();
         assert_eq!(provider.name(), "memory");
-        assert_eq!(provider.priority(), 4);
+        assert_eq!(provider.priority(), 3);
     }
 
     #[tokio::test]
