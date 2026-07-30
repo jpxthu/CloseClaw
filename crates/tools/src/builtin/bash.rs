@@ -56,6 +56,11 @@ enum ForegroundOutcome {
 /// Auto-backgroundize timeout (15 seconds).
 const AUTO_BG_TIMEOUT_MS: u64 = 15_000;
 
+/// Maximum auto-backgroundize timeout an agent may request (2 minutes).
+/// Prevents agents from setting excessively long timeouts that would
+/// defeat the auto-backgroundize mechanism.
+const AUTO_BG_TIMEOUT_CAP_MS: u64 = 120_000;
+
 /// Shell command execution tool.
 ///
 /// Receives a command string plus optional parameters (timeout, cwd,
@@ -200,13 +205,14 @@ fn truncate_summary(command: &str) -> String {
 }
 
 /// Parse and clamp the `timeout` parameter. Default 120 000 ms, max 600 000 ms.
-fn parse_timeout(args: &Value) -> u64 {
-    let raw = args
-        .get("timeout")
-        .and_then(Value::as_f64)
-        .unwrap_or(120_000.0);
+///
+/// Returns `Some(ms)` when the agent explicitly provides a timeout,
+/// or `None` when no timeout is specified (allowing callers to use
+/// their own defaults).
+fn parse_timeout(args: &Value) -> Option<u64> {
+    let raw = args.get("timeout").and_then(Value::as_f64)?;
     let ms = raw.max(0.0) as u64;
-    ms.min(600_000)
+    Some(ms.min(600_000))
 }
 
 /// Resolve the working directory for the subprocess.
@@ -723,7 +729,7 @@ async fn execute_background_command(
 async fn execute_foreground_command(
     command: &str,
     cwd: &str,
-    timeout_ms: u64,
+    agent_timeout_ms: Option<u64>,
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
     session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
     call_id: Option<&str>,
@@ -751,9 +757,15 @@ async fn execute_foreground_command(
     }
 
     let bg_timeout = if auto_backgroundize_excluded(command) {
-        Duration::from_millis(timeout_ms)
+        // Excluded commands: use agent timeout or default 120s
+        Duration::from_millis(agent_timeout_ms.unwrap_or(120_000))
     } else {
-        Duration::from_millis(AUTO_BG_TIMEOUT_MS)
+        // Non-excluded: agent timeout (capped) or system default 15s
+        Duration::from_millis(
+            agent_timeout_ms
+                .map(|ms| ms.min(AUTO_BG_TIMEOUT_CAP_MS))
+                .unwrap_or(AUTO_BG_TIMEOUT_MS),
+        )
     };
 
     let outcome =
@@ -780,7 +792,7 @@ async fn execute_foreground_command(
 async fn execute_command(
     command: &str,
     cwd: &str,
-    timeout_ms: u64,
+    agent_timeout_ms: Option<u64>,
     run_in_background: bool,
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
     session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
@@ -794,7 +806,7 @@ async fn execute_command(
     let (outcome, registered_call_id) = execute_foreground_command(
         command,
         cwd,
-        timeout_ms,
+        agent_timeout_ms,
         bg_manager,
         session,
         call_id,
