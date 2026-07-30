@@ -19,6 +19,7 @@ pub mod prompt_template;
 pub mod search;
 pub mod skill_creator;
 pub mod skill_tool;
+pub mod workflow_tools;
 
 pub use bash::BashTool;
 pub use coding_agent::CodingAgentTool;
@@ -30,6 +31,9 @@ pub use progress::ProgressTool;
 pub use search::ToolSearchTool;
 pub use skill_creator::SkillCreatorTool;
 pub use skill_tool::SkillTool;
+pub use workflow_tools::{
+    WorkflowBlockedTool, WorkflowJumpTool, WorkflowStartTool, WorkflowVerifyTool,
+};
 
 #[cfg(test)]
 mod execute_plan_tests;
