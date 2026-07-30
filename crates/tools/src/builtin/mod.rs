@@ -39,6 +39,9 @@ pub use workflow_tools::{
 mod execute_plan_tests;
 
 #[cfg(test)]
+mod workflow_tools_tests;
+
+#[cfg(test)]
 mod prompt_template_tests;
 
 #[cfg(test)]
