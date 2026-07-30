@@ -288,14 +288,29 @@ mod tests {
         assert_eq!(frag.content, "Full mode memory");
     }
 
-    #[test]
-    fn test_generate_no_workspace_dir_returns_none() {
+    #[tokio::test]
+    async fn test_generate_no_workspace_dir_returns_none() {
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
             bootstrap_dir: PathBuf::from("/nonexistent/path/to/workspace"),
             ..FragmentContext::test_default()
         };
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        assert!(rt.block_on(provider.generate(&ctx)).is_none());
+        assert!(provider.generate(&ctx).await.is_none());
+    }
+
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_generate_with_path_and_minimal_mode_returns_none() {
+        crate::sections::invalidate_all_sections();
+        let tmp = tempfile::tempdir().unwrap();
+        let abs_path = tmp.path().join("MEMORY.md");
+        fs::write(&abs_path, "Should not be read").unwrap();
+        let provider = MemoryFragmentProvider::with_path(&abs_path);
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_mode: BootstrapMode::Minimal,
+            ..FragmentContext::test_default()
+        };
+        assert!(provider.generate(&ctx).await.is_none());
     }
 }
