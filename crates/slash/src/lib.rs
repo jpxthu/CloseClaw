@@ -33,6 +33,9 @@ mod handlers_tests;
 mod handlers_tests_new;
 
 #[cfg(test)]
+mod handlers_clear_cache_tests;
+
+#[cfg(test)]
 mod handlers_tests_legacy;
 
 #[cfg(test)]
