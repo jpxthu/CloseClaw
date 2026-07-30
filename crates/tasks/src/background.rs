@@ -103,7 +103,7 @@ pub(crate) struct TaskHandle {
 /// Manages the full lifecycle of background tasks.
 pub struct BackgroundTaskManager {
     tasks: TaskMap,
-    temp_dir: PathBuf,
+    pub(crate) temp_dir: PathBuf,
     notifications: Arc<Mutex<Vec<CompletionNotification>>>,
 }
 
@@ -370,7 +370,10 @@ impl crate::TaskManager for BackgroundTaskManager {
     }
 
     async fn drain_notifications(&self) -> Vec<CompletionNotification> {
-        self.pending_notifications().await
+        let mut notifications = self.pending_notifications().await;
+        // Sort by priority descending: Now > Next > Later
+        notifications.sort_by(|a, b| b.priority.cmp(&a.priority));
+        notifications
     }
 
     async fn cleanup_finished(&self) {
@@ -611,6 +614,10 @@ fn make_public_task(
 #[cfg(test)]
 #[path = "background_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cleanup_finished_tests.rs"]
+mod cleanup_finished_tests;
 
 #[cfg(test)]
 #[path = "list_running_tasks_tests.rs"]

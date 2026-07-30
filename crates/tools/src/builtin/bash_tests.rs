@@ -97,6 +97,9 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
     async fn drain_notifications(&self) -> Vec<closeclaw_tasks::CompletionNotification> {
         vec![]
     }
+    async fn list_running_tasks(&self) -> Vec<closeclaw_tasks::RunningTaskInfo> {
+        vec![]
+    }
     async fn cleanup_finished(&self) {}
 }
 
@@ -191,25 +194,25 @@ fn test_persist_output_cleans_up() {
 #[test]
 fn test_parse_timeout_default() {
     let args = serde_json::json!({});
-    assert_eq!(parse_timeout(&args), 120_000);
+    assert_eq!(parse_timeout(&args), None);
 }
 
 #[test]
 fn test_parse_timeout_custom() {
     let args = serde_json::json!({"timeout": 5000});
-    assert_eq!(parse_timeout(&args), 5000);
+    assert_eq!(parse_timeout(&args), Some(5_000));
 }
 
 #[test]
 fn test_parse_timeout_clamped() {
     let args = serde_json::json!({"timeout": 900_000});
-    assert_eq!(parse_timeout(&args), 600_000);
+    assert_eq!(parse_timeout(&args), Some(600_000));
 }
 
 #[test]
 fn test_parse_timeout_zero() {
     let args = serde_json::json!({"timeout": 0});
-    assert_eq!(parse_timeout(&args), 0);
+    assert_eq!(parse_timeout(&args), Some(0));
 }
 
 // --- resolve_cwd ---
@@ -410,7 +413,7 @@ async fn test_execute_command_run_in_background_returns_background_task() {
     let result = execute_command(
         "echo run_in_bg",
         tmp.path().to_str().unwrap(),
-        5_000,
+        Some(5_000),
         true,
         &bg_trait,
         None,
@@ -477,7 +480,7 @@ async fn test_execute_command_run_in_background_with_long_command() {
     let result = execute_command(
         "nonexistent_xyz_abcdef_12345",
         tmp.path().to_str().unwrap(),
-        5_000,
+        Some(5_000),
         true,
         &bg_trait,
         None,
