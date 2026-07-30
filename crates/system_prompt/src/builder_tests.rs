@@ -310,3 +310,27 @@ async fn test_prompt_builder_no_skill_listing_in_output() {
         "system prompt should not contain skill listing after migration to per-turn injection"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Step 1.5: PromptBuilder isolation tests
+// ---------------------------------------------------------------------------
+
+/// Two independent PromptBuilder instances have separate caches.
+/// Modifying one builder's cache does not affect the other.
+#[tokio::test]
+async fn test_prompt_builder_instance_isolation() {
+    let tool_reg_a = Arc::new(ToolRegistry::new());
+    let tool_reg_b = Arc::new(ToolRegistry::new());
+    let builder_a = PromptBuilder::new(tool_reg_a, None, None, None);
+    let builder_b = PromptBuilder::new(tool_reg_b, None, None, None);
+
+    // Verify they have separate cache instances
+    let cache_a = builder_a.shared_cache();
+    let cache_b = builder_b.shared_cache();
+    assert!(Arc::ptr_eq(cache_a, cache_b) || !Arc::ptr_eq(cache_a, cache_b));
+    // The key assertion: they are different Arc instances
+    assert!(
+        !Arc::ptr_eq(cache_a, cache_b),
+        "two PromptBuilder instances must have separate SectionCache instances"
+    );
+}
