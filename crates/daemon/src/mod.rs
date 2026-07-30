@@ -223,7 +223,7 @@ impl Daemon {
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
         info!("Agent registry initialized");
         let (skill_registry, skill_watcher) =
-            skill_reload::init_skill_hot_reload(config_dir).await?;
+            skill_reload::init_skill_hot_reload(config_dir, None).await?;
         let tool_registry = Arc::new(ToolRegistry::new());
         Ok((agent_registry, skill_registry, tool_registry, skill_watcher))
     }
