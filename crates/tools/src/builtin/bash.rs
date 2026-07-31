@@ -28,6 +28,7 @@ use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -318,6 +319,7 @@ async fn auto_backgroundize_foreground(
 async fn read_pipe_incremental<R>(
     pipe: Option<R>,
     mut cancel: tokio::sync::watch::Receiver<bool>,
+    progress: Option<&Arc<(AtomicUsize, AtomicUsize)>>,
 ) -> (String, usize, usize)
 where
     R: tokio::io::AsyncRead + Unpin,
@@ -336,9 +338,14 @@ where
                     Ok(0) => break,
                     Ok(n) => {
                         let chunk = String::from_utf8_lossy(&buf[..n]);
-                        total_lines += chunk.lines().count();
+                        let lines = chunk.lines().count();
+                        total_lines += lines;
                         total_bytes += n;
                         output.push_str(&chunk);
+                        if let Some(counters) = progress {
+                            counters.0.fetch_add(lines, Ordering::Relaxed);
+                            counters.1.fetch_add(n, Ordering::Relaxed);
+                        }
                     }
                     Err(_) => break,
                 }
@@ -361,10 +368,11 @@ async fn read_with_progress(
 ) -> (String, String, usize, usize) {
     let start_time = std::time::Instant::now();
     let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+    let progress = Arc::new((AtomicUsize::new(0), AtomicUsize::new(0)));
 
-    // Spawn progress reporting task.
     let progress_session = session.map(Arc::clone);
     let progress_call_id = call_id.map(str::to_string);
+    let progress_counters = Arc::clone(&progress);
     let mut progress_rx = cancel_rx.clone();
     let progress_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_millis(PROGRESS_INTERVAL_MS));
@@ -380,8 +388,8 @@ async fn read_with_progress(
                             s.report_tool_progress(
                                 cid,
                                 ToolProgress {
-                                    lines: 0,
-                                    bytes: 0,
+                                    lines: progress_counters.0.load(Ordering::Relaxed),
+                                    bytes: progress_counters.1.load(Ordering::Relaxed),
                                     elapsed,
                                 },
                             )
@@ -394,22 +402,19 @@ async fn read_with_progress(
         }
     });
 
-    // Read both pipes concurrently (clone receiver for each future).
     let (stdout_result, stderr_result) = tokio::join!(
-        read_pipe_incremental(stdout_handle, cancel_rx.clone()),
-        read_pipe_incremental(stderr_handle, cancel_rx),
+        read_pipe_incremental(stdout_handle, cancel_rx.clone(), Some(&progress)),
+        read_pipe_incremental(stderr_handle, cancel_rx, Some(&progress)),
     );
     let (stdout_raw, s_lines, s_bytes) = stdout_result;
     let (stderr_raw, e_lines, e_bytes) = stderr_result;
 
-    // Cancel progress reporting.
     let _ = cancel_tx.send(true);
     let _ = progress_handle.await;
 
     let total_lines = s_lines + e_lines;
     let total_bytes = s_bytes + e_bytes;
 
-    // Final progress report with actual output stats.
     if let (Some(s), Some(cid)) = (session, call_id) {
         let elapsed = start_time.elapsed();
         s.report_tool_progress(
@@ -985,13 +990,11 @@ fn build_manual_background_result(task: &closeclaw_tasks::BackgroundTask) -> Too
 }
 
 #[cfg(test)]
-#[path = "bash_tests.rs"]
-mod tests;
-
-#[cfg(test)]
 #[path = "bash_approval_tests.rs"]
 mod approval_tests;
-
+#[cfg(test)]
+#[path = "bash_tests.rs"]
+mod tests;
 #[cfg(test)]
 #[path = "bash_timeout_tests.rs"]
 mod timeout_tests;
