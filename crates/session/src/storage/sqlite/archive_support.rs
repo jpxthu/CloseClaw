@@ -497,7 +497,7 @@ pub fn list_idle_sessions_for_agent_inner(
         .prepare(
             "SELECT id FROM sessions \
              WHERE agent_id = ?1 AND role = ?2 AND status = 'active' \
-             AND last_message_at < ?3",
+             AND COALESCE(last_user_activity_at, last_message_at) < ?3",
         )
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
     let ids: Vec<String> = stmt
