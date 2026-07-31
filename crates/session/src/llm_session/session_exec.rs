@@ -185,8 +185,14 @@ impl ConversationSession {
     }
 
     /// Computes the overall session execution status by combining the
-    /// three dimensions. Lock acquisition order is **always**
-    /// LLM → Tool → Child to avoid potential deadlocks.
+    /// three dimensions (LLM / foreground tool / background tool)
+    /// plus the yielding flag. Lock acquisition order is **always**
+    /// LLM → Tool to avoid potential deadlocks.
+    ///
+    /// Per `docs/design/session/session-execution.md`:
+    /// - `child_active` does NOT affect idle/Busy determination.
+    /// - `Waiting` is only returned when the session is actively yielding
+    ///   (`is_yielding=true`) with no LLM or foreground tool activity.
     pub fn exec_status(&self) -> SessionExecStatus {
         // 1. LLM dimension.
         let llm = self.llm_state.read().expect("llm_state lock poisoned");
@@ -212,15 +218,10 @@ impl ConversationSession {
             .any(|(s, _)| matches!(s, ToolExecState::RunningBackground));
         drop(tools);
 
-        // 3. Child session dimension.
-        let children = self
-            .child_states
-            .read()
-            .expect("child_states lock poisoned");
-        if children
-            .values()
-            .any(|(s, _)| matches!(s, ChildSessionState::Running))
-        {
+        // 3. Yielding dimension.
+        //    When the session is actively yielding (agent called sessions_yield),
+        //    return Waiting — child_active does NOT cause Waiting.
+        if self.is_waiting() {
             return SessionExecStatus::Waiting;
         }
 
