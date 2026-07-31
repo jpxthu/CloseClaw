@@ -15,6 +15,7 @@ mod manual_background_tests;
 mod memory_injection_dedup_tests;
 mod rebuild_system_prompt_tests;
 mod recent_tool_calls_tests;
+mod session_exec_tests;
 mod session_llm_tests;
 mod skill_listing_incremental_tests;
 mod skill_listing_tests;
@@ -22,6 +23,7 @@ mod step1_4_behavior_tests;
 mod stop_tests;
 mod streaming_tests;
 mod system_appends_tests;
+mod unified_queue_tests;
 mod waiting_state_tests;
 
 // ── pending_messages queue ──────────────────────────────────────────────────

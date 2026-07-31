@@ -948,6 +948,10 @@ pub fn tmp_path() -> std::path::PathBuf {
     tempfile::tempdir().unwrap().into_path()
 }
 #[cfg(test)]
+mod session_exec_tests;
+#[cfg(test)]
+mod session_pending_queue_tests;
+#[cfg(test)]
 mod streaming_assembly_tests;
 #[cfg(test)]
 mod tests;

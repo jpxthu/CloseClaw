@@ -460,3 +460,129 @@ async fn test_yield_warning_disabled_only_hard_timeout_fires() {
     assert!(!has_warning, "warning notification should NOT be present");
     assert!(has_timeout, "timeout notification should be present");
 }
+
+// ── 10. Yield instant injection: is_session_busy returns false during yield ─
+
+/// Per design doc §Yield 机制: yield 后 llm_active 和
+/// foreground_tool_active 均为 false → session 为 idle → 用户消息
+/// 立即注入，不排队。
+///
+/// `is_session_busy` delegates to `exec_status() == Busy`. During
+/// yield, `exec_status()` returns `Waiting` (not `Busy`), so
+/// `is_session_busy` returns `false` — messages flow through the
+/// normal injection path.
+#[tokio::test]
+#[serial]
+async fn test_yield_session_not_busy_allows_instant_injection() {
+    clear_global_prompt_state();
+
+    let mgr = Arc::new(make_test_mgr(None));
+    let parent_id = setup_parent_with_conv(&mgr, "parent-yii").await;
+
+    // Enter Waiting (yield state).
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        cs.read().await.enter_waiting();
+    }
+
+    // is_session_busy must be false — allows direct injection.
+    assert!(
+        !mgr.is_session_busy(&parent_id).await,
+        "is_session_busy must return false during yield (Waiting state)",
+    );
+
+    // Cleanup.
+    mgr.cancel_yield_timeout(&parent_id).await;
+}
+
+// ── 11. Yield + child running → still not busy ─────────────────────────────
+
+/// Even with child sessions active, yield state means the session
+/// is not busy — user messages are injected immediately.
+#[tokio::test]
+#[serial]
+async fn test_yield_with_child_not_busy() {
+    clear_global_prompt_state();
+
+    let mgr = Arc::new(make_test_mgr(None));
+    let parent_id = setup_parent_with_conv(&mgr, "parent-yic").await;
+
+    // Spawn a child.
+    let _child_id = mgr
+        .create_child_session(
+            &test_resolved_config("worker-yic", None),
+            &parent_id,
+            1,
+            "task",
+            true,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+            3,
+            None,
+            None,
+            None, // prompt_template_prefix
+        )
+        .await
+        .unwrap();
+
+    // Enter Waiting.
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        cs.read().await.enter_waiting();
+    }
+
+    // Not busy — child does not block message injection.
+    assert!(
+        !mgr.is_session_busy(&parent_id).await,
+        "is_session_busy must return false during yield even with active child",
+    );
+
+    // Cleanup.
+    mgr.cancel_yield_timeout(&parent_id).await;
+}
+
+// ── 12. Non-yield child running → also not busy ────────────────────────────
+
+/// Passive Waiting (child spawned but no yield) also results in
+/// not-busy, allowing immediate message injection.
+#[tokio::test]
+#[serial]
+async fn test_passive_child_not_busy() {
+    clear_global_prompt_state();
+
+    let mgr = Arc::new(make_test_mgr(None));
+    let parent_id = setup_parent_with_conv(&mgr, "parent-pc").await;
+
+    // Spawn a child but do NOT enter Waiting (passive mode).
+    let _child_id = mgr
+        .create_child_session(
+            &test_resolved_config("worker-pc", None),
+            &parent_id,
+            1,
+            "task",
+            true,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+            3,
+            None,
+            None,
+            None, // prompt_template_prefix
+        )
+        .await
+        .unwrap();
+
+    // No yielding — but still not busy (child doesn't affect idle).
+    assert!(!mgr.is_session_yielding(&parent_id).await);
+    assert!(
+        !mgr.is_session_busy(&parent_id).await,
+        "is_session_busy must return false when only child is running (no yield)",
+    );
+}
