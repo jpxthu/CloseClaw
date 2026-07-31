@@ -45,8 +45,8 @@ Session 重建时触发 Agent 的 system prompt 重新注入，注入内容反�
   - 预警阶段：剩余空间低于告警阈值时，提示用户即将压缩
   - 触发阶段：剩余空间低于压缩阈值时，自动执行压缩
 - 压缩只处理对话消息（user/assistant），不触碰 system prompt，其内容完整保留
-- 压缩结果为一条结构性摘要消息，覆盖六个维度：Goal / Constraints & Preferences / Progress / Key Decisions / Next Steps / Critical Context
-- 连续压缩失败后自动暂停，保护暂停仅阻止自动压缩再次触发，不影响 session 正常的活跃判定、归档等生命周期行为。手动 `/compact` 成功后自动恢复自动压缩
+- 压缩结果为一条结构化摘要消息，覆盖六个维度：Goal / Constraints & Preferences / Progress / Key Decisions / Next Steps / Critical Context
+- 连续压缩失败后自动进入保护暂停（仅阻止自动压缩再次触发，不影响活跃判定和归档），手动 `/compact` 成功后自动恢复
 - 压缩前自动创建对话备份，压缩异常时可回滚
 
 ### F4. 子 Session 委托与协调
@@ -82,11 +82,11 @@ Agent 可以将子任务委托给子 Session，并等待结果后继续决策。
 
 ### F6. 会话归档与清理
 
-inactive 的会话自动归档，过期归档自动清理，用户无需手动管理。
+inactive 的会话自动归档，用户无需手动管理。用户可配置归档数据的自动清理周期，默认不自动删除。
 
 - inactive 的 session 自动归档：标记为归档（archived）状态，从活跃路由中移除
 - inactive 判定依据 session 活跃维度（详见 F11）：所有活跃维度均为 false，且距上次用户活动超过配置的 inactive 时长
-- 已归档超过配置清理时间的 session 彻底删除（元数据 + 对话记录）
+- 用户配置清理时间后，已归档超过该时长的 session 彻底删除（元数据 + 对话记录）
 - 每个 Agent 可独立配置 inactive 时长和清理时间，主 Session 与子 Session 可以分别设置
 - 未配置时按默认配置（inactive 30 分钟归档、归档数据不自动删除）
 - 系统对活跃 session 和文件系统做双向一致性校验——有元数据无对话记录视为损坏并清理，有对话记录无元数据视为孤儿文件并清理
