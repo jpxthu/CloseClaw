@@ -150,10 +150,11 @@ impl SessionManagerOps for LateBoundSessionManagerOps {
         session_id: &str,
         agent_id: &str,
         timeout_secs: Option<u64>,
+        timeout_warning_secs: Option<u64>,
     ) {
         if let Ok(m) = self.get_ref() {
             let m = Arc::clone(m);
-            m.start_yield_timeout(session_id, agent_id, timeout_secs)
+            m.start_yield_timeout(session_id, agent_id, timeout_secs, timeout_warning_secs)
                 .await;
         }
     }
@@ -220,6 +221,7 @@ mod tests {
             _session_id: &str,
             _agent_id: &str,
             _timeout_secs: Option<u64>,
+            _timeout_warning_secs: Option<u64>,
         ) {
         }
     }

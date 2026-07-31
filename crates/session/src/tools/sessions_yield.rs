@@ -70,7 +70,7 @@ impl Tool for SessionsYieldTool {
 
         self.session_manager
             .clone()
-            .start_yield_timeout(session_id, &ctx.agent_id, None)
+            .start_yield_timeout(session_id, &ctx.agent_id, None, None)
             .await;
 
         tracing::info!(

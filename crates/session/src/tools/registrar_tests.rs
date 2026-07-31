@@ -178,6 +178,7 @@ impl SessionManagerOps for MockSessionManagerOps {
         _session_id: &str,
         _agent_id: &str,
         _timeout_secs: Option<u64>,
+        _timeout_warning_secs: Option<u64>,
     ) {
     }
 }
