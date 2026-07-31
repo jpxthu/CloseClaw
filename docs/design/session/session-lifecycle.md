@@ -13,10 +13,10 @@
 - 会话路由键：platform（如 feishu）、sender_id（发送者平台内 ID）、peer_id（会话对端：群聊 chat_id 或私聊对方 ID）、account_id（CloseClaw 本地账号标识，由 sender_id 通过身份映射得到。一个 CloseClaw 账号可绑定多个平台的 sender_id）
 - 出站定向字段：thread_id（话题 ID，可选。不参与 session_key 计算，仅用于出站时定向回复到正确的话题线）
 - 生命周期状态：status（active / archived）、created_at
-- 未完成操作：pending_operations（操作发起前持久化、完成后清除。详见 [session-recovery.md](session-recovery.md)）
+- 未完成操作：pending_operations（操作发起前持久化、完成后清除。恢复扫描使用，详见 [session-recovery.md](session-recovery.md)）。运行时归档判定使用活跃维度（详见 [session-execution.md](session-execution.md)），不依赖 pending_operations
 - 运行时快照：pending_messages（transcript，含消息列表）、mode（对话模式：normal/plan/auto）、mode_state（推理步骤状态）
 - system prompt 追加区：system_appends（由 `/system` 斜杠指令增删的追加条目列表。持久化在 checkpoint 中，归档/恢复时完整保留。追加区独立于对话消息流，不参与 compaction）
-- 统计：last_message_at（最后消息时间，Sweeper 用来判断 idle）、message_count
+- 统计：last_message_at（最后消息时间，含用户和非用户消息）、last_user_activity_at（最后用户活动时间，仅含用户消息，Sweeper 用来判断 idle）、message_count
 - 其他：ttl_seconds、updated_at（最后 checkpoint 更新时间）
 
 > `archived_at` 和扩展元数据（metadata JSON）作为 SQLite 表列存储，由 SqliteStorage 维护，不进入 Checkpoint struct。归档时间和自定义扩展字段通过 SQLite 层查询。
@@ -67,9 +67,11 @@ SQLite 访问通过线程池包装为异步调用，保证不阻塞运行时。
 
 **ArchiveSweeper** 是 daemon 启动时 spawn 的后台任务，负责两个定时操作：
 
-1. **Archive**：扫描 status=active 且 last_message_at 超过 idleMinutes 且 **pending_operations 为空** 的 session → 调用 archive，transcript 移入 archived_sessions/。
+1. **Archive**：扫描 status=active 且 last_user_activity_at 超过配置的 inactive 时长的 session → 调用 SessionManager.is_active(session_id) 查询四维活跃维度 → 全部为 false → 执行归档，transcript 移入 archived_sessions/。任一维度为 true → 跳过，等下一轮扫描。
 
 归档后 Sweeper 不与 SessionManager 通信——映射表同步由 SessionManager 在下次 lookup 时通过 status 校验被动完成（详见 [README.md](README.md) key_registry 自愈逻辑）。
+
+**SessionManager.is_active()**：SessionManager 向 Sweeper 暴露的只读查询接口。传入 session_id，存在 ConversationSession 实例则返回其四维活跃维度（llm_active / foreground_tool_active / background_tool_active / child_active），不存在则返回全 false——session 不在内存中意味着没有活跃操作。SessionManager 按 agent_id 串行化所有操作，Sweeper 查询时 session 的四维状态不会被并发修改。
 2. **Purge**：扫描 status=archived 且 archived_at 超过 purgeAfterMinutes 的 session → 调用 purge，彻底删除。
 
 **调度策略**：启动后延迟一个完整 interval 再执行首次扫描；Unix 系统上将 Sweeper 进程优先级降低，减少对业务逻辑的 CPU 影响。
@@ -88,7 +90,7 @@ SessionConfigProvider
 
 配置文件存储在 `config/session.json`，不混入 agents.json。关键参数：
 - `sweeperIntervalSeconds`：Sweeper 扫描间隔（默认 300 秒）。
-- `idleMinutes`：最后消息后多久标记为 idle、触发 archive。
+- `idleMinutes`：最后用户活动后多久判定为 inactive、触发 archive。
 - `purgeAfterMinutes`：归档后多久彻底删除。设为 0 表示永不过期。
 - `compact`：Compaction 相关配置（阈值等）。
 
@@ -100,10 +102,12 @@ SessionConfigProvider
 
 ```
 Sweeper 定时触发
-  → 遍历各 agent 配置，获取 idle 阈值
-    → 查询持久化存储：状态为 active、最后消息时间超过 idle 阈值、且 pending_operations 为空的 session
+  → 遍历各 agent 配置，获取 inactive 时长阈值
+    → 查询持久化存储：状态为 active、last_user_activity_at 超过阈值
     → 对每条结果：
-        → 执行归档
+        → 调用 SessionManager.is_active(session_id) 查询四维活跃状态
+        → 任一维度为 true → 跳过
+        → 全维度为 false → 执行归档
           → 更新 session 状态为 archived，记录归档时间
           → transcript 从活跃区移至归档区
 ```
@@ -122,6 +126,7 @@ Sweeper 定时触发
   → SessionManager 用 checkpoint 重建 ConversationSession
     → 工作目录重新初始化为默认值（不进持久化存储）
     → 重新走注入流程，保证 system prompt 内容最新
+    → 执行状态初始为 Idle（四个活跃维度均为 false）
   → 注册到映射表
 ```
 
@@ -138,7 +143,7 @@ Sweeper 定时触发
 
 ```
 Sweeper（archive 扫描完成后）
-  → 遍历各 agent 配置，获取清理阈值
+  → 遍历各 agent 配置，获取清理时长阈值
     → 查询持久化存储：状态为 archived 且归档时间超过清理阈值的 session
     → 对每条结果：
         → 执行清理
@@ -177,8 +182,8 @@ SessionManager 在启动时和定期维护中执行 SQLite 与文件系统的双
 ### 下游
 
 - **SqliteStorage**（PersistenceService trait 的实现）：SQLite + 文件系统读写。
-- **SessionConfigProvider**：读取 `config/session.json`，提供 per-agent 配置。
-- **SessionManager（映射表）**：映射表不单独持久化——重建依赖 SessionCheckpoint 中的会话路由键字段。Sweeper 归档后不通知映射表，SessionManager 在下次 lookup 时通过 status 校验自行移除已归档的映射条目。
+- **SessionConfigProvider**：读取 `config/session.json`，提供 per-agent inactive 时长和清理时长配置。
+- **SessionManager（映射表）**：映射表不单独持久化——重建依赖 SessionCheckpoint 中的会话路由键字段。Sweeper 归档后不通知映射表，SessionManager 在下次 lookup 时通过 status 校验自行移除已归档的映射条目。Sweeper 通过 SessionManager.is_active() 查询活跃维度作为归档前置条件。
 
 ### 无关
 

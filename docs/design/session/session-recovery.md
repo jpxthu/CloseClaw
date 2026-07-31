@@ -37,7 +37,7 @@ Daemon 启动
     → 对每个 dirty session 立即注入恢复通知
 ```
 
-防御性扫描极少命中（Sweeper 归档前检查 pending_operations 为空），但覆盖崩溃发生在归档过程中的极端窗口：status 已改为 archived 但 transcript 尚未完成迁移的状态下，残留的未完成操作仍能被发现和恢复。
+防御性扫描极少命中（Sweeper 归档前通过 SessionManager.is_active() 检查四维活跃维度，活跃 session 不会被归档），但覆盖崩溃发生在归档过程中的极端窗口：status 已改为 archived 但 transcript 尚未完成迁移的状态下，残留的未完成操作仍能被发现和恢复。
 
 恢复通知在启动时立即注入，不等待入站消息。原因：自动化流程（定时任务、webhook 触发）没有 IM 入站消息来激活它们。
 
@@ -189,6 +189,6 @@ LLM 看到的 transcript：
 
 ### 无关
 
-- **Sweeper**：恢复操作仅在 Daemon 启动时执行一次，Sweeper 的定时归档逻辑与此无关。但 Sweeper 归档前会检查 pending_operations 是否为空——非空不归档，因此 dirty session 不会在恢复前被意外归档。
+- **Sweeper**：恢复操作仅在 Daemon 启动时执行一次，Sweeper 的定时归档逻辑与此无关。但 Sweeper 归档前通过 SessionManager.is_active() 检查四维活跃维度——任一维度为 true 则跳过归档，因此 dirty session 不会在恢复前被意外归档。
 - **Compaction**：恢复流程不触发压缩。恢复通知和工具失败结果的长度远小于正常对话消息，对 token 预算影响可忽略。
-- **注入链路**：恢复时不对已持久化的 system prompt 做额外注入；ConversationSession 重建时的注入由生命周期管理负责，恢复模块不参与。
+- **注入链路**：恢复时不对 conversation session 的 system prompt 做额外注入——system prompt 是 ConversationSession 的运行时字段，不进 SessionCheckpoint。ConversationSession 重建时的注入由生命周期管理负责，恢复模块不参与。

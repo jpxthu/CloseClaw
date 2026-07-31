@@ -2,49 +2,59 @@
 
 ## 概述
 
-Session 执行状态跟踪 session 运行时的所有活跃操作：LLM 交互、工具执行、子 session 执行。三个维度独立跟踪，组合判定 session 当前是否空闲可接收新输入。执行状态为纯内存数据，不进持久化——session resume 后执行状态初始为 Idle。
+Session 执行状态跟踪 session 运行时的所有活跃操作：LLM 交互、前台工具执行、后台工具执行、子 session 执行。四个维度独立跟踪，组合判定 session 当前是否空闲可接收新输入。执行状态为纯内存数据，不进持久化——session resume 后执行状态初始为 Idle。
 
 ## 架构
 
-### 三维执行状态
+### 四维执行状态
 
-Session 的执行状态由三个独立维度组成，每个维度各自维护自己的状态：
+Session 的执行状态由四个独立维度组成。每个维度为布尔标志（true = 有活跃操作，false = 空闲），对外暴露供归档判定和消息分派消费。
 
 ```
 ConversationSession
-  ├── LLM 状态：Idle | Requesting | Receiving
+  ├── llm_active：LLM 是否正在推理或流式输出
   │     Idle ──→ LLM 请求发出 → Requesting
   │     Requesting ──→ 首 token 到达 → Receiving（流式）
   │     Requesting ──→ 完整响应返回 → Idle（非流式）
   │     Receiving ──→ 流结束 → Idle
+  │     Requesting 或 Receiving 时 llm_active = true
   │
-  ├── 工具状态：每个工具调用独立跟踪
-  │       Pending → 前台执行 | 后台执行 | 被终止（stop/取消时直接终态，不经过执行阶段）
-  │       执行中 → 完成 | 失败 | 被终止 | 超时
-  │     前台：session 阻塞，不接受新的 LLM 请求直到完成
-  │     后台：session 不阻塞，可继续对话，进程句柄保留
-  │     终态映射：工具进入完成/失败/被终止/超时等终态后立即注销——
-  │       从跟踪 map 中移除，整体状态判定表中该维度计为「无」。
-  │       只有 Pending 和前台/后台执行中的工具参与状态判定
+  ├── foreground_tool_active：是否有前台工具调用在运行（Agent 等待其返回结果以继续推理）
+  │       每个前台工具调用独立跟踪
+  │       Pending → 执行中 → 完成 | 失败 | 被终止 | 超时
+  │     session 阻塞，不接受新的 LLM 请求直到完成
+  │     终态后立即注销——只有 Pending 和执行中的前台工具参与状态判定
+  │     stop/取消时直接终态，不经过执行阶段
   │
-  └── 子 Session 状态：每个子 session 独立跟踪
-          执行中 → 完成 | 被终止 | 出错
-        子 session 由 spawn 创建，父 session 持有其引用
-        子 session 完成时结果通过消息队列注入父 session
+  ├── background_tool_active：是否有后台工具调用在运行（Agent 异步发出，不阻塞当前推理流程）
+  │       每个后台工具调用独立跟踪
+  │       Pending → 执行中 → 完成 | 失败 | 被终止 | 超时
+  │     session 不阻塞，可继续对话，进程句柄保留
+  │     终态后立即注销，结果注入消息队列
+  │     stop/取消时直接终态，不经过执行阶段
+  │
+  └── child_active：Session 是否有未完成的子 session（已 spawn 但未完成或未终止）
+         执行中 → 完成 | 被终止 | 出错
+       子 session 由 spawn 创建，父 session 持有其引用
+       子 session 完成时结果通过消息队列注入父 session
 ```
 
 ### 整体状态判定
 
-Session 的整体状态由三维组合判定：
+Session 的整体状态由四维组合判定：
 
-| LLM | 前台工具 | 后台工具 | 子 Session | 整体判定 |
-|-----|----------|----------|-----------|---------|
-| Idle | 无 | 无 | 无 | **Idle**：完全空闲，等待输入 |
-| Idle | 无 | 有 | 无 | **Idle（后台活跃）**：可接受新输入，但需提示有后台任务 |
-| Idle | 无 | 无 | 有 Running | **Waiting**：被动检测——系统识别到子 session 运行中。agent 可通过 yield 主动进入阻塞式 Waiting |
-| Idle | 无 | 有 | 有 Running | **Waiting**：子 session 运行中，后台工具不影响判定——子 session Running 的优先级高于后台工具 |
-| Requesting / Receiving | * | * | * | **Busy**：LLM 交互中 |
-| * | 有前台 | * | * | **Busy**：工具执行中（阻塞） |
+| llm_active | foreground_tool_active | background_tool_active | child_active | 整体判定 |
+|------------|------------------------|------------------------|--------------|---------|
+| false | false | false | false | **Idle**：完全空闲，等待输入 |
+| false | false | true | false | **Idle**：后台工具不阻塞消息接收，session 可立即处理新输入 |
+| false | false | * | true | **Idle**：子 session 运行中，不阻塞消息接收（详见消息分派规则） |
+| true | * | * | * | **Busy**：LLM 正在推理或流式输出 |
+| * | true | * | * | **Busy**：前台工具执行中，session 阻塞等待结果 |
+
+**复合状态**（由四维标志 + 时间条件组合判定）：
+
+- **idle**：llm_active 和 foreground_tool_active 均为 false——session 可以立即接收新用户消息。background_tool_active 或 child_active 为 true 不影响 idle 判定
+- **inactive**：四个活跃维度均为 false，且距上次用户活动超过配置的 inactive 时长——触发归档判定
 
 ### 级联停止
 
@@ -73,15 +83,25 @@ Session 的整体状态由三维组合判定：
 - **父 session 停止**：父 session 被停时，对子 session 采用相同的停止模式（graceful 或 forceful）
 - **系统关闭**：由 Daemon 触发，调用 SessionManager 统一关闭所有活跃 session。SessionManager 内部负责 session 树遍历和停止顺序，Daemon 只传模式参数和超时。所有 session 关闭完毕后，未在超时内完成的 session 留有未清除的 pending_operations——下次启动时由恢复扫描检测为 dirty 并注入恢复通知
 
-### 后台结果注入
+### 统一消息队列
 
-后台工具完成或子 session 完成时，结果不作为内部事件追加，而是作为消息注入对话流，agent 在下一轮 turn 中直接看到。
+后台工具结果、子 session 完成通知等非用户消息与用户消息共用一条消息队列，per ConversationSession。
 
-注入通过优先级消息队列调度：
+**优先级决定插入位置**（now > next > later），同一优先级内非用户消息排在用户消息前面：
 
-- **now**：最高优先级，立即注入（用户输入前）。用于系统级紧急通知
-- **next**：下一轮对话中尽早注入。用于卡死警告、子 session 完成通知等需要 agent 及时响应但不超过用户输入的内容
-- **later**：在合适时机注入。用于普通后台工具完成通知
+```
+统一消息队列（单队列）
+  now 非用户 → now 用户 → next 非用户 → next 用户 → later 非用户 → later 用户
+```
+
+**分发规则**：
+- llm_active 或 foreground_tool_active 为 true 时：消息保留在队列中，不解队
+- llm_active 和 foreground_tool_active 均为 false 时：消息立即出队分发（无论 background_tool_active / child_active 状态）
+
+**优先级用途**：
+- **now**：系统级紧急通知，排在队头
+- **next**：子 session 完成、超时预警通知等需及时响应的内容
+- **later**：普通后台工具完成通知
 
 通知内容为结构化格式，包含任务标识、完成状态、结果或输出路径。带去重保护——同一任务只注入一次。
 
@@ -94,32 +114,27 @@ Session 的整体状态由三维组合判定：
 sessions_yield 是 agent 明确表达「我 spawn 完了，等结果」的工具调用。调用后：
 
 1. 当前 turn 立即结束，不再发起新的 LLM 请求
-2. session 进入 Waiting 状态——不接受新的用户输入（斜杠指令除外）
-3. 系统监控所有活跃子 session，全部完成后自动恢复
+2. session 执行状态为 llm_active = false, child_active = true（有未完成的子 session）
+3. 系统监控所有活跃子 session，全部完成后 child_active 变为 false
 
 #### Waiting 状态行为
 
-Waiting 有两种进入方式，行为不同。两者的共性是子 agent 完成自动触发通知；差异在于用户消息处理方式和等待结束后的恢复行为。
+Waiting 有两种进入方式，行为不同。两者的共性是子 agent 完成自动触发通知；差异在于 agent turn 的结束方式。
 
-- **被动 Waiting**：agent spawn 子 session 后未 yield，系统自动判定为 Waiting。此状态下 session 仍接受用户输入——agent 可以继续对话，子 agent 完成后通过 announce 消息在后续 turn 中自然注入。被动 Waiting 不是真正的「等待」——session 仍是活跃的，只是有后台子任务在运行
-- **主动 Waiting**：agent 调用 sessions_yield 后进入。agent 选择 yield 意味着"在子 agent 完成之前我没有别的事要做"，session 进入阻塞式等待
+- **被动 Waiting**：agent spawn 子 session 后未 yield，系统自动判定 child_active = true。agent 的当前 turn 自然结束后，session 回到 idle（child_active 不影响 idle 判定），后续用户消息和子 agent 完成通知均立即注入下一 turn
+- **主动 Waiting（yield）**：agent 调用 sessions_yield 后当前 turn 主动结束。child_active = true。下一条消息（用户消息或子 agent 完成通知）到达时自动开启新 turn
 
-被动 Waiting 的约束：
+**消息处理**：
 
-- **接受用户输入**：agent 继续正常对话，用户消息不排队
-- **子 agent 完成自动注入**：每收到一个子 agent 的完成 announce，系统注入到父 session 的消息队列，在后续 turn 中呈现
-- **超时保护**：若子 agent 在可配置的时间内未完成，系统主动终止该子 agent（级联终止其所有后代子 session），并注入超时通知；父 session 本身不因超时而强制恢复（因为从未暂停）
+yield 后 llm_active 和 foreground_tool_active 均为 false → session 为 idle → 用户消息和子 agent 完成通知均立即注入，不排队。child_active 不影响 idle 判定（idle 仅取决于 llm_active 和 foreground_tool_active）。
 
-主动 Waiting 的约束：
+yield 不是硬阻塞——任何消息（用户消息、子 session 完成通知、超时预警通知）都解除等待、恢复父 session 的 turn。
 
-- **用户消息排队**：用户在此期间发送的消息进入等待队列，等 session 恢复后再处理
-- **子 agent 完成自动触发**：每收到一个子 agent 的完成 announce，系统注入到父 session 的消息队列
-- **全部完成后自动恢复**：所有子 agent 完成后，session 从 Waiting 回到 Idle，开始处理排队消息和 announce 结果
-- **超时保护**：若子 agent 在可配置的时间内未完成，系统主动终止该子 agent（级联终止其所有后代子 session），再解除父 session 的 Waiting 状态并注入超时通知
+**超时保护**：子 agent 超过 timeout_warning 时长未完成 → 向父 session 注入超时预警通知（next 优先级），子 agent 继续执行。子 agent 超过 timeout 时长未完成 → 终止该子 agent（级联终止其所有后代），注入超时通知。父 session 本身不因超时而强制恢复。
 
 #### 禁止轮询
 
-Yield 机制的配套约束：agent 在 spawn 子 agent 后不应主动查询子 agent 状态。子 agent 的完成通知是 push-based——系统保证自动推送，agent 不需要也禁止调用 session 查询工具去轮询。这个约束在子 agent 的系统提示词中明确注入。
+Yield 机制的配套约束：agent 在 spawn 子 session 后不应主动查询子 session 状态。子 session 的完成通知是 push-based——系统保证自动推送，agent 不需要也禁止调用 session 查询工具去轮询。这个约束在子 session 的系统提示词中明确注入。
 
 #### Yield 循环
 
@@ -130,14 +145,13 @@ Yield 机制的配套约束：agent 在 spawn 子 agent 后不应主动查询子
   → sessions_spawn(子A) + sessions_spawn(子B)
   → sessions_yield
   ↓
-session 进入 Waiting
+yield 后 llm_active = false, child_active = true
   ↓
-子A 完成 → announce 注入父 session 消息队列
-子B 完成 → announce 注入父 session 消息队列
-  ↓
-全部完成 → session 恢复 Idle
-  ↓
-下一 turn: agent 看到子A和子B的 announce 结果
+子A 完成 → announce 立即注入父 session 消息队列
+  → 开启新 turn，agent 看到子A 结果
+子B 完成 → announce 立即注入父 session 消息队列
+  → 开启新 turn，agent 看到子B 结果
+```
 
 ## 数据流
 
