@@ -43,6 +43,9 @@ pub enum QueueEntry {
     UserMessage(crate::persistence::PendingMessage),
     /// A child session completion announce event.
     Announce(AnnounceEvent),
+    /// A background tool (BashTool) completion notification.
+    /// Priority is taken from the inner `CompletionNotification`.
+    BackgroundToolNotification(closeclaw_tasks::CompletionNotification),
 }
 
 impl QueueEntry {
@@ -51,6 +54,7 @@ impl QueueEntry {
         match self {
             QueueEntry::UserMessage(_) => QueuePriority::Later,
             QueueEntry::Announce(e) => QueuePriority::from(e.priority),
+            QueueEntry::BackgroundToolNotification(n) => QueuePriority::from(n.priority),
         }
     }
 
@@ -220,6 +224,16 @@ impl ConversationSession {
         self.unified_queue.push(QueueEntry::Announce(event));
     }
 
+    /// Push a background tool completion notification onto the unified
+    /// queue (priority from the notification, typically `Later`).
+    pub fn push_background_tool_notification(
+        &mut self,
+        notif: closeclaw_tasks::CompletionNotification,
+    ) {
+        self.unified_queue
+            .push(QueueEntry::BackgroundToolNotification(notif));
+    }
+
     /// Push a `QueueEntry` directly onto the unified queue.
     ///
     /// Used by drain-and-filter callers that re-insert non-matching
@@ -251,7 +265,8 @@ impl ConversationSession {
 
     /// Pop the oldest pending user message (legacy compat).
     ///
-    /// Returns only user messages. Skips announce entries.
+    /// Returns only user messages. Skips announce and background tool
+    /// notification entries.
     pub fn pop_pending(&mut self) -> Option<crate::persistence::PendingMessage> {
         loop {
             match self.unified_queue.pop() {
@@ -259,6 +274,12 @@ impl ConversationSession {
                 Some(QueueEntry::Announce(event)) => {
                     // Re-insert announce events that were skipped.
                     self.unified_queue.push(QueueEntry::Announce(event));
+                    return None;
+                }
+                Some(QueueEntry::BackgroundToolNotification(n)) => {
+                    // Re-insert background tool notifications that were skipped.
+                    self.unified_queue
+                        .push(QueueEntry::BackgroundToolNotification(n));
                     return None;
                 }
                 None => return None,
@@ -278,6 +299,10 @@ impl ConversationSession {
                 QueueEntry::Announce(e) => announces.push(e),
                 QueueEntry::UserMessage(pm) => {
                     self.unified_queue.push(QueueEntry::UserMessage(pm));
+                }
+                QueueEntry::BackgroundToolNotification(n) => {
+                    self.unified_queue
+                        .push(QueueEntry::BackgroundToolNotification(n));
                 }
             }
         }

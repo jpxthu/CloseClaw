@@ -76,6 +76,40 @@ impl SessionManager {
                 QueueEntry::UserMessage(pm) => {
                     cs.push_pending(pm);
                 }
+                QueueEntry::BackgroundToolNotification(notif) => {
+                    // Convert to AnnounceEvent for the drain path.
+                    use closeclaw_tasks::TaskState;
+                    let status = match notif.state {
+                        TaskState::Completed { .. } => {
+                            closeclaw_common::ChildCompletionStatus::Completed
+                        }
+                        TaskState::Failed { .. } => {
+                            closeclaw_common::ChildCompletionStatus::Errored
+                        }
+                        TaskState::Killed => closeclaw_common::ChildCompletionStatus::Terminated,
+                        TaskState::Running { .. } => {
+                            closeclaw_common::ChildCompletionStatus::Completed
+                        }
+                    };
+                    let result_text = format!(
+                        "{}。输出文件：{}{}",
+                        notif.summary,
+                        notif.output_path.display(),
+                        notif
+                            .suggestion
+                            .as_ref()
+                            .map(|s| format!("。建议：{}", s))
+                            .unwrap_or_default()
+                    );
+                    announces.push(AnnounceEvent {
+                        child_session_id: notif.task_id,
+                        child_agent_id: notif.command,
+                        result_text,
+                        completed_at: chrono::Utc::now(),
+                        priority: notif.priority,
+                        status,
+                    });
+                }
             }
         }
         announces
@@ -143,6 +177,42 @@ impl SessionManager {
             match entry {
                 QueueEntry::Announce(ref event) if predicate(&event.priority) => {
                     matched.push(event.clone());
+                }
+                // Step 1.5: Background tool completion notifications
+                // follow the same drain path as child session announces.
+                // Convert to AnnounceEvent for the inject path.
+                QueueEntry::BackgroundToolNotification(ref notif) if predicate(&notif.priority) => {
+                    use closeclaw_tasks::TaskState;
+                    let status = match notif.state {
+                        TaskState::Completed { .. } => {
+                            closeclaw_common::ChildCompletionStatus::Completed
+                        }
+                        TaskState::Failed { .. } => {
+                            closeclaw_common::ChildCompletionStatus::Errored
+                        }
+                        TaskState::Killed => closeclaw_common::ChildCompletionStatus::Terminated,
+                        TaskState::Running { .. } => {
+                            closeclaw_common::ChildCompletionStatus::Completed
+                        }
+                    };
+                    let result_text = format!(
+                        "{}。输出文件：{}{}",
+                        notif.summary,
+                        notif.output_path.display(),
+                        notif
+                            .suggestion
+                            .as_ref()
+                            .map(|s| format!("。建议：{}", s))
+                            .unwrap_or_default()
+                    );
+                    matched.push(AnnounceEvent {
+                        child_session_id: notif.task_id.clone(),
+                        child_agent_id: notif.command.clone(),
+                        result_text,
+                        completed_at: chrono::Utc::now(),
+                        priority: notif.priority,
+                        status,
+                    });
                 }
                 other => {
                     cs.push_queue_entry(other);
