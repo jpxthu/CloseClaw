@@ -30,6 +30,7 @@ use crate::ToolResult;
 use closeclaw_common::tool_session::{KillHandle, ToolProgress, ToolSession};
 use closeclaw_common::ToolExecState;
 use closeclaw_tasks::TaskManager;
+use tokio::io::AsyncReadExt;
 
 use super::bash_classify;
 
@@ -312,12 +313,114 @@ pub(crate) async fn finalize_foreground_after_wait(
 ) -> super::bash::ForegroundOutcome {
     let exit_code = status.code().unwrap_or(-1);
     let (stdout_raw, stderr_raw, _lines, _bytes) =
-        super::bash::read_with_progress(stdout_handle, stderr_handle, session, call_id).await;
+        read_with_progress(stdout_handle, stderr_handle, session, call_id).await;
     let stdout_p = process_output(&stdout_raw);
     let stderr_p = process_output(&stderr_raw);
     super::bash::ForegroundOutcome::Completed(build_result(
         command, stdout_p, stderr_p, exit_code, false,
     ))
+}
+
+// ── incremental pipe reading ──────────────────────────────────────────
+
+/// Read from an optional async reader incrementally, counting lines and bytes.
+///
+/// Returns `(accumulated_output, total_lines, total_bytes)` when the
+/// reader is exhausted or the cancel signal fires.
+pub(crate) async fn read_pipe_incremental<R>(
+    pipe: Option<R>,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
+    progress: Option<&Arc<(AtomicUsize, AtomicUsize)>>,
+) -> (String, usize, usize)
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let Some(mut reader) = pipe else {
+        return (String::new(), 0, 0);
+    };
+    let mut output = String::new();
+    let mut total_lines: usize = 0;
+    let mut total_bytes: usize = 0;
+    let mut buf = [0u8; 8192];
+    loop {
+        tokio::select! {
+            result = reader.read(&mut buf) => {
+                match result {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let chunk = String::from_utf8_lossy(&buf[..n]);
+                        let lines = chunk.lines().count();
+                        total_lines += lines;
+                        total_bytes += n;
+                        output.push_str(&chunk);
+                        if let Some(counters) = progress {
+                            counters.0.fetch_add(lines, Ordering::Relaxed);
+                            counters.1.fetch_add(n, Ordering::Relaxed);
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            _ = cancel.changed() => break,
+        }
+    }
+    (output, total_lines, total_bytes)
+}
+
+/// Read stdout/stderr incrementally with periodic progress reporting.
+///
+/// Spawns a progress-monitoring task that reports accumulated output
+/// statistics via the session every 2 seconds. Returns
+/// the final output strings and cumulative line/byte counts.
+pub(crate) async fn read_with_progress(
+    stdout_handle: Option<tokio::process::ChildStdout>,
+    stderr_handle: Option<tokio::process::ChildStderr>,
+    session: Option<&Arc<dyn ToolSession>>,
+    call_id: Option<&str>,
+) -> (String, String, usize, usize) {
+    let start_time = std::time::Instant::now();
+    let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+    let progress = Arc::new((AtomicUsize::new(0), AtomicUsize::new(0)));
+
+    let progress_handle = if let (Some(s), Some(cid)) = (session, call_id) {
+        Some(spawn_progress_monitor(
+            start_time,
+            &progress,
+            s,
+            cid,
+            cancel_rx.clone(),
+        ))
+    } else {
+        None
+    };
+
+    let (stdout_result, stderr_result) = tokio::join!(
+        read_pipe_incremental(stdout_handle, cancel_rx.clone(), Some(&progress)),
+        read_pipe_incremental(stderr_handle, cancel_rx, Some(&progress)),
+    );
+    let _ = cancel_tx.send(true);
+    if let Some(h) = progress_handle {
+        let _ = h.await;
+    }
+    let (stdout_raw, s_lines, s_bytes) = stdout_result;
+    let (stderr_raw, e_lines, e_bytes) = stderr_result;
+
+    let total_lines = s_lines + e_lines;
+    let total_bytes = s_bytes + e_bytes;
+
+    if let (Some(s), Some(cid)) = (session, call_id) {
+        s.report_tool_progress(
+            cid,
+            ToolProgress {
+                lines: total_lines,
+                bytes: total_bytes,
+                elapsed: start_time.elapsed(),
+            },
+        )
+        .await;
+    }
+
+    (stdout_raw, stderr_raw, total_lines, total_bytes)
 }
 
 // ── register_foreground_session ─────────────────────────────────────────

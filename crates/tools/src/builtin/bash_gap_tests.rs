@@ -6,6 +6,7 @@
 //!         throttle updates to ≥ 2 s intervals.
 
 use super::*;
+use crate::builtin::bash_kill::{read_pipe_incremental, read_with_progress};
 use crate::Tool;
 use closeclaw_common::tool_session::ToolProgress;
 use closeclaw_common::{PromptGenerationContext, WorkdirContext};

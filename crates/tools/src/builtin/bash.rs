@@ -13,10 +13,9 @@ use crate::bash::CommandSandbox;
 use crate::permission_check::{
     check_command_permission, check_tool_permission, CommandPermissionResult, PermDeps,
 };
-use crate::security::{BashSecurityAnalyzer, ParseResult, TrustLevel};
+use crate::security::{BashSecurityAnalyzer, ParseResult, SimpleCommand, TrustLevel};
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use async_trait::async_trait;
-use closeclaw_common::tool_session::ToolProgress;
 use closeclaw_common::ToolExecState;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
@@ -26,17 +25,14 @@ use closeclaw_permission::engine::engine_risk::RiskLevel;
 use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody};
 use serde_json::Value;
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
-
 use tokio::sync::Mutex as TokioMutex;
 
 use super::bash_kill::{
     build_auto_background_result, build_background_result, build_manual_background_result,
-    finalize_foreground_after_wait, register_foreground_session, spawn_progress_monitor,
-    truncate_summary, BackgroundKillHandle,
+    finalize_foreground_after_wait, register_foreground_session, truncate_summary,
+    BackgroundKillHandle,
 };
 
 /// Outcome of foreground tool execution, distinguishing between
@@ -297,105 +293,6 @@ async fn auto_backgroundize_foreground(
     }
 }
 
-/// Read from an optional async reader incrementally, counting lines and bytes.
-///
-/// Returns `(accumulated_output, total_lines, total_bytes)` when the
-/// reader is exhausted or the cancel signal fires.
-async fn read_pipe_incremental<R>(
-    pipe: Option<R>,
-    mut cancel: tokio::sync::watch::Receiver<bool>,
-    progress: Option<&Arc<(AtomicUsize, AtomicUsize)>>,
-) -> (String, usize, usize)
-where
-    R: tokio::io::AsyncRead + Unpin,
-{
-    let Some(mut reader) = pipe else {
-        return (String::new(), 0, 0);
-    };
-    let mut output = String::new();
-    let mut total_lines: usize = 0;
-    let mut total_bytes: usize = 0;
-    let mut buf = [0u8; 8192];
-    loop {
-        tokio::select! {
-            result = reader.read(&mut buf) => {
-                match result {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        let chunk = String::from_utf8_lossy(&buf[..n]);
-                        let lines = chunk.lines().count();
-                        total_lines += lines;
-                        total_bytes += n;
-                        output.push_str(&chunk);
-                        if let Some(counters) = progress {
-                            counters.0.fetch_add(lines, Ordering::Relaxed);
-                            counters.1.fetch_add(n, Ordering::Relaxed);
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-            _ = cancel.changed() => break,
-        }
-    }
-    (output, total_lines, total_bytes)
-}
-/// Read stdout/stderr incrementally with periodic progress reporting.
-///
-/// Spawns a progress-monitoring task that reports accumulated output
-/// statistics via the session every 2 seconds. Returns
-/// the final output strings and cumulative line/byte counts.
-pub(crate) async fn read_with_progress(
-    stdout_handle: Option<tokio::process::ChildStdout>,
-    stderr_handle: Option<tokio::process::ChildStderr>,
-    session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
-    call_id: Option<&str>,
-) -> (String, String, usize, usize) {
-    let start_time = std::time::Instant::now();
-    let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
-    let progress = Arc::new((AtomicUsize::new(0), AtomicUsize::new(0)));
-
-    let progress_handle = if let (Some(s), Some(cid)) = (session, call_id) {
-        Some(spawn_progress_monitor(
-            start_time,
-            &progress,
-            s,
-            cid,
-            cancel_rx.clone(),
-        ))
-    } else {
-        None
-    };
-
-    let (stdout_result, stderr_result) = tokio::join!(
-        read_pipe_incremental(stdout_handle, cancel_rx.clone(), Some(&progress)),
-        read_pipe_incremental(stderr_handle, cancel_rx, Some(&progress)),
-    );
-    let _ = cancel_tx.send(true);
-    if let Some(h) = progress_handle {
-        let _ = h.await;
-    }
-    let (stdout_raw, s_lines, s_bytes) = stdout_result;
-    let (stderr_raw, e_lines, e_bytes) = stderr_result;
-
-    let total_lines = s_lines + e_lines;
-    let total_bytes = s_bytes + e_bytes;
-
-    if let (Some(s), Some(cid)) = (session, call_id) {
-        s.report_tool_progress(
-            cid,
-            ToolProgress {
-                lines: total_lines,
-                bytes: total_bytes,
-                elapsed: start_time.elapsed(),
-            },
-        )
-        .await;
-    }
-
-    (stdout_raw, stderr_raw, total_lines, total_bytes)
-}
-
 /// Wait on a foreground child process, with timeout.
 ///
 /// The child is shared with the [`BashKillHandle`] via
@@ -550,6 +447,106 @@ async fn submit_trust_level_denial(
 }
 
 /// Execute the BashTool call: parse args, check two-level permissions, run command.
+/// Result of trust-level routing.
+enum TrustDecision {
+    /// Command is trusted; proceed with normal permission checks.
+    Trusted,
+    /// Command was routed to approval flow; caller returns the pending result.
+    ApprovalPending(ToolResult),
+    /// Command was blocked (malicious or uncertain-rejected).
+    Blocked(String),
+}
+
+/// Route trust-level decisions (malicious/uncertain) through the approval flow.
+async fn route_trust_level(
+    deps: &PermDeps,
+    ctx: &ToolContext,
+    command: &str,
+    trust_level: TrustLevel,
+    reason: Option<String>,
+) -> Result<TrustDecision, ToolCallError> {
+    match trust_level {
+        TrustLevel::Malicious => {
+            submit_trust_level_denial(deps, ctx, command, RiskLevel::Critical).await;
+            Ok(TrustDecision::Blocked(format!(
+                "Blocked: malicious command detected — {}",
+                reason.unwrap_or_else(|| "unknown reason".into())
+            )))
+        }
+        TrustLevel::Uncertain => {
+            let r = reason.unwrap_or_else(|| "untrusted syntax".into());
+            if let Some(request_id) =
+                submit_trust_level_denial(deps, ctx, command, RiskLevel::High).await
+            {
+                Ok(TrustDecision::ApprovalPending(ToolResult {
+                    data: crate::builtin::approval_utils::build_approval_pending(request_id),
+                    new_messages: vec![],
+                    context_modifier: None,
+                }))
+            } else {
+                Ok(TrustDecision::Blocked(format!(
+                    "Blocked: uncertain command — {}",
+                    r
+                )))
+            }
+        }
+        TrustLevel::Trusted => Ok(TrustDecision::Trusted),
+    }
+}
+
+/// Extract command name and argv from the parse result.
+fn extract_argv(command: &str, commands: &[SimpleCommand]) -> (String, Vec<String>) {
+    commands
+        .first()
+        .map(|cmd| {
+            let name = cmd.argv.first().cloned().unwrap_or_else(|| "*".into());
+            let args = cmd.argv[1..].to_vec();
+            (name, args)
+        })
+        .unwrap_or_else(|| {
+            let cmd_parts: Vec<&str> = command.split_whitespace().collect();
+            let name = cmd_parts.first().copied().unwrap_or("*").to_string();
+            let args = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
+            (name, args)
+        })
+}
+
+/// Analyze security, extract argv, check Level 2 permission, and apply sandbox.
+///
+/// Returns `(Ok(Some(ToolResult)), _)` if routed to approval,
+/// or `(Ok(None), cwd)` to proceed with normal execution.
+async fn prepare_and_sandbox(
+    deps: &PermDeps,
+    ctx: &ToolContext,
+    command: &str,
+    args: &Value,
+) -> Result<(Option<ToolResult>, String), ToolCallError> {
+    let sec_result = analyze_security(command)?;
+    let (cmd_name, cmd_args) = extract_argv(command, &sec_result.commands);
+    let dangerously_disable = args.get("dangerouslyDisableSandbox") == Some(&Value::Bool(true));
+    let (approval_result, sandbox_already_applied) = check_command_permission_and_route(
+        deps,
+        ctx,
+        command,
+        &cmd_name,
+        &cmd_args,
+        dangerously_disable,
+    )
+    .await?;
+    if let Some(r) = approval_result {
+        return Ok((Some(r), String::new()));
+    }
+    let cwd = resolve_cwd(args, ctx);
+    if !sandbox_already_applied
+        && !dangerously_disable
+        && CommandSandbox::should_sandbox(command, true)
+    {
+        CommandSandbox::apply_sandbox_restrictions(&cwd)?;
+    }
+    Ok((None, cwd))
+}
+
+/// Execute the BashTool call: parse args, check two-level permissions, run command.
 async fn execute_bash_call(
     deps: &PermDeps,
     bg: &Arc<dyn closeclaw_tasks::TaskManager>,
@@ -565,99 +562,32 @@ async fn execute_bash_call(
             "command must not be empty".into(),
         ));
     }
-    let sec_result = analyze_security(command)?;
 
-    // Trust-level branching: malicious/uncertain commands are routed
-    // through the approval flow before the normal permission checks.
-    match sec_result.trust_level {
-        TrustLevel::Malicious => {
-            // Design doc: malicious → intercept + notify owner.
-            // Route through approval flow for owner notification, then
-            // immediately block (return error, do not execute).
-            // submit_denial() enqueues the request and notifies the owner.
-            // We intentionally ignore the return value — the command is
-            // always blocked regardless of whether the owner is notified.
-            submit_trust_level_denial(deps, ctx, command, RiskLevel::Critical).await;
-            return Err(ToolCallError::ExecutionFailed(format!(
-                "Blocked: malicious command detected — {}",
-                sec_result.reason.unwrap_or_else(|| "unknown reason".into())
-            )));
+    let sec_result = analyze_security(command)?;
+    match route_trust_level(
+        deps,
+        ctx,
+        command,
+        sec_result.trust_level,
+        sec_result.reason.clone(),
+    )
+    .await?
+    {
+        TrustDecision::Blocked(reason) => {
+            return Err(ToolCallError::ExecutionFailed(reason));
         }
-        TrustLevel::Uncertain => {
-            // Design doc: uncertain → approval flow.
-            // Submit to approval queue; if accepted, return approval_pending
-            // to the agent. If rejected (sub-agent / duplicate), block.
-            let reason = sec_result
-                .reason
-                .unwrap_or_else(|| "untrusted syntax".into());
-            if let Some(request_id) =
-                submit_trust_level_denial(deps, ctx, command, RiskLevel::High).await
-            {
-                return Ok(ToolResult {
-                    data: crate::builtin::approval_utils::build_approval_pending(request_id),
-                    new_messages: vec![],
-                    context_modifier: None,
-                });
-            }
-            return Err(ToolCallError::ExecutionFailed(format!(
-                "Blocked: uncertain command — {}",
-                reason
-            )));
-        }
-        TrustLevel::Trusted => {
-            // Continue with normal permission checks below.
-        }
+        TrustDecision::ApprovalPending(result) => return Ok(result),
+        TrustDecision::Trusted => {}
     }
 
-    // Level 1: ToolCall - verify agent may invoke Bash tool
+    // Level 1: ToolCall - verify agent may invoke Bash tool.
     if let Some(r) = check_tool_permission(deps, ctx, "bash", "call").await? {
         return Ok(r);
     }
 
-    // Use tree-sitter parsed argv from ParseResult when available,
-    // falling back to split_whitespace() for parse errors.
-    let (cmd_name, cmd_args): (String, Vec<String>) = sec_result
-        .commands
-        .first()
-        .map(|cmd| {
-            let name = cmd.argv.first().cloned().unwrap_or_else(|| "*".into());
-            let args = cmd.argv[1..].to_vec();
-            (name, args)
-        })
-        .unwrap_or_else(|| {
-            let cmd_parts: Vec<&str> = command.split_whitespace().collect();
-            let name = cmd_parts.first().copied().unwrap_or("*").to_string();
-            let args = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
-            (name, args)
-        });
-
-    let dangerously_disable = args.get("dangerouslyDisableSandbox") == Some(&Value::Bool(true));
-
-    // Level 2: CommandExec - verify specific command is permitted.
-    // Denied commands are routed to the sandbox (not rejected outright).
-    let (approval_result, sandbox_already_applied) = check_command_permission_and_route(
-        deps,
-        ctx,
-        command,
-        &cmd_name,
-        &cmd_args,
-        dangerously_disable,
-    )
-    .await?;
+    let (approval_result, cwd) = prepare_and_sandbox(deps, ctx, command, &args).await?;
     if let Some(r) = approval_result {
         return Ok(r);
-    }
-
-    // Sandbox routing: apply landlock + seccomp if needed.
-    // Scripts are always sandboxed; permitted non-script commands run outside.
-    // Skip if sandbox was already applied in the Level 2 denied path above,
-    // or if dangerouslyDisableSandbox is true (full bypass).
-    let cwd = resolve_cwd(&args, ctx);
-    if !sandbox_already_applied
-        && !dangerously_disable
-        && CommandSandbox::should_sandbox(command, true)
-    {
-        CommandSandbox::apply_sandbox_restrictions(&cwd)?;
     }
 
     execute_command(
@@ -888,12 +818,15 @@ async fn execute_command(
 #[cfg(test)]
 #[path = "bash_approval_tests.rs"]
 mod approval_tests;
+
 #[cfg(test)]
 #[path = "bash_gap_tests.rs"]
 mod gap_tests;
+
 #[cfg(test)]
 #[path = "bash_tests.rs"]
 mod tests;
+
 #[cfg(test)]
 #[path = "bash_timeout_tests.rs"]
 mod timeout_tests;
