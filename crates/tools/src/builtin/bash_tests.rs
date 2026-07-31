@@ -535,6 +535,8 @@ async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
         std::time::Duration::from_millis(100),
         &bg_trait,
         None,
+        None,
+        None,
     )
     .await;
 
@@ -585,6 +587,8 @@ async fn test_handle_foreground_result_returns_foreground_on_success() {
         "true",
         std::time::Duration::from_secs(5),
         &bg_trait,
+        None,
+        None,
         None,
     )
     .await;
@@ -850,6 +854,8 @@ async fn test_handle_foreground_result_manual_background_signal() {
         std::time::Duration::from_secs(5),
         &bg_trait,
         Some(&signal),
+        None,
+        None,
     )
     .await;
     let result = match outcome {
@@ -889,6 +895,8 @@ async fn test_handle_foreground_result_normal_foreground_no_signal() {
         "true",
         std::time::Duration::from_secs(5),
         &bg_trait,
+        None,
+        None,
         None,
     )
     .await;
@@ -932,6 +940,8 @@ async fn test_handle_foreground_result_manual_signal_preferred_over_auto() {
         std::time::Duration::from_millis(100),
         &bg_trait,
         Some(&signal),
+        None,
+        None,
     )
     .await;
     let result = match outcome {
