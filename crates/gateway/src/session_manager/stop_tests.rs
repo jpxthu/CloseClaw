@@ -84,6 +84,17 @@ fn test_stop_result_total() {
         succeeded: 3,
         failed: 1,
         skipped: 2,
+        timed_out: 4,
+    };
+    assert_eq!(r.total(), 10);
+}
+
+#[test]
+fn test_stop_result_total_no_timed_out() {
+    let r = StopResult {
+        succeeded: 3,
+        failed: 1,
+        skipped: 2,
         ..Default::default()
     };
     assert_eq!(r.total(), 6);
@@ -610,4 +621,126 @@ async fn test_graceful_timeout_sends_progress_event() {
         events.push(ev);
     }
     assert!(!events.is_empty());
+}
+
+// ── Step 1.2: process_stop_level timeout dimension tests ─────────────
+
+/// Normal path: idle session completes Graceful stop within timeout.
+/// `StopResult.succeeded` is incremented, `timed_out` stays 0.
+#[tokio::test]
+async fn test_step12_graceful_idle_succeeds_no_timed_out() {
+    let mgr = make_test_session_manager();
+    let pid = "parent-s12-norm";
+    setup_parent_with_conv(&mgr, pid).await;
+    let cid = "child-s12-norm";
+    setup_child(&mgr, pid, cid).await;
+
+    let r = mgr
+        .stop_all_sessions(ShutdownMode::Graceful, Duration::from_secs(30), None)
+        .await;
+    assert!(r.succeeded >= 1, "idle session should succeed: {:?}", r);
+    assert_eq!(r.timed_out, 0, "no session should time out: {:?}", r);
+}
+
+/// Timeout path: streaming session times out in Graceful mode.
+/// Session is NOT force-stopped, `StopResult.timed_out` is correct.
+#[tokio::test]
+async fn test_step12_graceful_timeout_not_force_stopped() {
+    use closeclaw_llm::session_state::ToolExecState;
+
+    let mgr = make_test_session_manager();
+    let pid = "parent-s12-timeout";
+    setup_parent_with_conv(&mgr, pid).await;
+    let cid = "child-s12-timeout";
+    setup_child(&mgr, pid, cid).await;
+    let cs = mgr.get_conversation_session(cid).await.unwrap();
+    {
+        let guard = cs.read().await;
+        guard.tool_states.write().expect("lock").insert(
+            "blocker-tool".into(),
+            (ToolExecState::RunningForeground, None),
+        );
+    }
+
+    let r = mgr
+        .stop_all_sessions(ShutdownMode::Graceful, Duration::from_millis(50), None)
+        .await;
+    assert!(
+        r.timed_out >= 1,
+        "streaming session should time out: {:?}",
+        r
+    );
+    // Session NOT force-stopped: cancel token must be unset.
+    assert!(
+        !cs.read().await.is_cancelled(),
+        "timed-out session must NOT be force-stopped"
+    );
+}
+
+/// Mixed path: same level has both completed and timed-out sessions.
+/// `succeeded` and `timed_out` are counted independently.
+#[tokio::test]
+async fn test_step12_mixed_succeeded_and_timed_out() {
+    use closeclaw_llm::session_state::ToolExecState;
+
+    let mgr = make_test_session_manager();
+    let pid = "parent-s12-mixed";
+    setup_parent_with_conv(&mgr, pid).await;
+
+    // idle child → should succeed
+    let c1 = "child-s12-mixed-ok";
+    setup_child(&mgr, pid, c1).await;
+
+    // streaming child → should time out
+    let c2 = "child-s12-mixed-to";
+    setup_child(&mgr, pid, c2).await;
+    let cs2 = mgr.get_conversation_session(c2).await.unwrap();
+    {
+        let guard = cs2.read().await;
+        guard.tool_states.write().expect("lock").insert(
+            "blocker-mixed".into(),
+            (ToolExecState::RunningForeground, None),
+        );
+    }
+
+    let r = mgr
+        .stop_all_sessions(ShutdownMode::Graceful, Duration::from_millis(50), None)
+        .await;
+    assert_eq!(r.timed_out, 1, "exactly one child should time out: {:?}", r);
+    assert_eq!(
+        r.succeeded, 2,
+        "idle child + parent should succeed: {:?}",
+        r
+    );
+}
+
+/// Forceful mode: no timeout logic, all sessions succeed.
+#[tokio::test]
+async fn test_step12_forceful_mode_no_timeout() {
+    use closeclaw_llm::session_state::ToolExecState;
+
+    let mgr = make_test_session_manager();
+    let pid = "parent-s12-force";
+    setup_parent_with_conv(&mgr, pid).await;
+    let cid = "child-s12-force";
+    setup_child(&mgr, pid, cid).await;
+    let cs = mgr.get_conversation_session(cid).await.unwrap();
+    {
+        let guard = cs.read().await;
+        guard.tool_states.write().expect("lock").insert(
+            "tool-force".into(),
+            (ToolExecState::RunningForeground, None),
+        );
+    }
+
+    let r = mgr
+        .stop_all_sessions(ShutdownMode::Forceful, Duration::from_secs(30), None)
+        .await;
+    assert!(r.succeeded >= 1, "forceful should succeed: {:?}", r);
+    assert_eq!(
+        r.timed_out, 0,
+        "forceful mode has no timeout logic: {:?}",
+        r
+    );
+    assert!(cs.read().await.is_cancelled());
 }
