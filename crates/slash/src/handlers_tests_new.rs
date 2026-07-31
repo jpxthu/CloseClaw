@@ -95,7 +95,7 @@ async fn test_stop_handler_handle() {
     assert!(matches!(
         result,
         SlashResult::Stop {
-            cascade: true,
+            cascade: false,
             force: false
         }
     ));
@@ -119,7 +119,7 @@ async fn test_stop_handler_force() {
     assert!(matches!(
         result,
         SlashResult::Stop {
-            cascade: true,
+            cascade: false,
             force: true
         }
     ));
@@ -143,7 +143,7 @@ async fn test_stop_handler_unknown_args_ignored() {
     assert!(matches!(
         result,
         SlashResult::Stop {
-            cascade: true,
+            cascade: false,
             force: false
         }
     ));
@@ -483,7 +483,7 @@ async fn test_cross_step_dispatcher_routes_all_commands() {
     // /stop → Stop
     match dispatcher.dispatch("/stop", &ctx).await {
         SlashResult::Stop { cascade, force } => {
-            assert!(cascade, "default cascade should be true");
+            assert!(!cascade, "default cascade should be false");
             assert!(!force, "default force should be false");
         }
         other => panic!("/stop should return Stop, got {other:?}"),
@@ -522,26 +522,26 @@ async fn test_cross_step_dispatcher_routes_all_commands() {
 /// Integration: `/stop` default cascade + `/stop --force` behavior.
 ///
 /// Verifies that:
-/// 1. `/stop` (no args) defaults to cascade=true, force=false
-/// 2. `/stop --force` sets force=true while keeping cascade=true
+/// 1. `/stop` (no args) defaults to cascade=false, force=false
+/// 2. `/stop --force` sets force=true while keeping cascade=false
 /// 3. `/stop --cascade --force` sets both flags
 #[tokio::test]
 async fn test_cross_step_stop_flag_combinations() {
     let ctx = dummy_ctx();
 
-    // No args: cascade=true, force=false
+    // No args: cascade=false, force=false
     match StopHandler.handle("", &ctx).await {
         SlashResult::Stop { cascade, force } => {
-            assert!(cascade, "default cascade should be true");
+            assert!(!cascade, "default cascade should be false");
             assert!(!force, "default force should be false");
         }
         other => panic!("expected Stop, got {other:?}"),
     }
 
-    // --force: cascade=true, force=true
+    // --force: cascade=false, force=true
     match StopHandler.handle("--force", &ctx).await {
         SlashResult::Stop { cascade, force } => {
-            assert!(cascade, "cascade should remain true");
+            assert!(!cascade, "cascade should remain false");
             assert!(force, "force should be true");
         }
         other => panic!("expected Stop, got {other:?}"),

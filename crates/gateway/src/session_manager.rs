@@ -759,6 +759,8 @@ mod graceful_stop_tests;
 #[cfg(test)]
 mod is_active_tests;
 #[cfg(test)]
+mod key_registry_tests;
+#[cfg(test)]
 mod rebuild_spawn_tree_tests;
 #[cfg(test)]
 mod recovery_injection_tests;
