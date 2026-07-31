@@ -7,10 +7,22 @@
 use std::panic;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use thiserror::Error;
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 use tracing::{error, info, warn};
+
+/// Trait for querying whether a session is actively executing work.
+///
+/// Implemented by [`SessionManager`](crate::SessionManager) and injected
+/// into [`ArchiveSweeper`] so it can skip archiving sessions that are
+/// currently running LLM calls or tool executions.
+#[async_trait]
+pub trait ActiveSessionQuery: Send + Sync {
+    /// Returns `true` if the session has ongoing LLM or tool work.
+    async fn is_active(&self, session_id: &str) -> bool;
+}
 
 /// Grace period (in seconds) to wait for a running sweep to finish
 /// before forcibly aborting it on shutdown.
@@ -36,6 +48,11 @@ pub struct ArchiveSweeper {
     /// Channel sender for notifying the DreamingScheduler about archived
     /// sessions, enabling immediate mining (design doc §即时 hook).
     mining_notify_tx: Option<mpsc::Sender<String>>,
+    /// Optional query for checking whether a session is actively
+    /// executing work (LLM call, tool execution, etc.).
+    /// Injected by the daemon so the sweeper can skip archiving
+    /// sessions that are not yet idle.
+    active_query: Option<Arc<dyn ActiveSessionQuery>>,
 }
 
 impl ArchiveSweeper {
@@ -48,7 +65,15 @@ impl ArchiveSweeper {
             storage,
             config,
             mining_notify_tx: None,
+            active_query: None,
         }
+    }
+
+    /// Inject an [`ActiveSessionQuery`] implementation for checking
+    /// session execution status before archiving.
+    pub fn with_active_query(mut self, query: Arc<dyn ActiveSessionQuery>) -> Self {
+        self.active_query = Some(query);
+        self
     }
 
     /// Attach a mining notify channel sender.  When a session is
@@ -89,6 +114,7 @@ impl ArchiveSweeper {
                         storage: Arc::clone(&self.storage),
                         config: Arc::clone(&self.config),
                         mining_notify_tx: self.mining_notify_tx.clone(),
+                        active_query: self.active_query.clone(),
                     };
                     let task = tokio::task::spawn(async move {
                         let notify_tx = sweeper.mining_notify_tx.clone();
@@ -185,6 +211,7 @@ impl ArchiveSweeper {
         // so panics propagate into catch_unwind.
         let storage = Arc::clone(&self.storage);
         let config = Arc::clone(&self.config);
+        let active_query = self.active_query.clone();
 
         let handle = tokio::task::spawn_blocking(move || {
             let runtime = tokio::runtime::Handle::current();
@@ -193,6 +220,7 @@ impl ArchiveSweeper {
                     Arc::clone(&storage),
                     Arc::clone(&config),
                     notify_tx,
+                    active_query,
                 ))
             }))
         });
@@ -222,6 +250,7 @@ impl ArchiveSweeper {
         storage: Arc<dyn PersistenceService>,
         config: Arc<dyn SessionConfigProvider>,
         notify_tx: Option<mpsc::Sender<String>>,
+        active_query: Option<Arc<dyn ActiveSessionQuery>>,
     ) -> Result<(), ArchiveSweeperError> {
         let agents = config.list_agents();
         if agents.is_empty() {
@@ -236,6 +265,7 @@ impl ArchiveSweeper {
                     agent_id,
                     role,
                     notify_tx.as_ref(),
+                    active_query.as_deref(),
                 )
                 .await;
             }
@@ -251,6 +281,7 @@ impl ArchiveSweeper {
         agent_id: &str,
         role: AgentRole,
         notify_tx: Option<&mpsc::Sender<String>>,
+        active_query: Option<&dyn ActiveSessionQuery>,
     ) {
         let cfg = config.session_config_for(agent_id, role);
 
@@ -279,6 +310,18 @@ impl ArchiveSweeper {
                             session_id = %sid_err,
                             %e,
                             "failed to load checkpoint for pending_operations check, skipping"
+                        );
+                        continue;
+                    }
+                }
+
+                // Check if session is actively executing work (LLM call,
+                // tool execution, etc.). If so, skip archiving.
+                if let Some(aq) = active_query {
+                    if aq.is_active(&sid).await {
+                        warn!(
+                            session_id = %sid_err,
+                            "skipping archive: session is actively executing"
                         );
                         continue;
                     }

@@ -4,7 +4,9 @@
 //! On daemon shutdown, `flush_all()` serializes all active sessions to the persistence backend.
 
 use crate::shutdown_handle::ShutdownHandle;
+use crate::sweeper::ActiveSessionQuery;
 use crate::{compute_session_key, GatewayConfig, Message, Session};
+use async_trait::async_trait;
 use closeclaw_common::processor::ProcessError;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_common::IMPlugin;
@@ -719,6 +721,17 @@ impl SessionManager {
         );
     }
 }
+
+#[async_trait]
+impl ActiveSessionQuery for SessionManager {
+    /// Check whether a session is actively executing work.
+    ///
+    /// Delegates to [`SessionManager::is_active`].
+    async fn is_active(&self, session_id: &str) -> bool {
+        self.is_active(session_id).await
+    }
+}
+
 #[cfg(test)]
 mod announce_dedup_tests;
 #[cfg(test)]
