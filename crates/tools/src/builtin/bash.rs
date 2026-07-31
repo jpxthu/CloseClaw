@@ -33,7 +33,11 @@ use tokio::io::AsyncReadExt;
 
 use tokio::sync::Mutex as TokioMutex;
 
-use super::bash_kill::{build_result, process_output, BackgroundKillHandle, BashKillHandle};
+use super::bash_kill::{
+    build_auto_background_result, build_background_result, build_manual_background_result,
+    finalize_foreground_after_wait, register_foreground_session, spawn_progress_monitor,
+    truncate_summary, BackgroundKillHandle,
+};
 
 /// Outcome of foreground tool execution, distinguishing between
 /// normal completion and auto-backgroundizing on timeout.
@@ -42,7 +46,7 @@ use super::bash_kill::{build_result, process_output, BackgroundKillHandle, BashK
 /// `Completed`/`Failed` (and deregister) or `RunningBackground`
 /// (and retain the tool state entry) after the foreground wait.
 #[derive(Debug)]
-enum ForegroundOutcome {
+pub(crate) enum ForegroundOutcome {
     /// Tool completed normally (success or non-zero exit).
     Completed(ToolResult),
     /// Tool execution error (e.g. spawn failure, wait failure).
@@ -51,9 +55,6 @@ enum ForegroundOutcome {
     /// Contains the ToolResult and the background task ID.
     AutoBackground(ToolResult, String),
 }
-
-/// Progress reporting interval (2 seconds).
-const PROGRESS_INTERVAL_MS: u64 = 2_000;
 
 /// Auto-backgroundize timeout (15 seconds).
 const AUTO_BG_TIMEOUT_MS: u64 = 15_000;
@@ -179,19 +180,6 @@ impl Tool for BashTool {
 }
 
 // --- Helper functions ---
-
-/// Truncate a command string for use as `args_summary` in pending
-/// operation tracking. Caps at 200 characters to keep checkpoint
-/// data compact.
-fn truncate_summary(command: &str) -> String {
-    const MAX_SUMMARY_LEN: usize = 200;
-    if command.len() <= MAX_SUMMARY_LEN {
-        command.to_string()
-    } else {
-        let end = command.floor_char_boundary(MAX_SUMMARY_LEN);
-        format!("{}...", &command[..end])
-    }
-}
 
 /// Parse and clamp the agent-specified timeout parameter.
 ///
@@ -355,9 +343,9 @@ where
 /// Read stdout/stderr incrementally with periodic progress reporting.
 ///
 /// Spawns a progress-monitoring task that reports accumulated output
-/// statistics via the session every [`PROGRESS_INTERVAL_MS`]. Returns
+/// statistics via the session every 2 seconds. Returns
 /// the final output strings and cumulative line/byte counts.
-async fn read_with_progress(
+pub(crate) async fn read_with_progress(
     stdout_handle: Option<tokio::process::ChildStdout>,
     stderr_handle: Option<tokio::process::ChildStderr>,
     session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
@@ -367,59 +355,39 @@ async fn read_with_progress(
     let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
     let progress = Arc::new((AtomicUsize::new(0), AtomicUsize::new(0)));
 
-    let progress_session = session.map(Arc::clone);
-    let progress_call_id = call_id.map(str::to_string);
-    let progress_counters = Arc::clone(&progress);
-    let mut progress_rx = cancel_rx.clone();
-    let progress_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_millis(PROGRESS_INTERVAL_MS));
-        interval.tick().await; // Skip first immediate tick
-        loop {
-            tokio::select! {
-                _ = interval.tick() => {
-                    let elapsed = start_time.elapsed();
-                    if elapsed.as_secs() >= 2 {
-                        if let (Some(s), Some(cid)) =
-                            (&progress_session, &progress_call_id)
-                        {
-                            s.report_tool_progress(
-                                cid,
-                                ToolProgress {
-                                    lines: progress_counters.0.load(Ordering::Relaxed),
-                                    bytes: progress_counters.1.load(Ordering::Relaxed),
-                                    elapsed,
-                                },
-                            )
-                            .await;
-                        }
-                    }
-                }
-                _ = progress_rx.changed() => break,
-            }
-        }
-    });
+    let progress_handle = if let (Some(s), Some(cid)) = (session, call_id) {
+        Some(spawn_progress_monitor(
+            start_time,
+            &progress,
+            s,
+            cid,
+            cancel_rx.clone(),
+        ))
+    } else {
+        None
+    };
 
     let (stdout_result, stderr_result) = tokio::join!(
         read_pipe_incremental(stdout_handle, cancel_rx.clone(), Some(&progress)),
         read_pipe_incremental(stderr_handle, cancel_rx, Some(&progress)),
     );
+    let _ = cancel_tx.send(true);
+    if let Some(h) = progress_handle {
+        let _ = h.await;
+    }
     let (stdout_raw, s_lines, s_bytes) = stdout_result;
     let (stderr_raw, e_lines, e_bytes) = stderr_result;
-
-    let _ = cancel_tx.send(true);
-    let _ = progress_handle.await;
 
     let total_lines = s_lines + e_lines;
     let total_bytes = s_bytes + e_bytes;
 
     if let (Some(s), Some(cid)) = (session, call_id) {
-        let elapsed = start_time.elapsed();
         s.report_tool_progress(
             cid,
             ToolProgress {
                 lines: total_lines,
                 bytes: total_bytes,
-                elapsed,
+                elapsed: start_time.elapsed(),
             },
         )
         .await;
@@ -469,39 +437,23 @@ async fn handle_foreground_result(
                 child, stdout_handle, stderr_handle, command, bg_manager, true,
             ).await
         }
-        result = tokio::time::timeout(bg_timeout, child.wait()) => {
-            match result {
-                Ok(Ok(status)) => {
-                    let exit_code = status.code().unwrap_or(-1);
-                    let (stdout_raw, stderr_raw, _lines, _bytes) =
-                        read_with_progress(
-                            stdout_handle, stderr_handle, session, call_id,
-                        )
-                        .await;
-                    let stdout_p = process_output(&stdout_raw);
-                    let stderr_p = process_output(&stderr_raw);
-                    ForegroundOutcome::Completed(build_result(
-                        command, stdout_p, stderr_p, exit_code, false,
-                    ))
-                }
-                Ok(Err(e)) => {
-                    ForegroundOutcome::Failed(format!(
-                        "failed to wait on command: {}", e
-                    ))
-                }
-                Err(_elapsed) => {
-                    auto_backgroundize_foreground(
-                        child,
-                        stdout_handle,
-                        stderr_handle,
-                        command,
-                        bg_manager,
-                        false,
-                    )
-                    .await
-                }
+        result = tokio::time::timeout(bg_timeout, child.wait()) => match result {
+            Ok(Ok(status)) => {
+                finalize_foreground_after_wait(
+                    status, stdout_handle, stderr_handle,
+                    command, session, call_id,
+                ).await
             }
-        }
+            Ok(Err(e)) => ForegroundOutcome::Failed(
+                format!("failed to wait on command: {}", e)
+            ),
+            Err(_elapsed) => {
+                auto_backgroundize_foreground(
+                    child, stdout_handle, stderr_handle,
+                    command, bg_manager, false,
+                ).await
+            }
+        },
     }
 }
 
@@ -837,33 +789,18 @@ async fn execute_foreground_command(
     call_id: Option<&str>,
     manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
 ) -> Result<(ForegroundOutcome, Option<String>), String> {
-    let mut registered_call_id = None;
-    if let (Some(s), Some(cid)) = (session, call_id) {
-        let summary = truncate_summary(command);
-        s.register_tool_call(cid.to_string(), "bash".to_string(), summary)
-            .await;
-        registered_call_id = Some(cid.to_string());
-    }
-
     let child = spawn_sh_command(command, cwd)?;
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
 
-    if let (Some(s), Some(cid)) = (session, call_id) {
-        let handle: Arc<dyn closeclaw_common::tool_session::KillHandle> =
-            Arc::new(BashKillHandle {
-                child: Arc::clone(&child_arc),
-            });
-        s.register_tool_handle(cid.to_string(), handle).await;
-        s.update_tool_state(cid, ToolExecState::RunningForeground)
-            .await;
-    }
+    let registered_call_id = if let (Some(s), Some(cid)) = (session, call_id) {
+        Some(register_foreground_session(s, cid, command, &child_arc).await)
+    } else {
+        None
+    };
 
     let bg_timeout = if auto_backgroundize_excluded(command) {
-        // Excluded commands are never auto-backgrounded per design doc.
-        // Use cap timeout as safety net; agent timeout is ignored.
         Duration::from_millis(AUTO_BG_TIMEOUT_CAP_MS)
     } else {
-        // Non-excluded: agent timeout (capped) or system default 15s
         Duration::from_millis(
             agent_timeout_ms
                 .map(|ms| ms.min(AUTO_BG_TIMEOUT_CAP_MS))
@@ -945,44 +882,6 @@ async fn execute_command(
             }
             Ok(result)
         }
-    }
-}
-
-/// Build a [`ToolResult`] for an explicitly backgrounded command.
-fn build_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
-    ToolResult {
-        data: serde_json::json!({
-            "backgroundTaskId": task.id,
-            "outputPath": task.output_path.to_string_lossy(),
-        }),
-        new_messages: vec![],
-        context_modifier: None,
-    }
-}
-
-/// Build a [`ToolResult`] for an auto-backgrounded command.
-fn build_auto_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
-    ToolResult {
-        data: serde_json::json!({
-            "backgroundTaskId": task.id,
-            "outputPath": task.output_path.to_string_lossy(),
-            "assistantAutoBackgrounded": true,
-        }),
-        new_messages: vec![],
-        context_modifier: None,
-    }
-}
-
-/// Build a [`ToolResult`] for a manually backgrounded command.
-fn build_manual_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
-    ToolResult {
-        data: serde_json::json!({
-            "backgroundTaskId": task.id,
-            "outputPath": task.output_path.to_string_lossy(),
-            "backgroundedByUser": true,
-        }),
-        new_messages: vec![],
-        context_modifier: None,
     }
 }
 

@@ -22,12 +22,13 @@
 //! - Result building: [`build_result`]
 
 use std::io;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::ToolResult;
-use closeclaw_common::tool_session::KillHandle;
+use closeclaw_common::tool_session::{KillHandle, ToolProgress, ToolSession};
+use closeclaw_common::ToolExecState;
 use closeclaw_tasks::TaskManager;
 
 use super::bash_classify;
@@ -250,6 +251,116 @@ pub(crate) fn persist_output(raw: &str) -> Result<String, String> {
     Ok(path)
 }
 
+// ── spawn_progress_monitor ───────────────────────────────────────────────
+
+/// Spawn a periodic progress-monitoring task.
+///
+/// The task polls the shared counters every [`PROGRESS_INTERVAL_MS`]
+/// and reports accumulated output statistics via the session.
+/// Returns a join handle that resolves when the task is cancelled.
+pub(crate) fn spawn_progress_monitor(
+    start_time: std::time::Instant,
+    counters: &Arc<(AtomicUsize, AtomicUsize)>,
+    session: &Arc<dyn ToolSession>,
+    call_id: &str,
+    cancel_rx: tokio::sync::watch::Receiver<bool>,
+) -> tokio::task::JoinHandle<()> {
+    let s = Arc::clone(session);
+    let cid = call_id.to_string();
+    let counters = Arc::clone(counters);
+    let mut rx = cancel_rx;
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_millis(2_000));
+        interval.tick().await;
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let elapsed = start_time.elapsed();
+                    if elapsed.as_secs() >= 2 {
+                        s.report_tool_progress(
+                            &cid,
+                            ToolProgress {
+                                lines: counters.0.load(Ordering::Relaxed),
+                                bytes: counters.1.load(Ordering::Relaxed),
+                                elapsed,
+                            },
+                        )
+                        .await;
+                    }
+                }
+                _ = rx.changed() => break,
+            }
+        }
+    })
+}
+
+// ── finalize_foreground_after_wait ──────────────────────────────────────
+
+/// Handle the `Ok(Ok(status))` branch after a foreground child wait.
+///
+/// Reads output with progress tracking, processes it, and builds
+/// the final [`ToolResult`]. Extracted from
+/// [`super::bash::handle_foreground_result`] to keep that function
+/// under the 50-line body limit.
+pub(crate) async fn finalize_foreground_after_wait(
+    status: std::process::ExitStatus,
+    stdout_handle: Option<tokio::process::ChildStdout>,
+    stderr_handle: Option<tokio::process::ChildStderr>,
+    command: &str,
+    session: Option<&Arc<dyn ToolSession>>,
+    call_id: Option<&str>,
+) -> super::bash::ForegroundOutcome {
+    let exit_code = status.code().unwrap_or(-1);
+    let (stdout_raw, stderr_raw, _lines, _bytes) =
+        super::bash::read_with_progress(stdout_handle, stderr_handle, session, call_id).await;
+    let stdout_p = process_output(&stdout_raw);
+    let stderr_p = process_output(&stderr_raw);
+    super::bash::ForegroundOutcome::Completed(build_result(
+        command, stdout_p, stderr_p, exit_code, false,
+    ))
+}
+
+// ── register_foreground_session ─────────────────────────────────────────
+
+/// Register the tool call, kill handle, and foreground state on the
+/// session. Returns the registered call ID.
+///
+/// Extracted from [`super::bash::execute_foreground_command`] to keep
+/// that function under the 50-line body limit.
+pub(crate) async fn register_foreground_session(
+    session: &Arc<dyn ToolSession>,
+    call_id: &str,
+    command: &str,
+    child_arc: &Arc<std::sync::Mutex<Option<tokio::process::Child>>>,
+) -> String {
+    let summary = truncate_summary(command);
+    session
+        .register_tool_call(call_id.to_string(), "bash".to_string(), summary)
+        .await;
+    let handle: Arc<dyn KillHandle> = Arc::new(BashKillHandle {
+        child: Arc::clone(child_arc),
+    });
+    session
+        .register_tool_handle(call_id.to_string(), handle)
+        .await;
+    session
+        .update_tool_state(call_id, ToolExecState::RunningForeground)
+        .await;
+    call_id.to_string()
+}
+
+/// Truncate a command string for use as `args_summary` in pending
+/// operation tracking.
+pub(crate) fn truncate_summary(command: &str) -> String {
+    const MAX_SUMMARY_LEN: usize = 200;
+    if command.len() <= MAX_SUMMARY_LEN {
+        command.to_string()
+    } else {
+        let end = command.floor_char_boundary(MAX_SUMMARY_LEN);
+        format!("{}...", &command[..end])
+    }
+}
+
 // ── build_result ────────────────────────────────────────────────────────
 
 /// Build a [`ToolResult`] from processed execution outputs.
@@ -279,6 +390,46 @@ pub(crate) fn build_result(
             "persistedOutputSize": persisted_size,
             "returnCodeInterpretation": interpretation,
             "noOutputExpected": no_output
+        }),
+        new_messages: vec![],
+        context_modifier: None,
+    }
+}
+
+// ── build_background_result ──────────────────────────────────────────────
+
+/// Build a [`ToolResult`] for an explicitly backgrounded command.
+pub(crate) fn build_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
+    ToolResult {
+        data: serde_json::json!({
+            "backgroundTaskId": task.id,
+            "outputPath": task.output_path.to_string_lossy(),
+        }),
+        new_messages: vec![],
+        context_modifier: None,
+    }
+}
+
+/// Build a [`ToolResult`] for an auto-backgrounded command.
+pub(crate) fn build_auto_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
+    ToolResult {
+        data: serde_json::json!({
+            "backgroundTaskId": task.id,
+            "outputPath": task.output_path.to_string_lossy(),
+            "assistantAutoBackgrounded": true,
+        }),
+        new_messages: vec![],
+        context_modifier: None,
+    }
+}
+
+/// Build a [`ToolResult`] for a manually backgrounded command.
+pub(crate) fn build_manual_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
+    ToolResult {
+        data: serde_json::json!({
+            "backgroundTaskId": task.id,
+            "outputPath": task.output_path.to_string_lossy(),
+            "backgroundedByUser": true,
         }),
         new_messages: vec![],
         context_modifier: None,
