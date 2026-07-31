@@ -9,8 +9,8 @@ use closeclaw_common::processor::ProcessError;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_common::IMPlugin;
 use closeclaw_common::{
-    DynamicPromptBuilder, LlmCaller, PromptOverrides, SkillListingProvider, SkillRegistryQuery,
-    SystemPromptBuilder, ToolRegistryQuery,
+    DynamicPromptBuilder, LlmCaller, PromptOverrides, SessionExecStatus, SkillListingProvider,
+    SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
 };
 use closeclaw_config::manager::{ConfigManager, ConfigSnapshot};
 use closeclaw_config::ConfigSection;
@@ -493,6 +493,25 @@ impl SessionManager {
         }
     }
 
+    /// Check whether a session is active (has ongoing LLM or tool work).
+    ///
+    /// Looks up the session in the in-memory `conversation_sessions` table,
+    /// reads its [`SessionExecStatus`] and returns `true` when the status
+    /// is anything other than `Idle` (i.e. `Busy` or `Waiting`).
+    ///
+    /// Returns `false` if the session does not exist in the in-memory table
+    /// — a session that has been flushed or archived has no active work.
+    pub async fn is_active(&self, session_id: &str) -> bool {
+        let conv_sessions = self.conversation_sessions.read().await;
+        match conv_sessions.get(session_id) {
+            Some(cs) => {
+                let cs = cs.read().await;
+                !matches!(cs.exec_status(), SessionExecStatus::Idle)
+            }
+            None => false,
+        }
+    }
+
     /// Look up an existing session_id from routing fields without creating
     /// a new session. Returns `None` if no matching session exists.
     ///
@@ -724,6 +743,8 @@ mod gap3_status_text_tests;
 mod gap3_termination_notification_tests;
 #[cfg(test)]
 mod graceful_stop_tests;
+#[cfg(test)]
+mod is_active_tests;
 #[cfg(test)]
 mod rebuild_spawn_tree_tests;
 #[cfg(test)]
