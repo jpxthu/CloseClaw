@@ -44,6 +44,7 @@ mod slash_permission_tests;
 #[cfg(test)]
 mod streaming_pipeline_tests;
 pub mod sweeper;
+mod sweeper_active_query_tests;
 #[cfg(test)]
 mod sweeper_tests;
 #[cfg(test)]
