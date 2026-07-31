@@ -225,6 +225,12 @@ impl SessionMessageHandler {
             .await
     }
     /// Handle an inbound message with explicit metadata.
+    ///
+    /// During active Waiting (yielding) state, `is_session_busy`
+    /// returns false (llm_active and foreground_tool_active are both
+    /// false), so the message flows through the normal path: inject
+    /// into conversation history and dispatch LLM. No queueing.
+    /// See `docs/design/session/session-execution.md` §Yield 机制.
     pub async fn handle_message_with_meta(
         &self,
         session_id: &str,
@@ -232,13 +238,6 @@ impl SessionMessageHandler {
         meta: MessageMetadata,
     ) -> HandleResult {
         if self.session_manager.is_session_busy(session_id).await {
-            self.enqueue_pending(session_id, content).await;
-            return HandleResult::MessageQueued;
-        }
-        // Step 1.6: Queue user messages during active Waiting (yielding) state.
-        // Slash commands are intercepted in lib.rs before reaching here,
-        // so /stop and other immediate commands bypass this check.
-        if self.session_manager.is_session_yielding(session_id).await {
             self.enqueue_pending(session_id, content).await;
             return HandleResult::MessageQueued;
         }

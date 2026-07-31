@@ -64,7 +64,7 @@ impl SessionMessageHandler {
         )
         .await;
 
-        // Step 1.5: Skip drain if recovery action or session yielding.
+        // Step 1.5: Skip drain if recovery action requested stop.
         if skip_drain {
             tracing::info!(
                 session_id = %session_id,
@@ -73,17 +73,11 @@ impl SessionMessageHandler {
             return;
         }
 
-        // Check if session is yielding (sessions_yield called).
-        // If yielding, skip draining pending messages — the turn ends here.
-        // Pending messages will be processed after the session resumes.
-        if Self::is_session_yielding(session_manager, session_id).await {
-            tracing::info!(
-                session_id = %session_id,
-                "finish_llm: session is yielding, skipping pending drain"
-            );
-            return;
-        }
-
+        // Note: yield no longer prevents drain. During yield, user
+        // messages are injected directly into the conversation history
+        // (not queued), so the LLM processes them immediately. After
+        // the turn completes, drain_pending_loop processes any remaining
+        // queued announce events or pending messages normally.
         Self::drain_pending_loop(session_manager, session_id, output_tx, metrics_emitter).await;
 
         // NOTE: Decrement is handled by the caller (spawned task in
@@ -99,18 +93,6 @@ impl SessionMessageHandler {
         // - `sessions_kill` tool for explicit parent-initiated kills
         // - `ArchiveSweeper::cascade_archive_impl` for timeout cleanup
         // See design-doc §生命周期联动 for the two correct trigger points.
-    }
-
-    /// Check if a session is in active Waiting (yielding) state.
-    ///
-    /// Called by [`finish_llm`] to skip draining pending messages when
-    /// the session has entered yielding via `sessions_yield`.
-    async fn is_session_yielding(session_manager: &Arc<SessionManager>, session_id: &str) -> bool {
-        if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-            cs.read().await.is_waiting()
-        } else {
-            false
-        }
     }
 
     /// Returns `true` if the caller should skip `drain_pending_loop`
