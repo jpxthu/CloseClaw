@@ -6,7 +6,9 @@
 use super::spawn::SpawnMode;
 use super::test_helpers::{setup_parent_with_conv, test_resolved_config};
 use super::tests::{clear_global_prompt_state, make_test_mgr};
+use closeclaw_common::Tool;
 use closeclaw_session::llm_session::ChatSession;
+use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
 use std::sync::Arc;
 
@@ -544,25 +546,26 @@ async fn test_yield_with_child_not_busy() {
     mgr.cancel_yield_timeout(&parent_id).await;
 }
 
-// ── 12. Non-yield child running → also not busy ────────────────────────────
+// ── 13. Yield warning notification is SystemNotification with Next priority ──
 
-/// Passive Waiting (child spawned but no yield) also results in
-/// not-busy, allowing immediate message injection.
+/// Verify that the yield warning notification enqueued by the warning
+/// timer is a `SystemNotification` entry (not directly injected as
+/// a system message) with `NotificationPriority::Next`.
 #[tokio::test]
 #[serial]
-async fn test_passive_child_not_busy() {
+async fn test_yield_warning_is_system_notification_with_next_priority() {
     clear_global_prompt_state();
 
     let mgr = Arc::new(make_test_mgr(None));
-    let parent_id = setup_parent_with_conv(&mgr, "parent-pc").await;
+    let parent_id = setup_parent_with_conv(&mgr, "parent-wnp").await;
 
-    // Spawn a child but do NOT enter Waiting (passive mode).
+    // Spawn a run-mode child that won't complete.
     let _child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-pc", None),
+            &test_resolved_config("worker-wnp", None),
             &parent_id,
             1,
-            "task",
+            "long task",
             true,
             None,
             SpawnMode::Run,
@@ -578,10 +581,151 @@ async fn test_passive_child_not_busy() {
         .await
         .unwrap();
 
-    // No yielding — but still not busy (child doesn't affect idle).
-    assert!(!mgr.is_session_yielding(&parent_id).await);
+    // Enter Waiting.
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        cs.read().await.enter_waiting();
+    }
+
+    // Start with warning=1s, hard=10s (warning fires first).
+    mgr.start_yield_timeout(&parent_id, "agent-x", Some(10), Some(1))
+        .await;
+
+    // Wait for warning to fire.
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+    // Verify the notification is a SystemNotification in the queue.
+    let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+    {
+        let mut cs_write = cs.write().await;
+        let entries = cs_write.drain_queue();
+        assert!(
+            !entries.is_empty(),
+            "queue should have an entry after warning"
+        );
+
+        let sys_entry = entries.iter().find(|e| {
+            matches!(
+                e,
+                closeclaw_session::llm_session::QueueEntry::SystemNotification(_, _)
+            )
+        });
+        let sys_entry = sys_entry.expect("should contain a SystemNotification entry");
+        match sys_entry {
+            closeclaw_session::llm_session::QueueEntry::SystemNotification(text, priority) => {
+                assert!(
+                    text.contains("超时预警"),
+                    "warning text should contain '超时预警', got: {}",
+                    text
+                );
+                assert_eq!(*priority, NotificationPriority::Next);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    // Cleanup.
+    mgr.cancel_yield_timeout(&parent_id).await;
+}
+
+// ── 14. Yield timeout notification goes through queue ──────────────────────
+
+/// Verify that the yield timeout notification is enqueued as a
+/// SystemNotification (priority Next) and then drained into the
+/// conversation transcript by `drain_pending_for_session`.
+#[tokio::test]
+#[serial]
+async fn test_yield_timeout_notification_goes_through_queue() {
+    clear_global_prompt_state();
+
+    let mgr = Arc::new(make_test_mgr(None));
+    let parent_id = setup_parent_with_conv(&mgr, "parent-tnq").await;
+
+    // Spawn a child.
+    let _child_id = mgr
+        .create_child_session(
+            &test_resolved_config("worker-tnq", None),
+            &parent_id,
+            1,
+            "work",
+            true,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+            3,
+            None,
+            None,
+            None, // prompt_template_prefix
+        )
+        .await
+        .unwrap();
+
+    // Enter Waiting.
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        cs.read().await.enter_waiting();
+    }
+
+    // Start a 1-second timeout.
+    mgr.start_yield_timeout(&parent_id, "agent-x", Some(1), None)
+        .await;
+
+    // Wait for timeout to fire and drain to complete.
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // After drain, the notification should be in the transcript as a
+    // system message (not in the queue).
+    let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+    let messages = cs.read().await.messages().to_vec();
+    let has_timeout_in_transcript = messages.iter().any(|m| {
+        m.role == "system"
+            && m.content_blocks.iter().any(
+                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("超时")),
+            )
+    });
     assert!(
-        !mgr.is_session_busy(&parent_id).await,
-        "is_session_busy must return false when only child is running (no yield)",
+        has_timeout_in_transcript,
+        "timeout notification should appear in transcript after queue drain"
+    );
+
+    // Queue should be empty after drain.
+    let cs_guard = cs.read().await;
+    assert!(
+        cs_guard.is_queue_empty(),
+        "queue should be empty after timeout drain"
+    );
+}
+
+// ── 15. sessions_yield detail does not contain 'queued' ────────────────────
+
+/// The `detail()` method of `sessions_yield` should not claim that
+/// user messages are "queued" during yield — per design doc, yield
+/// makes the session idle and messages are delivered immediately.
+#[tokio::test]
+#[serial]
+async fn test_sessions_yield_detail_not_queued() {
+    clear_global_prompt_state();
+
+    let mgr = Arc::new(make_test_mgr(None));
+    let tool = closeclaw_session::tools::sessions_yield::SessionsYieldTool::new(mgr);
+    let detail = tool.detail();
+
+    assert!(
+        !detail.to_lowercase().contains("queued"),
+        "detail() should not contain 'queued', got: {}",
+        detail
+    );
+    assert!(
+        detail.contains("idle"),
+        "detail() should mention idle state, got: {}",
+        detail
+    );
+    assert!(
+        detail.contains("immediately"),
+        "detail() should mention immediate delivery, got: {}",
+        detail
     );
 }
