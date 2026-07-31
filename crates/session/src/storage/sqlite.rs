@@ -194,6 +194,7 @@ impl SqliteStorage {
             ("dreaming_status", "TEXT"),
             ("plan_state", "TEXT"),
             ("mined_at", "INTEGER"),
+            ("last_user_activity_at", "INTEGER"),
         ] {
             Self::add_column_if_not_exists(conn, col, col_type)?;
         }
@@ -456,17 +457,22 @@ impl PersistenceService for SqliteStorage {
                 .map(|ps| serde_json::to_string(ps).map_err(PersistenceError::Serialization))
                 .transpose()?;
 
+            let last_user_activity_ts = checkpoint
+                .last_user_activity_at
+                .map(|dt| dt.timestamp())
+                .unwrap_or(0);
+
             conn.execute(
                 "INSERT OR REPLACE INTO sessions
                  (id, agent_id, role, channel, chat_id, status, title,
                   last_message_at, created_at, archived_at, message_count, metadata, thread_id,
                   sender_id, platform, peer_id, account_id, parent_session_id, depth,
-                  mined, dreaming_status, plan_state, mined_at)
+                  mined, dreaming_status, plan_state, mined_at, last_user_activity_at)
                  VALUES (
                      ?1, ?2, ?3, ?4, ?5, ?6, ?7,
                      ?8, ?9, ?10, ?11, ?12, ?13,
                      ?14, ?15, ?16, ?17, ?18, ?19,
-                     ?20, ?21, ?22, ?23
+                     ?20, ?21, ?22, ?23, ?24
                  )",
                 params![
                     checkpoint.session_id,
@@ -501,6 +507,7 @@ impl PersistenceService for SqliteStorage {
                     dreaming_status_str,
                     plan_state_json.as_deref(),
                     mined_at_val,
+                    last_user_activity_ts,
                 ],
             )
             .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;

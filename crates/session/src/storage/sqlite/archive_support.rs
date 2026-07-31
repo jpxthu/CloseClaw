@@ -166,7 +166,7 @@ pub fn load_checkpoint_inner(
             "SELECT agent_id, role, channel, chat_id, status, title,
              last_message_at, created_at, archived_at, message_count, metadata, thread_id,
              sender_id, platform, peer_id, account_id, parent_session_id, depth,
-             mined, dreaming_status, plan_state, mined_at
+             mined, dreaming_status, plan_state, mined_at, last_user_activity_at
              FROM sessions WHERE id = ?1",
         )
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
@@ -195,6 +195,7 @@ pub fn load_checkpoint_inner(
             row.get::<_, Option<String>>(19)?,
             row.get::<_, Option<String>>(20)?,
             row.get::<_, Option<i64>>(21)?,
+            row.get::<_, Option<i64>>(22)?,
         ))
     }) {
         Ok(r) => r,
@@ -225,6 +226,7 @@ pub fn load_checkpoint_inner(
         dreaming_status_raw,
         plan_state_raw,
         mined_at_raw,
+        last_user_activity_at_raw,
     ) = row;
 
     let depth: u32 = depth_str.and_then(|s| s.parse().ok()).unwrap_or(0);
@@ -368,6 +370,8 @@ pub fn load_checkpoint_inner(
         pending_tool_failures: Vec::new(),
         verbosity_level: closeclaw_common::VerbosityLevel::default(),
         plan_state: plan_state_raw.and_then(|s| serde_json::from_str(&s).ok()),
+        last_user_activity_at: last_user_activity_at_raw
+            .and_then(|ts| DateTime::from_timestamp(ts, 0)),
         progress_tool_calls: Vec::new(),
         approval_tool_calls: Vec::new(),
         plan_references: Vec::new(),
