@@ -703,4 +703,72 @@ mod tests {
         assert_eq!(cfg.purge_after_minutes, 0);
         assert_eq!(cfg.idle_minutes, 30);
     }
+
+    // ===================================================================
+    // Step 1.6: last_user_activity_at serde compatibility tests
+    // ===================================================================
+
+    /// Old checkpoint JSON without `last_user_activity_at` field
+    /// deserializes to None (via `#[serde(default)]`).
+    #[test]
+    fn test_last_user_activity_at_missing_from_json_defaults_to_none() {
+        let mut cp = SessionCheckpoint::new("s-old-json".into());
+        cp.last_message_at = Some(chrono::Utc::now());
+        let mut json_value = serde_json::to_value(&cp).unwrap();
+        // Remove the field to simulate old JSON
+        json_value
+            .as_object_mut()
+            .unwrap()
+            .remove("last_user_activity_at");
+        let json_str = serde_json::to_string(&json_value).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json_str).unwrap();
+        assert!(
+            parsed.last_user_activity_at.is_none(),
+            "missing last_user_activity_at in old JSON should default to None"
+        );
+    }
+
+    /// Serialize and deserialize a checkpoint with `last_user_activity_at`
+    /// set to a value — roundtrip preserves it.
+    #[test]
+    fn test_last_user_activity_at_roundtrip_with_value() {
+        let dt = chrono::DateTime::parse_from_rfc3339("2026-07-31T10:00:00Z")
+            .unwrap()
+            .to_utc();
+        let cp = SessionCheckpoint::new("s-rt-val".into()).with_last_user_activity_at(dt);
+        let json = serde_json::to_string(&cp).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.last_user_activity_at, Some(dt));
+    }
+
+    /// Serialize and deserialize a checkpoint with `last_user_activity_at`
+    /// set to None — roundtrip preserves None.
+    #[test]
+    fn test_last_user_activity_at_roundtrip_with_none() {
+        let cp = SessionCheckpoint::new("s-rt-none".into());
+        assert!(cp.last_user_activity_at.is_none());
+        let json = serde_json::to_string(&cp).unwrap();
+        let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
+        assert!(parsed.last_user_activity_at.is_none());
+    }
+
+    /// `with_last_user_activity_at` builder sets the field correctly.
+    #[test]
+    fn test_last_user_activity_at_builder_method() {
+        let dt = chrono::DateTime::parse_from_rfc3339("2026-07-31T12:00:00Z")
+            .unwrap()
+            .to_utc();
+        let cp = SessionCheckpoint::new("s-builder".into()).with_last_user_activity_at(dt);
+        assert_eq!(cp.last_user_activity_at, Some(dt));
+    }
+
+    /// `SessionCheckpoint::new()` initializes `last_user_activity_at` to None.
+    #[test]
+    fn test_last_user_activity_at_new_defaults_to_none() {
+        let cp = SessionCheckpoint::new("s-new".into());
+        assert!(
+            cp.last_user_activity_at.is_none(),
+            "new checkpoint should have last_user_activity_at = None"
+        );
+    }
 }

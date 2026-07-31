@@ -419,9 +419,9 @@
     "path": "docs/design/session/README.md",
     "commit": "b99e81816f695d6f4f84471bda55fac796f5dc10",
     "commit_time": "2026-07-31T12:45:36+08:00",
-    "confirmed_time": "2026-07-31T13:19:55.622427+08:00",
+    "confirmed_time": "2026-07-31T20:08:05.652069+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "文档内部矛盾：(1) README说四维独立跟踪组合判定是否空闲，但session-execution.md说child_active不影响Busy判定；(2) README说key_registry取last_message_at最大的session，代码实际取created_at最大的；(3) session_key与routing_key概念混用，routing_key字段组成描述与代码不一致"
   },
   {
     "path": "docs/design/session/compact-process.md",
