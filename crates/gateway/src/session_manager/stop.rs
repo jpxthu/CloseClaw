@@ -65,12 +65,15 @@ pub struct StopResult {
     pub succeeded: usize,
     pub failed: usize,
     pub skipped: usize,
+    /// Sessions that timed out during graceful stop and were left
+    /// dirty (pending_operations preserved for recovery scan).
+    pub timed_out: usize,
 }
 
 impl StopResult {
     /// Total number of sessions processed.
     pub fn total(&self) -> usize {
-        self.succeeded + self.failed + self.skipped
+        self.succeeded + self.failed + self.skipped + self.timed_out
     }
 }
 
@@ -117,6 +120,7 @@ impl SessionManager {
             succeeded = result.succeeded,
             failed = result.failed,
             skipped = result.skipped,
+            timed_out = result.timed_out,
             "stop_all_sessions: complete"
         );
         result
@@ -125,8 +129,9 @@ impl SessionManager {
     /// Process a single level of sessions concurrently.
     /// Returns count of sessions processed.
     ///
-    /// On graceful timeout, escalates to forceful stop for the
-    /// timed-out session (daemon shutdown behavior).
+    /// On graceful timeout the session is left dirty: pending_operations
+    /// are preserved as-is so the next-startup recovery scan detects
+    /// them. No forceful escalation occurs during daemon shutdown.
     async fn process_stop_level(
         &self,
         level: &[String],
@@ -144,30 +149,23 @@ impl SessionManager {
         let outcomes = futures::future::join_all(futures).await;
         let count = level.len();
         for (idx, outcome) in outcomes.into_iter().enumerate() {
-            // On graceful timeout, escalate to forceful for daemon
-            // shutdown — same behaviour as before this step.
-            let effective_outcome = match outcome {
-                Ok(GracefulStopOutcome::TimedOut { remaining: r, .. })
-                    if mode == ShutdownMode::Graceful =>
-                {
-                    tracing::info!(
-                        session_id = %level[idx],
-                        remaining = r,
-                        "graceful timeout during level stop, \
-                         escalating to forceful"
-                    );
-                    self.stop_single_session(
-                        &level[idx],
-                        ShutdownMode::Forceful,
-                        false,
-                        Duration::ZERO,
-                        None,
-                    )
-                    .await
-                }
-                other => other,
-            };
-            let success = Self::process_stop_outcome(effective_outcome, result);
+            if let Ok(GracefulStopOutcome::TimedOut {
+                remaining: r,
+                waiting_items,
+            }) = &outcome
+            {
+                tracing::info!(
+                    session_id = %level[idx],
+                    remaining = r,
+                    waiting = ?waiting_items
+                        .iter()
+                        .map(|(name, _)| name.as_str())
+                        .collect::<Vec<_>>(),
+                    "graceful timeout — session left dirty, \
+                     pending_operations preserved for recovery scan"
+                );
+            }
+            let success = Self::process_stop_outcome(outcome, result);
             Self::notify_stop_progress(
                 progress_tx,
                 &level[idx],
@@ -207,8 +205,9 @@ impl SessionManager {
                 result.succeeded += 1;
                 true
             }
-            Ok(GracefulStopOutcome::TimedOut { .. }) => {
-                result.failed += 1;
+            Ok(GracefulStopOutcome::TimedOut { remaining, .. }) => {
+                result.timed_out += 1;
+                tracing::debug!(remaining, "session timed out during graceful stop");
                 false
             }
             Err(StopError::Skipped) => {
