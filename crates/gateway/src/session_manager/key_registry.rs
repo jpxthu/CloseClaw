@@ -20,7 +20,7 @@ impl SessionManager {
     /// `sender_id`, we fall back to using `agent_id`.
     ///
     /// When multiple sessions share the same reconstructed key, the one with
-    /// the latest `created_at` is kept.
+    /// the latest `last_message_at` (falling back to `created_at`) is kept.
     pub async fn rebuild_key_registry(&self) -> Result<(), PersistenceError> {
         let cm_arc = {
             let guard = self.checkpoint_manager.read().await;
@@ -38,8 +38,8 @@ impl SessionManager {
         // restored on-demand via the SQLite fallback path in `resolve()`.
         let all_session_ids = cm_arc.storage().list_active_sessions().await?;
 
-        // Accumulate: reconstructed key → (created_at, session_id)
-        // Keep only the latest created_at per key.
+        // Accumulate: reconstructed key → (last_message_at, session_id)
+        // Keep only the latest last_message_at per key.
         let mut key_best: HashMap<String, (chrono::DateTime<chrono::Utc>, String)> = HashMap::new();
 
         for session_id in &all_session_ids {
@@ -90,7 +90,7 @@ impl SessionManager {
             let hash = Sha256::digest(routing_fields.as_bytes());
             let session_key = format!("{:x}", hash);
 
-            let created = cp.created_at;
+            let created = cp.last_message_at.unwrap_or(cp.created_at);
             match key_best.get(&session_key) {
                 Some((existing_created, _)) if created <= *existing_created => {
                     // Existing entry is newer or equal — keep it.
