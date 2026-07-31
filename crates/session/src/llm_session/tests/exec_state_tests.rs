@@ -233,10 +233,25 @@ fn test_exec_status_busy_pending_tool() {
     assert_eq!(session.exec_status(), SessionExecStatus::Busy);
 }
 
+// Per design doc: child_active does NOT affect idle/Busy determination.
+// When only child is running (no yielding, no LLM, no foreground tool),
+// exec_status should return Idle — not Waiting.
 #[test]
-fn test_exec_status_waiting_child_running() {
+fn test_exec_status_idle_child_running_no_yield() {
     let session = ConversationSession::new("s_exec_5".into(), "gpt-4o".into(), tmp_path());
     session.register_child("child_1", "agent-a", "do something");
+    assert_eq!(session.exec_status(), SessionExecStatus::Idle);
+}
+
+// Waiting is only returned when is_yielding=true (agent called sessions_yield).
+#[test]
+fn test_exec_status_waiting_only_when_yielding() {
+    let session = ConversationSession::new("s_exec_5y".into(), "gpt-4o".into(), tmp_path());
+    session.register_child("child_1", "agent-a", "do something");
+    // Without yielding, should be Idle.
+    assert_eq!(session.exec_status(), SessionExecStatus::Idle);
+    // With yielding, should be Waiting.
+    session.enter_waiting();
     assert_eq!(session.exec_status(), SessionExecStatus::Waiting);
 }
 

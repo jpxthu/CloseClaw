@@ -383,19 +383,17 @@ async fn test_drain_notifications_injects_system_message() {
         closeclaw_llm::types::ContentBlock::Text(t) => t.clone(),
         other => panic!("expected Text block, got {:?}", other),
     };
-    assert!(
-        text.contains("t-1"),
-        "should contain task_id, got: {}",
-        text
-    );
+    // Step 1.5: task notifications are now routed through the unified
+    // queue and injected as announce events with the format:
+    //   [子 agent <command>] <status_label>：\n<result_text>
     assert!(
         text.contains("echo hello"),
         "should contain command, got: {}",
         text
     );
     assert!(
-        text.contains("Completed"),
-        "should contain state, got: {}",
+        text.contains("任务已完成"),
+        "should contain status label, got: {}",
         text
     );
 }

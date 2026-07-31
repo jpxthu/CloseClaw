@@ -16,7 +16,7 @@ use super::SessionManager;
 use crate::session_manager::communication::CommunicationError;
 use chrono::Utc;
 use closeclaw_common::{ChildCompletionStatus, ChildSessionState, SessionExecStatus};
-use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSession};
+use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSession, QueueEntry};
 use closeclaw_session::run_health::AnnounceSweepTarget;
 use closeclaw_session::spawn::types::ChildSessionStatus;
 use closeclaw_tasks::NotificationPriority;
@@ -68,7 +68,20 @@ impl SessionManager {
             return Vec::new();
         };
         let mut cs = cs.write().await;
-        cs.drain_announce_queue()
+        let all = cs.drain_all_entries();
+        let mut announces = Vec::new();
+        for entry in all {
+            match entry {
+                QueueEntry::Announce(e) => announces.push(e),
+                QueueEntry::UserMessage(pm) => {
+                    cs.push_pending(pm);
+                }
+                QueueEntry::BackgroundToolNotification(notif) => {
+                    announces.push(notif_to_announce(notif));
+                }
+            }
+        }
+        announces
     }
 
     /// Drain all queued announce events and inject each one as a
@@ -127,13 +140,22 @@ impl SessionManager {
             return Vec::new();
         };
         let mut cs = cs.write().await;
-        let all = cs.drain_announce_queue();
+        let all = cs.drain_all_entries();
         let mut matched = Vec::new();
-        for event in all {
-            if predicate(&event.priority) {
-                matched.push(event);
-            } else {
-                cs.push_announce_to_queue(event);
+        for entry in all {
+            match entry {
+                QueueEntry::Announce(ref event) if predicate(&event.priority) => {
+                    matched.push(event.clone());
+                }
+                // Step 1.5: Background tool completion notifications
+                // follow the same drain path as child session announces.
+                // Convert to AnnounceEvent for the inject path.
+                QueueEntry::BackgroundToolNotification(ref notif) if predicate(&notif.priority) => {
+                    matched.push(notif_to_announce(notif.clone()));
+                }
+                other => {
+                    cs.push_queue_entry(other);
+                }
             }
         }
         matched
@@ -847,6 +869,39 @@ impl SessionManager {
 }
 
 // ── Free helpers ────────────────────────────────────────────────────────────
+
+/// Convert a background tool [`CompletionNotification`] into an
+/// [`AnnounceEvent`]. Used by `drain_announces` and
+/// `drain_announces_filtered` to avoid duplicating the conversion.
+fn notif_to_announce(notif: closeclaw_tasks::CompletionNotification) -> AnnounceEvent {
+    use closeclaw_tasks::TaskState;
+    let status = match notif.state {
+        TaskState::Completed { .. } => ChildCompletionStatus::Completed,
+        TaskState::Failed { .. } => ChildCompletionStatus::Errored,
+        TaskState::Killed => ChildCompletionStatus::Terminated,
+        TaskState::Running { .. } => {
+            unreachable!("CompletionNotification should never have Running state")
+        }
+    };
+    let result_text = format!(
+        "{}。输出文件：{}{}",
+        notif.summary,
+        notif.output_path.display(),
+        notif
+            .suggestion
+            .as_ref()
+            .map(|s| format!("。建议：{}", s))
+            .unwrap_or_default()
+    );
+    AnnounceEvent {
+        child_session_id: notif.task_id,
+        child_agent_id: notif.command,
+        result_text,
+        completed_at: chrono::Utc::now(),
+        priority: notif.priority,
+        status,
+    }
+}
 
 /// Build a fresh `AnnounceEvent` with the current UTC timestamp.
 fn build_announce_event(

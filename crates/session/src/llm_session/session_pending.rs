@@ -83,7 +83,7 @@ impl ConversationSession {
         ops: &mut Vec<PendingOperation>,
         _now: chrono::DateTime<Utc>,
     ) {
-        for pm in &self.pending_messages {
+        for pm in self.unified_queue.pending_user_messages() {
             if !pm.sent {
                 let delivery_status = "pending";
                 ops.push(PendingOperation {

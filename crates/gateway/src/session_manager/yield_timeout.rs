@@ -24,17 +24,25 @@ use super::SessionManager;
 /// spawn args specify a timeout.
 const DEFAULT_YIELD_TIMEOUT_SECS: u64 = 600;
 
+/// Default yield warning timeout in seconds (1 minute).
+///
+/// Injects a warning notification 1 minute before the hard timeout
+/// fires, giving the agent early visibility into slow child sessions.
+const DEFAULT_YIELD_WARNING_TIMEOUT_SECS: u64 = 60;
+
 impl SessionManager {
     /// Start a yield timeout for the given session.
     ///
-    /// Spawns a tokio task that waits for `timeout_secs` seconds.
-    /// On expiry:
-    /// 1. Terminates all child sessions via forceful stop
-    /// 2. Injects a timeout notification into the parent's message queue
-    /// 3. Exits Waiting state and triggers pending message drain
+    /// Spawns two tokio tasks:
+    /// - **Warning timer** (`timeout_warning_secs`): Injects a warning notification
+    ///   (next priority) without terminating children.
+    /// - **Hard timeout** (`timeout_secs`): Terminates all child sessions via
+    ///   forceful stop, injects a timeout notification, and resumes the parent.
     ///
+    /// If `timeout_warning_secs` is `None`, uses
+    /// [`DEFAULT_YIELD_WARNING_TIMEOUT_SECS`].
     /// If `timeout_secs` is `None`, uses [`DEFAULT_YIELD_TIMEOUT_SECS`].
-    /// If a timeout is already running for this session, the old one is
+    /// If a timeout is already running for this session, the old ones are
     /// aborted first (defensive — callers should cancel before restarting).
     ///
     /// Takes `Arc<Self>` so the spawned task can hold a strong reference.
@@ -43,13 +51,32 @@ impl SessionManager {
         session_id: &str,
         agent_id: &str,
         timeout_secs: Option<u64>,
+        timeout_warning_secs: Option<u64>,
     ) {
         let secs = timeout_secs.unwrap_or(DEFAULT_YIELD_TIMEOUT_SECS);
+        let warning_secs = timeout_warning_secs.unwrap_or(DEFAULT_YIELD_WARNING_TIMEOUT_SECS);
         let duration = Duration::from_secs(secs);
+        let warning_duration = Duration::from_secs(warning_secs);
 
-        // Abort any existing timeout handle (defensive).
+        // Abort any existing timeout handles (defensive).
         self.cancel_yield_timeout(session_id).await;
 
+        // Spawn warning timer (fires first).
+        let session_id_warn = session_id.to_string();
+        let agent_id_warn = agent_id.to_string();
+        let sm_warn = Arc::clone(self);
+        let warning_handle = tokio::spawn(async move {
+            tokio::time::sleep(warning_duration).await;
+            sm_warn
+                .handle_yield_warning(&session_id_warn, &agent_id_warn, warning_secs)
+                .await;
+        });
+        self.yield_warning_handles
+            .write()
+            .await
+            .insert(session_id.to_string(), warning_handle);
+
+        // Spawn hard timeout timer.
         let session_id_owned = session_id.to_string();
         let agent_id_owned = agent_id.to_string();
         let sm = Arc::clone(self);
@@ -58,33 +85,66 @@ impl SessionManager {
             sm.handle_yield_timeout(&session_id_owned, &agent_id_owned, secs)
                 .await;
         });
-
         self.yield_timeout_handles
             .write()
             .await
             .insert(session_id.to_string(), handle);
+
         tracing::info!(
             session_id = %session_id,
             timeout_secs = secs,
-            "yield timeout started"
+            timeout_warning_secs = warning_secs,
+            "yield timeout started (warning + hard)"
         );
     }
 
     /// Cancel the yield timeout for a session (normal recovery path).
     ///
+    /// Cancels both the hard timeout and the warning timeout handles.
     /// Called by `maybe_recover_yielded_session` when all children
     /// complete before the timeout expires.
     pub async fn cancel_yield_timeout(&self, session_id: &str) {
         if let Some(handle) = self.yield_timeout_handles.write().await.remove(session_id) {
             handle.abort();
-            tracing::debug!(
-                session_id = %session_id,
-                "yield timeout cancelled"
-            );
         }
+        if let Some(handle) = self.yield_warning_handles.write().await.remove(session_id) {
+            handle.abort();
+        }
+        tracing::debug!(
+            session_id = %session_id,
+            "yield timeout cancelled"
+        );
     }
 
-    /// Handle yield timeout expiry.
+    /// Handle yield warning timeout expiry.
+    ///
+    /// Injects a warning notification (next priority) into the parent's
+    /// message queue. Children continue executing — they are not terminated.
+    async fn handle_yield_warning(&self, session_id: &str, _agent_id: &str, warning_secs: u64) {
+        tracing::warn!(
+            session_id = %session_id,
+            "yield warning timeout fired: injecting warning notification"
+        );
+
+        if let Some(cs) = self.get_conversation_session(session_id).await {
+            let mut cs_write = cs.write().await;
+            let notification = format!(
+                "[⚠️ 超时预警] 子 agent 任务已运行 {} 秒，即将到达超时上限。\n请耐心等待或检查子 session 状态。",
+                warning_secs
+            );
+            cs_write.inject_system_message(notification);
+        }
+
+        // Clean up the warning handle entry (the task is done).
+        self.yield_warning_handles.write().await.remove(session_id);
+
+        tracing::info!(
+            session_id = %session_id,
+            "yield warning notification injected"
+        );
+    }
+
+    /// Handle yield hard timeout expiry.
     ///
     /// Terminates all child sessions, injects a timeout notification,
     /// and resumes the parent session.

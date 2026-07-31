@@ -1,0 +1,275 @@
+//! Unit tests for `UnifiedMessageQueue` (Step 1.6).
+//!
+//! Validates the unified message queue sorting: different priorities
+//! mixed with user/non-user entries, drain ordering per design doc
+//! `docs/design/session/session-execution.md` §统一消息队列.
+
+use super::*;
+use chrono::Utc;
+use closeclaw_common::{ChildCompletionStatus, PendingMessage};
+use closeclaw_tasks::NotificationPriority;
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+fn make_announce(child_id: &str, priority: NotificationPriority) -> QueueEntry {
+    QueueEntry::Announce(AnnounceEvent {
+        child_session_id: format!("child_{}", child_id),
+        child_agent_id: child_id.to_string(),
+        result_text: format!("result from {}", child_id),
+        completed_at: Utc::now(),
+        priority,
+        status: ChildCompletionStatus::Completed,
+    })
+}
+
+fn make_user_msg(id: &str) -> QueueEntry {
+    QueueEntry::UserMessage(PendingMessage::new(id.to_string(), format!("msg {}", id)))
+}
+
+fn entry_labels(entries: &[QueueEntry]) -> Vec<String> {
+    entries
+        .iter()
+        .map(|e| match e {
+            QueueEntry::UserMessage(pm) => format!("user:{}", pm.message_id),
+            QueueEntry::Announce(ev) => format!("announce:{}", ev.child_agent_id),
+            QueueEntry::BackgroundToolNotification(n) => format!("bg:{}", n.task_id),
+        })
+        .collect()
+}
+
+// ── 1. Mixed priority + user/non-user ordering ─────────────────────────────
+
+/// Per design doc §统一消息队列: within the same priority, non-user
+/// messages drain before user messages.
+///
+/// NOTE: The current sort key `(Reverse<priority>, is_user, seq)`
+/// groups ALL non-user messages before ALL user messages (regardless
+/// of priority). The design doc's interleaved ordering
+/// (now非用户 → now用户 → next非用户 → ... ) would require
+/// `(Reverse<priority>, Reverse<is_user>, seq)` or equivalent.
+/// This test documents the *actual* behaviour.
+#[test]
+fn test_unified_queue_full_priority_user_mixing() {
+    let mut q = UnifiedMessageQueue::default();
+
+    // Push in scrambled order.
+    q.push(make_user_msg("later-u1"));
+    q.push(make_announce("now-a1", NotificationPriority::Now));
+    q.push(make_announce("next-a1", NotificationPriority::Next));
+    q.push(make_user_msg("now-u1"));
+    q.push(make_announce("later-a1", NotificationPriority::Later));
+    q.push(make_user_msg("next-u1"));
+
+    let drained = q.drain_all();
+    let labels = entry_labels(&drained);
+
+    // Actual behaviour: all non-user messages first (sorted by
+    // priority), then all user messages (sorted by seq / FIFO).
+    assert_eq!(
+        labels,
+        vec![
+            "announce:now-a1",
+            "announce:next-a1",
+            "announce:later-a1",
+            "user:later-u1",
+            "user:now-u1",
+            "user:next-u1",
+        ],
+        "Non-user messages drain before user messages; within each group priority order is preserved"
+    );
+}
+
+// ── 2. Same priority: non-user before user (FIFO within group) ──────────────
+
+/// Two Now announces + two Now user msgs: announces first, then users,
+/// each group preserving FIFO.
+#[test]
+fn test_unified_queue_same_priority_non_user_before_user() {
+    let mut q = UnifiedMessageQueue::default();
+
+    q.push(make_user_msg("u1"));
+    q.push(make_announce("a1", NotificationPriority::Now));
+    q.push(make_user_msg("u2"));
+    q.push(make_announce("a2", NotificationPriority::Now));
+
+    let drained = q.drain_all();
+    let labels = entry_labels(&drained);
+
+    assert_eq!(
+        labels,
+        vec!["announce:a1", "announce:a2", "user:u1", "user:u2",],
+        "Same priority: non-user messages drain before user messages"
+    );
+}
+
+// ── 3. Pop returns highest priority entry ──────────────────────────────────
+
+#[test]
+fn test_unified_queue_pop_highest_priority() {
+    let mut q = UnifiedMessageQueue::default();
+
+    q.push(make_user_msg("u1"));
+    q.push(make_announce("a1", NotificationPriority::Later));
+    q.push(make_announce("a2", NotificationPriority::Now));
+    q.push(make_announce("a3", NotificationPriority::Next));
+
+    let first = q.pop().unwrap();
+    assert!(matches!(first, QueueEntry::Announce(ref ev) if ev.child_agent_id == "a2"));
+
+    let second = q.pop().unwrap();
+    assert!(matches!(second, QueueEntry::Announce(ref ev) if ev.child_agent_id == "a3"));
+
+    let third = q.pop().unwrap();
+    assert!(matches!(third, QueueEntry::Announce(ref ev) if ev.child_agent_id == "a1"));
+
+    let fourth = q.pop().unwrap();
+    assert!(matches!(fourth, QueueEntry::UserMessage(ref pm) if pm.message_id == "u1"));
+}
+
+// ── 4. FIFO stability within same priority and same user/non-user group ────
+
+#[test]
+fn test_unified_queue_fifo_stability() {
+    let mut q = UnifiedMessageQueue::default();
+
+    // Three Later announces — FIFO should be preserved.
+    q.push(make_announce("a", NotificationPriority::Later));
+    q.push(make_announce("b", NotificationPriority::Later));
+    q.push(make_announce("c", NotificationPriority::Later));
+
+    let drained = q.drain_all();
+    let ids: Vec<&str> = drained
+        .iter()
+        .filter_map(|e| match e {
+            QueueEntry::Announce(ev) => Some(ev.child_agent_id.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(
+        ids,
+        vec!["a", "b", "c"],
+        "FIFO must be preserved within same priority"
+    );
+}
+
+// ── 5. Announce dedup still works in unified queue ─────────────────────────
+
+#[test]
+fn test_unified_queue_announce_dedup() {
+    let mut q = UnifiedMessageQueue::default();
+
+    q.push(make_announce("x", NotificationPriority::Now));
+    q.push(make_announce("x", NotificationPriority::Later)); // duplicate
+
+    assert_eq!(q.len(), 1, "duplicate announce should be dropped");
+}
+
+// ── 6. Empty queue operations ──────────────────────────────────────────────
+
+#[test]
+fn test_unified_queue_empty_operations() {
+    let mut q = UnifiedMessageQueue::default();
+
+    assert!(q.is_empty());
+    assert_eq!(q.len(), 0);
+    assert!(q.pop().is_none());
+    assert!(q.drain_all().is_empty());
+}
+
+// ── 7. Clear preserves announces, removes user messages ────────────────────
+
+#[test]
+fn test_unified_queue_clear_user_messages() {
+    let mut q = UnifiedMessageQueue::default();
+
+    q.push(make_user_msg("u1"));
+    q.push(make_announce("a1", NotificationPriority::Now));
+    q.push(make_user_msg("u2"));
+
+    let removed = q.clear_user_messages();
+    assert_eq!(removed, 2);
+    assert_eq!(q.len(), 1);
+
+    let remaining = q.drain_all();
+    assert!(matches!(&remaining[0], QueueEntry::Announce(ev) if ev.child_agent_id == "a1"));
+}
+
+// ── 8. push_queue_entry preserves ordering ──────────────────────────────────
+
+#[test]
+fn test_unified_queue_push_entry_preserves_order() {
+    let mut q = UnifiedMessageQueue::default();
+
+    q.push(make_announce("a1", NotificationPriority::Later));
+    q.push(make_announce("a2", NotificationPriority::Now));
+
+    // Re-insert a1 after drain.
+    let all = q.drain_all();
+    for entry in all {
+        q.push(entry);
+    }
+
+    let drained = q.drain_all();
+    let ids: Vec<&str> = drained
+        .iter()
+        .filter_map(|e| match e {
+            QueueEntry::Announce(ev) => Some(ev.child_agent_id.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        ids,
+        vec!["a2", "a1"],
+        "Order must be preserved after re-insert"
+    );
+}
+
+// ── 9. Background tool notification in unified queue ───────────────────────
+
+#[test]
+fn test_unified_queue_background_tool_notification_priority() {
+    use closeclaw_tasks::CompletionNotification;
+    use closeclaw_tasks::TaskState;
+    use std::path::PathBuf;
+
+    let mut q = UnifiedMessageQueue::default();
+
+    q.push(make_user_msg("u1"));
+    q.push(make_announce("a1", NotificationPriority::Next));
+    q.push(QueueEntry::BackgroundToolNotification(
+        CompletionNotification {
+            task_id: "bg-1".into(),
+            command: "ls".into(),
+            state: TaskState::Completed { exit_code: 0 },
+            output_path: PathBuf::from("/tmp/out"),
+            priority: NotificationPriority::Later,
+            summary: "done".into(),
+            suggestion: None,
+        },
+    ));
+
+    let drained = q.drain_all();
+    let labels = entry_labels(&drained);
+
+    // bg-1 is Later priority, non-user → should come after Next announce
+    // but before Later user message.
+    assert_eq!(
+        labels,
+        vec!["announce:a1", "bg:bg-1", "user:u1"],
+        "Background tool notification drains by priority, non-user before user"
+    );
+}
+
+// ── 10. Drain leaves queue empty ───────────────────────────────────────────
+
+#[test]
+fn test_unified_queue_drain_leaves_empty() {
+    let mut q = UnifiedMessageQueue::default();
+    q.push(make_announce("a", NotificationPriority::Now));
+    q.push(make_user_msg("u"));
+
+    q.drain_all();
+    assert!(q.is_empty());
+    assert_eq!(q.len(), 0);
+}

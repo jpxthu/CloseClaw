@@ -24,7 +24,7 @@ async fn test_yield_timeout_start_registers_handle() {
     let parent_id = setup_parent_with_conv(&mgr, "parent-to1").await;
 
     // Start a yield timeout with a long duration (won't fire in test).
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(600))
+    mgr.start_yield_timeout(&parent_id, "agent-x", Some(600), None)
         .await;
 
     // Cancel should succeed (handle exists).
@@ -53,7 +53,7 @@ async fn test_yield_timeout_cancel_prevents_fire() {
     }
 
     // Start a short timeout (2 seconds).
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(2))
+    mgr.start_yield_timeout(&parent_id, "agent-x", Some(2), None)
         .await;
 
     // Cancel before it fires.
@@ -85,11 +85,11 @@ async fn test_yield_timeout_start_replaces_existing() {
     let parent_id = setup_parent_with_conv(&mgr, "parent-to3").await;
 
     // Start first timeout.
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(600))
+    mgr.start_yield_timeout(&parent_id, "agent-x", Some(600), None)
         .await;
 
     // Start second timeout (should abort the first).
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(600))
+    mgr.start_yield_timeout(&parent_id, "agent-x", Some(600), None)
         .await;
 
     // Cancel should work without issue.
@@ -142,7 +142,7 @@ async fn test_yield_timeout_fires_and_resumes() {
     assert!(mgr.is_session_yielding(&parent_id).await);
 
     // Start a 1-second timeout.
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(1))
+    mgr.start_yield_timeout(&parent_id, "agent-x", Some(1), None)
         .await;
 
     // Wait for timeout to fire.
@@ -210,7 +210,7 @@ async fn test_yield_timeout_default_value_in_notification() {
     }
 
     // Use a 1-second timeout for fast test.
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(1))
+    mgr.start_yield_timeout(&parent_id, "agent-x", Some(1), None)
         .await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
@@ -248,7 +248,7 @@ async fn test_yield_timeout_no_children_fires() {
     }
 
     // Start a 1-second timeout.
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(1))
+    mgr.start_yield_timeout(&parent_id, "agent-x", Some(1), None)
         .await;
 
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -257,5 +257,332 @@ async fn test_yield_timeout_no_children_fires() {
     assert!(
         !mgr.is_session_yielding(&parent_id).await,
         "session should exit Waiting after timeout even with no children"
+    );
+}
+
+// ── 7. Warning timeout injects notification without terminating children ────
+
+/// The warning timeout fires before the hard timeout and injects a
+/// warning notification. Children are NOT terminated — the session
+/// remains in Waiting state.
+#[tokio::test]
+#[serial]
+async fn test_yield_warning_timeout_injects_notification() {
+    clear_global_prompt_state();
+
+    let mgr = Arc::new(make_test_mgr(None));
+    let parent_id = setup_parent_with_conv(&mgr, "parent-to7").await;
+
+    // Spawn a run-mode child that won't complete.
+    let _child_id = mgr
+        .create_child_session(
+            &test_resolved_config("worker-to7", None),
+            &parent_id,
+            1,
+            "long task",
+            true,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+            3,
+            None,
+            None,
+            None, // prompt_template_prefix
+        )
+        .await
+        .unwrap();
+
+    // Enter Waiting.
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        cs.read().await.enter_waiting();
+    }
+
+    // Start with warning=1s, hard=10s (warning fires first).
+    mgr.start_yield_timeout(&parent_id, "agent-x", Some(10), Some(1))
+        .await;
+
+    // Wait for warning to fire (1s) but not hard timeout (10s).
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+    // Session should still be yielding (hard timeout hasn't fired).
+    assert!(
+        mgr.is_session_yielding(&parent_id).await,
+        "session should remain in Waiting after warning fires"
+    );
+
+    // Warning notification should be injected.
+    let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+    let messages = cs.read().await.messages().to_vec();
+    let has_warning_msg = messages.iter().any(|m| {
+        m.role == "system"
+            && m.content_blocks.iter().any(
+                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("超时预警")),
+            )
+    });
+    assert!(
+        has_warning_msg,
+        "warning notification should be injected into conversation"
+    );
+
+    // Children should NOT be terminated.
+    let children = mgr.children.read().await;
+    let child_list = children.list_children(&parent_id);
+    assert!(
+        !child_list.is_empty(),
+        "children should not be terminated by warning timeout"
+    );
+
+    // Cleanup: cancel remaining timeout.
+    mgr.cancel_yield_timeout(&parent_id).await;
+}
+
+// ── 8. Hard timeout fires after warning (two-stage sequence) ────────────────
+
+/// Verify the two-stage sequence: warning fires first, then hard
+/// timeout terminates children and resumes the session.
+#[tokio::test]
+#[serial]
+async fn test_yield_two_stage_timeout_sequence() {
+    clear_global_prompt_state();
+
+    let mgr = Arc::new(make_test_mgr(None));
+    let parent_id = setup_parent_with_conv(&mgr, "parent-to8").await;
+
+    // Spawn a run-mode child that won't complete.
+    let _child_id = mgr
+        .create_child_session(
+            &test_resolved_config("worker-to8", None),
+            &parent_id,
+            1,
+            "long task",
+            true,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+            3,
+            None,
+            None,
+            None, // prompt_template_prefix
+        )
+        .await
+        .unwrap();
+
+    // Enter Waiting.
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        cs.read().await.enter_waiting();
+    }
+
+    // Start with warning=1s, hard=2s.
+    mgr.start_yield_timeout(&parent_id, "agent-x", Some(2), Some(1))
+        .await;
+
+    // Wait for both to fire (2s hard + buffer).
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    // Session should have resumed (hard timeout fired).
+    assert!(
+        !mgr.is_session_yielding(&parent_id).await,
+        "session should exit Waiting after hard timeout fires"
+    );
+
+    // Both warning and timeout notifications should be present.
+    let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+    let messages = cs.read().await.messages().to_vec();
+    let has_warning = messages.iter().any(|m| {
+        m.role == "system"
+            && m.content_blocks.iter().any(
+                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("超时预警")),
+            )
+    });
+    let has_timeout = messages.iter().any(|m| {
+        m.role == "system"
+            && m.content_blocks.iter().any(
+                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("已自动终止")),
+            )
+    });
+    assert!(has_warning, "warning notification should be present");
+    assert!(has_timeout, "timeout notification should be present");
+}
+
+// ── 9. Warning disabled (very large) — only hard timeout fires ──────────────
+
+/// When timeout_warning_secs is set very large (effectively disabled),
+/// only the hard timeout fires.
+#[tokio::test]
+#[serial]
+async fn test_yield_warning_disabled_only_hard_timeout_fires() {
+    clear_global_prompt_state();
+
+    let mgr = Arc::new(make_test_mgr(None));
+    let parent_id = setup_parent_with_conv(&mgr, "parent-to9").await;
+
+    // Enter Waiting.
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        cs.read().await.enter_waiting();
+    }
+
+    // Start with warning=3600s (won't fire), hard=1s.
+    mgr.start_yield_timeout(&parent_id, "agent-x", Some(1), Some(3600))
+        .await;
+
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // Session should have resumed.
+    assert!(
+        !mgr.is_session_yielding(&parent_id).await,
+        "session should exit Waiting after hard timeout fires"
+    );
+
+    // Only timeout notification, no warning.
+    let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+    let messages = cs.read().await.messages().to_vec();
+    let has_warning = messages.iter().any(|m| {
+        m.role == "system"
+            && m.content_blocks.iter().any(
+                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("超时预警")),
+            )
+    });
+    let has_timeout = messages.iter().any(|m| {
+        m.role == "system"
+            && m.content_blocks.iter().any(
+                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("已自动终止")),
+            )
+    });
+    assert!(!has_warning, "warning notification should NOT be present");
+    assert!(has_timeout, "timeout notification should be present");
+}
+
+// ── 10. Yield instant injection: is_session_busy returns false during yield ─
+
+/// Per design doc §Yield 机制: yield 后 llm_active 和
+/// foreground_tool_active 均为 false → session 为 idle → 用户消息
+/// 立即注入，不排队。
+///
+/// `is_session_busy` delegates to `exec_status() == Busy`. During
+/// yield, `exec_status()` returns `Waiting` (not `Busy`), so
+/// `is_session_busy` returns `false` — messages flow through the
+/// normal injection path.
+#[tokio::test]
+#[serial]
+async fn test_yield_session_not_busy_allows_instant_injection() {
+    clear_global_prompt_state();
+
+    let mgr = Arc::new(make_test_mgr(None));
+    let parent_id = setup_parent_with_conv(&mgr, "parent-yii").await;
+
+    // Enter Waiting (yield state).
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        cs.read().await.enter_waiting();
+    }
+
+    // is_session_busy must be false — allows direct injection.
+    assert!(
+        !mgr.is_session_busy(&parent_id).await,
+        "is_session_busy must return false during yield (Waiting state)",
+    );
+
+    // Cleanup.
+    mgr.cancel_yield_timeout(&parent_id).await;
+}
+
+// ── 11. Yield + child running → still not busy ─────────────────────────────
+
+/// Even with child sessions active, yield state means the session
+/// is not busy — user messages are injected immediately.
+#[tokio::test]
+#[serial]
+async fn test_yield_with_child_not_busy() {
+    clear_global_prompt_state();
+
+    let mgr = Arc::new(make_test_mgr(None));
+    let parent_id = setup_parent_with_conv(&mgr, "parent-yic").await;
+
+    // Spawn a child.
+    let _child_id = mgr
+        .create_child_session(
+            &test_resolved_config("worker-yic", None),
+            &parent_id,
+            1,
+            "task",
+            true,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+            3,
+            None,
+            None,
+            None, // prompt_template_prefix
+        )
+        .await
+        .unwrap();
+
+    // Enter Waiting.
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        cs.read().await.enter_waiting();
+    }
+
+    // Not busy — child does not block message injection.
+    assert!(
+        !mgr.is_session_busy(&parent_id).await,
+        "is_session_busy must return false during yield even with active child",
+    );
+
+    // Cleanup.
+    mgr.cancel_yield_timeout(&parent_id).await;
+}
+
+// ── 12. Non-yield child running → also not busy ────────────────────────────
+
+/// Passive Waiting (child spawned but no yield) also results in
+/// not-busy, allowing immediate message injection.
+#[tokio::test]
+#[serial]
+async fn test_passive_child_not_busy() {
+    clear_global_prompt_state();
+
+    let mgr = Arc::new(make_test_mgr(None));
+    let parent_id = setup_parent_with_conv(&mgr, "parent-pc").await;
+
+    // Spawn a child but do NOT enter Waiting (passive mode).
+    let _child_id = mgr
+        .create_child_session(
+            &test_resolved_config("worker-pc", None),
+            &parent_id,
+            1,
+            "task",
+            true,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+            3,
+            None,
+            None,
+            None, // prompt_template_prefix
+        )
+        .await
+        .unwrap();
+
+    // No yielding — but still not busy (child doesn't affect idle).
+    assert!(!mgr.is_session_yielding(&parent_id).await);
+    assert!(
+        !mgr.is_session_busy(&parent_id).await,
+        "is_session_busy must return false when only child is running (no yield)",
     );
 }
