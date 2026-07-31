@@ -417,9 +417,9 @@
   },
   {
     "path": "docs/design/session/README.md",
-    "commit": "fcf218606faf3a2012c9f9c1f349da5dc24af644",
-    "commit_time": "2026-07-30T23:15:05+08:00",
-    "confirmed_time": "2026-07-30T23:25:24.721794+08:00",
+    "commit": "b99e81816f695d6f4f84471bda55fac796f5dc10",
+    "commit_time": "2026-07-31T12:45:36+08:00",
+    "confirmed_time": "2026-07-31T13:19:55.622427+08:00",
     "comment": "",
     "blocked_reason": ""
   },
