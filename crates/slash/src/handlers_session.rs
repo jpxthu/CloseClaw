@@ -64,7 +64,7 @@ impl SlashHandler for StopHandler {
     }
 
     async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
-        let mut cascade = true;
+        let mut cascade = false;
         let mut force = false;
         for arg in args.split_whitespace() {
             match arg {
