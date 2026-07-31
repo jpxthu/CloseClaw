@@ -282,6 +282,22 @@ impl SessionManager {
         session_helpers::update_checkpoint_thread_id(cm.as_ref(), session_id, thread_id).await;
     }
 
+    /// Update `last_user_activity_at` and `last_message_at` for a user message.
+    ///
+    /// Called from the message handler when a user message arrives.
+    /// Updates both timestamps to now and persists the checkpoint.
+    pub async fn update_checkpoint_user_activity(&self, session_id: &str) {
+        let cm_guard = self.checkpoint_manager.read().await;
+        let Some(cm) = cm_guard.as_ref() else {
+            warn!(
+                session_id = %session_id,
+                "storage not available, skipping user activity update"
+            );
+            return;
+        };
+        session_helpers::update_checkpoint_user_activity(cm.as_ref(), session_id).await;
+    }
+
     /// Find or create a session for the given channel and message.
     ///
     /// 1. Compute session_id from channel + message + account_id

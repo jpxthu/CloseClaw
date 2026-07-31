@@ -117,6 +117,41 @@ pub(super) async fn update_checkpoint_thread_id(
     }
 }
 
+/// Update `last_user_activity_at` and `last_message_at` for a user message.
+///
+/// Loads the checkpoint from storage, sets both timestamps to now,
+/// and saves it back. Only called for user messages (not LLM responses,
+/// tool results, or system messages).
+///
+/// Silently skips (with warn!) when:
+/// - storage is not available
+/// - checkpoint does not exist
+pub(super) async fn update_checkpoint_user_activity(
+    cm: &CheckpointManager<dyn PersistenceService>,
+    session_id: &str,
+) {
+    let mut cp = match cm.load(session_id).await {
+        Ok(Some(cp)) => cp,
+        Ok(None) | Err(_) => {
+            warn!(
+                session_id = %session_id,
+                "checkpoint not found, skipping user activity update"
+            );
+            return;
+        }
+    };
+    let now = chrono::Utc::now();
+    cp.last_user_activity_at = Some(now);
+    cp.last_message_at = Some(now);
+    if let Err(e) = cm.save_raw(&cp).await {
+        warn!(
+            session_id = %session_id,
+            error = %e,
+            "failed to save checkpoint with updated user activity"
+        );
+    }
+}
+
 /// Result of attempting to restore an archived session.
 pub(super) struct RestoreResult {
     /// Whether the restoration was attempted and succeeded.
