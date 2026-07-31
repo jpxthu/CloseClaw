@@ -215,10 +215,12 @@ fn test_unified_queue_pop_pending_skips_announces() {
     // User message (Later) pushed second → lower priority.
     session.push_pending(PendingMessage::new("u1".into(), "hello".into()));
 
-    // pop_pending encounters the Now announce first, re-inserts it, returns None.
-    assert!(session.pop_pending().is_none());
-    // Both entries still in queue.
-    assert_eq!(session.queue_len(), 2);
+    // pop_pending drains all entries, finds the user message, returns it,
+    // and re-inserts the announce in its original position.
+    let msg = session.pop_pending().unwrap();
+    assert_eq!(msg.message_id, "u1");
+    // Announce still in queue.
+    assert_eq!(session.queue_len(), 1);
 }
 
 /// pop_pending returns user message when only user messages are

@@ -77,38 +77,7 @@ impl SessionManager {
                     cs.push_pending(pm);
                 }
                 QueueEntry::BackgroundToolNotification(notif) => {
-                    // Convert to AnnounceEvent for the drain path.
-                    use closeclaw_tasks::TaskState;
-                    let status = match notif.state {
-                        TaskState::Completed { .. } => {
-                            closeclaw_common::ChildCompletionStatus::Completed
-                        }
-                        TaskState::Failed { .. } => {
-                            closeclaw_common::ChildCompletionStatus::Errored
-                        }
-                        TaskState::Killed => closeclaw_common::ChildCompletionStatus::Terminated,
-                        TaskState::Running { .. } => {
-                            closeclaw_common::ChildCompletionStatus::Completed
-                        }
-                    };
-                    let result_text = format!(
-                        "{}。输出文件：{}{}",
-                        notif.summary,
-                        notif.output_path.display(),
-                        notif
-                            .suggestion
-                            .as_ref()
-                            .map(|s| format!("。建议：{}", s))
-                            .unwrap_or_default()
-                    );
-                    announces.push(AnnounceEvent {
-                        child_session_id: notif.task_id,
-                        child_agent_id: notif.command,
-                        result_text,
-                        completed_at: chrono::Utc::now(),
-                        priority: notif.priority,
-                        status,
-                    });
+                    announces.push(notif_to_announce(notif));
                 }
             }
         }
@@ -182,37 +151,7 @@ impl SessionManager {
                 // follow the same drain path as child session announces.
                 // Convert to AnnounceEvent for the inject path.
                 QueueEntry::BackgroundToolNotification(ref notif) if predicate(&notif.priority) => {
-                    use closeclaw_tasks::TaskState;
-                    let status = match notif.state {
-                        TaskState::Completed { .. } => {
-                            closeclaw_common::ChildCompletionStatus::Completed
-                        }
-                        TaskState::Failed { .. } => {
-                            closeclaw_common::ChildCompletionStatus::Errored
-                        }
-                        TaskState::Killed => closeclaw_common::ChildCompletionStatus::Terminated,
-                        TaskState::Running { .. } => {
-                            closeclaw_common::ChildCompletionStatus::Completed
-                        }
-                    };
-                    let result_text = format!(
-                        "{}。输出文件：{}{}",
-                        notif.summary,
-                        notif.output_path.display(),
-                        notif
-                            .suggestion
-                            .as_ref()
-                            .map(|s| format!("。建议：{}", s))
-                            .unwrap_or_default()
-                    );
-                    matched.push(AnnounceEvent {
-                        child_session_id: notif.task_id.clone(),
-                        child_agent_id: notif.command.clone(),
-                        result_text,
-                        completed_at: chrono::Utc::now(),
-                        priority: notif.priority,
-                        status,
-                    });
+                    matched.push(notif_to_announce(notif.clone()));
                 }
                 other => {
                     cs.push_queue_entry(other);
@@ -930,6 +869,39 @@ impl SessionManager {
 }
 
 // ── Free helpers ────────────────────────────────────────────────────────────
+
+/// Convert a background tool [`CompletionNotification`] into an
+/// [`AnnounceEvent`]. Used by `drain_announces` and
+/// `drain_announces_filtered` to avoid duplicating the conversion.
+fn notif_to_announce(notif: closeclaw_tasks::CompletionNotification) -> AnnounceEvent {
+    use closeclaw_tasks::TaskState;
+    let status = match notif.state {
+        TaskState::Completed { .. } => ChildCompletionStatus::Completed,
+        TaskState::Failed { .. } => ChildCompletionStatus::Errored,
+        TaskState::Killed => ChildCompletionStatus::Terminated,
+        TaskState::Running { .. } => {
+            unreachable!("CompletionNotification should never have Running state")
+        }
+    };
+    let result_text = format!(
+        "{}。输出文件：{}{}",
+        notif.summary,
+        notif.output_path.display(),
+        notif
+            .suggestion
+            .as_ref()
+            .map(|s| format!("。建议：{}", s))
+            .unwrap_or_default()
+    );
+    AnnounceEvent {
+        child_session_id: notif.task_id,
+        child_agent_id: notif.command,
+        result_text,
+        completed_at: chrono::Utc::now(),
+        priority: notif.priority,
+        status,
+    }
+}
 
 /// Build a fresh `AnnounceEvent` with the current UTC timestamp.
 fn build_announce_event(

@@ -70,9 +70,9 @@ impl QueueEntry {
 /// sequence number for stable FIFO ordering within the same
 /// priority / user group.
 #[derive(Debug, Clone)]
-struct QueueItem {
-    entry: QueueEntry,
-    seq: u64,
+pub struct QueueItem {
+    pub entry: QueueEntry,
+    pub seq: u64,
 }
 
 impl QueueItem {
@@ -149,9 +149,34 @@ impl UnifiedMessageQueue {
         self.entries.drain(..1).next().map(|i| i.entry)
     }
 
+    /// Push an entry with a specific sequence number, maintaining
+    /// sorted order. Does NOT increment `next_seq`.
+    ///
+    /// Used by callers that need to re-insert entries while
+    /// preserving the original insertion order.
+    pub fn push_preserving_seq(&mut self, entry: QueueEntry, seq: u64) {
+        let item = QueueItem { entry, seq };
+        let key = item.sort_key();
+        let pos = self
+            .entries
+            .iter()
+            .position(|i| key < i.sort_key())
+            .unwrap_or(self.entries.len());
+        self.entries.insert(pos, item);
+    }
+
     /// Drain all entries in priority order, leaving the queue empty.
     pub fn drain_all(&mut self) -> Vec<QueueEntry> {
         self.entries.drain(..).map(|i| i.entry).collect()
+    }
+
+    /// Drain all entries preserving sequence numbers.
+    ///
+    /// Used by callers that need to re-insert non-matching entries
+    /// while preserving original FIFO ordering within the same
+    /// priority level.
+    pub fn drain_all_items(&mut self) -> Vec<QueueItem> {
+        self.entries.drain(..).collect()
     }
 
     /// Returns `true` if the queue contains no entries.
@@ -265,45 +290,41 @@ impl ConversationSession {
 
     /// Pop the oldest pending user message (legacy compat).
     ///
-    /// Returns only user messages. Skips announce and background tool
-    /// notification entries.
+    /// Returns only user messages. Non-user-message entries are
+    /// collected, the first user message (if any) is returned, and
+    /// all other entries are re-inserted in original order.
     pub fn pop_pending(&mut self) -> Option<crate::persistence::PendingMessage> {
-        loop {
-            match self.unified_queue.pop() {
-                Some(QueueEntry::UserMessage(msg)) => return Some(msg),
-                Some(QueueEntry::Announce(event)) => {
-                    // Re-insert announce events that were skipped.
-                    self.unified_queue.push(QueueEntry::Announce(event));
-                    return None;
+        let all = self.unified_queue.drain_all();
+        let mut result = None;
+        let mut kept = Vec::new();
+        for item in all {
+            if result.is_none() {
+                if let QueueEntry::UserMessage(msg) = item {
+                    result = Some(msg);
+                    continue;
                 }
-                Some(QueueEntry::BackgroundToolNotification(n)) => {
-                    // Re-insert background tool notifications that were skipped.
-                    self.unified_queue
-                        .push(QueueEntry::BackgroundToolNotification(n));
-                    return None;
-                }
-                None => return None,
             }
+            kept.push(item);
         }
+        for item in kept {
+            self.unified_queue.push(item);
+        }
+        result
     }
 
     /// Drain all announce events from the unified queue (legacy compat).
     ///
-    /// Returns announce events in priority order. User messages remain
-    /// in the queue.
+    /// Returns announce events in priority order. User messages and
+    /// background tool notifications remain in the queue with their
+    /// original sequence numbers preserved.
     pub fn drain_announce_queue(&mut self) -> Vec<AnnounceEvent> {
-        let all = self.unified_queue.drain_all();
+        let all = self.unified_queue.drain_all_items();
         let mut announces = Vec::new();
         for item in all {
-            match item {
-                QueueEntry::Announce(e) => announces.push(e),
-                QueueEntry::UserMessage(pm) => {
-                    self.unified_queue.push(QueueEntry::UserMessage(pm));
-                }
-                QueueEntry::BackgroundToolNotification(n) => {
-                    self.unified_queue
-                        .push(QueueEntry::BackgroundToolNotification(n));
-                }
+            if let QueueEntry::Announce(e) = item.entry {
+                announces.push(e);
+            } else {
+                self.unified_queue.push_preserving_seq(item.entry, item.seq);
             }
         }
         announces
