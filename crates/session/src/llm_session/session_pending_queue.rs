@@ -92,19 +92,10 @@ impl QueueItem {
 /// Maintains entries in sorted order at all times. Draining returns
 /// entries from highest to lowest priority, with non-user messages
 /// preceding user messages at the same priority level.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct UnifiedMessageQueue {
     entries: Vec<QueueItem>,
     next_seq: u64,
-}
-
-impl Default for UnifiedMessageQueue {
-    fn default() -> Self {
-        Self {
-            entries: Vec::new(),
-            next_seq: 0,
-        }
-    }
 }
 
 impl UnifiedMessageQueue {
