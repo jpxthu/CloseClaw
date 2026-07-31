@@ -35,8 +35,9 @@ impl Tool for SessionsYieldTool {
 
     fn detail(&self) -> String {
         "End the current turn and enter Waiting state. \
-         User messages are queued until all active child sessions complete. \
-         The session resumes automatically after all children finish."
+         The session becomes idle — user messages and child completion \
+         notifications are delivered immediately without queuing. \
+         The session resumes automatically when any message arrives."
             .to_string()
     }
 
