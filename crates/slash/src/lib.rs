@@ -46,6 +46,8 @@ mod handlers_mode_tests;
 #[cfg(test)]
 mod handlers_permission_tests;
 #[cfg(test)]
+mod handlers_session_tests;
+#[cfg(test)]
 mod pause_handler_tests;
 
 #[cfg(test)]
