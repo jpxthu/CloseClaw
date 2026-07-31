@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -48,6 +48,7 @@ mod session_health;
 mod session_llm;
 mod session_pending;
 mod session_pending_queue;
+pub use session_pending_queue::{QueueEntry, QueuePriority, UnifiedMessageQueue};
 mod skill_listing;
 pub mod streaming_assembly;
 pub mod transcript_ops;
@@ -108,15 +109,13 @@ pub struct ConversationSession {
     /// instead of the full mode instruction. See design doc §5, §8.
     is_sub_agent: bool,
     is_llm_busy: Arc<AtomicBool>,
-    pending_messages: VecDeque<crate::persistence::PendingMessage>,
+    unified_queue: session_pending_queue::UnifiedMessageQueue,
     reasoning_level: ReasoningLevel,
     workdir: PathBuf,
     stats: RunningStats,
     streaming_sink: Option<Arc<dyn StreamingSink>>,
     stream_enabled: bool,
-    /// In-memory queue of announce events. Drained at the start of
-    /// each parent turn. Not persisted across process restarts.
-    announce_queue: Vec<AnnounceEvent>,
+
     /// Per-session append-section items, managed by `/system` subcommand.
     /// Persisted in `SessionCheckpoint::system_appends`.
     system_appends: Vec<String>,
@@ -235,14 +234,14 @@ impl ConversationSession {
             is_compacted: false,
             is_sub_agent: false,
             is_llm_busy: Arc::new(AtomicBool::new(false)),
-            pending_messages: VecDeque::new(),
+            unified_queue: session_pending_queue::UnifiedMessageQueue::default(),
             reasoning_level: ReasoningLevel::default(),
             workdir,
             stats: RunningStats::new(),
             created_at: Utc::now().timestamp(),
             streaming_sink: None,
             stream_enabled: false,
-            announce_queue: Vec::new(),
+
             system_appends: Vec::new(),
             llm_state: Arc::new(RwLock::new(LlmState::Idle)),
             tool_states: Arc::new(RwLock::new(HashMap::new())),
@@ -853,7 +852,7 @@ impl std::fmt::Debug for ConversationSession {
             .field("compaction_state", &self.compaction_state)
             .field("is_compacted", &self.is_compacted)
             .field("is_sub_agent", &self.is_sub_agent)
-            .field("pending_messages", &self.pending_messages)
+            .field("unified_queue", &self.unified_queue)
             .field("reasoning_level", &self.reasoning_level)
             .field("workdir", &self.workdir)
             .field("created_at", &self.created_at)
@@ -863,7 +862,6 @@ impl std::fmt::Debug for ConversationSession {
                 &self.streaming_sink.as_ref().map(|_| "<StreamingSink>"),
             )
             .field("stream_enabled", &self.stream_enabled)
-            .field("announce_queue", &self.announce_queue)
             .field(
                 "llm_state",
                 &*self.llm_state.read().expect("llm_state lock poisoned"),

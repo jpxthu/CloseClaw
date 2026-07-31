@@ -16,7 +16,7 @@ use super::SessionManager;
 use crate::session_manager::communication::CommunicationError;
 use chrono::Utc;
 use closeclaw_common::{ChildCompletionStatus, ChildSessionState, SessionExecStatus};
-use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSession};
+use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSession, QueueEntry};
 use closeclaw_session::run_health::AnnounceSweepTarget;
 use closeclaw_session::spawn::types::ChildSessionStatus;
 use closeclaw_tasks::NotificationPriority;
@@ -68,7 +68,17 @@ impl SessionManager {
             return Vec::new();
         };
         let mut cs = cs.write().await;
-        cs.drain_announce_queue()
+        let all = cs.drain_all_entries();
+        let mut announces = Vec::new();
+        for entry in all {
+            match entry {
+                QueueEntry::Announce(e) => announces.push(e),
+                QueueEntry::UserMessage(pm) => {
+                    cs.push_pending(pm);
+                }
+            }
+        }
+        announces
     }
 
     /// Drain all queued announce events and inject each one as a
@@ -127,13 +137,16 @@ impl SessionManager {
             return Vec::new();
         };
         let mut cs = cs.write().await;
-        let all = cs.drain_announce_queue();
+        let all = cs.drain_all_entries();
         let mut matched = Vec::new();
-        for event in all {
-            if predicate(&event.priority) {
-                matched.push(event);
-            } else {
-                cs.push_announce_to_queue(event);
+        for entry in all {
+            match entry {
+                QueueEntry::Announce(ref event) if predicate(&event.priority) => {
+                    matched.push(event.clone());
+                }
+                other => {
+                    cs.push_queue_entry(other);
+                }
             }
         }
         matched
