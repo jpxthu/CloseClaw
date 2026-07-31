@@ -250,6 +250,12 @@ impl SessionMessageHandler {
         {
             cs.write().await.append_user_message(&content);
         }
+        // Update last_user_activity_at and last_message_at for the user message.
+        // Only user messages (not LLM responses, tool results, or system messages)
+        // trigger this update (design-doc §Sweeper: last_user_activity_at).
+        self.session_manager
+            .update_checkpoint_user_activity(session_id)
+            .await;
         self.check_and_run_auto_compact(session_id).await;
         self.dispatch_llm_call(session_id, content, meta, None, None)
             .await

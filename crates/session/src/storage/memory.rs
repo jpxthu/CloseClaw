@@ -317,6 +317,7 @@ mod tests {
             ttl_seconds: 604800,
             status: SessionStatus::Active,
             last_message_at: None,
+            last_user_activity_at: None,
             message_count: 0,
             platform: None,
             peer_id: None,

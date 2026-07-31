@@ -30,6 +30,7 @@ mod tests {
             ttl_seconds: 604800,
             status: SessionStatus::Active,
             last_message_at: None,
+            last_user_activity_at: None,
             message_count: 0,
             platform: None,
             peer_id: None,
@@ -151,7 +152,6 @@ mod tests {
     // -----------------------------------------------------------------
     // Spawn tree tests
     // -----------------------------------------------------------------
-
     #[tokio::test]
     async fn test_recovery_spawn_tree_root_sessions() {
         let storage = Arc::new(MemoryStorage::new());

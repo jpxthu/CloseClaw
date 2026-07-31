@@ -812,7 +812,9 @@ impl Daemon {
 
         let sweeper = Arc::new(
             ArchiveSweeper::new(Arc::clone(&storage), session_config_provider)
-                .with_mining_notify_tx(mining_notify_tx),
+                .with_mining_notify_tx(mining_notify_tx)
+                .with_active_query(Arc::clone(session_manager)
+                    as Arc<dyn closeclaw_gateway::sweeper::ActiveSessionQuery>),
         );
         let sweeper_for_task = Arc::clone(&sweeper);
         let sweeper_handle = tokio::spawn(async move {

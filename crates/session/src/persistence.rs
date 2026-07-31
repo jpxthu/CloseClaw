@@ -80,6 +80,11 @@ pub struct SessionCheckpoint {
     pub status: SessionStatus,
     /// 最后一条消息的时间
     pub last_message_at: Option<DateTime<Utc>>,
+    /// 最后一次用户活动时间（仅用户消息，Sweeper 用来判断 idle）
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
+    #[serde(default)]
+    pub last_user_activity_at: Option<DateTime<Utc>>,
     /// 消息计数
     pub message_count: u64,
     /// 来源平台标识（原 channel）
@@ -277,6 +282,7 @@ impl SessionCheckpoint {
             ttl_seconds: 604800, // 7 days default
             status: SessionStatus::default(),
             last_message_at: None,
+            last_user_activity_at: None,
             message_count: 0,
             platform: None,
             peer_id: None,
@@ -504,6 +510,11 @@ impl SessionCheckpoint {
     /// Touch the updated_at timestamp
     pub fn touch(&mut self) {
         self.updated_at = Utc::now();
+    }
+    /// Update the last user activity timestamp
+    pub fn with_last_user_activity_at(mut self, at: DateTime<Utc>) -> Self {
+        self.last_user_activity_at = Some(at);
+        self
     }
 }
 
