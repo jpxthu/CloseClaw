@@ -9,13 +9,13 @@
 //! the output-processing helpers (`process_output`, `build_result`,
 //! etc.) live in the sibling module [`super::bash_kill`] to keep this
 //! file under the CONTRIBUTING.md 500-line hard cap.
-
 use crate::bash::CommandSandbox;
 use crate::permission_check::{
     check_command_permission, check_tool_permission, CommandPermissionResult, PermDeps,
 };
-use crate::security::{BashSecurityAnalyzer, ParseResult, TrustLevel};
-use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use crate::security::{BashSecurityAnalyzer, ParseResult, SimpleCommand, TrustLevel};
+use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use async_trait::async_trait;
 use closeclaw_common::ToolExecState;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
@@ -23,17 +23,16 @@ use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_risk::RiskLevel;
 use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody};
-
-use async_trait::async_trait;
 use serde_json::Value;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
 use tokio::sync::Mutex as TokioMutex;
 
 use super::bash_kill::{
-    build_result, process_output, read_pipe, BackgroundKillHandle, BashKillHandle,
+    build_auto_background_result, build_background_result, build_manual_background_result,
+    finalize_foreground_after_wait, register_foreground_session, truncate_summary,
+    BackgroundKillHandle,
 };
 
 /// Outcome of foreground tool execution, distinguishing between
@@ -43,7 +42,7 @@ use super::bash_kill::{
 /// `Completed`/`Failed` (and deregister) or `RunningBackground`
 /// (and retain the tool state entry) after the foreground wait.
 #[derive(Debug)]
-enum ForegroundOutcome {
+pub(crate) enum ForegroundOutcome {
     /// Tool completed normally (success or non-zero exit).
     Completed(ToolResult),
     /// Tool execution error (e.g. spawn failure, wait failure).
@@ -130,19 +129,6 @@ impl Tool for BashTool {
             .to_string()
     }
 
-    #[rustfmt::skip]
-    fn generate_prompt(&self, context: &PromptGenerationContext) -> String {
-        let Some(wd) = &context.workdir else { return self.detail() };
-        let mut s = format!(" Working directory: {}.", wd.path);
-        if wd.has_git {
-            if let Some(b) = &wd.branch { s.push_str(&format!(" Branch: {}.", b)); }
-            if wd.recent_changes > 0 {
-                s.push_str(&format!(" {} uncommitted change(s).", wd.recent_changes));
-            }
-        }
-        format!("{}{}", self.detail(), s)
-    }
-
     fn input_schema(&self) -> Value {
         serde_json::json!({
             "type": "object",
@@ -190,19 +176,6 @@ impl Tool for BashTool {
 }
 
 // --- Helper functions ---
-
-/// Truncate a command string for use as `args_summary` in pending
-/// operation tracking. Caps at 200 characters to keep checkpoint
-/// data compact.
-fn truncate_summary(command: &str) -> String {
-    const MAX_SUMMARY_LEN: usize = 200;
-    if command.len() <= MAX_SUMMARY_LEN {
-        command.to_string()
-    } else {
-        let end = command.floor_char_boundary(MAX_SUMMARY_LEN);
-        format!("{}...", &command[..end])
-    }
-}
 
 /// Parse and clamp the agent-specified timeout parameter.
 ///
@@ -294,45 +267,6 @@ async fn backgroundize_child(
         Ok((build_auto_background_result(&task), task_id))
     }
 }
-
-/// Wait on the child, then return either a normal result or auto-backgroundize.
-async fn wait_child(
-    wait_result: Result<
-        Result<std::process::ExitStatus, std::io::Error>,
-        tokio::time::error::Elapsed,
-    >,
-    child: tokio::process::Child,
-    stdout_handle: Option<tokio::process::ChildStdout>,
-    stderr_handle: Option<tokio::process::ChildStderr>,
-    command: &str,
-    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
-) -> ForegroundOutcome {
-    match wait_result {
-        Ok(Ok(status)) => {
-            let exit_code = status.code().unwrap_or(-1);
-            let stdout_raw = read_pipe(stdout_handle).await;
-            let stderr_raw = read_pipe(stderr_handle).await;
-            let stdout_p = process_output(&stdout_raw);
-            let stderr_p = process_output(&stderr_raw);
-            ForegroundOutcome::Completed(build_result(
-                command, stdout_p, stderr_p, exit_code, false,
-            ))
-        }
-        Ok(Err(e)) => ForegroundOutcome::Failed(format!("failed to wait on command: {}", e)),
-        Err(_elapsed) => {
-            auto_backgroundize_foreground(
-                child,
-                stdout_handle,
-                stderr_handle,
-                command,
-                bg_manager,
-                false,
-            )
-            .await
-        }
-    }
-}
-
 /// Auto-backgroundize a foreground child and return a [`ForegroundOutcome`].
 ///
 /// On failure, returns [`ForegroundOutcome::Failed`].
@@ -379,6 +313,8 @@ async fn handle_foreground_result(
     bg_timeout: Duration,
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
     manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
+    session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
+    call_id: Option<&str>,
 ) -> ForegroundOutcome {
     let (stdout_handle, stderr_handle) = {
         let mut guard = child_arc.lock().expect("child mutex poisoned");
@@ -390,6 +326,7 @@ async fn handle_foreground_result(
         .expect("child mutex poisoned")
         .take()
         .expect("child present after spawn");
+
     tokio::select! {
         biased;
         _ = notify_or_pending(manual_bg_signal) => {
@@ -397,9 +334,23 @@ async fn handle_foreground_result(
                 child, stdout_handle, stderr_handle, command, bg_manager, true,
             ).await
         }
-        result = tokio::time::timeout(bg_timeout, child.wait()) => {
-            wait_child(result, child, stdout_handle, stderr_handle, command, bg_manager).await
-        }
+        result = tokio::time::timeout(bg_timeout, child.wait()) => match result {
+            Ok(Ok(status)) => {
+                finalize_foreground_after_wait(
+                    status, stdout_handle, stderr_handle,
+                    command, session, call_id,
+                ).await
+            }
+            Ok(Err(e)) => ForegroundOutcome::Failed(
+                format!("failed to wait on command: {}", e)
+            ),
+            Err(_elapsed) => {
+                auto_backgroundize_foreground(
+                    child, stdout_handle, stderr_handle,
+                    command, bg_manager, false,
+                ).await
+            }
+        },
     }
 }
 
@@ -496,6 +447,106 @@ async fn submit_trust_level_denial(
 }
 
 /// Execute the BashTool call: parse args, check two-level permissions, run command.
+/// Result of trust-level routing.
+enum TrustDecision {
+    /// Command is trusted; proceed with normal permission checks.
+    Trusted,
+    /// Command was routed to approval flow; caller returns the pending result.
+    ApprovalPending(ToolResult),
+    /// Command was blocked (malicious or uncertain-rejected).
+    Blocked(String),
+}
+
+/// Route trust-level decisions (malicious/uncertain) through the approval flow.
+async fn route_trust_level(
+    deps: &PermDeps,
+    ctx: &ToolContext,
+    command: &str,
+    trust_level: TrustLevel,
+    reason: Option<String>,
+) -> Result<TrustDecision, ToolCallError> {
+    match trust_level {
+        TrustLevel::Malicious => {
+            submit_trust_level_denial(deps, ctx, command, RiskLevel::Critical).await;
+            Ok(TrustDecision::Blocked(format!(
+                "Blocked: malicious command detected — {}",
+                reason.unwrap_or_else(|| "unknown reason".into())
+            )))
+        }
+        TrustLevel::Uncertain => {
+            let r = reason.unwrap_or_else(|| "untrusted syntax".into());
+            if let Some(request_id) =
+                submit_trust_level_denial(deps, ctx, command, RiskLevel::High).await
+            {
+                Ok(TrustDecision::ApprovalPending(ToolResult {
+                    data: crate::builtin::approval_utils::build_approval_pending(request_id),
+                    new_messages: vec![],
+                    context_modifier: None,
+                }))
+            } else {
+                Ok(TrustDecision::Blocked(format!(
+                    "Blocked: uncertain command — {}",
+                    r
+                )))
+            }
+        }
+        TrustLevel::Trusted => Ok(TrustDecision::Trusted),
+    }
+}
+
+/// Extract command name and argv from the parse result.
+fn extract_argv(command: &str, commands: &[SimpleCommand]) -> (String, Vec<String>) {
+    commands
+        .first()
+        .map(|cmd| {
+            let name = cmd.argv.first().cloned().unwrap_or_else(|| "*".into());
+            let args = cmd.argv[1..].to_vec();
+            (name, args)
+        })
+        .unwrap_or_else(|| {
+            let cmd_parts: Vec<&str> = command.split_whitespace().collect();
+            let name = cmd_parts.first().copied().unwrap_or("*").to_string();
+            let args = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
+            (name, args)
+        })
+}
+
+/// Analyze security, extract argv, check Level 2 permission, and apply sandbox.
+///
+/// Returns `(Ok(Some(ToolResult)), _)` if routed to approval,
+/// or `(Ok(None), cwd)` to proceed with normal execution.
+async fn prepare_and_sandbox(
+    deps: &PermDeps,
+    ctx: &ToolContext,
+    command: &str,
+    args: &Value,
+) -> Result<(Option<ToolResult>, String), ToolCallError> {
+    let sec_result = analyze_security(command)?;
+    let (cmd_name, cmd_args) = extract_argv(command, &sec_result.commands);
+    let dangerously_disable = args.get("dangerouslyDisableSandbox") == Some(&Value::Bool(true));
+    let (approval_result, sandbox_already_applied) = check_command_permission_and_route(
+        deps,
+        ctx,
+        command,
+        &cmd_name,
+        &cmd_args,
+        dangerously_disable,
+    )
+    .await?;
+    if let Some(r) = approval_result {
+        return Ok((Some(r), String::new()));
+    }
+    let cwd = resolve_cwd(args, ctx);
+    if !sandbox_already_applied
+        && !dangerously_disable
+        && CommandSandbox::should_sandbox(command, true)
+    {
+        CommandSandbox::apply_sandbox_restrictions(&cwd)?;
+    }
+    Ok((None, cwd))
+}
+
+/// Execute the BashTool call: parse args, check two-level permissions, run command.
 async fn execute_bash_call(
     deps: &PermDeps,
     bg: &Arc<dyn closeclaw_tasks::TaskManager>,
@@ -511,99 +562,32 @@ async fn execute_bash_call(
             "command must not be empty".into(),
         ));
     }
-    let sec_result = analyze_security(command)?;
 
-    // Trust-level branching: malicious/uncertain commands are routed
-    // through the approval flow before the normal permission checks.
-    match sec_result.trust_level {
-        TrustLevel::Malicious => {
-            // Design doc: malicious → intercept + notify owner.
-            // Route through approval flow for owner notification, then
-            // immediately block (return error, do not execute).
-            // submit_denial() enqueues the request and notifies the owner.
-            // We intentionally ignore the return value — the command is
-            // always blocked regardless of whether the owner is notified.
-            submit_trust_level_denial(deps, ctx, command, RiskLevel::Critical).await;
-            return Err(ToolCallError::ExecutionFailed(format!(
-                "Blocked: malicious command detected — {}",
-                sec_result.reason.unwrap_or_else(|| "unknown reason".into())
-            )));
+    let sec_result = analyze_security(command)?;
+    match route_trust_level(
+        deps,
+        ctx,
+        command,
+        sec_result.trust_level,
+        sec_result.reason.clone(),
+    )
+    .await?
+    {
+        TrustDecision::Blocked(reason) => {
+            return Err(ToolCallError::ExecutionFailed(reason));
         }
-        TrustLevel::Uncertain => {
-            // Design doc: uncertain → approval flow.
-            // Submit to approval queue; if accepted, return approval_pending
-            // to the agent. If rejected (sub-agent / duplicate), block.
-            let reason = sec_result
-                .reason
-                .unwrap_or_else(|| "untrusted syntax".into());
-            if let Some(request_id) =
-                submit_trust_level_denial(deps, ctx, command, RiskLevel::High).await
-            {
-                return Ok(ToolResult {
-                    data: crate::builtin::approval_utils::build_approval_pending(request_id),
-                    new_messages: vec![],
-                    context_modifier: None,
-                });
-            }
-            return Err(ToolCallError::ExecutionFailed(format!(
-                "Blocked: uncertain command — {}",
-                reason
-            )));
-        }
-        TrustLevel::Trusted => {
-            // Continue with normal permission checks below.
-        }
+        TrustDecision::ApprovalPending(result) => return Ok(result),
+        TrustDecision::Trusted => {}
     }
 
-    // Level 1: ToolCall - verify agent may invoke Bash tool
+    // Level 1: ToolCall - verify agent may invoke Bash tool.
     if let Some(r) = check_tool_permission(deps, ctx, "bash", "call").await? {
         return Ok(r);
     }
 
-    // Use tree-sitter parsed argv from ParseResult when available,
-    // falling back to split_whitespace() for parse errors.
-    let (cmd_name, cmd_args): (String, Vec<String>) = sec_result
-        .commands
-        .first()
-        .map(|cmd| {
-            let name = cmd.argv.first().cloned().unwrap_or_else(|| "*".into());
-            let args = cmd.argv[1..].to_vec();
-            (name, args)
-        })
-        .unwrap_or_else(|| {
-            let cmd_parts: Vec<&str> = command.split_whitespace().collect();
-            let name = cmd_parts.first().copied().unwrap_or("*").to_string();
-            let args = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
-            (name, args)
-        });
-
-    let dangerously_disable = args.get("dangerouslyDisableSandbox") == Some(&Value::Bool(true));
-
-    // Level 2: CommandExec - verify specific command is permitted.
-    // Denied commands are routed to the sandbox (not rejected outright).
-    let (approval_result, sandbox_already_applied) = check_command_permission_and_route(
-        deps,
-        ctx,
-        command,
-        &cmd_name,
-        &cmd_args,
-        dangerously_disable,
-    )
-    .await?;
+    let (approval_result, cwd) = prepare_and_sandbox(deps, ctx, command, &args).await?;
     if let Some(r) = approval_result {
         return Ok(r);
-    }
-
-    // Sandbox routing: apply landlock + seccomp if needed.
-    // Scripts are always sandboxed; permitted non-script commands run outside.
-    // Skip if sandbox was already applied in the Level 2 denied path above,
-    // or if dangerouslyDisableSandbox is true (full bypass).
-    let cwd = resolve_cwd(&args, ctx);
-    if !sandbox_already_applied
-        && !dangerously_disable
-        && CommandSandbox::should_sandbox(command, true)
-    {
-        CommandSandbox::apply_sandbox_restrictions(&cwd)?;
     }
 
     execute_command(
@@ -735,33 +719,18 @@ async fn execute_foreground_command(
     call_id: Option<&str>,
     manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
 ) -> Result<(ForegroundOutcome, Option<String>), String> {
-    let mut registered_call_id = None;
-    if let (Some(s), Some(cid)) = (session, call_id) {
-        let summary = truncate_summary(command);
-        s.register_tool_call(cid.to_string(), "bash".to_string(), summary)
-            .await;
-        registered_call_id = Some(cid.to_string());
-    }
-
     let child = spawn_sh_command(command, cwd)?;
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
 
-    if let (Some(s), Some(cid)) = (session, call_id) {
-        let handle: Arc<dyn closeclaw_common::tool_session::KillHandle> =
-            Arc::new(BashKillHandle {
-                child: Arc::clone(&child_arc),
-            });
-        s.register_tool_handle(cid.to_string(), handle).await;
-        s.update_tool_state(cid, ToolExecState::RunningForeground)
-            .await;
-    }
+    let registered_call_id = if let (Some(s), Some(cid)) = (session, call_id) {
+        Some(register_foreground_session(s, cid, command, &child_arc).await)
+    } else {
+        None
+    };
 
     let bg_timeout = if auto_backgroundize_excluded(command) {
-        // Excluded commands are never auto-backgrounded per design doc.
-        // Use cap timeout as safety net; agent timeout is ignored.
         Duration::from_millis(AUTO_BG_TIMEOUT_CAP_MS)
     } else {
-        // Non-excluded: agent timeout (capped) or system default 15s
         Duration::from_millis(
             agent_timeout_ms
                 .map(|ms| ms.min(AUTO_BG_TIMEOUT_CAP_MS))
@@ -769,9 +738,16 @@ async fn execute_foreground_command(
         )
     };
 
-    let outcome =
-        handle_foreground_result(child_arc, command, bg_timeout, bg_manager, manual_bg_signal)
-            .await;
+    let outcome = handle_foreground_result(
+        child_arc,
+        command,
+        bg_timeout,
+        bg_manager,
+        manual_bg_signal,
+        session,
+        call_id,
+    )
+    .await;
 
     Ok((outcome, registered_call_id))
 }
@@ -839,51 +815,17 @@ async fn execute_command(
     }
 }
 
-/// Build a [`ToolResult`] for an explicitly backgrounded command.
-fn build_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
-    ToolResult {
-        data: serde_json::json!({
-            "backgroundTaskId": task.id,
-            "outputPath": task.output_path.to_string_lossy(),
-        }),
-        new_messages: vec![],
-        context_modifier: None,
-    }
-}
+#[cfg(test)]
+#[path = "bash_approval_tests.rs"]
+mod approval_tests;
 
-/// Build a [`ToolResult`] for an auto-backgrounded command.
-fn build_auto_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
-    ToolResult {
-        data: serde_json::json!({
-            "backgroundTaskId": task.id,
-            "outputPath": task.output_path.to_string_lossy(),
-            "assistantAutoBackgrounded": true,
-        }),
-        new_messages: vec![],
-        context_modifier: None,
-    }
-}
-
-/// Build a [`ToolResult`] for a manually backgrounded command.
-fn build_manual_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
-    ToolResult {
-        data: serde_json::json!({
-            "backgroundTaskId": task.id,
-            "outputPath": task.output_path.to_string_lossy(),
-            "backgroundedByUser": true,
-        }),
-        new_messages: vec![],
-        context_modifier: None,
-    }
-}
+#[cfg(test)]
+#[path = "bash_gap_tests.rs"]
+mod gap_tests;
 
 #[cfg(test)]
 #[path = "bash_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "bash_approval_tests.rs"]
-mod approval_tests;
 
 #[cfg(test)]
 #[path = "bash_timeout_tests.rs"]

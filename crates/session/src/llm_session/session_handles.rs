@@ -722,6 +722,16 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
         ConversationSession::update_tool_state(self, call_id, state);
     }
 
+    async fn report_tool_progress(&self, call_id: &str, progress: closeclaw_common::ToolProgress) {
+        tracing::debug!(
+            call_id = %call_id,
+            lines = progress.lines,
+            bytes = progress.bytes,
+            elapsed_ms = progress.elapsed.as_millis() as u64,
+            "tool progress"
+        );
+    }
+
     async fn register_child_state(&self, child_id: String, agent_id: String, task_summary: String) {
         ConversationSession::register_child(self, child_id, agent_id, task_summary);
         self.persist_pending_checkpoint().await;

@@ -124,7 +124,7 @@ pub use tool_registry::{
     RegistryError, ToolBox, ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry,
     ToolRegistryQuery,
 };
-pub use tool_session::{KillHandle, ToolSession};
+pub use tool_session::{KillHandle, ToolProgress, ToolSession};
 pub use tool_trait::{
     build_git_status_for, build_workdir_context, ContextModifier, PromptGenerationContext, Tool,
     ToolCallError, ToolContext, ToolFlags, ToolMessage, ToolResult, WorkdirContext,

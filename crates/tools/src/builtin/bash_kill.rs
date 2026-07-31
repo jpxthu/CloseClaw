@@ -7,7 +7,7 @@
 //! foreground/background kill integration in Step 1.4. The
 //! extraction keeps the public surface of `BashTool` unchanged:
 //! `bash.rs` re-imports [`build_result`], [`process_output`],
-//! [`read_pipe`], [`BackgroundKillHandle`], and [`BashKillHandle`]
+//! [`BackgroundKillHandle`] and [`BashKillHandle`]
 //! from this module and the rest of the project uses them via
 //! `crate::builtin::bash_kill::{...}`.
 //!
@@ -17,20 +17,20 @@
 //! - [`OutputProcessed`] — result of [`process_output`]
 //! - [`BashKillHandle`] / [`BackgroundKillHandle`] — `KillHandle`
 //!   adapters for foreground child processes and background tasks
-//! - Output processing: [`read_pipe`], [`safe_truncate`],
+//! - Output processing: [`safe_truncate`],
 //!   [`process_output`], [`persist_output`]
 //! - Result building: [`build_result`]
 
 use std::io;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use tokio::io::AsyncReadExt;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::ToolResult;
-use closeclaw_common::tool_session::KillHandle;
+use closeclaw_common::tool_session::{KillHandle, ToolProgress, ToolSession};
+use closeclaw_common::ToolExecState;
 use closeclaw_tasks::TaskManager;
+use tokio::io::AsyncReadExt;
 
 use super::bash_classify;
 
@@ -158,28 +158,6 @@ impl KillHandle for BackgroundKillHandle {
     }
 }
 
-// ── read_pipe ────────────────────────────────────────────────────────────
-
-/// Drain an optional async reader into a `String`. Used to collect
-/// stdout / stderr from a foreground `tokio::process::Child` after
-/// the child has exited.
-pub(crate) async fn read_pipe<R>(pipe: Option<R>) -> String
-where
-    R: tokio::io::AsyncRead + Unpin,
-{
-    match pipe {
-        Some(mut r) => {
-            let mut buf = Vec::new();
-            // Best-effort: a broken pipe should not turn into an
-            // error result; the upstream `child.wait()` will
-            // surface real failures.
-            let _ = r.read_to_end(&mut buf).await;
-            String::from_utf8_lossy(&buf).to_string()
-        }
-        None => String::new(),
-    }
-}
-
 // ── safe_truncate ───────────────────────────────────────────────────────
 
 /// Truncate `s` to at most `max_bytes` bytes, snapping to the nearest
@@ -274,6 +252,218 @@ pub(crate) fn persist_output(raw: &str) -> Result<String, String> {
     Ok(path)
 }
 
+// ── spawn_progress_monitor ───────────────────────────────────────────────
+
+/// Spawn a periodic progress-monitoring task.
+///
+/// The task polls the shared counters every [`PROGRESS_INTERVAL_MS`]
+/// and reports accumulated output statistics via the session.
+/// Returns a join handle that resolves when the task is cancelled.
+pub(crate) fn spawn_progress_monitor(
+    start_time: std::time::Instant,
+    counters: &Arc<(AtomicUsize, AtomicUsize)>,
+    session: &Arc<dyn ToolSession>,
+    call_id: &str,
+    cancel_rx: tokio::sync::watch::Receiver<bool>,
+) -> tokio::task::JoinHandle<()> {
+    let s = Arc::clone(session);
+    let cid = call_id.to_string();
+    let counters = Arc::clone(counters);
+    let mut rx = cancel_rx;
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_millis(2_000));
+        interval.tick().await;
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let elapsed = start_time.elapsed();
+                    if elapsed.as_secs() >= 2 {
+                        s.report_tool_progress(
+                            &cid,
+                            ToolProgress {
+                                lines: counters.0.load(Ordering::Relaxed),
+                                bytes: counters.1.load(Ordering::Relaxed),
+                                elapsed,
+                            },
+                        )
+                        .await;
+                    }
+                }
+                _ = rx.changed() => break,
+            }
+        }
+    })
+}
+
+// ── finalize_foreground_after_wait ──────────────────────────────────────
+
+/// Handle the `Ok(Ok(status))` branch after a foreground child wait.
+///
+/// Reads output with progress tracking, processes it, and builds
+/// the final [`ToolResult`]. Extracted from
+/// [`super::bash::handle_foreground_result`] to keep that function
+/// under the 50-line body limit.
+pub(crate) async fn finalize_foreground_after_wait(
+    status: std::process::ExitStatus,
+    stdout_handle: Option<tokio::process::ChildStdout>,
+    stderr_handle: Option<tokio::process::ChildStderr>,
+    command: &str,
+    session: Option<&Arc<dyn ToolSession>>,
+    call_id: Option<&str>,
+) -> super::bash::ForegroundOutcome {
+    let exit_code = status.code().unwrap_or(-1);
+    let (stdout_raw, stderr_raw, _lines, _bytes) =
+        read_with_progress(stdout_handle, stderr_handle, session, call_id).await;
+    let stdout_p = process_output(&stdout_raw);
+    let stderr_p = process_output(&stderr_raw);
+    super::bash::ForegroundOutcome::Completed(build_result(
+        command, stdout_p, stderr_p, exit_code, false,
+    ))
+}
+
+// ── incremental pipe reading ──────────────────────────────────────────
+
+/// Read from an optional async reader incrementally, counting lines and bytes.
+///
+/// Returns `(accumulated_output, total_lines, total_bytes)` when the
+/// reader is exhausted or the cancel signal fires.
+pub(crate) async fn read_pipe_incremental<R>(
+    pipe: Option<R>,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
+    progress: Option<&Arc<(AtomicUsize, AtomicUsize)>>,
+) -> (String, usize, usize)
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let Some(mut reader) = pipe else {
+        return (String::new(), 0, 0);
+    };
+    let mut output = String::new();
+    let mut total_lines: usize = 0;
+    let mut total_bytes: usize = 0;
+    let mut buf = [0u8; 8192];
+    loop {
+        tokio::select! {
+            result = reader.read(&mut buf) => {
+                match result {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let chunk = String::from_utf8_lossy(&buf[..n]);
+                        let lines = chunk.lines().count();
+                        total_lines += lines;
+                        total_bytes += n;
+                        output.push_str(&chunk);
+                        if let Some(counters) = progress {
+                            counters.0.fetch_add(lines, Ordering::Relaxed);
+                            counters.1.fetch_add(n, Ordering::Relaxed);
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            _ = cancel.changed() => break,
+        }
+    }
+    (output, total_lines, total_bytes)
+}
+
+/// Read stdout/stderr incrementally with periodic progress reporting.
+///
+/// Spawns a progress-monitoring task that reports accumulated output
+/// statistics via the session every 2 seconds. Returns
+/// the final output strings and cumulative line/byte counts.
+pub(crate) async fn read_with_progress(
+    stdout_handle: Option<tokio::process::ChildStdout>,
+    stderr_handle: Option<tokio::process::ChildStderr>,
+    session: Option<&Arc<dyn ToolSession>>,
+    call_id: Option<&str>,
+) -> (String, String, usize, usize) {
+    let start_time = std::time::Instant::now();
+    let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+    let progress = Arc::new((AtomicUsize::new(0), AtomicUsize::new(0)));
+
+    let progress_handle = if let (Some(s), Some(cid)) = (session, call_id) {
+        Some(spawn_progress_monitor(
+            start_time,
+            &progress,
+            s,
+            cid,
+            cancel_rx.clone(),
+        ))
+    } else {
+        None
+    };
+
+    let (stdout_result, stderr_result) = tokio::join!(
+        read_pipe_incremental(stdout_handle, cancel_rx.clone(), Some(&progress)),
+        read_pipe_incremental(stderr_handle, cancel_rx, Some(&progress)),
+    );
+    let _ = cancel_tx.send(true);
+    if let Some(h) = progress_handle {
+        let _ = h.await;
+    }
+    let (stdout_raw, s_lines, s_bytes) = stdout_result;
+    let (stderr_raw, e_lines, e_bytes) = stderr_result;
+
+    let total_lines = s_lines + e_lines;
+    let total_bytes = s_bytes + e_bytes;
+
+    if let (Some(s), Some(cid)) = (session, call_id) {
+        s.report_tool_progress(
+            cid,
+            ToolProgress {
+                lines: total_lines,
+                bytes: total_bytes,
+                elapsed: start_time.elapsed(),
+            },
+        )
+        .await;
+    }
+
+    (stdout_raw, stderr_raw, total_lines, total_bytes)
+}
+
+// ── register_foreground_session ─────────────────────────────────────────
+
+/// Register the tool call, kill handle, and foreground state on the
+/// session. Returns the registered call ID.
+///
+/// Extracted from [`super::bash::execute_foreground_command`] to keep
+/// that function under the 50-line body limit.
+pub(crate) async fn register_foreground_session(
+    session: &Arc<dyn ToolSession>,
+    call_id: &str,
+    command: &str,
+    child_arc: &Arc<std::sync::Mutex<Option<tokio::process::Child>>>,
+) -> String {
+    let summary = truncate_summary(command);
+    session
+        .register_tool_call(call_id.to_string(), "bash".to_string(), summary)
+        .await;
+    let handle: Arc<dyn KillHandle> = Arc::new(BashKillHandle {
+        child: Arc::clone(child_arc),
+    });
+    session
+        .register_tool_handle(call_id.to_string(), handle)
+        .await;
+    session
+        .update_tool_state(call_id, ToolExecState::RunningForeground)
+        .await;
+    call_id.to_string()
+}
+
+/// Truncate a command string for use as `args_summary` in pending
+/// operation tracking.
+pub(crate) fn truncate_summary(command: &str) -> String {
+    const MAX_SUMMARY_LEN: usize = 200;
+    if command.len() <= MAX_SUMMARY_LEN {
+        command.to_string()
+    } else {
+        let end = command.floor_char_boundary(MAX_SUMMARY_LEN);
+        format!("{}...", &command[..end])
+    }
+}
+
 // ── build_result ────────────────────────────────────────────────────────
 
 /// Build a [`ToolResult`] from processed execution outputs.
@@ -303,6 +493,46 @@ pub(crate) fn build_result(
             "persistedOutputSize": persisted_size,
             "returnCodeInterpretation": interpretation,
             "noOutputExpected": no_output
+        }),
+        new_messages: vec![],
+        context_modifier: None,
+    }
+}
+
+// ── build_background_result ──────────────────────────────────────────────
+
+/// Build a [`ToolResult`] for an explicitly backgrounded command.
+pub(crate) fn build_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
+    ToolResult {
+        data: serde_json::json!({
+            "backgroundTaskId": task.id,
+            "outputPath": task.output_path.to_string_lossy(),
+        }),
+        new_messages: vec![],
+        context_modifier: None,
+    }
+}
+
+/// Build a [`ToolResult`] for an auto-backgrounded command.
+pub(crate) fn build_auto_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
+    ToolResult {
+        data: serde_json::json!({
+            "backgroundTaskId": task.id,
+            "outputPath": task.output_path.to_string_lossy(),
+            "assistantAutoBackgrounded": true,
+        }),
+        new_messages: vec![],
+        context_modifier: None,
+    }
+}
+
+/// Build a [`ToolResult`] for a manually backgrounded command.
+pub(crate) fn build_manual_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
+    ToolResult {
+        data: serde_json::json!({
+            "backgroundTaskId": task.id,
+            "outputPath": task.output_path.to_string_lossy(),
+            "backgroundedByUser": true,
         }),
         new_messages: vec![],
         context_modifier: None,

@@ -12,7 +12,7 @@
 
 use std::io;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
 
@@ -38,6 +38,24 @@ pub trait KillHandle: Send + Sync {
     /// exit — the stop path enforces a wall-clock budget via
     /// `tokio::time::timeout`.
     fn kill(&self) -> io::Result<()>;
+}
+
+// ---------------------------------------------------------------------------
+// ToolProgress — incremental execution progress
+// ---------------------------------------------------------------------------
+
+/// Real-time progress snapshot for a running tool call.
+///
+/// Sent periodically by tools (e.g. BashTool) during foreground
+/// execution so the UI can display live output statistics.
+#[derive(Debug, Clone)]
+pub struct ToolProgress {
+    /// Number of lines output so far.
+    pub lines: usize,
+    /// Number of bytes output so far.
+    pub bytes: usize,
+    /// Elapsed time since command started.
+    pub elapsed: Duration,
 }
 
 // ---------------------------------------------------------------------------
@@ -154,4 +172,11 @@ pub trait ToolSession: Send + Sync {
     fn get_file_mtime(&self, _path: &str) -> Option<SystemTime> {
         None
     }
+
+    /// Report real-time progress for a running tool call.
+    ///
+    /// Called periodically during foreground execution to provide the UI
+    /// with incremental output statistics. The default implementation
+    /// is a no-op (progress is optional).
+    async fn report_tool_progress(&self, _call_id: &str, _progress: ToolProgress) {}
 }
