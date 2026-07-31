@@ -45,8 +45,8 @@ Session 重建时触发 Agent 的 system prompt 重新注入，注入内容反�
   - 预警阶段：剩余空间低于告警阈值时，提示用户即将压缩
   - 触发阶段：剩余空间低于压缩阈值时，自动执行压缩
 - 压缩只处理对话消息（user/assistant），不触碰 system prompt，其内容完整保留
-- 压缩结果为一条结构性摘要消息，覆盖六个维度：Goal / Constraints & Preferences / Progress / Key Decisions / Next Steps / Critical Context
-- 连续压缩失败后自动暂停，保护暂停仅阻止自动压缩再次触发，不影响 session 正常的活跃判定、归档等生命周期行为。手动 `/compact` 成功后自动恢复自动压缩
+- 压缩结果为一条结构化摘要消息，覆盖六个维度：Goal / Constraints & Preferences / Progress / Key Decisions / Next Steps / Critical Context
+- 连续压缩失败后自动进入保护暂停（仅阻止自动压缩再次触发，不影响活跃判定和归档），手动 `/compact` 成功后自动恢复
 - 压缩前自动创建对话备份，压缩异常时可回滚
 
 ### F4. 子 Session 委托与协调
