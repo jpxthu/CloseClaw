@@ -323,6 +323,10 @@ impl SessionMessageHandler {
     /// passes the [`Gateway`] reference and [`IMPlugin`] to the dispatch
     /// task so streaming LLM output can be routed through
     /// [`Gateway::send_outbound_streaming`].
+    ///
+    /// During active Waiting (yielding) state, `is_session_busy`
+    /// returns false, so the message flows through the normal path:
+    /// inject into conversation history and dispatch LLM. No queueing.
     pub async fn handle_message_with_gateway(
         &self,
         session_id: &str,
@@ -332,13 +336,6 @@ impl SessionMessageHandler {
         plugin: &Arc<dyn IMPlugin>,
     ) -> HandleResult {
         if self.session_manager.is_session_busy(session_id).await {
-            self.enqueue_pending(session_id, content).await;
-            return HandleResult::MessageQueued;
-        }
-        // Step 1.6: Queue user messages during active Waiting (yielding) state.
-        // Slash commands are intercepted in lib.rs before reaching here,
-        // so /stop and other immediate commands bypass this check.
-        if self.session_manager.is_session_yielding(session_id).await {
             self.enqueue_pending(session_id, content).await;
             return HandleResult::MessageQueued;
         }

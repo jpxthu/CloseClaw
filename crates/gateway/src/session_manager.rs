@@ -121,6 +121,9 @@ pub struct SessionManager {
     /// Per-session yield timeout handles (keyed by session_id).
     /// Aborted on normal recovery or timeout.
     yield_timeout_handles: RwLock<HashMap<String, tokio::task::JoinHandle<()>>>,
+    /// Per-session yield warning timeout handles (keyed by session_id).
+    /// Aborted on normal recovery, timeout, or when the warning fires.
+    yield_warning_handles: RwLock<HashMap<String, tokio::task::JoinHandle<()>>>,
     /// Skill listing provider for per-turn skill injection.
     /// Injected by daemon (composition root) so each LLM turn can
     /// prepend a tool-role attachment with the agent's skill listing.
@@ -186,6 +189,7 @@ impl SessionManager {
             agent_locks: Arc::new(RwLock::new(HashMap::new())),
             skill_listing_provider: RwLock::new(None),
             yield_timeout_handles: RwLock::new(HashMap::new()),
+            yield_warning_handles: RwLock::new(HashMap::new()),
             output_tx: RwLock::new(None),
             tool_register_fn: RwLock::new(None),
             gateway_ref: RwLock::new(None),
