@@ -4,13 +4,15 @@
 //! On daemon shutdown, `flush_all()` serializes all active sessions to the persistence backend.
 
 use crate::shutdown_handle::ShutdownHandle;
+use crate::sweeper::ActiveSessionQuery;
 use crate::{compute_session_key, GatewayConfig, Message, Session};
+use async_trait::async_trait;
 use closeclaw_common::processor::ProcessError;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_common::IMPlugin;
 use closeclaw_common::{
-    DynamicPromptBuilder, LlmCaller, PromptOverrides, SkillListingProvider, SkillRegistryQuery,
-    SystemPromptBuilder, ToolRegistryQuery,
+    DynamicPromptBuilder, LlmCaller, PromptOverrides, SessionExecStatus, SkillListingProvider,
+    SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
 };
 use closeclaw_config::manager::{ConfigManager, ConfigSnapshot};
 use closeclaw_config::ConfigSection;
@@ -282,6 +284,22 @@ impl SessionManager {
         session_helpers::update_checkpoint_thread_id(cm.as_ref(), session_id, thread_id).await;
     }
 
+    /// Update `last_user_activity_at` and `last_message_at` for a user message.
+    ///
+    /// Called from the message handler when a user message arrives.
+    /// Updates both timestamps to now and persists the checkpoint.
+    pub async fn update_checkpoint_user_activity(&self, session_id: &str) {
+        let cm_guard = self.checkpoint_manager.read().await;
+        let Some(cm) = cm_guard.as_ref() else {
+            warn!(
+                session_id = %session_id,
+                "storage not available, skipping user activity update"
+            );
+            return;
+        };
+        session_helpers::update_checkpoint_user_activity(cm.as_ref(), session_id).await;
+    }
+
     /// Find or create a session for the given channel and message.
     ///
     /// 1. Compute session_id from channel + message + account_id
@@ -472,6 +490,25 @@ impl SessionManager {
             Some(cs) => {
                 let cs = cs.read().await;
                 cs.is_llm_busy()
+            }
+            None => false,
+        }
+    }
+
+    /// Check whether a session is active (has ongoing LLM or tool work).
+    ///
+    /// Looks up the session in the in-memory `conversation_sessions` table,
+    /// reads its [`SessionExecStatus`] and returns `true` when the status
+    /// is anything other than `Idle` (i.e. `Busy` or `Waiting`).
+    ///
+    /// Returns `false` if the session does not exist in the in-memory table
+    /// — a session that has been flushed or archived has no active work.
+    pub async fn is_active(&self, session_id: &str) -> bool {
+        let conv_sessions = self.conversation_sessions.read().await;
+        match conv_sessions.get(session_id) {
+            Some(cs) => {
+                let cs = cs.read().await;
+                !matches!(cs.exec_status(), SessionExecStatus::Idle)
             }
             None => false,
         }
@@ -684,6 +721,17 @@ impl SessionManager {
         );
     }
 }
+
+#[async_trait]
+impl ActiveSessionQuery for SessionManager {
+    /// Check whether a session is actively executing work.
+    ///
+    /// Delegates to [`SessionManager::is_active`].
+    async fn is_active(&self, session_id: &str) -> bool {
+        self.is_active(session_id).await
+    }
+}
+
 #[cfg(test)]
 mod announce_dedup_tests;
 #[cfg(test)]
@@ -708,6 +756,8 @@ mod gap3_status_text_tests;
 mod gap3_termination_notification_tests;
 #[cfg(test)]
 mod graceful_stop_tests;
+#[cfg(test)]
+mod is_active_tests;
 #[cfg(test)]
 mod rebuild_spawn_tree_tests;
 #[cfg(test)]
