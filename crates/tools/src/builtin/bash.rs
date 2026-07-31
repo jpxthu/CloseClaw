@@ -9,13 +9,13 @@
 //! the output-processing helpers (`process_output`, `build_result`,
 //! etc.) live in the sibling module [`super::bash_kill`] to keep this
 //! file under the CONTRIBUTING.md 500-line hard cap.
-
 use crate::bash::CommandSandbox;
 use crate::permission_check::{
     check_command_permission, check_tool_permission, CommandPermissionResult, PermDeps,
 };
 use crate::security::{BashSecurityAnalyzer, ParseResult, TrustLevel};
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use async_trait::async_trait;
 use closeclaw_common::tool_session::ToolProgress;
 use closeclaw_common::ToolExecState;
 use closeclaw_config::ConfigManager;
@@ -24,14 +24,11 @@ use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_risk::RiskLevel;
 use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody};
-
-use async_trait::async_trait;
 use serde_json::Value;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
 use tokio::io::AsyncReadExt;
 
 use tokio::sync::Mutex as TokioMutex;
@@ -992,6 +989,9 @@ fn build_manual_background_result(task: &closeclaw_tasks::BackgroundTask) -> Too
 #[cfg(test)]
 #[path = "bash_approval_tests.rs"]
 mod approval_tests;
+#[cfg(test)]
+#[path = "bash_gap_tests.rs"]
+mod gap_tests;
 #[cfg(test)]
 #[path = "bash_tests.rs"]
 mod tests;
