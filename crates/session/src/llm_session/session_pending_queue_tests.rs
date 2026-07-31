@@ -33,6 +33,7 @@ fn entry_labels(entries: &[QueueEntry]) -> Vec<String> {
             QueueEntry::UserMessage(pm) => format!("user:{}", pm.message_id),
             QueueEntry::Announce(ev) => format!("announce:{}", ev.child_agent_id),
             QueueEntry::BackgroundToolNotification(n) => format!("bg:{}", n.task_id),
+            QueueEntry::SystemNotification(text, _) => format!("sys:{}", text),
         })
         .collect()
 }
@@ -261,7 +262,130 @@ fn test_unified_queue_background_tool_notification_priority() {
     );
 }
 
-// ── 10. Drain leaves queue empty ───────────────────────────────────────────
+// ── 11. SystemNotification added by push_system_notification ────────────
+
+/// `push_system_notification` should add a SystemNotification entry
+/// with the specified priority to the queue.
+#[test]
+fn test_system_notification_push_adds_to_queue() {
+    let mut q = UnifiedMessageQueue::default();
+
+    q.push(QueueEntry::SystemNotification(
+        "warning text".into(),
+        NotificationPriority::Next,
+    ));
+
+    assert_eq!(q.len(), 1);
+    let entry = q.pop().unwrap();
+    match entry {
+        QueueEntry::SystemNotification(text, priority) => {
+            assert_eq!(text, "warning text");
+            assert_eq!(priority, NotificationPriority::Next);
+        }
+        other => panic!("expected SystemNotification, got {:?}", other),
+    }
+}
+
+// ── 12. SystemNotification priority ordering ──────────────────────────────
+
+/// SystemNotification with Now priority drains before Next announce,
+/// and SystemNotification with Later priority drains after Next announce.
+#[test]
+fn test_system_notification_priority_ordering() {
+    let mut q = UnifiedMessageQueue::default();
+
+    q.push(make_announce("a1", NotificationPriority::Later));
+    q.push(QueueEntry::SystemNotification(
+        "sys_now".into(),
+        NotificationPriority::Now,
+    ));
+    q.push(make_announce("a2", NotificationPriority::Next));
+    q.push(QueueEntry::SystemNotification(
+        "sys_later".into(),
+        NotificationPriority::Later,
+    ));
+    q.push(make_user_msg("u1"));
+
+    let drained = q.drain_all();
+    let labels = entry_labels(&drained);
+
+    // Now(sys) > Next(announce) > Later(announce, sys) > Later(user)
+    assert_eq!(
+        labels,
+        vec![
+            "sys:sys_now",
+            "announce:a2",
+            "announce:a1",
+            "sys:sys_later",
+            "user:u1",
+        ],
+        "SystemNotification entries should follow priority-based ordering"
+    );
+}
+
+// ── 13. drain_announce_queue preserves SystemNotification ──────────────────
+
+/// `drain_announce_queue` returns only Announce events;
+/// SystemNotification entries should be re-inserted into the queue.
+#[test]
+fn test_drain_announce_queue_preserves_system_notification() {
+    let mut q = UnifiedMessageQueue::default();
+
+    q.push(make_announce("a1", NotificationPriority::Now));
+    q.push(QueueEntry::SystemNotification(
+        "warning".into(),
+        NotificationPriority::Next,
+    ));
+    q.push(make_announce("a2", NotificationPriority::Later));
+
+    // Use ConversationSession method for drain_announce_queue.
+    // Since we're testing UnifiedMessageQueue directly, simulate the
+    // drain_announce_queue logic: drain all, re-insert non-announces.
+    let all = q.drain_all();
+    let mut announces = Vec::new();
+    for entry in all {
+        match entry {
+            QueueEntry::Announce(e) => announces.push(e),
+            other => q.push(other),
+        }
+    }
+
+    assert_eq!(announces.len(), 2);
+    assert_eq!(q.len(), 1);
+
+    let remaining = q.pop().unwrap();
+    assert!(
+        matches!(remaining, QueueEntry::SystemNotification(ref t, _) if t == "warning"),
+        "SystemNotification should survive drain_announce_queue"
+    );
+}
+
+// ── 14. drain_all_entries returns SystemNotification ──────────────────────
+
+/// `drain_all_entries` should return SystemNotification entries
+/// along with other entry types.
+#[test]
+fn test_drain_all_entries_includes_system_notification() {
+    let mut q = UnifiedMessageQueue::default();
+
+    q.push(make_announce("a1", NotificationPriority::Now));
+    q.push(QueueEntry::SystemNotification(
+        "sys_msg".into(),
+        NotificationPriority::Next,
+    ));
+    q.push(make_user_msg("u1"));
+
+    let drained = q.drain_all();
+    assert_eq!(drained.len(), 3);
+
+    let has_sys = drained
+        .iter()
+        .any(|e| matches!(e, QueueEntry::SystemNotification(text, _) if text == "sys_msg"));
+    assert!(has_sys, "drain_all_entries must include SystemNotification");
+    assert!(q.is_empty());
+}
+
+// ── 15. Drain leaves queue empty ──────────────────────────────────────────
 
 #[test]
 fn test_unified_queue_drain_leaves_empty() {

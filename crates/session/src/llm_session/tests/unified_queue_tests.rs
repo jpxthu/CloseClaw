@@ -57,6 +57,7 @@ fn test_unified_queue_mixed_priority_user_vs_non_user() {
             QueueEntry::Announce(a) => a.child_agent_id.as_str(),
             QueueEntry::UserMessage(_) => "user",
             QueueEntry::BackgroundToolNotification(_) => "bg",
+            QueueEntry::SystemNotification(_, _) => "sys",
         })
         .collect();
     // Now > Next > User(later)
@@ -81,6 +82,7 @@ fn test_unified_queue_same_priority_non_user_before_user() {
             QueueEntry::Announce(a) => a.child_agent_id.as_str(),
             QueueEntry::UserMessage(pm) => pm.message_id.as_str(),
             QueueEntry::BackgroundToolNotification(_) => "bg",
+            QueueEntry::SystemNotification(_, _) => "sys",
         })
         .collect();
     // Now non-user (n1, n2) first, then user (u1, u2)
@@ -314,6 +316,7 @@ fn test_unified_queue_comprehensive_order() {
             QueueEntry::Announce(a) => a.child_agent_id.as_str(),
             QueueEntry::UserMessage(pm) => pm.message_id.as_str(),
             QueueEntry::BackgroundToolNotification(n) => n.task_id.as_str(),
+            QueueEntry::SystemNotification(_, _) => "sys",
         })
         .collect();
     // Expected: Now(announce) → Next(bg+announce) → Later(announce+bg+user+user)

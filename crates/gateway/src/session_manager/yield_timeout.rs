@@ -17,6 +17,7 @@ use tracing::warn;
 
 use super::stop::StopError;
 use super::SessionManager;
+use closeclaw_tasks::NotificationPriority;
 
 /// Default yield timeout in seconds (10 minutes).
 ///
@@ -132,7 +133,7 @@ impl SessionManager {
                 "[⚠️ 超时预警] 子 agent 任务已运行 {} 秒，即将到达超时上限。\n请耐心等待或检查子 session 状态。",
                 warning_secs
             );
-            cs_write.inject_system_message(notification);
+            cs_write.push_system_notification(notification, NotificationPriority::Next);
         }
 
         // Clean up the warning handle entry (the task is done).
@@ -198,7 +199,7 @@ impl SessionManager {
             }
         }
 
-        // 3. Inject timeout notification into the parent's message queue.
+        // 3. Push timeout notification onto the unified queue.
         if let Some(cs) = self.get_conversation_session(session_id).await {
             {
                 let mut cs_write = cs.write().await;
@@ -206,7 +207,7 @@ impl SessionManager {
                     "[超时] 子 agent 任务在 {} 秒内未完成，已自动终止所有子 session。",
                     timeout_secs
                 );
-                cs_write.inject_system_message(notification);
+                cs_write.push_system_notification(notification, NotificationPriority::Next);
             }
         }
 

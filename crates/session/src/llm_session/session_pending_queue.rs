@@ -46,6 +46,9 @@ pub enum QueueEntry {
     /// A background tool (BashTool) completion notification.
     /// Priority is taken from the inner `CompletionNotification`.
     BackgroundToolNotification(closeclaw_tasks::CompletionNotification),
+    /// A system-level notification (e.g. yield timeout warning).
+    /// Injected as a `role="system"` message during drain.
+    SystemNotification(String, NotificationPriority),
 }
 
 impl QueueEntry {
@@ -55,6 +58,7 @@ impl QueueEntry {
             QueueEntry::UserMessage(_) => QueuePriority::Later,
             QueueEntry::Announce(e) => QueuePriority::from(e.priority),
             QueueEntry::BackgroundToolNotification(n) => QueuePriority::from(n.priority),
+            QueueEntry::SystemNotification(_, p) => QueuePriority::from(*p),
         }
     }
 
@@ -248,6 +252,17 @@ impl ConversationSession {
     ) {
         self.unified_queue
             .push(QueueEntry::BackgroundToolNotification(notif));
+    }
+
+    /// Push a system-level notification onto the unified queue.
+    ///
+    /// Used by yield timeout handlers to enqueue warnings and timeout
+    /// notifications with the specified priority (typically `Next`).
+    /// During drain, system notifications are injected as
+    /// `role="system"` messages into the conversation history.
+    pub fn push_system_notification(&mut self, text: String, priority: NotificationPriority) {
+        self.unified_queue
+            .push(QueueEntry::SystemNotification(text, priority));
     }
 
     /// Push a `QueueEntry` directly onto the unified queue.
