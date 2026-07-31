@@ -266,13 +266,15 @@ async fn test_caller_continue_waiting_session_not_cleaned() {
     );
 }
 
-// ── 5. process_stop_level escalates on graceful timeout ────────────────
+// ── 5. process_stop_level does NOT escalate on graceful timeout ──────
 
-/// `process_stop_level` must detect `TimedOut` during graceful
-/// shutdown and escalate to forceful for that session.
+/// After Step 1.1, `process_stop_level` no longer auto-escalates
+/// Graceful timeout to Forceful. The timed-out session is left dirty
+/// with exec state preserved (pending_operations survive for
+/// recovery scan on next startup).
 #[tokio::test]
 #[serial]
-async fn test_process_stop_level_escalates_on_timeout() {
+async fn test_process_stop_level_no_escalation_on_timeout() {
     clear_global_prompt_state();
 
     let mgr = make_test_mgr(None);
@@ -280,16 +282,22 @@ async fn test_process_stop_level_escalates_on_timeout() {
     register_child_with_session(&mgr, &parent_id, "child-gto-5", "worker-gto-5").await;
     set_llm_state(&mgr, "child-gto-5", LlmState::Receiving).await;
 
-    // stop_all_sessions with zero timeout: process_stop_level sees
-    // TimedOut and escalates to forceful.
+    // stop_all_sessions with short timeout: process_stop_level sees
+    // TimedOut for the streaming child but does NOT escalate to
+    // forceful. The parent (idle) completes normally.
     let result = mgr
-        .stop_all_sessions(ShutdownMode::Graceful, Duration::ZERO, None)
+        .stop_all_sessions(ShutdownMode::Graceful, Duration::from_millis(50), None)
         .await;
 
-    // Escalation should have force-stopped the session.
+    // Child timed out (not force-stopped), parent completed.
+    assert!(
+        result.timed_out >= 1,
+        "child should be counted as timed_out, got: {:?}",
+        result
+    );
     assert!(
         result.succeeded >= 1,
-        "escalation should force-stop session, got: {:?}",
+        "parent should complete, got: {:?}",
         result
     );
     assert!(
@@ -300,9 +308,10 @@ async fn test_process_stop_level_escalates_on_timeout() {
         .get_conversation_session("child-gto-5")
         .await
         .expect("session should exist");
+    // Token must NOT be cancelled — session left dirty, not force-stopped.
     assert!(
-        cs.read().await.is_cancelled(),
-        "token should be cancelled after escalation"
+        !cs.read().await.is_cancelled(),
+        "token should NOT be cancelled when graceful timeout is not escalated"
     );
 }
 
