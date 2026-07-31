@@ -90,13 +90,13 @@ impl SessionManager {
             let hash = Sha256::digest(routing_fields.as_bytes());
             let session_key = format!("{:x}", hash);
 
-            let created = cp.last_message_at.unwrap_or(cp.created_at);
+            let sort_key = cp.last_message_at.unwrap_or(cp.created_at);
             match key_best.get(&session_key) {
-                Some((existing_created, _)) if created <= *existing_created => {
+                Some((existing_created, _)) if sort_key <= *existing_created => {
                     // Existing entry is newer or equal — keep it.
                 }
                 _ => {
-                    key_best.insert(session_key, (created, session_id.clone()));
+                    key_best.insert(session_key, (sort_key, session_id.clone()));
                 }
             }
         }
