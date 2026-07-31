@@ -457,10 +457,7 @@ impl PersistenceService for SqliteStorage {
                 .map(|ps| serde_json::to_string(ps).map_err(PersistenceError::Serialization))
                 .transpose()?;
 
-            let last_user_activity_ts = checkpoint
-                .last_user_activity_at
-                .map(|dt| dt.timestamp())
-                .unwrap_or(0);
+            let last_user_activity_ts = checkpoint.last_user_activity_at.map(|dt| dt.timestamp());
 
             conn.execute(
                 "INSERT OR REPLACE INTO sessions

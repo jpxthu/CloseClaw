@@ -785,12 +785,10 @@ async fn test_last_user_activity_at_none_roundtrip_via_sqlite() {
 
     let loaded = storage.load_checkpoint("luaa-none").await.unwrap();
     let loaded = loaded.expect("checkpoint should exist");
-    // None is stored as 0 (epoch), loaded back as Some(1970-01-01)
-    let epoch = chrono::DateTime::from_timestamp(0, 0).unwrap();
+    // None is stored as NULL in SQLite, loaded back as None
     assert_eq!(
-        loaded.last_user_activity_at,
-        Some(epoch),
-        "None last_user_activity_at stored as 0 (epoch) should load as Some(epoch)"
+        loaded.last_user_activity_at, None,
+        "None last_user_activity_at should roundtrip through NULL"
     );
 }
 
