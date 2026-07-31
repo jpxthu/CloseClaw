@@ -79,6 +79,9 @@ impl SessionManager {
                 QueueEntry::BackgroundToolNotification(notif) => {
                     announces.push(notif_to_announce(notif));
                 }
+                QueueEntry::SystemNotification(text, _) => {
+                    cs.inject_system_message(text);
+                }
             }
         }
         announces
@@ -152,6 +155,9 @@ impl SessionManager {
                 // Convert to AnnounceEvent for the inject path.
                 QueueEntry::BackgroundToolNotification(ref notif) if predicate(&notif.priority) => {
                     matched.push(notif_to_announce(notif.clone()));
+                }
+                QueueEntry::SystemNotification(ref text, _) => {
+                    cs.inject_system_message(text.clone());
                 }
                 other => {
                     cs.push_queue_entry(other);

@@ -33,6 +33,7 @@ fn entry_labels(entries: &[QueueEntry]) -> Vec<String> {
             QueueEntry::UserMessage(pm) => format!("user:{}", pm.message_id),
             QueueEntry::Announce(ev) => format!("announce:{}", ev.child_agent_id),
             QueueEntry::BackgroundToolNotification(n) => format!("bg:{}", n.task_id),
+            QueueEntry::SystemNotification(text, _) => format!("sys:{}", text),
         })
         .collect()
 }

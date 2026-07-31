@@ -314,19 +314,18 @@ async fn test_yield_warning_timeout_injects_notification() {
         "session should remain in Waiting after warning fires"
     );
 
-    // Warning notification should be injected.
+    // Warning notification should be enqueued (not directly injected).
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
-    let messages = cs.read().await.messages().to_vec();
-    let has_warning_msg = messages.iter().any(|m| {
-        m.role == "system"
-            && m.content_blocks.iter().any(
-                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("超时预警")),
-            )
-    });
-    assert!(
-        has_warning_msg,
-        "warning notification should be injected into conversation"
-    );
+    {
+        let cs_guard = cs.read().await;
+        let _pending = cs_guard.get_pending_messages();
+        // SystemNotification is non-user, so pending_user_messages won't see it.
+        // Check that the unified queue is not empty (notification is queued).
+        assert!(
+            cs_guard.has_pending() || cs_guard.queue_len() > 0,
+            "warning notification should be enqueued in unified queue"
+        );
+    }
 
     // Children should NOT be terminated.
     let children = mgr.children.read().await;
