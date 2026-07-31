@@ -320,7 +320,6 @@ async fn test_yield_warning_timeout_injects_notification() {
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
     {
         let cs_guard = cs.read().await;
-        let _pending = cs_guard.get_pending_messages();
         // SystemNotification is non-user, so pending_user_messages won't see it.
         // Check that the unified queue is not empty (notification is queued).
         assert!(

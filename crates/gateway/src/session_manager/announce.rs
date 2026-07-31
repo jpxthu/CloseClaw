@@ -156,8 +156,11 @@ impl SessionManager {
                 QueueEntry::BackgroundToolNotification(ref notif) if predicate(&notif.priority) => {
                     matched.push(notif_to_announce(notif.clone()));
                 }
-                QueueEntry::SystemNotification(ref text, _) => {
+                QueueEntry::SystemNotification(ref text, ref priority) if predicate(priority) => {
                     cs.inject_system_message(text.clone());
+                }
+                QueueEntry::SystemNotification(text, priority) => {
+                    cs.push_queue_entry(QueueEntry::SystemNotification(text, priority));
                 }
                 other => {
                     cs.push_queue_entry(other);
