@@ -18,6 +18,8 @@ mod memory;
 pub mod message;
 pub mod outbound;
 #[cfg(test)]
+mod outbound_checkpoint_last_message_at_tests;
+#[cfg(test)]
 mod outbound_checkpoint_timing_tests;
 #[cfg(test)]
 mod outbound_fallback_tests;
