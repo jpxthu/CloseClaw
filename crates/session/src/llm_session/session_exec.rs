@@ -174,7 +174,7 @@ impl ConversationSession {
     }
 
     /// Returns whether any child session is currently running.
-    pub(crate) fn has_running_child(&self) -> bool {
+    pub fn has_running_child(&self) -> bool {
         let states = self
             .child_states
             .read()

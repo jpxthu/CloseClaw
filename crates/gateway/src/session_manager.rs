@@ -495,20 +495,24 @@ impl SessionManager {
         }
     }
 
-    /// Check whether a session is active (has ongoing LLM or tool work).
+    /// Check whether a session is active (has ongoing LLM, tool, or child work).
     ///
     /// Looks up the session in the in-memory `conversation_sessions` table,
-    /// reads its [`SessionExecStatus`] and returns `true` when the status
-    /// is anything other than `Idle` (i.e. `Busy` or `Waiting`).
+    /// checks the four activity dimensions:
+    /// 1. **llm_active** — LLM in Requesting/Receiving state (via `exec_status`)
+    /// 2. **foreground_tool_active** — tool executing in foreground (via `exec_status`)
+    /// 3. **background_tool_active** — tool executing in background (via `exec_status`)
+    /// 4. **child_active** — at least one child session is Running
     ///
-    /// Returns `false` if the session does not exist in the in-memory table
-    /// — a session that has been flushed or archived has no active work.
+    /// Returns `true` if any dimension is active. Returns `false` if the
+    /// session does not exist in the in-memory table — a session that has
+    /// been flushed or archived has no active work.
     pub async fn is_active(&self, session_id: &str) -> bool {
         let conv_sessions = self.conversation_sessions.read().await;
         match conv_sessions.get(session_id) {
             Some(cs) => {
                 let cs = cs.read().await;
-                !matches!(cs.exec_status(), SessionExecStatus::Idle)
+                !matches!(cs.exec_status(), SessionExecStatus::Idle) || cs.has_running_child()
             }
             None => false,
         }
