@@ -186,7 +186,7 @@ mod tests {
             .unwrap();
         assert_eq!(result.data["skill_name"], "my_builtin");
         assert_eq!(result.data["status"], "loaded");
-        assert_eq!(result.data["execution_mode"], "inline");
+        assert_eq!(result.data["execution_mode"], "native");
         assert_eq!(result.new_messages.len(), 1);
         assert!(result.new_messages[0].is_meta);
         assert!(result.new_messages[0].content.contains("builtin result"));
