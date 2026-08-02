@@ -759,6 +759,7 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
                     cp.system_appends = system_appends;
                     cp.verbosity_level = verbosity;
                     cp.touch();
+                    cp.last_message_at = Some(chrono::Utc::now());
                     cp
                 }
                 _ => {
