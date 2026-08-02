@@ -129,11 +129,15 @@ pub trait ToolSession: Send + Sync {
 
     /// Persist a checkpoint with the current pending operations.
     ///
-    /// Async fire-and-forget: failures are logged at warn level and
-    /// must not block the caller. Called after `register_tool_call`
-    /// and `deregister_tool_call` so that crash recovery can detect
-    /// in-flight operations.
-    async fn persist_pending_checkpoint(&self) {}
+    /// Called after `register_tool_call` and `deregister_tool_call`
+    /// so that crash recovery can detect in-flight operations.
+    ///
+    /// Returns `Ok(())` on success, or `Err` if persistence fails.
+    /// Callers that do not require crash-recovery durability
+    /// (e.g. register/deregister) may log and continue on error.
+    async fn persist_pending_checkpoint(&self) -> Result<(), String> {
+        Ok(())
+    }
 
     /// Returns a reference to the manual backgrounding notify signal.
     ///

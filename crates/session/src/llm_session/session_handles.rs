@@ -710,12 +710,24 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
 
     async fn register_tool_call(&self, call_id: String, tool_name: String, args_summary: String) {
         ConversationSession::register_tool_call(self, call_id, tool_name, args_summary);
-        self.persist_pending_checkpoint().await;
+        if let Err(e) = self.persist_pending_checkpoint().await {
+            tracing::warn!(
+                session_id = %self.session_id,
+                "register_tool_call: checkpoint persist failed: {}",
+                e
+            );
+        }
     }
 
     async fn deregister_tool_call(&self, call_id: String) {
         ConversationSession::deregister_tool_call(self, &call_id);
-        self.persist_pending_checkpoint().await;
+        if let Err(e) = self.persist_pending_checkpoint().await {
+            tracing::warn!(
+                session_id = %self.session_id,
+                "deregister_tool_call: checkpoint persist failed: {}",
+                e
+            );
+        }
     }
 
     async fn update_tool_state(&self, call_id: &str, state: closeclaw_common::ToolExecState) {
@@ -734,17 +746,29 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
 
     async fn register_child_state(&self, child_id: String, agent_id: String, task_summary: String) {
         ConversationSession::register_child(self, child_id, agent_id, task_summary);
-        self.persist_pending_checkpoint().await;
+        if let Err(e) = self.persist_pending_checkpoint().await {
+            tracing::warn!(
+                session_id = %self.session_id,
+                "register_child_state: checkpoint persist failed: {}",
+                e
+            );
+        }
     }
 
     async fn deregister_child_state(&self, child_id: String) {
         ConversationSession::deregister_child(self, &child_id);
-        self.persist_pending_checkpoint().await;
+        if let Err(e) = self.persist_pending_checkpoint().await {
+            tracing::warn!(
+                session_id = %self.session_id,
+                "deregister_child_state: checkpoint persist failed: {}",
+                e
+            );
+        }
     }
 
-    async fn persist_pending_checkpoint(&self) {
+    async fn persist_pending_checkpoint(&self) -> Result<(), String> {
         let Some(ref storage) = self.checkpoint_storage else {
-            return;
+            return Ok(());
         };
         let session_id = self.session_id.clone();
         let pending_ops = self.collect_pending_operations();
@@ -761,12 +785,10 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
         cp.verbosity_level = verbosity;
         cp.touch();
         cp.last_message_at = Some(chrono::Utc::now());
-        if let Err(e) = storage.save_checkpoint(&cp).await {
-            tracing::warn!(
-                session_id = %cp.session_id,
-                "persist_pending_checkpoint: save failed: {}",
-                e
-            );
-        }
+        storage.save_checkpoint(&cp).await.map_err(|e| {
+            let msg = format!("persist_pending_checkpoint: save failed: {}", e);
+            tracing::warn!(session_id = %cp.session_id, "{}", msg);
+            msg
+        })
     }
 }

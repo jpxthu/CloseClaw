@@ -605,7 +605,9 @@ impl SessionManager {
         cs.push_pending(msg);
         // Persist checkpoint so the outbound message is registered as a
         // pending operation (active write mode per design doc).
-        cs.persist_pending_checkpoint().await;
+        cs.persist_pending_checkpoint()
+            .await
+            .map_err(|e| format!("checkpoint persist failed: {}", e))?;
         Ok(())
     }
 

@@ -396,3 +396,78 @@ async fn test_crash_recovery_pending_operation_visible_after_reload() {
     );
     assert_eq!(outbound_ops[0].op_id, "msg-crash");
 }
+
+// ── Test 7: Push fails when checkpoint persistence fails ─────────────────
+
+/// A mock persistence service that always fails on save.
+struct FailingPersistence;
+
+#[async_trait::async_trait]
+impl PersistenceService for FailingPersistence {
+    async fn save_checkpoint(&self, _cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
+        Err(PersistenceError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "simulated save failure",
+        )))
+    }
+
+    async fn load_checkpoint(
+        &self,
+        _session_id: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        Ok(None)
+    }
+
+    async fn delete_checkpoint(&self, _sid: &str) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+
+    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
+
+    async fn archive_checkpoint(&self, _cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+
+    async fn purge_checkpoint(&self, _id: &str) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+}
+
+/// When `persist_pending_checkpoint` fails, `push_pending_message`
+/// should return an error.
+#[tokio::test]
+async fn test_push_fails_on_persistence_error() {
+    clear_global_prompt_state();
+
+    let mgr = Arc::new(make_test_mgr(None));
+    let failing: Arc<dyn PersistenceService> = Arc::new(FailingPersistence);
+    let cm =
+        Arc::new(closeclaw_session::checkpoint_manager::CheckpointManager::new(failing.clone()));
+    mgr.set_checkpoint_manager(cm).await;
+
+    let session_id = "aw-push-fail-persist";
+    mgr.sessions.write().await.insert(
+        session_id.to_string(),
+        super::Session {
+            id: session_id.to_string(),
+            agent_id: "test-agent".to_string(),
+            channel: "feishu".to_string(),
+            created_at: chrono::Utc::now().timestamp(),
+            depth: 0,
+        },
+    );
+    register_conversation_session(&mgr, session_id, failing).await;
+
+    let msg = PendingMessage::new("msg-fail".into(), "fail test".into());
+    let result = mgr.push_pending_message(session_id, msg).await;
+    assert!(
+        result.is_err(),
+        "push should fail when checkpoint persistence fails"
+    );
+    assert!(
+        result.unwrap_err().contains("checkpoint persist failed"),
+        "error message should mention checkpoint persist failure"
+    );
+}
