@@ -722,3 +722,152 @@ async fn test_drain_outbound_no_gateway() {
         err
     );
 }
+
+// ── Test: Transcript lookup success ──────────────────────────────────────
+
+/// When the transcript contains a matching assistant message, the content
+/// from the transcript should be used for delivery instead of the
+/// outbound_pending cache.
+#[tokio::test]
+async fn test_drain_outbound_transcript_lookup_success() {
+    clear_global_prompt_state();
+
+    let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
+    let mock = Arc::new(MockPersistence::new());
+    set_checkpoint_manager(&mgr, mock.clone()).await;
+
+    let session_id = "drain-transcript-ok";
+    register_session(&mgr, session_id, "test_channel").await;
+
+    // Set up a ConversationSession with a matching assistant message.
+    use closeclaw_common::ContentBlock;
+    use closeclaw_session::llm_session::ConversationSession;
+    use std::sync::Arc as StdArc;
+    use tokio::sync::RwLock;
+
+    let mut cs = ConversationSession::new(
+        session_id.to_string(),
+        "test-model".to_string(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    cs.append_transcript(
+        "assistant",
+        vec![ContentBlock::Text("transcript content".to_string())],
+    );
+    let cs_arc = StdArc::new(RwLock::new(cs));
+    mgr.conversation_sessions
+        .write()
+        .await
+        .insert(session_id.to_string(), cs_arc);
+
+    // Checkpoint with outbound pending that matches the transcript content.
+    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
+        PendingMessage::with_target_channel(
+            "msg-t1".into(),
+            "transcript content".into(),
+            "test_channel".into(),
+        ),
+    ]);
+    mock.insert_checkpoint(cp).await;
+
+    let result = mgr.drain_outbound_pending_for_session(session_id).await;
+    assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
+    assert_eq!(result.unwrap(), 1, "should deliver 1 message");
+
+    // Verify the delivered content comes from the transcript.
+    let sent = plugin.sent_messages().await;
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].0, "transcript content");
+}
+
+// ── Test: Transcript lookup fallback ─────────────────────────────────────
+
+/// When the transcript does not contain a matching assistant message,
+/// the content should fall back to outbound_pending[i].content.
+#[tokio::test]
+async fn test_drain_outbound_transcript_lookup_fallback() {
+    clear_global_prompt_state();
+
+    let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
+    let mock = Arc::new(MockPersistence::new());
+    set_checkpoint_manager(&mgr, mock.clone()).await;
+
+    let session_id = "drain-transcript-fb";
+    register_session(&mgr, session_id, "test_channel").await;
+
+    // Set up a ConversationSession with a different assistant message
+    // (no match for the outbound pending content).
+    use closeclaw_common::ContentBlock;
+    use closeclaw_session::llm_session::ConversationSession;
+    use std::sync::Arc as StdArc;
+    use tokio::sync::RwLock;
+
+    let mut cs = ConversationSession::new(
+        session_id.to_string(),
+        "test-model".to_string(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    cs.append_transcript(
+        "assistant",
+        vec![ContentBlock::Text("different content".to_string())],
+    );
+    let cs_arc = StdArc::new(RwLock::new(cs));
+    mgr.conversation_sessions
+        .write()
+        .await
+        .insert(session_id.to_string(), cs_arc);
+
+    // Checkpoint with outbound pending that does NOT match transcript.
+    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
+        PendingMessage::with_target_channel(
+            "msg-t2".into(),
+            "fallback content".into(),
+            "test_channel".into(),
+        ),
+    ]);
+    mock.insert_checkpoint(cp).await;
+
+    let result = mgr.drain_outbound_pending_for_session(session_id).await;
+    assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
+    assert_eq!(result.unwrap(), 1, "should deliver 1 message");
+
+    // Verify the delivered content falls back to outbound_pending content.
+    let sent = plugin.sent_messages().await;
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].0, "fallback content");
+}
+
+// ── Test: No ConversationSession — fallback to outbound_pending ──────────
+
+/// When no ConversationSession exists for the session, the content should
+/// fall back to outbound_pending[i].content.
+#[tokio::test]
+async fn test_drain_outbound_no_conv_session_fallback() {
+    clear_global_prompt_state();
+
+    let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
+    let mock = Arc::new(MockPersistence::new());
+    set_checkpoint_manager(&mgr, mock.clone()).await;
+
+    let session_id = "drain-no-conv";
+    register_session(&mgr, session_id, "test_channel").await;
+    // Intentionally do NOT register a ConversationSession.
+
+    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
+        PendingMessage::with_target_channel(
+            "msg-t3".into(),
+            "pending content".into(),
+            "test_channel".into(),
+        ),
+    ]);
+    mock.insert_checkpoint(cp).await;
+
+    let result = mgr.drain_outbound_pending_for_session(session_id).await;
+    assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
+    assert_eq!(result.unwrap(), 1, "should deliver 1 message");
+
+    // Verify the delivered content falls back to outbound_pending content.
+    let sent = plugin.sent_messages().await;
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].0, "pending content");
+}

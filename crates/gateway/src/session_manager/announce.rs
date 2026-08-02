@@ -286,6 +286,7 @@ impl SessionManager {
 
         // 6. Deliver each unsent message.
         //    Channel resolution: per-message target_channel → fallback to session channel.
+        //    Content resolution: transcript lookup → fallback to outbound_pending cache.
         let mut delivered = 0usize;
         for idx in &unsent_indices {
             let pm = &cp.outbound_pending[*idx];
@@ -301,8 +302,17 @@ impl SessionManager {
                 );
                 continue;
             };
+            // Look up message content from the transcript (authoritative source)
+            // and fall back to the outbound_pending cache if not found.
+            let content = if let Some(cs) = self.get_conversation_session(session_id).await {
+                let cs_read = cs.read().await;
+                ConversationSession::find_assistant_text_by_content(cs_read.messages(), &pm.content)
+                    .unwrap_or_else(|| pm.content.clone())
+            } else {
+                pm.content.clone()
+            };
             match gw
-                .send_outbound(session_id, &channel, &pm.content, vec![])
+                .send_outbound(session_id, &channel, &content, vec![])
                 .await
             {
                 Ok(()) => {
