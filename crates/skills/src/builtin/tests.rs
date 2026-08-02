@@ -163,13 +163,9 @@ async fn test_all_bundled_skills_override_execute() {
     // All Bundled skills now override execute() — none should
     // return the body text.
     // SkillCreator does not override execute() yet (Step 1.4).
-    let excluded = ["skill_creator"];
     let skills = BuiltinSkills::all();
     for skill in &skills {
         let name = skill.manifest().name;
-        if excluded.contains(&name.as_str()) {
-            continue;
-        }
         let body = skill.body().to_string();
         let result = skill.execute(None).await.unwrap();
         assert_ne!(
