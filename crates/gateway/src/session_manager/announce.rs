@@ -247,31 +247,24 @@ impl SessionManager {
             return Ok(0);
         }
 
-        // 3. Collect unsent messages (indices + content).
-        let unsent: Vec<(usize, String)> = cp
+        // 3. Collect unsent message indices.
+        let unsent_indices: Vec<usize> = cp
             .outbound_pending
             .iter()
             .enumerate()
             .filter(|(_, m)| !m.sent)
-            .map(|(i, m)| (i, m.content.clone()))
+            .map(|(i, _)| i)
             .collect();
 
-        if unsent.is_empty() {
+        if unsent_indices.is_empty() {
             return Ok(0);
         }
 
-        // 4. Resolve channel from the in-memory session map.
-        let channel = {
+        // 4. Fallback channel from the in-memory sessions map.
+        //    Used only when a message's target_channel is empty.
+        let fallback_channel = {
             let sessions = self.sessions.read().await;
-            sessions
-                .get(session_id)
-                .map(|s| s.channel.clone())
-                .ok_or_else(|| {
-                    format!(
-                        "drain_outbound_pending: session {} not found in sessions map",
-                        session_id
-                    )
-                })?
+            sessions.get(session_id).map(|s| s.channel.clone())
         };
 
         // 5. Get Gateway reference for outbound delivery.
@@ -292,10 +285,24 @@ impl SessionManager {
         }
 
         // 6. Deliver each unsent message.
+        //    Channel resolution: per-message target_channel → fallback to session channel.
         let mut delivered = 0usize;
-        for (idx, content) in &unsent {
+        for idx in &unsent_indices {
+            let pm = &cp.outbound_pending[*idx];
+            let channel = if !pm.target_channel.is_empty() {
+                pm.target_channel.clone()
+            } else if let Some(ref ch) = fallback_channel {
+                ch.clone()
+            } else {
+                warn!(
+                    session_id = %session_id,
+                    message_id = %pm.message_id,
+                    "drain_outbound_pending: no channel available for message, skipping"
+                );
+                continue;
+            };
             match gw
-                .send_outbound(session_id, &channel, content, vec![])
+                .send_outbound(session_id, &channel, &pm.content, vec![])
                 .await
             {
                 Ok(()) => {
@@ -305,7 +312,7 @@ impl SessionManager {
                 Err(e) => {
                     warn!(
                         session_id = %session_id,
-                        message_id = %cp.outbound_pending[*idx].message_id,
+                        message_id = %pm.message_id,
                         error = %e,
                         "drain_outbound_pending: delivery failed, skipping"
                     );
@@ -316,10 +323,10 @@ impl SessionManager {
         // 7. Remove OutboundMessage entries from pending_operations for delivered
         //     messages, then persist the updated checkpoint.
         if delivered > 0 {
-            let delivered_msg_ids: std::collections::HashSet<String> = unsent
+            let delivered_msg_ids: std::collections::HashSet<String> = unsent_indices
                 .iter()
-                .filter(|(idx, _)| cp.outbound_pending[*idx].sent)
-                .map(|(idx, _)| cp.outbound_pending[*idx].message_id.clone())
+                .filter(|idx| cp.outbound_pending[**idx].sent)
+                .map(|idx| cp.outbound_pending[*idx].message_id.clone())
                 .collect();
             cp.pending_operations.retain(|op| {
                 if op.op_type

@@ -275,9 +275,8 @@ async fn set_checkpoint_manager(mgr: &SessionManager, mock: Arc<MockPersistence>
 
 // ── Test 1: Normal path — 2 unsent messages both delivered ────────────────
 
-/// When checkpoint has 2 unsent outbound_pending messages, both should be
-/// delivered via the gateway and marked sent. The checkpoint should be
-/// persisted with both messages marked sent.
+/// When checkpoint has 2 unsent outbound_pending messages with target_channel
+/// set, both should be delivered via the gateway and marked sent.
 #[tokio::test]
 async fn test_drain_outbound_normal_path() {
     clear_global_prompt_state();
@@ -287,12 +286,20 @@ async fn test_drain_outbound_normal_path() {
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-normal";
-    register_session(&mgr, session_id, "test_channel").await;
+    register_session(&mgr, session_id, "other_channel").await;
 
-    // Build checkpoint with 2 unsent messages.
+    // Build checkpoint with 2 unsent messages with target_channel.
     let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
-        PendingMessage::new("msg-1".into(), "hello world".into()),
-        PendingMessage::new("msg-2".into(), "goodbye world".into()),
+        PendingMessage::with_target_channel(
+            "msg-1".into(),
+            "hello world".into(),
+            "test_channel".into(),
+        ),
+        PendingMessage::with_target_channel(
+            "msg-2".into(),
+            "goodbye world".into(),
+            "test_channel".into(),
+        ),
     ]);
     mock.insert_checkpoint(cp).await;
 
@@ -546,15 +553,16 @@ async fn test_drain_outbound_mixed_sent_unsent() {
     );
 }
 
-// ── Test: Session not in sessions map ────────────────────────────────────
+// ── Test: Session not in sessions map, no target_channel — skipped ───────
 
-/// When the session exists in checkpoint but is not registered in the
-/// sessions map (missing channel), the function should return an error.
+/// When the session is not in the sessions map and message has no
+/// target_channel, the message should be skipped with a warning.
+/// The function should return Ok(0) since no messages were delivered.
 #[tokio::test]
-async fn test_drain_outbound_session_not_in_map() {
+async fn test_drain_outbound_session_not_in_map_skipped() {
     clear_global_prompt_state();
 
-    let (mgr, _gw, _plugin) = setup_with_mock_gateway().await;
+    let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
     let mock = Arc::new(MockPersistence::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
@@ -567,15 +575,118 @@ async fn test_drain_outbound_session_not_in_map() {
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(
-        result.is_err(),
-        "should error when session not found in sessions map"
+        result.is_ok(),
+        "should return Ok(0) when no channel available (skipped), not error"
     );
-    let err = result.unwrap_err();
-    assert!(
-        err.contains("not found in sessions map"),
-        "error should mention sessions map, got: {}",
-        err
+    assert_eq!(
+        result.unwrap(),
+        0,
+        "should return 0 when message is skipped due to missing channel"
     );
+    let sent = plugin.sent_messages().await;
+    assert!(sent.is_empty(), "no messages should be sent when skipped");
+}
+
+// ── Test: target_channel used over session fallback ──────────────────────
+
+/// When message has a target_channel set, it should be used as the
+/// delivery channel regardless of the session's registered channel.
+#[tokio::test]
+async fn test_drain_outbound_uses_target_channel() {
+    clear_global_prompt_state();
+
+    let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
+    let mock = Arc::new(MockPersistence::new());
+    set_checkpoint_manager(&mgr, mock.clone()).await;
+
+    let session_id = "drain-target-ch";
+    // Session registered with "session_channel" but messages target "test_channel".
+    register_session(&mgr, session_id, "session_channel").await;
+
+    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
+        PendingMessage::with_target_channel(
+            "msg-1".into(),
+            "target msg".into(),
+            "test_channel".into(),
+        ),
+    ]);
+    mock.insert_checkpoint(cp).await;
+
+    let result = mgr.drain_outbound_pending_for_session(session_id).await;
+    assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
+    assert_eq!(result.unwrap(), 1, "should deliver 1 message");
+
+    let sent = plugin.sent_messages().await;
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].0, "target msg");
+    // peer_id is resolved from session's agent_id via get_chat_id.
+    assert_eq!(sent[0].1, "test-agent");
+}
+
+// ── Test: Empty target_channel falls back to session channel ─────────────
+
+/// When message has an empty target_channel, the function should fall
+/// back to the session's registered channel from the sessions map.
+#[tokio::test]
+async fn test_drain_outbound_fallback_to_session_channel() {
+    clear_global_prompt_state();
+
+    let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
+    let mock = Arc::new(MockPersistence::new());
+    set_checkpoint_manager(&mgr, mock.clone()).await;
+
+    let session_id = "drain-fallback";
+    register_session(&mgr, session_id, "test_channel").await;
+
+    // Message with empty target_channel.
+    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
+        PendingMessage::new("msg-1".into(), "fallback msg".into()),
+    ]);
+    mock.insert_checkpoint(cp).await;
+
+    let result = mgr.drain_outbound_pending_for_session(session_id).await;
+    assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
+    assert_eq!(result.unwrap(), 1, "should deliver 1 message");
+
+    let sent = plugin.sent_messages().await;
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].0, "fallback msg");
+}
+
+// ── Test: Mixed target_channel and empty target_channel ──────────────────
+
+/// Messages with target_channel use it; messages with empty target_channel
+/// fall back to session channel; messages with empty target_channel and
+/// no session in map are skipped.
+#[tokio::test]
+async fn test_drain_outbound_mixed_channel_sources() {
+    clear_global_prompt_state();
+
+    let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
+    let mock = Arc::new(MockPersistence::new());
+    set_checkpoint_manager(&mgr, mock.clone()).await;
+
+    let session_id = "drain-mixed-ch";
+    register_session(&mgr, session_id, "test_channel").await;
+
+    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
+        PendingMessage::with_target_channel(
+            "msg-target".into(),
+            "uses target_channel".into(),
+            "test_channel".into(),
+        ),
+        PendingMessage::new("msg-fallback".into(), "uses session fallback".into()),
+    ]);
+    mock.insert_checkpoint(cp).await;
+
+    let result = mgr.drain_outbound_pending_for_session(session_id).await;
+    assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
+    assert_eq!(result.unwrap(), 2, "should deliver 2 messages");
+
+    let sent = plugin.sent_messages().await;
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[0].0, "uses target_channel");
+    assert_eq!(sent[1].0, "uses session fallback");
 }
 
 // ── Test: Gateway not set ───────────────────────────────────────────────
