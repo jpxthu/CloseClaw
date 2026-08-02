@@ -465,3 +465,95 @@ fn test_miner_config_from_mining_config_custom_values() {
     assert_eq!(miner_cfg.max_events_per_session, 50);
     assert_eq!(miner_cfg.dedup_window_days, 60);
 }
+
+// ============================================================
+// Step 1.3: resolve_extra_dirs path expansion tests
+// ============================================================
+
+/// Helper: build a ConfigManager whose system.json contains the given
+/// `skills.extraDirs` list so that `resolve_extra_dirs` can extract it.
+fn config_manager_with_extra_dirs(dirs: &[&str]) -> closeclaw_config::ConfigManager {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_subdir = tmp.path().join("config");
+    std::fs::create_dir_all(&config_subdir).unwrap();
+    // Write mandatory config files so load() succeeds
+    crate::test_helpers::write_mandatory_configs(&config_subdir).unwrap();
+    let system_json = serde_json::json!({
+        "skills": {
+            "extraDirs": dirs
+        }
+    });
+    std::fs::write(config_subdir.join("system.json"), system_json.to_string()).unwrap();
+    let cm = closeclaw_config::ConfigManager::new(config_subdir).unwrap();
+    cm.load().unwrap();
+    cm
+}
+
+/// `~` prefix is expanded to the user's home directory.
+#[test]
+fn test_resolve_extra_dirs_tilde_expanded() {
+    let cm = config_manager_with_extra_dirs(&["~/my-skills"]);
+    let result = Daemon::resolve_extra_dirs(&cm);
+    assert_eq!(result.len(), 1);
+    let expected_home = dirs::home_dir().expect("home_dir should exist");
+    assert_eq!(result[0], expected_home.join("my-skills"));
+}
+
+/// `~/a/b` nested path is expanded correctly.
+#[test]
+fn test_resolve_extra_dirs_tilde_nested_path() {
+    let cm = config_manager_with_extra_dirs(&["~/a/b/c"]);
+    let result = Daemon::resolve_extra_dirs(&cm);
+    assert_eq!(result.len(), 1);
+    let expected_home = dirs::home_dir().expect("home_dir should exist");
+    assert_eq!(result[0], expected_home.join("a/b/c"));
+}
+
+/// Absolute path is kept as-is (no expansion).
+#[test]
+fn test_resolve_extra_dirs_absolute_path_unchanged() {
+    let cm = config_manager_with_extra_dirs(&["/opt/skills"]);
+    let result = Daemon::resolve_extra_dirs(&cm);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], std::path::PathBuf::from("/opt/skills"));
+}
+
+/// Relative path is kept as-is — loader layer handles existence check.
+#[test]
+fn test_resolve_extra_dirs_relative_path_unchanged() {
+    let cm = config_manager_with_extra_dirs(&["relative/skills"]);
+    let result = Daemon::resolve_extra_dirs(&cm);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], std::path::PathBuf::from("relative/skills"));
+}
+
+/// No skills config → empty Vec (graceful default).
+#[test]
+fn test_resolve_extra_dirs_no_skills_config() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_subdir = tmp.path().join("config");
+    std::fs::create_dir_all(&config_subdir).unwrap();
+    crate::test_helpers::write_mandatory_configs(&config_subdir).unwrap();
+    // Overwrite system.json with empty object (no skills section)
+    std::fs::write(
+        config_subdir.join("system.json"),
+        serde_json::json!({}).to_string(),
+    )
+    .unwrap();
+    let cm = closeclaw_config::ConfigManager::new(config_subdir).unwrap();
+    cm.load().unwrap();
+    let result = Daemon::resolve_extra_dirs(&cm);
+    assert!(result.is_empty());
+}
+
+/// Mixed paths: tilde, absolute, relative.
+#[test]
+fn test_resolve_extra_dirs_mixed_paths() {
+    let cm = config_manager_with_extra_dirs(&["~/my-skills", "/opt/skills", "relative/skills"]);
+    let result = Daemon::resolve_extra_dirs(&cm);
+    assert_eq!(result.len(), 3);
+    let expected_home = dirs::home_dir().expect("home_dir should exist");
+    assert_eq!(result[0], expected_home.join("my-skills"));
+    assert_eq!(result[1], std::path::PathBuf::from("/opt/skills"));
+    assert_eq!(result[2], std::path::PathBuf::from("relative/skills"));
+}

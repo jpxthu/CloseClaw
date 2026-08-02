@@ -591,6 +591,7 @@ dependencies = [
  "closeclaw-system-prompt",
  "closeclaw-tasks",
  "closeclaw-tools",
+ "dirs",
  "libc",
  "notify",
  "serde",

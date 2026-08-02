@@ -213,6 +213,7 @@ impl Daemon {
     /// Phase 2: Registries — AgentRegistry, SkillsRegistry, ToolsRegistry.
     async fn init_phase_2_registries(
         config_dir: &str,
+        config_manager: &ConfigManager,
     ) -> anyhow::Result<(
         Arc<closeclaw_agent::registry::AgentRegistry>,
         Arc<RwLock<Option<DiskSkillRegistry>>>,
@@ -223,9 +224,14 @@ impl Daemon {
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
         info!("Agent registry initialized");
         let shared_cache = Arc::new(RwLock::new(SectionCache::new()));
-        let (skill_registry, skill_watcher) =
-            skill_reload::init_skill_hot_reload(config_dir, None, Arc::clone(&shared_cache))
-                .await?;
+        let extra_dirs = Self::resolve_extra_dirs(config_manager);
+        let (skill_registry, skill_watcher) = skill_reload::init_skill_hot_reload(
+            config_dir,
+            None,
+            Arc::clone(&shared_cache),
+            extra_dirs,
+        )
+        .await?;
         let tool_registry = Arc::new(ToolRegistry::new());
         Ok((
             agent_registry,
@@ -234,6 +240,37 @@ impl Daemon {
             skill_watcher,
             shared_cache,
         ))
+    }
+
+    /// Resolve extra skill directories from system config.
+    ///
+    /// Reads `skills.extraDirs` from `SystemConfigData` and expands
+    /// `~` to the user's home directory. Non-existent paths are kept
+    /// as-is; the loader layer handles skipping them per the design doc.
+    fn resolve_extra_dirs(config_manager: &ConfigManager) -> Vec<PathBuf> {
+        let Some(system_value) = config_manager.section(ConfigSection::System) else {
+            return Vec::new();
+        };
+        let Ok(sys_cfg) = serde_json::from_value::<SystemConfigData>(system_value) else {
+            return Vec::new();
+        };
+        let Some(skills_cfg) = sys_cfg.skills else {
+            return Vec::new();
+        };
+        let home = dirs::home_dir();
+        skills_cfg
+            .extra_dirs
+            .iter()
+            .map(|dir| {
+                if let Some(rest) = dir.strip_prefix("~/") {
+                    home.as_ref()
+                        .map(|h| h.join(rest))
+                        .unwrap_or_else(|| PathBuf::from(dir))
+                } else {
+                    PathBuf::from(dir)
+                }
+            })
+            .collect()
     }
 
     /// Phase 3: Core services — Gateway, SessionManager, IM plugins, SlashDispatcher.

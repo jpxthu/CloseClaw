@@ -36,6 +36,9 @@ async-trait = "0.1"
 # Temp files (for tests)
 tempfile = "3"
 
+# Home directory resolution
+dirs = "5"
+
 # File watching (hot reload)
 notify = "6.1"
 
