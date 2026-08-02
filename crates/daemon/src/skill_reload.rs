@@ -33,6 +33,7 @@ pub(crate) async fn init_skill_hot_reload(
     config_dir: &str,
     project_root: Option<&Path>,
     shared_cache: Arc<RwLock<SectionCache>>,
+    extra_dirs: Vec<PathBuf>,
 ) -> anyhow::Result<(
     Arc<RwLock<Option<DiskSkillRegistry>>>,
     Option<SkillWatcherHandle>,
@@ -53,6 +54,7 @@ pub(crate) async fn init_skill_hot_reload(
         global_dir.clone(),
         agent_skills_dir.clone(),
         project_root_buf.clone(),
+        extra_dirs,
     );
     let skill_dirs = build_skill_dirs(global_dir, agent_skills_dir, project_root_buf);
 
@@ -148,10 +150,11 @@ fn build_scan_config(
     global_dir: Option<PathBuf>,
     agent_skills_dir: Option<PathBuf>,
     project_root: Option<PathBuf>,
+    extra_dirs: Vec<PathBuf>,
 ) -> ScanConfig {
     ScanConfig {
         global_dir,
-        extra_dirs: vec![],
+        extra_dirs,
         agent_skills_dir,
         project_root,
     }
@@ -192,6 +195,7 @@ mod tests {
             global_dir.clone(),
             Some(expected_agent_skills.clone()),
             None,
+            vec![],
         );
 
         assert_eq!(scan_config.global_dir, global_dir);
@@ -227,7 +231,7 @@ mod tests {
         let config_dir = tmp.path().join("home/user/.closeclaw");
         std::fs::create_dir_all(&config_dir).unwrap();
 
-        let scan_config = build_scan_config(None, None, None);
+        let scan_config = build_scan_config(None, None, None, vec![]);
         assert!(scan_config.agent_skills_dir.is_none());
         assert!(scan_config.project_root.is_none());
     }
@@ -254,7 +258,7 @@ mod tests {
         let expected = tmp.path().join("home/user/.closeclaw/agents/eda/skills");
         assert_eq!(agent_skills_dir, expected);
 
-        let scan_config = build_scan_config(None, Some(agent_skills_dir.clone()), None);
+        let scan_config = build_scan_config(None, Some(agent_skills_dir.clone()), None, vec![]);
         assert_eq!(scan_config.agent_skills_dir, Some(expected));
     }
 
@@ -265,7 +269,7 @@ mod tests {
         let project_root = tmp.path().join("my/project");
         std::fs::create_dir_all(&project_root).unwrap();
 
-        let scan_config = build_scan_config(None, None, Some(project_root.clone()));
+        let scan_config = build_scan_config(None, None, Some(project_root.clone()), vec![]);
         assert_eq!(scan_config.project_root, Some(project_root));
     }
 
@@ -290,7 +294,7 @@ mod tests {
         assert!(agent_skills_dir.is_none());
 
         // build_scan_config should work fine with None agent_skills_dir
-        let scan_config = build_scan_config(None, agent_skills_dir, None);
+        let scan_config = build_scan_config(None, agent_skills_dir, None, vec![]);
         assert!(scan_config.agent_skills_dir.is_none());
     }
 
@@ -302,21 +306,21 @@ mod tests {
         // agent name component).
         let agent_skills_dir: Option<PathBuf> = None;
 
-        let scan_config = build_scan_config(None, agent_skills_dir, None);
+        let scan_config = build_scan_config(None, agent_skills_dir, None, vec![]);
         assert!(scan_config.agent_skills_dir.is_none());
     }
 
     /// Boundary: project_root is None → ScanConfig.project_root is None.
     #[test]
     fn test_project_root_none_when_not_provided() {
-        let scan_config = build_scan_config(None, None, None);
+        let scan_config = build_scan_config(None, None, None, vec![]);
         assert!(scan_config.project_root.is_none());
     }
 
     /// Boundary: both agent_skills_dir and project_root are None.
     #[test]
     fn test_scan_config_defaults_all_none() {
-        let scan_config = build_scan_config(None, None, None);
+        let scan_config = build_scan_config(None, None, None, vec![]);
         assert!(scan_config.global_dir.is_none());
         assert!(scan_config.agent_skills_dir.is_none());
         assert!(scan_config.project_root.is_none());
@@ -335,6 +339,7 @@ mod tests {
             Some(global_dir.clone()),
             Some(agent_dir.clone()),
             Some(project_root.clone()),
+            vec![],
         );
         assert_eq!(scan_config.global_dir, Some(global_dir));
         assert_eq!(scan_config.agent_skills_dir, Some(agent_dir));
