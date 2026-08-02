@@ -96,22 +96,28 @@ impl SkillTool {
 
     /// Handle a builtin skill lookup.
     ///
-    /// Loads the skill body and injects it as a meta-message in Inline mode,
-    /// the same path as disk skills.
+    /// Calls the skill's `execute()` method and injects the result as a
+    /// meta-message in native mode.
     async fn call_builtin_skill(
         &self,
         skill_name: &str,
         skill: Arc<dyn closeclaw_skills::Skill>,
+        args: &Value,
     ) -> Result<ToolResult, ToolCallError> {
-        let body = skill.body();
+        let body = skill
+            .execute(args.get("args").cloned())
+            .await
+            .map_err(|e| {
+                ToolCallError::ExecutionFailed(format!("skill execution failed: {}", e))
+            })?;
         Ok(ToolResult {
             data: serde_json::json!({
                 "skill_name": skill_name,
                 "status": "loaded",
-                "execution_mode": "inline"
+                "execution_mode": "native"
             }),
             new_messages: vec![ToolMessage {
-                content: body.to_string(),
+                content: body,
                 is_meta: true,
             }],
             context_modifier: None,
@@ -181,7 +187,7 @@ impl Tool for SkillTool {
 
         // Fallback: Builtin skill registry
         if let Some(skill) = self.builtin_registry.get(&skill_name).await {
-            return self.call_builtin_skill(&skill_name, skill).await;
+            return self.call_builtin_skill(&skill_name, skill, &args).await;
         }
 
         Err(ToolCallError::NotFound(skill_name))
@@ -329,7 +335,7 @@ mod tests {
             .unwrap();
         assert_eq!(result.data["skill_name"], "my_builtin");
         assert_eq!(result.data["status"], "loaded");
-        assert_eq!(result.data["execution_mode"], "inline");
+        assert_eq!(result.data["execution_mode"], "native");
         assert_eq!(result.new_messages.len(), 1);
         assert!(result.new_messages[0].is_meta);
         assert!(result.new_messages[0].content.contains("builtin result"));

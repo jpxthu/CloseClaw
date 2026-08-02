@@ -186,7 +186,7 @@ mod tests {
             .unwrap();
         assert_eq!(result.data["skill_name"], "my_builtin");
         assert_eq!(result.data["status"], "loaded");
-        assert_eq!(result.data["execution_mode"], "inline");
+        assert_eq!(result.data["execution_mode"], "native");
         assert_eq!(result.new_messages.len(), 1);
         assert!(result.new_messages[0].is_meta);
         assert!(result.new_messages[0].content.contains("builtin result"));
@@ -414,5 +414,104 @@ mod tests {
         assert!(body.contains("🌍"));
         assert!(body.contains('"')); // quotes preserved
         assert!(body.contains("<html>"));
+    }
+
+    // -----------------------------------------------------------------
+    // execute() error path
+    // -----------------------------------------------------------------
+
+    struct FailingBuiltinSkill(String);
+
+    #[async_trait::async_trait]
+    impl closeclaw_skills::Skill for FailingBuiltinSkill {
+        fn manifest(&self) -> closeclaw_skills::SkillManifest {
+            closeclaw_skills::SkillManifest {
+                name: self.0.clone(),
+                version: "1.0".into(),
+                description: "failing builtin".into(),
+                author: None,
+                dependencies: vec![],
+            }
+        }
+        fn body(&self) -> &str {
+            "this should not be used on error"
+        }
+        async fn execute(
+            &self,
+            _args: Option<serde_json::Value>,
+        ) -> Result<String, closeclaw_skills::SkillError> {
+            Err(closeclaw_skills::SkillError::ExecutionFailed(
+                "intentional failure".to_string(),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_call_builtin_skill_execute_error() {
+        let disk = Arc::new(DiskSkillRegistry::new(vec![]));
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
+        builtin
+            .register(Arc::new(FailingBuiltinSkill("failing".into())))
+            .await;
+        let tool = SkillTool::new(disk, builtin);
+        let result = tool
+            .call(serde_json::json!({"skill_name": "failing"}), &new_ctx())
+            .await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ToolCallError::ExecutionFailed(msg) => {
+                assert!(msg.contains("intentional failure"));
+            }
+            other => panic!("expected ExecutionFailed, got {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // execute() with None args through call_builtin_skill
+    // -----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_call_builtin_skill_with_no_args() {
+        let disk = Arc::new(DiskSkillRegistry::new(vec![]));
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
+        builtin
+            .register(Arc::new(MockBuiltinSkill("no_args".into())))
+            .await;
+        let tool = SkillTool::new(disk, builtin);
+        let result = tool
+            .call(serde_json::json!({"skill_name": "no_args"}), &new_ctx())
+            .await
+            .unwrap();
+        assert_eq!(result.data["execution_mode"], "native");
+        assert!(result.new_messages[0].is_meta);
+    }
+
+    // -----------------------------------------------------------------
+    // execute() with args passed through call_builtin_skill
+    // -----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_call_builtin_skill_with_args() {
+        let disk = Arc::new(DiskSkillRegistry::new(vec![]));
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
+        builtin
+            .register(Arc::new(MockBuiltinSkill("with_args".into())))
+            .await;
+        let tool = SkillTool::new(disk, builtin);
+        let result = tool
+            .call(
+                serde_json::json!({
+                    "skill_name": "with_args",
+                    "args": {"key": "value"}
+                }),
+                &new_ctx(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.data["execution_mode"], "native");
+        assert_eq!(
+            result.new_messages[0].content,
+            "builtin body: mock builtin result"
+        );
     }
 }

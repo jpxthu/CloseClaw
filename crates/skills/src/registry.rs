@@ -43,6 +43,17 @@ pub trait Skill: Send + Sync {
     /// Get skill prompt body text
     fn body(&self) -> &str;
 
+    /// Execute the skill with the given arguments.
+    ///
+    /// Bundled skills override this to run native code logic and
+    /// return structured results as a meta message. The default
+    /// implementation delegates to [`body()`] for backward
+    /// compatibility with existing skills.
+    async fn execute(&self, args: Option<serde_json::Value>) -> Result<String, SkillError> {
+        let _ = args;
+        Ok(self.body().to_string())
+    }
+
     /// Get listing metadata for this skill.
     ///
     /// Used by the listing generator to render builtin skills

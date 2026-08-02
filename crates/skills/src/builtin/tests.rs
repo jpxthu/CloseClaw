@@ -132,6 +132,45 @@ fn test_file_ops_and_git_ops_are_not_user_invocable() {
 }
 
 #[tokio::test]
+async fn test_default_execute_returns_body_content() {
+    let skill = FileOpsSkill::new();
+    let body = skill.body().to_string();
+    let result = skill.execute(None).await.unwrap();
+    assert_eq!(result, body);
+}
+
+#[tokio::test]
+async fn test_default_execute_with_none_args() {
+    let skill = GitOpsSkill::new();
+    let result = skill.execute(None).await.unwrap();
+    assert_eq!(result, skill.body().to_string());
+}
+
+#[tokio::test]
+async fn test_default_execute_ignores_args() {
+    let skill = SearchSkill::new();
+    let result = skill
+        .execute(Some(serde_json::json!({"foo": "bar"})))
+        .await
+        .unwrap();
+    assert_eq!(result, skill.body().to_string());
+}
+
+#[tokio::test]
+async fn test_all_bundled_skills_execute_returns_body() {
+    for skill in BuiltinSkills::all() {
+        let body = skill.body().to_string();
+        let result = skill.execute(None).await.unwrap();
+        assert_eq!(
+            result,
+            body,
+            "skill '{}' execute() should return body()",
+            skill.manifest().name
+        );
+    }
+}
+
+#[tokio::test]
 async fn test_skill_registry_with_builtins() {
     use crate::registry::BuiltinSkillRegistry;
     let registry = BuiltinSkillRegistry::new();
