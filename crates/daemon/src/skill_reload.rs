@@ -33,6 +33,7 @@ pub(crate) async fn init_skill_hot_reload(
     config_dir: &str,
     project_root: Option<&Path>,
     shared_cache: Arc<RwLock<SectionCache>>,
+    extra_dirs: Vec<PathBuf>,
 ) -> anyhow::Result<(
     Arc<RwLock<Option<DiskSkillRegistry>>>,
     Option<SkillWatcherHandle>,
@@ -53,8 +54,9 @@ pub(crate) async fn init_skill_hot_reload(
         global_dir.clone(),
         agent_skills_dir.clone(),
         project_root_buf.clone(),
+        extra_dirs.clone(),
     );
-    let skill_dirs = build_skill_dirs(global_dir, agent_skills_dir, project_root_buf);
+    let skill_dirs = build_skill_dirs(global_dir, agent_skills_dir, project_root_buf, extra_dirs);
 
     // Initialize shared registry state
     let registry = init_disk_skills(&scan_config);
@@ -115,10 +117,12 @@ fn derive_global_dir(config_dir: &str) -> Option<PathBuf> {
 /// Build the list of directories to watch for skill changes.
 ///
 /// Includes `global_dir` only when it exists on disk.
+/// `extra_dirs` directories are appended when they exist on disk.
 fn build_skill_dirs(
     global_dir: Option<PathBuf>,
     agent_skills_dir: Option<PathBuf>,
     project_root: Option<PathBuf>,
+    extra_dirs: Vec<PathBuf>,
 ) -> Vec<PathBuf> {
     let mut dirs = vec![];
     if let Some(gd) = global_dir {
@@ -136,6 +140,11 @@ fn build_skill_dirs(
             dirs.push(pr);
         }
     }
+    for ed in extra_dirs {
+        if ed.exists() {
+            dirs.push(ed);
+        }
+    }
     dirs
 }
 
@@ -148,10 +157,11 @@ fn build_scan_config(
     global_dir: Option<PathBuf>,
     agent_skills_dir: Option<PathBuf>,
     project_root: Option<PathBuf>,
+    extra_dirs: Vec<PathBuf>,
 ) -> ScanConfig {
     ScanConfig {
         global_dir,
-        extra_dirs: vec![],
+        extra_dirs,
         agent_skills_dir,
         project_root,
     }
@@ -192,6 +202,7 @@ mod tests {
             global_dir.clone(),
             Some(expected_agent_skills.clone()),
             None,
+            vec![],
         );
 
         assert_eq!(scan_config.global_dir, global_dir);
@@ -209,7 +220,7 @@ mod tests {
         let global_dir = derive_global_dir(config_dir.to_str().unwrap()).unwrap();
         std::fs::create_dir_all(&global_dir).unwrap();
 
-        let skill_dirs = build_skill_dirs(Some(global_dir.clone()), None, None);
+        let skill_dirs = build_skill_dirs(Some(global_dir.clone()), None, None, vec![]);
 
         assert_eq!(skill_dirs.len(), 1);
         assert!(skill_dirs.contains(&global_dir));
@@ -227,7 +238,7 @@ mod tests {
         let config_dir = tmp.path().join("home/user/.closeclaw");
         std::fs::create_dir_all(&config_dir).unwrap();
 
-        let scan_config = build_scan_config(None, None, None);
+        let scan_config = build_scan_config(None, None, None, vec![]);
         assert!(scan_config.agent_skills_dir.is_none());
         assert!(scan_config.project_root.is_none());
     }
@@ -254,7 +265,7 @@ mod tests {
         let expected = tmp.path().join("home/user/.closeclaw/agents/eda/skills");
         assert_eq!(agent_skills_dir, expected);
 
-        let scan_config = build_scan_config(None, Some(agent_skills_dir.clone()), None);
+        let scan_config = build_scan_config(None, Some(agent_skills_dir.clone()), None, vec![]);
         assert_eq!(scan_config.agent_skills_dir, Some(expected));
     }
 
@@ -265,7 +276,7 @@ mod tests {
         let project_root = tmp.path().join("my/project");
         std::fs::create_dir_all(&project_root).unwrap();
 
-        let scan_config = build_scan_config(None, None, Some(project_root.clone()));
+        let scan_config = build_scan_config(None, None, Some(project_root.clone()), vec![]);
         assert_eq!(scan_config.project_root, Some(project_root));
     }
 
@@ -290,7 +301,7 @@ mod tests {
         assert!(agent_skills_dir.is_none());
 
         // build_scan_config should work fine with None agent_skills_dir
-        let scan_config = build_scan_config(None, agent_skills_dir, None);
+        let scan_config = build_scan_config(None, agent_skills_dir, None, vec![]);
         assert!(scan_config.agent_skills_dir.is_none());
     }
 
@@ -302,25 +313,58 @@ mod tests {
         // agent name component).
         let agent_skills_dir: Option<PathBuf> = None;
 
-        let scan_config = build_scan_config(None, agent_skills_dir, None);
+        let scan_config = build_scan_config(None, agent_skills_dir, None, vec![]);
         assert!(scan_config.agent_skills_dir.is_none());
     }
 
     /// Boundary: project_root is None → ScanConfig.project_root is None.
     #[test]
     fn test_project_root_none_when_not_provided() {
-        let scan_config = build_scan_config(None, None, None);
+        let scan_config = build_scan_config(None, None, None, vec![]);
         assert!(scan_config.project_root.is_none());
     }
 
     /// Boundary: both agent_skills_dir and project_root are None.
     #[test]
     fn test_scan_config_defaults_all_none() {
-        let scan_config = build_scan_config(None, None, None);
+        let scan_config = build_scan_config(None, None, None, vec![]);
         assert!(scan_config.global_dir.is_none());
         assert!(scan_config.agent_skills_dir.is_none());
         assert!(scan_config.project_root.is_none());
         assert!(scan_config.extra_dirs.is_empty());
+    }
+
+    // --- Step 1.3 tests: ExtraDirs layer ---
+
+    /// build_scan_config correctly propagates extra_dirs into ScanConfig.
+    #[test]
+    fn test_build_scan_config_extra_dirs_propagated() {
+        let extra = vec![
+            PathBuf::from("/opt/skills"),
+            PathBuf::from("/home/user/.closeclaw/extra"),
+        ];
+        let scan_config = build_scan_config(None, None, None, extra.clone());
+        assert_eq!(scan_config.extra_dirs, extra);
+    }
+
+    /// build_scan_config: single extra_dir is preserved.
+    #[test]
+    fn test_build_scan_config_single_extra_dir() {
+        let extra = vec![PathBuf::from("/tmp/skills")];
+        let scan_config = build_scan_config(None, None, None, extra.clone());
+        assert_eq!(scan_config.extra_dirs.len(), 1);
+        assert_eq!(scan_config.extra_dirs[0], PathBuf::from("/tmp/skills"));
+    }
+
+    /// build_scan_config: extra_dirs coexist with other dirs.
+    #[test]
+    fn test_build_scan_config_extra_dirs_with_other_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let global_dir = tmp.path().join("global");
+        let extra = vec![PathBuf::from("/opt/skills")];
+        let scan_config = build_scan_config(Some(global_dir.clone()), None, None, extra.clone());
+        assert_eq!(scan_config.global_dir, Some(global_dir));
+        assert_eq!(scan_config.extra_dirs, extra);
     }
 
     /// Normal path: all three dirs provided → all set in ScanConfig.
@@ -335,6 +379,7 @@ mod tests {
             Some(global_dir.clone()),
             Some(agent_dir.clone()),
             Some(project_root.clone()),
+            vec![],
         );
         assert_eq!(scan_config.global_dir, Some(global_dir));
         assert_eq!(scan_config.agent_skills_dir, Some(agent_dir));
@@ -350,7 +395,7 @@ mod tests {
         let agent_skills_dir = tmp.path().join("agents/eda/skills");
         std::fs::create_dir_all(&agent_skills_dir).unwrap();
 
-        let skill_dirs = build_skill_dirs(None, Some(agent_skills_dir.clone()), None);
+        let skill_dirs = build_skill_dirs(None, Some(agent_skills_dir.clone()), None, vec![]);
 
         assert_eq!(skill_dirs.len(), 1);
         assert!(skill_dirs.contains(&agent_skills_dir));
@@ -365,7 +410,7 @@ mod tests {
         let project_skills_dir = tmp.path().join("my/project/.closeclaw/skills");
         std::fs::create_dir_all(&project_skills_dir).unwrap();
 
-        let skill_dirs = build_skill_dirs(None, None, Some(project_skills_dir.clone()));
+        let skill_dirs = build_skill_dirs(None, None, Some(project_skills_dir.clone()), vec![]);
 
         assert_eq!(skill_dirs.len(), 1);
         assert!(skill_dirs.contains(&project_skills_dir));
@@ -379,7 +424,12 @@ mod tests {
         let project_skills_dir = tmp.path().join("my/project/.closeclaw/skills");
         // Intentionally do NOT create these dirs
 
-        let skill_dirs = build_skill_dirs(None, Some(agent_skills_dir), Some(project_skills_dir));
+        let skill_dirs = build_skill_dirs(
+            None,
+            Some(agent_skills_dir),
+            Some(project_skills_dir),
+            vec![],
+        );
 
         assert!(skill_dirs.is_empty());
     }
@@ -397,6 +447,7 @@ mod tests {
             Some(global_dir.clone()),
             Some(agent_skills_dir.clone()),
             None,
+            vec![],
         );
 
         assert_eq!(skill_dirs.len(), 2);
@@ -419,11 +470,81 @@ mod tests {
             Some(global_dir.clone()),
             Some(agent_skills_dir.clone()),
             Some(project_skills_dir.clone()),
+            vec![],
         );
 
         assert_eq!(skill_dirs.len(), 3);
         assert!(skill_dirs.contains(&global_dir));
         assert!(skill_dirs.contains(&agent_skills_dir));
         assert!(skill_dirs.contains(&project_skills_dir));
+    }
+
+    // --- Step 1.4 tests: ExtraDirs in watcher list ---
+
+    /// build_skill_dirs includes extra_dirs that exist on disk.
+    #[test]
+    fn test_build_skill_dirs_includes_existing_extra_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let extra_dir = tmp.path().join("extra/skills");
+        std::fs::create_dir_all(&extra_dir).unwrap();
+
+        let skill_dirs = build_skill_dirs(None, None, None, vec![extra_dir.clone()]);
+
+        assert_eq!(skill_dirs.len(), 1);
+        assert!(skill_dirs.contains(&extra_dir));
+    }
+
+    /// build_skill_dirs skips nonexistent extra_dirs.
+    #[test]
+    fn test_build_skill_dirs_skips_nonexistent_extra_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let extra_dir = tmp.path().join("missing/skills");
+        // Intentionally do NOT create the dir
+
+        let skill_dirs = build_skill_dirs(None, None, None, vec![extra_dir]);
+
+        assert!(skill_dirs.is_empty());
+    }
+
+    /// build_skill_dirs includes extra_dirs alongside other layers.
+    #[test]
+    fn test_build_skill_dirs_extra_dirs_with_other_layers() {
+        let tmp = TempDir::new().unwrap();
+        let global_dir = tmp.path().join("global_skills");
+        let extra_dir = tmp.path().join("extra/skills");
+        std::fs::create_dir_all(&global_dir).unwrap();
+        std::fs::create_dir_all(&extra_dir).unwrap();
+
+        let skill_dirs = build_skill_dirs(
+            Some(global_dir.clone()),
+            None,
+            None,
+            vec![extra_dir.clone()],
+        );
+
+        assert_eq!(skill_dirs.len(), 2);
+        assert!(skill_dirs.contains(&global_dir));
+        assert!(skill_dirs.contains(&extra_dir));
+    }
+
+    /// build_skill_dirs: mix of existing and nonexistent extra_dirs.
+    #[test]
+    fn test_build_skill_dirs_mixed_extra_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let existing = tmp.path().join("exists/skills");
+        let missing = tmp.path().join("missing/skills");
+        std::fs::create_dir_all(&existing).unwrap();
+
+        let skill_dirs = build_skill_dirs(None, None, None, vec![existing.clone(), missing]);
+
+        assert_eq!(skill_dirs.len(), 1);
+        assert!(skill_dirs.contains(&existing));
+    }
+
+    /// build_skill_dirs: empty extra_dirs has no effect.
+    #[test]
+    fn test_build_skill_dirs_empty_extra_dirs() {
+        let skill_dirs = build_skill_dirs(None, None, None, vec![]);
+        assert!(skill_dirs.is_empty());
     }
 }
