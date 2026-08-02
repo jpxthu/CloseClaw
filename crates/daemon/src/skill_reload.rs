@@ -327,6 +327,39 @@ mod tests {
         assert!(scan_config.extra_dirs.is_empty());
     }
 
+    // --- Step 1.3 tests: ExtraDirs layer ---
+
+    /// build_scan_config correctly propagates extra_dirs into ScanConfig.
+    #[test]
+    fn test_build_scan_config_extra_dirs_propagated() {
+        let extra = vec![
+            PathBuf::from("/opt/skills"),
+            PathBuf::from("/home/user/.closeclaw/extra"),
+        ];
+        let scan_config = build_scan_config(None, None, None, extra.clone());
+        assert_eq!(scan_config.extra_dirs, extra);
+    }
+
+    /// build_scan_config: single extra_dir is preserved.
+    #[test]
+    fn test_build_scan_config_single_extra_dir() {
+        let extra = vec![PathBuf::from("/tmp/skills")];
+        let scan_config = build_scan_config(None, None, None, extra.clone());
+        assert_eq!(scan_config.extra_dirs.len(), 1);
+        assert_eq!(scan_config.extra_dirs[0], PathBuf::from("/tmp/skills"));
+    }
+
+    /// build_scan_config: extra_dirs coexist with other dirs.
+    #[test]
+    fn test_build_scan_config_extra_dirs_with_other_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let global_dir = tmp.path().join("global");
+        let extra = vec![PathBuf::from("/opt/skills")];
+        let scan_config = build_scan_config(Some(global_dir.clone()), None, None, extra.clone());
+        assert_eq!(scan_config.global_dir, Some(global_dir));
+        assert_eq!(scan_config.extra_dirs, extra);
+    }
+
     /// Normal path: all three dirs provided → all set in ScanConfig.
     #[test]
     fn test_scan_config_all_dirs_present() {
