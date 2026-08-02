@@ -381,7 +381,12 @@ impl Gateway {
     /// (checkpoint saved after successful delivery). When `false`, the
     /// pending message is persisted without the sent flag, serving as a
     /// pre-send checkpoint so recovery can detect the pending operation.
-    async fn persist_outbound_checkpoint(&self, session_id: &str, msg: &Message, mark_sent: bool) {
+    pub(crate) async fn persist_outbound_checkpoint(
+        &self,
+        session_id: &str,
+        msg: &Message,
+        mark_sent: bool,
+    ) {
         let Some(ref cm) = self.checkpoint_manager else {
             return;
         };
@@ -909,11 +914,7 @@ impl StreamState {
     }
 }
 
-/// Send any text messages from `out` into `state`.
-///
-/// In the incremental streaming phase, text lines are dispatched as-is
-/// without DslParser processing. DSL parsing is deferred to the
-/// post-stream Processor Chain in `finish_streaming_pipeline`.
+/// Send text messages from `out` into `state` (no DslParser processing).
 async fn dispatch_text(
     ctx: &StreamContext<'_>,
     out: StreamingOutput,
@@ -945,11 +946,7 @@ async fn send_text(ctx: &StreamContext<'_>, text: &str) -> Result<(), GatewayErr
     Ok(())
 }
 
-/// Call `plugin.render(&[block], None)`, run outbound middleware, and dispatch via `plugin.send`.
-///
-/// Logs the rendered content to the outbound trace before sending,
-/// ensuring non-text blocks (Thinking/ToolUse/Image/Audio/File) are
-/// captured by the Gateway outbound log alongside text blocks.
+/// Render, run outbound middleware, and dispatch via `plugin.send`.
 async fn send_render_block(
     ctx: &StreamContext<'_>,
     block: &ContentBlock,
