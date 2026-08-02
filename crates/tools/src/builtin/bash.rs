@@ -698,7 +698,13 @@ async fn execute_background_command(
     if let (Some(s), Some(cid)) = (session, call_id) {
         s.update_tool_state(cid, ToolExecState::RunningBackground)
             .await;
-        s.persist_pending_checkpoint().await;
+        if let Err(e) = s.persist_pending_checkpoint().await {
+            tracing::warn!(
+                session_id = %cid,
+                "bash background: checkpoint persist failed: {}",
+                e
+            );
+        }
         spawn_bg_monitor(s, cid, task.id.clone(), bg_manager);
     }
     Ok(build_background_result(&task))
@@ -807,7 +813,13 @@ async fn execute_command(
             if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
                 s.update_tool_state(cid, ToolExecState::RunningBackground)
                     .await;
-                s.persist_pending_checkpoint().await;
+                if let Err(e) = s.persist_pending_checkpoint().await {
+                    tracing::warn!(
+                        session_id = %cid,
+                        "bash auto-background: checkpoint persist failed: {}",
+                        e
+                    );
+                }
                 spawn_bg_monitor(s, cid, task_id, bg_manager);
             }
             Ok(result)

@@ -618,3 +618,114 @@ async fn test_recovery_callback_receives_notification_and_tool_failures() {
     assert!(failures[0].contains("bash"));
     assert!(failures[0].contains("tool_1"));
 }
+
+// ── Step 1.9: ToolCall and SubSessionSpawn active write-in tests ─────
+
+use closeclaw_common::tool_session::ToolSession;
+
+/// Helper: create a ConversationSession with checkpoint_storage wired up
+/// so that `persist_pending_checkpoint` actually persists to MemoryStorage.
+fn make_session_with_storage(session_id: &str) -> (ConversationSession, Arc<MemoryStorage>) {
+    let storage = Arc::new(MemoryStorage::new());
+    let mut cs = ConversationSession::new(
+        session_id.into(),
+        "test-model".into(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    cs.set_checkpoint_storage(Arc::clone(&storage) as Arc<dyn PersistenceService>);
+    (cs, storage)
+}
+
+/// Load the persisted checkpoint and return its pending_operations.
+async fn load_pending_ops(storage: &MemoryStorage, session_id: &str) -> Vec<PendingOperation> {
+    let cp = storage.load_checkpoint(session_id).await.unwrap().unwrap();
+    cp.pending_operations
+}
+
+#[tokio::test]
+async fn test_tool_call_active_write_in_pending() {
+    let (cs, storage) = make_session_with_storage("tool_pending");
+
+    // register_tool_call writes to tool_states and persists checkpoint.
+    cs.register_tool_call("call_1".into(), "bash".into(), r#"{"cmd":"ls"}"#.into())
+        .await;
+
+    let ops = load_pending_ops(&storage, "tool_pending").await;
+    assert_eq!(
+        ops.len(),
+        1,
+        "checkpoint should contain 1 pending op after register_tool_call"
+    );
+    assert_eq!(ops[0].op_type, PendingOperationType::ToolCall);
+    assert_eq!(ops[0].op_id, "call_1");
+    assert_eq!(ops[0].detail.tool_name(), Some("bash"));
+}
+
+#[tokio::test]
+async fn test_tool_call_active_write_in_clear() {
+    let (cs, storage) = make_session_with_storage("tool_clear");
+
+    // Register a tool call.
+    cs.register_tool_call(
+        "call_2".into(),
+        "grep".into(),
+        r#"{"pattern":"foo"}"#.into(),
+    )
+    .await;
+
+    // Verify it's in pending_operations.
+    let ops = load_pending_ops(&storage, "tool_clear").await;
+    assert_eq!(ops.len(), 1);
+    assert_eq!(ops[0].op_id, "call_2");
+
+    // Deregister the tool call — should clear from pending_operations.
+    cs.deregister_tool_call("call_2".into()).await;
+
+    let ops = load_pending_ops(&storage, "tool_clear").await;
+    assert!(
+        ops.is_empty(),
+        "checkpoint should have no pending ops after deregister_tool_call"
+    );
+}
+
+#[tokio::test]
+async fn test_subs_session_spawn_active_write_in_pending() {
+    let (cs, storage) = make_session_with_storage("child_pending");
+
+    // register_child_state writes to child_states and persists checkpoint.
+    cs.register_child_state("child_1".into(), "eda".into(), "implement feature X".into())
+        .await;
+
+    let ops = load_pending_ops(&storage, "child_pending").await;
+    assert_eq!(
+        ops.len(),
+        1,
+        "checkpoint should contain 1 pending op after register_child_state"
+    );
+    assert_eq!(ops[0].op_type, PendingOperationType::SubSessionSpawn);
+    assert_eq!(ops[0].op_id, "child_1");
+    assert_eq!(ops[0].detail.child_session_id(), Some("child_1"));
+}
+
+#[tokio::test]
+async fn test_subs_session_spawn_active_write_in_clear() {
+    let (cs, storage) = make_session_with_storage("child_clear");
+
+    // Register a child session.
+    cs.register_child_state("child_2".into(), "eda".into(), "review PR".into())
+        .await;
+
+    // Verify it's in pending_operations.
+    let ops = load_pending_ops(&storage, "child_clear").await;
+    assert_eq!(ops.len(), 1);
+    assert_eq!(ops[0].op_id, "child_2");
+
+    // Deregister the child session — should clear from pending_operations.
+    cs.deregister_child_state("child_2".into()).await;
+
+    let ops = load_pending_ops(&storage, "child_clear").await;
+    assert!(
+        ops.is_empty(),
+        "checkpoint should have no pending ops after deregister_child_state"
+    );
+}
