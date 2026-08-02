@@ -30,7 +30,11 @@ impl SkillCreatorSkill {
             "usage": {
                 "create": {"name": "<skill_name>", "description": "<one-line description>"},
                 "validate": {"path": "<path_to_skill_md>"},
-                "edit": {"path": "<path_to_skill_md>", "field": "<field_name>", "value": "<new_value>"}
+                "edit": {
+                    "path": "<skill_md_path>",
+                    "field": "<field_name>",
+                    "value": "<new_value>"
+                }
             }
         })
         .to_string()
@@ -63,7 +67,7 @@ impl SkillCreatorSkill {
                     "Step-by-step instructions for the Agent to follow."
                 ]
             },
-            "instructions": "Use the `write` tool to create the file. Ensure the frontmatter has `---` delimiters and a `description` field."
+            "instructions": "Use `write` to create. Frontmatter needs `---` and `description`."
         })
         .to_string()
     }
@@ -96,7 +100,7 @@ impl SkillCreatorSkill {
                 "field": field,
                 "value": value
             },
-            "instructions": "Use the `read` tool to load the file, modify the specified frontmatter field, then use `write` to save."
+            "instructions": "Use `read` to load, modify frontmatter, then `write` to save."
         })
         .to_string()
     }
@@ -207,7 +211,9 @@ A valid SKILL.md must:
 
     fn listing_meta(&self) -> SkillListingMeta {
         SkillListingMeta {
-            when_to_use: "Use when the agent needs to create or understand how to create new skills for CloseClaw".to_string(),
+            when_to_use: "Use when the agent needs to create or understand\
+                how to create new skills for CloseClaw"
+                .to_string(),
             user_invocable: true,
             paths: vec![],
             effort: SkillEffort::Small,

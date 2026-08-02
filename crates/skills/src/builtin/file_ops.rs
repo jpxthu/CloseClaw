@@ -163,7 +163,8 @@ You have access to file system tools. Use them to perform file operations:
 
 - **Read a file**: Use the `read` tool with the file path.
 - **Write a file**: Use the `write` tool with the file path and content.
-- **Check if a file exists**: Use the `read` tool and check for errors, or use `exec` with `test -f <path>`.
+- **Check if a file exists**: Use the `read` tool and check for errors,
+  or use `exec` with `test -f <path>`.
 - **List directory contents**: Use `exec` with `ls <path>` or `find <path> -maxdepth 1`.
 - **Delete a file**: Use `exec` with `rm <path>`.
 

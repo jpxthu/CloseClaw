@@ -8,7 +8,7 @@ pub mod file_ops;
 mod file_ops_tests;
 pub mod git_ops;
 #[cfg(test)]
-pub mod git_ops_tests;
+mod git_ops_tests;
 pub mod search;
 #[cfg(test)]
 mod search_tests;

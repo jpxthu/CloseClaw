@@ -131,7 +131,8 @@ You have access to the `exec` tool. Use it to run git commands:
 - **Pull**: `exec` with `git pull`
 - **Diff**: `exec` with `git diff`
 
-Always ensure changes are staged before committing. Confirm destructive operations (force push, reset) with the user."#
+Always ensure changes are staged before committing. Confirm destructive
+operations (force push, reset) with the user."#
     }
 
     async fn execute(&self, args: Option<serde_json::Value>) -> Result<String, SkillError> {
