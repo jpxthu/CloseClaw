@@ -333,3 +333,66 @@ async fn test_push_nonexistent_session_returns_error() {
     assert!(result.is_err(), "should error for non-existent session");
     assert!(result.unwrap_err().contains("session not found"));
 }
+
+// ── Test 6: Crash recovery — pending operation survives checkpoint reload ─
+
+/// Simulates a crash-and-recovery scenario: after pushing a pending
+/// message, a new session loading the checkpoint from storage should
+/// see the OutboundMessage entry in `pending_operations`.
+#[tokio::test]
+async fn test_crash_recovery_pending_operation_visible_after_reload() {
+    clear_global_prompt_state();
+
+    let (mgr, mock) = setup_with_mock_persistence().await;
+    let session_id = "aw-crash-recovery";
+
+    mgr.sessions.write().await.insert(
+        session_id.to_string(),
+        super::Session {
+            id: session_id.to_string(),
+            agent_id: "test-agent".to_string(),
+            channel: "feishu".to_string(),
+            created_at: chrono::Utc::now().timestamp(),
+            depth: 0,
+        },
+    );
+    register_conversation_session(
+        &mgr,
+        session_id,
+        mock.clone() as Arc<dyn PersistenceService>,
+    )
+    .await;
+    mock.insert_checkpoint(SessionCheckpoint::new(session_id.to_string()))
+        .await;
+
+    // Push a pending message — this triggers checkpoint persist.
+    let msg = PendingMessage::with_target_channel(
+        "msg-crash".into(),
+        "crash test".into(),
+        "feishu".into(),
+    );
+    mgr.push_pending_message(session_id, msg)
+        .await
+        .expect("push should succeed");
+
+    // Simulate crash recovery: load checkpoint from storage
+    // and verify the pending operation is present.
+    let restored_cp = mock
+        .load_checkpoint(session_id)
+        .await
+        .unwrap()
+        .expect("checkpoint should exist after crash recovery");
+
+    let outbound_ops: Vec<_> = restored_cp
+        .pending_operations
+        .iter()
+        .filter(|op| op.op_type == PendingOperationType::OutboundMessage)
+        .collect();
+
+    assert_eq!(
+        outbound_ops.len(),
+        1,
+        "crash recovery should find 1 OutboundMessage pending operation"
+    );
+    assert_eq!(outbound_ops[0].op_id, "msg-crash");
+}

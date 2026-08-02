@@ -871,3 +871,55 @@ async fn test_drain_outbound_no_conv_session_fallback() {
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].0, "pending content");
 }
+
+// ── Test: Drain clears OutboundMessage from pending_operations ─────────
+
+/// After a successful drain, delivered OutboundMessage entries should
+/// be removed from `pending_operations` in the persisted checkpoint.
+#[tokio::test]
+async fn test_drain_outbound_clears_pending_operations() {
+    clear_global_prompt_state();
+
+    let (mgr, _gw, _plugin) = setup_with_mock_gateway().await;
+    let mock = Arc::new(MockPersistence::new());
+    set_checkpoint_manager(&mgr, mock.clone()).await;
+
+    let session_id = "drain-clear-pending";
+    register_session(&mgr, session_id, "test_channel").await;
+
+    // Build checkpoint with 2 unsent messages AND corresponding
+    // OutboundMessage entries in pending_operations.
+    use closeclaw_session::pending_operation_detail::PendingOperationDetail;
+    use closeclaw_session::persistence::{PendingOperation, PendingOperationType};
+    let mut cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
+        PendingMessage::with_target_channel(
+            "msg-p1".into(),
+            "pending ops clear test".into(),
+            "test_channel".into(),
+        ),
+    ]);
+    cp.pending_operations = vec![PendingOperation {
+        op_id: "msg-p1".into(),
+        op_type: PendingOperationType::OutboundMessage,
+        detail: PendingOperationDetail::OutboundMessage {
+            target_channel: "test_channel".into(),
+            message_id: "msg-p1".into(),
+            delivery_status: "pending".into(),
+        },
+        status: closeclaw_session::persistence::PendingOperationStatus::Running,
+        created_at: chrono::Utc::now(),
+    }];
+    mock.insert_checkpoint(cp).await;
+
+    let result = mgr.drain_outbound_pending_for_session(session_id).await;
+    assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
+    assert_eq!(result.unwrap(), 1, "should deliver 1 message");
+
+    // Verify the delivered OutboundMessage was removed from pending_operations.
+    let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
+    assert_eq!(
+        saved_cp.pending_operations.len(),
+        0,
+        "OutboundMessage entries should be cleared from pending_operations after delivery"
+    );
+}
