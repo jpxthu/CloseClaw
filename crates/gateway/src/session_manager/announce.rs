@@ -20,6 +20,7 @@ use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSes
 use closeclaw_session::run_health::AnnounceSweepTarget;
 use closeclaw_session::spawn::types::ChildSessionStatus;
 use closeclaw_tasks::NotificationPriority;
+use std::collections::HashMap;
 use tracing::{debug, warn};
 
 // ── Queue accessors (push / drain) ─────────────────────────────────────────
@@ -260,8 +261,7 @@ impl SessionManager {
             return Ok(0);
         }
 
-        // 4. Fallback channel from the in-memory sessions map.
-        //    Used only when a message's target_channel is empty.
+        // 4. Fallback channel from sessions map (when target_channel is empty).
         let fallback_channel = {
             let sessions = self.sessions.read().await;
             sessions.get(session_id).map(|s| s.channel.clone())
@@ -273,8 +273,7 @@ impl SessionManager {
             .await
             .ok_or_else(|| "drain_outbound_pending: gateway not available".to_string())?;
 
-        // 5a. Persist checkpoint with current pending_operations before delivery
-        //     so that crash recovery can detect in-flight outbound messages.
+        // 5a. Persist checkpoint before delivery for crash recovery detection.
         cp.touch();
         if let Err(e) = cm.save_raw(&cp).await {
             warn!(
@@ -284,9 +283,33 @@ impl SessionManager {
             );
         }
 
-        // 6. Deliver each unsent message.
-        //    Channel resolution: per-message target_channel → fallback to session channel.
-        //    Content resolution: transcript lookup → fallback to outbound_pending cache.
+        // 6. Pre-build transcript content lookup table.
+        //    HashMap<content, content> for O(1) lookups in the delivery loop.
+        let transcript_map: HashMap<String, String> =
+            if let Some(cs) = self.get_conversation_session(session_id).await {
+                let cs_read = cs.read().await;
+                cs_read
+                    .messages()
+                    .iter()
+                    .filter(|m| m.role == "assistant")
+                    .filter_map(|m| {
+                        let text: String = m
+                            .content_blocks
+                            .iter()
+                            .filter_map(|b| match b {
+                                closeclaw_common::ContentBlock::Text(t) => Some(t.as_str()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        (!text.is_empty()).then_some((text.clone(), text))
+                    })
+                    .collect()
+            } else {
+                HashMap::new()
+            };
+        // 7. Deliver each unsent message. Channel: target_channel → session fallback.
+        //    Content: transcript O(1) lookup → outbound_pending cache fallback.
         let mut delivered = 0usize;
         for idx in &unsent_indices {
             let pm = &cp.outbound_pending[*idx];
@@ -302,15 +325,12 @@ impl SessionManager {
                 );
                 continue;
             };
-            // Look up message content from the transcript (authoritative source)
-            // and fall back to the outbound_pending cache if not found.
-            let content = if let Some(cs) = self.get_conversation_session(session_id).await {
-                let cs_read = cs.read().await;
-                ConversationSession::find_assistant_text_by_content(cs_read.messages(), &pm.content)
-                    .unwrap_or_else(|| pm.content.clone())
-            } else {
-                pm.content.clone()
-            };
+            // Look up message content from the pre-built transcript map.
+            // Falls back to outbound_pending cache if not found.
+            let content = transcript_map
+                .get(&pm.content)
+                .cloned()
+                .unwrap_or_else(|| pm.content.clone());
             match gw
                 .send_outbound(session_id, &channel, &content, vec![])
                 .await
@@ -330,7 +350,7 @@ impl SessionManager {
             }
         }
 
-        // 7. Remove OutboundMessage entries from pending_operations for delivered
+        // 8. Remove OutboundMessage entries from pending_operations for delivered
         //     messages, then persist the updated checkpoint.
         if delivered > 0 {
             let delivered_msg_ids: std::collections::HashSet<String> = unsent_indices
