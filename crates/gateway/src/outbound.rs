@@ -416,6 +416,7 @@ impl Gateway {
             cp.system_appends = cs.user_system_appends().to_vec();
         }
         cp.touch();
+        cp.last_message_at = Some(chrono::Utc::now());
         if let Err(e) = cm.save(cp).await {
             tracing::warn!(session_id, "failed to save checkpoint: {}", e);
         }
