@@ -132,22 +132,25 @@ fn test_file_ops_and_git_ops_are_not_user_invocable() {
 }
 
 #[tokio::test]
-async fn test_default_execute_returns_body_content() {
+async fn test_file_ops_execute_none_returns_capabilities() {
     let skill = FileOpsSkill::new();
-    let body = skill.body().to_string();
     let result = skill.execute(None).await.unwrap();
-    assert_eq!(result, body);
+    let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(v["skill"], "file_ops");
+    assert!(v["supported_actions"].is_array());
 }
 
 #[tokio::test]
-async fn test_default_execute_with_none_args() {
+async fn test_git_ops_execute_none_returns_capabilities() {
     let skill = GitOpsSkill::new();
     let result = skill.execute(None).await.unwrap();
-    assert_eq!(result, skill.body().to_string());
+    let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(v["skill"], "git_ops");
+    assert!(v["supported_actions"].is_array());
 }
 
 #[tokio::test]
-async fn test_default_execute_ignores_args() {
+async fn test_search_execute_ignores_args() {
     let skill = SearchSkill::new();
     let result = skill
         .execute(Some(serde_json::json!({"foo": "bar"})))
@@ -157,16 +160,26 @@ async fn test_default_execute_ignores_args() {
 }
 
 #[tokio::test]
-async fn test_all_bundled_skills_execute_returns_body() {
-    for skill in BuiltinSkills::all() {
+async fn test_skills_without_execute_override_return_body() {
+    // Search, SkillDiscovery, CodingAgent, SkillCreator still use
+    // the default execute() -> body() path.
+    let skills = BuiltinSkills::all();
+    for skill in &skills {
+        let name = skill.manifest().name;
         let body = skill.body().to_string();
         let result = skill.execute(None).await.unwrap();
-        assert_eq!(
-            result,
-            body,
-            "skill '{}' execute() should return body()",
-            skill.manifest().name
-        );
+        if name == "file_ops" || name == "git_ops" {
+            // These override execute() — result should NOT equal body.
+            assert_ne!(
+                result, body,
+                "skill '{name}' overrides execute(), should not return body"
+            );
+        } else {
+            assert_eq!(
+                result, body,
+                "skill '{name}' default execute() should return body()"
+            );
+        }
     }
 }
 

@@ -5,6 +5,8 @@ pub mod file_ops;
 #[cfg(test)]
 mod file_ops_tests;
 pub mod git_ops;
+#[cfg(test)]
+pub mod git_ops_tests;
 pub mod search;
 #[cfg(test)]
 pub mod tests;
