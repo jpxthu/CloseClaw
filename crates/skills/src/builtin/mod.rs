@@ -1,6 +1,8 @@
 //! Built-in skills - file_ops, git_ops, search, etc.
 
 pub mod discovery;
+#[cfg(test)]
+mod discovery_tests;
 pub mod file_ops;
 #[cfg(test)]
 mod file_ops_tests;
@@ -9,7 +11,9 @@ pub mod git_ops;
 pub mod git_ops_tests;
 pub mod search;
 #[cfg(test)]
-pub mod tests;
+mod search_tests;
+#[cfg(test)]
+mod tests;
 
 pub use discovery::SkillDiscoverySkill;
 pub use file_ops::FileOpsSkill;

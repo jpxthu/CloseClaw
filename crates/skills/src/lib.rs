@@ -4,6 +4,8 @@
 
 pub mod builtin;
 pub mod coding_agent;
+#[cfg(test)]
+mod coding_agent_tests;
 pub mod disk;
 pub mod registry;
 pub mod skill_creator;

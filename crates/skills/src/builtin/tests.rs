@@ -150,36 +150,34 @@ async fn test_git_ops_execute_none_returns_capabilities() {
 }
 
 #[tokio::test]
-async fn test_search_execute_ignores_args() {
+async fn test_search_execute_none_returns_capabilities() {
     let skill = SearchSkill::new();
-    let result = skill
-        .execute(Some(serde_json::json!({"foo": "bar"})))
-        .await
-        .unwrap();
-    assert_eq!(result, skill.body().to_string());
+    let result = skill.execute(None).await.unwrap();
+    let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(v["skill"], "search");
+    assert!(v["supported_tools"].is_array());
 }
 
 #[tokio::test]
-async fn test_skills_without_execute_override_return_body() {
-    // Search, SkillDiscovery, CodingAgent, SkillCreator still use
-    // the default execute() -> body() path.
+async fn test_all_bundled_skills_override_execute() {
+    // All Bundled skills now override execute() — none should
+    // return the body text.
+    // SkillCreator does not override execute() yet (Step 1.4).
+    let excluded = ["skill_creator"];
     let skills = BuiltinSkills::all();
     for skill in &skills {
         let name = skill.manifest().name;
+        if excluded.contains(&name.as_str()) {
+            continue;
+        }
         let body = skill.body().to_string();
         let result = skill.execute(None).await.unwrap();
-        if name == "file_ops" || name == "git_ops" {
-            // These override execute() — result should NOT equal body.
-            assert_ne!(
-                result, body,
-                "skill '{name}' overrides execute(), should not return body"
-            );
-        } else {
-            assert_eq!(
-                result, body,
-                "skill '{name}' default execute() should return body()"
-            );
-        }
+        assert_ne!(
+            result, body,
+            "skill '{name}' overrides execute(), should not return body"
+        );
+        // Result should be valid JSON
+        let _: serde_json::Value = serde_json::from_str(&result).unwrap();
     }
 }
 
