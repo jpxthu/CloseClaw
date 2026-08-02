@@ -750,34 +750,23 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
         let pending_ops = self.collect_pending_operations();
         let system_appends = self.user_system_appends().to_vec();
         let verbosity = self.verbosity_level();
-        let storage = Arc::clone(storage);
-        tokio::spawn(async move {
-            // Load existing checkpoint or create a minimal one.
-            let cp = match storage.load_checkpoint(&session_id).await {
-                Ok(Some(mut cp)) => {
-                    cp.pending_operations = pending_ops;
-                    cp.system_appends = system_appends;
-                    cp.verbosity_level = verbosity;
-                    cp.touch();
-                    cp.last_message_at = Some(chrono::Utc::now());
-                    cp
-                }
-                _ => {
-                    let mut cp = crate::persistence::SessionCheckpoint::new(session_id.clone());
-                    cp.pending_operations = pending_ops;
-                    cp.system_appends = system_appends;
-                    cp.verbosity_level = verbosity;
-                    cp.last_message_at = Some(chrono::Utc::now());
-                    cp
-                }
-            };
-            if let Err(e) = storage.save_checkpoint(&cp).await {
-                tracing::warn!(
-                    session_id = %cp.session_id,
-                    "persist_pending_checkpoint: save failed: {}",
-                    e
-                );
-            }
-        });
+        // Load existing checkpoint or create a minimal one.
+        let mut cp = match storage.load_checkpoint(&session_id).await {
+            Ok(Some(cp)) => cp,
+            _ => crate::persistence::SessionCheckpoint::new(session_id),
+        };
+        // Common fields: always apply regardless of load vs create.
+        cp.pending_operations = pending_ops;
+        cp.system_appends = system_appends;
+        cp.verbosity_level = verbosity;
+        cp.touch();
+        cp.last_message_at = Some(chrono::Utc::now());
+        if let Err(e) = storage.save_checkpoint(&cp).await {
+            tracing::warn!(
+                session_id = %cp.session_id,
+                "persist_pending_checkpoint: save failed: {}",
+                e
+            );
+        }
     }
 }

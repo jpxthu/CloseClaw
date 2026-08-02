@@ -1,9 +1,11 @@
 //! Tests for `ToolSession` trait impl persistence behavior.
 //!
-//! Verifies that `register_tool_call` and `deregister_tool_call`
-//! trigger `persist_pending_checkpoint`, keeping pending operations
-//! consistent in the checkpoint — matching `register_child_state` /
-//! `deregister_child_state`.
+//! Verifies that `persist_pending_checkpoint` (called by
+//! `register_tool_call`, `deregister_tool_call`,
+//! `register_child_state`, `deregister_child_state`) completes
+//! synchronously — the checkpoint is persisted **before** the
+//! `.await` returns, so callers can assert checkpoint state
+//! immediately without `tokio::time::sleep` or `thread::sleep`.
 
 use crate::llm_session::tests::tmp_path;
 use crate::llm_session::ConversationSession;
@@ -14,11 +16,15 @@ use std::sync::{Arc, Mutex};
 
 use closeclaw_common::tool_session::ToolSession;
 
+// ── Mock storage ───────────────────────────────────────────────────────
+
 /// In-memory mock storage that records every saved checkpoint.
 #[derive(Debug, Default)]
 struct MockStorage {
     /// All checkpoints passed to `save_checkpoint`, in order.
     saves: Mutex<Vec<SessionCheckpoint>>,
+    /// When `true`, `save_checkpoint` returns an error.
+    fail_on_save: Mutex<bool>,
 }
 
 impl MockStorage {
@@ -31,6 +37,11 @@ impl MockStorage {
     fn save_count(&self) -> usize {
         self.saves.lock().unwrap().len()
     }
+
+    /// Make the next `save_checkpoint` call return an error.
+    fn set_fail_on_save(&self, fail: bool) {
+        *self.fail_on_save.lock().unwrap() = fail;
+    }
 }
 
 #[async_trait::async_trait]
@@ -39,6 +50,12 @@ impl PersistenceService for MockStorage {
         &self,
         checkpoint: &SessionCheckpoint,
     ) -> Result<(), PersistenceError> {
+        if *self.fail_on_save.lock().unwrap() {
+            return Err(PersistenceError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "mock save failure",
+            )));
+        }
         self.saves.lock().unwrap().push(checkpoint.clone());
         Ok(())
     }
@@ -80,28 +97,15 @@ fn session_with_storage(session_id: &str) -> (ConversationSession, Arc<MockStora
     (session, storage)
 }
 
-/// Wait for the `tokio::spawn` inside `persist_pending_checkpoint` to
-/// finish. Yields the runtime a few times so the spawned task can
-/// complete its async work.
-async fn wait_for_persist() {
-    // The persist task is a tokio::spawn; yield the current task so the
-    // runtime can schedule and complete it.
-    for _ in 0..5 {
-        tokio::task::yield_now().await;
-    }
-    // Small sleep as a safety net for any I/O-bound work in the future.
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-}
-
-// ── 1. Register persistence ───────────────────────────────────────────────
+// ── 1. Normal path: register_tool_call ──────────────────────────────────
 
 /// After `register_tool_call`, the checkpoint should contain
-/// a `ToolCall` entry in `pending_operations`.
+/// a `ToolCall` entry in `pending_operations` — persisted
+/// synchronously before the `.await` returns.
 #[tokio::test]
 async fn test_register_tool_call_persists_pending_operation() {
     let (session, storage) = session_with_storage("reg_persist");
 
-    // Use the ToolSession trait method (which calls persist internally).
     <ConversationSession as ToolSession>::register_tool_call(
         &session,
         "call_1".into(),
@@ -110,8 +114,7 @@ async fn test_register_tool_call_persists_pending_operation() {
     )
     .await;
 
-    wait_for_persist().await;
-
+    // No sleep or yield needed — persist_completed before .await returned.
     let cp = storage.last_checkpoint().expect("checkpoint was saved");
     assert_eq!(cp.session_id, "reg_persist");
 
@@ -121,7 +124,7 @@ async fn test_register_tool_call_persists_pending_operation() {
     assert_eq!(ops[0].op_type, PendingOperationType::ToolCall);
 }
 
-// ── 2. Deregister persistence ────────────────────────────────────────────
+// ── 2. Clear path: deregister_tool_call ─────────────────────────────────
 
 /// After `deregister_tool_call`, the corresponding `ToolCall` entry
 /// should be removed from `pending_operations`.
@@ -137,9 +140,8 @@ async fn test_deregister_tool_call_removes_from_checkpoint() {
         "rm -rf /tmp/test".into(),
     )
     .await;
-    wait_for_persist().await;
 
-    // Verify it's there.
+    // Verify it's there immediately (no async wait).
     {
         let cp = storage.last_checkpoint().unwrap();
         assert_eq!(cp.pending_operations.len(), 1);
@@ -148,9 +150,8 @@ async fn test_deregister_tool_call_removes_from_checkpoint() {
 
     // Deregister.
     <ConversationSession as ToolSession>::deregister_tool_call(&session, "call_del".into()).await;
-    wait_for_persist().await;
 
-    // Verify it's gone.
+    // Verify it's gone — persist completed before .await returned.
     let cp = storage.last_checkpoint().unwrap();
     let has_call_del = cp
         .pending_operations
@@ -158,11 +159,136 @@ async fn test_deregister_tool_call_removes_from_checkpoint() {
         .any(|op| op.op_id == "call_del");
     assert!(
         !has_call_del,
-        "call_del should have been removed from pending_operations after deregister"
+        "call_del should have been removed from pending_operations \
+         after deregister"
     );
 }
 
-// ── 3. Consistency with child state ───────────────────────────────────────
+// ── 3. Error path: storage write failure ────────────────────────────────
+
+/// When `save_checkpoint` fails, `persist_pending_checkpoint` should
+/// log a warning but NOT panic — graceful error handling.
+#[tokio::test]
+async fn test_persist_error_does_not_panic() {
+    let (session, storage) = session_with_storage("err_persist");
+
+    // Make the storage fail on save.
+    storage.set_fail_on_save(true);
+
+    // This must NOT panic.
+    <ConversationSession as ToolSession>::register_tool_call(
+        &session,
+        "call_err".into(),
+        "bash".into(),
+        "echo fail".into(),
+    )
+    .await;
+
+    // Verify no checkpoint was saved (failure path).
+    assert_eq!(
+        storage.save_count(),
+        0,
+        "no checkpoint should be saved on failure"
+    );
+}
+
+/// After a failed persist, subsequent successful saves should work.
+#[tokio::test]
+async fn test_persist_error_recovery() {
+    let (session, storage) = session_with_storage("err_recovery");
+
+    // Fail first save.
+    storage.set_fail_on_save(true);
+    <ConversationSession as ToolSession>::register_tool_call(
+        &session,
+        "call_err".into(),
+        "bash".into(),
+        "echo fail".into(),
+    )
+    .await;
+    assert_eq!(storage.save_count(), 0);
+
+    // Recover — disable failure.
+    storage.set_fail_on_save(false);
+    <ConversationSession as ToolSession>::register_tool_call(
+        &session,
+        "call_ok".into(),
+        "bash".into(),
+        "echo ok".into(),
+    )
+    .await;
+
+    assert_eq!(storage.save_count(), 1);
+    let cp = storage.last_checkpoint().unwrap();
+    let has_ok = cp.pending_operations.iter().any(|op| op.op_id == "call_ok");
+    assert!(
+        has_ok,
+        "call_ok should be in pending_operations after recovery"
+    );
+}
+
+// ── 4. Child session path ──────────────────────────────────────────────
+
+/// `register_child_state` persists a `SubSessionSpawn` entry
+/// synchronously — checkpoint available immediately.
+#[tokio::test]
+async fn test_register_child_state_persists_pending_operation() {
+    let (session, storage) = session_with_storage("child_persist");
+
+    <ConversationSession as ToolSession>::register_child_state(
+        &session,
+        "child_1".into(),
+        "agent-a".into(),
+        "do something".into(),
+    )
+    .await;
+
+    let cp = storage.last_checkpoint().expect("checkpoint was saved");
+    assert_eq!(cp.session_id, "child_persist");
+
+    let ops = &cp.pending_operations;
+    assert_eq!(ops.len(), 1, "expected exactly one pending operation");
+    assert_eq!(ops[0].op_id, "child_1");
+    assert_eq!(ops[0].op_type, PendingOperationType::SubSessionSpawn);
+}
+
+/// `deregister_child_state` removes the entry synchronously.
+#[tokio::test]
+async fn test_deregister_child_state_removes_from_checkpoint() {
+    let (session, storage) = session_with_storage("child_dereg");
+
+    // Register first.
+    <ConversationSession as ToolSession>::register_child_state(
+        &session,
+        "child_del".into(),
+        "agent-b".into(),
+        "task".into(),
+    )
+    .await;
+
+    {
+        let cp = storage.last_checkpoint().unwrap();
+        assert_eq!(cp.pending_operations.len(), 1);
+        assert_eq!(cp.pending_operations[0].op_id, "child_del");
+    }
+
+    // Deregister.
+    <ConversationSession as ToolSession>::deregister_child_state(&session, "child_del".into())
+        .await;
+
+    let cp = storage.last_checkpoint().unwrap();
+    let has_child_del = cp
+        .pending_operations
+        .iter()
+        .any(|op| op.op_id == "child_del");
+    assert!(
+        !has_child_del,
+        "child_del should have been removed from pending_operations \
+         after deregister_child_state"
+    );
+}
+
+// ── 5. Cross-type consistency ──────────────────────────────────────────
 
 /// Both `register_tool_call` and `register_child_state` trigger
 /// persist — verify the symmetry.
@@ -180,7 +306,6 @@ async fn test_register_tool_and_child_both_trigger_persist() {
         "ls".into(),
     )
     .await;
-    wait_for_persist().await;
 
     let saves_after_tool = storage.save_count();
     assert!(
@@ -196,7 +321,6 @@ async fn test_register_tool_and_child_both_trigger_persist() {
         "do something".into(),
     )
     .await;
-    wait_for_persist().await;
 
     let saves_after_child = storage.save_count();
     assert!(
@@ -239,7 +363,6 @@ async fn test_deregister_tool_and_child_both_trigger_persist() {
         "task".into(),
     )
     .await;
-    wait_for_persist().await;
 
     {
         let cp = storage.last_checkpoint().unwrap();
@@ -250,7 +373,6 @@ async fn test_deregister_tool_and_child_both_trigger_persist() {
 
     // Deregister the tool.
     <ConversationSession as ToolSession>::deregister_tool_call(&session, "t1".into()).await;
-    wait_for_persist().await;
 
     let cp = storage.last_checkpoint().unwrap();
     assert!(
@@ -271,11 +393,89 @@ async fn test_deregister_tool_and_child_both_trigger_persist() {
 
     // Deregister the child.
     <ConversationSession as ToolSession>::deregister_child_state(&session, "c1".into()).await;
-    wait_for_persist().await;
 
     let cp = storage.last_checkpoint().unwrap();
     assert!(
         cp.pending_operations.is_empty(),
         "both entries should be removed after deregistering tool and child"
     );
+}
+
+// ── 6. Multiple operations ─────────────────────────────────────────────
+
+/// Multiple register calls accumulate; each persist is synchronous
+/// so the checkpoint reflects all registered operations.
+#[tokio::test]
+async fn test_multiple_register_calls_accumulate_in_checkpoint() {
+    let (session, storage) = session_with_storage("multi_reg");
+
+    <ConversationSession as ToolSession>::register_tool_call(
+        &session,
+        "t1".into(),
+        "bash".into(),
+        "echo 1".into(),
+    )
+    .await;
+    <ConversationSession as ToolSession>::register_tool_call(
+        &session,
+        "t2".into(),
+        "bash".into(),
+        "echo 2".into(),
+    )
+    .await;
+    <ConversationSession as ToolSession>::register_child_state(
+        &session,
+        "c1".into(),
+        "agent-y".into(),
+        "spawn".into(),
+    )
+    .await;
+
+    let cp = storage.last_checkpoint().unwrap();
+    assert_eq!(
+        cp.pending_operations.len(),
+        3,
+        "three operations should be registered"
+    );
+
+    let ids: Vec<&str> = cp
+        .pending_operations
+        .iter()
+        .map(|op| op.op_id.as_str())
+        .collect();
+    assert!(ids.contains(&"t1"));
+    assert!(ids.contains(&"t2"));
+    assert!(ids.contains(&"c1"));
+}
+
+// ── 7. No storage configured ───────────────────────────────────────────
+
+/// When `checkpoint_storage` is `None`, `persist_pending_checkpoint`
+/// is a no-op — should not panic.
+#[tokio::test]
+async fn test_persist_no_storage_is_noop() {
+    let session = ConversationSession::new("no_storage".into(), "gpt-4o".into(), tmp_path());
+    // Intentionally NOT calling set_checkpoint_storage.
+
+    // Must not panic.
+    <ConversationSession as ToolSession>::register_tool_call(
+        &session,
+        "call_nop".into(),
+        "bash".into(),
+        "echo noop".into(),
+    )
+    .await;
+
+    <ConversationSession as ToolSession>::deregister_tool_call(&session, "call_nop".into()).await;
+
+    <ConversationSession as ToolSession>::register_child_state(
+        &session,
+        "child_nop".into(),
+        "agent-z".into(),
+        "noop task".into(),
+    )
+    .await;
+
+    <ConversationSession as ToolSession>::deregister_child_state(&session, "child_nop".into())
+        .await;
 }
