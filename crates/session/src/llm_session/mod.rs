@@ -697,6 +697,39 @@ impl ConversationSession {
         }
         None
     }
+
+    /// Find the text content of an assistant message in the transcript
+    /// that matches the given target content.
+    ///
+    /// Walks messages in reverse (most recent first), extracts Text
+    /// blocks from assistant messages, and returns the first match.
+    /// Returns `None` if no matching assistant message is found.
+    ///
+    /// Used by `drain_outbound_pending_for_session` to look up message
+    /// content from the transcript (authoritative source) instead of
+    /// relying on the outbound_pending cache.
+    pub fn find_assistant_text_by_content(
+        messages: &[SessionMessage],
+        target: &str,
+    ) -> Option<String> {
+        for msg in messages.iter().rev() {
+            if msg.role == "assistant" {
+                let text: String = msg
+                    .content_blocks
+                    .iter()
+                    .filter_map(|b| match b {
+                        ContentBlock::Text(t) => Some(t.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if text == target {
+                    return Some(text);
+                }
+            }
+        }
+        None
+    }
 }
 
 /// Stats and streaming-sink accessors.

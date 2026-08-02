@@ -9,6 +9,7 @@ use crate::{compute_session_key, GatewayConfig, Message, Session};
 use async_trait::async_trait;
 use closeclaw_common::processor::ProcessError;
 use closeclaw_common::shutdown::ShutdownMode;
+use closeclaw_common::tool_session::ToolSession;
 use closeclaw_common::IMPlugin;
 use closeclaw_common::{
     DynamicPromptBuilder, LlmCaller, PromptOverrides, SessionExecStatus, SkillListingProvider,
@@ -495,20 +496,25 @@ impl SessionManager {
         }
     }
 
-    /// Check whether a session is active (has ongoing LLM or tool work).
+    /// Check whether a session is active (has ongoing LLM, tool, or child work).
     ///
     /// Looks up the session in the in-memory `conversation_sessions` table,
-    /// reads its [`SessionExecStatus`] and returns `true` when the status
-    /// is anything other than `Idle` (i.e. `Busy` or `Waiting`).
+    /// checks the four activity dimensions:
+    /// 1. **llm_active** — LLM in Requesting/Receiving state (via `exec_status`)
+    /// 2. **foreground_tool_active** — tool executing in foreground (via `exec_status`)
+    /// 3. **background_tool_active** — tool executing in background (via `exec_status`)
+    /// 4. **child_active** — at least one child session is Running
     ///
-    /// Returns `false` if the session does not exist in the in-memory table
-    /// — a session that has been flushed or archived has no active work.
+    /// Returns `true` if any dimension is active. Returns `false` if the
+    /// session does not exist in the in-memory table — a session that has
+    /// been flushed or archived has no active work.
     pub async fn is_active(&self, session_id: &str) -> bool {
         let conv_sessions = self.conversation_sessions.read().await;
         match conv_sessions.get(session_id) {
             Some(cs) => {
                 let cs = cs.read().await;
                 !matches!(cs.exec_status(), SessionExecStatus::Idle)
+                    || <ConversationSession as ToolSession>::has_running_child(&*cs)
             }
             None => false,
         }
@@ -581,6 +587,11 @@ impl SessionManager {
     }
 
     /// Push a pending message onto the queue for a given session.
+    ///
+    /// After pushing to the unified queue, persists the checkpoint so
+    /// that the outbound message is registered as a pending operation.
+    /// This ensures crash recovery can detect in-flight outbound messages.
+    ///
     /// Returns an error if the session does not exist.
     pub async fn push_pending_message(
         &self,
@@ -593,6 +604,11 @@ impl SessionManager {
             .ok_or_else(|| format!("session not found: {}", session_id))?;
         let mut cs = cs.write().await;
         cs.push_pending(msg);
+        // Persist checkpoint so the outbound message is registered as a
+        // pending operation (active write mode per design doc).
+        cs.persist_pending_checkpoint()
+            .await
+            .map_err(|e| format!("checkpoint persist failed: {}", e))?;
         Ok(())
     }
 
@@ -732,6 +748,8 @@ impl ActiveSessionQuery for SessionManager {
     }
 }
 
+#[cfg(test)]
+mod active_write_outbound_tests;
 #[cfg(test)]
 mod announce_dedup_tests;
 #[cfg(test)]

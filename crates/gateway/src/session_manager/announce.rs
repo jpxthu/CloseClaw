@@ -20,6 +20,7 @@ use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSes
 use closeclaw_session::run_health::AnnounceSweepTarget;
 use closeclaw_session::spawn::types::ChildSessionStatus;
 use closeclaw_tasks::NotificationPriority;
+use std::collections::HashMap;
 use tracing::{debug, warn};
 
 // ── Queue accessors (push / drain) ─────────────────────────────────────────
@@ -247,31 +248,23 @@ impl SessionManager {
             return Ok(0);
         }
 
-        // 3. Collect unsent messages (indices + content).
-        let unsent: Vec<(usize, String)> = cp
+        // 3. Collect unsent message indices.
+        let unsent_indices: Vec<usize> = cp
             .outbound_pending
             .iter()
             .enumerate()
             .filter(|(_, m)| !m.sent)
-            .map(|(i, m)| (i, m.content.clone()))
+            .map(|(i, _)| i)
             .collect();
 
-        if unsent.is_empty() {
+        if unsent_indices.is_empty() {
             return Ok(0);
         }
 
-        // 4. Resolve channel from the in-memory session map.
-        let channel = {
+        // 4. Fallback channel from sessions map (when target_channel is empty).
+        let fallback_channel = {
             let sessions = self.sessions.read().await;
-            sessions
-                .get(session_id)
-                .map(|s| s.channel.clone())
-                .ok_or_else(|| {
-                    format!(
-                        "drain_outbound_pending: session {} not found in sessions map",
-                        session_id
-                    )
-                })?
+            sessions.get(session_id).map(|s| s.channel.clone())
         };
 
         // 5. Get Gateway reference for outbound delivery.
@@ -280,8 +273,7 @@ impl SessionManager {
             .await
             .ok_or_else(|| "drain_outbound_pending: gateway not available".to_string())?;
 
-        // 5a. Persist checkpoint with current pending_operations before delivery
-        //     so that crash recovery can detect in-flight outbound messages.
+        // 5a. Persist checkpoint before delivery for crash recovery detection.
         cp.touch();
         if let Err(e) = cm.save_raw(&cp).await {
             warn!(
@@ -291,11 +283,56 @@ impl SessionManager {
             );
         }
 
-        // 6. Deliver each unsent message.
+        // 6. Pre-build transcript content lookup table.
+        //    HashMap<content, content> for O(1) lookups in the delivery loop.
+        let transcript_map: HashMap<String, String> =
+            if let Some(cs) = self.get_conversation_session(session_id).await {
+                let cs_read = cs.read().await;
+                cs_read
+                    .messages()
+                    .iter()
+                    .filter(|m| m.role == "assistant")
+                    .filter_map(|m| {
+                        let text: String = m
+                            .content_blocks
+                            .iter()
+                            .filter_map(|b| match b {
+                                closeclaw_common::ContentBlock::Text(t) => Some(t.as_str()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        (!text.is_empty()).then_some((text.clone(), text))
+                    })
+                    .collect()
+            } else {
+                HashMap::new()
+            };
+        // 7. Deliver each unsent message. Channel: target_channel → session fallback.
+        //    Content: transcript O(1) lookup → outbound_pending cache fallback.
         let mut delivered = 0usize;
-        for (idx, content) in &unsent {
+        for idx in &unsent_indices {
+            let pm = &cp.outbound_pending[*idx];
+            let channel = if !pm.target_channel.is_empty() {
+                pm.target_channel.clone()
+            } else if let Some(ref ch) = fallback_channel {
+                ch.clone()
+            } else {
+                warn!(
+                    session_id = %session_id,
+                    message_id = %pm.message_id,
+                    "drain_outbound_pending: no channel available for message, skipping"
+                );
+                continue;
+            };
+            // Look up message content from the pre-built transcript map.
+            // Falls back to outbound_pending cache if not found.
+            let content = transcript_map
+                .get(&pm.content)
+                .cloned()
+                .unwrap_or_else(|| pm.content.clone());
             match gw
-                .send_outbound(session_id, &channel, content, vec![])
+                .send_outbound(session_id, &channel, &content, vec![])
                 .await
             {
                 Ok(()) => {
@@ -305,7 +342,7 @@ impl SessionManager {
                 Err(e) => {
                     warn!(
                         session_id = %session_id,
-                        message_id = %cp.outbound_pending[*idx].message_id,
+                        message_id = %pm.message_id,
                         error = %e,
                         "drain_outbound_pending: delivery failed, skipping"
                     );
@@ -313,13 +350,13 @@ impl SessionManager {
             }
         }
 
-        // 7. Remove OutboundMessage entries from pending_operations for delivered
+        // 8. Remove OutboundMessage entries from pending_operations for delivered
         //     messages, then persist the updated checkpoint.
         if delivered > 0 {
-            let delivered_msg_ids: std::collections::HashSet<String> = unsent
+            let delivered_msg_ids: std::collections::HashSet<String> = unsent_indices
                 .iter()
-                .filter(|(idx, _)| cp.outbound_pending[*idx].sent)
-                .map(|(idx, _)| cp.outbound_pending[*idx].message_id.clone())
+                .filter(|idx| cp.outbound_pending[**idx].sent)
+                .map(|idx| cp.outbound_pending[*idx].message_id.clone())
                 .collect();
             cp.pending_operations.retain(|op| {
                 if op.op_type
