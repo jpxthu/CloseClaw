@@ -766,6 +766,10 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
         }
     }
 
+    fn has_running_child(&self) -> bool {
+        ConversationSession::has_running_child(self)
+    }
+
     async fn persist_pending_checkpoint(&self) -> Result<(), String> {
         let Some(ref storage) = self.checkpoint_storage else {
             return Ok(());

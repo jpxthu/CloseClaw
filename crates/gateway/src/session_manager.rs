@@ -513,7 +513,8 @@ impl SessionManager {
         match conv_sessions.get(session_id) {
             Some(cs) => {
                 let cs = cs.read().await;
-                !matches!(cs.exec_status(), SessionExecStatus::Idle) || cs.has_running_child()
+                !matches!(cs.exec_status(), SessionExecStatus::Idle)
+                    || <ConversationSession as ToolSession>::has_running_child(&*cs)
             }
             None => false,
         }

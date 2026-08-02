@@ -164,6 +164,14 @@ pub trait ToolSession: Send + Sync {
         false
     }
 
+    /// Returns whether any child session is currently running.
+    ///
+    /// Used by the gateway to determine the `child_active` dimension
+    /// of session liveness (see `docs/design/session/session-lifecycle.md`).
+    fn has_running_child(&self) -> bool {
+        false
+    }
+
     /// Record the mtime of a file after it has been read.
     ///
     /// Called by `ReadTool` so that subsequent `EditTool` / `WriteTool`
