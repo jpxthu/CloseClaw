@@ -9,6 +9,7 @@ use crate::{compute_session_key, GatewayConfig, Message, Session};
 use async_trait::async_trait;
 use closeclaw_common::processor::ProcessError;
 use closeclaw_common::shutdown::ShutdownMode;
+use closeclaw_common::tool_session::ToolSession;
 use closeclaw_common::IMPlugin;
 use closeclaw_common::{
     DynamicPromptBuilder, LlmCaller, PromptOverrides, SessionExecStatus, SkillListingProvider,
@@ -585,6 +586,11 @@ impl SessionManager {
     }
 
     /// Push a pending message onto the queue for a given session.
+    ///
+    /// After pushing to the unified queue, persists the checkpoint so
+    /// that the outbound message is registered as a pending operation.
+    /// This ensures crash recovery can detect in-flight outbound messages.
+    ///
     /// Returns an error if the session does not exist.
     pub async fn push_pending_message(
         &self,
@@ -597,6 +603,9 @@ impl SessionManager {
             .ok_or_else(|| format!("session not found: {}", session_id))?;
         let mut cs = cs.write().await;
         cs.push_pending(msg);
+        // Persist checkpoint so the outbound message is registered as a
+        // pending operation (active write mode per design doc).
+        cs.persist_pending_checkpoint().await;
         Ok(())
     }
 
@@ -736,6 +745,8 @@ impl ActiveSessionQuery for SessionManager {
     }
 }
 
+#[cfg(test)]
+mod active_write_outbound_tests;
 #[cfg(test)]
 mod announce_dedup_tests;
 #[cfg(test)]
