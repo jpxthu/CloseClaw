@@ -98,6 +98,16 @@ impl FileMutexMap {
             }
         }
     }
+
+    /// Returns the number of entries currently held in the map.
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns `true` if the map contains no entries.
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
 }
 
 // ---------------------------------------------------------------------------
