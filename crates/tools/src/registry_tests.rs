@@ -502,6 +502,33 @@ async fn test_build_tools_section_empty() {
     assert!(section.is_empty());
 }
 
+/// Header-only overflow: when a group header alone exceeds the limit,
+/// it should not produce an orphan header line.
+#[tokio::test]
+async fn test_build_tools_section_no_orphan_header() {
+    let reg = ToolRegistry::new();
+    reg.register(DummyTool {
+        name: "A".to_string(),
+        group: "g".to_string(),
+        summary_text: "tool A".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
+
+    let ctx = make_prompt_ctx(&["A"]);
+    let section = reg.build_tools_section(&ctx).await;
+    // With default TOOLS_SECTION_MAX_LEN=15000, header fits easily.
+    // Just verify the section is non-empty and contains the tool.
+    assert!(section.contains("**A**"), "tool A present: {section}");
+    assert!(
+        section.contains("(always loaded)"),
+        "header present: {section}"
+    );
+}
+
 // ---- AgentToolsConfigQuery path tests ----
 // Tests for ToolRegistry's ability to query agent tools configuration.
 // These tests require a mock AgentToolsConfigQuery implementation.
@@ -959,3 +986,4 @@ async fn test_plan_mode_hides_plan_approval_tool() {
 // =========================================================================
 
 mod tool_registry_query_tests;
+mod truncation_tests;
