@@ -44,7 +44,7 @@ pub enum Section {
 impl Section {
     /// Returns true if this section is cacheable (static)
     pub fn is_cacheable(&self) -> bool {
-        matches!(self, Section::MemorySection(_))
+        matches!(self, Section::ToolsSection(_) | Section::MemorySection(_))
     }
 
     /// Returns the section name for cache key purposes
@@ -229,6 +229,15 @@ impl SectionCache {
     /// Invalidate all cached sections.
     pub fn invalidate_all(&mut self) {
         self.entries.clear();
+    }
+
+    /// Invalidate the tools section cache.
+    ///
+    /// Call this when tool definitions change (e.g. a new tool is
+    /// registered or the ToolRegistry is updated) so the next system
+    /// prompt build regenerates the tools listing.
+    pub fn invalidate_tools(&mut self) {
+        self.invalidate("tools");
     }
 
     /// Invalidate the skill listing section cache.
