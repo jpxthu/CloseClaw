@@ -969,7 +969,7 @@ impl std::fmt::Debug for ConversationSession {
             .field("manual_background_signal", &"<Notify>")
             .field(
                 "file_mtimes",
-                &*self.file_mtimes.read().expect("file_mtimes lock poisoned"),
+                &self.file_mtimes.read().ok().map(|m| m.len()),
             )
             .finish()
     }
