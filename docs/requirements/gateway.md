@@ -27,7 +27,7 @@ Gateway 是消息路由中枢。User 通过不同 IM 平台发送的消息由 Ga
 - Session 查找、创建与归档恢复由 Session 模块负责（含用户提示语），Gateway 仅传入路由字段，命中 session 后进入下一步路由决策
 
 > **交叉引用**：详见 [session §F1](session.md)（对话持久化与恢复）。
-- 若对应 Session 正忙（正在处理中），新消息排队等待
+- Session 忙闲判定与消息排队行为由 Session 模块管理，详见 [session §F10](session.md)（消息排队）
 
 > **交叉引用**：排队规则与排队提示详见 [session §F10](session.md)（消息排队）。
 - Session 查找异常或创建失败时，向 User 回复错误提示
