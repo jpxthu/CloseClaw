@@ -56,6 +56,7 @@ mod tests {
             communication_config: None,
             spawn_mode: None,
             snapshot_metas: Vec::new(),
+            workflow_run: None,
         }
     }
 
@@ -435,6 +436,7 @@ mod tests {
             communication_config: None,
             spawn_mode: None,
             snapshot_metas: Vec::new(),
+            workflow_run: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -495,6 +497,7 @@ mod tests {
             communication_config: None,
             spawn_mode: None,
             snapshot_metas: Vec::new(),
+            workflow_run: None,
         };
         storage.save_checkpoint(&checkpoint).await?;
 

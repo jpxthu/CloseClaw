@@ -18,6 +18,7 @@ closeclaw-llm = { path = "../llm" }
 closeclaw-memory = { path = "../memory" }
 closeclaw-permission = { path = "../permission" }
 closeclaw-tasks = { path = "../tasks" }
+closeclaw-workflow = { path = "../workflow" }
 
 # Async runtime
 tokio = { version = "=1.35.0", features = ["full"] }
@@ -39,6 +40,7 @@ async-trait = "0.1"
 
 # System
 libc = "0.2"
+dirs = "5"
 
 # Date/time
 chrono = { version = "0.4", features = ["serde"] }

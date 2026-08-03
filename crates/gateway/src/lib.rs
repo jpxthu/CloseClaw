@@ -58,6 +58,7 @@ mod tests_slash_permission;
 #[cfg(feature = "full-tests")]
 mod tests_slash_permission_integration;
 pub mod types;
+pub mod workflow_owner;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -436,6 +437,16 @@ impl Gateway {
             {
                 return Some(result);
             }
+        }
+
+        // ── Owner response for blocked workflow (Step 1.6) ──────────
+        // When a workflow is in blocked state, owner messages are
+        // intercepted and routed to the engine for resolve or terminate.
+        if let Some(result) = self
+            .try_handle_workflow_owner_response(&session_id, &content, sender_id)
+            .await
+        {
+            return Some(result);
         }
 
         let handler = self.session_handler.as_ref()?;

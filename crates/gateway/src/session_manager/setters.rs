@@ -117,7 +117,7 @@ impl SessionManager {
     /// Query per-agent workspace path via the agent registry.
     /// Falls back to the global workspace_dir if the agent has no
     /// per-agent workspace configured.
-    pub(super) async fn query_agent_workspace(&self, agent_id: &str) -> Option<PathBuf> {
+    pub(crate) async fn query_agent_workspace(&self, agent_id: &str) -> Option<PathBuf> {
         let registry = self.agent_registry.read().await;
         let registry = registry.as_ref()?;
         registry.get_agent_workspace(agent_id).await

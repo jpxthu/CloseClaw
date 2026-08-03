@@ -52,6 +52,7 @@ pub use session_pending_queue::{QueueEntry, QueuePriority, UnifiedMessageQueue};
 mod skill_listing;
 pub mod streaming_assembly;
 pub mod transcript_ops;
+mod workflow_cleanup;
 pub use streaming_assembly::SessionStream;
 
 /// A single message in a conversation session.
@@ -115,7 +116,6 @@ pub struct ConversationSession {
     stats: RunningStats,
     streaming_sink: Option<Arc<dyn StreamingSink>>,
     stream_enabled: bool,
-
     /// Per-session append-section items, managed by `/system` subcommand.
     /// Persisted in `SessionCheckpoint::system_appends`.
     system_appends: Vec<String>,
@@ -214,6 +214,10 @@ pub struct ConversationSession {
     /// When `true`, the dynamic builder may inject a GitStatus section
     /// if the working directory is a git repository.
     is_git_status_enabled: bool,
+    /// Active workflow run state. Persisted in SessionCheckpoint.
+    workflow_run: Option<closeclaw_workflow::run::WorkflowRun>,
+    /// Workflow handler for tool result processing and engine state.
+    workflow_handler: Option<crate::workflow_handler::WorkflowHandler>,
 }
 // `impl ConversationSession` is split across multiple blocks so each
 // block stays under the CONTRIBUTING.md 100-line cap. Block A
@@ -241,7 +245,6 @@ impl ConversationSession {
             created_at: Utc::now().timestamp(),
             streaming_sink: None,
             stream_enabled: false,
-
             system_appends: Vec::new(),
             llm_state: Arc::new(RwLock::new(LlmState::Idle)),
             tool_states: Arc::new(RwLock::new(HashMap::new())),
@@ -274,6 +277,8 @@ impl ConversationSession {
             manual_background_signal: Arc::new(tokio::sync::Notify::new()),
             checkpoint_storage: None,
             is_git_status_enabled: false,
+            workflow_run: None,
+            workflow_handler: None,
         }
     }
 
@@ -299,7 +304,81 @@ impl ConversationSession {
     pub fn set_workdir(&mut self, path: PathBuf) {
         self.workdir = path;
     }
-
+    /// Returns a reference to the active workflow run, if any.
+    pub fn workflow_run(&self) -> Option<&closeclaw_workflow::run::WorkflowRun> {
+        self.workflow_run.as_ref()
+    }
+    /// Sets the active workflow run state.
+    pub fn set_workflow_run(&mut self, run: Option<closeclaw_workflow::run::WorkflowRun>) {
+        self.workflow_run = run;
+    }
+    pub fn workflow_handler(&self) -> Option<&crate::workflow_handler::WorkflowHandler> {
+        self.workflow_handler.as_ref()
+    }
+    pub fn workflow_handler_mut(
+        &mut self,
+    ) -> Option<&mut crate::workflow_handler::WorkflowHandler> {
+        self.workflow_handler.as_mut()
+    }
+    pub fn set_workflow_handler(
+        &mut self,
+        handler: Option<crate::workflow_handler::WorkflowHandler>,
+    ) {
+        self.workflow_handler = handler;
+    }
+    /// Process workflow tool results from LLM content blocks.
+    /// Returns `true` if any action was processed.
+    pub fn process_workflow_tool_results(&mut self, blocks: &[ContentBlock]) -> bool {
+        if let Some(ref mut handler) = self.workflow_handler {
+            let processed = handler.process_content_blocks(blocks);
+            if processed {
+                self.workflow_run = Some(handler.run().clone());
+            }
+            processed
+        } else {
+            false
+        }
+    }
+    pub fn take_workflow_notification(
+        &mut self,
+    ) -> Option<crate::workflow_handler::WorkflowNotification> {
+        self.workflow_handler
+            .as_mut()
+            .and_then(|h| h.take_notification())
+    }
+    pub fn is_workflow_blocked(&self) -> bool {
+        self.workflow_handler
+            .as_ref()
+            .is_some_and(|h| h.is_blocked())
+    }
+    /// Remove all workflow control messages (role == "workflow") from the transcript.
+    pub fn remove_workflow_messages(&mut self) {
+        let before = self.messages.len();
+        self.messages.retain(|m| m.role != "workflow");
+        let removed = before - self.messages.len();
+        if removed > 0 {
+            tracing::debug!(removed, "removed workflow control messages from transcript");
+        }
+    }
+    /// Inject a workflow control message (role == "workflow") into the transcript.
+    pub fn inject_workflow_message(&mut self, content: &str) {
+        self.push_message("workflow", vec![ContentBlock::Text(content.to_string())]);
+    }
+    /// Remove workflow context ("--- WORKFLOW ---" items) from system_appends.
+    pub fn remove_workflow_context_from_appends(&mut self) {
+        let before = self.system_appends.len();
+        self.system_appends
+            .retain(|s| !s.starts_with("--- WORKFLOW ---"));
+        let removed = before - self.system_appends.len();
+        if removed > 0 {
+            tracing::debug!(removed, "removed workflow context from system_appends");
+        }
+    }
+    /// Reset workflow_run and handler to None.
+    pub fn clear_workflow_run(&mut self) {
+        self.workflow_run = None;
+        self.workflow_handler = None;
+    }
     /// Sets the system prompt.
     pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.system_prompt = Some(prompt.into());
@@ -363,12 +442,10 @@ impl ConversationSession {
     pub fn set_skill_listing_provider(&mut self, provider: Arc<dyn SkillListingProvider>) {
         self.skill_listing_provider = Some(provider);
     }
-
     /// Returns a reference to the injected [`SkillListingProvider`], if any.
     pub fn skill_listing_provider(&self) -> Option<&Arc<dyn SkillListingProvider>> {
         self.skill_listing_provider.as_ref()
     }
-
     /// Set the agent-level skill whitelist filter.
     ///
     /// When set, only skills whose names appear in `skills` are included
@@ -376,7 +453,6 @@ impl ConversationSession {
     pub fn set_agent_skills(&mut self, skills: Vec<String>) {
         self.agent_skills = Some(skills);
     }
-
     /// Returns the agent-level skill whitelist, if any.
     pub fn agent_skills(&self) -> Option<&[String]> {
         self.agent_skills.as_deref()
@@ -385,14 +461,10 @@ impl ConversationSession {
     pub fn skill_listing_snapshot(&self) -> Option<&str> {
         self.skill_listing_snapshot.as_deref()
     }
-
     /// Returns a reference to the set of activated conditional skill names.
     pub fn activated_conditional_skills(&self) -> &HashSet<String> {
         &self.activated_conditional_skills
     }
-
-    /// Compute the skill listing for the current turn without
-    /// mutating session state.
     /// Returns a clone of the manual backgrounding signal.
     ///
     /// Callers (e.g. `BashTool::execute_command`) can await on
@@ -401,7 +473,6 @@ impl ConversationSession {
     pub fn manual_background_notify(&self) -> Arc<tokio::sync::Notify> {
         Arc::clone(&self.manual_background_signal)
     }
-
     /// Inject an [`LlmCaller`] into this session.
     ///
     /// Called by Gateway after session creation so the session can
@@ -409,12 +480,10 @@ impl ConversationSession {
     pub fn set_llm_caller(&mut self, caller: Arc<dyn LlmCaller>) {
         self.llm_caller = Some(caller);
     }
-
     /// Returns a reference to the injected [`LlmCaller`], if any.
     pub fn llm_caller(&self) -> Option<&Arc<dyn LlmCaller>> {
         self.llm_caller.as_ref()
     }
-
     /// Inject a [`SystemPromptBuilder`] into this session.
     ///
     /// Called by Gateway after session creation so the session can
@@ -422,12 +491,10 @@ impl ConversationSession {
     pub fn set_system_prompt_builder(&mut self, builder: Arc<dyn SystemPromptBuilder>) {
         self.system_prompt_builder = Some(builder);
     }
-
     /// Returns `true` if a [`SystemPromptBuilder`] has been injected.
     pub fn has_system_prompt_builder(&self) -> bool {
         self.system_prompt_builder.is_some()
     }
-
     /// Inject prompt overrides into this session.
     ///
     /// Called by Gateway after session creation so the session can
@@ -435,7 +502,6 @@ impl ConversationSession {
     pub fn set_prompt_overrides(&mut self, overrides: Option<PromptOverrides>) {
         self.prompt_overrides = overrides;
     }
-
     /// Set the git_status config switch for this session.
     ///
     /// Called by Gateway after session creation so the dynamic builder
@@ -443,7 +509,6 @@ impl ConversationSession {
     pub fn set_git_status(&mut self, is_git_status_enabled: bool) {
         self.is_git_status_enabled = is_git_status_enabled;
     }
-
     /// Set the snapshot meta store for persisting snapshot metadata.
     /// Creates the snapshot manager lazily if not already present.
     pub fn set_snapshot_meta_store(
@@ -455,7 +520,6 @@ impl ConversationSession {
             .get_or_insert_with(RuntimeSnapshotManager::new);
         mgr.set_meta_store(store);
     }
-
     /// Set the persistence service for `persist_pending_checkpoint`.
     ///
     /// Injected by the Gateway after session creation so that the
@@ -467,32 +531,26 @@ impl ConversationSession {
     ) {
         self.checkpoint_storage = Some(storage);
     }
-
     /// Get a clone of the shutdown handle, if set.
     pub fn get_shutdown_handle(&self) -> Option<Arc<dyn closeclaw_common::ShutdownSignal>> {
         self.shutdown_handle.clone()
     }
-
     /// Returns the current reasoning level.
     pub fn reasoning_level(&self) -> ReasoningLevel {
         self.reasoning_level
     }
-
     /// Overrides the reasoning level at runtime.
     pub fn set_reasoning_level(&mut self, level: ReasoningLevel) {
         self.reasoning_level = level;
     }
-
     /// Returns the current verbosity level.
     pub fn verbosity_level(&self) -> VerbosityLevel {
         self.verbosity_level
     }
-
     /// Overrides the verbosity level at runtime.
     pub fn set_verbosity_level(&mut self, level: VerbosityLevel) {
         self.verbosity_level = level;
     }
-
     /// Returns the current session mode.
     pub fn session_mode(&self) -> SessionMode {
         *self
@@ -500,7 +558,6 @@ impl ConversationSession {
             .lock()
             .expect("session_mode lock poisoned")
     }
-
     /// Overrides the session mode at runtime.
     pub fn set_session_mode(&mut self, mode: SessionMode) {
         *self
@@ -508,7 +565,6 @@ impl ConversationSession {
             .lock()
             .expect("session_mode lock poisoned") = mode;
     }
-
     /// Set per-request context for dynamic-layer injection.
     pub fn set_request_context(&self, ctx: closeclaw_common::RequestContext) {
         *self.request_context.lock().expect("rc poisoned") = ctx;
@@ -517,7 +573,6 @@ impl ConversationSession {
     pub fn request_context(&self) -> closeclaw_common::RequestContext {
         self.request_context.lock().expect("rc poisoned").clone()
     }
-
     /// Returns a reference to the memory-injection Arc.
     pub fn memory_injection_arc(&self) -> &Arc<Mutex<Option<MemoryInjection>>> {
         &self.memory_injection
