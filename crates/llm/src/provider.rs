@@ -270,4 +270,17 @@ mod tests {
         let json = serde_json::to_string(&req).unwrap();
         assert!(!json.contains("extra_body"));
     }
+
+    // ── supports_parallel_tool_calls tests ───────────────────────────────────
+
+    #[test]
+    fn test_provider_supports_parallel_tool_calls_default() {
+        use super::super::stub::StubProvider;
+        use crate::provider::Provider;
+        let provider = StubProvider::new();
+        assert!(
+            provider.supports_parallel_tool_calls(),
+            "StubProvider should default to supports_parallel_tool_calls = true"
+        );
+    }
 }
