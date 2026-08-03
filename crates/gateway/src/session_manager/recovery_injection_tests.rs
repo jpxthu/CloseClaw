@@ -353,3 +353,79 @@ async fn test_empty_dirty_list() {
     // No sessions should be created.
     assert!(mgr.get_all_sessions().await.is_empty());
 }
+
+// =========================================================================
+// Static cache invalidation tests (Step 1.3)
+// =========================================================================
+
+/// Normal path: recovery injection calls invalidate_static_cache before
+/// rebuilding the system prompt, ensuring cached content is cleared.
+#[tokio::test]
+async fn test_invalidate_static_cache_called_on_recovery() {
+    let cp = SessionCheckpoint::new("sess-cache-1".to_string())
+        .with_status(SessionStatus::Active)
+        .with_agent_id("agent-cache-1".to_string())
+        .with_recovery_notification(Some("cache test".to_string()));
+    let persist = Arc::new(RecoveryMockPersist::with_checkpoint(cp));
+    let mgr = make_recovery_test_mgr(Arc::clone(&persist));
+
+    // Track whether invalidate_static_cache was called.
+    let called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let called_clone = Arc::clone(&called);
+    mgr.set_cache_invalidator(Arc::new(move || {
+        called_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+    }))
+    .await;
+
+    mgr.inject_startup_recovery_notifications(&["sess-cache-1".to_string()])
+        .await;
+
+    assert!(
+        called.load(std::sync::atomic::Ordering::SeqCst),
+        "invalidate_static_cache must be called during recovery injection"
+    );
+}
+
+/// Boundary: even when files have not changed (mtime unchanged),
+/// recovery injection still forces cache invalidation.
+/// This test verifies the unconditional nature of the invalidation
+/// — the callback is always invoked regardless of file state.
+#[tokio::test]
+async fn test_invalidate_static_cache_unconditional() {
+    // Inject two recovery sessions in succession. Both must trigger
+    // cache invalidation even though no files changed between calls.
+    let cp1 = SessionCheckpoint::new("sess-cache-a".to_string())
+        .with_status(SessionStatus::Active)
+        .with_agent_id("agent-cache-a".to_string())
+        .with_recovery_notification(Some("first".to_string()));
+    let cp2 = SessionCheckpoint::new("sess-cache-b".to_string())
+        .with_status(SessionStatus::Active)
+        .with_agent_id("agent-cache-b".to_string())
+        .with_recovery_notification(Some("second".to_string()));
+    let persist = Arc::new(RecoveryMockPersist::with_checkpoint(cp1));
+    persist
+        .checkpoints
+        .lock()
+        .await
+        .insert("sess-cache-b".to_string(), cp2);
+    let mgr = make_recovery_test_mgr(Arc::clone(&persist));
+
+    let call_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count_clone = Arc::clone(&call_count);
+    mgr.set_cache_invalidator(Arc::new(move || {
+        count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }))
+    .await;
+
+    mgr.inject_startup_recovery_notifications(&[
+        "sess-cache-a".to_string(),
+        "sess-cache-b".to_string(),
+    ])
+    .await;
+
+    let count = call_count.load(std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        count, 2,
+        "cache must be invalidated for each recovered session (got {count})"
+    );
+}
