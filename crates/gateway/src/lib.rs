@@ -507,6 +507,7 @@ impl Gateway {
         }
     }
 
+    /// Resolve a session_id from a [`ProcessedMessage`]'s `session_key`.
     ///
     /// Extracts `session_key` from `metadata` and calls
     /// [`SessionManager::resolve`] to obtain the `session_id`.
