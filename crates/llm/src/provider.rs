@@ -71,6 +71,15 @@ pub trait Provider: Send + Sync {
     /// Returns the set of protocol IDs this provider supports.
     fn supported_protocols(&self) -> &[ProtocolId];
 
+    /// Returns whether this provider supports parallel tool calls.
+    ///
+    /// When `false`, the framework must serialize all tool calls
+    /// for this provider, regardless of the agent-level
+    /// `parallel_tool_calls` setting.  The default is `true`.
+    fn supports_parallel_tool_calls(&self) -> bool {
+        true
+    }
+
     /// Returns a reference to the underlying HTTP client.
     fn http_client(&self) -> &Client;
 
