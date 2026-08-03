@@ -1,9 +1,9 @@
 //! Tests for compaction protection of skill listing state.
 //!
-//! Verifies that `preserve_listing_on_compaction` and the
-//! architectural invariant (skill listing fields are independent
-//! of the transcript) ensure that `skill_listing_snapshot` and
-//! `activated_conditional_skills` survive conversation compaction.
+//! Verifies that `mark_compacted` + `preserve_listing_on_compaction`
+//! cause the full skill listing to be re-injected on the first turn
+//! after compaction, and that subsequent turns resume normal
+//! incremental diff.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -148,13 +148,15 @@ fn simulate_compaction(session: &mut ConversationSession) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Test 1: Normal path — snapshot + activated skills survive compaction
+// Test 1: Compaction clears snapshot → full listing re-injected
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// After compaction, `skill_listing_snapshot` and
-/// `activated_conditional_skills` remain intact. The next turn
-/// computes a correct incremental diff (no diff because state
-/// matches).
+/// After compaction, `preserve_listing_on_compaction` keeps the
+/// snapshot intact, but `mark_compacted` sets the one-shot flag.
+/// The next turn's `prepare_turn_skill_listing` clears the snapshot,
+/// causing `compute_skill_listing_for_turn` to enter the "first turn"
+/// branch and inject the full listing. Subsequent turns resume normal
+/// incremental diff.
 #[tokio::test]
 async fn test_snapshot_survives_compaction() {
     let provider = Arc::new(MockProvider::new(
@@ -178,32 +180,55 @@ async fn test_snapshot_survives_compaction() {
 
     // Simulate compaction
     simulate_compaction(&mut session);
+    session.mark_compacted();
     session.preserve_listing_on_compaction();
 
-    // Snapshot survives compaction
+    // Snapshot survives compaction (preserve_listing_on_compaction
+    // does not clear it)
     assert_eq!(
         session.skill_listing_snapshot().unwrap(),
         snapshot_before,
         "snapshot should be unchanged after compaction"
     );
 
-    // Turn 2: no diff because listing is the same
+    // Turn 2: prepare_turn_skill_listing clears snapshot, so
+    // compute_skill_listing_for_turn enters "first turn" branch
+    // and injects the full listing
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req = fake_ref.last_request().unwrap();
+    let tools = tool_messages(&req);
     assert_eq!(
-        tool_messages(&req).len(),
+        tools.len(),
+        1,
+        "full listing should be injected on first turn after compaction"
+    );
+    assert!(
+        tools[0].contains("skill_a"),
+        "injected listing should include skill_a"
+    );
+    assert!(
+        tools[0].contains("skill_b"),
+        "injected listing should include skill_b"
+    );
+
+    // Turn 3: snapshot exists and listing unchanged → no diff
+    let _ = session.invoke_llm("turn3").await.unwrap();
+    let req3 = fake_ref.last_request().unwrap();
+    assert_eq!(
+        tool_messages(&req3).len(),
         0,
-        "no listing should be injected when nothing changed after compaction"
+        "no listing should be injected when nothing changed"
     );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Test 2: Snapshot survives compaction, then new skill is added
+// Test 2: Compaction + hot-reload → full listing with new skill
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// After compaction, the snapshot is still valid. When a new skill
-/// appears in the listing (e.g. from daemon hot-reload), the
-/// incremental diff correctly captures it.
+/// After compaction, a daemon hot-reload adds a new skill.
+/// Turn 2 injects the full listing (including the new skill)
+/// because the snapshot was cleared. Subsequent turns resume
+/// normal incremental diff.
 #[tokio::test]
 async fn test_new_skill_detected_after_compaction() {
     let provider = Arc::new(MockProvider::new(
@@ -223,24 +248,34 @@ async fn test_new_skill_detected_after_compaction() {
 
     // Simulate compaction
     simulate_compaction(&mut session);
+    session.mark_compacted();
     session.preserve_listing_on_compaction();
 
     // Daemon hot-reload: new skill_b appears
     provider.set_all_listing("- **skill_a**: desc_a\n- **skill_b**: desc_b");
     provider.set_base_listing("- **skill_a**: desc_a\n- **skill_b**: desc_b");
 
-    // Turn 2: diff should show skill_b addition
+    // Turn 2: full listing injected (snapshot was cleared)
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req = fake_ref.last_request().unwrap();
     let tools = tool_messages(&req);
-    assert_eq!(tools.len(), 1, "should inject diff for new skill");
+    assert_eq!(tools.len(), 1, "should inject full listing");
     assert!(
-        tools[0].contains("skill_b"),
-        "diff should include new skill_b"
+        tools[0].contains("skill_a"),
+        "full listing should include skill_a"
     );
     assert!(
-        !tools[0].contains("skill_a"),
-        "skill_a unchanged, should not appear in diff"
+        tools[0].contains("skill_b"),
+        "full listing should include new skill_b"
+    );
+
+    // Turn 3: snapshot exists, listing unchanged → no diff
+    let _ = session.invoke_llm("turn3").await.unwrap();
+    let req3 = fake_ref.last_request().unwrap();
+    assert_eq!(
+        tool_messages(&req3).len(),
+        0,
+        "no diff expected when listing unchanged after injection"
     );
 }
 
@@ -265,6 +300,7 @@ async fn test_compaction_with_empty_snapshot() {
 
     // Simulate compaction
     simulate_compaction(&mut session);
+    session.mark_compacted();
     session.preserve_listing_on_compaction();
 
     // State remains None
@@ -281,7 +317,8 @@ async fn test_compaction_with_empty_snapshot() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// With a provider but no conditional skills activated, compaction
-/// preserves the snapshot and the empty activated set.
+/// triggers full listing re-injection, then subsequent turns resume
+/// incremental diff.
 #[tokio::test]
 async fn test_compaction_with_empty_activated_set() {
     let provider = Arc::new(MockProvider::new(
@@ -297,7 +334,6 @@ async fn test_compaction_with_empty_activated_set() {
 
     // Turn 1
     let _ = session.invoke_llm("hello").await.unwrap();
-    // No conditional skills activated in this scenario
     assert!(
         session.activated_conditional_skills().is_empty(),
         "no conditional skills should be activated yet"
@@ -305,24 +341,33 @@ async fn test_compaction_with_empty_activated_set() {
 
     // Simulate compaction
     simulate_compaction(&mut session);
+    session.mark_compacted();
     session.preserve_listing_on_compaction();
 
     // State preserved
     assert!(session.skill_listing_snapshot().is_some());
     assert!(session.activated_conditional_skills().is_empty());
 
-    // Turn 2: no diff (listing unchanged)
+    // Turn 2: snapshot cleared → full listing injected
     let _ = session.invoke_llm("turn2").await.unwrap();
-    assert_eq!(tool_messages(&fake_ref.last_request().unwrap()).len(), 0);
+    let req = fake_ref.last_request().unwrap();
+    let tools = tool_messages(&req);
+    assert_eq!(tools.len(), 1, "full listing should be injected");
+    assert!(tools[0].contains("skill_a"), "should include skill_a");
+
+    // Turn 3: no diff (listing unchanged)
+    let _ = session.invoke_llm("turn3").await.unwrap();
+    let req3 = fake_ref.last_request().unwrap();
+    assert_eq!(tool_messages(&req3).len(), 0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Test 5a: Compaction after hot-reload — no spurious diff
+// Test 5a: Compaction after hot-reload — full re-injection then normal
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// After a hot-reload adds a skill, compaction preserves the full
-/// snapshot. The next turn produces no diff because listing is
-/// unchanged.
+/// After a hot-reload adds a skill, compaction triggers full
+/// re-injection of the complete listing. The next turn resumes
+/// normal incremental diff.
 #[tokio::test]
 async fn test_compaction_after_hot_reload_no_diff() {
     let provider = Arc::new(MockProvider::new(
@@ -356,6 +401,7 @@ async fn test_compaction_after_hot_reload_no_diff() {
 
     // Simulate compaction
     simulate_compaction(&mut session);
+    session.mark_compacted();
     session.preserve_listing_on_compaction();
 
     // Snapshot survives compaction with the full current listing
@@ -364,22 +410,35 @@ async fn test_compaction_after_hot_reload_no_diff() {
     assert!(snap_after.contains("skill_b"));
     assert!(snap_after.contains("skill_c"));
 
-    // Turn 3: no diff (listing unchanged post-compaction)
+    // Turn 3: snapshot cleared → full listing injected
     let _ = session.invoke_llm("turn3").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
+    let tools3 = tool_messages(&req3);
     assert_eq!(
-        tool_messages(&req3).len(),
+        tools3.len(),
+        1,
+        "full listing should be injected on first turn after compaction"
+    );
+    assert!(tools3[0].contains("skill_a"));
+    assert!(tools3[0].contains("skill_b"));
+    assert!(tools3[0].contains("skill_c"));
+
+    // Turn 4: no diff (listing unchanged post-injection)
+    let _ = session.invoke_llm("turn4").await.unwrap();
+    let req4 = fake_ref.last_request().unwrap();
+    assert_eq!(
+        tool_messages(&req4).len(),
         0,
-        "no diff expected when listing unchanged after compaction"
+        "no diff expected when listing unchanged after injection"
     );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Test 5b: Skill removal detected after compaction
+// Test 5b: Skill removal after compaction → full re-injection
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// After compaction, skill removal by daemon hot-reload is correctly
-/// detected as an incremental diff.
+/// After compaction, skill removal by daemon hot-reload results in
+/// a full listing re-injection (without the removed skill).
 #[tokio::test]
 async fn test_removal_detected_after_compaction() {
     let provider = Arc::new(MockProvider::new(
@@ -399,24 +458,91 @@ async fn test_removal_detected_after_compaction() {
 
     // Simulate compaction
     simulate_compaction(&mut session);
+    session.mark_compacted();
     session.preserve_listing_on_compaction();
 
     // Daemon removes skill_b
     provider.set_all_listing("- **skill_a**: desc_a\n- **skill_c**: desc_c");
     provider.set_base_listing("- **skill_a**: desc_a\n- **skill_c**: desc_c");
 
-    // Turn 2: diff should show skill_b removal
+    // Turn 2: full listing injected (snapshot was cleared)
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req = fake_ref.last_request().unwrap();
     let tools = tool_messages(&req);
-    assert_eq!(tools.len(), 1);
+    assert_eq!(tools.len(), 1, "full listing should be injected");
+    assert!(tools[0].contains("skill_a"), "should include skill_a");
+    assert!(tools[0].contains("skill_c"), "should include new skill_c");
     assert!(
-        tools[0].contains("- - **skill_b**"),
-        "diff should show skill_b removal"
+        !tools[0].contains("skill_b"),
+        "removed skill_b should not appear in full listing"
+    );
+
+    // Turn 3: no diff (listing unchanged)
+    let _ = session.invoke_llm("turn3").await.unwrap();
+    let req3 = fake_ref.last_request().unwrap();
+    assert_eq!(tool_messages(&req3).len(), 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Test 5c: Compaction + hot-reload adds skill → full listing with new skill
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Compaction followed by a daemon hot-reload that adds a new skill.
+/// Turn 2 injects the full listing including the new skill.
+#[tokio::test]
+async fn test_compaction_with_listing_change() {
+    let provider = Arc::new(MockProvider::new(
+        "- **skill_a**: desc_a",
+        "- **skill_a**: desc_a",
+    ));
+    let mut session = ConversationSession::new("s_compact_5c".into(), "m".into(), tmp_path());
+    session.set_skill_listing_provider(provider.clone());
+
+    let fake = Arc::new(FakeLlmCaller::new("ok"));
+    let fake_ref = fake.clone();
+    session.set_llm_caller(fake);
+
+    // Turn 1: baseline with skill_a only
+    let _ = session.invoke_llm("hello").await.unwrap();
+    let snap1 = session.skill_listing_snapshot().unwrap().to_string();
+    assert!(snap1.contains("skill_a"));
+    assert!(!snap1.contains("skill_b"));
+
+    // Simulate compaction
+    simulate_compaction(&mut session);
+    session.mark_compacted();
+    session.preserve_listing_on_compaction();
+
+    // Daemon hot-reload: new skill_b appears
+    provider.set_all_listing("- **skill_a**: desc_a\n- **skill_b**: desc_b");
+    provider.set_base_listing("- **skill_a**: desc_a\n- **skill_b**: desc_b");
+
+    // Turn 2: full listing injected (includes both skills)
+    let _ = session.invoke_llm("turn2").await.unwrap();
+    let req = fake_ref.last_request().unwrap();
+    let tools = tool_messages(&req);
+    assert_eq!(tools.len(), 1, "full listing should be injected");
+    assert!(
+        tools[0].contains("skill_a"),
+        "should include existing skill_a"
     );
     assert!(
-        !tools[0].contains("skill_a"),
-        "skill_a unchanged, should not appear in removal diff"
+        tools[0].contains("skill_b"),
+        "should include new skill_b from hot-reload"
+    );
+
+    // Verify snapshot updated with new listing
+    let snap2 = session.skill_listing_snapshot().unwrap().to_string();
+    assert!(snap2.contains("skill_a"));
+    assert!(snap2.contains("skill_b"));
+
+    // Turn 3: no diff (listing unchanged)
+    let _ = session.invoke_llm("turn3").await.unwrap();
+    let req3 = fake_ref.last_request().unwrap();
+    assert_eq!(
+        tool_messages(&req3).len(),
+        0,
+        "no diff expected after full re-injection"
     );
 }
 
