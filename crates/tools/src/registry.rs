@@ -49,6 +49,9 @@ impl ToolInfo {
 /// Maximum length of the first-level tools section (in characters).
 const TOOLS_SECTION_MAX_LEN: usize = 15000;
 
+/// Maximum width of a single output line (in characters).
+const LINE_WIDTH: usize = 100;
+
 /// Thread-safe tool registry.
 ///
 /// Wraps an inner `HashMap<String, Arc<dyn Tool>>` behind a Tokio
@@ -134,7 +137,9 @@ impl ToolRegistryImpl {
     }
 
     /// Format a single group into a section line, returning (output, new_total_len).
-    /// Returns None if truncation was triggered.
+    ///
+    /// When the total length would exceed `max_len`, tools are added one by one
+    /// and the group is truncated (rather than discarded entirely).
     ///
     /// Output format:
     /// - group header: `**{group}** — (always loaded)` if the group has eager tools, else `**{group}** — (deferred)`
@@ -145,7 +150,12 @@ impl ToolRegistryImpl {
         tools: &[ToolInfo],
         total_len: usize,
         max_len: usize,
-    ) -> Option<(String, usize)> {
+    ) -> (String, usize) {
+        // Already at or over limit → return empty.
+        if total_len >= max_len {
+            return (String::new(), total_len);
+        }
+
         let has_eager = tools.iter().any(|t| !t.is_deferred);
         let tag = if has_eager {
             "(always loaded)"
@@ -153,11 +163,20 @@ impl ToolRegistryImpl {
             "(deferred)"
         };
         let header = format!("**{}** — {}", group_name, tag);
+        let header_len = header.chars().count() + 1; // +1 for trailing \n
+
+        // Reject if the header alone would exceed max_len.
+        if total_len + header_len > max_len {
+            return (String::new(), total_len);
+        }
 
         let mut sorted_tools: Vec<_> = tools.iter().collect();
         sorted_tools.sort_by_key(|t| t.name.clone());
 
+        // Start with header; add tools one by one, stop when limit reached.
         let mut lines = vec![header];
+        let mut current_len = total_len + header_len;
+
         for tool in sorted_tools {
             let danger_mark = if tool.is_destructive {
                 " (destructive)"
@@ -166,21 +185,76 @@ impl ToolRegistryImpl {
             } else {
                 ""
             };
-            let line = if tool.is_deferred {
+            let raw_line = if tool.is_deferred {
                 format!("  - {}{}", tool.name, danger_mark)
             } else {
                 format!("  - **{}**{}: {}", tool.name, danger_mark, tool.detail)
             };
-            lines.push(line);
+
+            // Split long lines at word boundaries to stay within LINE_WIDTH.
+            let wrapped = Self::split_long_line(&raw_line, LINE_WIDTH);
+            let mut fits = true;
+            for chunk in &wrapped {
+                let chunk_len = chunk.chars().count() + 1; // +1 for trailing newline
+                if current_len + chunk_len > max_len {
+                    fits = false;
+                    break;
+                }
+                current_len += chunk_len;
+            }
+            if fits {
+                for chunk in &wrapped {
+                    lines.push(chunk.clone());
+                }
+            }
         }
 
         let output = lines.join("\n") + "\n";
         let new_len = total_len + output.chars().count();
-        if new_len > max_len {
-            None
-        } else {
-            Some((output, new_len))
+        (output, new_len)
+    }
+
+    /// Split a long detail text into lines that each fit within
+    /// `width` characters, breaking at word boundaries.
+    fn split_long_line(line: &str, width: usize) -> Vec<String> {
+        if line.chars().count() <= width {
+            return vec![line.to_string()];
         }
+        let mut chunks = Vec::new();
+        let mut remaining = line;
+        while !remaining.is_empty() {
+            if remaining.chars().count() <= width {
+                chunks.push(remaining.to_string());
+                break;
+            }
+            // Find last space within width.
+            let mut split_pos = 0;
+            let mut char_count = 0;
+            for (i, ch) in remaining.char_indices() {
+                char_count += 1;
+                if ch == ' ' && char_count <= width {
+                    split_pos = i;
+                }
+                if char_count >= width {
+                    break;
+                }
+            }
+            if split_pos > 0 {
+                chunks.push(remaining[..split_pos].to_string());
+                remaining = &remaining[split_pos + 1..];
+            } else {
+                // No space found — split at width boundary.
+                let end = remaining
+                    .char_indices()
+                    .take(width)
+                    .last()
+                    .map(|(i, c)| i + c.len_utf8())
+                    .unwrap_or(remaining.len());
+                chunks.push(remaining[..end].to_string());
+                remaining = &remaining[end..];
+            }
+        }
+        chunks
     }
 }
 
@@ -426,13 +500,16 @@ impl ToolRegistryImpl {
         sorted_groups.sort_by_key(|(g, _)| g.clone());
 
         for (group_name, tools) in sorted_groups {
-            let Some((line, new_len)) =
-                Self::format_group_line(&group_name, &tools, total_len, TOOLS_SECTION_MAX_LEN)
-            else {
+            let (line, new_len) =
+                Self::format_group_line(&group_name, &tools, total_len, TOOLS_SECTION_MAX_LEN);
+            if new_len == total_len {
                 break;
-            };
+            }
             total_len = new_len;
             lines.push(line);
+            if total_len >= TOOLS_SECTION_MAX_LEN {
+                break;
+            }
         }
 
         lines.join("")
