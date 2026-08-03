@@ -40,12 +40,10 @@ impl SkillSlashHandler {
     ///
     /// Used at registration time so the caller can register one entry
     /// per skill name.
-    pub fn invocable_names(&self) -> Vec<String> {
-        let names: Vec<String> = self.disk_registry.user_invocable_names();
-        // Builtin skills with `user_invocable: true` are not currently
-        // registered via `user_invocable_names()` on the disk registry,
-        // but we add them here for completeness. If the builtin registry
-        // gains a similar method in the future, this can be simplified.
+    pub async fn invocable_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.disk_registry.user_invocable_names();
+        let builtin_names = self.builtin_registry.user_invocable_names().await;
+        names.extend(builtin_names);
         names
     }
 
@@ -172,16 +170,16 @@ mod tests {
         assert_eq!(result, "Plain text");
     }
 
-    #[test]
-    fn test_invocable_names_empty() {
+    #[tokio::test]
+    async fn test_invocable_names_empty() {
         let disk = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         let handler = SkillSlashHandler::new(disk, builtin);
-        assert!(handler.invocable_names().is_empty());
+        assert!(handler.invocable_names().await.is_empty());
     }
 
-    #[test]
-    fn test_invocable_names_from_disk() {
+    #[tokio::test]
+    async fn test_invocable_names_from_disk() {
         let temp = tempfile::tempdir().unwrap();
         let readme = temp.path().join("SKILL.md");
         std::fs::write(
@@ -193,8 +191,56 @@ mod tests {
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         let handler = SkillSlashHandler::new(disk, builtin);
-        let names = handler.invocable_names();
+        let names = handler.invocable_names().await;
         assert_eq!(names, vec!["my-skill"]);
+    }
+
+    #[tokio::test]
+    async fn test_invocable_names_includes_builtin() {
+        struct BuiltinMockSkill {
+            invocable: bool,
+        }
+
+        #[async_trait::async_trait]
+        impl closeclaw_skills::Skill for BuiltinMockSkill {
+            fn manifest(&self) -> closeclaw_skills::SkillManifest {
+                closeclaw_skills::SkillManifest {
+                    name: "builtin-skill".into(),
+                    version: "1.0".into(),
+                    description: "mock".into(),
+                    author: None,
+                    dependencies: vec![],
+                }
+            }
+            fn body(&self) -> &str {
+                "builtin body"
+            }
+            fn listing_meta(&self) -> closeclaw_skills::SkillListingMeta {
+                closeclaw_skills::SkillListingMeta {
+                    user_invocable: self.invocable,
+                    ..Default::default()
+                }
+            }
+        }
+
+        // Disk skill + builtin skill, both invocable
+        let temp = tempfile::tempdir().unwrap();
+        let readme = temp.path().join("SKILL.md");
+        std::fs::write(
+            &readme,
+            "---\ndescription: test\nuser-invocable: true\n---\n\n# Test\n",
+        )
+        .unwrap();
+        let skill = make_disk_skill("disk-skill", readme, temp.path().to_path_buf());
+        let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
+        builtin
+            .register(Arc::new(BuiltinMockSkill { invocable: true }))
+            .await;
+        let handler = SkillSlashHandler::new(disk, builtin);
+        let mut names = handler.invocable_names().await;
+        names.sort();
+        assert_eq!(names, vec!["builtin-skill", "disk-skill"]);
     }
 
     #[tokio::test]
