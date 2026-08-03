@@ -101,3 +101,63 @@ pub async fn inject_workflow_recovery(session_id: &str, checkpoint: &mut Session
         "injected workflow recovery state into system_appends"
     );
 }
+
+/// Clean up all workflow-related state from a session checkpoint.
+
+/// Performs the four cleanup steps required by the workflow exit flow:
+///
+/// 1. Remove workflow context markers from `system_appends`
+///    (items starting with `"--- WORKFLOW ---"`).
+/// 2. Remove workflow recovery notification entries from `system_appends`
+///    (items starting with [`WORKFLOW_RECOVERY_PREFIX`]).
+/// 3. Set `workflow_run` to `None`.
+/// 4. The caller is responsible for persisting the checkpoint after
+///    calling this method.
+///
+/// This method does **not** handle message-history cleanup — that is
+/// the responsibility of the session layer (`ConversationSession`),
+/// which owns the in-memory transcript.
+///
+/// # Returns
+///
+/// A [`WorkflowExitReport`] summarising what was cleaned up.
+pub fn cleanup_workflow_exit(checkpoint: &mut SessionCheckpoint) -> WorkflowExitReport {
+    let mut report = WorkflowExitReport::default();
+
+    // 1. Remove workflow context markers from system_appends.
+    report.removed_contexts =
+        closeclaw_workflow::context_append::remove_workflow_context(&mut checkpoint.system_appends);
+
+    // 2. Remove workflow recovery notification entries.
+    let before = checkpoint.system_appends.len();
+    checkpoint
+        .system_appends
+        .retain(|s| !s.starts_with(WORKFLOW_RECOVERY_PREFIX));
+    report.removed_recovery_notifications = before - checkpoint.system_appends.len();
+
+    // 3. Clear workflow_run.
+    if checkpoint.workflow_run.is_some() {
+        report.had_workflow_run = true;
+        checkpoint.workflow_run = None;
+    }
+
+    tracing::debug!(
+        removed_contexts = report.removed_contexts,
+        removed_recovery_notifications = report.removed_recovery_notifications,
+        had_workflow_run = report.had_workflow_run,
+        "workflow exit cleanup applied to checkpoint"
+    );
+
+    report
+}
+
+/// Summary of what [`cleanup_workflow_exit`] cleaned up from a checkpoint.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct WorkflowExitReport {
+    /// Number of workflow context markers removed from `system_appends`.
+    pub removed_contexts: usize,
+    /// Number of recovery notification entries removed from `system_appends`.
+    pub removed_recovery_notifications: usize,
+    /// Whether a `workflow_run` was present (and now cleared).
+    pub had_workflow_run: bool,
+}

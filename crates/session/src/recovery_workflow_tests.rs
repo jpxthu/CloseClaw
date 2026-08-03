@@ -203,4 +203,148 @@ mod tests {
             .unwrap();
         assert!(notif.contains("unknown"), "got: {}", notif);
     }
+
+    // ── cleanup_workflow_exit tests ─────────────────────────────────────
+
+    use crate::workflow_recovery::cleanup_workflow_exit;
+    use closeclaw_workflow::context_append::build_workflow_context_append;
+    use closeclaw_workflow::definition::{Step, Workflow};
+
+    fn make_test_workflow_def() -> Workflow {
+        Workflow {
+            id: "test-wf".to_string(),
+            name: "Test Workflow".to_string(),
+            description: "A test workflow".to_string(),
+            version: Some("0.1".to_string()),
+            allow_blocked: false,
+            verify_retry_limit: 3,
+            step_data_schema: serde_yaml::Value::Null,
+            steps: vec![Step {
+                id: 0,
+                name: "Step Zero".to_string(),
+                allow_blocked: None,
+                goal: "Do the first thing".to_string(),
+                verify: vec![],
+                jump: vec![],
+                transitions: vec![],
+            }],
+        }
+    }
+
+    #[test]
+    fn test_cleanup_removes_workflow_context() {
+        let mut cp = make_test_checkpoint("wf-c1");
+        cp.workflow_run = Some(make_workflow_run(0, Phase::Complete));
+        cp.system_appends
+            .push(build_workflow_context_append(&make_test_workflow_def()));
+
+        let report = cleanup_workflow_exit(&mut cp);
+
+        assert_eq!(report.removed_contexts, 1);
+        assert!(cp
+            .system_appends
+            .iter()
+            .all(|s| !s.starts_with("--- WORKFLOW ---")));
+    }
+
+    #[test]
+    fn test_cleanup_removes_recovery_notification() {
+        let mut cp = make_test_checkpoint("wf-c2");
+        cp.workflow_run = Some(make_workflow_run(1, Phase::Executing));
+        cp.system_appends
+            .push(format!("{}recovery msg", WORKFLOW_RECOVERY_PREFIX));
+
+        let report = cleanup_workflow_exit(&mut cp);
+
+        assert_eq!(report.removed_recovery_notifications, 1);
+        assert!(cp
+            .system_appends
+            .iter()
+            .all(|s| !s.starts_with(WORKFLOW_RECOVERY_PREFIX)));
+    }
+
+    #[test]
+    fn test_cleanup_clears_workflow_run() {
+        let mut cp = make_test_checkpoint("wf-c3");
+        cp.workflow_run = Some(make_workflow_run(0, Phase::Complete));
+
+        let report = cleanup_workflow_exit(&mut cp);
+
+        assert!(report.had_workflow_run);
+        assert!(cp.workflow_run.is_none());
+    }
+
+    #[test]
+    fn test_cleanup_no_workflow_run() {
+        let mut cp = make_test_checkpoint("wf-c4");
+        // No workflow_run set.
+
+        let report = cleanup_workflow_exit(&mut cp);
+
+        assert!(!report.had_workflow_run);
+        assert!(cp.workflow_run.is_none());
+    }
+
+    #[test]
+    fn test_cleanup_preserves_non_workflow_appends() {
+        let mut cp = make_test_checkpoint("wf-c5");
+        cp.workflow_run = Some(make_workflow_run(0, Phase::Complete));
+        cp.system_appends
+            .push(build_workflow_context_append(&make_test_workflow_def()));
+        cp.system_appends
+            .push(format!("{}recovery", WORKFLOW_RECOVERY_PREFIX));
+        cp.system_appends.push("user-managed-append".to_string());
+        cp.system_appends.push("another-user-append".to_string());
+
+        let report = cleanup_workflow_exit(&mut cp);
+
+        assert_eq!(report.removed_contexts, 1);
+        assert_eq!(report.removed_recovery_notifications, 1);
+        assert_eq!(cp.system_appends.len(), 2);
+        assert!(cp
+            .system_appends
+            .contains(&"user-managed-append".to_string()));
+        assert!(cp
+            .system_appends
+            .contains(&"another-user-append".to_string()));
+    }
+
+    #[test]
+    fn test_cleanup_full_lifecycle() {
+        // Simulate a complete workflow lifecycle: inject → cleanup.
+        let mut cp = make_test_checkpoint("wf-c6");
+        cp.workflow_run = Some(make_workflow_run(1, Phase::Executing));
+        cp.system_appends
+            .push(build_workflow_context_append(&make_test_workflow_def()));
+        cp.system_appends.push("user-append".to_string());
+
+        // First inject recovery state (as would happen on resume).
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(inject_workflow_recovery("wf-c6", &mut cp));
+
+        // Verify injection happened.
+        assert!(cp
+            .system_appends
+            .iter()
+            .any(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX)));
+        assert!(cp.workflow_run.is_some());
+
+        // Now cleanup.
+        let report = cleanup_workflow_exit(&mut cp);
+
+        assert!(report.removed_contexts >= 1);
+        assert!(report.removed_recovery_notifications >= 1);
+        assert!(report.had_workflow_run);
+        assert!(cp.workflow_run.is_none());
+        assert!(cp
+            .system_appends
+            .iter()
+            .all(|s| !s.starts_with("--- WORKFLOW ---")));
+        assert!(cp
+            .system_appends
+            .iter()
+            .all(|s| !s.starts_with(WORKFLOW_RECOVERY_PREFIX)));
+        assert!(cp.system_appends.contains(&"user-append".to_string()));
+    }
 }

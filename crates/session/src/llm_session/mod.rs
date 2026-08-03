@@ -52,6 +52,7 @@ pub use session_pending_queue::{QueueEntry, QueuePriority, UnifiedMessageQueue};
 mod skill_listing;
 pub mod streaming_assembly;
 pub mod transcript_ops;
+mod workflow_cleanup;
 pub use streaming_assembly::SessionStream;
 
 /// A single message in a conversation session.
