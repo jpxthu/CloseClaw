@@ -25,6 +25,7 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         subagents: SubagentsConfig::default(),
         memory: MemoryConfig::default(),
         hooks: vec![],
+        parallel_tool_calls: true,
         source: ConfigSource::User,
     }
 }
