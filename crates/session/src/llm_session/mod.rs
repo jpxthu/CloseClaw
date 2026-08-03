@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::SystemTime;
 use tokio_util::sync::CancellationToken;
 
 use crate::persistence::{PendingOperationDetail, ReasoningLevel, SessionMode};
@@ -188,6 +189,10 @@ pub struct ConversationSession {
     /// [`system_appends()`](Self::system_appends) at read time so the
     /// system prompt builder sees them automatically.
     progress_appends: Arc<Mutex<Vec<String>>>,
+    /// Per-session file mtime tracking for staleness checks.
+    /// Records the mtime observed at each Read operation so subsequent
+    /// Edit/Write calls can detect external modifications.
+    file_mtimes: Arc<RwLock<HashMap<PathBuf, SystemTime>>>,
     /// Verbosity level controlling outbound content filtering.
     verbosity_level: VerbosityLevel,
     /// Session mode controlling session-level behavior constraints.
@@ -276,6 +281,7 @@ impl ConversationSession {
             session_mode: Arc::new(Mutex::new(SessionMode::default())),
             request_context: Arc::new(Mutex::new(closeclaw_common::RequestContext::default())),
             progress_appends: Arc::new(Mutex::new(Vec::new())),
+            file_mtimes: Arc::new(RwLock::new(HashMap::new())),
             llm_caller: None,
             system_prompt_builder: None,
             prompt_overrides: None,
@@ -961,6 +967,10 @@ impl std::fmt::Debug for ConversationSession {
                 &self.health_checker.as_ref().map(|_| "<HC>"),
             )
             .field("manual_background_signal", &"<Notify>")
+            .field(
+                "file_mtimes",
+                &*self.file_mtimes.read().expect("file_mtimes lock poisoned"),
+            )
             .finish()
     }
 }
