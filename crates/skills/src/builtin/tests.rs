@@ -1,54 +1,13 @@
-//! Tests for built-in skills
-use crate::builtin::{builtin_skills, BuiltinSkills, FileOpsSkill, GitOpsSkill, SearchSkill};
-use crate::registry::Skill;
+//! Cross-skill integration tests for built-in skills.
+//!
+//! Per-skill tests live in `*_tests.rs` files. This file only contains
+//! assertions that span multiple skills or test shared infrastructure.
 
-#[tokio::test]
-async fn test_file_ops_body_not_empty() {
-    let skill = FileOpsSkill::new();
-    let body = skill.body();
-    assert!(!body.is_empty());
-    assert!(body.contains("File Operations Skill"));
-}
+use crate::builtin::{builtin_skills, BuiltinSkills};
 
-#[tokio::test]
-async fn test_git_ops_body_not_empty() {
-    let skill = GitOpsSkill::new();
-    let body = skill.body();
-    assert!(!body.is_empty());
-    assert!(body.contains("Git Operations Skill"));
-}
-
-#[tokio::test]
-async fn test_search_body_not_empty() {
-    let skill = SearchSkill::new();
-    let body = skill.body();
-    assert!(!body.is_empty());
-    assert!(body.contains("Search Skill"));
-}
-
-#[tokio::test]
-async fn test_file_ops_manifest() {
-    let skill = FileOpsSkill::new();
-    let m = skill.manifest();
-    assert_eq!(m.name, "file_ops");
-    assert_eq!(m.version, "1.0.0");
-}
-
-#[tokio::test]
-async fn test_git_ops_manifest() {
-    let skill = GitOpsSkill::new();
-    let m = skill.manifest();
-    assert_eq!(m.name, "git_ops");
-    assert_eq!(m.version, "1.0.0");
-}
-
-#[tokio::test]
-async fn test_search_manifest() {
-    let skill = SearchSkill::new();
-    let m = skill.manifest();
-    assert_eq!(m.name, "search");
-    assert_eq!(m.version, "1.0.0");
-}
+// ==========================================================================
+// Cross-skill manifest / body / listing_meta assertions
+// ==========================================================================
 
 #[test]
 fn test_builtin_skills_count() {
@@ -131,44 +90,61 @@ fn test_file_ops_and_git_ops_are_not_user_invocable() {
     }
 }
 
-#[tokio::test]
-async fn test_default_execute_returns_body_content() {
-    let skill = FileOpsSkill::new();
-    let body = skill.body().to_string();
-    let result = skill.execute(None).await.unwrap();
-    assert_eq!(result, body);
-}
+// ==========================================================================
+// State transition: all bundled skills override execute()
+// ==========================================================================
 
 #[tokio::test]
-async fn test_default_execute_with_none_args() {
-    let skill = GitOpsSkill::new();
-    let result = skill.execute(None).await.unwrap();
-    assert_eq!(result, skill.body().to_string());
-}
-
-#[tokio::test]
-async fn test_default_execute_ignores_args() {
-    let skill = SearchSkill::new();
-    let result = skill
-        .execute(Some(serde_json::json!({"foo": "bar"})))
-        .await
-        .unwrap();
-    assert_eq!(result, skill.body().to_string());
-}
-
-#[tokio::test]
-async fn test_all_bundled_skills_execute_returns_body() {
-    for skill in BuiltinSkills::all() {
+async fn test_all_bundled_skills_override_execute() {
+    let skills = BuiltinSkills::all();
+    for skill in &skills {
+        let name = skill.manifest().name;
         let body = skill.body().to_string();
         let result = skill.execute(None).await.unwrap();
+        assert_ne!(
+            result, body,
+            "skill '{name}' overrides execute(), should not return body"
+        );
+        let _: serde_json::Value = serde_json::from_str(&result).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn test_all_bundled_skills_execute_returns_valid_json_not_body() {
+    let skills = BuiltinSkills::all();
+    for skill in &skills {
+        let name = skill.manifest().name;
+        let body = skill.body().to_string();
+        let result = skill.execute(None).await.unwrap();
+        assert_ne!(
+            result, body,
+            "skill '{name}' execute() should not return body text"
+        );
+        let v: serde_json::Value = serde_json::from_str(&result)
+            .unwrap_or_else(|e| panic!("skill '{name}' result is not valid JSON: {e}"));
         assert_eq!(
-            result,
-            body,
-            "skill '{}' execute() should return body()",
-            skill.manifest().name
+            v["skill"].as_str().unwrap(),
+            name.as_str(),
+            "skill '{name}' result 'skill' field should match its name"
         );
     }
 }
+
+#[tokio::test]
+async fn test_all_bundled_skills_empty_args_returns_valid_json() {
+    let skills = BuiltinSkills::all();
+    for skill in &skills {
+        let name = skill.manifest().name;
+        let result = skill.execute(Some(serde_json::json!({}))).await.unwrap();
+        let v: serde_json::Value = serde_json::from_str(&result)
+            .unwrap_or_else(|e| panic!("skill '{name}' empty-args result is not valid JSON: {e}"));
+        assert_eq!(v["skill"].as_str().unwrap(), name.as_str());
+    }
+}
+
+// ==========================================================================
+// Skill registry integration
+// ==========================================================================
 
 #[tokio::test]
 async fn test_skill_registry_with_builtins() {

@@ -97,8 +97,10 @@ impl SlashHandler for SkillSlashHandler {
 
         // 2. Fallback: BuiltinSkillRegistry
         if let Some(skill) = self.builtin_registry.get(skill_name).await {
-            let body = skill.body().to_string();
-            return SlashResult::InjectMeta { content: body };
+            return match skill.execute(None).await {
+                Ok(content) => SlashResult::InjectMeta { content },
+                Err(e) => SlashResult::Reply(format!("技能 \"{skill_name}\" 执行失败: {e}")),
+            };
         }
 
         // 3. Not found
@@ -253,6 +255,92 @@ mod tests {
                 assert_eq!(content, "builtin body content");
             }
             other => panic!("expected InjectMeta, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_builtin_skill_uses_execute_not_body() {
+        struct ExecuteOverrideSkill;
+
+        #[async_trait::async_trait]
+        impl closeclaw_skills::Skill for ExecuteOverrideSkill {
+            fn manifest(&self) -> closeclaw_skills::SkillManifest {
+                closeclaw_skills::SkillManifest {
+                    name: "exec-override".into(),
+                    version: "1.0".into(),
+                    description: "mock".into(),
+                    author: None,
+                    dependencies: vec![],
+                }
+            }
+            fn body(&self) -> &str {
+                "this is body text"
+            }
+            async fn execute(
+                &self,
+                _args: Option<serde_json::Value>,
+            ) -> Result<String, closeclaw_skills::SkillError> {
+                Ok("execute result".to_string())
+            }
+        }
+
+        let disk = Arc::new(DiskSkillRegistry::new(vec![]));
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
+        builtin.register(Arc::new(ExecuteOverrideSkill)).await;
+        let handler = SkillSlashHandler::new(disk, builtin);
+
+        let ctx = make_ctx("exec-override");
+        let result = handler.handle("", &ctx).await;
+        match result {
+            SlashResult::InjectMeta { content } => {
+                assert_eq!(content, "execute result");
+                assert_ne!(content, "this is body text");
+            }
+            other => panic!("expected InjectMeta, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_builtin_skill_execute_error() {
+        struct ErrorSkill;
+
+        #[async_trait::async_trait]
+        impl closeclaw_skills::Skill for ErrorSkill {
+            fn manifest(&self) -> closeclaw_skills::SkillManifest {
+                closeclaw_skills::SkillManifest {
+                    name: "error-skill".into(),
+                    version: "1.0".into(),
+                    description: "mock".into(),
+                    author: None,
+                    dependencies: vec![],
+                }
+            }
+            fn body(&self) -> &str {
+                "error body"
+            }
+            async fn execute(
+                &self,
+                _args: Option<serde_json::Value>,
+            ) -> Result<String, closeclaw_skills::SkillError> {
+                Err(closeclaw_skills::SkillError::ExecutionFailed(
+                    "boom".to_string(),
+                ))
+            }
+        }
+
+        let disk = Arc::new(DiskSkillRegistry::new(vec![]));
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
+        builtin.register(Arc::new(ErrorSkill)).await;
+        let handler = SkillSlashHandler::new(disk, builtin);
+
+        let ctx = make_ctx("error-skill");
+        let result = handler.handle("", &ctx).await;
+        match result {
+            SlashResult::Reply(msg) => {
+                assert!(msg.contains("执行失败"));
+                assert!(msg.contains("boom"));
+            }
+            other => panic!("expected Reply, got {:?}", other),
         }
     }
 
