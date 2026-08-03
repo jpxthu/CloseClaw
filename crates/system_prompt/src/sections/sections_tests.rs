@@ -162,6 +162,32 @@ fn test_section_cache_invalidate_isolation() {
     assert_eq!(cache_b.get("shared-key", None), Some("from-b".to_string()));
 }
 
+/// invalidate_tools removes only the tools entry, leaving other entries intact.
+#[test]
+fn test_invalidate_tools() {
+    let mut cache = SectionCache::new();
+    cache.put("tools", "tool content".to_string(), None);
+    cache.put("memory", "memory content".to_string(), None);
+
+    // Verify both entries are cached
+    assert_eq!(cache.get("tools", None), Some("tool content".to_string()));
+    assert_eq!(
+        cache.get("memory", None),
+        Some("memory content".to_string())
+    );
+
+    // Invalidate tools only
+    cache.invalidate_tools();
+
+    // Tools entry removed
+    assert_eq!(cache.get("tools", None), None);
+    // Memory entry unaffected
+    assert_eq!(
+        cache.get("memory", None),
+        Some("memory content".to_string())
+    );
+}
+
 // -----------------------------------------------------------------------
 // Step 1.5: Edge case tests
 // -----------------------------------------------------------------------

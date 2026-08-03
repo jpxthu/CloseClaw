@@ -126,11 +126,11 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_key_always_none() {
+    fn test_cache_key_returns_tools() {
         let registry = Arc::new(ToolRegistry::new());
         let provider = ToolsFragmentProvider::new(registry, None, None, None);
         let ctx = FragmentContext::test_default();
-        assert!(provider.cache_key(&ctx).is_none());
+        assert_eq!(provider.cache_key(&ctx), Some("tools".to_string()));
     }
 
     #[tokio::test]
