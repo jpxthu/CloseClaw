@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::FutureExt;
 use tokio::time::sleep;
 
 use super::*;
@@ -20,6 +21,7 @@ fn make_call(
     PendingToolCall {
         id: id.into(),
         tool_name: tool_name.into(),
+        args: serde_json::json!({}),
         file_path: file_path.map(PathBuf::from),
         is_concurrency_safe,
     }
@@ -411,4 +413,367 @@ async fn test_dispatch_cleanup_no_residual_entries() {
         "Expected FileMutexMap to be empty after dispatch, got {} entries",
         mutex_map.len()
     );
+}
+
+// ---------------------------------------------------------------------------
+// extract_file_path tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_extract_file_path_from_path_key() {
+    let args = serde_json::json!({"path": "/a/b.txt"});
+    assert_eq!(extract_file_path(&args), Some(PathBuf::from("/a/b.txt")));
+}
+
+#[test]
+fn test_extract_file_path_from_file_path_key() {
+    let args = serde_json::json!({"file_path": "/c/d.txt"});
+    assert_eq!(extract_file_path(&args), Some(PathBuf::from("/c/d.txt")));
+}
+
+#[test]
+fn test_extract_file_path_prefers_path_key() {
+    let args = serde_json::json!({"path": "/first.txt", "file_path": "/second.txt"});
+    assert_eq!(extract_file_path(&args), Some(PathBuf::from("/first.txt")));
+}
+
+#[test]
+fn test_extract_file_path_none_when_absent() {
+    let args = serde_json::json!({"command": "echo hi"});
+    assert_eq!(extract_file_path(&args), None);
+}
+
+#[test]
+fn test_extract_file_path_none_for_empty_args() {
+    let args = serde_json::json!({});
+    assert_eq!(extract_file_path(&args), None);
+}
+
+// ---------------------------------------------------------------------------
+// build_pending_call tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_build_pending_call_looks_up_flags() {
+    let registry = crate::ToolRegistryImpl::new();
+    // Register a concurrency-safe read-only tool.
+    use crate::Tool;
+    struct DummyReadTool;
+    #[async_trait]
+    impl Tool for DummyReadTool {
+        fn name(&self) -> &str {
+            "DummyRead"
+        }
+        fn group(&self) -> &str {
+            "test"
+        }
+        fn summary(&self) -> String {
+            "dummy".into()
+        }
+        fn detail(&self) -> String {
+            "dummy".into()
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object", "properties": {"path": {"type": "string"}}})
+        }
+        fn flags(&self) -> crate::ToolFlags {
+            crate::ToolFlags {
+                is_concurrency_safe: true,
+                is_read_only: true,
+                ..Default::default()
+            }
+        }
+    }
+    registry.register(DummyReadTool).await.unwrap();
+
+    let args = serde_json::json!({"path": "/test/file.txt"});
+    let pending = build_pending_call("call-1".into(), "DummyRead", args.clone(), &registry).await;
+
+    assert_eq!(pending.id, "call-1");
+    assert_eq!(pending.tool_name, "DummyRead");
+    assert_eq!(pending.args, args);
+    assert_eq!(pending.file_path, Some(PathBuf::from("/test/file.txt")));
+    assert!(pending.is_concurrency_safe);
+}
+
+#[tokio::test]
+async fn test_build_pending_call_no_file_path() {
+    let registry = crate::ToolRegistryImpl::new();
+    use crate::Tool;
+    struct NoPathTool;
+    #[async_trait]
+    impl Tool for NoPathTool {
+        fn name(&self) -> &str {
+            "NoPath"
+        }
+        fn group(&self) -> &str {
+            "test"
+        }
+        fn summary(&self) -> String {
+            "no-path".into()
+        }
+        fn detail(&self) -> String {
+            "no-path".into()
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object", "properties": {"command": {"type": "string"}}})
+        }
+        fn flags(&self) -> crate::ToolFlags {
+            crate::ToolFlags {
+                is_concurrency_safe: false,
+                ..Default::default()
+            }
+        }
+    }
+    registry.register(NoPathTool).await.unwrap();
+
+    let args = serde_json::json!({"command": "echo hi"});
+    let pending = build_pending_call("call-2".into(), "NoPath", args, &registry).await;
+
+    assert_eq!(pending.file_path, None);
+    assert!(!pending.is_concurrency_safe);
+}
+
+// ---------------------------------------------------------------------------
+// ToolRegistryExecutor tests
+// ---------------------------------------------------------------------------
+
+use closeclaw_common::tool_trait::ToolContext;
+
+/// A simple tool that echoes its args back.
+struct EchoTool;
+
+#[async_trait]
+impl crate::Tool for EchoTool {
+    fn name(&self) -> &str {
+        "Echo"
+    }
+    fn group(&self) -> &str {
+        "test"
+    }
+    fn summary(&self) -> String {
+        "echo".into()
+    }
+    fn detail(&self) -> String {
+        "echo".into()
+    }
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({"type": "object", "properties": {"msg": {"type": "string"}}})
+    }
+    async fn call(
+        &self,
+        args: Value,
+        _ctx: &ToolContext,
+    ) -> Result<closeclaw_common::tool_trait::ToolResult, closeclaw_common::tool_trait::ToolCallError>
+    {
+        Ok(closeclaw_common::tool_trait::ToolResult {
+            data: args,
+            new_messages: vec![],
+            context_modifier: None,
+        })
+    }
+    fn flags(&self) -> crate::ToolFlags {
+        crate::ToolFlags {
+            is_concurrency_safe: true,
+            ..Default::default()
+        }
+    }
+}
+
+fn make_base_ctx() -> ToolContext {
+    ToolContext {
+        agent_id: "test-agent".into(),
+        workdir: None,
+        session_id: None,
+        call_id: None,
+        session: None,
+        session_mode: None,
+        manual_background_signal: None,
+    }
+}
+
+#[tokio::test]
+async fn test_executor_looks_up_and_calls_tool() {
+    let registry = Arc::new(crate::ToolRegistryImpl::new());
+    registry.register(EchoTool).await.unwrap();
+
+    let executor = ToolRegistryExecutor::new(registry, make_base_ctx());
+    let call = PendingToolCall {
+        id: "exec-1".into(),
+        tool_name: "Echo".into(),
+        args: serde_json::json!({"msg": "hello"}),
+        file_path: None,
+        is_concurrency_safe: true,
+    };
+
+    let result = executor.execute(&call).await;
+    assert_eq!(result.data, serde_json::json!({"msg": "hello"}));
+}
+
+#[tokio::test]
+async fn test_executor_sets_call_id() {
+    let registry = Arc::new(crate::ToolRegistryImpl::new());
+
+    // A tool that captures call_id from ToolContext.
+    struct CallIdCaptureTool;
+    #[async_trait]
+    impl crate::Tool for CallIdCaptureTool {
+        fn name(&self) -> &str {
+            "Capture"
+        }
+        fn group(&self) -> &str {
+            "test"
+        }
+        fn summary(&self) -> String {
+            "capture".into()
+        }
+        fn detail(&self) -> String {
+            "capture".into()
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        async fn call(
+            &self,
+            _args: Value,
+            ctx: &ToolContext,
+        ) -> Result<
+            closeclaw_common::tool_trait::ToolResult,
+            closeclaw_common::tool_trait::ToolCallError,
+        > {
+            Ok(closeclaw_common::tool_trait::ToolResult {
+                data: serde_json::json!({"call_id": ctx.call_id}),
+                new_messages: vec![],
+                context_modifier: None,
+            })
+        }
+        fn flags(&self) -> crate::ToolFlags {
+            crate::ToolFlags::default()
+        }
+    }
+    registry.register(CallIdCaptureTool).await.unwrap();
+
+    let executor = ToolRegistryExecutor::new(registry, make_base_ctx());
+    let call = PendingToolCall {
+        id: "my-call-id".into(),
+        tool_name: "Capture".into(),
+        args: serde_json::json!({}),
+        file_path: None,
+        is_concurrency_safe: false,
+    };
+
+    let result = executor.execute(&call).await;
+    assert_eq!(
+        result.data["call_id"],
+        serde_json::json!("my-call-id"),
+        "executor should set call_id from PendingToolCall.id"
+    );
+}
+
+/// A tool that always fails.
+struct FailTool;
+
+#[async_trait]
+impl crate::Tool for FailTool {
+    fn name(&self) -> &str {
+        "Fail"
+    }
+    fn group(&self) -> &str {
+        "test"
+    }
+    fn summary(&self) -> String {
+        "fail".into()
+    }
+    fn detail(&self) -> String {
+        "fail".into()
+    }
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({"type": "object"})
+    }
+    async fn call(
+        &self,
+        _args: Value,
+        _ctx: &ToolContext,
+    ) -> Result<closeclaw_common::tool_trait::ToolResult, closeclaw_common::tool_trait::ToolCallError>
+    {
+        Err(closeclaw_common::tool_trait::ToolCallError::NotImplemented)
+    }
+    fn flags(&self) -> crate::ToolFlags {
+        crate::ToolFlags::default()
+    }
+}
+
+#[tokio::test]
+async fn test_executor_tool_error_becomes_result() {
+    let registry = Arc::new(crate::ToolRegistryImpl::new());
+    registry.register(FailTool).await.unwrap();
+
+    let executor = ToolRegistryExecutor::new(registry, make_base_ctx());
+    let call = PendingToolCall {
+        id: "fail-1".into(),
+        tool_name: "Fail".into(),
+        args: serde_json::json!({}),
+        file_path: None,
+        is_concurrency_safe: false,
+    };
+
+    let result = executor.execute(&call).await;
+    // ToolCallError is converted to a ToolResult with error info.
+    assert!(
+        result.data.get("error").is_some(),
+        "failed tool should produce error in result data"
+    );
+}
+
+#[tokio::test]
+async fn test_executor_nonexistent_tool_panics() {
+    let registry = Arc::new(crate::ToolRegistryImpl::new());
+    let executor = ToolRegistryExecutor::new(registry, make_base_ctx());
+    let call = PendingToolCall {
+        id: "x".into(),
+        tool_name: "Nonexistent".into(),
+        args: serde_json::json!({}),
+        file_path: None,
+        is_concurrency_safe: false,
+    };
+
+    let result = std::panic::AssertUnwindSafe(executor.execute(&call))
+        .catch_unwind()
+        .await;
+    assert!(result.is_err(), "should panic for unknown tool");
+}
+
+// ---------------------------------------------------------------------------
+// End-to-end: dispatcher + ToolRegistryExecutor
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_end_to_end_dispatch_with_real_executor() {
+    let registry = Arc::new(crate::ToolRegistryImpl::new());
+    registry.register(EchoTool).await.unwrap();
+
+    let dispatcher = ToolCallDispatcher::new(Arc::new(FileMutexMap::new()), true);
+    let executor = ToolRegistryExecutor::new(registry, make_base_ctx());
+
+    let calls = vec![
+        PendingToolCall {
+            id: "e2e-1".into(),
+            tool_name: "Echo".into(),
+            args: serde_json::json!({"msg": "hi"}),
+            file_path: None,
+            is_concurrency_safe: true,
+        },
+        PendingToolCall {
+            id: "e2e-2".into(),
+            tool_name: "Echo".into(),
+            args: serde_json::json!({"msg": "bye"}),
+            file_path: None,
+            is_concurrency_safe: true,
+        },
+    ];
+
+    let results = dispatcher.dispatch_all(calls, &executor).await;
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].data, serde_json::json!({"msg": "hi"}));
+    assert_eq!(results[1].data, serde_json::json!({"msg": "bye"}));
 }
