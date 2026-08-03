@@ -10,8 +10,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::join_all;
+use serde_json::Value;
 
 use crate::file_mutex::FileMutexMap;
+use crate::registry::ToolRegistryImpl;
 
 // ---------------------------------------------------------------------------
 // Input
@@ -26,6 +28,8 @@ pub struct PendingToolCall {
     pub id: String,
     /// Registered tool name (e.g. "Read", "Edit").
     pub tool_name: String,
+    /// JSON arguments for the tool.
+    pub args: Value,
     /// Target file path, if any.
     pub file_path: Option<PathBuf>,
     /// Whether the tool declares itself concurrency-safe.
@@ -134,6 +138,100 @@ impl ToolCallDispatcher {
                 .as_deref()
                 .is_some_and(|p| mutex_files.contains(p))
         })
+    }
+}
+
+// ===========================================================================
+// Runtime executor — bridges dispatcher to Tool::call()
+// ===========================================================================
+
+/// Runtime [`ToolExecutor`] that looks up tools from a
+/// [`ToolRegistryImpl`] and calls [`Tool::call`] with the
+/// arguments carried in [`PendingToolCall`].
+///
+/// Created per-dispatch batch; holds a base [`ToolContext`] whose
+/// `call_id` is overridden from each [`PendingToolCall::id`].
+pub struct ToolRegistryExecutor {
+    registry: Arc<ToolRegistryImpl>,
+    base_ctx: crate::ToolContext,
+}
+
+impl ToolRegistryExecutor {
+    /// Create a new executor.
+    ///
+    /// `base_ctx` is cloned for each call; its `call_id` is replaced
+    /// with the individual `PendingToolCall::id`.
+    pub fn new(registry: Arc<ToolRegistryImpl>, base_ctx: crate::ToolContext) -> Self {
+        Self { registry, base_ctx }
+    }
+}
+
+#[async_trait]
+impl ToolExecutor for ToolRegistryExecutor {
+    async fn execute(&self, call: &PendingToolCall) -> closeclaw_common::tool_trait::ToolResult {
+        let guard = self.registry.tools.read().await;
+        let tool = guard
+            .get(&call.tool_name)
+            .expect("tool should have been validated before dispatch");
+        let tool = Arc::clone(tool);
+        drop(guard);
+
+        let mut ctx = self.base_ctx.clone();
+        ctx.call_id = Some(call.id.clone());
+
+        match tool.call(call.args.clone(), &ctx).await {
+            Ok(result) => result,
+            Err(e) => closeclaw_common::tool_trait::ToolResult {
+                data: serde_json::json!({ "error": e.to_string() }),
+                new_messages: vec![],
+                context_modifier: None,
+            },
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PendingToolCall construction helpers
+// ---------------------------------------------------------------------------
+
+/// Extract a file path from tool arguments.
+///
+/// Checks common arg names (`"path"`, `"file_path"`) used by
+/// built-in tools (Read, Write, Edit, Ls, etc.).
+pub fn extract_file_path(args: &Value) -> Option<PathBuf> {
+    for key in &["path", "file_path"] {
+        if let Some(p) = args.get(*key).and_then(Value::as_str) {
+            return Some(PathBuf::from(p));
+        }
+    }
+    None
+}
+
+/// Build a [`PendingToolCall`] from LLM tool call components.
+///
+/// Looks up the tool in `registry` to read its `is_concurrency_safe`
+/// flag. Extracts `file_path` from `args` via [`extract_file_path`].
+pub async fn build_pending_call(
+    id: String,
+    tool_name: &str,
+    args: Value,
+    registry: &ToolRegistryImpl,
+) -> PendingToolCall {
+    let guard = registry.tools.read().await;
+    let is_concurrency_safe = guard
+        .get(tool_name)
+        .map(|t| t.flags().is_concurrency_safe)
+        .unwrap_or(false);
+    drop(guard);
+
+    let file_path = extract_file_path(&args);
+
+    PendingToolCall {
+        id,
+        tool_name: tool_name.to_string(),
+        args,
+        file_path,
+        is_concurrency_safe,
     }
 }
 
