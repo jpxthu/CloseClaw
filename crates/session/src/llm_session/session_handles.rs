@@ -22,6 +22,8 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use closeclaw_common::canonicalize_or_clone;
+
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -817,10 +819,4 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
             msg
         })
     }
-}
-
-/// Canonicalize a path, falling back to the original on failure.
-/// Mirrors the pattern in `crates/tools/src/file_mutex.rs`.
-fn canonicalize_or_clone(path: &Path) -> std::path::PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
