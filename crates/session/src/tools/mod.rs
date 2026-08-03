@@ -106,3 +106,6 @@ pub trait SessionManagerOps: Send + Sync {
 
 #[cfg(test)]
 mod registrar_tests;
+
+#[cfg(test)]
+mod sessions_spawn_tests;

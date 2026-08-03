@@ -17,7 +17,7 @@ use closeclaw_permission::engine::engine_eval::PermissionEngine;
 
 use crate::permission_check;
 use crate::permission_check::PermDeps;
-use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -156,6 +156,64 @@ impl ReadTool {
     }
 }
 
+/// "When to use" section for the Read tool prompt.
+fn read_prompt_when_to_use() -> String {
+    "Use Read to view file contents, confirm file existence, read configurations, \
+     or inspect code. Accepts a file path and returns text content. \
+     Supports large files via offset/limit pagination. \
+     For images, use the image analysis tool instead."
+        .to_string()
+}
+
+/// Append workdir-based path guidance to the prompt parts.
+fn read_prompt_add_workdir_guidance(context: &PromptGenerationContext, parts: &mut Vec<String>) {
+    if let Some(ref wd) = context.workdir {
+        parts.push(closeclaw_common::format_workdir_guidance(
+            wd,
+            "Relative paths are resolved against this directory. \
+             Use absolute paths for files outside the working directory.",
+        ));
+    }
+}
+
+/// "Usage principles" section for the Read tool prompt.
+fn read_prompt_usage_principles() -> String {
+    "For large files, use offset and limit parameters to read in chunks. \
+     Do not attempt to read entire binary files or very large files (>
+     50KB) in a single call — read only the relevant portions. \
+     If the file is an image, use the image analysis tool instead of Read."
+        .to_string()
+}
+
+/// Append combination suggestions based on available tools.
+fn read_prompt_add_combination_suggestions(
+    context: &PromptGenerationContext,
+    parts: &mut Vec<String>,
+) {
+    let has_write = context
+        .available_tool_names
+        .iter()
+        .any(|t| t == "Write" || t == "write");
+    let has_edit = context
+        .available_tool_names
+        .iter()
+        .any(|t| t == "Edit" || t == "edit");
+    let has_exec = context
+        .available_tool_names
+        .iter()
+        .any(|t| t == "Bash" || t == "bash" || t == "exec");
+    let mut suggestions = Vec::new();
+    if has_write || has_edit {
+        suggestions.push("Write/Edit (read file, then modify it)");
+    }
+    if has_exec {
+        suggestions.push("Bash (read log files, then analyze output)");
+    }
+    if !suggestions.is_empty() {
+        parts.push(format!("Combine with: {}.", suggestions.join(", ")));
+    }
+}
+
 #[async_trait]
 impl Tool for ReadTool {
     fn name(&self) -> &str {
@@ -174,6 +232,15 @@ impl Tool for ReadTool {
          Returns the text content as a JSON object with key `content`.\
          Fails if the path does not exist or is not a readable file."
             .to_string()
+    }
+
+    fn generate_prompt(&self, context: &PromptGenerationContext) -> String {
+        let mut parts = Vec::new();
+        parts.push(read_prompt_when_to_use());
+        read_prompt_add_workdir_guidance(context, &mut parts);
+        parts.push(read_prompt_usage_principles());
+        read_prompt_add_combination_suggestions(context, &mut parts);
+        parts.join("\n\n")
     }
 
     fn input_schema(&self) -> Value {

@@ -235,46 +235,103 @@ fn spawn_child(
 }
 
 // ===========================================================================
-// Gap 1: generate_prompt tests
+// Gap 1: generate_prompt tests (updated for Step 1.2 context-aware behavior)
 // ===========================================================================
 
-/// `generate_prompt` must return `detail()` when no context is provided.
+/// `generate_prompt` must return context-aware output for empty context.
 #[tokio::test]
-async fn test_generate_prompt_returns_detail_with_empty_context() {
+async fn test_generate_prompt_with_empty_context() {
     let tool = make_tool();
     let ctx = PromptGenerationContext::default();
     let prompt = tool.generate_prompt(&ctx);
-    assert_eq!(prompt, tool.detail());
+    // Empty context: no workdir, default permission (allowed)
+    assert!(
+        prompt.contains("Bash is available"),
+        "empty context should show Bash as available"
+    );
+    assert!(
+        !prompt.contains("Working directory"),
+        "empty context should not mention working directory"
+    );
 }
 
-/// Different workdir contexts must not change the prompt output.
+/// Workdir context changes the prompt output.
 #[tokio::test]
-async fn test_generate_prompt_ignores_workdir() {
+async fn test_generate_prompt_includes_workdir() {
     let tool = make_tool();
     let no_workdir = PromptGenerationContext::default();
     let with_workdir = ctx_with_workdir("/some/path", false);
-    assert_eq!(
-        tool.generate_prompt(&no_workdir),
-        tool.generate_prompt(&with_workdir)
+    let prompt_no = tool.generate_prompt(&no_workdir);
+    let prompt_yes = tool.generate_prompt(&with_workdir);
+    assert_ne!(
+        prompt_no, prompt_yes,
+        "different workdir contexts should produce different prompts"
+    );
+    assert!(
+        prompt_yes.contains("/some/path"),
+        "prompt should contain the working directory path"
+    );
+    assert!(
+        prompt_yes.contains("not a git repo"),
+        "non-git path should note absence of git"
     );
 }
 
-/// Git branch and recent_changes must not affect the prompt output.
+/// Git branch and recent_changes are reflected in the prompt.
 #[tokio::test]
-async fn test_generate_prompt_ignores_git_info() {
+async fn test_generate_prompt_includes_git_info() {
     let tool = make_tool();
     let no_git = ctx_with_workdir("/tmp", false);
     let with_git = ctx_with_workdir("/tmp", true);
-    assert_eq!(
-        tool.generate_prompt(&no_git),
-        tool.generate_prompt(&with_git)
+    let prompt_no = tool.generate_prompt(&no_git);
+    let prompt_yes = tool.generate_prompt(&with_git);
+    assert!(
+        prompt_yes.contains("main"),
+        "git prompt should contain the branch name"
+    );
+    assert!(
+        prompt_yes.contains("uncommitted change"),
+        "git prompt should mention uncommitted changes"
+    );
+    assert!(
+        prompt_no.contains("not a git repo"),
+        "non-git prompt should note absence of git"
     );
 }
 
-/// Prompt with a full context (workdir, tools list, session mode) still
-/// equals `detail()`.
+/// Prompt adapts when Bash tool is not in the allowed tool list.
 #[tokio::test]
-async fn test_generate_prompt_ignores_all_context_fields() {
+async fn test_generate_prompt_permission_denied() {
+    let tool = make_tool();
+    let ctx = PromptGenerationContext {
+        tools: Some(vec!["Read".into(), "Write".into()]),
+        ..Default::default()
+    };
+    let prompt = tool.generate_prompt(&ctx);
+    assert!(
+        prompt.contains("not available"),
+        "Bash not in tools list should show unavailable"
+    );
+}
+
+/// Prompt includes combination suggestions when Read is available.
+#[tokio::test]
+async fn test_generate_prompt_combination_suggestions() {
+    let tool = make_tool();
+    let ctx = PromptGenerationContext {
+        available_tool_names: vec!["Bash".into(), "Read".into()],
+        ..Default::default()
+    };
+    let prompt = tool.generate_prompt(&ctx);
+    assert!(
+        prompt.contains("Read"),
+        "should suggest Read as a combination"
+    );
+}
+
+/// Full context produces a comprehensive prompt.
+#[tokio::test]
+async fn test_generate_prompt_full_context() {
     let tool = make_tool();
     let full_ctx = PromptGenerationContext {
         agent_id: "agent-1".into(),
@@ -284,26 +341,20 @@ async fn test_generate_prompt_ignores_all_context_fields() {
             branch: Some("feat/x".into()),
             recent_changes: 7,
         }),
-        available_tool_names: vec!["Bash".into(), "Read".into()],
-        tools: Some(vec!["*".into()]),
+        available_tool_names: vec!["Bash".into(), "Read".into(), "Write".into()],
+        tools: Some(vec!["Bash".into(), "Read".into()]),
         disallowed_tools: None,
         session_mode: None,
         effective_spawn_budget: Some(10),
+        agent_role: None,
+        agent_type: None,
     };
-    assert_eq!(tool.generate_prompt(&full_ctx), tool.detail());
-}
-
-/// Verify that `detail()` does NOT contain workdir or git info
-/// (confirming the design doc principle).
-#[tokio::test]
-async fn test_detail_excludes_workdir_and_git() {
-    let tool = make_tool();
-    let detail = tool.detail();
-    assert!(
-        !detail.contains("workdir"),
-        "detail() must not contain 'workdir'"
-    );
-    assert!(!detail.contains("git"), "detail() must not contain 'git'");
+    let prompt = tool.generate_prompt(&full_ctx);
+    assert!(prompt.contains("/home/user/project"));
+    assert!(prompt.contains("feat/x"));
+    assert!(prompt.contains("Bash is available"));
+    assert!(prompt.contains("Read"));
+    assert!(prompt.contains("Write"));
 }
 
 // ===========================================================================

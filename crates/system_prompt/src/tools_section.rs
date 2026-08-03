@@ -7,6 +7,26 @@ use crate::sections::Section;
 use closeclaw_common::SessionMode;
 use closeclaw_tools::{PromptGenerationContext, ToolContext, ToolRegistry};
 
+/// Parameters for [`build_tools_section`].
+///
+/// Groups the agent-level and session-level parameters that influence
+/// tool listing generation.  Keeps the function signature within the
+/// CONTRIBUTING.md 6-parameter limit.
+pub struct ToolsSectionParams {
+    /// Agent-level tool whitelist from config.
+    pub agent_tools: Option<Vec<String>>,
+    /// Agent-level tool blacklist from config.
+    pub agent_disallowed_tools: Option<Vec<String>>,
+    /// Session mode for mode-aware tool filtering.
+    pub session_mode: Option<SessionMode>,
+    /// Effective spawn depth budget for the current session.
+    pub effective_spawn_budget: Option<u32>,
+    /// Agent role (human-readable name/purpose) from agent config.
+    pub agent_role: Option<String>,
+    /// Agent type (e.g. root agent vs spawned child) from agent config.
+    pub agent_type: Option<String>,
+}
+
 /// Task writing guidance appended to the tools section when spawn is available.
 /// Source: docs/design/agent/agent-spawn.md §父 Agent 的 Task 编写指引
 const TASK_WRITING_GUIDANCE: &str = concat!(
@@ -42,10 +62,7 @@ const BACKGROUND_TASK_GUIDANCE: &str = concat!(
 pub async fn build_tools_section(
     registry: &ToolRegistry,
     ctx: &ToolContext,
-    agent_tools: Option<Vec<String>>,
-    agent_disallowed_tools: Option<Vec<String>>,
-    session_mode: Option<SessionMode>,
-    effective_spawn_budget: Option<u32>,
+    params: &ToolsSectionParams,
 ) -> Section {
     // 1. Independent lock: get available tool names, then drop the lock.
     let descriptors = registry.list_descriptors(ctx).await;
@@ -53,23 +70,30 @@ pub async fn build_tools_section(
 
     // 2. Resolve agent-level tool filtering.
     //    Priority: explicit parameters > AgentRegistry query.
-    let (tools, disallowed_tools) = if agent_tools.is_some() || agent_disallowed_tools.is_some() {
-        (agent_tools, agent_disallowed_tools)
-    } else {
-        // Query AgentRegistry directly (design-doc query path).
-        registry.query_agent_tools_config(&ctx.agent_id).await
-    };
+    let (tools, disallowed_tools) =
+        if params.agent_tools.is_some() || params.agent_disallowed_tools.is_some() {
+            (
+                params.agent_tools.clone(),
+                params.agent_disallowed_tools.clone(),
+            )
+        } else {
+            // Query AgentRegistry directly (design-doc query path).
+            registry.query_agent_tools_config(&ctx.agent_id).await
+        };
 
     // 3. Build the prompt-generation context from the names + the existing
-    //    execution context, including agent-level tool filtering.
+    //    execution context, including agent-level tool filtering and
+    //    agent definition (role and type).
     let prompt_ctx = PromptGenerationContext {
         agent_id: ctx.agent_id.clone(),
         workdir: ctx.workdir.clone(),
         available_tool_names,
         tools,
         disallowed_tools,
-        session_mode,
-        effective_spawn_budget,
+        session_mode: params.session_mode,
+        effective_spawn_budget: params.effective_spawn_budget,
+        agent_role: params.agent_role.clone(),
+        agent_type: params.agent_type.clone(),
     };
 
     // 4. Acquire the registry lock again and render the section.
@@ -242,7 +266,19 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
+        let section = build_tools_section(
+            &registry,
+            &ctx,
+            &ToolsSectionParams {
+                agent_tools: None,
+                agent_disallowed_tools: None,
+                session_mode: None,
+                effective_spawn_budget: None,
+                agent_role: None,
+                agent_type: None,
+            },
+        )
+        .await;
         match section {
             Section::ToolsSection(_) => {}
             _ => panic!("expected ToolsSection, got {:?}", section),
@@ -275,7 +311,19 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
+        let section = build_tools_section(
+            &registry,
+            &ctx,
+            &ToolsSectionParams {
+                agent_tools: None,
+                agent_disallowed_tools: None,
+                session_mode: None,
+                effective_spawn_budget: None,
+                agent_role: None,
+                agent_type: None,
+            },
+        )
+        .await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -314,7 +362,19 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
+        let section = build_tools_section(
+            &registry,
+            &ctx,
+            &ToolsSectionParams {
+                agent_tools: None,
+                agent_disallowed_tools: None,
+                session_mode: None,
+                effective_spawn_budget: None,
+                agent_role: None,
+                agent_type: None,
+            },
+        )
+        .await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -363,7 +423,19 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
+        let section = build_tools_section(
+            &registry,
+            &ctx,
+            &ToolsSectionParams {
+                agent_tools: None,
+                agent_disallowed_tools: None,
+                session_mode: None,
+                effective_spawn_budget: None,
+                agent_role: None,
+                agent_type: None,
+            },
+        )
+        .await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -387,7 +459,19 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
+        let section = build_tools_section(
+            &registry,
+            &ctx,
+            &ToolsSectionParams {
+                agent_tools: None,
+                agent_disallowed_tools: None,
+                session_mode: None,
+                effective_spawn_budget: None,
+                agent_role: None,
+                agent_type: None,
+            },
+        )
+        .await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -425,7 +509,19 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
+        let section = build_tools_section(
+            &registry,
+            &ctx,
+            &ToolsSectionParams {
+                agent_tools: None,
+                agent_disallowed_tools: None,
+                session_mode: None,
+                effective_spawn_budget: None,
+                agent_role: None,
+                agent_type: None,
+            },
+        )
+        .await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -458,7 +554,19 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
+        let section = build_tools_section(
+            &registry,
+            &ctx,
+            &ToolsSectionParams {
+                agent_tools: None,
+                agent_disallowed_tools: None,
+                session_mode: None,
+                effective_spawn_budget: None,
+                agent_role: None,
+                agent_type: None,
+            },
+        )
+        .await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -504,7 +612,19 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
+        let section = build_tools_section(
+            &registry,
+            &ctx,
+            &ToolsSectionParams {
+                agent_tools: None,
+                agent_disallowed_tools: None,
+                session_mode: None,
+                effective_spawn_budget: None,
+                agent_role: None,
+                agent_type: None,
+            },
+        )
+        .await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -541,7 +661,19 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(&registry, &ctx, None, None, None, None).await;
+        let section = build_tools_section(
+            &registry,
+            &ctx,
+            &ToolsSectionParams {
+                agent_tools: None,
+                agent_disallowed_tools: None,
+                session_mode: None,
+                effective_spawn_budget: None,
+                agent_role: None,
+                agent_type: None,
+            },
+        )
+        .await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -584,7 +716,19 @@ mod tests {
             manual_background_signal: None,
         };
         // Budget = 0 → sessions_spawn should be filtered out.
-        let section = build_tools_section(&registry, &ctx, None, None, None, Some(0)).await;
+        let section = build_tools_section(
+            &registry,
+            &ctx,
+            &ToolsSectionParams {
+                agent_tools: None,
+                agent_disallowed_tools: None,
+                session_mode: None,
+                effective_spawn_budget: Some(0),
+                agent_role: None,
+                agent_type: None,
+            },
+        )
+        .await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),
@@ -628,7 +772,19 @@ mod tests {
             manual_background_signal: None,
         };
         // Budget = 1 → sessions_spawn should be present.
-        let section = build_tools_section(&registry, &ctx, None, None, None, Some(1)).await;
+        let section = build_tools_section(
+            &registry,
+            &ctx,
+            &ToolsSectionParams {
+                agent_tools: None,
+                agent_disallowed_tools: None,
+                session_mode: None,
+                effective_spawn_budget: Some(1),
+                agent_role: None,
+                agent_type: None,
+            },
+        )
+        .await;
         let content = match section {
             Section::ToolsSection(c) => c,
             _ => panic!("expected ToolsSection"),

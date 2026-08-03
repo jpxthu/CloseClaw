@@ -3,7 +3,9 @@
 use super::prompt_template::PromptTemplate;
 use super::SessionManagerOps;
 use closeclaw_common::permission_types::{CallerInfo, RiskLevel};
-use closeclaw_common::tool_trait::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use closeclaw_common::tool_trait::{
+    PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult,
+};
 use closeclaw_config::spawn_validation::SpawnValidator;
 
 use async_trait::async_trait;
@@ -174,6 +176,18 @@ impl Tool for SessionsSpawnTool {
          Use `mode='run'` for one-shot tasks, `mode='session'` for persistent threads. \
          Returns the child session_id on success."
             .to_string()
+    }
+
+    fn generate_prompt(&self, context: &PromptGenerationContext) -> String {
+        let mut parts = Vec::new();
+
+        parts.push(spawn_prompt_when_to_use());
+        spawn_prompt_add_budget_status(context, &mut parts);
+        parts.push(spawn_prompt_usage_principles());
+        spawn_prompt_add_combination_suggestions(context, &mut parts);
+        spawn_prompt_add_workdir_guidance(context, &mut parts);
+
+        parts.join("\n\n")
     }
 
     fn input_schema(&self) -> Value {
@@ -366,5 +380,102 @@ impl Tool for SessionsSpawnTool {
             new_messages: vec![],
             context_modifier: None,
         })
+    }
+}
+
+// --- Prompt generation helpers ---
+
+/// "When to use" section for the sessions_spawn tool prompt.
+fn spawn_prompt_when_to_use() -> String {
+    "Use sessions_spawn to create child sessions for sub-agent execution. \
+     Ideal when you need: parallel task execution across multiple agents, \
+     isolated execution environments (sandboxed context), long-running tasks \
+     that should not block the parent session, or multi-agent coordination \
+     where different agents handle different responsibilities."
+        .to_string()
+}
+
+/// Append budget-awareness text to the prompt parts.
+fn spawn_prompt_add_budget_status(context: &PromptGenerationContext, parts: &mut Vec<String>) {
+    match context.effective_spawn_budget {
+        Some(0) | Some(u32::MAX) => {
+            parts.push(
+                "sessions_spawn is not available — your spawn budget is \
+                 exhausted. You have reached the maximum allowed spawn \
+                 depth. Complete current tasks before spawning new children."
+                    .to_string(),
+            );
+        }
+        Some(budget) => {
+            parts.push(format!(
+                "sessions_spawn is available (spawn budget: {}). \
+                 Use this budget wisely — prefer consolidating related \
+                 tasks into fewer child sessions when possible.",
+                budget
+            ));
+        }
+        None => {
+            parts.push(
+                "sessions_spawn is available. Spawn budget is unknown — \
+                 use with reasonable caution."
+                    .to_string(),
+            );
+        }
+    }
+}
+
+/// "Usage principles" section for the sessions_spawn tool prompt.
+fn spawn_prompt_usage_principles() -> String {
+    "Set reasonable timeouts for spawned sessions — avoid indefinite \
+     execution. Prefer mode='run' for one-shot tasks and mode='session' \
+     only when persistent interaction is needed. Avoid excessive spawning: \
+     consolidate related tasks into fewer child sessions when possible."
+        .to_string()
+}
+
+/// Append combination suggestions based on available tools.
+fn spawn_prompt_add_combination_suggestions(
+    context: &PromptGenerationContext,
+    parts: &mut Vec<String>,
+) {
+    let mut suggestions = Vec::new();
+
+    let has_yield = context
+        .available_tool_names
+        .iter()
+        .any(|t| t == "sessions_yield");
+    let has_steer = context
+        .available_tool_names
+        .iter()
+        .any(|t| t == "sessions_steer");
+    let has_kill = context
+        .available_tool_names
+        .iter()
+        .any(|t| t == "sessions_kill");
+
+    if has_yield {
+        suggestions.push("sessions_yield (wait for child completion before continuing)");
+    }
+    if has_steer {
+        suggestions.push("sessions_steer (redirect a persistent child session's task)");
+    }
+    if has_kill {
+        suggestions.push("sessions_kill (force-terminate a child session if needed)");
+    }
+
+    if !suggestions.is_empty() {
+        parts.push(format!("Lifecycle management: {}.", suggestions.join(", ")));
+    }
+}
+
+/// Append workdir-based path guidance to the prompt parts.
+fn spawn_prompt_add_workdir_guidance(context: &PromptGenerationContext, parts: &mut Vec<String>) {
+    if let Some(ref wd) = context.workdir {
+        parts.push(format!(
+            "Current workspace: {}. \
+             Child sessions inherit this workspace by default unless \
+             a different workspace is specified via the workspace parameter.",
+            wd.path
+        ));
     }
 }

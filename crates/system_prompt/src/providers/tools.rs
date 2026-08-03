@@ -24,6 +24,10 @@ pub struct ToolsFragmentProvider {
     agent_disallowed_tools: Option<Vec<String>>,
     /// Session mode for mode-aware tool filtering.
     session_mode: Option<SessionMode>,
+    /// Agent role (human-readable name/purpose) from agent config.
+    agent_role: Option<String>,
+    /// Agent type (e.g. root agent vs spawned child) from agent config.
+    agent_type: Option<String>,
 }
 
 impl ToolsFragmentProvider {
@@ -38,7 +42,21 @@ impl ToolsFragmentProvider {
             agent_tools,
             agent_disallowed_tools,
             session_mode,
+            agent_role: None,
+            agent_type: None,
         }
+    }
+
+    /// Set the agent role for prompt generation.
+    pub fn with_agent_role(mut self, role: String) -> Self {
+        self.agent_role = Some(role);
+        self
+    }
+
+    /// Set the agent type for prompt generation.
+    pub fn with_agent_type(mut self, agent_type: String) -> Self {
+        self.agent_type = Some(agent_type);
+        self
     }
 
     /// Build a [`ToolContext`] from a [`FragmentContext`].
@@ -74,15 +92,16 @@ impl PromptFragmentProvider for ToolsFragmentProvider {
     async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
         let tool_ctx = Self::tool_context(ctx, self.session_mode);
         let budget = Self::effective_spawn_budget(ctx);
-        let section = crate::tools_section::build_tools_section(
-            &self.registry,
-            &tool_ctx,
-            self.agent_tools.clone(),
-            self.agent_disallowed_tools.clone(),
-            self.session_mode,
-            budget,
-        )
-        .await;
+        let params = crate::tools_section::ToolsSectionParams {
+            agent_tools: self.agent_tools.clone(),
+            agent_disallowed_tools: self.agent_disallowed_tools.clone(),
+            session_mode: self.session_mode,
+            effective_spawn_budget: budget,
+            agent_role: self.agent_role.clone(),
+            agent_type: self.agent_type.clone(),
+        };
+        let section =
+            crate::tools_section::build_tools_section(&self.registry, &tool_ctx, &params).await;
 
         // Extract content from the rendered Section.
         let content = match section {
