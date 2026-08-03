@@ -17,9 +17,12 @@
 //! [`ConversationSession::clear_exec_state`]) so no single function
 //! crosses the CONTRIBUTING.md 50-line soft cap.
 
+use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
+
+use closeclaw_common::canonicalize_or_clone;
 
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
@@ -768,6 +771,25 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
 
     fn has_running_child(&self) -> bool {
         ConversationSession::has_running_child(self)
+    }
+
+    async fn record_file_read(&self, path: &str, mtime: Option<SystemTime>) {
+        let canonical = canonicalize_or_clone(Path::new(path));
+        let mut map = self.file_mtimes.write().expect("file_mtimes lock poisoned");
+        match mtime {
+            Some(t) => {
+                map.insert(canonical, t);
+            }
+            None => {
+                map.remove(&canonical);
+            }
+        }
+    }
+
+    fn get_file_mtime(&self, path: &str) -> Option<SystemTime> {
+        let canonical = canonicalize_or_clone(Path::new(path));
+        let map = self.file_mtimes.read().expect("file_mtimes lock poisoned");
+        map.get(&canonical).copied()
     }
 
     async fn persist_pending_checkpoint(&self) -> Result<(), String> {

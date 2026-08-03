@@ -7,6 +7,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use closeclaw_common::canonicalize_or_clone;
+
 use dashmap::DashMap;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
@@ -113,11 +115,6 @@ impl FileMutexMap {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Canonicalize `path` if possible; fall back to the original path.
-fn canonicalize_or_clone(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
-}
 
 // ---------------------------------------------------------------------------
 // Tests

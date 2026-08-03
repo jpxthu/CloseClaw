@@ -552,6 +552,7 @@ fn test_build_api_request_default_reasoning_level() {
     assert_eq!(req.reasoning_level, ReasoningLevel::High);
 }
 
+mod file_mtime_tests;
 mod last_message_at_persist_tests;
 mod stats_integration;
 mod thinking_clean_tests;
