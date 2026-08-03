@@ -7,6 +7,7 @@ pub mod handlers_mode;
 pub mod handlers_permission;
 pub mod handlers_session;
 pub mod handlers_user;
+pub mod handlers_workflow;
 pub mod registry;
 pub mod skill_handler;
 
@@ -22,6 +23,7 @@ pub use handlers_mode::{
 pub use handlers_permission::PermissionSlashHandler;
 pub use handlers_session::{NewSessionHandler, StatusHandler, StopHandler, VerboseHandler};
 pub use handlers_user::UserSlashHandler;
+pub use handlers_workflow::WorkflowHandler;
 
 #[cfg(test)]
 mod tests;

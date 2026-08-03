@@ -168,6 +168,18 @@ async fn build_slash_dispatcher(
     slash_registry.register(Arc::new(StopHandler));
     slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(&session_manager))));
 
+    // Register WorkflowHandler for /workflow <name>.
+    let dot_closeclaw = dirs::home_dir().map(|h| h.join(".closeclaw"));
+    let agent_workspace = std::env::var("CLOSECLAW_AGENT_WORKSPACE")
+        .ok()
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::current_dir().ok());
+    slash_registry.register(Arc::new(closeclaw_slash::WorkflowHandler::new(
+        Arc::clone(&session_manager),
+        agent_workspace,
+        dot_closeclaw,
+    )));
+
     // Register SkillSlashHandler for user-invocable skills.
     // Load disk skills from the global skills directory.
     use closeclaw_skills::builtin::builtin_skills;

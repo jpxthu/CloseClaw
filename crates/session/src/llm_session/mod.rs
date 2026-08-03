@@ -115,7 +115,6 @@ pub struct ConversationSession {
     stats: RunningStats,
     streaming_sink: Option<Arc<dyn StreamingSink>>,
     stream_enabled: bool,
-
     /// Per-session append-section items, managed by `/system` subcommand.
     /// Persisted in `SessionCheckpoint::system_appends`.
     system_appends: Vec<String>,
@@ -214,6 +213,8 @@ pub struct ConversationSession {
     /// When `true`, the dynamic builder may inject a GitStatus section
     /// if the working directory is a git repository.
     is_git_status_enabled: bool,
+    /// Active workflow run state. Persisted in SessionCheckpoint.
+    workflow_run: Option<closeclaw_workflow::run::WorkflowRun>,
 }
 // `impl ConversationSession` is split across multiple blocks so each
 // block stays under the CONTRIBUTING.md 100-line cap. Block A
@@ -241,7 +242,6 @@ impl ConversationSession {
             created_at: Utc::now().timestamp(),
             streaming_sink: None,
             stream_enabled: false,
-
             system_appends: Vec::new(),
             llm_state: Arc::new(RwLock::new(LlmState::Idle)),
             tool_states: Arc::new(RwLock::new(HashMap::new())),
@@ -274,6 +274,7 @@ impl ConversationSession {
             manual_background_signal: Arc::new(tokio::sync::Notify::new()),
             checkpoint_storage: None,
             is_git_status_enabled: false,
+            workflow_run: None,
         }
     }
 
@@ -299,7 +300,14 @@ impl ConversationSession {
     pub fn set_workdir(&mut self, path: PathBuf) {
         self.workdir = path;
     }
-
+    /// Returns a reference to the active workflow run, if any.
+    pub fn workflow_run(&self) -> Option<&closeclaw_workflow::run::WorkflowRun> {
+        self.workflow_run.as_ref()
+    }
+    /// Sets the active workflow run state.
+    pub fn set_workflow_run(&mut self, run: Option<closeclaw_workflow::run::WorkflowRun>) {
+        self.workflow_run = run;
+    }
     /// Sets the system prompt.
     pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.system_prompt = Some(prompt.into());

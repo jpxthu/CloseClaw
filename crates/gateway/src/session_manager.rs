@@ -612,6 +612,24 @@ impl SessionManager {
         Ok(())
     }
 
+    /// Set the active workflow run for a session and persist the checkpoint.
+    pub async fn set_workflow_run(
+        &self,
+        session_id: &str,
+        run: Option<closeclaw_workflow::run::WorkflowRun>,
+    ) -> Result<(), String> {
+        let conv_sessions = self.conversation_sessions.read().await;
+        let cs = conv_sessions
+            .get(session_id)
+            .ok_or_else(|| format!("session not found: {}", session_id))?;
+        let mut cs = cs.write().await;
+        cs.set_workflow_run(run);
+        cs.persist_pending_checkpoint()
+            .await
+            .map_err(|e| format!("checkpoint persist failed: {}", e))?;
+        Ok(())
+    }
+
     /// Pop the oldest pending message for a given session.
     /// Returns None if the session does not exist or the queue is empty.
     pub async fn pop_pending_message(&self, session_id: &str) -> Option<PendingMessage> {
