@@ -665,11 +665,11 @@
   },
   {
     "path": "docs/design/system_prompt/static-layer.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-08-03T18:45:49.182488+08:00",
+    "commit": "15230df1c4102a4a670850e6d507bd8642b664a4",
+    "commit_time": "2026-08-03T20:18:25+08:00",
+    "confirmed_time": "2026-08-03T20:26:32.646253+08:00",
     "comment": "",
-    "blocked_reason": "doc_problem_three_vs_two"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/tools/background-tasks.md",
