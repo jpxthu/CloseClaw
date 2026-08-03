@@ -57,10 +57,18 @@ pub struct AgentConfig {
     /// Run-health hook review configuration.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hooks: Vec<HookConfig>,
+    /// Whether parallel tool calls are enabled for this agent.
+    /// When `false`, all tool calls are executed serially.
+    #[serde(default = "default_true")]
+    pub parallel_tool_calls: bool,
 }
 
 fn default_all() -> Vec<String> {
     vec!["*".to_string()]
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Sub-agent spawn control configuration.
@@ -234,6 +242,7 @@ impl Default for AgentConfig {
             subagents: SubagentsConfig::default(),
             memory: None,
             hooks: Vec::new(),
+            parallel_tool_calls: true,
         }
     }
 }

@@ -109,6 +109,7 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         subagents: Default::default(),
         memory: Default::default(),
         hooks: Vec::new(),
+        parallel_tool_calls: true,
         source: closeclaw_config::agents::ConfigSource::User,
     }
 }
