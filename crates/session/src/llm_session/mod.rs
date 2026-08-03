@@ -52,6 +52,7 @@ pub use session_pending_queue::{QueueEntry, QueuePriority, UnifiedMessageQueue};
 mod skill_listing;
 pub mod streaming_assembly;
 pub mod transcript_ops;
+mod workflow;
 mod workflow_cleanup;
 pub use streaming_assembly::SessionStream;
 
@@ -167,6 +168,10 @@ pub struct ConversationSession {
     /// Snapshot of the last skill listing (excluding conditional skills)
     /// used for incremental diff computation. `None` on the first turn.
     pub(crate) skill_listing_snapshot: Option<String>,
+    /// One-shot flag set by [`mark_compacted`] to trigger full listing
+    /// re-injection on the next turn. Cleared by
+    /// [`prepare_turn_skill_listing`] after the snapshot is reset.
+    pub(crate) pending_compaction_listing_reset: bool,
     /// Names of conditional skills that have been activated during this
     /// session's lifetime via file-path matching. Activated skills are
     /// included in subsequent turn listings as incremental additions.
@@ -263,6 +268,7 @@ impl ConversationSession {
             injected_task_ids: Arc::new(Mutex::new(HashSet::new())),
             skill_listing_provider: None,
             skill_listing_snapshot: None,
+            pending_compaction_listing_reset: false,
             activated_conditional_skills: HashSet::new(),
             agent_skills: None,
             shutdown_handle: None,
@@ -303,81 +309,6 @@ impl ConversationSession {
     /// Sets the working directory.
     pub fn set_workdir(&mut self, path: PathBuf) {
         self.workdir = path;
-    }
-    /// Returns a reference to the active workflow run, if any.
-    pub fn workflow_run(&self) -> Option<&closeclaw_workflow::run::WorkflowRun> {
-        self.workflow_run.as_ref()
-    }
-    /// Sets the active workflow run state.
-    pub fn set_workflow_run(&mut self, run: Option<closeclaw_workflow::run::WorkflowRun>) {
-        self.workflow_run = run;
-    }
-    pub fn workflow_handler(&self) -> Option<&crate::workflow_handler::WorkflowHandler> {
-        self.workflow_handler.as_ref()
-    }
-    pub fn workflow_handler_mut(
-        &mut self,
-    ) -> Option<&mut crate::workflow_handler::WorkflowHandler> {
-        self.workflow_handler.as_mut()
-    }
-    pub fn set_workflow_handler(
-        &mut self,
-        handler: Option<crate::workflow_handler::WorkflowHandler>,
-    ) {
-        self.workflow_handler = handler;
-    }
-    /// Process workflow tool results from LLM content blocks.
-    /// Returns `true` if any action was processed.
-    pub fn process_workflow_tool_results(&mut self, blocks: &[ContentBlock]) -> bool {
-        if let Some(ref mut handler) = self.workflow_handler {
-            let processed = handler.process_content_blocks(blocks);
-            if processed {
-                self.workflow_run = Some(handler.run().clone());
-            }
-            processed
-        } else {
-            false
-        }
-    }
-    pub fn take_workflow_notification(
-        &mut self,
-    ) -> Option<crate::workflow_handler::WorkflowNotification> {
-        self.workflow_handler
-            .as_mut()
-            .and_then(|h| h.take_notification())
-    }
-    pub fn is_workflow_blocked(&self) -> bool {
-        self.workflow_handler
-            .as_ref()
-            .is_some_and(|h| h.is_blocked())
-    }
-    /// Remove all workflow control messages (role == "workflow") from the transcript.
-    pub fn remove_workflow_messages(&mut self) {
-        let before = self.messages.len();
-        self.messages.retain(|m| m.role != "workflow");
-        let removed = before - self.messages.len();
-        if removed > 0 {
-            tracing::debug!(removed, "removed workflow control messages from transcript");
-        }
-    }
-    /// Inject a workflow control message (role == "workflow") into the transcript.
-    pub fn inject_workflow_message(&mut self, content: &str) {
-        self.push_message("workflow", vec![ContentBlock::Text(content.to_string())]);
-    }
-    /// Remove workflow context ("--- WORKFLOW ---" items) from system_appends.
-    pub fn remove_workflow_context_from_appends(&mut self) {
-        let before = self.system_appends.len();
-        self.system_appends
-            .retain(|s| !s.starts_with("--- WORKFLOW ---"));
-        let removed = before - self.system_appends.len();
-        if removed > 0 {
-            tracing::debug!(removed, "removed workflow context from system_appends");
-        }
-    }
-    /// Reset workflow_run and handler to None.
-    pub fn clear_workflow_run(&mut self) {
-        self.workflow_run = None;
-        self.workflow_handler = None;
     }
     /// Sets the system prompt.
     pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
@@ -1002,6 +933,10 @@ impl std::fmt::Debug for ConversationSession {
                     .map(|_| "<SkillListingProvider>"),
             )
             .field("skill_listing_snapshot", &self.skill_listing_snapshot)
+            .field(
+                "pending_compaction_listing_reset",
+                &self.pending_compaction_listing_reset,
+            )
             .field(
                 "activated_conditional_skills",
                 &self.activated_conditional_skills,

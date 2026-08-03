@@ -26,6 +26,7 @@ impl ConversationSession {
     /// are injected on subsequent LLM calls.
     pub fn mark_compacted(&mut self) {
         self.is_compacted = true;
+        self.pending_compaction_listing_reset = true;
     }
 
     /// Returns whether this session has been compacted.
@@ -69,13 +70,27 @@ impl ConversationSession {
     ///
     /// Returns `(listing, new_snapshot, newly_activated_names)`.
     fn prepare_turn_skill_listing(
-        &self,
+        &mut self,
         content: &str,
     ) -> (
         Option<String>,
         Option<String>,
         std::collections::HashSet<String>,
     ) {
+        // Compaction detection: if the session was compacted, clear
+        // the snapshot so that compute_skill_listing_for_turn enters
+        // the "first turn" branch and injects the full listing.
+        // After injection, apply_skill_listing_update sets a new
+        // snapshot, restoring the normal incremental diff path.
+        if self.pending_compaction_listing_reset && self.skill_listing_snapshot.is_some() {
+            tracing::debug!(
+                session_id = %self.session_id,
+                "prepare_turn_skill_listing: clearing snapshot after compaction"
+            );
+            self.skill_listing_snapshot = None;
+            self.pending_compaction_listing_reset = false;
+        }
+
         // 1. Extract file paths from user content and find newly
         //    activated conditionals.
         let paths = Self::extract_file_paths(content);
