@@ -702,5 +702,13 @@
     "confirmed_time": "2026-08-03T22:50:56.012850+08:00",
     "comment": "",
     "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/tools/multi-tool-calls.md",
+    "commit": "6f270b43c71c8fcc566d7e3d0432fd642acbc997",
+    "commit_time": "2026-08-04T04:35:02+08:00",
+    "confirmed_time": "2026-08-04T04:46:52.686977+08:00",
+    "comment": "",
+    "blocked_reason": ""
   }
 ]
