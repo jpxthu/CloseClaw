@@ -18,6 +18,7 @@ pub mod middleware;
 pub mod notifier;
 #[cfg(test)]
 pub mod notifier_tests;
+pub mod path_utils;
 pub mod permission_check;
 pub mod permission_op;
 #[cfg(test)]
@@ -79,6 +80,7 @@ pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinitio
 pub use metrics::{MetricsEmitter, NoopMetricsEmitter};
 pub use middleware::{MiddlewareError, OutboundMiddleware};
 pub use notifier::{NoopNotifier, PlanStateNotifier};
+pub use path_utils::canonicalize_or_clone;
 pub use permission_check::{
     ExecutionPermissionCheck, PermissionChecker, PermissionDenied, SpawnPermissionError,
 };
