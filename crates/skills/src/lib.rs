@@ -9,6 +9,8 @@ mod coding_agent_tests;
 pub mod disk;
 pub mod registry;
 pub mod skill_creator;
+#[cfg(test)]
+mod skill_creator_tests;
 
 pub use builtin::builtin_skills;
 pub use coding_agent::CodingAgentSkill;

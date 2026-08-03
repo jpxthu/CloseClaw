@@ -2,6 +2,13 @@
 use crate::builtin::FileOpsSkill;
 use crate::registry::{Skill, SkillError};
 
+#[test]
+fn test_file_ops_default() {
+    let skill = FileOpsSkill::default();
+    let m = skill.manifest();
+    assert_eq!(m.name, "file_ops");
+}
+
 #[tokio::test]
 async fn test_file_ops_body_not_empty() {
     let skill = FileOpsSkill::new();

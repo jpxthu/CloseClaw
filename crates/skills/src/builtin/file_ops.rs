@@ -217,32 +217,3 @@ Always confirm destructive operations with the user before executing."#
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_manifest() {
-        let skill = FileOpsSkill::new();
-        let m = skill.manifest();
-        assert_eq!(m.name, "file_ops");
-        assert_eq!(m.version, "1.0.0");
-        assert!(!m.description.is_empty());
-    }
-
-    #[test]
-    fn test_body_not_empty() {
-        let skill = FileOpsSkill::new();
-        let body = skill.body();
-        assert!(!body.is_empty());
-        assert!(body.contains("File Operations Skill"));
-    }
-
-    #[test]
-    fn test_default() {
-        let skill = FileOpsSkill::default();
-        let m = skill.manifest();
-        assert_eq!(m.name, "file_ops");
-    }
-}
