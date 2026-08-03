@@ -1,0 +1,103 @@
+//! Workflow recovery state injection during session recovery.
+//!
+//! Detects active workflow runs in recovered checkpoints and injects
+//! workflow context and recovery notifications into `system_appends`.
+
+use crate::persistence::SessionCheckpoint;
+use closeclaw_workflow::context_append::{build_workflow_context_append, has_workflow_context};
+use closeclaw_workflow::definition_loader::WorkflowDefinitionLoader;
+use closeclaw_workflow::run::Phase;
+
+/// Prefix marker for workflow recovery notification in `system_appends`.
+pub const WORKFLOW_RECOVERY_PREFIX: &str = "__workflow_recovery__:";
+
+/// Inject workflow recovery state for sessions with active workflow runs.
+///
+/// When a checkpoint contains a `workflow_run` with phase != Complete:
+/// 1. Re-injects workflow context into `system_appends` (if not already present)
+/// 2. Stores a recovery notification with step information
+/// 3. Handles definition_version changes (transitions to blocked if current
+///    step no longer exists in the new definition)
+pub async fn inject_workflow_recovery(session_id: &str, checkpoint: &mut SessionCheckpoint) {
+    let wf_run = match &checkpoint.workflow_run {
+        Some(run) if run.phase != Phase::Complete => run.clone(),
+        _ => return,
+    };
+
+    // Try to reload definition for context re-injection and version check
+    let wf = WorkflowDefinitionLoader::load(&wf_run.definition_name, None, None).ok();
+
+    // 1. Re-inject workflow context into system_appends if not already present
+    if !has_workflow_context(&checkpoint.system_appends) {
+        if let Some(ref wf) = wf {
+            checkpoint
+                .system_appends
+                .push(build_workflow_context_append(wf));
+        } else {
+            tracing::warn!(
+                session_id = %session_id,
+                definition_name = %wf_run.definition_name,
+                "failed to reload workflow definition for context re-injection"
+            );
+        }
+    }
+
+    // 2. Build recovery notification
+    let step_num = wf_run.current_step;
+    let step_name = wf_run
+        .step_history
+        .last()
+        .map(|e| e.step_name.as_str())
+        .unwrap_or("unknown");
+    let notification = format!(
+        "[workflow recovered] 正在执行 {name}，当前 Step {step} ({step_name})",
+        name = wf_run.definition_name,
+        step = step_num,
+        step_name = step_name,
+    );
+
+    // 3. Handle definition_version changes
+    if let Some(ref wf) = wf {
+        if wf.version.as_deref() != Some(&wf_run.definition_version) {
+            tracing::info!(
+                session_id = %session_id,
+                old_version = %wf_run.definition_version,
+                new_version = ?wf.version,
+                "workflow definition version changed during recovery"
+            );
+            if step_num >= wf.steps.len() {
+                tracing::warn!(
+                    session_id = %session_id,
+                    step_num,
+                    total_steps = wf.steps.len(),
+                    "current step not in new definition — blocking workflow"
+                );
+                checkpoint
+                    .workflow_run
+                    .as_mut()
+                    .expect("workflow_run checked above")
+                    .phase = Phase::Blocked;
+            }
+        }
+    }
+
+    // 4. Store recovery notification in system_appends
+    let tagged = format!("{}{}", WORKFLOW_RECOVERY_PREFIX, notification);
+    if let Some(slot) = checkpoint
+        .system_appends
+        .iter_mut()
+        .find(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX))
+    {
+        *slot = tagged;
+    } else {
+        checkpoint.system_appends.push(tagged);
+    }
+
+    tracing::info!(
+        session_id = %session_id,
+        workflow_name = %wf_run.definition_name,
+        step = step_num,
+        phase = ?wf_run.phase,
+        "injected workflow recovery state into system_appends"
+    );
+}
