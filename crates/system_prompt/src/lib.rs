@@ -33,5 +33,5 @@ pub use providers::bootstrap::BootstrapFragmentProvider;
 pub use providers::memory::MemoryFragmentProvider;
 pub use providers::tools::ToolsFragmentProvider;
 pub use sections::{Section, SectionCache};
-pub use tools_section::build_tools_section;
+pub use tools_section::{build_tools_section, ToolsSectionParams};
 pub use workdir::{build_git_status_for, build_workdir_context, WorkdirContext};
