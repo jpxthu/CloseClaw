@@ -101,9 +101,12 @@ impl PromptFragmentProvider for ToolsFragmentProvider {
         })
     }
 
-    /// Registry-backed — no file mtime to key on.
+    /// Cache key for the Tools section.
+    ///
+    /// Returns a stable key so that `PromptBuilder::build()` can cache
+    /// the generated tools listing across repeated builds.
     fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
-        None
+        Some("tools".to_string())
     }
 }
 
