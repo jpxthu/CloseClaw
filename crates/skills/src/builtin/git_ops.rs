@@ -20,7 +20,7 @@ impl GitOpsSkill {
     fn capabilities_description() -> String {
         json!({
             "skill": "git_ops",
-            "description": "Git operations: status, commit, push, pull",
+            "description": "Git operations: status, log, diff",
             "supported_actions": ["status", "log", "diff"],
             "usage": {
                 "status": {"path": "<repo_path>"},
@@ -113,7 +113,7 @@ impl Skill for GitOpsSkill {
         SkillManifest {
             name: "git_ops".to_string(),
             version: "1.0.0".to_string(),
-            description: "Git operations: status, commit, push, pull".to_string(),
+            description: "Git operations: status, log, diff".to_string(),
             author: Some("CloseClaw Team".to_string()),
             dependencies: vec![],
         }

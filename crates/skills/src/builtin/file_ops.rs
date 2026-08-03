@@ -25,7 +25,7 @@ impl FileOpsSkill {
     fn capabilities_description() -> String {
         json!({
             "skill": "file_ops",
-            "description": "File system operations: read, write, list, delete",
+            "description": "File system operations: read, list, stat",
             "supported_actions": ["read", "list", "stat"],
             "usage": {
                 "read": {"path": "<file_path>"},
@@ -150,7 +150,7 @@ impl Skill for FileOpsSkill {
         SkillManifest {
             name: "file_ops".to_string(),
             version: "1.0.0".to_string(),
-            description: "File system operations: read, write, list, delete".to_string(),
+            description: "File system operations: read, list, stat".to_string(),
             author: Some("CloseClaw Team".to_string()),
             dependencies: vec![],
         }
