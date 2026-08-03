@@ -664,6 +664,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/system_prompt/static-layer.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-08-03T17:36:23.645796+08:00",
+    "comment": "",
+    "blocked_reason": "doc conflict: text says 3 sections but table lists 2, code confirms 2"
+  },
+  {
     "path": "docs/design/tools/background-tasks.md",
     "commit": "6ce41401915b5b90e0008e0755d0f9dbcf4e1233",
     "commit_time": "2026-07-30T23:26:34+08:00",
