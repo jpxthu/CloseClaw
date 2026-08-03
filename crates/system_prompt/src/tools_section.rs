@@ -51,6 +51,21 @@ const BACKGROUND_TASK_GUIDANCE: &str = concat!(
     "This keeps you unblocked while long-running work completes."
 );
 
+/// Parallel tool calls guidance appended to the tools section.
+/// Source: docs/design/tools/multi-tool-calls.md §提示词引导
+const PARALLEL_TOOL_CALLS_GUIDANCE: &str = concat!(
+    "\n\n## Parallel Tool Calls\n\n\n",
+    "You may invoke multiple tools in a single message to reduce round-trips:\n",
+    "- **Multiple reads** (Read, Ls, Grep): always merge into one message. ",
+    "They are safe to run concurrently.\n",
+    "- **Multiple Edits to the same file**: merge into a single `edits[]` call. ",
+    "Separate Edit calls to the same file will conflict.\n",
+    "- **Edits to different files**: issue in parallel — they run concurrently.\n",
+    "- **Read file A + Edit file B**: different files, safe to parallelize.\n",
+    "- **Expensive tools** (Grep, Bash): control concurrency; avoid launching too ",
+    "many at once."
+);
+
 /// Build the Tools section content from a registry.
 ///
 /// The registry's `build_tools_section` requires a [`PromptGenerationContext`]
@@ -114,6 +129,14 @@ pub async fn build_tools_section(
     // 6. If Bash tool is available, append background task guidance.
     let content = if prompt_ctx.available_tool_names.iter().any(|n| n == "Bash") {
         let guidance = BACKGROUND_TASK_GUIDANCE;
+        format!("{}\n{}", content, guidance)
+    } else {
+        content
+    };
+
+    // 7. Append parallel tool calls guidance when content is non-empty.
+    let content = if !content.is_empty() {
+        let guidance = PARALLEL_TOOL_CALLS_GUIDANCE;
         format!("{}\n{}", content, guidance)
     } else {
         content
@@ -792,6 +815,104 @@ mod tests {
         assert!(
             content.contains("sessions_spawn"),
             "sessions_spawn should be present when budget = 1, got: {}",
+            content
+        );
+    }
+
+    #[tokio::test]
+    async fn test_parallel_tool_calls_guidance_present() {
+        let registry = ToolRegistry::new();
+        let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
+        let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
+        registry
+            .register_all(make_registrars(
+                disk_registry,
+                test_permission_engine(),
+                spawn_controller,
+                session_manager.clone(),
+                config_manager,
+                agent_registry,
+                test_approval_flow(&session_manager),
+            ))
+            .await
+            .unwrap();
+        let ctx = closeclaw_tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+        };
+        let section = build_tools_section(
+            &registry,
+            &ctx,
+            &ToolsSectionParams {
+                agent_tools: None,
+                agent_disallowed_tools: None,
+                session_mode: None,
+                effective_spawn_budget: None,
+                agent_role: None,
+                agent_type: None,
+            },
+        )
+        .await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        assert!(
+            content.contains("Parallel Tool Calls"),
+            "missing 'Parallel Tool Calls' header in: {}",
+            &content[content.len().saturating_sub(300)..]
+        );
+        assert!(
+            content.contains("Multiple reads"),
+            "missing 'Multiple reads' in parallel guidance"
+        );
+        assert!(
+            content.contains("edits[]"),
+            "missing 'edits[]' in parallel guidance"
+        );
+        assert!(
+            content.contains("Expensive tools"),
+            "missing 'Expensive tools' in parallel guidance"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_parallel_tool_calls_guidance_absent_empty_registry() {
+        let registry = ToolRegistry::new();
+        let ctx = closeclaw_tools::ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+        };
+        let section = build_tools_section(
+            &registry,
+            &ctx,
+            &ToolsSectionParams {
+                agent_tools: None,
+                agent_disallowed_tools: None,
+                session_mode: None,
+                effective_spawn_budget: None,
+                agent_role: None,
+                agent_type: None,
+            },
+        )
+        .await;
+        let content = match section {
+            Section::ToolsSection(c) => c,
+            _ => panic!("expected ToolsSection"),
+        };
+        assert!(
+            !content.contains("Parallel Tool Calls"),
+            "parallel guidance should NOT appear with empty registry, got: {}",
             content
         );
     }

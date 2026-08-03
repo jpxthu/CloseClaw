@@ -33,6 +33,7 @@ pub(crate) fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> Reso
         subagents: SubagentsConfig::default(),
         memory: MemoryConfig::default(),
         hooks: Vec::new(),
+        parallel_tool_calls: true,
         source: ConfigSource::Merged,
     }
 }
@@ -131,7 +132,6 @@ async fn test_create_child_session_basic() {
 #[serial]
 async fn test_create_child_session_workspace_fallback() {
     clear_global_prompt_state();
-
     // No manager-level workspace → falls back to config.workspace
     let mgr = make_test_mgr(None);
     let explicit = tempfile::TempDir::new().unwrap();
@@ -441,7 +441,6 @@ async fn test_create_child_session_allowed_tools_override() {
     clear_global_prompt_state();
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
-
     // Config with some tools listed
     let config = ResolvedAgentConfig {
         id: "tools-agent".to_string(),
@@ -457,6 +456,7 @@ async fn test_create_child_session_allowed_tools_override() {
         subagents: SubagentsConfig::default(),
         memory: MemoryConfig::default(),
         hooks: Vec::new(),
+        parallel_tool_calls: true,
         source: ConfigSource::Merged,
     };
 

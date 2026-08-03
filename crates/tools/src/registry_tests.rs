@@ -535,7 +535,6 @@ async fn test_build_tools_section_no_orphan_header() {
 // Tests for ToolRegistry's ability to query agent tools configuration.
 // These tests require a mock AgentToolsConfigQuery implementation.
 // For now, marked #[ignore] until moved to integration tests.
-
 use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 
@@ -559,6 +558,7 @@ fn make_agent_config(
         subagents: Default::default(),
         memory: MemoryConfig::default(),
         hooks: Vec::new(),
+        parallel_tool_calls: true,
         source: ConfigSource::User,
     }
 }

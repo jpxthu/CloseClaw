@@ -39,6 +39,7 @@ fn test_resolved_config(
         subagents: SubagentsConfig::default(),
         memory: MemoryConfig::default(),
         hooks: Vec::new(),
+        parallel_tool_calls: true,
         source: ConfigSource::Merged,
     }
 }
