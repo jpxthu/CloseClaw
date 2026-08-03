@@ -60,6 +60,7 @@ impl Tool for GitStatusTool {
         ToolFlags {
             is_concurrency_safe: true,
             is_read_only: true,
+            is_expensive: true,
             ..Default::default()
         }
     }
@@ -114,6 +115,7 @@ impl Tool for GitLogTool {
         ToolFlags {
             is_concurrency_safe: true,
             is_read_only: true,
+            is_expensive: true,
             ..Default::default()
         }
     }
@@ -320,6 +322,7 @@ mod tests {
         let tool = GitStatusTool::new();
         assert!(tool.flags().is_read_only);
         assert!(!tool.flags().is_destructive);
+        assert!(tool.flags().is_expensive);
     }
 
     #[test]
@@ -355,6 +358,7 @@ mod tests {
         let tool = GitLogTool::new();
         assert!(tool.flags().is_read_only);
         assert!(!tool.flags().is_destructive);
+        assert!(tool.flags().is_expensive);
     }
 
     #[test]
