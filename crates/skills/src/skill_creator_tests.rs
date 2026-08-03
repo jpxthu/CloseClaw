@@ -223,3 +223,120 @@ async fn test_execute_does_not_delegate_to_body() {
     // Should be valid JSON
     let _: serde_json::Value = serde_json::from_str(&result).unwrap();
 }
+
+// --- 边界值：空参数 ---
+// 设计意图：SkillCreatorSkill 返回 guidance JSON 供 Agent 执行，
+// 参数校验不在 skill 层，空参数被接受是正常的。
+
+#[tokio::test]
+async fn test_execute_create_empty_name() {
+    let skill = SkillCreatorSkill::new();
+    let result = skill
+        .execute(Some(json!({"action": "create", "name": ""})))
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(v["action"], "create");
+    assert_eq!(v["target"]["name"], "");
+}
+
+#[tokio::test]
+async fn test_execute_validate_empty_path() {
+    let skill = SkillCreatorSkill::new();
+    let result = skill
+        .execute(Some(json!({"action": "validate", "path": ""})))
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(v["action"], "validate");
+    assert_eq!(v["target"]["path"], "");
+}
+
+#[tokio::test]
+async fn test_execute_edit_empty_field() {
+    let skill = SkillCreatorSkill::new();
+    let result = skill
+        .execute(Some(json!({"action": "edit", "path": "x", "field": ""})))
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(v["action"], "edit");
+    assert_eq!(v["change"]["field"], "");
+}
+
+#[tokio::test]
+async fn test_execute_edit_without_value() {
+    let skill = SkillCreatorSkill::new();
+    let result = skill
+        .execute(Some(
+            json!({"action": "edit", "path": "x", "field": "desc"}),
+        ))
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(v["change"]["value"], "");
+}
+
+// --- 边界值：超长参数 ---
+// 同上，skill 层不限制参数长度，由 Agent 端处理。
+
+#[tokio::test]
+async fn test_execute_create_long_name() {
+    let skill = SkillCreatorSkill::new();
+    let long_name = "a".repeat(10_000);
+    let result = skill
+        .execute(Some(json!({"action": "create", "name": long_name})))
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(v["action"], "create");
+    assert_eq!(v["target"]["name"], "a".repeat(10_000));
+}
+
+#[tokio::test]
+async fn test_execute_create_long_description() {
+    let skill = SkillCreatorSkill::new();
+    let long_desc = "x".repeat(10_000);
+    let result = skill
+        .execute(Some(json!({
+            "action": "create",
+            "name": "test",
+            "description": long_desc
+        })))
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(v["action"], "create");
+    assert_eq!(v["target"]["description"], "x".repeat(10_000));
+}
+
+#[tokio::test]
+async fn test_execute_validate_long_path() {
+    let skill = SkillCreatorSkill::new();
+    let long_path = format!("skills/{}/SKILL.md", "a".repeat(10_000));
+    let result = skill
+        .execute(Some(json!({"action": "validate", "path": long_path})))
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(v["action"], "validate");
+    assert!(v["target"]["path"].as_str().unwrap().len() > 10_000);
+}
+
+#[tokio::test]
+async fn test_execute_edit_long_value() {
+    let skill = SkillCreatorSkill::new();
+    let long_value = "y".repeat(10_000);
+    let result = skill
+        .execute(Some(json!({
+            "action": "edit",
+            "path": "x",
+            "field": "desc",
+            "value": long_value
+        })))
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(v["action"], "edit");
+    assert_eq!(v["change"]["value"], "y".repeat(10_000));
+}

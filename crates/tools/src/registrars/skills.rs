@@ -1,19 +1,19 @@
-//! Skills tools registrar — registers SkillTool and SkillCreatorTool.
+//! Skills tools registrar — registers SkillTool.
 
 use async_trait::async_trait;
 use std::sync::Arc;
 
 use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
 
-use crate::builtin::{SkillCreatorTool, SkillTool};
+use crate::builtin::SkillTool;
 use crate::try_register;
 use crate::Tool;
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 
 /// Skills tools registrar — registers all tools from the skills domain.
 ///
-/// Covers `skills` and `skill_creator` groups (2 tools):
-/// `SkillTool`, `SkillCreatorTool`.
+/// Covers `skills` group (1 tool):
+/// `SkillTool`.
 pub struct SkillsToolsRegistrar {
     disk_registry: Arc<DiskSkillRegistry>,
     builtin_registry: Arc<BuiltinSkillRegistry>,
@@ -54,10 +54,9 @@ impl ToolRegistrar for SkillsToolsRegistrar {
             SkillTool::new(self.disk_registry.clone(), self.builtin_registry.clone(),),
             r
         );
-        try_register!(registry, registered, SkillCreatorTool::new(), r);
         if registered == 0 {
             return Err(ToolRegistrarError::Internal(
-                "all 2 tools failed to register".to_string(),
+                "no tools registered successfully".to_string(),
             ));
         }
         Ok(())
