@@ -115,16 +115,16 @@ fn scan_layer(
             skill_dir,
         };
 
-        if let Some(existing) = skills.get(&name) {
+        if let Some(existing) = skills.get(&disk_skill.manifest.name) {
             tracing::warn!(
-                skill = %name,
+                skill = %disk_skill.manifest.name,
                 existing_source = %existing.source,
                 new_source = %source,
                 "lower-priority skill overridden by higher-priority one",
             );
         }
 
-        skills.insert(name, disk_skill);
+        skills.insert(disk_skill.manifest.name.clone(), disk_skill);
     }
 }
 
