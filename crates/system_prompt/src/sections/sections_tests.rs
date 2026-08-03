@@ -711,8 +711,8 @@ fn test_is_cacheable_all_remaining_variants() {
     // Static (cacheable)
     let tools = Section::ToolsSection("tools".to_string());
     assert!(
-        !tools.is_cacheable(),
-        "ToolsSection should NOT be cacheable (returns false in current impl)"
+        tools.is_cacheable(),
+        "ToolsSection should be cacheable (returns true in current impl)"
     );
     let memory = Section::MemorySection("memory".to_string());
     assert!(memory.is_cacheable(), "MemorySection should be cacheable");
