@@ -572,4 +572,81 @@ mod tests {
         let skills = scan_all_skills(&config);
         assert!(skills.is_empty(), "bundled directory should not be scanned");
     }
+
+    // ------------------------------------------------------------------
+    // Custom manifest name lookup tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_custom_manifest_name_lookup() {
+        // Directory is "my-dir-skill" but frontmatter declares
+        // name: "my-custom-name". The registry get() must resolve by
+        // manifest.name, not directory name.
+        let temp = tempfile::tempdir().unwrap();
+        create_file(
+            &temp.path().join("my-dir-skill").join("SKILL.md"),
+            "---\nname: my-custom-name\ndescription: Custom name skill\n---\n# Custom\n",
+        );
+        let config = ScanConfig {
+            global_dir: Some(temp.path().to_path_buf()),
+            ..Default::default()
+        };
+        let skills = scan_all_skills(&config);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].manifest.name, "my-custom-name");
+
+        // DiskSkillRegistry::get must resolve by manifest.name
+        let registry = super::super::registry::DiskSkillRegistry::new(skills);
+        assert!(registry.get("my-custom-name").is_some());
+        assert!(registry.get("my-dir-skill").is_none());
+    }
+
+    #[test]
+    fn test_no_custom_name_falls_back_to_dir_name() {
+        // Directory is "my-dir-skill" and frontmatter has no name field.
+        // Must fall back to directory name.
+        let temp = tempfile::tempdir().unwrap();
+        create_file(
+            &temp.path().join("my-dir-skill").join("SKILL.md"),
+            "---\ndescription: Fallback skill\n---\n# Fallback\n",
+        );
+        let config = ScanConfig {
+            global_dir: Some(temp.path().to_path_buf()),
+            ..Default::default()
+        };
+        let skills = scan_all_skills(&config);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].manifest.name, "my-dir-skill");
+
+        let registry = super::super::registry::DiskSkillRegistry::new(skills);
+        assert!(registry.get("my-dir-skill").is_some());
+    }
+
+    #[test]
+    fn test_priority_override_same_manifest_name() {
+        // Two directories with different directory names but same
+        // manifest.name should be deduplicated by priority.
+        let temp = tempfile::tempdir().unwrap();
+        let global_dir = temp.path().join("global");
+        let project_dir = temp.path().join("project");
+
+        create_file(
+            &global_dir.join("dir-a").join("SKILL.md"),
+            "---\nname: shared\ndescription: Global version\n---\n",
+        );
+        create_file(
+            &project_dir.join("dir-b").join("SKILL.md"),
+            "---\nname: shared\ndescription: Project version\n---\n",
+        );
+
+        let config = ScanConfig {
+            global_dir: Some(global_dir),
+            project_root: Some(project_dir),
+            ..Default::default()
+        };
+        let skills = scan_all_skills(&config);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].manifest.name, "shared");
+        assert_eq!(skills[0].manifest.description, "Project version");
+    }
 }
