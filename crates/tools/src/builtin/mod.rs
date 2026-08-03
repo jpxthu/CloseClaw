@@ -17,7 +17,6 @@ pub mod permission;
 pub mod progress;
 pub mod prompt_template;
 pub mod search;
-pub mod skill_creator;
 pub mod skill_tool;
 pub mod workflow_tools;
 
@@ -32,7 +31,6 @@ pub use git_ops::{GitCommitTool, GitLogTool, GitPullTool, GitPushTool, GitStatus
 pub use permission::PermissionQueryTool;
 pub use progress::ProgressTool;
 pub use search::ToolSearchTool;
-pub use skill_creator::SkillCreatorTool;
 pub use skill_tool::SkillTool;
 pub use workflow_tools::{
     WorkflowBlockedTool, WorkflowJumpTool, WorkflowStartTool, WorkflowVerifyTool,
@@ -49,9 +47,6 @@ mod prompt_template_tests;
 
 #[cfg(test)]
 mod progress_tests;
-
-#[cfg(test)]
-mod skill_creator_tests;
 
 #[cfg(test)]
 mod skill_tool_tests;
