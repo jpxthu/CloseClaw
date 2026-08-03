@@ -34,6 +34,15 @@ pub struct StepHistoryEntry {
 pub struct WorkflowRun {
     /// ID of the workflow being executed.
     pub workflow_id: String,
+    /// Name of the workflow definition (used for three-level file lookup).
+    ///
+    /// Required for post-compaction re-injection: after compaction clears
+    /// system_appends, the gateway uses this name to reload the definition
+    /// and rebuild the workflow context.
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空字符串）。
+    #[serde(default)]
+    pub definition_name: String,
     /// Version of the workflow definition.
     pub definition_version: String,
     /// Index of the current step (0-based).

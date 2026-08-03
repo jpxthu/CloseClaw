@@ -632,6 +632,7 @@ dependencies = [
  "closeclaw-session",
  "closeclaw-tasks",
  "closeclaw-workflow",
+ "dirs",
  "futures",
  "hex",
  "libc",

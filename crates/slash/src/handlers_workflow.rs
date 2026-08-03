@@ -12,6 +12,7 @@ use crate::handler::SlashHandler;
 use closeclaw_common::session_lookup::PendingMessage;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_gateway::SessionManager;
+use closeclaw_workflow::context_append::build_workflow_context_append;
 use closeclaw_workflow::definition::Workflow;
 use closeclaw_workflow::definition_loader::WorkflowDefinitionLoader;
 use closeclaw_workflow::engine::WorkflowEngine;
@@ -48,32 +49,9 @@ impl WorkflowHandler {
 
     /// Build the workflow context string to inject into system_appends.
     ///
-    /// Format matches the design doc spec:
-    /// ```text
-    /// --- WORKFLOW ---
-    /// 你正在执行受控工作流：{workflow_name}
-    /// 描述：{description}
-    /// Engine 会通过 workflow 角色消息驱动步骤推进，必须遵守三阶段协议：
-    /// 1. 收到 goal → 执行步骤
-    /// 2. 收到 verify → 自查验收清单 → 完成则调用 workflow_verify，否则继续
-    /// 3. 收到 jump → 回答问题 → 调用 workflow_jump 传递答案
-    /// 不要自行跳步或跳过验证。
-    /// --- WORKFLOW END ---
-    /// ```
+    /// Delegates to [`closeclaw_workflow::context_append::build_workflow_context_append`].
     pub fn build_workflow_context_append(workflow: &Workflow) -> String {
-        format!(
-            "--- WORKFLOW ---\n\
-             你正在执行受控工作流：{name}\n\
-             描述：{desc}\n\
-             Engine 会通过 workflow 角色消息驱动步骤推进，必须遵守三阶段协议：\n\
-             1. 收到 goal → 执行步骤\n\
-             2. 收到 verify → 自查验收清单 → 完成则调用 workflow_verify，否则继续\n\
-             3. 收到 jump → 回答问题 → 调用 workflow_jump 传递答案\n\
-             不要自行跳步或跳过验证。\n\
-             --- WORKFLOW END ---",
-            name = workflow.name,
-            desc = workflow.description,
-        )
+        build_workflow_context_append(workflow)
     }
 
     /// Build the Step 0 goal message content.

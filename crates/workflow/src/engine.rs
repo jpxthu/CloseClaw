@@ -33,6 +33,7 @@ impl WorkflowEngine {
     pub fn start(workflow: &Workflow) -> WorkflowRun {
         WorkflowRun {
             workflow_id: workflow.id.clone(),
+            definition_name: workflow.name.clone(),
             definition_version: workflow
                 .version
                 .clone()
