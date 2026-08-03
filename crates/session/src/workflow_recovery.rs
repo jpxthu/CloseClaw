@@ -136,7 +136,7 @@ fn handle_definition_version_change(
 }
 
 /// Clean up all workflow-related state from a session checkpoint.
-
+///
 /// Performs the four cleanup steps required by the workflow exit flow:
 ///
 /// 1. Remove workflow context markers from `system_appends`
@@ -155,10 +155,8 @@ fn handle_definition_version_change(
 ///
 /// A [`WorkflowExitReport`] summarising what was cleaned up.
 pub fn cleanup_workflow_exit(checkpoint: &mut SessionCheckpoint) -> WorkflowExitReport {
-    let mut report = WorkflowExitReport::default();
-
     // 1. Remove workflow context markers from system_appends.
-    report.removed_contexts =
+    let removed_contexts =
         closeclaw_workflow::context_append::remove_workflow_context(&mut checkpoint.system_appends);
 
     // 2. Remove workflow recovery notification entries.
@@ -166,22 +164,26 @@ pub fn cleanup_workflow_exit(checkpoint: &mut SessionCheckpoint) -> WorkflowExit
     checkpoint
         .system_appends
         .retain(|s| !s.starts_with(WORKFLOW_RECOVERY_PREFIX));
-    report.removed_recovery_notifications = before - checkpoint.system_appends.len();
+    let removed_recovery_notifications = before - checkpoint.system_appends.len();
 
     // 3. Clear workflow_run.
-    if checkpoint.workflow_run.is_some() {
-        report.had_workflow_run = true;
+    let had_workflow_run = checkpoint.workflow_run.is_some();
+    if had_workflow_run {
         checkpoint.workflow_run = None;
     }
 
     tracing::debug!(
-        removed_contexts = report.removed_contexts,
-        removed_recovery_notifications = report.removed_recovery_notifications,
-        had_workflow_run = report.had_workflow_run,
+        removed_contexts,
+        removed_recovery_notifications,
+        had_workflow_run,
         "workflow exit cleanup applied to checkpoint"
     );
 
-    report
+    WorkflowExitReport {
+        removed_contexts,
+        removed_recovery_notifications,
+        had_workflow_run,
+    }
 }
 
 /// Summary of what [`cleanup_workflow_exit`] cleaned up from a checkpoint.

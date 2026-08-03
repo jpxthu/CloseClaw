@@ -24,13 +24,10 @@ impl Gateway {
 
     /// Apply the resolved owner action (resolve/terminate) to the session.
     async fn apply_owner_action(&self, session_id: &str, action: &str) -> Option<()> {
-        let Some(cs) = self
+        let cs = self
             .session_manager
             .get_conversation_session(session_id)
-            .await
-        else {
-            return None;
-        };
+            .await?;
         let (run_snapshot, definition_snapshot, current_step) = {
             let cs_read = cs.read().await;
             let handler = cs_read.workflow_handler()?;
@@ -66,22 +63,16 @@ impl Gateway {
         sender_id: Option<&str>,
         content: &str,
     ) -> Option<String> {
-        let is_blocked = {
-            let Some(cs) = self
-                .session_manager
-                .get_conversation_session(session_id)
-                .await
-            else {
-                return None;
-            };
-            let blocked = cs.read().await.is_workflow_blocked();
-            blocked
-        };
+        let cs = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await?;
+        let is_blocked = cs.read().await.is_workflow_blocked();
         if !is_blocked {
             return None;
         }
         let owner_id = self.session_manager.get_sender_id(session_id).await;
-        if !sender_id.map_or(false, |sid| owner_id.as_ref().map_or(false, |o| o == sid)) {
+        if sender_id.is_none_or(|sid| owner_id.as_ref().is_none_or(|o| o != sid)) {
             return None;
         }
         let trimmed = content.trim();

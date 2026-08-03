@@ -226,13 +226,8 @@ impl SessionManager {
         &self,
         session_id: &str,
     ) -> Option<closeclaw_session::persistence::SessionCheckpoint> {
-        let cm = {
-            let cm_guard = self.checkpoint_manager.read().await;
-            let Some(cm) = cm_guard.as_ref() else {
-                return None;
-            };
-            std::sync::Arc::clone(cm)
-        };
+        let cm_guard = self.checkpoint_manager.read().await;
+        let cm = std::sync::Arc::clone(cm_guard.as_ref()?);
         match cm.load(session_id).await {
             Ok(Some(cp)) => Some(cp),
             _ => None,
