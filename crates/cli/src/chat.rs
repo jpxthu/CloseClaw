@@ -199,7 +199,7 @@ async fn build_slash_dispatcher(
     let disk_registry = Arc::new(init_disk_skills(&scan_config));
     let builtin_registry = Arc::new(BuiltinSkillRegistry::from_skills(builtin_skills()).await);
     let skill_handler = Arc::new(SkillSlashHandler::new(disk_registry, builtin_registry));
-    for name in skill_handler.invocable_names() {
+    for name in skill_handler.invocable_names().await {
         slash_registry.register_named(
             &name,
             Arc::clone(&skill_handler) as Arc<dyn closeclaw_slash::SlashHandler>,
