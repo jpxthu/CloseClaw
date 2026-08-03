@@ -101,9 +101,12 @@ impl PromptFragmentProvider for ToolsFragmentProvider {
         })
     }
 
-    /// Registry-backed — no file mtime to key on.
+    /// Cache key for the Tools section.
+    ///
+    /// Returns a stable key so that `PromptBuilder::build()` can cache
+    /// the generated tools listing across repeated builds.
     fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
-        None
+        Some("tools".to_string())
     }
 }
 
@@ -123,11 +126,11 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_key_always_none() {
+    fn test_cache_key_returns_tools() {
         let registry = Arc::new(ToolRegistry::new());
         let provider = ToolsFragmentProvider::new(registry, None, None, None);
         let ctx = FragmentContext::test_default();
-        assert!(provider.cache_key(&ctx).is_none());
+        assert_eq!(provider.cache_key(&ctx), Some("tools".to_string()));
     }
 
     #[tokio::test]

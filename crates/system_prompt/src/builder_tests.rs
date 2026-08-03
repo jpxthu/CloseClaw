@@ -296,6 +296,57 @@ async fn build_from_mocks_with_cache(
 }
 
 // ---------------------------------------------------------------------------
+// Step 1.2: ToolsSection caching integration tests
+// ---------------------------------------------------------------------------
+
+/// Two consecutive builds with the same context should hit cache on the
+/// second build. The cached content is reused without calling generate().
+#[tokio::test]
+async fn test_tools_section_cached_after_first_build() {
+    let mut cache = SectionCache::new();
+
+    // First build: cache miss → generate → cache put
+    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(
+        MockProvider::with_fragment("tools", 2, "tools content").with_cache_key("tools"),
+    )];
+    let result1 = build_from_mocks_with_cache(providers, &mut cache).await;
+    assert!(result1.contains("tools content"));
+
+    // Second build: cache hit → uses cached content, does not call generate
+    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(
+        MockProvider::with_fragment("tools", 2, "tools content").with_cache_key("tools"),
+    )];
+    let result2 = build_from_mocks_with_cache(providers, &mut cache).await;
+    assert_eq!(result1, result2);
+}
+
+/// Build → invalidate_all → rebuild should regenerate content.
+#[tokio::test]
+async fn test_tools_section_cache_invalidated() {
+    let mut cache = SectionCache::new();
+
+    // Pre-populate cache with stale content
+    cache.put("tools", "old tools content".to_string(), None);
+
+    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(
+        MockProvider::with_fragment("tools", 2, "new tools content").with_cache_key("tools"),
+    )];
+
+    // Before invalidation: cache hit → old content
+    let result = build_from_mocks_with_cache(providers, &mut cache).await;
+    assert!(result.contains("old tools content"));
+
+    // Invalidate → cache miss → provider generates new content
+    cache.invalidate_all();
+    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(
+        MockProvider::with_fragment("tools", 2, "new tools content").with_cache_key("tools"),
+    )];
+    let result2 = build_from_mocks_with_cache(providers, &mut cache).await;
+    assert!(result2.contains("new tools content"));
+    assert!(!result2.contains("old tools content"));
+}
+
+// ---------------------------------------------------------------------------
 // Skill listing removed from system prompt static layer (Step 1.1)
 // ---------------------------------------------------------------------------
 
