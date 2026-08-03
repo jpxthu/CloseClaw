@@ -49,6 +49,9 @@ impl ToolInfo {
 /// Maximum length of the first-level tools section (in characters).
 const TOOLS_SECTION_MAX_LEN: usize = 15000;
 
+/// Maximum width of a single output line (in characters).
+const LINE_WIDTH: usize = 100;
+
 /// Thread-safe tool registry.
 ///
 /// Wraps an inner `HashMap<String, Arc<dyn Tool>>` behind a Tokio
@@ -148,6 +151,11 @@ impl ToolRegistryImpl {
         total_len: usize,
         max_len: usize,
     ) -> (String, usize) {
+        // Already at or over limit → return empty.
+        if total_len >= max_len {
+            return (String::new(), total_len);
+        }
+
         let has_eager = tools.iter().any(|t| !t.is_deferred);
         let tag = if has_eager {
             "(always loaded)"
@@ -171,22 +179,75 @@ impl ToolRegistryImpl {
             } else {
                 ""
             };
-            let line = if tool.is_deferred {
+            let raw_line = if tool.is_deferred {
                 format!("  - {}{}", tool.name, danger_mark)
             } else {
                 format!("  - **{}**{}: {}", tool.name, danger_mark, tool.detail)
             };
-            let line_len = line.chars().count() + 1; // +1 for trailing newline
-            if current_len + line_len > max_len {
-                break;
+
+            // Split long lines at word boundaries to stay within LINE_WIDTH.
+            let wrapped = Self::split_long_line(&raw_line, LINE_WIDTH);
+            let mut fits = true;
+            for chunk in &wrapped {
+                let chunk_len = chunk.chars().count() + 1; // +1 for trailing newline
+                if current_len + chunk_len > max_len {
+                    fits = false;
+                    break;
+                }
+                current_len += chunk_len;
             }
-            current_len += line_len;
-            lines.push(line);
+            if fits {
+                for chunk in &wrapped {
+                    lines.push(chunk.clone());
+                }
+            }
         }
 
         let output = lines.join("\n") + "\n";
         let new_len = total_len + output.chars().count();
         (output, new_len)
+    }
+
+    /// Split a long detail text into lines that each fit within
+    /// `width` characters, breaking at word boundaries.
+    fn split_long_line(line: &str, width: usize) -> Vec<String> {
+        if line.chars().count() <= width {
+            return vec![line.to_string()];
+        }
+        let mut chunks = Vec::new();
+        let mut remaining = line;
+        while !remaining.is_empty() {
+            if remaining.chars().count() <= width {
+                chunks.push(remaining.to_string());
+                break;
+            }
+            // Find last space within width.
+            let mut split_pos = 0;
+            let mut char_count = 0;
+            for (i, ch) in remaining.char_indices() {
+                char_count += 1;
+                if ch == ' ' && char_count <= width {
+                    split_pos = i;
+                }
+                if char_count >= width {
+                    break;
+                }
+            }
+            if split_pos > 0 {
+                chunks.push(remaining[..split_pos].to_string());
+                remaining = &remaining[split_pos + 1..];
+            } else {
+                // No space found — split at width boundary.
+                let end = remaining
+                    .char_indices()
+                    .nth(width)
+                    .map(|(i, _)| i)
+                    .unwrap_or(remaining.len());
+                chunks.push(remaining[..end].to_string());
+                remaining = &remaining[end..];
+            }
+        }
+        chunks
     }
 }
 
@@ -435,6 +496,10 @@ impl ToolRegistryImpl {
             let (line, new_len) =
                 Self::format_group_line(&group_name, &tools, total_len, TOOLS_SECTION_MAX_LEN);
             total_len = new_len;
+            if total_len >= TOOLS_SECTION_MAX_LEN {
+                lines.push(line);
+                break;
+            }
             lines.push(line);
         }
 

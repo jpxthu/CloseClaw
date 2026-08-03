@@ -60,21 +60,20 @@ fn test_trunc_partial_group() {
     assert!(new_len <= 51, "new_len must not exceed max_len");
 }
 
-/// Extreme: max_len too small for any tool → only header shown.
+/// Extreme: max_len too small for any tool → nothing returned.
 #[test]
 fn test_trunc_extreme_no_tools_fit() {
     let tools = vec![
         trunc_tool_info("A", "g", false),
         trunc_tool_info("B", "g", false),
     ];
-    // max_len=0 → no tool fits, but header is still returned
+    // max_len=0 → already at limit, return empty
     let (output, new_len) = ToolRegistryImpl::format_group_line("g", &tools, 0, 0);
-    assert!(output.contains("**g**"), "header always present");
+    assert!(output.is_empty(), "empty when max_len=0");
+    assert_eq!(new_len, 0, "new_len=0 when max_len=0");
+    assert!(!output.contains("**g**"), "no header with max_len=0");
     assert!(!output.contains("**A**"), "no tools with max_len=0");
     assert!(!output.contains("**B**"), "no tools with max_len=0");
-    // Output is header + trailing newline; no tools included.
-    assert!(new_len > 0, "output must be non-empty (header)");
-    assert!(!output.contains("  - "), "no tool lines should appear");
 }
 
 /// Simulates multi-group truncation: front group consumes space,
