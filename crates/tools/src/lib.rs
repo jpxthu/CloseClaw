@@ -13,6 +13,7 @@
 
 pub mod bash;
 pub mod builtin;
+pub mod dispatcher;
 pub mod file_mutex;
 pub mod permission_check;
 pub mod registrar;
