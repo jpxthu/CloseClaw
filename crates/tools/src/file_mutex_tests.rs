@@ -20,7 +20,7 @@ async fn test_same_file_serializes() {
     let map3 = map.clone();
 
     let h1 = tokio::spawn(async move {
-        let (g, _arc) = map2.acquire(&f1).await;
+        let g = map2.acquire(&f1).await;
         c1.fetch_add(1, Ordering::SeqCst);
         tokio::time::sleep(Duration::from_millis(50)).await;
         let val = c1.load(Ordering::SeqCst);
@@ -32,7 +32,7 @@ async fn test_same_file_serializes() {
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     let h2 = tokio::spawn(async move {
-        let (g, _arc) = map3.acquire(&f2).await;
+        let g = map3.acquire(&f2).await;
         c2.fetch_add(1, Ordering::SeqCst);
         let val = c2.load(Ordering::SeqCst);
         drop(g);
@@ -64,14 +64,14 @@ async fn test_different_files_parallel() {
     let map3 = map.clone();
 
     let h1 = tokio::spawn(async move {
-        let (_g, _arc) = map2.acquire(&f1).await;
+        let _g = map2.acquire(&f1).await;
         s1.fetch_add(1, Ordering::SeqCst);
         tokio::time::sleep(Duration::from_millis(50)).await;
         drop(_g);
     });
 
     let h2 = tokio::spawn(async move {
-        let (_g, _arc) = map3.acquire(&f2).await;
+        let _g = map3.acquire(&f2).await;
         s2.fetch_add(1, Ordering::SeqCst);
         tokio::time::sleep(Duration::from_millis(50)).await;
         drop(_g);
@@ -95,7 +95,7 @@ async fn test_canonicalize_symlink() {
     std::os::unix::fs::symlink(&real, &link).unwrap();
 
     // Acquire via symlink path — should resolve to the same mutex as the real path.
-    let (g1, _arc1) = map.acquire(&link).await;
+    let g1 = map.acquire(&link).await;
     // try_acquire via real path should see it as held.
     match map.try_acquire(&real) {
         TryAcquireResult::WouldBlock => {}
@@ -117,9 +117,8 @@ async fn test_drop_reacquire() {
     let file = dir.path().join("test.txt");
     std::fs::write(&file, "").unwrap();
 
-    let (g, _arc) = map.acquire(&file).await;
+    let g = map.acquire(&file).await;
     drop(g);
-    drop(_arc);
 
     // Should be re-acquirable immediately.
     match map.try_acquire(&file) {
@@ -136,13 +135,13 @@ async fn test_cleanup_removes_unused_entry() {
     std::fs::write(&file, "").unwrap();
 
     {
-        let (_g, _arc) = map.acquire(&file).await;
+        let _g = map.acquire(&file).await;
         assert_eq!(map.inner.len(), 1);
-        // _g and _arc still live — cleanup should NOT remove the entry.
+        // _g still live — cleanup should NOT remove the entry.
         map.cleanup(&file);
         assert_eq!(map.inner.len(), 1);
     }
-    // After block, _g and _arc are dropped — only the DashMap ref remains.
+    // After block, _g is dropped — only the DashMap ref remains.
     map.cleanup(&file);
     assert_eq!(map.inner.len(), 0);
 }
@@ -154,7 +153,7 @@ async fn test_try_acquire_would_block() {
     let file = dir.path().join("block.txt");
     std::fs::write(&file, "").unwrap();
 
-    let (_g, _arc) = map.acquire(&file).await;
+    let _g = map.acquire(&file).await;
 
     match map.try_acquire(&file) {
         TryAcquireResult::WouldBlock => {}

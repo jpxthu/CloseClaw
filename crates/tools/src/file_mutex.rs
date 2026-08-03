@@ -48,21 +48,17 @@ impl FileMutexMap {
     /// Acquire the mutex for `path`, blocking until available.
     ///
     /// The returned [`OwnedMutexGuard`] automatically releases the lock on drop.
-    /// A cloned [`Arc`] is returned alongside to ensure the inner mutex stays
-    /// alive while the guard is live.
     ///
-    /// # Panics
-    ///
-    /// Panics if `path` cannot be canonicalized.
-    pub async fn acquire(&self, path: &Path) -> (OwnedMutexGuard<()>, Arc<Mutex<()>>) {
+    /// If `path` cannot be canonicalized, the original (non-canonical) path is
+    /// used as the map key instead.
+    pub async fn acquire(&self, path: &Path) -> OwnedMutexGuard<()> {
         let canonical = canonicalize_or_clone(path);
         let mutex = self
             .inner
             .entry(canonical)
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone();
-        let guard = Arc::clone(&mutex).lock_owned().await;
-        (guard, mutex)
+        mutex.lock_owned().await
     }
 
     /// Non-blocking attempt to acquire the mutex for `path`.
