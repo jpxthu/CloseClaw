@@ -61,6 +61,7 @@ impl Tool for GitStatusTool {
             is_concurrency_safe: true,
             is_read_only: true,
             is_expensive: true,
+            is_deferred_by_default: true,
             ..Default::default()
         }
     }
@@ -116,6 +117,7 @@ impl Tool for GitLogTool {
             is_concurrency_safe: true,
             is_read_only: true,
             is_expensive: true,
+            is_deferred_by_default: true,
             ..Default::default()
         }
     }
@@ -176,6 +178,7 @@ impl Tool for GitCommitTool {
             is_concurrency_safe: false,
             is_destructive: true,
             is_expensive: true,
+            is_deferred_by_default: true,
             ..Default::default()
         }
     }
@@ -230,6 +233,7 @@ impl Tool for GitPushTool {
         ToolFlags {
             is_concurrency_safe: false,
             is_destructive: true,
+            is_deferred_by_default: true,
             ..Default::default()
         }
     }
@@ -284,6 +288,7 @@ impl Tool for GitPullTool {
         ToolFlags {
             is_concurrency_safe: false,
             is_destructive: true,
+            is_deferred_by_default: true,
             ..Default::default()
         }
     }
@@ -323,6 +328,7 @@ mod tests {
         assert!(tool.flags().is_read_only);
         assert!(!tool.flags().is_destructive);
         assert!(tool.flags().is_expensive);
+        assert!(tool.flags().is_deferred_by_default);
     }
 
     #[test]
@@ -359,6 +365,7 @@ mod tests {
         assert!(tool.flags().is_read_only);
         assert!(!tool.flags().is_destructive);
         assert!(tool.flags().is_expensive);
+        assert!(tool.flags().is_deferred_by_default);
     }
 
     #[test]
@@ -395,6 +402,7 @@ mod tests {
         assert!(tool.flags().is_destructive);
         assert!(tool.flags().is_expensive);
         assert!(!tool.flags().is_read_only);
+        assert!(tool.flags().is_deferred_by_default);
     }
 
     #[test]
@@ -432,6 +440,7 @@ mod tests {
         let tool = GitPushTool::new();
         assert!(tool.flags().is_destructive);
         assert!(!tool.flags().is_read_only);
+        assert!(tool.flags().is_deferred_by_default);
     }
 
     #[test]
@@ -467,6 +476,7 @@ mod tests {
         let tool = GitPullTool::new();
         assert!(tool.flags().is_destructive);
         assert!(!tool.flags().is_read_only);
+        assert!(tool.flags().is_deferred_by_default);
     }
 
     #[test]
