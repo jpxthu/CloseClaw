@@ -160,8 +160,11 @@ impl ReadTool {
 fn read_prompt_when_to_use() -> String {
     "Use Read to view file contents, confirm file existence, read configurations, \
      or inspect code. Accepts a file path and returns text content. \
-     Supports large files via offset/limit pagination. \
-     For images, use the image analysis tool instead."
+     Supports large files via offset/limit parameters: specify offset \
+     (1-indexed line number) and limit (max lines) to read in chunks. \
+     Large files are automatically truncated with a continuation hint \
+     showing the next offset to use. For images, use the image \
+     analysis tool instead."
         .to_string()
 }
 
@@ -179,8 +182,10 @@ fn read_prompt_add_workdir_guidance(context: &PromptGenerationContext, parts: &m
 /// "Usage principles" section for the Read tool prompt.
 fn read_prompt_usage_principles() -> String {
     "For large files, use offset and limit parameters to read in chunks. \
-     Do not attempt to read entire binary files or very large files (>
-     50KB) in a single call — read only the relevant portions. \
+     Files exceeding 50KB or 2000 lines are truncated automatically — \
+     the response includes a continuation hint with the exact offset \
+     for the next read. Do not attempt to read entire binary files \
+     or very large files in a single call — read only the relevant portions. \
      If the file is an image, use the image analysis tool instead of Read."
         .to_string()
 }
@@ -228,8 +233,10 @@ impl Tool for ReadTool {
     }
 
     fn detail(&self) -> String {
-        "Read the full contents of a file given its path.\
+        "Read the contents of a file given its path.\
          Returns the text content as a JSON object with key `content`.\
+         Supports offset/limit parameters for pagination of large files.\
+         Large files are automatically truncated with a continuation hint.\
          Fails if the path does not exist or is not a readable file."
             .to_string()
     }
@@ -250,6 +257,14 @@ impl Tool for ReadTool {
                 "path": {
                     "type": "string",
                     "description": "Absolute or workdir-relative file path"
+                },
+                "offset": {
+                    "type": "number",
+                    "description": "1-indexed line number to start reading from"
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum number of lines to read"
                 }
             },
             "required": ["path"]
@@ -266,6 +281,15 @@ impl Tool for ReadTool {
 
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         let path = required_str(&args, "path")?;
+        let offset = args
+            .get("offset")
+            .and_then(Value::as_f64)
+            .map(|v| v as usize)
+            .unwrap_or(1);
+        let limit = args
+            .get("limit")
+            .and_then(Value::as_f64)
+            .map(|v| v as usize);
         let deps = (
             self.permission_engine.clone(),
             self.session_manager.clone(),
@@ -273,15 +297,22 @@ impl Tool for ReadTool {
             self.approval_flow.clone(),
         );
         check_and_execute(&deps, ctx, path, "read", async {
-            let content = std::fs::read_to_string(path)
+            let raw = std::fs::read_to_string(path)
                 .map_err(|e| ToolCallError::ExecutionFailed(format!("{path}: {e}")))?;
+            let config = super::read_truncator::TruncationConfig::default();
+            let result = super::read_truncator::truncate_lines(&raw, offset, limit, &config);
+            let truncation_msg = super::read_truncator::format_truncation_message(&result, offset);
+            let mut output = result.content;
+            if let Some(msg) = truncation_msg {
+                output.push_str(&msg);
+            }
             // Record file mtime so staleness checks can use it later.
             if let Some(session) = ctx.session.as_ref() {
                 let mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
                 session.record_file_read(path, mtime).await;
             }
             Ok(ToolResult {
-                data: serde_json::json!({ "content": content }),
+                data: serde_json::json!({ "content": output }),
                 new_messages: vec![],
                 context_modifier: None,
             })

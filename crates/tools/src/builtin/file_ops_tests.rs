@@ -247,7 +247,7 @@ async fn test_read_allowed_with_rules() {
     let args = serde_json::json!({ "path": file.to_str().unwrap() });
     let result = tool.call(args, &make_ctx("a")).await;
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().data["content"], "hello");
+    assert_eq!(result.unwrap().data["content"], "hello\n");
 }
 
 #[tokio::test]
