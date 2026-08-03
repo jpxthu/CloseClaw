@@ -959,3 +959,4 @@ async fn test_plan_mode_hides_plan_approval_tool() {
 // =========================================================================
 
 mod tool_registry_query_tests;
+mod truncation_tests;
