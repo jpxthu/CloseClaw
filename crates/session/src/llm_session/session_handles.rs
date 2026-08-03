@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use closeclaw_common::canonicalize_or_clone;
+use closeclaw_common::{FileReadCache, ReadRange};
 
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
@@ -790,6 +791,34 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
         let canonical = canonicalize_or_clone(Path::new(path));
         let map = self.file_mtimes.read().expect("file_mtimes lock poisoned");
         map.get(&canonical).copied()
+    }
+
+    fn get_file_read_cache(&self, path: &str) -> Option<FileReadCache> {
+        let canonical = canonicalize_or_clone(Path::new(path));
+        let map = self
+            .file_read_ranges
+            .read()
+            .expect("file_read_ranges lock poisoned");
+        map.get(&canonical).cloned()
+    }
+
+    async fn record_file_read_range(
+        &self,
+        path: &str,
+        mtime: Option<SystemTime>,
+        range: ReadRange,
+    ) {
+        let canonical = canonicalize_or_clone(Path::new(path));
+        let mut map = self
+            .file_read_ranges
+            .write()
+            .expect("file_read_ranges lock poisoned");
+        let entry = map.entry(canonical).or_insert_with(|| FileReadCache {
+            mtime,
+            ranges: Vec::new(),
+        });
+        entry.mtime = mtime;
+        entry.ranges.push(range);
     }
 
     async fn persist_pending_checkpoint(&self) -> Result<(), String> {

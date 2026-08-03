@@ -18,6 +18,7 @@ use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use crate::permission_check;
 use crate::permission_check::PermDeps;
 use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use closeclaw_common::ReadRange;
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -297,6 +298,26 @@ impl Tool for ReadTool {
             self.approval_flow.clone(),
         );
         check_and_execute(&deps, ctx, path, "read", async {
+            // Get mtime for dedup and staleness checks.
+            let mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
+
+            // Dedup: same path + range + unchanged mtime → return cached hint.
+            if let Some(session) = ctx.session.as_ref() {
+                if let Some(cache) = session.get_file_read_cache(path) {
+                    let range = ReadRange { offset, limit };
+                    if cache.mtime == mtime && cache.ranges.contains(&range) {
+                        return Ok(ToolResult {
+                            data: serde_json::json!({
+                                "content": "File unchanged since last read."
+                            }),
+                            new_messages: vec![],
+                            context_modifier: None,
+                        });
+                    }
+                }
+            }
+
+            // Normal read path.
             let raw = std::fs::read_to_string(path)
                 .map_err(|e| ToolCallError::ExecutionFailed(format!("{path}: {e}")))?;
             let config = super::read_truncator::TruncationConfig::default();
@@ -306,11 +327,15 @@ impl Tool for ReadTool {
             if let Some(msg) = truncation_msg {
                 output.push_str(&msg);
             }
-            // Record file mtime so staleness checks can use it later.
+
+            // Record file mtime (staleness) and range (dedup).
             if let Some(session) = ctx.session.as_ref() {
-                let mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
                 session.record_file_read(path, mtime).await;
+                session
+                    .record_file_read_range(path, mtime, ReadRange { offset, limit })
+                    .await;
             }
+
             Ok(ToolResult {
                 data: serde_json::json!({ "content": output }),
                 new_messages: vec![],

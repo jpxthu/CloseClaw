@@ -17,6 +17,34 @@ use std::time::{Duration, SystemTime};
 use async_trait::async_trait;
 
 // ---------------------------------------------------------------------------
+// ReadRange / FileReadCache — per-turn file dedup types
+// ---------------------------------------------------------------------------
+
+/// A read range specifying the line offset (1-indexed) and optional
+/// line limit used in a single Read call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadRange {
+    /// 1-indexed starting line number.
+    pub offset: usize,
+    /// Maximum number of lines to read (None means no limit).
+    pub limit: Option<usize>,
+}
+
+/// Cached record of a file read within the current turn.
+
+/// Contains the mtime observed at read time and every range that has
+/// been read so far. Used for per-turn dedup: if the same path +
+/// range is requested again while mtime is unchanged, the tool
+/// returns a short "unchanged" hint instead of re-reading.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileReadCache {
+    /// The mtime recorded when the file was last read.
+    pub mtime: Option<SystemTime>,
+    /// All ranges that have been read from this file in the current turn.
+    pub ranges: Vec<ReadRange>,
+}
+
+// ---------------------------------------------------------------------------
 // KillHandle — abstract process kill adapter
 // ---------------------------------------------------------------------------
 
@@ -183,6 +211,26 @@ pub trait ToolSession: Send + Sync {
     /// Returns `None` if the file has never been read in this session.
     fn get_file_mtime(&self, _path: &str) -> Option<SystemTime> {
         None
+    }
+
+    /// Retrieve the per-turn read cache for a file.
+    ///
+    /// Returns the recorded mtime and all ranges read so far in the
+    /// current turn. Returns `None` if the file has never been read.
+    fn get_file_read_cache(&self, _path: &str) -> Option<FileReadCache> {
+        None
+    }
+
+    /// Record a file read range for per-turn dedup.
+    ///
+    /// Called by `ReadTool` after a successful read so that subsequent
+    /// identical reads (same path + range + mtime) can be short-circuited.
+    async fn record_file_read_range(
+        &self,
+        _path: &str,
+        _mtime: Option<SystemTime>,
+        _range: ReadRange,
+    ) {
     }
 
     /// Report real-time progress for a running tool call.
