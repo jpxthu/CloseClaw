@@ -41,28 +41,12 @@ pub async fn inject_workflow_recovery(session_id: &str, checkpoint: &mut Session
         }
     }
 
-    let step_num = wf_run.current_step;
-    let step_name = wf_run
-        .step_history
-        .last()
-        .map(|e| e.step_name.as_str())
-        .unwrap_or("unknown");
-    let notification = build_recovery_notification(&wf_run.definition_name, step_num, step_name);
-
     // 2. Handle definition_version changes
     handle_definition_version_change(session_id, &wf, &wf_run, checkpoint);
 
-    // 3. Store recovery notification in system_appends
-    let tagged = format!("{}{}", WORKFLOW_RECOVERY_PREFIX, notification);
-    if let Some(slot) = checkpoint
-        .system_appends
-        .iter_mut()
-        .find(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX))
-    {
-        *slot = tagged;
-    } else {
-        checkpoint.system_appends.push(tagged);
-    }
+    // 3. Extract step info and store recovery notification
+    let step_num = wf_run.current_step;
+    store_recovery_notification(&wf_run, checkpoint);
 
     tracing::info!(
         session_id = %session_id,
@@ -78,6 +62,31 @@ fn try_reload_definition(
     definition_name: &str,
 ) -> Option<closeclaw_workflow::definition::Workflow> {
     WorkflowDefinitionLoader::load(definition_name, None, None).ok()
+}
+
+/// Extract step info from a workflow run and store a recovery notification
+/// in `system_appends`.
+fn store_recovery_notification(
+    wf_run: &closeclaw_workflow::run::WorkflowRun,
+    checkpoint: &mut SessionCheckpoint,
+) {
+    let step_num = wf_run.current_step;
+    let step_name = wf_run
+        .step_history
+        .last()
+        .map(|e| e.step_name.as_str())
+        .unwrap_or("unknown");
+    let notification = build_recovery_notification(&wf_run.definition_name, step_num, step_name);
+    let tagged = format!("{}{}", WORKFLOW_RECOVERY_PREFIX, notification);
+    if let Some(slot) = checkpoint
+        .system_appends
+        .iter_mut()
+        .find(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX))
+    {
+        *slot = tagged;
+    } else {
+        checkpoint.system_appends.push(tagged);
+    }
 }
 
 /// Build a recovery notification string summarising the current workflow state.

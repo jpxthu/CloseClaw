@@ -244,21 +244,7 @@ impl WorkflowHandler {
     pub fn on_verify_limit_exceeded(&mut self, verify_retry_limit: usize) {
         WorkflowEngine::on_verify_injected(&mut self.run, verify_retry_limit);
         if self.run.phase == Phase::Blocked {
-            let step_name = self
-                .definition
-                .steps
-                .get(self.run.current_step)
-                .map(|s| s.name.clone())
-                .unwrap_or_default();
-            self.pending_notification = Some(WorkflowNotification {
-                workflow_name: self.run.definition_name.clone(),
-                current_step: self.run.current_step,
-                reason: format!("验证重试次数超过上限 ({})", verify_retry_limit),
-                message: format!(
-                    "⚠️ Workflow「{}」在 Step {} ({}) 验证重试次数超过上限\n\n请回复「恢复」继续执行，或「终止」结束工作流。",
-                    self.run.definition_name, self.run.current_step, step_name,
-                ),
-            });
+            self.queue_verify_limit_notification(verify_retry_limit);
         }
     }
 
@@ -294,22 +280,27 @@ impl WorkflowHandler {
     pub fn on_verify_injected(&mut self, verify_retry_limit: usize) {
         WorkflowEngine::on_verify_injected(&mut self.run, verify_retry_limit);
         if self.run.phase == Phase::Blocked && self.pending_notification.is_none() {
-            let step_name = self
-                .definition
-                .steps
-                .get(self.run.current_step)
-                .map(|s| s.name.clone())
-                .unwrap_or_default();
-            self.pending_notification = Some(WorkflowNotification {
-                workflow_name: self.run.definition_name.clone(),
-                current_step: self.run.current_step,
-                reason: format!("验证重试次数超过上限 ({})", verify_retry_limit),
-                message: format!(
-                    "⚠️ Workflow「{}」在 Step {} ({}) 验证重试次数超过上限\n\n请回复「恢复」继续执行，或「终止」结束工作流。",
-                    self.run.definition_name, self.run.current_step, step_name,
-                ),
-            });
+            self.queue_verify_limit_notification(verify_retry_limit);
         }
+    }
+
+    /// Queue a notification for verify-limit-exceeded blocking.
+    fn queue_verify_limit_notification(&mut self, verify_retry_limit: usize) {
+        let step_name = self
+            .definition
+            .steps
+            .get(self.run.current_step)
+            .map(|s| s.name.clone())
+            .unwrap_or_default();
+        self.pending_notification = Some(WorkflowNotification {
+            workflow_name: self.run.definition_name.clone(),
+            current_step: self.run.current_step,
+            reason: format!("验证重试次数超过上限 ({})", verify_retry_limit),
+            message: format!(
+                "⚠️ Workflow「{}」在 Step {} ({}) 验证重试次数超过上限\n\n请回复「恢复」继续执行，或「终止」结束工作流。",
+                self.run.definition_name, self.run.current_step, step_name,
+            ),
+        });
     }
 
     /// Record that a goal message has been injected.
