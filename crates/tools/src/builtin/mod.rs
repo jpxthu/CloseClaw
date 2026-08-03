@@ -50,6 +50,9 @@ mod prompt_template_tests;
 mod read_truncator_tests;
 
 #[cfg(test)]
+mod read_tool_tests;
+
+#[cfg(test)]
 mod progress_tests;
 
 #[cfg(test)]
