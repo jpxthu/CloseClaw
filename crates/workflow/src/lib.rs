@@ -1,4 +1,5 @@
 pub mod definition;
+pub mod definition_loader;
 pub mod engine;
 pub mod error;
 pub mod run;

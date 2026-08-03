@@ -26,6 +26,10 @@ pub enum WorkflowError {
     /// Verify retry count exceeded the configured limit.
     #[error("verify limit exceeded")]
     VerifyLimitExceeded,
+
+    /// Workflow definition not found at any of the three lookup levels.
+    #[error("workflow definition not found: {0}")]
+    DefinitionNotFound(String),
 }
 
 impl WorkflowError {
