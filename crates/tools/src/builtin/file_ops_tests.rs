@@ -1,6 +1,7 @@
 //! Unit tests for file_ops tools — metadata and permission-check tests.
 
 use super::*;
+use closeclaw_common::{PromptGenerationContext, WorkdirContext};
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{Action, Effect, Rule, RuleSet};
@@ -417,6 +418,149 @@ async fn test_ls_denied_without_permission() {
     let args = serde_json::json!({ "path": tmp.path().to_str().unwrap() });
     let result = tool.call(args, &make_ctx("a")).await;
     assert!(result.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// generate_prompt tests — ReadTool
+// ---------------------------------------------------------------------------
+
+/// `generate_prompt` must return context-aware output for empty context.
+#[tokio::test]
+async fn test_read_generate_prompt_empty_context() {
+    let tool = ReadTool::new(make_engine(vec![]), make_sm(), make_cm(), make_af());
+    let ctx = PromptGenerationContext::default();
+    let prompt = tool.generate_prompt(&ctx);
+    // Empty context: no workdir, no combination suggestions
+    assert!(!prompt.is_empty(), "prompt must not be empty");
+    assert!(
+        prompt.contains("Read"),
+        "prompt should mention the Read tool name"
+    );
+    assert!(
+        !prompt.contains("Working directory"),
+        "empty context should not mention working directory"
+    );
+}
+
+/// Workdir context changes the prompt output.
+#[tokio::test]
+async fn test_read_generate_prompt_includes_workdir() {
+    let tool = ReadTool::new(make_engine(vec![]), make_sm(), make_cm(), make_af());
+    let no_workdir = PromptGenerationContext::default();
+    let with_workdir = PromptGenerationContext {
+        agent_id: "test-agent".into(),
+        workdir: Some(WorkdirContext {
+            path: "/some/path".into(),
+            has_git: false,
+            branch: None,
+            recent_changes: 0,
+        }),
+        ..Default::default()
+    };
+    let prompt_no = tool.generate_prompt(&no_workdir);
+    let prompt_yes = tool.generate_prompt(&with_workdir);
+    assert_ne!(
+        prompt_no, prompt_yes,
+        "different workdir contexts should produce different prompts"
+    );
+    assert!(
+        prompt_yes.contains("/some/path"),
+        "prompt should contain the working directory path"
+    );
+    assert!(
+        prompt_yes.contains("not a git repo"),
+        "non-git path should note absence of git"
+    );
+    assert!(
+        prompt_yes.contains("Relative paths"),
+        "workdir guidance should mention relative path resolution"
+    );
+}
+
+/// Git branch and recent_changes are reflected in the prompt.
+#[tokio::test]
+async fn test_read_generate_prompt_includes_git_info() {
+    let tool = ReadTool::new(make_engine(vec![]), make_sm(), make_cm(), make_af());
+    let no_git = PromptGenerationContext {
+        agent_id: "test-agent".into(),
+        workdir: Some(WorkdirContext {
+            path: "/tmp".into(),
+            has_git: false,
+            branch: None,
+            recent_changes: 0,
+        }),
+        ..Default::default()
+    };
+    let with_git = PromptGenerationContext {
+        agent_id: "test-agent".into(),
+        workdir: Some(WorkdirContext {
+            path: "/tmp".into(),
+            has_git: true,
+            branch: Some("main".into()),
+            recent_changes: 3,
+        }),
+        ..Default::default()
+    };
+    let prompt_no = tool.generate_prompt(&no_git);
+    let prompt_yes = tool.generate_prompt(&with_git);
+    assert!(
+        prompt_yes.contains("main"),
+        "git prompt should contain the branch name"
+    );
+    assert!(
+        prompt_yes.contains("uncommitted change"),
+        "git prompt should mention uncommitted changes"
+    );
+    assert!(
+        prompt_no.contains("not a git repo"),
+        "non-git prompt should note absence of git"
+    );
+}
+
+/// Prompt includes combination suggestions when Write and Bash are available.
+#[tokio::test]
+async fn test_read_generate_prompt_combination_suggestions() {
+    let tool = ReadTool::new(make_engine(vec![]), make_sm(), make_cm(), make_af());
+    let ctx = PromptGenerationContext {
+        available_tool_names: vec!["Read".into(), "Write".into(), "Bash".into()],
+        ..Default::default()
+    };
+    let prompt = tool.generate_prompt(&ctx);
+    assert!(
+        prompt.contains("Write/Edit"),
+        "should suggest Write/Edit as a combination"
+    );
+    assert!(
+        prompt.contains("Bash"),
+        "should suggest Bash as a combination"
+    );
+}
+
+/// Full context produces a comprehensive prompt.
+#[tokio::test]
+async fn test_read_generate_prompt_full_context() {
+    let tool = ReadTool::new(make_engine(vec![]), make_sm(), make_cm(), make_af());
+    let full_ctx = PromptGenerationContext {
+        agent_id: "agent-1".into(),
+        workdir: Some(WorkdirContext {
+            path: "/home/user/project".into(),
+            has_git: true,
+            branch: Some("feat/x".into()),
+            recent_changes: 7,
+        }),
+        available_tool_names: vec!["Read".into(), "Write".into(), "Bash".into()],
+        tools: None,
+        disallowed_tools: None,
+        session_mode: None,
+        effective_spawn_budget: None,
+        agent_role: None,
+        agent_type: None,
+    };
+    let prompt = tool.generate_prompt(&full_ctx);
+    assert!(prompt.contains("/home/user/project"));
+    assert!(prompt.contains("feat/x"));
+    assert!(prompt.contains("uncommitted change"));
+    assert!(prompt.contains("Combine with"));
 }
 
 // ---------------------------------------------------------------------------

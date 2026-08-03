@@ -178,8 +178,30 @@ fn test_tool_generate_prompt_defaults_to_detail() {
         disallowed_tools: None,
         session_mode: None,
         effective_spawn_budget: None,
+        agent_role: None,
+        agent_type: None,
     };
     assert_eq!(tool.generate_prompt(&ctx), tool.detail());
+}
+
+/// Default `generate_prompt` ignores agent_role / agent_type and returns
+/// `detail()` (the natural-language Schema-layer equivalent).
+#[test]
+fn test_tool_generate_prompt_ignores_agent_fields_by_default() {
+    let tool = MockTool;
+    let ctx_with = PromptGenerationContext {
+        agent_role: Some("Reviewer".into()),
+        agent_type: Some("spawned_child".into()),
+        ..Default::default()
+    };
+    let ctx_without = PromptGenerationContext::default();
+    // Both should produce the same output (detail())
+    assert_eq!(tool.generate_prompt(&ctx_with), tool.detail());
+    assert_eq!(tool.generate_prompt(&ctx_without), tool.detail());
+    assert_eq!(
+        tool.generate_prompt(&ctx_with),
+        tool.generate_prompt(&ctx_without)
+    );
 }
 
 // =========================================================================
@@ -370,6 +392,8 @@ fn test_prompt_generation_context_fields() {
         disallowed_tools: Some(vec!["Tool3".into()]),
         session_mode: None,
         effective_spawn_budget: None,
+        agent_role: None,
+        agent_type: None,
     };
     assert_eq!(ctx.agent_id, "pg_agent");
     assert!(ctx.workdir.is_none());
@@ -388,6 +412,8 @@ fn test_prompt_generation_context_clone() {
         disallowed_tools: None,
         session_mode: None,
         effective_spawn_budget: None,
+        agent_role: None,
+        agent_type: None,
     };
     let cloned = ctx.clone();
     assert_eq!(cloned.agent_id, "pg");
@@ -404,10 +430,64 @@ fn test_prompt_generation_context_debug() {
         disallowed_tools: None,
         session_mode: None,
         effective_spawn_budget: None,
+        agent_role: None,
+        agent_type: None,
     };
     let debug = format!("{:?}", ctx);
     assert!(debug.contains("PromptGenerationContext"));
     assert!(debug.contains("dbg"));
+}
+
+// =========================================================================
+// PromptGenerationContext — agent_role / agent_type fields
+// =========================================================================
+
+#[test]
+fn test_prompt_generation_context_agent_role_and_type() {
+    let ctx = PromptGenerationContext {
+        agent_role: Some("Code reviewer".into()),
+        agent_type: Some("spawned_child".into()),
+        ..Default::default()
+    };
+    assert_eq!(ctx.agent_role.as_deref(), Some("Code reviewer"));
+    assert_eq!(ctx.agent_type.as_deref(), Some("spawned_child"));
+}
+
+#[test]
+fn test_prompt_generation_context_agent_role_none_by_default() {
+    let ctx = PromptGenerationContext::default();
+    assert!(ctx.agent_role.is_none());
+    assert!(ctx.agent_type.is_none());
+}
+
+#[test]
+fn test_prompt_generation_context_clone_preserves_agent_fields() {
+    let ctx = PromptGenerationContext {
+        agent_id: "pg".into(),
+        workdir: None,
+        available_tool_names: vec![],
+        tools: None,
+        disallowed_tools: None,
+        session_mode: None,
+        effective_spawn_budget: None,
+        agent_role: Some("Tester".into()),
+        agent_type: Some("root".into()),
+    };
+    let cloned = ctx.clone();
+    assert_eq!(cloned.agent_role.as_deref(), Some("Tester"));
+    assert_eq!(cloned.agent_type.as_deref(), Some("root"));
+}
+
+#[test]
+fn test_prompt_generation_context_debug_includes_agent_fields() {
+    let ctx = PromptGenerationContext {
+        agent_role: Some("Coder".into()),
+        agent_type: Some("root".into()),
+        ..Default::default()
+    };
+    let debug = format!("{:?}", ctx);
+    assert!(debug.contains("Coder"));
+    assert!(debug.contains("root"));
 }
 
 // =========================================================================

@@ -29,6 +29,29 @@ pub use crate::tool_registry::ToolFlags;
 // WorkdirContext — working directory context for tools
 // ---------------------------------------------------------------------------
 
+/// Format a workdir guidance line from a [`WorkdirContext`].
+///
+/// Produces a line like:
+///
+/// ```text
+/// Working directory: /path/to/dir on branch 'main' (2 uncommitted change(s)).
+/// ```
+///
+/// The optional `suffix` text is appended after the workdir line. Use it to
+/// provide tool-specific guidance (e.g. "Commands run here by default.").
+pub fn format_workdir_guidance(wd: &WorkdirContext, suffix: &str) -> String {
+    let git_info = if wd.has_git {
+        format!(
+            " on branch '{}' ({} uncommitted change(s))",
+            wd.branch.as_deref().unwrap_or("unknown"),
+            wd.recent_changes
+        )
+    } else {
+        " (not a git repo)".to_string()
+    };
+    format!("Working directory: {}{}. {}", wd.path, git_info, suffix)
+}
+
 /// Workdir context returned by [`build_workdir_context`].
 #[derive(Debug, Clone)]
 pub struct WorkdirContext {
@@ -236,6 +259,19 @@ fn git_status_count(path: &Path, extra_arg: &str) -> usize {
 /// information used when the LLM *calls* a tool, while
 /// `PromptGenerationContext` carries information used when the system
 /// prompt *describes* a tool. The two contexts evolve independently.
+///
+/// This context enables the Prompt layer (§Prompt 层) described in the
+/// design doc `dynamic-prompt-generation.md` to produce context-aware
+/// tool descriptions.  Each field corresponds to a runtime dimension
+/// that may influence how a tool should be described to the model:
+///
+/// - **Permission state**: `tools` / `disallowed_tools` — which tools
+///   the agent is allowed to use (whitelist/blacklist).
+/// - **Working directory**: `workdir` — enables path-aware guidance.
+/// - **Agent identity**: `agent_role` / `agent_type` — enables
+///   role-based and type-based description adaptation.
+/// - **Budget**: `effective_spawn_budget` — enables budget-aware
+///   descriptions (e.g. "spawn unavailable when budget exhausted").
 #[derive(Debug, Clone, Default)]
 pub struct PromptGenerationContext {
     /// ID of the agent for which the prompt is being built.
@@ -274,6 +310,18 @@ pub struct PromptGenerationContext {
     /// cannot spawn further children (design doc §Depth 追踪).
     /// `None` means the budget is unknown (no filtering applied).
     pub effective_spawn_budget: Option<u32>,
+    /// Agent role (human-readable name/purpose) from agent config.
+    ///
+    /// Used by the Prompt layer to tailor tool descriptions to the
+    /// agent's role.  `None` means the role is unknown (no role-based
+    /// adaptation applied).
+    pub agent_role: Option<String>,
+    /// Agent type (e.g. root agent vs spawned child) from agent config.
+    ///
+    /// Used by the Prompt layer to tailor tool descriptions to the
+    /// agent's type.  `None` means the type is unknown (no type-based
+    /// adaptation applied).
+    pub agent_type: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -370,8 +418,28 @@ pub trait Tool: Send + Sync {
     /// can adapt its output to runtime context: current permissions, the set
     /// of available tools, the working directory, etc.
     ///
-    /// The default implementation falls back to [`Tool::detail`], so existing
-    /// tools behave identically until they opt in to a custom Prompt layer.
+    /// # Default behaviour
+    ///
+    /// The default implementation falls back to [`Tool::detail`].  This is
+    /// intentional: `detail()` is the natural-language equivalent of the
+    /// Schema layer (JSON Schema) and serves as a safe static fallback
+    /// when a tool has not yet opted into a custom Prompt layer.
+    /// Tools that do not override `generate_prompt` will produce identical
+    /// output to `detail()`, preserving backward compatibility.
+    ///
+    /// # Overriding
+    ///
+    /// Tools that implement a custom Prompt layer should override this
+    /// method and use the fields on [`PromptGenerationContext`] to
+    /// generate context-aware descriptions.  See the design doc
+    /// `dynamic-prompt-generation.md` for the five dimensions that
+    /// Prompt-layer descriptions should cover:
+    ///
+    /// 1. When to use the tool
+    /// 2. Usage principles
+    /// 3. Combination suggestions
+    /// 4. Permission awareness
+    /// 5. Path guidance
     fn generate_prompt(&self, _context: &PromptGenerationContext) -> String {
         self.detail()
     }

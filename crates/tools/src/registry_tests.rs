@@ -58,6 +58,8 @@ fn make_prompt_ctx(names: &[&str]) -> PromptGenerationContext {
         disallowed_tools: None,
         session_mode: None,
         effective_spawn_budget: None,
+        agent_role: None,
+        agent_type: None,
     }
 }
 
@@ -629,6 +631,8 @@ fn make_plan_mode_ctx() -> PromptGenerationContext {
         disallowed_tools: None,
         session_mode: Some(SessionMode::Plan),
         effective_spawn_budget: None,
+        agent_role: None,
+        agent_type: None,
     }
 }
 
@@ -754,6 +758,8 @@ async fn test_normal_mode_does_not_filter_write_tools() {
         disallowed_tools: None,
         session_mode: Some(SessionMode::Normal),
         effective_spawn_budget: None,
+        agent_role: None,
+        agent_type: None,
     };
     let section = reg.build_tools_section(&ctx).await;
 
@@ -785,6 +791,8 @@ async fn test_no_session_mode_does_not_filter() {
         disallowed_tools: None,
         session_mode: None,
         effective_spawn_budget: None,
+        agent_role: None,
+        agent_type: None,
     };
     let section = reg.build_tools_section(&ctx).await;
 
@@ -829,6 +837,8 @@ async fn test_budget_zero_filters_sessions_spawn() {
         disallowed_tools: None,
         session_mode: None,
         effective_spawn_budget: Some(0),
+        agent_role: None,
+        agent_type: None,
     };
     let section = reg.build_tools_section(&ctx).await;
 
@@ -861,6 +871,8 @@ async fn test_budget_one_keeps_sessions_spawn() {
         disallowed_tools: None,
         session_mode: None,
         effective_spawn_budget: Some(1),
+        agent_role: None,
+        agent_type: None,
     };
     let section = reg.build_tools_section(&ctx).await;
 
@@ -892,6 +904,8 @@ async fn test_budget_none_keeps_sessions_spawn() {
         disallowed_tools: None,
         session_mode: None,
         effective_spawn_budget: None,
+        agent_role: None,
+        agent_type: None,
     };
     let section = reg.build_tools_section(&ctx).await;
 
@@ -914,16 +928,13 @@ async fn test_plan_mode_keeps_execute_plan() {
     })
     .await
     .unwrap();
-
     let ctx = make_plan_mode_ctx();
     let section = reg.build_tools_section(&ctx).await;
-
     assert!(
         section.contains("execute_plan"),
         "execute_plan should be visible in Plan mode"
     );
 }
-
 #[test]
 fn test_plan_mode_tool_visible_execute_plan() {
     let tool = DummyTool {
