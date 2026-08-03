@@ -50,6 +50,7 @@ impl SessionMessageHandler {
         turn_start: Instant,
         output_tx: &OutputTx,
         metrics_emitter: &Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
+        gateway: Option<&Arc<crate::Gateway>>,
     ) {
         let turn_metrics = TurnMetrics {
             turn_duration_ms: turn_start.elapsed().as_millis() as u64,
@@ -61,6 +62,7 @@ impl SessionMessageHandler {
             turn_metrics,
             output_tx,
             metrics_emitter,
+            gateway,
         )
         .await;
 
@@ -104,6 +106,7 @@ impl SessionMessageHandler {
         turn_metrics: TurnMetrics,
         output_tx: &OutputTx,
         metrics_emitter: &Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
+        gateway: Option<&Arc<crate::Gateway>>,
     ) -> bool {
         if let Some(cs) = session_manager.get_conversation_session(session_id).await {
             let cs = cs.write().await;
@@ -120,6 +123,10 @@ impl SessionMessageHandler {
                 if let Some(cs) = session_manager.get_conversation_session(session_id).await {
                     let mut cs_write = cs.write().await;
                     cs_write.append_response(unified);
+                    // Process workflow tool results (Step 1.6).
+                    // Routes workflow actions to the engine and queues
+                    // blocked notifications for owner delivery.
+                    cs_write.process_workflow_tool_results(&stream_result.content_blocks);
                     // Cache break detection (must run before accumulate_usage
                     // so that last_cache_read_tokens still holds the previous value).
                     if let Some(info) =
@@ -190,6 +197,8 @@ impl SessionMessageHandler {
                 if let Some(tx) = guard.as_ref() {
                     let _ = tx.send((text, stream_result.content_blocks)).await;
                 }
+                // Send pending workflow blocked notification to owner (Step 1.6).
+                Self::drain_workflow_notification(session_manager, session_id, gateway).await;
             }
             Err(err) => {
                 tracing::warn!(session_id, error = %err, "LLM call failed");
@@ -281,6 +290,7 @@ impl SessionMessageHandler {
                 turn_metrics,
                 output_tx,
                 metrics_emitter,
+                None,
             )
             .await;
             if skip_drain {
@@ -444,6 +454,7 @@ impl SessionMessageHandler {
             },
             &output_tx,
             &metrics_emitter,
+            None,
         )
         .await
     }
@@ -476,6 +487,56 @@ impl SessionMessageHandler {
         session_manager
             .try_push_announce(session_id, NotificationPriority::Next)
             .await;
+    }
+
+    /// Drain pending workflow blocked notification and send to owner (Step 1.6).
+    ///
+    /// After each LLM turn, checks if the workflow handler has queued a
+    /// blocked notification and sends it to the owner via the Gateway's
+    /// outbound channel (IM plugin).
+    async fn drain_workflow_notification(
+        session_manager: &Arc<SessionManager>,
+        session_id: &str,
+        gateway: Option<&Arc<crate::Gateway>>,
+    ) {
+        let notification = {
+            let Some(cs) = session_manager.get_conversation_session(session_id).await else {
+                return;
+            };
+            let mut cs_write = cs.write().await;
+            cs_write.take_workflow_notification()
+        };
+        if let Some(notif) = notification {
+            tracing::info!(
+                session_id = %session_id,
+                workflow = %notif.workflow_name,
+                "sending workflow blocked notification to owner"
+            );
+            // Inject into agent context so agent sees the notification.
+            if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+                cs.write()
+                    .await
+                    .inject_system_message(notif.message.clone());
+            }
+            // Send outbound notification to owner via Gateway.
+            if let Some(gw) = gateway {
+                if let Some(chat_id) = session_manager.get_chat_id(session_id).await {
+                    let sessions = session_manager.sessions.read().await;
+                    if let Some(session) = sessions.get(session_id) {
+                        if let Err(e) = gw
+                            .send_outbound_to_chat(&chat_id, &session.channel, &notif.message)
+                            .await
+                        {
+                            tracing::warn!(
+                                session_id = %session_id,
+                                error = %e,
+                                "failed to send workflow blocked notification via Gateway"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Step 1.4: drain Now-priority announces before user message processing.

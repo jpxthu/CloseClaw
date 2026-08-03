@@ -553,6 +553,7 @@ impl SessionMessageHandler {
                 turn_start,
                 &output_tx,
                 &metrics_emitter,
+                gw_for_task.as_ref(),
             )
             .await;
 

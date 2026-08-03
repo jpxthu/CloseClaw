@@ -438,6 +438,16 @@ impl Gateway {
             }
         }
 
+        // ── Owner response for blocked workflow (Step 1.6) ──────────
+        // When a workflow is in blocked state, owner messages are
+        // intercepted and routed to the engine for resolve or terminate.
+        if let Some(result) = self
+            .try_handle_workflow_owner_response(&session_id, &content, sender_id)
+            .await
+        {
+            return Some(result);
+        }
+
         let handler = self.session_handler.as_ref()?;
 
         // Streaming path: plugin is registered for this channel AND the
@@ -495,14 +505,137 @@ impl Gateway {
             );
         }
     }
+    /// Handle owner response ("恢复"/"终止") to a blocked workflow (Step 1.6).
+    async fn try_handle_workflow_owner_response(
+        &self,
+        session_id: &str,
+        content: &str,
+        sender_id: Option<&str>,
+    ) -> Option<HandleResult> {
+        let is_blocked = {
+            let Some(cs) = self
+                .session_manager
+                .get_conversation_session(session_id)
+                .await
+            else {
+                return None;
+            };
+            let blocked = cs.read().await.is_workflow_blocked();
+            blocked
+        };
+        if !is_blocked {
+            return None;
+        }
+        let owner_id = self.session_manager.get_sender_id(session_id).await;
+        if !sender_id.map_or(false, |sid| owner_id.as_ref().map_or(false, |o| o == sid)) {
+            return None;
+        }
+        let trimmed = content.trim();
+        let action = if trimmed == "恢复" || trimmed.eq_ignore_ascii_case("resolve") {
+            "resolve"
+        } else if trimmed == "终止" || trimmed.eq_ignore_ascii_case("terminate") {
+            "terminate"
+        } else {
+            return None;
+        };
 
-    /// Resolve a session_id from a [`ProcessedMessage`]'s `session_key`.
-    ///
-    /// Extracts `session_key` from `metadata` and calls
-    /// [`SessionManager::resolve`] to obtain the `session_id`.
-    ///
-    /// Returns `None` when:
-    /// - `session_key` is missing or empty
+        {
+            let Some(cs) = self
+                .session_manager
+                .get_conversation_session(session_id)
+                .await
+            else {
+                return None;
+            };
+            let (run_snapshot, definition_snapshot, current_step) = {
+                let cs_read = cs.read().await;
+                if let Some(handler) = cs_read.workflow_handler() {
+                    (
+                        handler.run().clone(),
+                        handler.definition().clone(),
+                        handler.run().current_step,
+                    )
+                } else {
+                    return None;
+                }
+            };
+
+            let mut cs_write = cs.write().await;
+            match action {
+                "resolve" => {
+                    cs_write.remove_workflow_messages();
+                    if let Some(ref mut handler) = cs_write.workflow_handler_mut() {
+                        handler.on_owner_resolve();
+                    }
+                    if let Some(step) = definition_snapshot.steps.get(current_step) {
+                        let verify_msg = if !step.verify.is_empty() {
+                            format!(
+                                "Verify Step {} ({}):\n{}",
+                                current_step,
+                                step.name,
+                                step.verify.join("\n")
+                            )
+                        } else {
+                            format!(
+                                "Verify Step {} ({}) — no explicit checklist.",
+                                current_step, step.name
+                            )
+                        };
+                        cs_write.inject_workflow_message(&verify_msg);
+                    }
+                    cs_write.set_workflow_run(Some(run_snapshot));
+                }
+                "terminate" => {
+                    cs_write.remove_workflow_context_from_appends();
+                    cs_write.remove_workflow_messages();
+                    if let Some(ref mut handler) = cs_write.workflow_handler_mut() {
+                        handler.on_owner_terminate();
+                    }
+                    cs_write.clear_workflow_run();
+                }
+                _ => return None,
+            }
+        }
+
+        let run_to_persist = match self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await
+        {
+            Some(c) => c.read().await.workflow_run().cloned(),
+            None => None,
+        };
+        if let Err(e) = self
+            .session_manager
+            .set_workflow_run(session_id, run_to_persist)
+            .await
+        {
+            tracing::warn!(session_id = %session_id, error = %e, "failed to persist workflow state after owner response");
+        }
+        if let Some(peer_id) = self.session_manager.get_sender_id(session_id).await {
+            let sessions = self.session_manager.sessions.read().await;
+            if let Some(session) = sessions.get(session_id) {
+                let msg = match action {
+                    "resolve" => "✅ 已恢复工作流执行。",
+                    "terminate" => "🛑 已终止工作流。",
+                    _ => unreachable!(),
+                };
+                if let Err(e) = self
+                    .send_outbound_simplified(&peer_id, &session.channel, msg)
+                    .await
+                {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        error = %e,
+                        "failed to send workflow owner response confirmation"
+                    );
+                }
+            }
+        }
+
+        Some(HandleResult::SlashHandled)
+    }
+
     /// - [`SessionManager::resolve`] fails
     async fn resolve_session_from_message(
         &self,

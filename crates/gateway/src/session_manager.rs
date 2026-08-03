@@ -106,6 +106,10 @@ pub struct SessionManager {
     /// Populated by `try_restore_archived_session_inner` when a session is restored,
     /// consumed by `take_restore_notification` after Gateway sends it through the outbound chain.
     pending_restore_notifications: RwLock<HashMap<String, String>>,
+    /// Pending workflow blocked notifications: session_id → notification message.
+    /// Populated by `drain_workflow_notification` when a workflow enters blocked state,
+    /// consumed by `take_workflow_notification` after Gateway sends it through the outbound chain.
+    pending_workflow_notifications: RwLock<HashMap<String, String>>,
     /// Optional callback to invalidate the static-layer section cache.
     /// Injected by the daemon (composition root) so gateway avoids
     /// depending on `closeclaw-system-prompt` directly.
@@ -186,6 +190,7 @@ impl SessionManager {
             config_snapshot: RwLock::new(None),
             shutdown_handle: RwLock::new(None),
             pending_restore_notifications: RwLock::new(HashMap::new()),
+            pending_workflow_notifications: RwLock::new(HashMap::new()),
             cache_invalidator: RwLock::new(None),
             mining_notify_tx: std::sync::RwLock::new(None),
             task_manager: RwLock::new(None),
@@ -268,6 +273,21 @@ impl SessionManager {
     /// Returns the chat_id if a restore notification is pending for this session.
     pub async fn take_restore_notification(&self, session_id: &str) -> Option<String> {
         let mut pending = self.pending_restore_notifications.write().await;
+        pending.remove(session_id)
+    }
+
+    /// Queue a workflow blocked notification for a session.
+    /// The notification is consumed by [`take_workflow_notification`] after
+    /// the Gateway sends it through the outbound chain.
+    pub async fn queue_workflow_notification(&self, session_id: &str, message: String) {
+        let mut pending = self.pending_workflow_notifications.write().await;
+        pending.insert(session_id.to_string(), message);
+    }
+
+    /// Take the pending workflow blocked notification for a session.
+    /// Returns the notification message text if one is pending.
+    pub async fn take_workflow_notification(&self, session_id: &str) -> Option<String> {
+        let mut pending = self.pending_workflow_notifications.write().await;
         pending.remove(session_id)
     }
 

@@ -22,6 +22,9 @@ pub mod run_health;
 pub mod spawn;
 pub mod storage;
 pub mod tools;
+pub mod workflow_handler;
+#[cfg(test)]
+mod workflow_handler_tests;
 pub mod workflow_recovery;
 pub mod workspace;
 
