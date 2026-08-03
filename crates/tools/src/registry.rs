@@ -134,7 +134,9 @@ impl ToolRegistryImpl {
     }
 
     /// Format a single group into a section line, returning (output, new_total_len).
-    /// Returns None if truncation was triggered.
+    ///
+    /// When the total length would exceed `max_len`, tools are added one by one
+    /// and the group is truncated (rather than discarded entirely).
     ///
     /// Output format:
     /// - group header: `**{group}** — (always loaded)` if the group has eager tools, else `**{group}** — (deferred)`
@@ -145,7 +147,7 @@ impl ToolRegistryImpl {
         tools: &[ToolInfo],
         total_len: usize,
         max_len: usize,
-    ) -> Option<(String, usize)> {
+    ) -> (String, usize) {
         let has_eager = tools.iter().any(|t| !t.is_deferred);
         let tag = if has_eager {
             "(always loaded)"
@@ -157,7 +159,10 @@ impl ToolRegistryImpl {
         let mut sorted_tools: Vec<_> = tools.iter().collect();
         sorted_tools.sort_by_key(|t| t.name.clone());
 
+        // Start with header; add tools one by one, stop when limit reached.
         let mut lines = vec![header];
+        let mut current_len = total_len + lines.join("\n").chars().count() + 1; // +1 for trailing \n
+
         for tool in sorted_tools {
             let danger_mark = if tool.is_destructive {
                 " (destructive)"
@@ -171,16 +176,17 @@ impl ToolRegistryImpl {
             } else {
                 format!("  - **{}**{}: {}", tool.name, danger_mark, tool.detail)
             };
+            let line_len = line.chars().count() + 1; // +1 for trailing newline
+            if current_len + line_len > max_len {
+                break;
+            }
+            current_len += line_len;
             lines.push(line);
         }
 
         let output = lines.join("\n") + "\n";
         let new_len = total_len + output.chars().count();
-        if new_len > max_len {
-            None
-        } else {
-            Some((output, new_len))
-        }
+        (output, new_len)
     }
 }
 
@@ -426,11 +432,8 @@ impl ToolRegistryImpl {
         sorted_groups.sort_by_key(|(g, _)| g.clone());
 
         for (group_name, tools) in sorted_groups {
-            let Some((line, new_len)) =
-                Self::format_group_line(&group_name, &tools, total_len, TOOLS_SECTION_MAX_LEN)
-            else {
-                break;
-            };
+            let (line, new_len) =
+                Self::format_group_line(&group_name, &tools, total_len, TOOLS_SECTION_MAX_LEN);
             total_len = new_len;
             lines.push(line);
         }
