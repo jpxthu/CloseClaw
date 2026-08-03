@@ -529,9 +529,9 @@
   },
   {
     "path": "docs/design/skills/skill-listing-injection.md",
-    "commit": "dde6759f9d2ef18d7dc72eee6f0c27e9e69ab5f7",
-    "commit_time": "2026-08-03T16:02:19+08:00",
-    "confirmed_time": "2026-08-03T16:11:02.025122+08:00",
+    "commit": "2aa22614883608d1238811edcea1cc5b04c2b874",
+    "commit_time": "2026-08-03T17:22:30+08:00",
+    "confirmed_time": "2026-08-03T17:29:27.170099+08:00",
     "comment": "",
     "blocked_reason": ""
   },
