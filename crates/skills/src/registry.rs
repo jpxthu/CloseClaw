@@ -128,6 +128,19 @@ impl BuiltinSkillRegistry {
     // Listing generation
     // -----------------------------------------------------------------------
 
+    /// Return the names of all registered skills with `user_invocable: true`.
+    ///
+    /// Used by [`SkillSlashHandler`] to register slash commands for
+    /// builtin skills alongside disk-based skills.
+    pub async fn user_invocable_names(&self) -> Vec<String> {
+        let entries = self.sorted_skills().await;
+        entries
+            .iter()
+            .filter(|(_, meta)| meta.user_invocable)
+            .map(|(m, _)| m.name.clone())
+            .collect()
+    }
+
     /// Render a single builtin skill's listing line.
     ///
     /// Format matches [`DiskSkillRegistry::render_single_listing`]:
@@ -717,5 +730,65 @@ mod tests {
             line,
             "- **rs_skill**: rust skill — for rust ⚡ auto-activates on: **/*.rs, **/*.toml [effort: small]"
         );
+    }
+
+    #[tokio::test]
+    async fn test_user_invocable_names_empty() {
+        let registry = BuiltinSkillRegistry::new();
+        let names = registry.user_invocable_names().await;
+        assert!(names.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_user_invocable_names_only_invocable() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_meta(
+            "invocable",
+            SkillListingMeta {
+                when_to_use: String::new(),
+                user_invocable: true,
+                paths: vec![],
+                effort: SkillEffort::Unknown,
+            },
+        ))])
+        .await;
+        let names = registry.user_invocable_names().await;
+        assert_eq!(names, vec!["invocable"]);
+    }
+
+    #[tokio::test]
+    async fn test_user_invocable_names_mixed() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![
+            Arc::new(MockSkill::with_meta(
+                "invocable_a",
+                SkillListingMeta {
+                    when_to_use: String::new(),
+                    user_invocable: true,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+            Arc::new(MockSkill::with_meta(
+                "hidden_b",
+                SkillListingMeta {
+                    when_to_use: String::new(),
+                    user_invocable: false,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+            Arc::new(MockSkill::with_meta(
+                "invocable_c",
+                SkillListingMeta {
+                    when_to_use: String::new(),
+                    user_invocable: true,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+        ])
+        .await;
+        let mut names = registry.user_invocable_names().await;
+        names.sort();
+        assert_eq!(names, vec!["invocable_a", "invocable_c"]);
     }
 }

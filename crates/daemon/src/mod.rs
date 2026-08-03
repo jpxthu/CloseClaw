@@ -746,7 +746,7 @@ impl Daemon {
                     disk_reg,
                     Arc::clone(builtin_skill_registry),
                 ));
-                for name in skill_handler.invocable_names() {
+                for name in skill_handler.invocable_names().await {
                     slash_registry.register_named(
                         &name,
                         Arc::clone(&skill_handler) as Arc<dyn closeclaw_slash::SlashHandler>,
