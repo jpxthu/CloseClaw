@@ -141,4 +141,55 @@ mod tests {
         assert_eq!(removed, 0);
         assert_eq!(appends, vec!["no workflow here".to_string()]);
     }
+
+    /// Simulate post-compaction re-injection: workflow context is
+    /// cleared during compaction, then re-injected from checkpoint.
+    #[test]
+    fn test_compaction_re_injection() {
+        let wf = make_test_workflow();
+        let context = build_workflow_context_append(&wf);
+
+        // Simulate post-compaction state: system_appends without
+        // workflow context (compaction may clear it).
+        let mut appends = vec![
+            "existing system append".to_string(),
+            // workflow context was cleared by compaction
+        ];
+
+        // Verify context is missing.
+        assert!(!has_workflow_context(&appends));
+
+        // Re-inject workflow context (as done in
+        // reinject_workflow_context_after_compact).
+        appends.push(context.clone());
+
+        // Verify context is present.
+        assert!(has_workflow_context(&appends));
+        assert_eq!(appends.len(), 2);
+        assert_eq!(appends[1], context);
+    }
+
+    /// Verify that re-injection is idempotent: if workflow context
+    /// already exists, re-injection should not duplicate it.
+    #[test]
+    fn test_compaction_re_injection_idempotent() {
+        let wf = make_test_workflow();
+        let context = build_workflow_context_append(&wf);
+
+        // System_appends already has workflow context.
+        let mut appends = vec!["existing system append".to_string(), context.clone()];
+
+        // Verify context is present.
+        assert!(has_workflow_context(&appends));
+
+        // Re-injection should not duplicate (caller checks
+        // has_workflow_context before injecting).
+        if !has_workflow_context(&appends) {
+            appends.push(context.clone());
+        }
+
+        // Verify no duplication.
+        assert_eq!(appends.len(), 2);
+        assert_eq!(appends[1], context);
+    }
 }
