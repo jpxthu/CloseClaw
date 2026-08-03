@@ -225,6 +225,8 @@ async fn test_execute_does_not_delegate_to_body() {
 }
 
 // --- 边界值：空参数 ---
+// 设计意图：SkillCreatorSkill 返回 guidance JSON 供 Agent 执行，
+// 参数校验不在 skill 层，空参数被接受是正常的。
 
 #[tokio::test]
 async fn test_execute_create_empty_name() {
@@ -276,6 +278,7 @@ async fn test_execute_edit_without_value() {
 }
 
 // --- 边界值：超长参数 ---
+// 同上，skill 层不限制参数长度，由 Agent 端处理。
 
 #[tokio::test]
 async fn test_execute_create_long_name() {

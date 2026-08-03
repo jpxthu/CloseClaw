@@ -56,7 +56,7 @@ impl ToolRegistrar for SkillsToolsRegistrar {
         );
         if registered == 0 {
             return Err(ToolRegistrarError::Internal(
-                "all 1 tools failed to register".to_string(),
+                "no tools registered successfully".to_string(),
             ));
         }
         Ok(())
