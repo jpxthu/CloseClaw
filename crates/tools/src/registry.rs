@@ -163,13 +163,19 @@ impl ToolRegistryImpl {
             "(deferred)"
         };
         let header = format!("**{}** — {}", group_name, tag);
+        let header_len = header.chars().count() + 1; // +1 for trailing \n
+
+        // Reject if the header alone would exceed max_len.
+        if total_len + header_len > max_len {
+            return (String::new(), total_len);
+        }
 
         let mut sorted_tools: Vec<_> = tools.iter().collect();
         sorted_tools.sort_by_key(|t| t.name.clone());
 
         // Start with header; add tools one by one, stop when limit reached.
         let mut lines = vec![header];
-        let mut current_len = total_len + lines.join("\n").chars().count() + 1; // +1 for trailing \n
+        let mut current_len = total_len + header_len;
 
         for tool in sorted_tools {
             let danger_mark = if tool.is_destructive {
@@ -240,8 +246,9 @@ impl ToolRegistryImpl {
                 // No space found — split at width boundary.
                 let end = remaining
                     .char_indices()
-                    .nth(width)
-                    .map(|(i, _)| i)
+                    .take(width)
+                    .last()
+                    .map(|(i, c)| i + c.len_utf8())
                     .unwrap_or(remaining.len());
                 chunks.push(remaining[..end].to_string());
                 remaining = &remaining[end..];
@@ -495,12 +502,14 @@ impl ToolRegistryImpl {
         for (group_name, tools) in sorted_groups {
             let (line, new_len) =
                 Self::format_group_line(&group_name, &tools, total_len, TOOLS_SECTION_MAX_LEN);
-            total_len = new_len;
-            if total_len >= TOOLS_SECTION_MAX_LEN {
-                lines.push(line);
+            if new_len == total_len {
                 break;
             }
+            total_len = new_len;
             lines.push(line);
+            if total_len >= TOOLS_SECTION_MAX_LEN {
+                break;
+            }
         }
 
         lines.join("")

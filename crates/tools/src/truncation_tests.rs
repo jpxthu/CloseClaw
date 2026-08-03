@@ -76,6 +76,29 @@ fn test_trunc_extreme_no_tools_fit() {
     assert!(!output.contains("**B**"), "no tools with max_len=0");
 }
 
+/// Header overflow: header alone exceeds max_len → return empty.
+#[test]
+fn test_trunc_header_overflow_returns_empty() {
+    let tools = vec![trunc_tool_info("A", "g", false)];
+    // Header "**g** — (always loaded)" = 23 chars + 1 newline = 24.
+    // Set max_len = 23 so header alone (with \n) doesn't fit.
+    let (output, new_len) = ToolRegistryImpl::format_group_line("g", &tools, 0, 23);
+    assert!(output.is_empty(), "header overflow returns empty");
+    assert_eq!(new_len, 0, "new_len unchanged");
+}
+
+/// Header fits exactly, no room for tools → header only.
+#[test]
+fn test_trunc_header_fits_no_tools_fit() {
+    let tools = vec![trunc_tool_info("A", "g", false)];
+    // Header "**g** — (always loaded)\n" = 24 chars.
+    // max_len = 24 → header fits, but no room for tool A.
+    let (output, new_len) = ToolRegistryImpl::format_group_line("g", &tools, 0, 24);
+    assert!(output.contains("**g**"), "header present");
+    assert!(!output.contains("**A**"), "tool A truncated");
+    assert!(new_len <= 24, "new_len must not exceed max_len");
+}
+
 /// Simulates multi-group truncation: front group consumes space,
 /// back group is truncated.
 #[test]
@@ -97,4 +120,40 @@ fn test_trunc_simulated_multi_group() {
     let tool_count = output.lines().filter(|l| l.starts_with("  - ")).count();
     assert_eq!(tool_count, 1, "exactly one tool in truncated group");
     assert!(new_len <= 110, "new_len must not exceed max_len");
+}
+
+// ---- split_long_line UTF-8 off-by-one tests ----
+
+/// Multi-byte UTF-8: no-space split should not produce a line wider than
+/// `width` characters. Uses `char_indices().take(width).last()` to avoid
+/// the off-by-one of `.nth(width)`.
+#[test]
+fn test_split_long_line_multibyte_no_space() {
+    // 5 multi-byte chars (3 bytes each = 15 bytes). Width=3 → should keep 3 chars.
+    let line = "αβγδε";
+    let chunks = ToolRegistryImpl::split_long_line(line, 3);
+    assert_eq!(chunks.len(), 2);
+    assert_eq!(chunks[0].chars().count(), 3, "first chunk has 3 chars");
+    assert_eq!(chunks[0], "αβγ");
+    assert_eq!(chunks[1].chars().count(), 2, "second chunk has 2 chars");
+    assert_eq!(chunks[1], "δε");
+}
+
+/// ASCII no-space: split at width boundary.
+#[test]
+fn test_split_long_line_ascii_no_space() {
+    let line = "abcdefghij";
+    let chunks = ToolRegistryImpl::split_long_line(line, 4);
+    assert_eq!(chunks.len(), 3);
+    assert_eq!(chunks[0], "abcd");
+    assert_eq!(chunks[1], "efgh");
+    assert_eq!(chunks[2], "ij");
+}
+
+/// Short line stays intact.
+#[test]
+fn test_split_long_line_short() {
+    let line = "hello";
+    let chunks = ToolRegistryImpl::split_long_line(line, 10);
+    assert_eq!(chunks, vec!["hello"]);
 }
