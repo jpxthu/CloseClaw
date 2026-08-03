@@ -265,6 +265,12 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
     #[serde(default)]
     pub snapshot_metas: Vec<crate::run_health::SnapshotMeta>,
+    /// Active workflow run state (None when no workflow is active).
+    ///
+    /// Persisted with session checkpoint so workflow state survives restarts.
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
+    #[serde(default)]
+    pub workflow_run: Option<closeclaw_workflow::run::WorkflowRun>,
 }
 
 impl SessionCheckpoint {
@@ -313,6 +319,7 @@ impl SessionCheckpoint {
             communication_config: None,
             spawn_mode: None,
             snapshot_metas: Vec::new(),
+            workflow_run: None,
         }
     }
 

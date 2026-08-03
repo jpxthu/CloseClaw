@@ -52,6 +52,16 @@ impl SessionManager {
                 cp.pending_messages = cs.messages().to_vec();
             }
         }
+        // Sync system_appends from ConversationSession so checkpoint
+        // reflects any in-memory additions (e.g. workflow context injection)
+        // that happened since the last checkpoint save.
+        {
+            let conv_sessions = self.conversation_sessions.read().await;
+            if let Some(cs) = conv_sessions.get(session_id) {
+                let cs = cs.read().await;
+                cp.system_appends = cs.user_system_appends().to_vec();
+            }
+        }
         cp.touch();
         if let Err(e) = cm.save_raw(&cp).await {
             warn!(
@@ -60,6 +70,11 @@ impl SessionManager {
                 e
             );
         }
+        // Re-inject workflow context if missing after compaction.
+        // Must happen after checkpoint save so the definition reload reads
+        // the fresh checkpoint state.
+        self.reinject_workflow_context_after_compact(session_id)
+            .await;
     }
 
     /// Save a pre-compaction snapshot of the session messages.
@@ -150,5 +165,104 @@ impl SessionManager {
         let cs = conv_sessions.get(session_id)?;
         let cs = cs.read().await;
         cs.snapshot_count()
+    }
+
+    /// Re-inject workflow context into system_appends after compaction.
+    ///
+    /// After compaction completes, system_appends may have been cleared.
+    /// If an active workflow exists in the checkpoint (phase != Complete),
+    /// reload the definition via three-level lookup and re-inject the
+    /// workflow context so the agent maintains workflow awareness.
+    ///
+    /// Called from [`save_checkpoint_after_compact`] as part of the
+    /// post-compaction pipeline.
+    pub(crate) async fn reinject_workflow_context_after_compact(&self, session_id: &str) {
+        let cp = match self.load_checkpoint_for_compact(session_id).await {
+            Some(cp) => cp,
+            None => return,
+        };
+
+        let Some(ref run) = cp.workflow_run else {
+            return;
+        };
+
+        // Skip if workflow is already complete.
+        if run.phase == closeclaw_workflow::run::Phase::Complete {
+            return;
+        }
+
+        // Check if workflow context already exists in system_appends.
+        if closeclaw_workflow::context_append::has_workflow_context(&cp.system_appends) {
+            return;
+        }
+
+        // Workflow context is missing — reload the definition and re-inject.
+        let definition_name = run.definition_name.clone();
+        if definition_name.is_empty() {
+            tracing::warn!(
+                session_id = %session_id,
+                "workflow_run exists but definition_name is empty, cannot re-inject context"
+            );
+            return;
+        }
+
+        let context = match self
+            .build_workflow_context_for_compact(cp, &definition_name)
+            .await
+        {
+            Some(ctx) => ctx,
+            None => return,
+        };
+
+        // Inject into ConversationSession's system_appends.
+        if let Some(cs) = self.get_conversation_session(session_id).await {
+            let mut cs = cs.write().await;
+            cs.add_system_append(context);
+        }
+    }
+
+    /// Load the checkpoint for post-compaction re-injection.
+    async fn load_checkpoint_for_compact(
+        &self,
+        session_id: &str,
+    ) -> Option<closeclaw_session::persistence::SessionCheckpoint> {
+        let cm_guard = self.checkpoint_manager.read().await;
+        let cm = std::sync::Arc::clone(cm_guard.as_ref()?);
+        match cm.load(session_id).await {
+            Ok(Some(cp)) => Some(cp),
+            _ => None,
+        }
+    }
+
+    /// Build the workflow context string for re-injection after compaction.
+    async fn build_workflow_context_for_compact(
+        &self,
+        cp: closeclaw_session::persistence::SessionCheckpoint,
+        definition_name: &str,
+    ) -> Option<String> {
+        // Resolve agent workspace for three-level lookup.
+        let agent_ws = match cp.agent_id {
+            Some(ref agent_id) => self.query_agent_workspace(agent_id.as_str()).await,
+            None => None,
+        };
+        let dot_closeclaw = dirs::home_dir().map(|h| h.join(".closeclaw"));
+
+        let workflow = match closeclaw_workflow::definition_loader::WorkflowDefinitionLoader::load(
+            definition_name,
+            agent_ws.as_deref(),
+            dot_closeclaw.as_deref(),
+        ) {
+            Ok(wf) => wf,
+            Err(e) => {
+                tracing::warn!(
+                    definition_name = %definition_name,
+                    error = %e,
+                    "failed to reload workflow definition for post-compaction re-injection"
+                );
+                return None;
+            }
+        };
+
+        Some(closeclaw_workflow::context_append::build_workflow_context_append(&workflow))
     }
 }

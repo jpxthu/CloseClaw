@@ -61,6 +61,7 @@ mod tests {
             communication_config: None,
             spawn_mode: None,
             snapshot_metas: Vec::new(),
+            workflow_run: None,
         }
     }
     #[tokio::test]
@@ -404,7 +405,6 @@ mod tests {
     async fn test_recovery_scans_archived_sessions() {
         let storage = Arc::new(MemoryStorage::new());
         let now = Utc::now();
-
         // Create an archived checkpoint with pending operations
         let mut cp = create_test_checkpoint("archived-dirty");
         cp.status = SessionStatus::Active;

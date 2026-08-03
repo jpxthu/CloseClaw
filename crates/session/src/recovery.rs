@@ -229,6 +229,8 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
                 // Layer 4: fallback — inject plan references from message history
                 // when layers 1–3 are all unavailable
                 self.inject_plan_references(session_id, cp);
+                // Inject workflow recovery state for active workflows
+                crate::workflow_recovery::inject_workflow_recovery(session_id, cp).await;
                 // Inject recovery notifications for dirty sessions
                 if !cp.pending_operations.is_empty() {
                     self.inject_recovery_notifications(session_id, cp);
@@ -982,3 +984,7 @@ mod recovery_progress_tests;
 #[cfg(test)]
 #[path = "crash_recovery_tests.rs"]
 mod crash_recovery_tests;
+
+#[cfg(test)]
+#[path = "recovery_workflow_tests.rs"]
+mod recovery_workflow_tests;
