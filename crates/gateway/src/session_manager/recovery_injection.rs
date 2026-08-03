@@ -139,6 +139,10 @@ impl SessionManager {
                 .with_system_prompt("")
                 .with_reasoning_level(self.default_reasoning_level)
                 .with_bootstrap_mode(bootstrap_mode);
+        // Force invalidate all static layer caches before rebuild to ensure
+        // the recovered session gets the latest file contents, even when
+        // file mtimes haven't changed.
+        self.invalidate_static_cache().await;
         conv.rebuild_system_prompt(session_id, agent_id, Some(bootstrap_mode))
             .await;
         self.inject_snapshot_meta_store(session_id, &mut conv).await;
