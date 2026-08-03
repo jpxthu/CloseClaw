@@ -43,6 +43,30 @@ fn test_agent_config_deserialize_old_config_without_hooks() {
     let json = r#"{"id": "test-agent", "name": "Test"}"#;
     let config: AgentConfig = serde_json::from_str(json).unwrap();
     assert!(config.hooks.is_empty());
+    assert!(config.parallel_tool_calls);
+}
+
+// ── parallel_tool_calls tests ──────────────────────────────────
+
+#[test]
+fn test_agent_config_parallel_tool_calls_default_true() {
+    let json = r#"{"id": "test-agent"}"#;
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert!(config.parallel_tool_calls);
+}
+
+#[test]
+fn test_agent_config_parallel_tool_calls_explicit_false() {
+    let json = r#"{"id": "test-agent", "parallelToolCalls": false}"#;
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert!(!config.parallel_tool_calls);
+}
+
+#[test]
+fn test_agent_config_parallel_tool_calls_explicit_true() {
+    let json = r#"{"id": "test-agent", "parallelToolCalls": true}"#;
+    let config: AgentConfig = serde_json::from_str(json).unwrap();
+    assert!(config.parallel_tool_calls);
 }
 
 #[test]

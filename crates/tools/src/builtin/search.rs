@@ -83,7 +83,7 @@ impl Tool for ToolSearchTool {
 
     fn flags(&self) -> ToolFlags {
         ToolFlags {
-            is_concurrency_safe: false,
+            is_concurrency_safe: true,
             is_read_only: true,
             is_destructive: false,
             is_expensive: true,
@@ -113,6 +113,7 @@ mod tests {
     fn test_toolsearch_flags() {
         let tool = ToolSearchTool::new();
         let flags = tool.flags();
+        assert!(flags.is_concurrency_safe);
         assert!(!flags.is_deferred_by_default);
         assert!(flags.is_expensive);
         assert!(flags.is_read_only);

@@ -71,6 +71,15 @@ pub trait Provider: Send + Sync {
     /// Returns the set of protocol IDs this provider supports.
     fn supported_protocols(&self) -> &[ProtocolId];
 
+    /// Returns whether this provider supports parallel tool calls.
+    ///
+    /// When `false`, the framework must serialize all tool calls
+    /// for this provider, regardless of the agent-level
+    /// `parallel_tool_calls` setting.  The default is `true`.
+    fn supports_parallel_tool_calls(&self) -> bool {
+        true
+    }
+
     /// Returns a reference to the underlying HTTP client.
     fn http_client(&self) -> &Client;
 
@@ -260,5 +269,18 @@ mod tests {
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(!json.contains("extra_body"));
+    }
+
+    // ── supports_parallel_tool_calls tests ───────────────────────────────────
+
+    #[test]
+    fn test_provider_supports_parallel_tool_calls_default() {
+        use super::super::stub::StubProvider;
+        use crate::provider::Provider;
+        let provider = StubProvider::new();
+        assert!(
+            provider.supports_parallel_tool_calls(),
+            "StubProvider should default to supports_parallel_tool_calls = true"
+        );
     }
 }

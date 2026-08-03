@@ -79,6 +79,9 @@ pub struct ResolvedAgentConfig {
     pub memory: crate::agents::config_types::MemoryConfig,
     /// Run-health hook review configuration.
     pub hooks: Vec<HookConfig>,
+    /// Whether parallel tool calls are enabled for this agent.
+    /// When `false`, all tool calls are executed serially.
+    pub parallel_tool_calls: bool,
     /// Which configuration level this was resolved from.
     pub source: ConfigSource,
 }
@@ -174,6 +177,7 @@ impl ResolvedAgentConfig {
             subagents: apply_subagent_defaults(config.subagents),
             memory,
             hooks: config.hooks,
+            parallel_tool_calls: config.parallel_tool_calls,
             source,
         })
     }
@@ -240,6 +244,7 @@ impl ResolvedAgentConfig {
             ),
             subagents: merge_subagents(project.subagents, user.subagents),
             hooks: override_if_non_empty(project.hooks, user.hooks),
+            parallel_tool_calls: project.parallel_tool_calls && user.parallel_tool_calls,
             memory: {
                 // Three-layer merge: global (base) → user (middle) → project (top)
                 let base = global_memory.cloned().unwrap_or_default();
