@@ -211,7 +211,7 @@ A valid SKILL.md must:
 
     fn listing_meta(&self) -> SkillListingMeta {
         SkillListingMeta {
-            when_to_use: "Use when the agent needs to create or understand\
+            when_to_use: "Use when the agent needs to create or understand \
                 how to create new skills for CloseClaw"
                 .to_string(),
             user_invocable: true,
