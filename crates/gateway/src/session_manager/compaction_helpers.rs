@@ -177,17 +177,9 @@ impl SessionManager {
     /// Called from [`save_checkpoint_after_compact`] as part of the
     /// post-compaction pipeline.
     pub(crate) async fn reinject_workflow_context_after_compact(&self, session_id: &str) {
-        // Load checkpoint to check for active workflow.
-        let cp = {
-            let cm_guard = self.checkpoint_manager.read().await;
-            let Some(cm) = cm_guard.as_ref() else {
-                return;
-            };
-            let cm = std::sync::Arc::clone(cm);
-            match cm.load(session_id).await {
-                Ok(Some(cp)) => cp,
-                _ => return,
-            }
+        let cp = match self.load_checkpoint_for_compact(session_id).await {
+            Some(cp) => cp,
+            None => return,
         };
 
         let Some(ref run) = cp.workflow_run else {
@@ -205,7 +197,7 @@ impl SessionManager {
         }
 
         // Workflow context is missing — reload the definition and re-inject.
-        let definition_name = &run.definition_name;
+        let definition_name = run.definition_name.clone();
         if definition_name.is_empty() {
             tracing::warn!(
                 session_id = %session_id,
@@ -214,6 +206,45 @@ impl SessionManager {
             return;
         }
 
+        let context = match self
+            .build_workflow_context_for_compact(cp, &definition_name)
+            .await
+        {
+            Some(ctx) => ctx,
+            None => return,
+        };
+
+        // Inject into ConversationSession's system_appends.
+        if let Some(cs) = self.get_conversation_session(session_id).await {
+            let mut cs = cs.write().await;
+            cs.add_system_append(context);
+        }
+    }
+
+    /// Load the checkpoint for post-compaction re-injection.
+    async fn load_checkpoint_for_compact(
+        &self,
+        session_id: &str,
+    ) -> Option<closeclaw_session::persistence::SessionCheckpoint> {
+        let cm = {
+            let cm_guard = self.checkpoint_manager.read().await;
+            let Some(cm) = cm_guard.as_ref() else {
+                return None;
+            };
+            std::sync::Arc::clone(cm)
+        };
+        match cm.load(session_id).await {
+            Ok(Some(cp)) => Some(cp),
+            _ => None,
+        }
+    }
+
+    /// Build the workflow context string for re-injection after compaction.
+    async fn build_workflow_context_for_compact(
+        &self,
+        cp: closeclaw_session::persistence::SessionCheckpoint,
+        definition_name: &str,
+    ) -> Option<String> {
         // Resolve agent workspace for three-level lookup.
         let agent_ws = match cp.agent_id {
             Some(ref agent_id) => self.query_agent_workspace(agent_id.as_str()).await,
@@ -229,21 +260,14 @@ impl SessionManager {
             Ok(wf) => wf,
             Err(e) => {
                 tracing::warn!(
-                    session_id = %session_id,
                     definition_name = %definition_name,
                     error = %e,
                     "failed to reload workflow definition for post-compaction re-injection"
                 );
-                return;
+                return None;
             }
         };
 
-        let context = closeclaw_workflow::context_append::build_workflow_context_append(&workflow);
-
-        // Inject into ConversationSession's system_appends.
-        if let Some(cs) = self.get_conversation_session(session_id).await {
-            let mut cs = cs.write().await;
-            cs.add_system_append(context);
-        }
+        Some(closeclaw_workflow::context_append::build_workflow_context_append(&workflow))
     }
 }

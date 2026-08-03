@@ -24,8 +24,7 @@ pub async fn inject_workflow_recovery(session_id: &str, checkpoint: &mut Session
         _ => return,
     };
 
-    // Try to reload definition for context re-injection and version check
-    let wf = WorkflowDefinitionLoader::load(&wf_run.definition_name, None, None).ok();
+    let wf = try_reload_definition(&wf_run.definition_name);
 
     // 1. Re-inject workflow context into system_appends if not already present
     if !has_workflow_context(&checkpoint.system_appends) {
@@ -42,46 +41,18 @@ pub async fn inject_workflow_recovery(session_id: &str, checkpoint: &mut Session
         }
     }
 
-    // 2. Build recovery notification
     let step_num = wf_run.current_step;
     let step_name = wf_run
         .step_history
         .last()
         .map(|e| e.step_name.as_str())
         .unwrap_or("unknown");
-    let notification = format!(
-        "[workflow recovered] 正在执行 {name}，当前 Step {step} ({step_name})",
-        name = wf_run.definition_name,
-        step = step_num,
-        step_name = step_name,
-    );
+    let notification = build_recovery_notification(&wf_run.definition_name, step_num, step_name);
 
-    // 3. Handle definition_version changes
-    if let Some(ref wf) = wf {
-        if wf.version.as_deref() != Some(&wf_run.definition_version) {
-            tracing::info!(
-                session_id = %session_id,
-                old_version = %wf_run.definition_version,
-                new_version = ?wf.version,
-                "workflow definition version changed during recovery"
-            );
-            if step_num >= wf.steps.len() {
-                tracing::warn!(
-                    session_id = %session_id,
-                    step_num,
-                    total_steps = wf.steps.len(),
-                    "current step not in new definition — blocking workflow"
-                );
-                checkpoint
-                    .workflow_run
-                    .as_mut()
-                    .expect("workflow_run checked above")
-                    .phase = Phase::Blocked;
-            }
-        }
-    }
+    // 2. Handle definition_version changes
+    handle_definition_version_change(session_id, &wf, &wf_run, checkpoint);
 
-    // 4. Store recovery notification in system_appends
+    // 3. Store recovery notification in system_appends
     let tagged = format!("{}{}", WORKFLOW_RECOVERY_PREFIX, notification);
     if let Some(slot) = checkpoint
         .system_appends
@@ -100,6 +71,59 @@ pub async fn inject_workflow_recovery(session_id: &str, checkpoint: &mut Session
         phase = ?wf_run.phase,
         "injected workflow recovery state into system_appends"
     );
+}
+
+/// Try to reload the workflow definition from disk.
+fn try_reload_definition(
+    definition_name: &str,
+) -> Option<closeclaw_workflow::definition::Workflow> {
+    WorkflowDefinitionLoader::load(definition_name, None, None).ok()
+}
+
+/// Build a recovery notification string summarising the current workflow state.
+fn build_recovery_notification(definition_name: &str, step_num: usize, step_name: &str) -> String {
+    format!(
+        "[workflow recovered] 正在执行 {name}，当前 Step {step} ({step_name})",
+        name = definition_name,
+        step = step_num,
+        step_name = step_name,
+    )
+}
+
+/// Handle definition_version changes — block the workflow if the current
+/// step no longer exists in the new definition.
+fn handle_definition_version_change(
+    session_id: &str,
+    wf: &Option<closeclaw_workflow::definition::Workflow>,
+    wf_run: &closeclaw_workflow::run::WorkflowRun,
+    checkpoint: &mut SessionCheckpoint,
+) {
+    let Some(ref wf) = wf else {
+        return;
+    };
+    if wf.version.as_deref() == Some(&wf_run.definition_version) {
+        return;
+    }
+    tracing::info!(
+        session_id = %session_id,
+        old_version = %wf_run.definition_version,
+        new_version = ?wf.version,
+        "workflow definition version changed during recovery"
+    );
+    let step_num = wf_run.current_step;
+    if step_num >= wf.steps.len() {
+        tracing::warn!(
+            session_id = %session_id,
+            step_num,
+            total_steps = wf.steps.len(),
+            "current step not in new definition — blocking workflow"
+        );
+        checkpoint
+            .workflow_run
+            .as_mut()
+            .expect("workflow_run checked above")
+            .phase = Phase::Blocked;
+    }
 }
 
 /// Clean up all workflow-related state from a session checkpoint.

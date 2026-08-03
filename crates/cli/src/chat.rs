@@ -174,7 +174,7 @@ async fn build_slash_dispatcher(
         .ok()
         .map(std::path::PathBuf::from)
         .or_else(|| std::env::current_dir().ok());
-    slash_registry.register(Arc::new(closeclaw_slash::WorkflowHandler::new(
+    slash_registry.register(Arc::new(closeclaw_slash::WorkflowSlashHandler::new(
         Arc::clone(&session_manager),
         agent_workspace,
         dot_closeclaw,

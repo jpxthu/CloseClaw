@@ -506,36 +506,40 @@ impl SessionMessageHandler {
             let mut cs_write = cs.write().await;
             cs_write.take_workflow_notification()
         };
-        if let Some(notif) = notification {
-            tracing::info!(
+        let Some(notif) = notification else {
+            return;
+        };
+        tracing::info!(
+            session_id = %session_id,
+            workflow = %notif.workflow_name,
+            "sending workflow blocked notification to owner"
+        );
+        // Inject into agent context so agent sees the notification.
+        if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+            cs.write()
+                .await
+                .inject_system_message(notif.message.clone());
+        }
+        // Send outbound notification to owner via Gateway.
+        let Some(gw) = gateway else {
+            return;
+        };
+        let Some(chat_id) = session_manager.get_chat_id(session_id).await else {
+            return;
+        };
+        let sessions = session_manager.sessions.read().await;
+        let Some(session) = sessions.get(session_id) else {
+            return;
+        };
+        if let Err(e) = gw
+            .send_outbound_to_chat(&chat_id, &session.channel, &notif.message)
+            .await
+        {
+            tracing::warn!(
                 session_id = %session_id,
-                workflow = %notif.workflow_name,
-                "sending workflow blocked notification to owner"
+                error = %e,
+                "failed to send workflow blocked notification via Gateway"
             );
-            // Inject into agent context so agent sees the notification.
-            if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-                cs.write()
-                    .await
-                    .inject_system_message(notif.message.clone());
-            }
-            // Send outbound notification to owner via Gateway.
-            if let Some(gw) = gateway {
-                if let Some(chat_id) = session_manager.get_chat_id(session_id).await {
-                    let sessions = session_manager.sessions.read().await;
-                    if let Some(session) = sessions.get(session_id) {
-                        if let Err(e) = gw
-                            .send_outbound_to_chat(&chat_id, &session.channel, &notif.message)
-                            .await
-                        {
-                            tracing::warn!(
-                                session_id = %session_id,
-                                error = %e,
-                                "failed to send workflow blocked notification via Gateway"
-                            );
-                        }
-                    }
-                }
-            }
         }
     }
 

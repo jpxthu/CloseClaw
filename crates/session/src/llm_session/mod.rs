@@ -436,48 +436,81 @@ impl ConversationSession {
     }
 
     /// Inject a [`SkillListingProvider`] for per-turn skill listing injection.
+    ///
+    /// Called by Gateway after session creation so each LLM turn can
+    /// prepend a tool-role attachment with the agent's available skills.
     pub fn set_skill_listing_provider(&mut self, provider: Arc<dyn SkillListingProvider>) {
         self.skill_listing_provider = Some(provider);
     }
+    /// Returns a reference to the injected [`SkillListingProvider`], if any.
     pub fn skill_listing_provider(&self) -> Option<&Arc<dyn SkillListingProvider>> {
         self.skill_listing_provider.as_ref()
     }
     /// Set the agent-level skill whitelist filter.
+    ///
+    /// When set, only skills whose names appear in `skills` are included
+    /// in the injected listing. A list containing `"*"` means no filtering.
     pub fn set_agent_skills(&mut self, skills: Vec<String>) {
         self.agent_skills = Some(skills);
     }
+    /// Returns the agent-level skill whitelist, if any.
     pub fn agent_skills(&self) -> Option<&[String]> {
         self.agent_skills.as_deref()
     }
+    /// Returns the last skill listing snapshot, if any.
     pub fn skill_listing_snapshot(&self) -> Option<&str> {
         self.skill_listing_snapshot.as_deref()
     }
+    /// Returns a reference to the set of activated conditional skill names.
     pub fn activated_conditional_skills(&self) -> &HashSet<String> {
         &self.activated_conditional_skills
     }
-    /// Returns a clone of the manual backgrounding notify signal.
+    /// Returns a clone of the manual backgrounding signal.
+    ///
+    /// Callers (e.g. `BashTool::execute_command`) can await on
+    /// `signal.notified()` inside a `tokio::select!` to react to
+    /// a manual backgrounding request.
     pub fn manual_background_notify(&self) -> Arc<tokio::sync::Notify> {
         Arc::clone(&self.manual_background_signal)
     }
+    /// Inject an [`LlmCaller`] into this session.
+    ///
+    /// Called by Gateway after session creation so the session can
+    /// delegate LLM requests without the Gateway holding the caller.
     pub fn set_llm_caller(&mut self, caller: Arc<dyn LlmCaller>) {
         self.llm_caller = Some(caller);
     }
+    /// Returns a reference to the injected [`LlmCaller`], if any.
     pub fn llm_caller(&self) -> Option<&Arc<dyn LlmCaller>> {
         self.llm_caller.as_ref()
     }
+    /// Inject a [`SystemPromptBuilder`] into this session.
+    ///
+    /// Called by Gateway after session creation so the session can
+    /// rebuild its own system prompt without the Gateway holding the builder.
     pub fn set_system_prompt_builder(&mut self, builder: Arc<dyn SystemPromptBuilder>) {
         self.system_prompt_builder = Some(builder);
     }
+    /// Returns `true` if a [`SystemPromptBuilder`] has been injected.
     pub fn has_system_prompt_builder(&self) -> bool {
         self.system_prompt_builder.is_some()
     }
+    /// Inject prompt overrides into this session.
+    ///
+    /// Called by Gateway after session creation so the session can
+    /// apply overrides when rebuilding its system prompt.
     pub fn set_prompt_overrides(&mut self, overrides: Option<PromptOverrides>) {
         self.prompt_overrides = overrides;
     }
+    /// Set the git_status config switch for this session.
+    ///
+    /// Called by Gateway after session creation so the dynamic builder
+    /// can conditionally inject a GitStatus section.
     pub fn set_git_status(&mut self, is_git_status_enabled: bool) {
         self.is_git_status_enabled = is_git_status_enabled;
     }
     /// Set the snapshot meta store for persisting snapshot metadata.
+    /// Creates the snapshot manager lazily if not already present.
     pub fn set_snapshot_meta_store(
         &mut self,
         store: Arc<dyn crate::run_health::SnapshotMetaStore>,
@@ -488,50 +521,72 @@ impl ConversationSession {
         mgr.set_meta_store(store);
     }
     /// Set the persistence service for `persist_pending_checkpoint`.
+    ///
+    /// Injected by the Gateway after session creation so that the
+    /// `ToolSession::persist_pending_checkpoint` implementation can
+    /// persist the current pending operations.
     pub fn set_checkpoint_storage(
         &mut self,
         storage: Arc<dyn crate::persistence::PersistenceService>,
     ) {
         self.checkpoint_storage = Some(storage);
     }
+    /// Get a clone of the shutdown handle, if set.
     pub fn get_shutdown_handle(&self) -> Option<Arc<dyn closeclaw_common::ShutdownSignal>> {
         self.shutdown_handle.clone()
     }
+    /// Returns the current reasoning level.
     pub fn reasoning_level(&self) -> ReasoningLevel {
         self.reasoning_level
     }
+    /// Overrides the reasoning level at runtime.
     pub fn set_reasoning_level(&mut self, level: ReasoningLevel) {
         self.reasoning_level = level;
     }
+    /// Returns the current verbosity level.
     pub fn verbosity_level(&self) -> VerbosityLevel {
         self.verbosity_level
     }
+    /// Overrides the verbosity level at runtime.
     pub fn set_verbosity_level(&mut self, level: VerbosityLevel) {
         self.verbosity_level = level;
     }
+    /// Returns the current session mode.
     pub fn session_mode(&self) -> SessionMode {
         *self
             .session_mode
             .lock()
             .expect("session_mode lock poisoned")
     }
+    /// Overrides the session mode at runtime.
     pub fn set_session_mode(&mut self, mode: SessionMode) {
         *self
             .session_mode
             .lock()
             .expect("session_mode lock poisoned") = mode;
     }
+    /// Set per-request context for dynamic-layer injection.
     pub fn set_request_context(&self, ctx: closeclaw_common::RequestContext) {
         *self.request_context.lock().expect("rc poisoned") = ctx;
     }
+    /// Returns a clone of the current per-request context.
     pub fn request_context(&self) -> closeclaw_common::RequestContext {
         self.request_context.lock().expect("rc poisoned").clone()
     }
+    /// Returns a reference to the memory-injection Arc.
     pub fn memory_injection_arc(&self) -> &Arc<Mutex<Option<MemoryInjection>>> {
         &self.memory_injection
     }
 
-    /// Write a memory-injection payload (with session-level dedup).
+    /// Write a memory-injection payload into the slot.
+    ///
+    /// Applies session-level dedup: if the injection carries a
+    /// `task_id` that has already been injected this session, the
+    /// write is skipped (returns `false`). Injections without a
+    /// `task_id` are always accepted.
+    ///
+    /// Returns `true` if the injection was accepted, `false` if
+    /// skipped due to dedup.
     pub fn set_memory_injection(&self, injection: MemoryInjection) -> bool {
         let mut slot = self
             .memory_injection
@@ -555,7 +610,8 @@ impl ConversationSession {
         true
     }
 
-    /// Take the current memory-injection payload, replacing the slot with `None`.
+    /// Take the current memory-injection payload, replacing the slot
+    /// with `None`. Returns `None` if the slot was already empty.
     pub fn take_memory_injection(&self) -> Option<MemoryInjection> {
         let mut slot = self
             .memory_injection
@@ -564,6 +620,8 @@ impl ConversationSession {
         slot.take()
     }
 
+    /// Record that `event_id` has been injected in the current session.
+    /// If no injection exists yet, this is a no-op.
     pub fn add_injected_event_id(&self, event_id: i64) {
         let mut slot = self
             .memory_injection
@@ -574,6 +632,7 @@ impl ConversationSession {
         }
     }
 
+    /// Returns `true` if `event_id` was already injected in this session.
     pub fn is_event_injected(&self, event_id: i64) -> bool {
         let slot = self
             .memory_injection
@@ -584,15 +643,29 @@ impl ConversationSession {
             .unwrap_or(false)
     }
 
+    /// Replace the system prompt on an existing session.
+    /// Used by `SessionManager::rebuild_system_prompt` after compaction.
     pub fn replace_system_prompt(&mut self, prompt: impl Into<String>) {
         self.system_prompt = Some(prompt.into());
     }
 
+    /// Returns the current system prompt, if any.
     pub fn system_prompt(&self) -> Option<&str> {
         self.system_prompt.as_deref()
     }
 
     /// Rebuild the system prompt using the session's own builder and overrides.
+    ///
+    /// This is the session-side entry point for prompt rebuilds after
+    /// compaction or config changes. The session owns the builder and
+    /// overrides; no external references are needed.
+    ///
+    /// * `bootstrap_mode_override` — optional override for the bootstrap mode
+    ///   used when building the prompt. Pass `None` for standard rebuilds;
+    ///   spawn callers should pass the child's bootstrap mode.
+    ///
+    /// Returns the rebuilt prompt string for callers that need it
+    /// (e.g. initial session creation in `resolve.rs`).
     pub async fn rebuild_system_prompt(
         &mut self,
         session_id: &str,

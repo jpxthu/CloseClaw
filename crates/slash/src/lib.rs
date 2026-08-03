@@ -23,7 +23,7 @@ pub use handlers_mode::{
 pub use handlers_permission::PermissionSlashHandler;
 pub use handlers_session::{NewSessionHandler, StatusHandler, StopHandler, VerboseHandler};
 pub use handlers_user::UserSlashHandler;
-pub use handlers_workflow::WorkflowHandler;
+pub use handlers_workflow::WorkflowSlashHandler;
 
 #[cfg(test)]
 mod tests;

@@ -27,13 +27,13 @@ use closeclaw_workflow::engine::WorkflowEngine;
 /// 5. Inject workflow context into system_appends
 /// 6. Push Step 0 goal message as pending
 /// 7. Return confirmation
-pub struct WorkflowHandler {
+pub struct WorkflowSlashHandler {
     session_manager: Arc<SessionManager>,
     agent_workspace: Option<PathBuf>,
     dot_closeclaw: Option<PathBuf>,
 }
 
-impl WorkflowHandler {
+impl WorkflowSlashHandler {
     /// Create a new WorkflowHandler.
     pub fn new(
         session_manager: Arc<SessionManager>,
@@ -67,7 +67,7 @@ impl WorkflowHandler {
 }
 
 #[async_trait::async_trait]
-impl SlashHandler for WorkflowHandler {
+impl SlashHandler for WorkflowSlashHandler {
     fn commands(&self) -> &[&str] {
         &["workflow"]
     }
@@ -85,62 +85,90 @@ impl SlashHandler for WorkflowHandler {
         if name.is_empty() {
             return SlashResult::Reply("用法：/workflow <name>".to_owned());
         }
+        let workflow = match self.load_workflow(name) {
+            Ok(wf) => wf,
+            Err(reply) => return reply,
+        };
+        if let Err(reply) = self
+            .init_and_persist_run(&workflow, name, &ctx.session_id)
+            .await
+        {
+            return reply;
+        }
+        self.inject_workflow_context(&workflow, &ctx.session_id)
+            .await;
+        if let Err(reply) = self
+            .push_goal_message(&workflow, name, &ctx.session_id)
+            .await
+        {
+            return reply;
+        }
+        SlashResult::Reply(format!(
+            "工作流 \"{name}\" 已启动。正在执行 Step 0: {}",
+            workflow.steps[0].name,
+        ))
+    }
+}
 
-        // 1. Load workflow definition via three-level lookup.
-        let workflow: Workflow = match WorkflowDefinitionLoader::load(
+impl WorkflowSlashHandler {
+    /// Load workflow definition via three-level lookup.
+    fn load_workflow(&self, name: &str) -> Result<Workflow, SlashResult> {
+        WorkflowDefinitionLoader::load(
             name,
             self.agent_workspace.as_deref(),
             self.dot_closeclaw.as_deref(),
-        ) {
-            Ok(wf) => wf,
-            Err(e) => {
-                return SlashResult::Reply(format!("工作流 \"{name}\" 加载失败：{e}"));
-            }
-        };
+        )
+        .map_err(|e| SlashResult::Reply(format!("工作流 \"{name}\" 加载失败：{e}")))
+    }
 
-        // 2. Initialize WorkflowRun.
-        let run = WorkflowEngine::start(&workflow);
-
-        // 3. Persist WorkflowRun to session checkpoint.
-        if let Err(e) = self
-            .session_manager
-            .set_workflow_run(&ctx.session_id, Some(run))
+    /// Initialize WorkflowRun and persist to checkpoint.
+    async fn init_and_persist_run(
+        &self,
+        workflow: &Workflow,
+        name: &str,
+        session_id: &str,
+    ) -> Result<(), SlashResult> {
+        let run = WorkflowEngine::start(workflow);
+        self.session_manager
+            .set_workflow_run(session_id, Some(run))
             .await
-        {
-            return SlashResult::Reply(format!("工作流 \"{name}\" 启动失败（持久化错误）：{e}"));
-        }
+            .map_err(|e| {
+                SlashResult::Reply(format!("工作流 \"{name}\" 启动失败（持久化错误）：{e}"))
+            })
+    }
 
-        // 4. Inject workflow context into system_appends.
-        let context = Self::build_workflow_context_append(&workflow);
+    /// Inject workflow context into system_appends.
+    async fn inject_workflow_context(&self, workflow: &Workflow, session_id: &str) {
+        let context = Self::build_workflow_context_append(workflow);
         if let Some(cs) = self
             .session_manager
-            .get_conversation_session(&ctx.session_id)
+            .get_conversation_session(session_id)
             .await
         {
             let mut cs = cs.write().await;
             cs.add_system_append(context);
         }
+    }
 
-        // 5. Push Step 0 goal message as pending.
-        let goal = Self::build_goal_message(&workflow);
+    /// Push Step 0 goal message as pending.
+    async fn push_goal_message(
+        &self,
+        workflow: &Workflow,
+        name: &str,
+        session_id: &str,
+    ) -> Result<(), SlashResult> {
+        let goal = Self::build_goal_message(workflow);
         let pending_msg = PendingMessage::with_role(
-            format!("workflow-goal-{}", ctx.session_id),
+            format!("workflow-goal-{}", session_id),
             goal,
             "workflow".to_string(),
         );
-        if let Err(e) = self
-            .session_manager
-            .push_pending_message(&ctx.session_id, pending_msg)
+        self.session_manager
+            .push_pending_message(session_id, pending_msg)
             .await
-        {
-            return SlashResult::Reply(format!("工作流 \"{name}\" 启动失败（消息注入错误）：{e}"));
-        }
-
-        // 6. Return confirmation.
-        SlashResult::Reply(format!(
-            "工作流 \"{name}\" 已启动。正在执行 Step 0: {}",
-            workflow.steps[0].name,
-        ))
+            .map_err(|e| {
+                SlashResult::Reply(format!("工作流 \"{name}\" 启动失败（消息注入错误）：{e}"))
+            })
     }
 }
 
@@ -173,7 +201,7 @@ mod tests {
     #[test]
     fn test_build_workflow_context_append() {
         let wf = make_test_workflow();
-        let ctx = WorkflowHandler::build_workflow_context_append(&wf);
+        let ctx = WorkflowSlashHandler::build_workflow_context_append(&wf);
         assert!(ctx.starts_with("--- WORKFLOW ---"));
         assert!(ctx.ends_with("--- WORKFLOW END ---"));
         assert!(ctx.contains("Test Workflow"));
@@ -185,7 +213,7 @@ mod tests {
     #[test]
     fn test_build_goal_message() {
         let wf = make_test_workflow();
-        let goal = WorkflowHandler::build_goal_message(&wf);
+        let goal = WorkflowSlashHandler::build_goal_message(&wf);
         assert!(goal.contains("[workflow goal]"));
         assert!(goal.contains("Step 0"));
         assert!(goal.contains("Step Zero"));
