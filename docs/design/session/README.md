@@ -20,7 +20,7 @@ Session 模块是 CloseClaw 的运行时载体，管理 session 的全生命周�
 | [session-injection.md](session-injection.md) | System Prompt 注入链路（session 创建/恢复/compaction 时触发）和 memory_injection 槽位（消息级记忆摘要注入） |
 | [working-directory.md](working-directory.md) | 工作目录的定义：字段、默认值、`/cd` 变更、`/pwd` 读取、system prompt 注入 |
 | [compact-process.md](compact-process.md) | 会话上下文压缩：触发机制、LLM summarization、system prompt 隔离保护 |
-| [llm-session-enhancements.md](llm-session-enhancements.md) | LLM 交互增强：流式输出、Reasoning Level 控制、Cache Hit 统计、Thinking 内容管理 |
+| [llm-session-enhancements.md](llm-session-enhancements.md) | LLM 交互增强：流式输出、Reasoning Level 控制、用量统计、Thinking 内容管理 |
 | [session-tools.md](session-tools.md) | 对外工具：sessions_spawn / sessions_steer / sessions_kill / sessions_yield 的参数、行为、向 ToolRegistry 注册 |
 | [run-health.md](run-health.md) | 运行时安全网：turn 边界健康检测（硬规则 + Hook 审查）、运行快照创建与回滚 |
 | [session-recovery.md](session-recovery.md) | 重启恢复：dirty 检测、恢复通知注入、工具调用失败模拟、出站消息补投、树状恢复策略 |
@@ -129,7 +129,7 @@ Gateway / SessionManager  ← session 生命周期协调者
 2. 检查 memory_injection 槽位，按模式插入记忆摘要到消息列表
 3. LLM 状态设为 Requesting
 4. LLM provider 调用
-   - 流式模式：Session 层接收 LLM 流式 chunk 并组装 ContentBlock[]，完成后经统一出站路径（Verbosity → Processor Chain → 出站日志）交付 IM Adapter 渲染发送
+   - 流式模式：Session 层接收 LLM 流式 chunk，逐块组装 ContentBlock[] 并通过统一出站路径（Verbosity → Processor Chain → 出站日志）实时推送至 IM Adapter 渲染发送
    - 非流式：返回完整响应
 5. Thinking 内容作为独立 block 保留在消息历史中，展示层默认过滤（不输出给用户）
 6. 完整 ContentBlock[]（含 Thinking block）写入 message history
