@@ -76,7 +76,7 @@ pub struct TruncationResult {
 /// Truncate file content from `offset` (1-indexed) with optional `limit`.
 ///
 /// Reads line-by-line from the given offset, accumulating bytes and
-/// checking three thresholds (token → byte → line).  Also handles the
+/// checking thresholds in priority order: user limit → token → byte → line.
 /// edge case where a single line exceeds `SINGLE_LINE_BYTE_LIMIT`.
 pub(crate) fn truncate_lines(
     content: &str,
@@ -192,7 +192,7 @@ pub(crate) fn format_truncation_message(
         let actual_bytes = result.content.trim_end_matches('\n').len();
         return Some(format!(
             "[Line {start} is {actual_bytes} bytes, exceeds {SINGLE_LINE_BYTE_LIMIT} limit. \
-             Use bash: sed -n '{start}s' FILE]",
+             Use bash: sed -n '{start}p' FILE]",
         ));
     }
 

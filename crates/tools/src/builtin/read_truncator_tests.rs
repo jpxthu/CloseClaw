@@ -324,6 +324,29 @@ fn test_format_limit_trigger_remaining_calculation() {
 }
 
 // ---------------------------------------------------------------------------
+// Single line exceeds byte limit — format_truncation_message
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_format_single_line_byte_limit_hint() {
+    let actual_bytes = SINGLE_LINE_BYTE_LIMIT + 500;
+    let r = TruncationResult {
+        content: "x".repeat(actual_bytes),
+        truncated: true,
+        lines_read: 1,
+        total_lines: 3,
+        trigger: Some(TruncationTrigger::Bytes),
+    };
+    let msg = format_truncation_message(&r, 42).unwrap();
+    assert!(msg.contains("Line 42 is"));
+    assert!(msg.contains(&format!("{actual_bytes} bytes")));
+    assert!(msg.contains(&format!("{SINGLE_LINE_BYTE_LIMIT} limit")));
+    assert!(msg.contains("sed -n '42p' FILE"));
+    // Verify it does NOT contain the broken 's' suffix
+    assert!(!msg.contains("'42s'"));
+}
+
+// ---------------------------------------------------------------------------
 // Offset with limit — combined edge case
 // ---------------------------------------------------------------------------
 
