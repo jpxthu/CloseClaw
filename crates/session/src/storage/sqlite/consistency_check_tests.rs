@@ -309,3 +309,115 @@ fn test_fs_to_sqlite_archived_non_jsonl_ignored() {
     );
     assert!(dir.join("s1.txt").exists());
 }
+
+// ---------------------------------------------------------------------------
+// Migrating status tests (SQLite → Filesystem)
+// ---------------------------------------------------------------------------
+
+/// Migrating session with transcript in sessions/ → record kept.
+#[test]
+fn test_sqlite_to_fs_migrating_transcript_in_sessions() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = Connection::open_in_memory().unwrap();
+    create_schema(&conn);
+    let data_dir = tmp.path();
+
+    insert_session(&conn, "m1", "migrating", 5000, None);
+    create_jsonl(&data_dir.join("sessions"), "m1");
+
+    let mut result = ConsistencyCheckResult::default();
+    check_sqlite_to_filesystem_filtered(&conn, data_dir, &mut result, 0).unwrap();
+
+    assert_eq!(
+        result.deleted_orphaned_records, 0,
+        "migrating record with transcript in sessions/ should be kept"
+    );
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sessions WHERE id = ?1",
+            rusqlite::params!["m1"],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1, "migrating record should remain");
+}
+
+/// Migrating session with transcript in archived_sessions/ → record kept.
+#[test]
+fn test_sqlite_to_fs_migrating_transcript_in_archived() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = Connection::open_in_memory().unwrap();
+    create_schema(&conn);
+    let data_dir = tmp.path();
+
+    insert_session(&conn, "m2", "migrating", 5000, None);
+    create_jsonl(&data_dir.join("archived_sessions"), "m2");
+
+    let mut result = ConsistencyCheckResult::default();
+    check_sqlite_to_filesystem_filtered(&conn, data_dir, &mut result, 0).unwrap();
+
+    assert_eq!(
+        result.deleted_orphaned_records, 0,
+        "migrating record with transcript in archived_sessions/ should be kept"
+    );
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sessions WHERE id = ?1",
+            rusqlite::params!["m2"],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1, "migrating record should remain");
+}
+
+/// Migrating session with transcript in both dirs → record kept.
+#[test]
+fn test_sqlite_to_fs_migrating_transcript_in_both() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = Connection::open_in_memory().unwrap();
+    create_schema(&conn);
+    let data_dir = tmp.path();
+
+    insert_session(&conn, "m3", "migrating", 5000, None);
+    create_jsonl(&data_dir.join("sessions"), "m3");
+    create_jsonl(&data_dir.join("archived_sessions"), "m3");
+
+    let mut result = ConsistencyCheckResult::default();
+    check_sqlite_to_filesystem_filtered(&conn, data_dir, &mut result, 0).unwrap();
+
+    assert_eq!(
+        result.deleted_orphaned_records, 0,
+        "migrating record with transcripts in both dirs should be kept"
+    );
+}
+
+/// Migrating session with no transcript anywhere → record deleted.
+#[test]
+fn test_sqlite_to_fs_migrating_no_transcript() {
+    let tmp = tempfile::tempdir().unwrap();
+    let conn = Connection::open_in_memory().unwrap();
+    create_schema(&conn);
+    let data_dir = tmp.path();
+
+    insert_session(&conn, "m4", "migrating", 5000, None);
+    // No transcript file created
+
+    let mut result = ConsistencyCheckResult::default();
+    check_sqlite_to_filesystem_filtered(&conn, data_dir, &mut result, 0).unwrap();
+
+    assert_eq!(
+        result.deleted_orphaned_records, 1,
+        "migrating record with no transcript should be deleted"
+    );
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sessions WHERE id = ?1",
+            rusqlite::params!["m4"],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        count, 0,
+        "migrating record without transcript should be removed"
+    );
+}
