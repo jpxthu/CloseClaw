@@ -295,6 +295,7 @@ impl Clone for SqliteStorage {
 fn status_to_db(s: &crate::persistence::SessionStatus) -> &'static str {
     match s {
         crate::persistence::SessionStatus::Active => "active",
+        crate::persistence::SessionStatus::Migrating => "migrating",
         crate::persistence::SessionStatus::Archived => "archived",
     }
 }

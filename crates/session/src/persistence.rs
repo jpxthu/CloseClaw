@@ -629,6 +629,8 @@ pub enum SessionStatus {
     /// 活跃状态
     #[default]
     Active,
+    /// 归档进行中（崩溃安全中间状态）
+    Migrating,
     /// 已归档状态
     Archived,
 }
@@ -637,6 +639,7 @@ impl std::fmt::Display for SessionStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SessionStatus::Active => write!(f, "active"),
+            SessionStatus::Migrating => write!(f, "migrating"),
             SessionStatus::Archived => write!(f, "archived"),
         }
     }

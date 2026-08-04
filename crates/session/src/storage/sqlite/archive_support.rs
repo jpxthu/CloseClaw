@@ -244,6 +244,7 @@ pub fn load_checkpoint_inner(
 
     let status = match status_db.as_str() {
         "archived" => crate::persistence::SessionStatus::Archived,
+        "migrating" => crate::persistence::SessionStatus::Migrating,
         _ => crate::persistence::SessionStatus::Active,
     };
 
@@ -251,6 +252,21 @@ pub fn load_checkpoint_inner(
         crate::persistence::SessionStatus::Active => data_dir
             .join("sessions")
             .join(format!("{session_id}.jsonl")),
+        crate::persistence::SessionStatus::Migrating => {
+            // During migration, transcript could be in either location.
+            // Prefer archived_sessions/ (file already moved) over sessions/
+            // (file not yet moved).
+            let archived = data_dir
+                .join("archived_sessions")
+                .join(format!("{session_id}.jsonl"));
+            if archived.exists() {
+                archived
+            } else {
+                data_dir
+                    .join("sessions")
+                    .join(format!("{session_id}.jsonl"))
+            }
+        }
         crate::persistence::SessionStatus::Archived => data_dir
             .join("archived_sessions")
             .join(format!("{session_id}.jsonl")),
