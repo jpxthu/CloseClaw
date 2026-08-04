@@ -12,7 +12,7 @@
 - 标识：session_id（格式 `{agent_id}_{timestamp}_{random_suffix}`，其中 timestamp 精确到秒、random_suffix 为 8 位小写 hex 随机字符串）、agent_id、role（主 agent / 子 agent）、last_message_id
 - 会话路由键：platform（如 feishu）、sender_id（发送者平台内 ID）、peer_id（会话对端：群聊 chat_id 或私聊对方 ID）、account_id（CloseClaw 本地账号标识，由 sender_id 通过身份映射得到。一个 CloseClaw 账号可绑定多个平台的 sender_id）
 - 出站定向字段：thread_id（话题 ID，可选。不参与 session_key 计算，仅用于出站时定向回复到正确的话题线）
-- 生命周期状态：status（active / archived）、created_at
+- 生命周期状态：status（active / migrating / archived）、created_at
 - 未完成操作：pending_operations（操作发起前持久化、完成后清除。恢复扫描使用，详见 [session-recovery.md](session-recovery.md)）。运行时归档判定使用活跃维度（详见 [session-execution.md](session-execution.md)），不依赖 pending_operations
 - 运行时快照：pending_messages（transcript，含消息列表）、mode（对话模式：normal/plan/auto）、mode_state（推理步骤状态）
 - system prompt 追加区：system_appends（由 `/system` 斜杠指令增删的追加条目列表。持久化在 checkpoint 中，归档/恢复时完整保留。追加区独立于对话消息流，不参与 compaction）
@@ -34,8 +34,9 @@
 写入时机：操作发起前，先追加到 pending_operations 并持久化，确认成功后再执行实际操作。
 清除时机：操作完成确认后，从 pending_operations 移除并持久化。
 
-**SessionStatus** 是两态枚举：
+**SessionStatus** 是三态枚举：
 - `Active`：正常运行中或待恢复
+- `Migrating`：归档进行中——Sweeper 已将状态置为 migrating、正在移动 transcript。若此时崩溃，恢复扫描将重建 session（详见 [session-recovery.md](session-recovery.md) 启动扫描节）。归档完成后状态变为 Archived
 - `Archived`：已归档，transcript 从 sessions/ 移至 archived_sessions/
 
 ### 存储架构
@@ -69,7 +70,7 @@ SQLite 访问通过线程池包装为异步调用，保证不阻塞运行时。
 
 1. **Archive**：扫描 status=active 且 last_user_activity_at 超过配置的 inactive 时长的 session → 调用 SessionManager.is_active(session_id) 查询四维活跃维度 → 全部为 false → 执行归档，transcript 移入 archived_sessions/。任一维度为 true → 跳过，等下一轮扫描。
 
-归档后 Sweeper 不与 SessionManager 通信——映射表同步由 SessionManager 在下次 lookup 时通过 status 校验被动完成（详见 [README.md](README.md) key_registry 自愈逻辑）。
+归档后 Sweeper 不与 SessionManager 通信——映射表同步由 SessionManager 在下次 lookup 时通过 status 校验被动完成（详见 [README.md](README.md) key_registry 自愈逻辑）。migrating session 由恢复扫描处理（详见 [session-recovery.md](session-recovery.md)），Sweeper 不操作 migrating 状态的 session。
 
 **SessionManager.is_active()**：SessionManager 向 Sweeper 暴露的只读查询接口。传入 session_id，存在 ConversationSession 实例则返回其四维活跃维度（llm_active / foreground_tool_active / background_tool_active / child_active），不存在则返回全 false——session 不在内存中意味着没有活跃操作。SessionManager 按 agent_id 串行化所有操作，Sweeper 查询时 session 的四维状态不会被并发修改。
 2. **Purge**：扫描 status=archived 且 archived_at 超过 purgeAfterMinutes 的 session → 调用 purge，彻底删除。
@@ -108,9 +109,12 @@ Sweeper 定时触发
         → 调用 SessionManager.is_active(session_id) 查询四维活跃状态
         → 任一维度为 true → 跳过
         → 全维度为 false → 执行归档
-          → 更新 session 状态为 archived，记录归档时间
+          → 更新 session 状态为 migrating
           → transcript 从活跃区移至归档区
+          → 更新 session 状态为 archived，记录归档时间
 ```
+
+归档分两步写入以覆盖崩溃窗口：先置 migrating（此时 transcript 仍在 sessions/ 下），再移动文件，最后置 archived。若移动文件过程中崩溃，恢复扫描通过 migrating 状态发现该 session 并完成恢复。Sweeper 归档前通过 SessionManager.is_active() 查询活跃维度——任一维度为 true 则跳过，因此活跃 session 不会被置为 migrating。
 
 归档完成后不通知 SessionManager。SessionManager 在下次 lookup 命中该 key 时，通过 status 校验发现 session 已归档，自行从映射表移除并走未命中回退路径。
 
@@ -145,6 +149,7 @@ Sweeper 定时触发
 Sweeper（archive 扫描完成后）
   → 遍历各 agent 配置，获取清理时长阈值
     → 查询持久化存储：状态为 archived 且归档时间超过清理阈值的 session
+    → migrating 状态 session 不参与清理（等待恢复扫描处理或归档完成）
     → 对每条结果：
         → 执行清理
           → 删除该 session 的数据库记录

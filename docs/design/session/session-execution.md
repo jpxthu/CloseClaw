@@ -56,6 +56,11 @@ Session 的整体状态由四维组合判定：
 - **idle**：llm_active 和 foreground_tool_active 均为 false——session 可以立即接收新用户消息。background_tool_active 或 child_active 为 true 不影响 idle 判定
 - **inactive**：四个活跃维度均为 false，且距上次用户活动超过配置的 inactive 时长——触发归档判定
 
+活跃维度由各消费方按需使用：
+- 用户消息分派：idle 时直接分派；非 idle 时按排队规则处理
+- 归档判定：inactive 时触发归档
+- Workflow 验收：任一活跃维度为 true 时不注入验收清单（详见 [workflow/README.md](../workflow/README.md)）
+
 ### 级联停止
 
 停止一个 session 时，需清理该 session 拥有的所有活跃资源：
@@ -130,7 +135,9 @@ yield 后 llm_active 和 foreground_tool_active 均为 false → session 为 idl
 
 yield 不是硬阻塞——任何消息（用户消息、子 session 完成通知、超时预警通知）都解除等待、恢复父 session 的 turn。
 
-**超时保护**：子 agent 超过 timeout_warning 时长未完成 → 向父 session 注入超时预警通知（next 优先级），子 agent 继续执行。子 agent 超过 timeout 时长未完成 → 终止该子 agent（级联终止其所有后代），注入超时通知。父 session 本身不因超时而强制恢复。
+**超时保护**：子 agent 超过 timeout_warning 时长未完成 → 向父 session 注入超时预警通知（next 优先级），子 agent 继续执行。子 agent 超过 timeout 时长未完成 → 终止该子 agent（级联终止其所有后代），注入超时通知。
+
+父 session 侧有整体等待上限：最长等待时间 = max(所有等待中子 Session 的 timeout) + 1 分钟缓冲。超过此时间后，系统解除等待，向父 session 注入通知——列出已完成和仍在运行中的子 Session 及其已执行时长。父 Session 可自行决定继续等待或处理已收到的结果。解除等待后，仍在运行的子 Session 继续执行，完成后结果按正常路径注入。
 
 #### 禁止轮询
 
@@ -255,5 +262,5 @@ Forceful 模式：
 
 ### 无关
 
-- **持久化层**（无调用关系）：执行状态不进 CheckpointManager 持久化，resume 时重置。SessionStatus（Active / Archived）与执行状态独立——archived session 恢复后执行状态为 Idle
+- **持久化层**（无调用关系）：执行状态不进 CheckpointManager 持久化，resume 时重置。SessionStatus（Active / Migrating / Archived）与执行状态独立——archived 或 migrating session 恢复后执行状态为 Idle
 - **Permission 模块**（无调用关系）：停止操作不涉及权限检查
