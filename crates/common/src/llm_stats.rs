@@ -150,6 +150,58 @@ pub struct CacheBreakInfo {
     pub causes: Vec<CacheBreakCause>,
 }
 
+impl CacheBreakCause {
+    /// Returns a human-readable Chinese description for this cause.
+    fn description(&self) -> &'static str {
+        match self {
+            Self::SystemPromptChanged => "system prompt 变更",
+            Self::ToolsChanged => "工具列表变更",
+            Self::HeadersChanged => "请求头变更",
+            Self::TtlExpired => "缓存 TTL 过期",
+            Self::SessionResumed => "会话恢复",
+            Self::Unknown => "未知原因",
+        }
+    }
+
+    /// Returns the English cache dimension identifier for this cause.
+    fn dimension(&self) -> &'static str {
+        match self {
+            Self::SystemPromptChanged => "system prompt",
+            Self::ToolsChanged => "tools 列表",
+            Self::HeadersChanged => "请求头",
+            Self::TtlExpired => "缓存 TTL",
+            Self::SessionResumed => "会话状态",
+            Self::Unknown => "未知",
+        }
+    }
+}
+
+impl CacheBreakInfo {
+    /// Formats a user-facing notification for this cache break.
+    ///
+    /// The notification includes the token drop, percentage,
+    /// attributed causes (in Chinese), and affected cache dimensions.
+    pub fn format_notification(&self) -> String {
+        let causes_str = self
+            .causes
+            .iter()
+            .map(|c| c.description())
+            .collect::<Vec<_>>()
+            .join("、");
+        let dimensions_str = self
+            .causes
+            .iter()
+            .map(|c| c.dimension())
+            .collect::<Vec<_>>()
+            .join("、");
+        let drop_pct = self.drop_ratio * 100.0;
+        format!(
+            "[缓存断点] 检测到缓存命中率下降（减少 {} tokens，降幅 {:.1}%）。原因：{}。受影响维度：{}。",
+            self.drop_tokens, drop_pct, causes_str, dimensions_str
+        )
+    }
+}
+
 /// Detects a cache break between two consecutive cache-read token counts.
 ///
 /// Returns `Some(CacheBreakInfo)` when:
