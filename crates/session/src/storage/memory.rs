@@ -205,21 +205,37 @@ impl PersistenceService for MemoryStorage {
         &self,
         session_id: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        let mut archived = self
-            .archived
-            .write()
-            .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
-        match archived.remove(session_id) {
-            Some(cp) => {
+        // Check archived map first
+        {
+            let mut archived = self
+                .archived
+                .write()
+                .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+            if let Some(cp) = archived.remove(session_id) {
                 let mut checkpoints = self
                     .checkpoints
                     .write()
                     .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
                 checkpoints.insert(session_id.to_string(), cp.clone());
-                Ok(Some(cp))
+                return Ok(Some(cp));
             }
-            None => Ok(None),
         }
+        // Check migrating map (recovery from crash during archive)
+        {
+            let mut migrating = self
+                .migrating
+                .write()
+                .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+            if let Some(cp) = migrating.remove(session_id) {
+                let mut checkpoints = self
+                    .checkpoints
+                    .write()
+                    .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+                checkpoints.insert(session_id.to_string(), cp.clone());
+                return Ok(Some(cp));
+            }
+        }
+        Ok(None)
     }
 
     async fn purge_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError> {

@@ -17,14 +17,12 @@ use crate::persistence::{
 /// When injected as a fallback (layer 3), this prefix tags the entry
 /// so it can be identified in subsequent recovery scans.
 pub const APPROVAL_HISTORY_PREFIX: &str = "__approval_history__:";
-
 /// Prefix marker for plan references extracted from message history
 /// in `system_appends`.
 ///
 /// When injected as a fallback (layer 4), this prefix tags the entry
 /// so it can be identified in subsequent recovery scans.
 pub const PLAN_REFERENCES_PREFIX: &str = "__plan_references__:";
-
 /// Prefix marker for plan file Tasks section injected into
 /// `system_appends` during recovery.
 ///
@@ -434,7 +432,9 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
                     continue;
                 }
                 match self.storage.load_checkpoint(sid).await {
-                    Ok(Some(restored)) => {
+                    Ok(Some(mut restored)) => {
+                        // Update status to Active so save_checkpoint routes correctly
+                        restored.status = crate::persistence::SessionStatus::Active;
                         checkpoints.insert(sid.clone(), restored);
                         recovered.push(sid.clone());
                     }
@@ -984,17 +984,17 @@ pub fn format_plan_references(references: &[String]) -> String {
 }
 
 #[cfg(test)]
-#[path = "recovery_tests.rs"]
-mod tests;
-
+#[path = "crash_recovery_tests.rs"]
+mod crash_recovery_tests;
+#[cfg(test)]
+#[path = "recovery_migrating_tests.rs"]
+mod recovery_migrating_tests;
 #[cfg(test)]
 #[path = "recovery_progress_tests.rs"]
 mod recovery_progress_tests;
-
-#[cfg(test)]
-#[path = "crash_recovery_tests.rs"]
-mod crash_recovery_tests;
-
 #[cfg(test)]
 #[path = "recovery_workflow_tests.rs"]
 mod recovery_workflow_tests;
+#[cfg(test)]
+#[path = "recovery_tests.rs"]
+mod tests;
