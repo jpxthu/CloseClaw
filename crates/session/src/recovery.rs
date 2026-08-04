@@ -2,15 +2,14 @@
 //!
 //! Provides functionality to recover sessions from persisted checkpoints
 //! during gateway startup, including spawn_tree reconstruction.
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-
 use crate::llm_session::PROGRESS_APPEND_PREFIX;
 use crate::persistence::{
     ApprovalToolCallRecord, PersistenceError, PersistenceService, ProgressToolCallRecord,
     SessionCheckpoint,
 };
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// Prefix marker for approval history entries in `system_appends`.
 ///
@@ -115,7 +114,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         let mut recovered = Vec::new();
         let mut failed = Vec::new();
         let mut checkpoints: HashMap<String, SessionCheckpoint> = HashMap::new();
-
         for session_id in &active_sessions {
             match self.recover_session(session_id).await {
                 Ok(()) => {
@@ -213,14 +211,12 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         // Step A and Step C of two-step archive).
         self.scan_migrating_sessions(&mut recovered, &mut failed, &mut checkpoints)
             .await;
-
         // Collect dirty sessions (those with pending operations)
         let dirty_sessions: Vec<String> = checkpoints
             .iter()
             .filter(|(_, cp)| !cp.pending_operations.is_empty())
             .map(|(id, _)| id.clone())
             .collect();
-
         // Inject plan file content, progress history fallback, and recovery
         // notifications for all recovered sessions.
         for session_id in &recovered {
@@ -255,7 +251,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         }
 
         let (spawn_tree, demoted) = Self::build_spawn_tree(&mut checkpoints, &recovered);
-
         // 持久化降级后的 checkpoint（depth 重置为 0）
         for session_id in &demoted {
             if let Some(cp) = checkpoints.get(session_id) {
@@ -303,7 +298,11 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         } else {
             checkpoint.system_appends.push(tagged);
         }
-        tracing::info!(session_id = %session_id, call_count = checkpoint.approval_tool_calls.len(), "injected approval tool call history into system_appends");
+        tracing::info!(
+            session_id = %session_id,
+            call_count = checkpoint.approval_tool_calls.len(),
+            "injected approval tool call history into system_appends"
+        );
     }
 
     /// Inject the plan file Tasks section into checkpoint's system_appends.
@@ -337,7 +336,11 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         } else {
             checkpoint.system_appends.push(tagged);
         }
-        tracing::info!(session_id = %session_id, plan_file = %plan_file_path, "injected plan file Tasks section into system_appends");
+        tracing::info!(
+            session_id = %session_id,
+            plan_file = %plan_file_path,
+            "injected plan file Tasks section into system_appends"
+        );
     }
 
     /// Inject plan references from session message history into checkpoint's
@@ -388,7 +391,11 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         } else {
             checkpoint.system_appends.push(tagged);
         }
-        tracing::info!(session_id = %session_id, ref_count = checkpoint.plan_references.len(), "layer 4 fallback: injected plan references into system_appends");
+        tracing::info!(
+            session_id = %session_id,
+            ref_count = checkpoint.plan_references.len(),
+            "layer 4 fallback: injected plan references into system_appends"
+        );
     }
 
     /// Scan migrating sessions: restore those with pending ops,
@@ -419,7 +426,11 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
                     continue;
                 }
                 Err(e) => {
-                    tracing::error!(session_id = %sid, "Failed to load migrating checkpoint: {}", e);
+                    tracing::error!(
+                        session_id = %sid,
+                        "Failed to load migrating checkpoint: {}",
+                        e
+                    );
                     failed.push(sid.clone());
                     continue;
                 }
@@ -427,7 +438,11 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             if !cp.pending_operations.is_empty() {
                 // Has pending ops — restore to active
                 if let Err(e) = self.storage.restore_checkpoint(sid).await {
-                    tracing::error!(session_id = %sid, "Failed to restore migrating session: {}", e);
+                    tracing::error!(
+                        session_id = %sid,
+                        "Failed to restore migrating session: {}",
+                        e
+                    );
                     failed.push(sid.clone());
                     continue;
                 }
@@ -439,7 +454,10 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
                         recovered.push(sid.clone());
                     }
                     _ => {
-                        tracing::warn!(session_id = %sid, "Restored migrating checkpoint not found");
+                        tracing::warn!(
+                            session_id = %sid,
+                            "Restored migrating checkpoint not found"
+                        );
                         failed.push(sid.clone());
                     }
                 }
@@ -462,7 +480,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             .load_checkpoint(session_id)
             .await?
             .ok_or_else(|| PersistenceError::NotFound(session_id.to_string()))?;
-
         // Use the pre-stored recovery_notification from the checkpoint
         // (set by inject_recovery_notifications) when available;
         // otherwise fall back to building it fresh.
@@ -507,7 +524,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         let notification = self.build_notification_text(checkpoint);
         checkpoint.recovery_notification = Some(notification);
         checkpoint.pending_tool_failures = self.build_tool_failure_results(checkpoint);
-
         tracing::info!(
             session_id = %session_id,
             pending_count = checkpoint.pending_operations.len(),
@@ -571,7 +587,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
     /// Build tool failure result strings for pending tool call operations.
     fn build_tool_failure_results(&self, checkpoint: &SessionCheckpoint) -> Vec<String> {
         use crate::persistence::PendingOperationType;
-
         checkpoint
             .pending_operations
             .iter()
@@ -600,7 +615,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         let mut tree = SpawnTree::default();
         let mut demoted = Vec::new();
         let recovered_set: HashSet<&String> = recovered.iter().collect();
-
         for session_id in recovered {
             if let Some(cp) = checkpoints.get_mut(session_id) {
                 match &cp.parent_session_id {
@@ -698,6 +712,8 @@ impl SpawnTree {
     }
 
     /// Get the parent session ID of a given session.
+    ///
+    /// Returns `None` for root nodes or unknown sessions.
     pub fn get_parent(&self, session_id: &str) -> Option<&String> {
         if self.is_root(session_id) {
             return None;
@@ -739,7 +755,6 @@ pub fn extract_plan_tasks_section(plan_file_path: &str) -> Option<String> {
 pub(crate) fn extract_tasks_from_content(content: &str) -> Option<String> {
     let lines: Vec<&str> = content.lines().collect();
     let mut start = None;
-
     for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
         if trimmed == "## 开发步骤" || trimmed == "## Tasks" {
@@ -749,7 +764,6 @@ pub(crate) fn extract_tasks_from_content(content: &str) -> Option<String> {
     }
 
     let start = start?;
-
     // Find the next ## heading after start
     let mut end = lines.len();
     for (i, line) in lines.iter().enumerate().skip(start) {
@@ -762,7 +776,6 @@ pub(crate) fn extract_tasks_from_content(content: &str) -> Option<String> {
 
     let section: String = lines[start..end].join("\n");
     let trimmed = section.trim().to_string();
-
     if trimmed.is_empty() {
         None
     } else {
@@ -773,7 +786,6 @@ pub(crate) fn extract_tasks_from_content(content: &str) -> Option<String> {
 // ---------------------------------------------------------------------------
 // Layer 4: ProgressTool call history fallback
 // ---------------------------------------------------------------------------
-
 /// Scan a list of [`SessionMessage`]s for ProgressTool calls and return
 /// them as [`ProgressToolCallRecord`]s.
 ///
@@ -786,9 +798,7 @@ pub fn scan_progress_tool_calls(
     messages: &[crate::llm_session::SessionMessage],
 ) -> Vec<ProgressToolCallRecord> {
     use closeclaw_common::ContentBlock;
-
     let mut records = Vec::new();
-
     for msg in messages {
         if msg.role != "assistant" {
             continue;
@@ -814,12 +824,9 @@ pub fn scan_progress_tool_calls(
 pub(crate) fn parse_progress_call_record(input: &str) -> Option<ProgressToolCallRecord> {
     use closeclaw_common::ExecutionStepStatus;
     use serde_json::Value;
-
     let v: Value = serde_json::from_str(input).ok()?;
-
     let step_index = v.get("step_index")?.as_u64()? as usize;
     let status_str = v.get("status")?.as_str()?;
-
     let status = match status_str {
         "in_progress" => ExecutionStepStatus::InProgress,
         "completed" => ExecutionStepStatus::Completed,
@@ -833,7 +840,6 @@ pub(crate) fn parse_progress_call_record(input: &str) -> Option<ProgressToolCall
         .get("error_message")
         .and_then(Value::as_str)
         .map(String::from);
-
     Some(ProgressToolCallRecord {
         step_index,
         status,
@@ -851,9 +857,7 @@ pub fn rebuild_plan_state_from_calls(
     calls: &[ProgressToolCallRecord],
 ) -> closeclaw_common::PlanState {
     use closeclaw_common::ExecutionStep;
-
     let mut plan_state = closeclaw_common::PlanState::new();
-
     if calls.is_empty() {
         return plan_state;
     }
@@ -861,7 +865,6 @@ pub fn rebuild_plan_state_from_calls(
     // Determine the maximum step index to size the steps vec
     let max_step = calls.iter().map(|c| c.step_index).max().unwrap_or(0);
     let total_steps = max_step + 1;
-
     // Initialize all steps as Pending
     plan_state.execution_steps = (0..total_steps)
         .map(|i| ExecutionStep {
@@ -871,7 +874,6 @@ pub fn rebuild_plan_state_from_calls(
             error_message: None,
         })
         .collect();
-
     // Apply each call in order, ignoring invalid transitions
     for record in calls {
         let idx = record.step_index;
@@ -957,7 +959,6 @@ pub fn format_approval_history(records: &[ApprovalToolCallRecord]) -> String {
             )
         })
         .collect();
-
     format!("[Approval History]\n{}", items.join("\n"))
 }
 
@@ -979,7 +980,6 @@ pub fn format_plan_references(references: &[String]) -> String {
         .enumerate()
         .map(|(i, r)| format!("  {}. {}", i + 1, r))
         .collect();
-
     format!("[Plan References]\n{}", items.join("\n"))
 }
 
