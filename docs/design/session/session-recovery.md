@@ -2,7 +2,7 @@
 
 ## 概述
 
-在 Daemon 重启后自动检测并恢复崩溃前未完成的操作，包括工具调用、子 session 执行和出站消息投递。恢复策略由 LLM 自主决定：系统只告知"发生了什么"，不替 agent 做判断。
+在 Daemon 重启后自动检测并恢复崩溃前未完成的操作，包括工具调用、子 session 执行和出站消息投递。恢复策略由 LLM 自主决定：系统只告知"发生了什么"，不替 agent 做判断。恢复扫描在 Daemon 启动时执行，10 秒内完成所有活跃 session 的扫描和 dirty 检测。
 
 ## 架构
 
@@ -27,19 +27,17 @@
 ```
 Daemon 启动
   → SessionManager 初始化
-    → 加载 status=active 的 session 到映射表（archived 不加载）
+    → 加载 status=active 的 session 到映射表（archived 和 migrating 不加载）
     → 扫描每个 active session 的 checkpoint
       → pending_operations 非空 → 标记为 dirty
       → pending_operations 为空 → 正常（无需处理）
-    → 防御性扫描：遍历 status=archived 的 session
-      → pending_operations 非空 → 先恢复为 active，再注入恢复通知
-      → pending_operations 为空 → 跳过
+    → 扫描 status=migrating 的 session
+      → pending_operations 非空 → 恢复为 active，卸载映射表中可能存在的 stale 条目后重新注册，注入恢复通知
+      → pending_operations 为空 → 继续迁移：若 transcript 已在 archived_sessions/ → 状态更新为 archived；若仍在 sessions/ → 将 transcript 移至 archived_sessions/ → 状态更新为 archived
     → 对每个 dirty session 立即注入恢复通知
 ```
 
-防御性扫描极少命中（Sweeper 归档前通过 SessionManager.is_active() 检查四维活跃维度，活跃 session 不会被归档），但覆盖崩溃发生在归档过程中的极端窗口：status 已改为 archived 但 transcript 尚未完成迁移的状态下，残留的未完成操作仍能被发现和恢复。
-
-恢复通知在启动时立即注入，不等待入站消息。原因：自动化流程（定时任务、webhook 触发）没有 IM 入站消息来激活它们。
+migrating 状态覆盖崩溃发生在归档过程中的极端窗口：Sweeper 置 migrating 后正在移动 transcript 时系统崩溃。此时 session 处于 migrating 状态、transcript 可能还在 sessions/ 下或已部分迁移。恢复扫描将 migrating + pending_operations 的 session 恢复为 active；无 pending_operations 的 migrating session 则完成归档流程，确保不残留中间状态。Sweeper 归档前通过 SessionManager.is_active() 检查四维活跃维度——任一维度为 true 则跳过归档，因此活跃 session 不会被置为 migrating。
 
 ### 恢复通知
 
@@ -122,11 +120,12 @@ SessionManager 启动扫描
   → 扫描 checkpoint.pending_operations
     → 非空 → 标记 dirty，构造恢复通知
     → 为空 → 跳过
-  → 遍历 status=archived 的 session（防御性）
+  → 遍历 status=migrating 的 session（归档崩溃窗口覆盖）
     → pending_operations 非空 → 恢复为 active → 标记 dirty
+    → pending_operations 为空 → 完成归档（文件移至 archived_sessions/，状态更新为 archived）
   → 对 dirty session：
+    → 对每个未完成的工具调用：注入 tool_result 失败反馈（紧随对应的 tool_call）
     → 注入 system 恢复通知（列出未完成操作摘要）
-    → 对每个未完成的工具调用：注入 tool_result 失败反馈
   ↓
 Session 收到恢复通知
   → LLM 分析通知内容
@@ -189,6 +188,6 @@ LLM 看到的 transcript：
 
 ### 无关
 
-- **Sweeper**：恢复操作仅在 Daemon 启动时执行一次，Sweeper 的定时归档逻辑与此无关。但 Sweeper 归档前通过 SessionManager.is_active() 检查四维活跃维度——任一维度为 true 则跳过归档，因此 dirty session 不会在恢复前被意外归档。
+- **Sweeper**：恢复操作仅在 Daemon 启动时执行一次，Sweeper 的定时归档逻辑与此无关。但 Sweeper 归档前通过 SessionManager.is_active() 检查四维活跃维度——任一维度为 true 则跳过归档，因此 dirty session 不会在恢复前被意外归档。Sweeper 置 migrating 状态后移动文件，若此处崩溃则由恢复扫描接手 migrating session。
 - **Compaction**：恢复流程不触发压缩。恢复通知和工具失败结果的长度远小于正常对话消息，对 token 预算影响可忽略。
 - **注入链路**：恢复时不对 conversation session 的 system prompt 做额外注入——system prompt 是 ConversationSession 的运行时字段，不进 SessionCheckpoint。ConversationSession 重建时的注入由生命周期管理负责，恢复模块不参与。

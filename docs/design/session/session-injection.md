@@ -2,7 +2,7 @@
 
 ## 概述
 
-描述 session 生命周期中的四类注入机制：system prompt 注入（构建时触发）、动态层注入（每请求即时构建）、skill 清单注入（per-turn attachment）、消息级注入（memory_injection 槽位）。此外，后台任务和子 Agent 完成后的结果注入通过优先级消息队列实现，详见 [session-execution](docs/design/session/session-execution.md#后台结果注入)。system prompt 的结构定义在 [system_prompt/README](docs/design/system_prompt/README.md)，skill 清单的生成规则定义在 [skills/skill-listing-injection](docs/design/skills/skill-listing-injection.md)。
+描述 session 生命周期中的四类注入机制：system prompt 注入（构建时触发）、动态层注入（每请求即时构建）、skill 清单注入（per-turn attachment）、消息级注入（memory_injection 槽位）。此外，后台任务和子 Agent 完成后的结果注入通过优先级消息队列实现，详见 [session-execution.md](session-execution.md) 统一消息队列节。system prompt 的结构定义在 [system_prompt/README](docs/design/system_prompt/README.md)，skill 清单的生成规则定义在 [skills/skill-listing-injection](docs/design/skills/skill-listing-injection.md)。
 
 ## 架构
 
@@ -36,7 +36,7 @@ SessionManager 在会话查找与创建中对注入的处理分为三个分支�
 
 AppendSection 是独立于动态层的第三分区（详见 system_prompt/README 架构），由 ConversationSession 从自身运行时字段读取并拼接到 system prompt 末尾。
 
-动态层的 Section 类型和拼接规则在 [system_prompt/README 动态层](docs/design/system_prompt/README.md#动态层) 定义。
+动态层的 Section 类型和拼接规则在 [system_prompt/dynamic-layer.md](../system_prompt/dynamic-layer.md) 定义。
 
 ### Session 恢复时的注入
 
@@ -121,7 +121,7 @@ builder 内部通过 Bootstrap Loader 加载文件、按需组装各 Section。
 
 ### 无 Workspace 时
 
-session 无对应 workspace 目录时，builder 检测到 workspace 不存在后自行跳过 bootstrap 文件加载，仅生成 ToolsSection（详见 [system_prompt/README 无 Workspace 的 Session](docs/design/system_prompt/README.md#无-workspace-的-session)）。注入链路不参与此决策。
+session 无对应 workspace 目录时，builder 检测到 workspace 不存在后自行跳过 bootstrap 文件加载，仅生成 ToolsSection（详见 [system_prompt/static-layer.md](../system_prompt/static-layer.md)）。注入链路不参与此决策。
 
 ## 模块关系
 

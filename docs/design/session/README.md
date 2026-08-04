@@ -2,7 +2,7 @@
 
 ## 概述
 
-关联需求文档：[requirements/session.md](../requirements/session.md)
+关联需求文档：[requirements/session.md](../../requirements/session.md)
 
 Session 模块是 CloseClaw 的运行时载体，管理 session 的全生命周期。一个 session 代表一次独立的 agent 对话实例，其职责分两层：
 
@@ -30,7 +30,7 @@ Session 模块由持久化层和执行层两部分组成：
 ```
 Gateway / SessionManager  ← session 生命周期协调者
     │
-    ├── 会话路由键 → session_id 映射表  ← 路由到最新 session
+    ├── 会话路由键 → session_id 映射表  ← 路由到最近活跃 session
     │
     ├── 持久化层
     │   ├── CheckpointManager  ← 持久化协调（内存缓存 + PersistenceService）
@@ -56,14 +56,14 @@ Gateway / SessionManager  ← session 生命周期协调者
 - **SessionManager**：session 的生命周期协调者，位于持久化层和执行层之上。维护会话路由键 → session_id 映射表，协调各组件的 session 创建、查找、恢复。session_id 格式为 `{agent_id}_{timestamp}_{random_suffix}`，其中 timestamp 精确到秒（`YYYYMMDDhhmmss`），random_suffix 为 8 位小写 hex 随机字符串。
 
   **session_key 与会话路由键**：
-  - session_key = {timestamp}-{hash}，算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session-key-算法)
+  - session_key = {timestamp_ms}-{hash}，算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session_key-算法)
   - session_key 是消息级标识，用于日志追踪。SessionManager 内部从消息路由字段中提取稳定的**会话路由键**（platform + sender_id + peer_id + account_id）用于 registry 查找——session_key 本身不直接参与路由
   - 会话路由键是稳定的 lookup 键。同一会话路由键下可以有多个 session（`/new` 指令创建新 session 后覆盖映射）
 
   **key registry 生命周期**：
-  - 启动时：SessionManager 扫描所有 status=active 的 session，按会话路由键（platform + sender_id + peer_id + account_id）分组，取各会话路由键下 last_message_at 最大的 session_id 写入映射表。archived session 不加载。同时执行数据一致性校验（详见 [session-lifecycle.md](session-lifecycle.md) 数据一致性校验节）
+  - 启动时：SessionManager 扫描所有 status=active 的 session，按会话路由键（platform + sender_id + peer_id + account_id）分组，取各会话路由键下 last_message_at 最大的 session_id 写入映射表。archived 和 migrating session 不加载。同时执行数据一致性校验（详见 [session-lifecycle.md](session-lifecycle.md) 数据一致性校验节）
   - 运行时：SessionManager 收到会话解析请求，从消息路由字段中提取会话路由键，查映射表获取已有 session
-    - 命中 → 校验 session status 仍为 active。若 status 已变为 archived（如被 Sweeper 归档），从映射表移除该条目 → 走未命中回退路径
+    - 命中 → 校验 session status 仍为 active。若 status 已变为 archived 或 migrating（如被 Sweeper 归档），从映射表移除该条目 → 走未命中回退路径
     - 未命中 → 通过会话路由键查询 SQLite
       - 查到 active → 取 last_message_at 最大的直接注册到映射表（自愈：映射表因重启丢失但 SQLite 中保有 active 记录）
       - 查到 archived → 取 last_message_at 最新的一条恢复并注册
@@ -78,14 +78,14 @@ Gateway / SessionManager  ← session 生命周期协调者
   - **ArchiveSweeper**：定时后台任务，扫描 idle session 并归档，扫描过期 archive 并清理。
 
 - **执行层组件**：
-  - **ConversationSession**：运行时对象，持有 system prompt、消息历史、system prompt 追加区（system_appends）、RunningStats（token/cache 统计）、Verbosity 等级（控制出站信息块过滤，详见 [slash 模块 verbose 指令](../slash/verbose.md)）。同时持有执行状态句柄（LLM 状态、工具进程、子 Session 引用）。
-  - **四维执行状态**：llm_active、foreground_tool_active、background_tool_active、child_active 四维独立跟踪，组合判定 session 当前是否空闲。执行状态为纯内存数据，不进持久化——resume 后 session 回到 Idle。llm_active 是 llm_state 的布尔投影：llm_state 在 Requesting 或 Receiving 时 llm_active 为真，Idle 时为假。llm_state 自身有三态内部状态机（Idle / Requesting / Receiving），详见 [session-execution.md](session-execution.md) 四维执行状态节。
-  - **级联停止**：级联停止是通用机制——当触发级联停止时，递归停止其所有子 Session，杀死该 session 的所有工具进程，取消该 session 正在进行的 LLM 请求。是否启用级联由调用方决定：`/stop` 默认不级联（仅停当前 session），`--cascade` 标记启用级联；父 session 停止和系统关闭对所有子 Session 执行相同模式的级联停止。
+  - **ConversationSession**：运行时对象，持有 system prompt、消息历史、追加区内容（system prompt 第三分区 AppendSection，持久化在 checkpoint 的 system_appends 字段中）、RunningStats（token/cache 统计）、Verbosity 等级（控制出站信息块过滤，详见 [slash 模块 verbose 指令](../slash/verbose.md)）。同时持有执行状态句柄（LLM 状态、工具进程、子 Session 引用）。
+  - **四维执行状态**：llm_active、foreground_tool_active、background_tool_active、child_active 四维独立跟踪。其中 llm_active 和 foreground_tool_active 判定 session 是否空闲——两者均为 false 时 session 进入 idle，可以立即接收新输入。background_tool_active 和 child_active 不影响 idle 判定。执行状态为纯内存数据，不进持久化——resume 后 session 回到 Idle。llm_active 是 llm_state 的布尔投影：llm_state 在 Requesting 或 Receiving 时 llm_active 为真，Idle 时为假。llm_state 自身有三态内部状态机（Idle / Requesting / Receiving），详见 [session-execution.md](session-execution.md) 四维执行状态节。
+  - **级联停止**：级联停止是通用机制——当触发级联停止时，递归停止其所有子 Session，杀死该 session 的所有工具进程，取消该 session 正在进行的 LLM 请求。具体行为受停止模式影响：Graceful 模式等待 in-flight 操作完成后停（级联子 Session 纳入超时保护），Forceful 模式立即终止。是否启用级联由调用方决定：`/stop` 默认不级联（仅停当前 session），`--cascade` 标记启用级联；父 session 停止和系统关闭对所有子 Session 执行相同模式的级联停止。
   - **后台结果注入**：后台工具完成或子 Session 完成时，结果通过优先级消息队列（now > next > later）作为消息注入对话流，agent 在下一轮 turn 中消费。
-  - **消息队列**：统一消息队列管理用户消息和非用户消息（子 Session 完成通知、后台工具结果）。优先级决定插入位置，同一优先级内非用户消息排在用户消息前面。llm_active 或 foreground_tool_active 时消息排队不解队；background_tool_active、child_active 或 idle 时消息立即出队分发。入队时 Gateway 回复"⏳ 正在排队..."通知用户。Immediate 斜杠指令（/stop、/status、/help 等）绕过此队列。记忆注入走独立槽位机制（详见 [session-injection.md](session-injection.md) 消息级注入），与通用后台消息队列独立运作，两者可共存于同一批次消息中。
+  - **消息队列**：统一消息队列管理用户消息和非用户消息（子 Session 完成通知、后台工具结果）。优先级决定插入位置，同一优先级内非用户消息排在用户消息前面。llm_active 或 foreground_tool_active 为 true 时消息排队不解队；两者均为 false 时消息立即出队分发（无论 background_tool_active / child_active 状态）。入队时 Gateway 回复"⏳ 正在排队..."通知用户。Immediate 斜杠指令（/stop、/status、/help 等）绕过此队列。记忆注入走独立槽位机制（详见 [session-injection.md](session-injection.md) 消息级注入），与通用后台消息队列独立运作，两者可共存于同一批次消息中。
 
 各子功能的关系：
-- **生命周期**是持久化骨架：SessionCheckpoint 数据模型和 SqliteStorage 是其他持久化功能的底层依赖。SessionStatus（Active / Archived）描述持久化状态，与执行状态无关。
+- **生命周期**是持久化骨架：SessionCheckpoint 数据模型和 SqliteStorage 是其他持久化功能的底层依赖。SessionStatus（Active / Migrating / Archived）描述持久化状态，与执行状态无关。
 - **执行状态**是运行时骨架：四维状态跟踪（llm_active / foreground_tool_active / background_tool_active / child_active）贯穿每次会话交互，级联停止依赖执行状态做决策，后台结果注入依赖统一消息队列调度。
 - **注入**是 session 生命周期事件——决定何时构建 system prompt。触发时机（详见 session-injection.md）包括：session 创建、archive 恢复、compaction 完成。注入链路不关心 system prompt 的 Section 组装细节，只负责在正确时机调用 builder 并存储结果。
 - **压缩**在 session 运行时发生：对过长的对话历史做 summarization。支持手动触发（`/compact`）和自动触发（token 用量阈值），内含熔断保护和分级告警。system prompt 独立于对话消息流，不参与压缩（详见 [compact-process.md](compact-process.md#概述)），确保角色定义在任意次压缩后完整无损。
@@ -97,7 +97,7 @@ Gateway / SessionManager  ← session 生命周期协调者
 ### Session 创建与查找
 
 1. 用户消息到达 Gateway
-2. Gateway 提取 metadata 中的会话路由键
+2. Gateway 提取 metadata 中的会话路由字段（platform / sender_id / peer_id / account_id）传递给 SessionManager，由 SessionManager 内部提取稳定的会话路由键
 3. SessionManager 查找或创建 session（per agent_id 串行）
    - **查映射表**
    - **命中**：校验 session status 仍为 active
@@ -105,7 +105,7 @@ Gateway / SessionManager  ← session 生命周期协调者
      - 非 active（如已被 Sweeper 归档）→ 从映射表移除该条目，走未命中路径
    - **未命中**：通过会话路由键查询 SQLite
      - **查到 active**：直接注册到映射表（自愈：映射表因重启丢失但 SQLite 保有 active 记录）
-     - **查到 archived**：取 last_message_at 最新的一条，按以下步骤恢复：
+     - **查到 archived**：取 last_message_at 最新的一条，按以下步骤恢复（恢复流程细节见 [session-lifecycle.md](session-lifecycle.md) Archived → Active 恢复节）：
        1. transcript 移回活跃区
        2. status 更新为 active
        3. 返回 SessionCheckpoint
@@ -123,13 +123,13 @@ Gateway / SessionManager  ← session 生命周期协调者
 
 ### Session 运行时
 
-**每次 API 调用前**：
+**每次 API 调用**：
 
 1. ConversationSession 组装请求（system_prompt + messages + reasoning level）
 2. 检查 memory_injection 槽位，按模式插入记忆摘要到消息列表
 3. LLM 状态设为 Requesting
 4. LLM provider 调用
-   - 流式模式：ContentBlock[] 经统一出站路径（Verbosity → Processor Chain → 出站日志）后，由 IM Adapter 以流式模式渲染发送，状态 Receiving
+   - 流式模式：Session 层接收 LLM 流式 chunk 并组装 ContentBlock[]，完成后经统一出站路径（Verbosity → Processor Chain → 出站日志）交付 IM Adapter 渲染发送
    - 非流式：返回完整响应
 5. Thinking 内容作为独立 block 保留在消息历史中，展示层默认过滤（不输出给用户）
 6. 完整 ContentBlock[]（含 Thinking block）写入 message history
@@ -139,7 +139,7 @@ Gateway / SessionManager  ← session 生命周期协调者
 **工具调用**：
 
 1. ConversationSession 注册工具进程句柄
-2. Tool 状态设为 Running(Foreground) 或 Running(Background)（创建后先进入 Pending 瞬态，进程 fork 后转为 Running）
+2. 创建工具调用 → 状态先为 Pending（瞬态），进程 fork 后转为 Running(Foreground) 或 Running(Background)
    - 前台：session 阻塞等待完成 → 完成 → 注销句柄
    - 后台：session 不阻塞，进程句柄保留 → 完成时结果注入消息队列
 
@@ -150,29 +150,27 @@ Gateway / SessionManager  ← session 生命周期协调者
 1. `/system add <内容>` 或 `/system clear`
 2. Gateway 将指令转发给 ConversationSession
 3. ConversationSession 更新内存中的追加条目列表
-4. 追加区变更触发持久化，system_appends 写入 SessionCheckpoint
-5. 下一次 API 调用时，追加条目拼入 system prompt 的追加区
+4. 追加区内容持久化写入 SessionCheckpoint 的 system_appends 字段
+5. 下一次 API 调用时，追加条目按第三分区（AppendSection）动态拼入 system prompt 末尾，不触发注入流程重建
 
 ### Session 停止
 
-停止支持 Graceful 和 Forceful 两种模式。Graceful 等待 in-flight 操作完成后停止，超时后报告进度不强制 kill；Forceful 立即终止所有操作。详细设计见 [session-execution.md](session-execution.md) 停止入口。
-
-停止入口有三种：
+停止支持 Graceful 和 Forceful 两种模式。Graceful 等待 in-flight 操作完成后停止，超时后报告进度不强制 kill；Forceful 立即终止所有操作。停止入口有三种（详见 [session-execution.md](session-execution.md) 停止入口节）：
 
 - **斜杠指令**（`/stop`）：用户在 session 内输入，停当前 session。支持 `--cascade`（级联子 Session）和 `--force`（强制终止）标记
 - **父 session 停止**：父 session 被停时，对子 Session 采用相同的停止模式
-- **系统关闭**：由 Daemon 触发，委托 SessionManager 统一关闭所有活跃 session。Daemon 不直接操作单个 session。首次信号为 graceful，重复信号为 forceful
+- **系统关闭**：由 Daemon 触发，委托 SessionManager 统一关闭所有活跃 session。Daemon 不直接操作单个 session。首个信号为 Graceful，重复信号为 Forceful
 
 ### Session 结束路径
 
 两种结束路径：
 - **主动结束**：用户关闭会话或 `/stop`，SessionManager 移除运行时引用，CheckpointManager 最终保存。
-- **自动归档**：Sweeper 检测 idle 超时 → 检查四维活跃维度均为 false → 标记为 archived（更新 SQLite status + 记录归档时间）→ transcript 移入 archived_sessions/。Sweeper 不通知 SessionManager——映射表在下次 lookup 命中时通过 status 校验感知到归档，自行移除已失效条目。
+- - **强制归档**：Sweeper 检测用户不活跃超时（last_user_activity_at 超过配置的 idle 时长）→ 检查四维活跃维度均为 false → 状态置为 migrating → transcript 移入 archived_sessions/ → 状态更新为 archived。分两步写入以覆盖崩溃窗口：先置 migrating，移动文件后再置 archived，避免移动过程中崩溃导致 session 状态不可恢复。Sweeper 不通知 SessionManager——映射表在下次 lookup 命中时通过 status 校验感知到归档，自行移除已失效条目。
 - **自动清理**：Sweeper 检测 archived 超过 purge TTL → 删除元数据 + transcript 文件。
 
 ### 重启恢复
 
-Daemon 启动时，SessionManager 扫描所有 status=active 的 session，对存在未完成操作（PendingOperation）的 session 注入恢复通知。OutboundMessage 类未完成操作由系统自动重投递，ToolCall 和 SubSessionSpawn 类未完成操作注入恢复通知，由 LLM 自主决定处理。详细设计见 [session-recovery.md](session-recovery.md)。
+Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=active 的 session），然后执行启动恢复扫描：对存在未完成操作（PendingOperation）的 active session 注入恢复通知；同时扫描 status=migrating 的 session——其中残留未完成操作的恢复为 active 并重新注册到映射表，无未完成操作的则完成归档（transcript 移至 archived_sessions/，状态更新为 archived）。OutboundMessage 类未完成操作由系统自动重投递，ToolCall 和 SubSessionSpawn 类未完成操作注入恢复通知，由 LLM 自主决定处理。详细设计见 [session-recovery.md](session-recovery.md)。
 
 ### 后台结果注入
 
@@ -208,7 +206,7 @@ Daemon 启动时，SessionManager 扫描所有 status=active 的 session，对�
 
   | 类别 | 涉及 Session 的操作 |
   |------|-------------------|
-  | 会话生命周期 | `/new` 创建新 session、`/stop` 终止运行（含级联终止子 Session） |
+  | 会话生命周期 | `/new` 创建新 session、`/stop` 终止运行（默认仅停当前 session，`--cascade` 标记启用级联终止子 Session） |
   | 工作目录 | `/cd` `/pwd` `/git` 读写 working directory |
   | 模式控制 | `/plan` `/mode` 切换对话模式 |
   | 推理控制 | `/reasoning` 设置推理深度 |
@@ -231,4 +229,4 @@ Daemon 启动时，SessionManager 扫描所有 status=active 的 session，对�
 
 ### 无关
 
-- **Agent 进程生命周期**：Agent 无独立进程；执行状态由 Session 的 session-execution 机制管理。SessionStatus（Active / Archived）描述持久化状态，与 agent 是否在运行无关。
+- **Agent 进程生命周期**：Agent 无独立进程；执行状态由 Session 的 session-execution 机制管理。SessionStatus（Active / Migrating / Archived）描述持久化状态，与 agent 是否在运行无关。

@@ -69,7 +69,7 @@ Reasoning Level 控制 LLM 的推理深度，通过 config 默认值 + 运行时
 - **Pre-call**：记录当前 prompt 的指纹（system prompt 中静态层的 token 序列哈希、tools 列表哈希、headers 哈希），与上一轮比对，标记 pending 变更。
 - **Post-call**：比对本轮 `cache_read_tokens` 与上轮的差值。若降幅超过阈值（如 5% 且超过 2000 tokens），判定为 cache break。
 - **断点归因**：用 pre-call 记录的 pending 变更解释原因——system prompt 重建、tools 变更、TTL 过期（距上次请求超过缓存有效期）、session 恢复等。
-- **事件上报**：cache break 事件携带断点原因和维度信息，上报到 metrics 系统。
+- **事件上报**：cache break 事件携带断点原因和维度信息，上报到 metrics 系统。同时将 cache break 通知作为结构化消息以 `now` 优先级注入 session 消息队列，用户下一轮对话即可看到。通知内容包含断点原因（system prompt 重建 / tools 变更 / TTL 过期 / session 恢复等）和受影响的缓存维度，帮助用户理解缓存命中率下降的原因。
 
 ### Thinking 内容管理
 
