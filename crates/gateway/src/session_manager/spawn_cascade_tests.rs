@@ -53,6 +53,7 @@ async fn register_tree_entry(
             depth,
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     )
     .await;

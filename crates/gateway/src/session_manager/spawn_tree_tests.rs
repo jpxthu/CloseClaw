@@ -17,6 +17,7 @@ fn info(session_id: &str, parent_session_id: &str, depth: u32) -> ChildSessionIn
         depth,
         mode: SpawnMode::Run,
         status: ChildSessionStatus::Active,
+        timeout_secs: None,
     }
 }
 

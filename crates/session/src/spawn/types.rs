@@ -37,6 +37,8 @@ pub struct ChildSessionInfo {
     pub depth: u32,
     pub mode: SpawnMode,
     pub status: ChildSessionStatus,
+    /// Spawn timeout in seconds, if configured.
+    pub timeout_secs: Option<u64>,
 }
 
 /// Spawn mode for child sessions.

@@ -353,6 +353,7 @@ impl SessionManager {
                 depth,
                 mode,
                 status: ChildSessionStatus::Active,
+                timeout_secs: spawn_timeout,
             },
         )
         .await;
@@ -607,6 +608,7 @@ impl SessionManager {
                     depth: cp.depth,
                     mode,
                     status: ChildSessionStatus::Active,
+                    timeout_secs: None,
                 },
             )
             .await;

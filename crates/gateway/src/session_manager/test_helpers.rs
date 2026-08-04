@@ -200,6 +200,7 @@ pub(super) async fn register_child_only(
             depth: 1,
             mode,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     )
     .await;

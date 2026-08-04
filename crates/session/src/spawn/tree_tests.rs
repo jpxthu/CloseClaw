@@ -17,6 +17,7 @@ fn test_mark_child_status_and_active_count() {
             depth: 1,
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     );
     tree.register_child(
@@ -28,6 +29,7 @@ fn test_mark_child_status_and_active_count() {
             depth: 1,
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     );
 
@@ -92,6 +94,7 @@ fn test_mark_child_status_completed_then_kill() {
             depth: 1,
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     );
 
@@ -122,6 +125,7 @@ fn test_mark_child_status_terminate_before_active() {
             depth: 1,
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     );
 

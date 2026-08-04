@@ -207,6 +207,7 @@ async fn test_depth_budget_allowed_when_effective_zero() {
             depth: 1,
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     )
     .await;
@@ -282,6 +283,7 @@ async fn test_depth_budget_child_narrows_via_min() {
             depth: 1,
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     )
     .await;
@@ -356,6 +358,7 @@ async fn test_depth_budget_full_multilevel_tree() {
             depth: 1,
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     )
     .await;
@@ -394,6 +397,7 @@ async fn test_depth_budget_full_multilevel_tree() {
             depth: 2,
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     )
     .await;
@@ -433,6 +437,7 @@ async fn test_depth_budget_full_multilevel_tree() {
             depth: 3,
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     )
     .await;
@@ -524,6 +529,7 @@ async fn test_kill_run_mode_child_succeeds() {
             depth: 1,
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     )
     .await;
@@ -600,6 +606,7 @@ async fn test_kill_session_mode_child_succeeds() {
             depth: 1,
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     )
     .await;
@@ -687,6 +694,7 @@ async fn test_cascade_terminate_all_children_simulation() {
                 depth: 1,
                 mode: mode.clone(),
                 status: ChildSessionStatus::Active,
+                timeout_secs: None,
             },
         )
         .await;
@@ -816,6 +824,7 @@ async fn test_validate_child_ownership_all_modes() {
             depth: 1,
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     )
     .await;
@@ -831,6 +840,7 @@ async fn test_validate_child_ownership_all_modes() {
             depth: 1,
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     )
     .await;
@@ -910,6 +920,7 @@ async fn test_kill_child_cascades_to_grandchild() {
             depth: 1,
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     )
     .await;
@@ -945,6 +956,7 @@ async fn test_kill_child_cascades_to_grandchild() {
             depth: 2,
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
         },
     )
     .await;
