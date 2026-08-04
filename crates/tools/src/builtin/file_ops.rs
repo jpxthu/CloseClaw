@@ -298,49 +298,11 @@ impl Tool for ReadTool {
             self.approval_flow.clone(),
         );
         check_and_execute(&deps, ctx, path, "read", async {
-            // Get mtime for dedup and staleness checks.
             let mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
-
-            // Dedup: same path + range + unchanged mtime → return cached hint.
-            if let Some(session) = ctx.session.as_ref() {
-                if let Some(cache) = session.get_file_read_cache(path) {
-                    let range = ReadRange { offset, limit };
-                    if cache.mtime == mtime && cache.ranges.contains(&range) {
-                        return Ok(ToolResult {
-                            data: serde_json::json!({
-                                "content": "File unchanged since last read."
-                            }),
-                            new_messages: vec![],
-                            context_modifier: None,
-                        });
-                    }
-                }
+            if let Some(cached) = check_dedup_cache(ctx, path, mtime, offset, limit) {
+                return Ok(cached);
             }
-
-            // Normal read path.
-            let raw = std::fs::read_to_string(path)
-                .map_err(|e| ToolCallError::ExecutionFailed(format!("{path}: {e}")))?;
-            let config = super::read_truncator::TruncationConfig::default();
-            let result = super::read_truncator::truncate_lines(&raw, offset, limit, &config);
-            let truncation_msg = super::read_truncator::format_truncation_message(&result, offset);
-            let mut output = result.content;
-            if let Some(msg) = truncation_msg {
-                output.push_str(&msg);
-            }
-
-            // Record file mtime (staleness) and range (dedup).
-            if let Some(session) = ctx.session.as_ref() {
-                session.record_file_read(path, mtime).await;
-                session
-                    .record_file_read_range(path, mtime, ReadRange { offset, limit })
-                    .await;
-            }
-
-            Ok(ToolResult {
-                data: serde_json::json!({ "content": output }),
-                new_messages: vec![],
-                context_modifier: None,
-            })
+            read_and_truncate(path, offset, limit, mtime, ctx).await
         })
         .await
     }
@@ -843,9 +805,65 @@ impl Tool for LsTool {
 }
 
 // ---------------------------------------------------------------------------
+// ReadTool helpers
+// ---------------------------------------------------------------------------
+
+/// Check dedup cache: same path + range + unchanged mtime → cached hint.
+fn check_dedup_cache(
+    ctx: &ToolContext,
+    path: &str,
+    mtime: Option<std::time::SystemTime>,
+    offset: usize,
+    limit: Option<usize>,
+) -> Option<ToolResult> {
+    let session = ctx.session.as_ref()?;
+    let cache = session.get_file_read_cache(path)?;
+    let range = ReadRange { offset, limit };
+    if cache.mtime == mtime && cache.ranges.contains(&range) {
+        Some(ToolResult {
+            data: serde_json::json!({ "content": "File unchanged since last read." }),
+            new_messages: vec![],
+            context_modifier: None,
+        })
+    } else {
+        None
+    }
+}
+
+/// Read file, apply truncation, and record range for dedup.
+async fn read_and_truncate(
+    path: &str,
+    offset: usize,
+    limit: Option<usize>,
+    mtime: Option<std::time::SystemTime>,
+    ctx: &ToolContext,
+) -> Result<ToolResult, ToolCallError> {
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| ToolCallError::ExecutionFailed(format!("{path}: {e}")))?;
+    let config = super::read_truncator::TruncationConfig::default();
+    let result = super::read_truncator::truncate_lines(&raw, offset, limit, &config);
+    let truncation_msg = super::read_truncator::format_truncation_message(&result, offset);
+    let mut output = result.content;
+    if let Some(msg) = truncation_msg {
+        output.push_str(&msg);
+    }
+    if let Some(session) = ctx.session.as_ref() {
+        session.record_file_read(path, mtime).await;
+        session
+            .record_file_read_range(path, mtime, ReadRange { offset, limit })
+            .await;
+    }
+    Ok(ToolResult {
+        data: serde_json::json!({ "content": output }),
+        new_messages: vec![],
+        context_modifier: None,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 #[path = "file_ops_tests.rs"]
-mod tests;
+pub(crate) mod tests;

@@ -5,117 +5,14 @@ use crate::Tool;
 use crate::ToolContext;
 use closeclaw_common::tool_session::ToolSession;
 use closeclaw_common::{FileReadCache, ReadRange};
-use closeclaw_config::ConfigManager;
-use closeclaw_gateway::SessionManager;
-use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
-use closeclaw_permission::engine::engine_eval::PermissionEngine;
-use closeclaw_permission::engine::engine_types::{Action, Effect, Rule, RuleSet};
-use closeclaw_permission::rules::RuleSetBuilder;
-use closeclaw_permission::Defaults;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::SystemTime;
 use tempfile::TempDir;
 
-type PermEngine = Arc<tokio::sync::RwLock<PermissionEngine>>;
-type SessionMgr = Arc<closeclaw_gateway::SessionManager>;
-type ConfigMgr = Arc<closeclaw_config::ConfigManager>;
-type ApprovalMtx = Arc<tokio::sync::Mutex<ApprovalFlow>>;
-
-// ---------------------------------------------------------------------------
-// Test helpers (duplicated from file_ops_tests for cross-module access)
-// ---------------------------------------------------------------------------
-
-fn make_engine(rules: Vec<Rule>) -> PermEngine {
-    let rs = RuleSetBuilder::new()
-        .rules(rules)
-        .defaults(Defaults {
-            tool_call: Effect::Deny,
-            file_read: Effect::Deny,
-            file_write: Effect::Deny,
-            ..Default::default()
-        })
-        .build()
-        .unwrap();
-    Arc::new(tokio::sync::RwLock::new(
-        PermissionEngine::new_with_default_data_root(rs),
-    ))
-}
-
-fn make_sm() -> SessionMgr {
-    use closeclaw_gateway::GatewayConfig;
-    use closeclaw_session::persistence::ReasoningLevel;
-    Arc::new(SessionManager::new(
-        &GatewayConfig {
-            name: "test".to_string(),
-            rate_limit_per_minute: 100,
-            max_message_size: 1024,
-            ..Default::default()
-        },
-        None,
-        None,
-        ReasoningLevel::default(),
-    ))
-}
-
-fn make_cm() -> ConfigMgr {
-    let tmp = TempDir::new().unwrap();
-    Arc::new(
-        ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed"),
-    )
-}
-
-fn make_af() -> ApprovalMtx {
-    Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
-        Arc::clone(&make_sm()) as Arc<dyn closeclaw_common::SessionLookup>,
-        Arc::new(|_| {}),
-        Arc::new(|_: &str| {}),
-        tokio::runtime::Handle::current(),
-        HeartbeatApprovalMode::default(),
-        std::env::temp_dir(),
-        RuleSet::default(),
-    )))
-}
-
-fn make_ctx(agent: &str) -> crate::ToolContext {
-    crate::ToolContext {
-        agent_id: agent.to_string(),
-        workdir: None,
-        session_id: None,
-        call_id: None,
-        session: None,
-        session_mode: None,
-        manual_background_signal: None,
-    }
-}
-
-fn allow_tool(agent: &str, skill: &str) -> Rule {
-    Rule {
-        name: format!("allow-{skill}"),
-        subject: Rule::parse_subject(agent),
-        effect: Effect::Allow,
-        actions: vec![Action::ToolCall {
-            skill: skill.to_string(),
-            methods: vec!["call".to_string()],
-        }],
-        template: None,
-        priority: 0,
-    }
-}
-
-fn allow_file(agent: &str, path_glob: &str, op: &str) -> Rule {
-    Rule {
-        name: format!("allow-file-{op}"),
-        subject: Rule::parse_subject(agent),
-        effect: Effect::Allow,
-        actions: vec![Action::File {
-            operation: op.to_string(),
-            paths: vec![path_glob.to_string()],
-        }],
-        template: None,
-        priority: 0,
-    }
-}
+use super::file_ops::tests::{
+    allow_file, allow_tool, make_af, make_cm, make_ctx, make_engine, make_sm,
+};
 
 // ---------------------------------------------------------------------------
 // Mock ToolSession for dedup cache tests
