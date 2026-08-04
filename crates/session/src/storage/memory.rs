@@ -100,7 +100,9 @@ impl PersistenceService for MemoryStorage {
         &self,
         session_id: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        // Check all three maps (migrating sessions may be in any location)
+        // Check active and migrating maps (archived sessions are not
+        // considered "active" — callers use load_archived_checkpoint
+        // or the resolve() path to handle them).
         let checkpoints = self
             .checkpoints
             .read()
