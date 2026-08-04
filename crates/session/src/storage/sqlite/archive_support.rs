@@ -54,31 +54,58 @@ pub fn write_transcript(
     Ok(())
 }
 
-/// Archive a checkpoint: move its active transcript to archived_sessions/
-/// and mark the DB record as archived.
+/// Archive a checkpoint with two-step crash-safe protocol.
+///
+/// Step A: set status to `migrating` (transcript still in `sessions/`)
+/// Step B: move transcript file from `sessions/` to `archived_sessions/`
+/// Step C: set status to `archived` with `archived_at` timestamp
+///
+/// Idempotent: returns no-op if status is already `archived`.
+/// If status is `migrating` (crash between A and C), skips Step A
+/// and continues from Step B.
 pub fn do_archive(data_dir: &Path, checkpoint: &SessionCheckpoint) -> Result<(), PersistenceError> {
     let db_path = data_dir.join("sessions.sqlite");
     let conn = Connection::open(&db_path).map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
+    // --- Step A: set status to `migrating` (or detect current state) ---
     begin_immediate(&conn)?;
 
-    // Idempotent: if not active, commit no-op
-    let active: bool = match conn.query_row(
-        "SELECT 1 FROM sessions WHERE id = ?1 AND status = 'active'",
-        [&checkpoint.session_id],
-        |row| row.get::<_, i64>(0),
-    ) {
-        Ok(_) => true,
-        Err(rusqlite::Error::QueryReturnedNoRows) => {
-            // Session doesn't exist or is not active — commit no-op and return
+    let current_status: Option<String> = conn
+        .query_row(
+            "SELECT status FROM sessions WHERE id = ?1",
+            [&checkpoint.session_id],
+            |row| row.get(0),
+        )
+        .ok();
+
+    match current_status.as_deref() {
+        Some("archived") => {
+            // Already archived — idempotent no-op
             return commit(&conn).map(|_| ());
         }
-        Err(e) => return Err(PersistenceError::Sqlite(e.to_string())),
-    };
-    if !active {
-        return commit(&conn).map(|_| ());
+        Some("migrating") => {
+            // Crash between A and C — skip Step A, continue from Step B
+            commit(&conn)?;
+        }
+        Some("active") => {
+            // Normal path: set migrating
+            conn.execute(
+                "UPDATE sessions SET status = 'migrating' WHERE id = ?1",
+                [&checkpoint.session_id],
+            )
+            .map_err(|e| {
+                rollback(&conn);
+                PersistenceError::Sqlite(e.to_string())
+            })?;
+            commit(&conn)?;
+        }
+        _ => {
+            // Session doesn't exist — idempotent no-op
+            return commit(&conn).map(|_| ());
+        }
     }
 
+    // --- Step B: move transcript file ---
     let src = data_dir
         .join("sessions")
         .join(format!("{}.jsonl", checkpoint.session_id));
@@ -86,7 +113,13 @@ pub fn do_archive(data_dir: &Path, checkpoint: &SessionCheckpoint) -> Result<(),
         .join("archived_sessions")
         .join(format!("{}.jsonl", checkpoint.session_id));
 
-    rename_transcript(&src, &dst)?;
+    // File may already be at dst if crash occurred after move but before Step C
+    if !dst.exists() {
+        rename_transcript(&src, &dst)?;
+    }
+
+    // --- Step C: set status to `archived` ---
+    begin_immediate(&conn)?;
 
     let now = Utc::now().timestamp_millis();
     conn.execute(
