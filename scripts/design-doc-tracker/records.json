@@ -419,9 +419,9 @@
     "path": "docs/design/session/README.md",
     "commit": "aca43de7ec6e51fe6615bc91c2075731d6952406",
     "commit_time": "2026-08-04T19:54:48+08:00",
-    "confirmed_time": "2026-08-04T20:14:16.431003+08:00",
+    "confirmed_time": "2026-08-04T20:43:48.972231+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "doc_problem: session_exec.rs title says three-dim but code has four; Immediate bypass is slash-layer not queue feature; routing key naming inconsistency docs vs code"
   },
   {
     "path": "docs/design/session/compact-process.md",
