@@ -36,15 +36,15 @@ workflow 有两种启动方式：
 
 workflow 启动后，Engine 按定义逐步骤推进。每个步骤 agent 收到一条 goal 消息（role: workflow），描述当前步骤要完成的目标。agent 基于 goal 自主执行——可以调用任意工具、spawn 子 session 等，Engine 不干预。
 
-一个步骤 = agent 一次连续执行，不受 Engine 中断。agent 完成当前 turn、session 空闲后，Engine 进入验收阶段。
+一个步骤 = agent 一次连续执行，不受 Engine 中断。agent 完成当前 turn 后，且 session 满足以下条件时，Engine 进入验收阶段。
 
-> **交叉引用**：session 空闲的定义由 Session 模块统一管理，详见 [session](session.md)。
+验收判定条件 = LLM推理=false AND 同步工具等结果=false AND 后台任务=false AND 子Session=false。四个活跃维度由 [session §F11](session.md) 定义。任一维度为 true 时不进入验收，Engine 等待下次判定。
 
 ### F4. 步骤完成验收
 
-Engine 在 session 空闲时注入验收清单（来自步骤定义中的 verify 字段）。agent 对照清单自查：
+Engine 在满足验收判定条件时注入验收清单（来自步骤定义中的 verify 字段）。验收判定条件见 F3。agent 对照清单自查：
 
-- **未完成**：继续执行步骤内容。Engine 不干预，等下次 session 空闲时重新注入验收清单
+- **未完成**：继续执行步骤内容。Engine 不干预，等下次满足验收判定条件时重新注入验收清单
 - **已完成**：agent 调用 workflow_verify 声明步骤完成
 
 验收重试有次数上限（可在 workflow 定义中配置，默认 3 次）。若 agent 连续达到重试次数上限仍无法通过验收，Engine 将流程转为暂停并通知 owner 介入。没有超时机制——agent 执行步骤本身不受时间限制。
