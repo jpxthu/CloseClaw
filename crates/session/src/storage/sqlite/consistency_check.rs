@@ -64,6 +64,37 @@ pub(super) fn check_sqlite_to_filesystem_filtered(
         }
     }
 
+    // Migrating: transcript may be in sessions/ or archived_sessions/.
+    // Check both; delete only if missing from both.
+    let migrating_ids: Vec<String> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id FROM sessions \
+                 WHERE status = 'migrating' AND last_message_at > ?1",
+            )
+            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+        let rows = stmt
+            .query_map(rusqlite::params![since], |row| row.get(0))
+            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+
+    for id in &migrating_ids {
+        let in_sessions = data_dir
+            .join("sessions")
+            .join(format!("{id}.jsonl"))
+            .exists();
+        let in_archived = data_dir
+            .join("archived_sessions")
+            .join(format!("{id}.jsonl"))
+            .exists();
+        if !in_sessions && !in_archived {
+            conn.execute("DELETE FROM sessions WHERE id = ?1", rusqlite::params![id])
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            result.deleted_orphaned_records += 1;
+        }
+    }
+
     Ok(())
 }
 

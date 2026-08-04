@@ -2,29 +2,26 @@
 //!
 //! Provides functionality to recover sessions from persisted checkpoints
 //! during gateway startup, including spawn_tree reconstruction.
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-
 use crate::llm_session::PROGRESS_APPEND_PREFIX;
 use crate::persistence::{
     ApprovalToolCallRecord, PersistenceError, PersistenceService, ProgressToolCallRecord,
     SessionCheckpoint,
 };
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// Prefix marker for approval history entries in `system_appends`.
 ///
 /// When injected as a fallback (layer 3), this prefix tags the entry
 /// so it can be identified in subsequent recovery scans.
 pub const APPROVAL_HISTORY_PREFIX: &str = "__approval_history__:";
-
 /// Prefix marker for plan references extracted from message history
 /// in `system_appends`.
 ///
 /// When injected as a fallback (layer 4), this prefix tags the entry
 /// so it can be identified in subsequent recovery scans.
 pub const PLAN_REFERENCES_PREFIX: &str = "__plan_references__:";
-
 /// Prefix marker for plan file Tasks section injected into
 /// `system_appends` during recovery.
 ///
@@ -117,7 +114,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         let mut recovered = Vec::new();
         let mut failed = Vec::new();
         let mut checkpoints: HashMap<String, SessionCheckpoint> = HashMap::new();
-
         for session_id in &active_sessions {
             match self.recover_session(session_id).await {
                 Ok(()) => {
@@ -211,13 +207,16 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             }
         }
 
+        // Scan migrating sessions (crash interrupted archive between
+        // Step A and Step C of two-step archive).
+        self.scan_migrating_sessions(&mut recovered, &mut failed, &mut checkpoints)
+            .await;
         // Collect dirty sessions (those with pending operations)
         let dirty_sessions: Vec<String> = checkpoints
             .iter()
             .filter(|(_, cp)| !cp.pending_operations.is_empty())
             .map(|(id, _)| id.clone())
             .collect();
-
         // Inject plan file content, progress history fallback, and recovery
         // notifications for all recovered sessions.
         for session_id in &recovered {
@@ -252,7 +251,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         }
 
         let (spawn_tree, demoted) = Self::build_spawn_tree(&mut checkpoints, &recovered);
-
         // 持久化降级后的 checkpoint（depth 重置为 0）
         for session_id in &demoted {
             if let Some(cp) = checkpoints.get(session_id) {
@@ -286,15 +284,11 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         if checkpoint.approval_tool_calls.is_empty() {
             return;
         }
-
         let summary = format_approval_history(&checkpoint.approval_tool_calls);
         if summary.is_empty() {
             return;
         }
-
         let tagged = format!("{}{}", APPROVAL_HISTORY_PREFIX, summary);
-
-        // Replace existing entry in-place if present, otherwise append.
         if let Some(slot) = checkpoint
             .system_appends
             .iter_mut()
@@ -304,7 +298,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         } else {
             checkpoint.system_appends.push(tagged);
         }
-
         tracing::info!(
             session_id = %session_id,
             call_count = checkpoint.approval_tool_calls.len(),
@@ -325,20 +318,15 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             Some(ps) => ps,
             None => return,
         };
-
         let plan_file_path = &plan_state.plan_file_path;
         if plan_file_path.is_empty() {
             return;
         }
-
         let tasks_content = match extract_plan_tasks_section(plan_file_path) {
             Some(content) => content,
             None => return,
         };
-
         let tagged = format!("{}{}", PLAN_TASKS_PREFIX, tasks_content);
-
-        // Replace existing entry in-place if present, otherwise append.
         if let Some(slot) = checkpoint
             .system_appends
             .iter_mut()
@@ -348,7 +336,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         } else {
             checkpoint.system_appends.push(tagged);
         }
-
         tracing::info!(
             session_id = %session_id,
             plan_file = %plan_file_path,
@@ -369,44 +356,32 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
     /// The trigger condition is explicit: only when layers 1–3 are all
     /// unavailable.
     fn inject_plan_references(&self, session_id: &str, checkpoint: &mut SessionCheckpoint) {
-        // Layer 1: Only trigger when plan_state is unavailable
+        // Only trigger when all three higher layers are unavailable
         if checkpoint.plan_state.is_some() {
             return;
         }
-
-        // Layer 3: Only trigger when approval history was NOT injected
-        // (i.e., no APPROVAL_HISTORY_PREFIX entry exists)
-        let has_approval_history = checkpoint
+        if checkpoint
             .system_appends
             .iter()
-            .any(|s| s.starts_with(APPROVAL_HISTORY_PREFIX));
-        if has_approval_history {
+            .any(|s| s.starts_with(APPROVAL_HISTORY_PREFIX))
+        {
             return;
         }
-
-        // Layer 2: Only trigger when progress summary was NOT injected
-        // (i.e., no PROGRESS_APPEND_PREFIX entry exists in system_appends)
-        let has_progress_summary = checkpoint
+        if checkpoint
             .system_appends
             .iter()
-            .any(|s| s.starts_with(PROGRESS_APPEND_PREFIX));
-        if has_progress_summary {
+            .any(|s| s.starts_with(PROGRESS_APPEND_PREFIX))
+        {
             return;
         }
-
-        // Only trigger when plan_references is non-empty
         if checkpoint.plan_references.is_empty() {
             return;
         }
-
         let summary = format_plan_references(&checkpoint.plan_references);
         if summary.is_empty() {
             return;
         }
-
         let tagged = format!("{}{}", PLAN_REFERENCES_PREFIX, summary);
-
-        // Replace existing entry in-place if present, otherwise append.
         if let Some(slot) = checkpoint
             .system_appends
             .iter_mut()
@@ -416,12 +391,86 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         } else {
             checkpoint.system_appends.push(tagged);
         }
-
         tracing::info!(
             session_id = %session_id,
             ref_count = checkpoint.plan_references.len(),
             "layer 4 fallback: injected plan references into system_appends"
         );
+    }
+
+    /// Scan migrating sessions: restore those with pending ops,
+    /// complete archive for the rest.
+    async fn scan_migrating_sessions(
+        &self,
+        recovered: &mut Vec<String>,
+        failed: &mut Vec<String>,
+        checkpoints: &mut HashMap<String, SessionCheckpoint>,
+    ) {
+        let ids = self
+            .storage
+            .list_migrating_sessions()
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!("Failed to list migrating sessions: {}", e);
+                Vec::new()
+            });
+        for sid in &ids {
+            if recovered.contains(sid) {
+                continue;
+            }
+            let cp = match self.storage.load_checkpoint(sid).await {
+                Ok(Some(cp)) => cp,
+                Ok(None) => {
+                    tracing::warn!(session_id = %sid, "Migrating checkpoint not found");
+                    failed.push(sid.clone());
+                    continue;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        session_id = %sid,
+                        "Failed to load migrating checkpoint: {}",
+                        e
+                    );
+                    failed.push(sid.clone());
+                    continue;
+                }
+            };
+            if !cp.pending_operations.is_empty() {
+                // Has pending ops — restore to active
+                if let Err(e) = self.storage.restore_checkpoint(sid).await {
+                    tracing::error!(
+                        session_id = %sid,
+                        "Failed to restore migrating session: {}",
+                        e
+                    );
+                    failed.push(sid.clone());
+                    continue;
+                }
+                match self.storage.load_checkpoint(sid).await {
+                    Ok(Some(mut restored)) => {
+                        // Update status to Active so save_checkpoint routes correctly
+                        restored.status = crate::persistence::SessionStatus::Active;
+                        checkpoints.insert(sid.clone(), restored);
+                        recovered.push(sid.clone());
+                    }
+                    _ => {
+                        tracing::warn!(
+                            session_id = %sid,
+                            "Restored migrating checkpoint not found"
+                        );
+                        failed.push(sid.clone());
+                    }
+                }
+            } else {
+                // No pending ops — complete the interrupted archive
+                if let Err(e) = self.storage.archive_checkpoint(&cp).await {
+                    tracing::error!(session_id = %sid, "Failed to complete archive: {}", e);
+                    failed.push(sid.clone());
+                } else {
+                    tracing::info!(session_id = %sid, "Completed interrupted archive");
+                }
+            }
+        }
     }
 
     /// Recover a single session
@@ -431,7 +480,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             .load_checkpoint(session_id)
             .await?
             .ok_or_else(|| PersistenceError::NotFound(session_id.to_string()))?;
-
         // Use the pre-stored recovery_notification from the checkpoint
         // (set by inject_recovery_notifications) when available;
         // otherwise fall back to building it fresh.
@@ -476,7 +524,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         let notification = self.build_notification_text(checkpoint);
         checkpoint.recovery_notification = Some(notification);
         checkpoint.pending_tool_failures = self.build_tool_failure_results(checkpoint);
-
         tracing::info!(
             session_id = %session_id,
             pending_count = checkpoint.pending_operations.len(),
@@ -487,53 +534,37 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
     /// Build notification text listing pending operations.
     fn build_notification_text(&self, checkpoint: &SessionCheckpoint) -> String {
         use crate::persistence::PendingOperationType;
-
         let restart_time_utc = chrono::Utc::now();
         let restart_time = restart_time_utc.format("%Y-%m-%dT%H:%M:%SZ");
-
-        // Build summary by op_type
+        let mut sections = Vec::new();
         let mut tool_calls = Vec::new();
         let mut sub_spawns = Vec::new();
         let mut outbound_msgs = Vec::new();
-
         for op in &checkpoint.pending_operations {
+            let ts = op.created_at.format("%Y-%m-%dT%H:%M:%SZ");
             match op.op_type {
                 PendingOperationType::ToolCall => {
-                    let tool_name = op.detail.tool_name().unwrap_or("unknown");
+                    let name = op.detail.tool_name().unwrap_or("unknown");
                     let args = op.detail.args_summary().unwrap_or("无参数");
-                    let args_display = if args.is_empty() {
+                    let args = if args.is_empty() {
                         "无参数".to_string()
                     } else {
                         args.to_string()
                     };
-                    tool_calls.push(format!(
-                        "  • 工具调用: {}({}) — 发起于 {}",
-                        tool_name,
-                        args_display,
-                        op.created_at.format("%Y-%m-%dT%H:%M:%SZ")
-                    ));
+                    tool_calls.push(format!("  • 工具调用: {}({}) — 发起于 {}", name, args, ts));
                 }
                 PendingOperationType::SubSessionSpawn => {
-                    let child_id = op.detail.child_session_id().unwrap_or("unknown");
-                    let elapsed = (restart_time_utc - op.created_at).num_seconds();
-                    let duration_str = format_duration_seconds(elapsed);
-                    sub_spawns.push(format!(
-                        "  • 子 Session: {} — 已运行 {}",
-                        child_id, duration_str
-                    ));
+                    let child = op.detail.child_session_id().unwrap_or("unknown");
+                    let elapsed =
+                        format_duration_seconds((restart_time_utc - op.created_at).num_seconds());
+                    sub_spawns.push(format!("  • 子 Session: {} — 已运行 {}", child, elapsed));
                 }
                 PendingOperationType::OutboundMessage => {
-                    let msg_id = op.detail.message_id().unwrap_or("unknown");
-                    outbound_msgs.push(format!(
-                        "  • 出站消息: {} — 创建于 {}",
-                        msg_id,
-                        op.created_at.format("%Y-%m-%dT%H:%M:%SZ")
-                    ));
+                    let msg = op.detail.message_id().unwrap_or("unknown");
+                    outbound_msgs.push(format!("  • 出站消息: {} — 创建于 {}", msg, ts));
                 }
             }
         }
-
-        let mut sections = Vec::new();
         if !tool_calls.is_empty() {
             sections.push(tool_calls.join("\n"));
         }
@@ -543,7 +574,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         if !outbound_msgs.is_empty() {
             sections.push(outbound_msgs.join("\n"));
         }
-
         format!(
             "[系统] 网关已重启（重启时间: {restart_time}）\n\n\
 以下操作在重启前未完成：\n{ops}\n\n\
@@ -557,7 +587,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
     /// Build tool failure result strings for pending tool call operations.
     fn build_tool_failure_results(&self, checkpoint: &SessionCheckpoint) -> Vec<String> {
         use crate::persistence::PendingOperationType;
-
         checkpoint
             .pending_operations
             .iter()
@@ -586,7 +615,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         let mut tree = SpawnTree::default();
         let mut demoted = Vec::new();
         let recovered_set: HashSet<&String> = recovered.iter().collect();
-
         for session_id in recovered {
             if let Some(cp) = checkpoints.get_mut(session_id) {
                 match &cp.parent_session_id {
@@ -635,24 +663,22 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
 /// - 3661 → "1h1m1s"
 /// - 86400 → "1d"
 fn format_duration_seconds(seconds: i64) -> String {
-    let seconds = seconds.max(0) as u64;
-    let days = seconds / 86400;
-    let hours = (seconds % 86400) / 3600;
-    let minutes = (seconds % 3600) / 60;
-    let secs = seconds % 60;
-
+    let s = seconds.max(0) as u64;
+    let (d, s) = (s / 86400, s % 86400);
+    let (h, s) = (s / 3600, s % 3600);
+    let (m, s) = (s / 60, s % 60);
     let mut parts = Vec::new();
-    if days > 0 {
-        parts.push(format!("{}d", days));
+    if d > 0 {
+        parts.push(format!("{}d", d));
     }
-    if hours > 0 {
-        parts.push(format!("{}h", hours));
+    if h > 0 {
+        parts.push(format!("{}h", h));
     }
-    if minutes > 0 {
-        parts.push(format!("{}m", minutes));
+    if m > 0 {
+        parts.push(format!("{}m", m));
     }
-    if secs > 0 || parts.is_empty() {
-        parts.push(format!("{}s", secs));
+    if s > 0 || parts.is_empty() {
+        parts.push(format!("{}s", s));
     }
     parts.join("")
 }
@@ -694,8 +720,8 @@ impl SpawnTree {
         }
         self.children
             .iter()
-            .find(|(_, children)| children.iter().any(|id| id == session_id))
-            .map(|(parent, _)| parent)
+            .find(|(_, c)| c.iter().any(|id| id == session_id))
+            .map(|(p, _)| p)
     }
 }
 
@@ -729,7 +755,6 @@ pub fn extract_plan_tasks_section(plan_file_path: &str) -> Option<String> {
 pub(crate) fn extract_tasks_from_content(content: &str) -> Option<String> {
     let lines: Vec<&str> = content.lines().collect();
     let mut start = None;
-
     for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
         if trimmed == "## 开发步骤" || trimmed == "## Tasks" {
@@ -739,7 +764,6 @@ pub(crate) fn extract_tasks_from_content(content: &str) -> Option<String> {
     }
 
     let start = start?;
-
     // Find the next ## heading after start
     let mut end = lines.len();
     for (i, line) in lines.iter().enumerate().skip(start) {
@@ -752,7 +776,6 @@ pub(crate) fn extract_tasks_from_content(content: &str) -> Option<String> {
 
     let section: String = lines[start..end].join("\n");
     let trimmed = section.trim().to_string();
-
     if trimmed.is_empty() {
         None
     } else {
@@ -763,7 +786,6 @@ pub(crate) fn extract_tasks_from_content(content: &str) -> Option<String> {
 // ---------------------------------------------------------------------------
 // Layer 4: ProgressTool call history fallback
 // ---------------------------------------------------------------------------
-
 /// Scan a list of [`SessionMessage`]s for ProgressTool calls and return
 /// them as [`ProgressToolCallRecord`]s.
 ///
@@ -776,9 +798,7 @@ pub fn scan_progress_tool_calls(
     messages: &[crate::llm_session::SessionMessage],
 ) -> Vec<ProgressToolCallRecord> {
     use closeclaw_common::ContentBlock;
-
     let mut records = Vec::new();
-
     for msg in messages {
         if msg.role != "assistant" {
             continue;
@@ -804,12 +824,9 @@ pub fn scan_progress_tool_calls(
 pub(crate) fn parse_progress_call_record(input: &str) -> Option<ProgressToolCallRecord> {
     use closeclaw_common::ExecutionStepStatus;
     use serde_json::Value;
-
     let v: Value = serde_json::from_str(input).ok()?;
-
     let step_index = v.get("step_index")?.as_u64()? as usize;
     let status_str = v.get("status")?.as_str()?;
-
     let status = match status_str {
         "in_progress" => ExecutionStepStatus::InProgress,
         "completed" => ExecutionStepStatus::Completed,
@@ -823,7 +840,6 @@ pub(crate) fn parse_progress_call_record(input: &str) -> Option<ProgressToolCall
         .get("error_message")
         .and_then(Value::as_str)
         .map(String::from);
-
     Some(ProgressToolCallRecord {
         step_index,
         status,
@@ -841,9 +857,7 @@ pub fn rebuild_plan_state_from_calls(
     calls: &[ProgressToolCallRecord],
 ) -> closeclaw_common::PlanState {
     use closeclaw_common::ExecutionStep;
-
     let mut plan_state = closeclaw_common::PlanState::new();
-
     if calls.is_empty() {
         return plan_state;
     }
@@ -851,7 +865,6 @@ pub fn rebuild_plan_state_from_calls(
     // Determine the maximum step index to size the steps vec
     let max_step = calls.iter().map(|c| c.step_index).max().unwrap_or(0);
     let total_steps = max_step + 1;
-
     // Initialize all steps as Pending
     plan_state.execution_steps = (0..total_steps)
         .map(|i| ExecutionStep {
@@ -861,7 +874,6 @@ pub fn rebuild_plan_state_from_calls(
             error_message: None,
         })
         .collect();
-
     // Apply each call in order, ignoring invalid transitions
     for record in calls {
         let idx = record.step_index;
@@ -947,7 +959,6 @@ pub fn format_approval_history(records: &[ApprovalToolCallRecord]) -> String {
             )
         })
         .collect();
-
     format!("[Approval History]\n{}", items.join("\n"))
 }
 
@@ -969,22 +980,21 @@ pub fn format_plan_references(references: &[String]) -> String {
         .enumerate()
         .map(|(i, r)| format!("  {}. {}", i + 1, r))
         .collect();
-
     format!("[Plan References]\n{}", items.join("\n"))
 }
 
 #[cfg(test)]
-#[path = "recovery_tests.rs"]
-mod tests;
-
+#[path = "crash_recovery_tests.rs"]
+mod crash_recovery_tests;
+#[cfg(test)]
+#[path = "recovery_migrating_tests.rs"]
+mod recovery_migrating_tests;
 #[cfg(test)]
 #[path = "recovery_progress_tests.rs"]
 mod recovery_progress_tests;
-
-#[cfg(test)]
-#[path = "crash_recovery_tests.rs"]
-mod crash_recovery_tests;
-
 #[cfg(test)]
 #[path = "recovery_workflow_tests.rs"]
 mod recovery_workflow_tests;
+#[cfg(test)]
+#[path = "recovery_tests.rs"]
+mod tests;

@@ -171,14 +171,22 @@ pub(super) async fn try_restore_archived_session_inner(
     session_id: &str,
     _channel: &str,
 ) -> RestoreResult {
+    // Try active/migrating first, then fall back to archived storage.
     let checkpoint = match storage.load_checkpoint(session_id).await {
-        Ok(Some(cp)) => cp,
-        Ok(None) | Err(_) => {
-            return RestoreResult {
-                restored: false,
-                notification_chat_id: None,
-            };
-        }
+        Ok(Some(cp)) => Some(cp),
+        _ => None,
+    };
+    let checkpoint = match checkpoint {
+        Some(cp) => cp,
+        None => match storage.load_archived_checkpoint(session_id).await {
+            Ok(Some(cp)) => cp,
+            _ => {
+                return RestoreResult {
+                    restored: false,
+                    notification_chat_id: None,
+                };
+            }
+        },
     };
     if checkpoint.status != SessionStatus::Archived {
         return RestoreResult {
