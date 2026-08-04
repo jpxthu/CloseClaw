@@ -193,6 +193,9 @@ pub struct ConversationSession {
     /// Records the mtime observed at each Read operation so subsequent
     /// Edit/Write calls can detect external modifications.
     file_mtimes: Arc<RwLock<HashMap<PathBuf, SystemTime>>>,
+    /// Per-turn read range tracking for file dedup.
+    /// Maps canonical path → list of (mtime, ranges) read so far.
+    file_read_ranges: Arc<RwLock<HashMap<PathBuf, closeclaw_common::FileReadCache>>>,
     /// Verbosity level controlling outbound content filtering.
     verbosity_level: VerbosityLevel,
     /// Session mode controlling session-level behavior constraints.
@@ -282,6 +285,7 @@ impl ConversationSession {
             request_context: Arc::new(Mutex::new(closeclaw_common::RequestContext::default())),
             progress_appends: Arc::new(Mutex::new(Vec::new())),
             file_mtimes: Arc::new(RwLock::new(HashMap::new())),
+            file_read_ranges: Arc::new(RwLock::new(HashMap::new())),
             llm_caller: None,
             system_prompt_builder: None,
             prompt_overrides: None,
@@ -970,6 +974,10 @@ impl std::fmt::Debug for ConversationSession {
             .field(
                 "file_mtimes",
                 &self.file_mtimes.read().ok().map(|m| m.len()),
+            )
+            .field(
+                "file_read_ranges",
+                &self.file_read_ranges.read().ok().map(|m| m.len()),
             )
             .finish()
     }
