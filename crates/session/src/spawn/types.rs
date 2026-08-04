@@ -39,6 +39,9 @@ pub struct ChildSessionInfo {
     pub status: ChildSessionStatus,
     /// Spawn timeout in seconds, if configured.
     pub timeout_secs: Option<u64>,
+    /// Wall-clock instant when this child session was created.
+    /// Used by yield timeout to compute elapsed time per child.
+    pub created_at: std::time::Instant,
 }
 
 /// Spawn mode for child sessions.

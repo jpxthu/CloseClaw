@@ -210,13 +210,13 @@ async fn test_yield_timeout_default_value_in_notification() {
     mgr.start_yield_timeout(&parent_id, "agent-x", 1).await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-    // Check notification mentions "1" (the actual timeout value used).
+    // Check notification mentions the timeout value in the new format.
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
     let messages = cs.read().await.messages().to_vec();
     let has_timeout_value = messages.iter().any(|m| {
         m.role == "system"
             && m.content_blocks.iter().any(
-                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("1 秒内未完成")),
+                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("等待上限 1 秒已到")),
             )
     });
     assert!(
@@ -334,8 +334,9 @@ async fn test_yield_warning_timeout_injects_notification() {
 
 // ── 8. Hard timeout fires after warning (two-stage sequence) ────────────────
 
-/// Verify the two-stage sequence: warning fires first, then hard
-/// timeout terminates children and resumes the session.
+/// Verify the two-stage sequence: warning fires first (when timeout >
+/// 60s), then hard timeout injects structured notification and
+/// resumes the session.
 #[tokio::test]
 #[serial]
 async fn test_yield_two_stage_timeout_sequence() {
@@ -372,11 +373,11 @@ async fn test_yield_two_stage_timeout_sequence() {
         cs.read().await.enter_waiting();
     }
 
-    // Start with overall=61s (warning at 1s).
-    mgr.start_yield_timeout(&parent_id, "agent-x", 61).await;
+    // Start with overall=3s (warning at 0 → skipped, hard at 3s).
+    mgr.start_yield_timeout(&parent_id, "agent-x", 3).await;
 
-    // Wait for both to fire (61s hard + buffer).
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    // Wait for hard timeout to fire (3s + buffer).
+    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
 
     // Session should have resumed (hard timeout fired).
     assert!(
@@ -384,7 +385,7 @@ async fn test_yield_two_stage_timeout_sequence() {
         "session should exit Waiting after hard timeout fires"
     );
 
-    // Both warning and timeout notifications should be present.
+    // Timeout notification should be present.
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
     let messages = cs.read().await.messages().to_vec();
     let has_warning = messages.iter().any(|m| {
@@ -396,10 +397,13 @@ async fn test_yield_two_stage_timeout_sequence() {
     let has_timeout = messages.iter().any(|m| {
         m.role == "system"
             && m.content_blocks.iter().any(
-                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("已自动终止")),
+                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("等待上限")),
             )
     });
-    assert!(has_warning, "warning notification should be present");
+    assert!(
+        !has_warning,
+        "warning notification should NOT be present (timeout <= 60s)"
+    );
     assert!(has_timeout, "timeout notification should be present");
 }
 
@@ -444,7 +448,7 @@ async fn test_yield_warning_disabled_only_hard_timeout_fires() {
     let has_timeout = messages.iter().any(|m| {
         m.role == "system"
             && m.content_blocks.iter().any(
-                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("已自动终止")),
+                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("等待上限")),
             )
     });
     assert!(!has_warning, "warning notification should NOT be present");

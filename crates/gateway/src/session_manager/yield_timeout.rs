@@ -4,19 +4,21 @@
 //! configurable timeout timer is started. If child sessions do not
 //! complete within the timeout, the timer fires:
 //!
-//! 1. All unfinished child sessions are terminated (cascade)
-//! 2. A timeout notification is injected into the parent's message queue
-//! 3. The session exits Waiting and resumes normal processing
+//! 1. A structured timeout notification is injected (listing each
+//!    child session's ID, status, and elapsed time)
+//! 2. The session exits Waiting and resumes normal processing
+//!
+//! Child sessions are NOT force-terminated — per-child spawn timeouts
+//! handle individual child termination. The yield timeout only
+//! notifies the parent and resumes it.
 //!
 //! On normal recovery (all children completed), the timer is cancelled.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use tracing::warn;
-
-use super::stop::StopError;
 use super::SessionManager;
+use closeclaw_common::ChildSessionState;
 use closeclaw_tasks::NotificationPriority;
 
 impl SessionManager {
@@ -138,84 +140,88 @@ impl SessionManager {
 
     /// Handle yield hard timeout expiry.
     ///
-    /// Terminates all child sessions, injects a timeout notification,
-    /// and resumes the parent session.
+    /// Builds a structured notification listing each child session's
+    /// ID, status (completed/running), and elapsed time, then injects
+    /// it and resumes the parent. Child sessions are NOT force-terminated
+    /// — per-child spawn timeouts handle individual termination.
     async fn handle_yield_timeout(&self, session_id: &str, _agent_id: &str, timeout_secs: u64) {
         tracing::warn!(
             session_id = %session_id,
-            "yield timeout fired: terminating child sessions"
+            "yield timeout fired: injecting structured notification"
         );
 
-        // 1. Collect child session IDs from the SpawnTree.
-        let child_ids: Vec<String> = {
+        // 1. Collect child info with states and elapsed times.
+        let child_summaries = {
             let children = self.children.read().await;
-            children
-                .list_children(session_id)
-                .iter()
-                .map(|info| info.session_id.clone())
-                .collect()
+            let child_list = children.list_children(session_id);
+
+            if child_list.is_empty() {
+                "(无子 session)".to_string()
+            } else {
+                let mut summaries = Vec::new();
+                for info in child_list {
+                    let elapsed = info.created_at.elapsed();
+                    let elapsed_secs = elapsed.as_secs();
+                    let status_str = self.child_status_str(session_id, &info.session_id).await;
+                    summaries.push(format!(
+                        "  - {} [{}] 已运行 {} 秒",
+                        info.session_id, status_str, elapsed_secs
+                    ));
+                }
+                summaries.join("\n")
+            }
         };
 
-        // 2. Force-stop all child sessions.
-        for child_id in &child_ids {
-            match self
-                .stop_single_session(
-                    child_id,
-                    closeclaw_common::shutdown::ShutdownMode::Forceful,
-                    true,                      // cascade
-                    std::time::Duration::ZERO, // not used in forceful mode
-                    None,
-                )
-                .await
-            {
-                Ok(_) => {
-                    tracing::info!(
-                        child_id = %child_id,
-                        "yield timeout: child session terminated"
-                    );
-                }
-                Err(StopError::Skipped) => {
-                    tracing::debug!(
-                        child_id = %child_id,
-                        "yield timeout: child session already gone"
-                    );
-                }
-                Err(e) => {
-                    warn!(
-                        child_id = %child_id,
-                        error = ?e,
-                        "yield timeout: failed to stop child session"
-                    );
-                }
-            }
-        }
-
-        // 3. Push timeout notification onto the unified queue.
+        // 2. Push structured timeout notification.
         if let Some(cs) = self.get_conversation_session(session_id).await {
-            {
-                let mut cs_write = cs.write().await;
-                let notification = format!(
-                    "[超时] 子 agent 任务在 {} 秒内未完成，已自动终止所有子 session。",
-                    timeout_secs
-                );
-                cs_write.push_system_notification(notification, NotificationPriority::Next);
-            }
+            let mut cs_write = cs.write().await;
+            let notification = format!(
+                "[超时] 父 session 等待上限 {} 秒已到。\n\n子 session 状态:\n{}\n\n仍在运行的子 session 将继续执行，完成后结果按正常路径注入。",
+                timeout_secs,
+                child_summaries
+            );
+            cs_write.push_system_notification(notification, NotificationPriority::Next);
         }
 
-        // 4. Exit Waiting state.
+        // 3. Exit Waiting state.
         if let Some(cs) = self.get_conversation_session(session_id).await {
             cs.read().await.exit_waiting();
         }
 
-        // 5. Clean up the timeout handle entry.
+        // 4. Clean up the timeout handle entry.
         self.yield_timeout_handles.write().await.remove(session_id);
 
-        // 6. Trigger pending message drain.
+        // 5. Trigger pending message drain.
         self.drain_pending_for_session(session_id).await;
 
         tracing::info!(
             session_id = %session_id,
             "yield timeout handled: session resumed"
         );
+    }
+
+    /// Look up a child session's status string from the parent's
+    /// `child_states` map.
+    async fn child_status_str(&self, parent_id: &str, child_id: &str) -> String {
+        if let Some(cs) = self.get_conversation_session(parent_id).await {
+            let guard = cs.read().await;
+            let states = guard
+                .child_states
+                .read()
+                .expect("child_states lock poisoned");
+            if let Some((state, _)) = states.get(child_id) {
+                match state {
+                    ChildSessionState::Running => "运行中",
+                    ChildSessionState::Completed => "已完成",
+                    ChildSessionState::Terminated => "已终止",
+                    ChildSessionState::Errored => "出错",
+                }
+                .to_string()
+            } else {
+                "未知".to_string()
+            }
+        } else {
+            "未知".to_string()
+        }
     }
 }

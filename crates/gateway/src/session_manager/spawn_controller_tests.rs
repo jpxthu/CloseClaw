@@ -156,6 +156,7 @@ async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
                 mode: SpawnMode::Run,
                 status: ChildSessionStatus::Active,
                 timeout_secs: None,
+                created_at: std::time::Instant::now(),
             },
         )
         .await;
@@ -723,6 +724,7 @@ macro_rules! register_child {
                 mode: $mode,
                 status: ChildSessionStatus::Active,
                 timeout_secs: None,
+                created_at: std::time::Instant::now(),
             },
         )
         .await;
@@ -803,6 +805,7 @@ async fn test_kill_child_no_descendants_clean_removal() {
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            created_at: std::time::Instant::now(),
         },
     )
     .await;
@@ -908,6 +911,7 @@ async fn test_session_child_survives_without_explicit_kill() {
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            created_at: std::time::Instant::now(),
         },
     )
     .await;
@@ -965,6 +969,7 @@ async fn test_run_child_survives_without_explicit_kill() {
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            created_at: std::time::Instant::now(),
         },
     )
     .await;

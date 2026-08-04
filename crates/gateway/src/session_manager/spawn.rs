@@ -354,6 +354,7 @@ impl SessionManager {
                 mode,
                 status: ChildSessionStatus::Active,
                 timeout_secs: spawn_timeout,
+                created_at: std::time::Instant::now(),
             },
         )
         .await;
@@ -609,6 +610,7 @@ impl SessionManager {
                     mode,
                     status: ChildSessionStatus::Active,
                     timeout_secs: None,
+                    created_at: std::time::Instant::now(),
                 },
             )
             .await;

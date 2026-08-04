@@ -201,6 +201,7 @@ pub(super) async fn register_child_only(
             mode,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            created_at: std::time::Instant::now(),
         },
     )
     .await;
