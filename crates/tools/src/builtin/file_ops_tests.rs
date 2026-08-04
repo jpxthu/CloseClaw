@@ -118,7 +118,6 @@ pub(crate) fn allow_file(agent: &str, path_glob: &str, op: &str) -> Rule {
     }
 }
 
-#[allow(dead_code)]
 fn allow_config_write_rule(agent: &str) -> Rule {
     Rule {
         name: format!("allow-cfgwrite-{agent}"),
@@ -739,6 +738,7 @@ async fn test_config_write_explicit_allow_still_denied_by_guard() {
 //           error paths, and WriteTool end-to-end behavior.
 // ---------------------------------------------------------------------------
 
+/// EditTool accepts an 'edits' array and applies multiple replacements
 /// to the same file in one call (non-incremental, reverse-order).
 #[tokio::test]
 async fn test_edit_with_edits_array() {

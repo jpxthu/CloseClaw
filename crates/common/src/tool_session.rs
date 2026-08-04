@@ -31,7 +31,6 @@ pub struct ReadRange {
 }
 
 /// Cached record of a file read within the current turn.
-
 /// Contains the mtime observed at read time and every range that has
 /// been read so far. Used for per-turn dedup: if the same path +
 /// range is requested again while mtime is unchanged, the tool
