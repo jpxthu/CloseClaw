@@ -86,12 +86,9 @@ pub(crate) fn truncate_lines(
 ) -> TruncationResult {
     let all_lines: Vec<&str> = content.lines().collect();
     let total_lines = all_lines.len();
-
-    // offset is 1-indexed; clamp to valid range.
     let start = offset.saturating_sub(1).min(total_lines);
 
-    // Empty or fully consumed content.
-    if start >= total_lines || (limit == Some(0)) {
+    if start >= total_lines || limit == Some(0) {
         return TruncationResult {
             content: String::new(),
             truncated: true,
@@ -117,53 +114,52 @@ pub(crate) fn truncate_lines(
         return result;
     }
 
-    // Accumulate lines, checking thresholds after each line.
+    accumulate_lines(lines, limit, config, total_lines)
+}
+
+/// Accumulate lines from the slice, checking thresholds in priority order:
+/// user limit → tokens → bytes → lines.
+fn accumulate_lines(
+    lines: &[&str],
+    limit: Option<usize>,
+    config: &TruncationConfig,
+    total_lines: usize,
+) -> TruncationResult {
     let mut accumulated_bytes: usize = 0;
     let mut accumulated_tokens: usize = 0;
     let mut line_count: usize = 0;
     let mut trigger: Option<TruncationTrigger> = None;
 
     for line in lines.iter() {
-        // Enforce user-specified limit first.
-        if let Some(max) = limit {
-            if line_count >= max {
-                trigger = Some(TruncationTrigger::Limit);
-                break;
-            }
-        }
-
-        // Check line count threshold.
-        if line_count >= config.max_lines {
-            trigger = Some(TruncationTrigger::Lines);
+        if limit.map_or(false, |max| line_count >= max) {
+            trigger = Some(TruncationTrigger::Limit);
             break;
         }
-
         let line_bytes = line.len();
         let line_tokens = line_bytes / CHARS_PER_TOKEN;
-
-        // Check token threshold.
         if accumulated_tokens + line_tokens > config.max_tokens {
             trigger = Some(TruncationTrigger::Tokens);
             break;
         }
-
-        // Check byte threshold.
         if accumulated_bytes + line_bytes > config.max_bytes {
             trigger = Some(TruncationTrigger::Bytes);
             break;
         }
-
+        if line_count >= config.max_lines {
+            trigger = Some(TruncationTrigger::Lines);
+            break;
+        }
         accumulated_bytes += line_bytes;
         accumulated_tokens += line_tokens;
         line_count += 1;
     }
 
-    let truncated = trigger.is_some() || start + line_count < total_lines;
-    let mut content = String::new();
-    for line in lines.iter().take(line_count) {
-        content.push_str(line);
-        content.push('\n');
-    }
+    let truncated = trigger.is_some() || line_count < lines.len();
+    let content: String = lines
+        .iter()
+        .take(line_count)
+        .flat_map(|l| [l, "\n"])
+        .collect();
 
     TruncationResult {
         content,
@@ -176,6 +172,9 @@ pub(crate) fn truncate_lines(
 
 /// Generate a continuation prompt for the agent based on the truncation
 /// result.  Returns `None` when the full file was returned.
+///
+/// For single-line byte limit exceeded, outputs a special hint with a
+/// `bash: sed -n` command as specified by the design doc.
 pub(crate) fn format_truncation_message(
     result: &TruncationResult,
     offset: usize,
@@ -187,6 +186,15 @@ pub(crate) fn format_truncation_message(
     let start = offset;
     let end = start + result.lines_read - 1;
     let next_offset = start + result.lines_read;
+
+    // Single line exceeded byte limit — special-case hint.
+    if result.lines_read == 1 && result.trigger == Some(TruncationTrigger::Bytes) {
+        let actual_bytes = result.content.trim_end_matches('\n').len();
+        return Some(format!(
+            "[Line {start} is {actual_bytes} bytes, exceeds {SINGLE_LINE_BYTE_LIMIT} limit. \
+             Use bash: sed -n '{start}s' FILE]",
+        ));
+    }
 
     match result.trigger {
         Some(TruncationTrigger::Lines) => Some(format!(
