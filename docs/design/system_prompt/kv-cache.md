@@ -8,9 +8,7 @@
 
 ### 边界标记
 
-静态层和动态层之间通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 标记分隔。标记的位置在 System Prompt 组装完成后的最终文本中，静态层之后、动态层之前。
-
-标记的位置在静态层之后、动态层之前，追加区位于动态层之后、对话历史之前。system prompt 模块以标记为切分点将静态区与动态区分离，分离后的静态区和动态区作为独立字段传递给 cache adapter。静态区被标记缓存控制参数（Anthropic 显式缓存），动态区每次请求重新计算、不参与显式前缀缓存（但服务端自动前缀缓存的 provider 仍可因稳定前缀获益）。
+静态层和动态层之间通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 标记分隔。标记在静态层之后、动态层之前，追加区位于动态层之后、对话历史之前。system prompt 模块以标记为切分点将静态区与动态区分离，分离后的静态区和动态区作为独立字段传递给 cache adapter。静态区被标记缓存控制参数（Anthropic 显式缓存），动态区每次请求重新计算、不参与显式前缀缓存（但服务端自动前缀缓存的 provider 仍可因稳定前缀获益）。
 
 标记是 system prompt 模块与 cache adapter 之间的接口合约——system prompt 模块负责切分并传递分离后的字段，cache adapter 负责按供应商策略处理各字段。接口细节详见 [llm/cache-adapter](../llm/cache-adapter.md)。
 

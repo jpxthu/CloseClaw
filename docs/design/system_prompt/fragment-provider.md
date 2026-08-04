@@ -36,16 +36,11 @@ Builder 在构建时提供的上下文，传递给每个 Provider。定义见 [s
 | ToolsFragmentProvider | 2 | ToolRegistry | ToolsSection |
 | MemoryFragmentProvider | 3 | MEMORY.md | MemorySection |
 
-BootstrapFragmentProvider 将多文件内容聚合到单 Fragment 中，每文件以 `## 文件名` 为 Section 标题，按文件名排序。MemoryFragmentProvider 根据 FragmentContext 中的 bootstrap_mode 判断——Minimal 模式（子 Agent 会话）返回空 Fragment，不暴露长期记忆；Full 模式（主 Agent 会话）读取 MEMORY.md 生成 MemorySection（无 workspace 目录或 MEMORY.md 文件缺失时同样返回空）。各 Provider 产出与原 Builder 中硬编码的文本完全一致——仅抽象了获取方式，不改变输出内容。
+BootstrapFragmentProvider 将多文件内容聚合到单 Fragment 中，每文件以 `## 文件名` 为 Section 标题。文件注入顺序与 [static-layer.md](static-layer.md) 的固定顺序一致（AGENTS.md → SOUL.md → IDENTITY.md → USER.md → TOOLS.md → BOOTSTRAP.md）。每个 `##` 标题块是逻辑上的一个 Section，在 Provider 层面聚合到一个 PromptFragment 中传递。MemoryFragmentProvider 根据 FragmentContext 中的 bootstrap_mode 判断——Minimal 模式（子 Agent 会话）返回空 Fragment，不暴露长期记忆；Full 模式（主 Agent 会话）读取 MEMORY.md 生成 MemorySection（无 workspace 目录或 MEMORY.md 文件缺失时同样返回空）。各 Provider 产出与原 Builder 中硬编码的文本完全一致——仅抽象了获取方式，不改变输出内容。
 
 ### Section 级缓存
 
-Builder 在请求片段前检查缓存键命中。缓存策略不变：
-
-- 文件变更 → 对应文件型 Section 缓存失效
-- `/clear` → 全部缓存失效
-- Session 恢复 → 强制跳过缓存，全部重新生成
-- Compaction → 触发重建，全部重新生成
+Builder 在请求片段前检查缓存键命中。缓存失效策略详见 [static-layer.md §Section 级缓存](static-layer.md)，本文件不重复定义。
 
 ## 数据流
 
@@ -68,7 +63,7 @@ Builder 在请求片段前检查缓存键命中。缓存策略不变：
 ### 上游
 
 - **SessionManager**：在 session 创建、archive 恢复、compaction 完成时触发构建，传入 agent_id（builder 据此查询 agent 配置确定 bootstrap_dir）。Builder 启动时持有 ToolRegistry 引用。
-- **ConversationSession**：提供 agent 的 runtime bootstrap_mode（创建时从 agent 配置继承，后可由 `/mode` 切换覆盖）。Builder 以此运行时值构建 FragmentContext。
+- **ConversationSession**：提供 agent 的 runtime bootstrap_mode（创建时从 agent 配置继承）。Builder 以此运行时值构建 FragmentContext。
 
 ### 下游
 

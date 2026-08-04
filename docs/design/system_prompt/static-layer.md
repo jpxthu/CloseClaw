@@ -6,11 +6,11 @@
 
 ## 架构
 
-静态层由两部分组成：bootstrap 文件作为独立 Section，以及三个系统生成的 Section。
+静态层由两部分组成：bootstrap 文件作为独立 Section，以及两个系统生成的 Section。
 
 ### Bootstrap 文件加载
 
-Bootstrap 文件按文件名格式化渲染，每文件以 `## 文件名` 为标题，作为独立 Section 注入 system prompt 前缀。按 Minimal / Full 两种模式选择文件集合：
+Bootstrap 文件按文件名格式化渲染，每文件以 `## 文件名` 为标题，作为独立 Section 注入 system prompt 前缀。多文件按固定顺序注入，AGENTS.md（操作规程）排在最高优先级（最前）。按 Minimal / Full 两种模式选择文件集合：
 
 | 文件 | Minimal | Full |
 |------|---------|------|
@@ -32,6 +32,8 @@ HEARTBEAT.md 不属于 bootstrap 集合——它是 cron 触发时由 agent 按�
 | ToolsSection | 所有可用工具的分组索引（名称 + 危险度标记 + 常用工具的行为描述） | ToolRegistry |
 | MemorySection | 跨 session 的长期记忆 | MEMORY.md |
 
+动态层的 ChannelContext、WorkingDirectory、ModeInstruction、GitStatus 四个 Section 不属于静态层，由每次请求即时构建，详见 [dynamic-layer.md](dynamic-layer.md)。
+
 单个 Section 组装失败时跳过该 Section，其余继续。
 
 ToolsSection 按分组聚合输出，常用工具注入完整行为描述，延迟工具仅注入名称和危险度标记。一级索引有总长度上限，超出时截断。ToolsSection 的实际内容从 ToolRegistry 生成。
@@ -40,7 +42,7 @@ MemorySection 仅在主 Agent 会话（Full 模式）时生成——子 Agent �
 
 ### Section 级缓存
 
-静态层内容走 session 级 Section 缓存。文件型 Section 基于 mtime 校验——文件未变更时命中缓存，避免重复读取和字符串拼接。工具和 skill 内容通过显式缓存失效触发重建。
+静态层内容走 session 级 Section 缓存。文件型 Section 基于 mtime 校验——文件未变更时命中缓存，避免重复读取和字符串拼接。工具内容通过显式缓存失效触发重建。
 
 此缓存节省本地文件读取和字符串拼接开销，与 API 侧的 KV Cache 是独立的两层优化。
 
@@ -56,7 +58,7 @@ MemorySection 仅在主 Agent 会话（Full 模式）时生成——子 Agent �
 
 当所有 Section 渲染结果为空时，使用默认 prompt："You are CloseClaw, a helpful AI assistant."。
 
-当 session 没有对应 workspace 目录时，不加载 bootstrap 文件，静态层仅包含 ToolsSection。
+当 session 没有对应 workspace 目录时，不加载 bootstrap 文件，MemorySection 同样跳过（MEMORY.md 属于 workspace 文件），静态层仅包含 ToolsSection。
 
 ## 数据流
 
@@ -65,7 +67,7 @@ MemorySection 仅在主 Agent 会话（Full 模式）时生成——子 Agent �
 2. builder 通过 Bootstrap Loader 按模式加载 bootstrap 文件
 3. ToolRegistry 生成工具分组索引
 4. Full 模式下读取 MEMORY.md（命中缓存则跳过）；Minimal 模式跳过
-5. 组装静态层：bootstrap 文件 + ToolsSection + MemorySection（Minimal 模式不含 MemorySection）
+5. 组装静态层：bootstrap 文件 + ToolsSection + MemorySection（Minimal 模式不含 MemorySection；无 workspace 目录时仅含 ToolsSection，参见兜底与变体）
 6. 写入 ConversationSession 的 system prompt 字段（运行时字段，不进 SessionCheckpoint）
 ```
 
@@ -74,13 +76,14 @@ MemorySection 仅在主 Agent 会话（Full 模式）时生成——子 Agent �
 ### 上游
 
 - **SessionManager**：在 session 创建、archive 恢复、compaction 完成时触发静态层构建。
+- **Bootstrap Loader**：提供 bootstrap 文件内容，按 Minimal/Full 模式加载。
+- **ToolRegistry**：提供 ToolsSection 的分组索引。
+- **Compaction 模块**：compaction 完成后通过回调触发静态层重建。
 
 ### 下游
 
-- **Bootstrap Loader**：提供 bootstrap 文件内容，按 Minimal/Full 模式加载。
-- **ToolRegistry**：提供 ToolsSection 的分组索引。
+- **ConversationSession**：构建完成后写入其 system prompt 字段，每次 API 请求时取出使用。
 
 ### 无关
 
-- **LLM Provider**：静态层构建完成后通过 ConversationSession 传递给 LLM provider，构建流程本身不调用 provider。
-- **Compaction 模块**：compaction 完成后通过回调触发重建，静态层本身不参与对话消息的压缩逻辑。
+（无）
