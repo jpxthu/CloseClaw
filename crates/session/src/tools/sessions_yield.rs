@@ -7,6 +7,13 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+/// Default yield timeout in seconds (10 minutes).
+///
+/// Used when no child sessions provide an explicit timeout.
+/// Must stay in sync with the gateway crate's
+/// `DEFAULT_YIELD_TIMEOUT_SECS`.
+const DEFAULT_YIELD_TIMEOUT_SECS: u64 = 600;
+
 /// Tool that signals the current session to enter active Waiting state.
 pub struct SessionsYieldTool {
     session_manager: Arc<dyn SessionManagerOps>,
@@ -71,7 +78,7 @@ impl Tool for SessionsYieldTool {
 
         self.session_manager
             .clone()
-            .start_yield_timeout(session_id, &ctx.agent_id, None, None)
+            .start_yield_timeout(session_id, &ctx.agent_id, DEFAULT_YIELD_TIMEOUT_SECS)
             .await;
 
         tracing::info!(

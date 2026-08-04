@@ -19,30 +19,17 @@ use super::stop::StopError;
 use super::SessionManager;
 use closeclaw_tasks::NotificationPriority;
 
-/// Default yield timeout in seconds (10 minutes).
-///
-/// Used when neither the per-agent `subagents.timeout` nor the
-/// spawn args specify a timeout.
-const DEFAULT_YIELD_TIMEOUT_SECS: u64 = 600;
-
-/// Default yield warning timeout in seconds (1 minute).
-///
-/// Injects a warning notification 1 minute before the hard timeout
-/// fires, giving the agent early visibility into slow child sessions.
-const DEFAULT_YIELD_WARNING_TIMEOUT_SECS: u64 = 60;
-
 impl SessionManager {
     /// Start a yield timeout for the given session.
     ///
     /// Spawns two tokio tasks:
-    /// - **Warning timer** (`timeout_warning_secs`): Injects a warning notification
-    ///   (next priority) without terminating children.
-    /// - **Hard timeout** (`timeout_secs`): Terminates all child sessions via
-    ///   forceful stop, injects a timeout notification, and resumes the parent.
+    /// - **Warning timer**: Injects a warning notification (next priority)
+    ///   60 seconds before the hard timeout fires, giving the agent early
+    ///   visibility into slow child sessions. Skipped when
+    ///   `overall_timeout_secs <= 60`.
+    /// - **Hard timeout** (`overall_timeout_secs`): Injects a structured
+    ///   timeout notification and resumes the parent.
     ///
-    /// If `timeout_warning_secs` is `None`, uses
-    /// [`DEFAULT_YIELD_WARNING_TIMEOUT_SECS`].
-    /// If `timeout_secs` is `None`, uses [`DEFAULT_YIELD_TIMEOUT_SECS`].
     /// If a timeout is already running for this session, the old ones are
     /// aborted first (defensive — callers should cancel before restarting).
     ///
@@ -51,31 +38,35 @@ impl SessionManager {
         self: &Arc<Self>,
         session_id: &str,
         agent_id: &str,
-        timeout_secs: Option<u64>,
-        timeout_warning_secs: Option<u64>,
+        overall_timeout_secs: u64,
     ) {
-        let secs = timeout_secs.unwrap_or(DEFAULT_YIELD_TIMEOUT_SECS);
-        let warning_secs = timeout_warning_secs.unwrap_or(DEFAULT_YIELD_WARNING_TIMEOUT_SECS);
-        let duration = Duration::from_secs(secs);
+        let duration = Duration::from_secs(overall_timeout_secs);
+        let warning_secs = if overall_timeout_secs > 60 {
+            overall_timeout_secs - 60
+        } else {
+            0
+        };
         let warning_duration = Duration::from_secs(warning_secs);
 
         // Abort any existing timeout handles (defensive).
         self.cancel_yield_timeout(session_id).await;
 
-        // Spawn warning timer (fires first).
-        let session_id_warn = session_id.to_string();
-        let agent_id_warn = agent_id.to_string();
-        let sm_warn = Arc::clone(self);
-        let warning_handle = tokio::spawn(async move {
-            tokio::time::sleep(warning_duration).await;
-            sm_warn
-                .handle_yield_warning(&session_id_warn, &agent_id_warn, warning_secs)
-                .await;
-        });
-        self.yield_warning_handles
-            .write()
-            .await
-            .insert(session_id.to_string(), warning_handle);
+        // Spawn warning timer (fires first, only if > 60s).
+        if warning_secs > 0 {
+            let session_id_warn = session_id.to_string();
+            let agent_id_warn = agent_id.to_string();
+            let sm_warn = Arc::clone(self);
+            let warning_handle = tokio::spawn(async move {
+                tokio::time::sleep(warning_duration).await;
+                sm_warn
+                    .handle_yield_warning(&session_id_warn, &agent_id_warn, warning_secs)
+                    .await;
+            });
+            self.yield_warning_handles
+                .write()
+                .await
+                .insert(session_id.to_string(), warning_handle);
+        }
 
         // Spawn hard timeout timer.
         let session_id_owned = session_id.to_string();
@@ -83,7 +74,7 @@ impl SessionManager {
         let sm = Arc::clone(self);
         let handle = tokio::spawn(async move {
             tokio::time::sleep(duration).await;
-            sm.handle_yield_timeout(&session_id_owned, &agent_id_owned, secs)
+            sm.handle_yield_timeout(&session_id_owned, &agent_id_owned, overall_timeout_secs)
                 .await;
         });
         self.yield_timeout_handles
@@ -93,8 +84,8 @@ impl SessionManager {
 
         tracing::info!(
             session_id = %session_id,
-            timeout_secs = secs,
-            timeout_warning_secs = warning_secs,
+            timeout_secs = overall_timeout_secs,
+            warning_secs = warning_secs,
             "yield timeout started (warning + hard)"
         );
     }

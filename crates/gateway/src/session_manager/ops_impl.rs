@@ -80,16 +80,8 @@ impl SessionManagerOps for SessionManager {
         self: Arc<Self>,
         session_id: &str,
         agent_id: &str,
-        timeout_secs: Option<u64>,
-        timeout_warning_secs: Option<u64>,
+        overall_timeout_secs: u64,
     ) {
-        SessionManager::start_yield_timeout(
-            &self,
-            session_id,
-            agent_id,
-            timeout_secs,
-            timeout_warning_secs,
-        )
-        .await
+        SessionManager::start_yield_timeout(&self, session_id, agent_id, overall_timeout_secs).await
     }
 }

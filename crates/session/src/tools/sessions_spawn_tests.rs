@@ -69,8 +69,7 @@ impl SessionManagerOps for MockSessionManager {
         self: Arc<Self>,
         _session_id: &str,
         _agent_id: &str,
-        _timeout_secs: Option<u64>,
-        _timeout_warning_secs: Option<u64>,
+        _overall_timeout_secs: u64,
     ) {
     }
 }

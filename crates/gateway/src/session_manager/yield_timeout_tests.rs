@@ -26,8 +26,7 @@ async fn test_yield_timeout_start_registers_handle() {
     let parent_id = setup_parent_with_conv(&mgr, "parent-to1").await;
 
     // Start a yield timeout with a long duration (won't fire in test).
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(600), None)
-        .await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 600).await;
 
     // Cancel should succeed (handle exists).
     mgr.cancel_yield_timeout(&parent_id).await;
@@ -55,8 +54,7 @@ async fn test_yield_timeout_cancel_prevents_fire() {
     }
 
     // Start a short timeout (2 seconds).
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(2), None)
-        .await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 2).await;
 
     // Cancel before it fires.
     mgr.cancel_yield_timeout(&parent_id).await;
@@ -87,12 +85,10 @@ async fn test_yield_timeout_start_replaces_existing() {
     let parent_id = setup_parent_with_conv(&mgr, "parent-to3").await;
 
     // Start first timeout.
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(600), None)
-        .await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 600).await;
 
     // Start second timeout (should abort the first).
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(600), None)
-        .await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 600).await;
 
     // Cancel should work without issue.
     mgr.cancel_yield_timeout(&parent_id).await;
@@ -144,8 +140,7 @@ async fn test_yield_timeout_fires_and_resumes() {
     assert!(mgr.is_session_yielding(&parent_id).await);
 
     // Start a 1-second timeout.
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(1), None)
-        .await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 1).await;
 
     // Wait for timeout to fire.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -212,8 +207,7 @@ async fn test_yield_timeout_default_value_in_notification() {
     }
 
     // Use a 1-second timeout for fast test.
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(1), None)
-        .await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 1).await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Check notification mentions "1" (the actual timeout value used).
@@ -250,8 +244,7 @@ async fn test_yield_timeout_no_children_fires() {
     }
 
     // Start a 1-second timeout.
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(1), None)
-        .await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 1).await;
 
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
@@ -303,11 +296,10 @@ async fn test_yield_warning_timeout_injects_notification() {
         cs.read().await.enter_waiting();
     }
 
-    // Start with warning=1s, hard=10s (warning fires first).
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(10), Some(1))
-        .await;
+    // Start with overall=61s (warning at 1s). Warning fires first.
+    mgr.start_yield_timeout(&parent_id, "agent-x", 61).await;
 
-    // Wait for warning to fire (1s) but not hard timeout (10s).
+    // Wait for warning to fire (1s) but not hard timeout (61s).
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
 
     // Session should still be yielding (hard timeout hasn't fired).
@@ -380,11 +372,10 @@ async fn test_yield_two_stage_timeout_sequence() {
         cs.read().await.enter_waiting();
     }
 
-    // Start with warning=1s, hard=2s.
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(2), Some(1))
-        .await;
+    // Start with overall=61s (warning at 1s).
+    mgr.start_yield_timeout(&parent_id, "agent-x", 61).await;
 
-    // Wait for both to fire (2s hard + buffer).
+    // Wait for both to fire (61s hard + buffer).
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     // Session should have resumed (hard timeout fired).
@@ -430,9 +421,8 @@ async fn test_yield_warning_disabled_only_hard_timeout_fires() {
         cs.read().await.enter_waiting();
     }
 
-    // Start with warning=3600s (won't fire), hard=1s.
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(1), Some(3600))
-        .await;
+    // Start with a 1-second timeout (no warning since <= 60s).
+    mgr.start_yield_timeout(&parent_id, "agent-x", 1).await;
 
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
@@ -586,9 +576,8 @@ async fn test_yield_warning_is_system_notification_with_next_priority() {
         cs.read().await.enter_waiting();
     }
 
-    // Start with warning=1s, hard=10s (warning fires first).
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(10), Some(1))
-        .await;
+    // Start with overall=61s (warning at 1s). Warning fires first.
+    mgr.start_yield_timeout(&parent_id, "agent-x", 61).await;
 
     // Wait for warning to fire.
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
@@ -669,8 +658,7 @@ async fn test_yield_timeout_notification_goes_through_queue() {
     }
 
     // Start a 1-second timeout.
-    mgr.start_yield_timeout(&parent_id, "agent-x", Some(1), None)
-        .await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 1).await;
 
     // Wait for timeout to fire and drain to complete.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
