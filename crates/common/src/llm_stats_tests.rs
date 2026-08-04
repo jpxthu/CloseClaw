@@ -17,7 +17,7 @@ fn make_info(drop_tokens: u32, drop_ratio: f64, causes: Vec<CacheBreakCause>) ->
 }
 
 #[test]
-fn format_notification_single_cause_system_prompt() {
+fn test_format_notification_single_cause_system_prompt() {
     let info = make_info(5000, 0.05, vec![CacheBreakCause::SystemPromptChanged]);
     let text = info.format_notification();
     assert!(text.contains("system prompt 变更"), "text: {text}");
@@ -26,7 +26,7 @@ fn format_notification_single_cause_system_prompt() {
 }
 
 #[test]
-fn format_notification_single_cause_tools() {
+fn test_format_notification_single_cause_tools() {
     let info = make_info(3000, 0.03, vec![CacheBreakCause::ToolsChanged]);
     let text = info.format_notification();
     assert!(text.contains("工具列表变更"), "text: {text}");
@@ -34,7 +34,7 @@ fn format_notification_single_cause_tools() {
 }
 
 #[test]
-fn format_notification_single_cause_headers() {
+fn test_format_notification_single_cause_headers() {
     let info = make_info(2500, 0.025, vec![CacheBreakCause::HeadersChanged]);
     let text = info.format_notification();
     assert!(text.contains("请求头变更"), "text: {text}");
@@ -42,7 +42,7 @@ fn format_notification_single_cause_headers() {
 }
 
 #[test]
-fn format_notification_single_cause_ttl() {
+fn test_format_notification_single_cause_ttl() {
     let info = make_info(8000, 0.08, vec![CacheBreakCause::TtlExpired]);
     let text = info.format_notification();
     assert!(text.contains("缓存 TTL 过期"), "text: {text}");
@@ -50,7 +50,7 @@ fn format_notification_single_cause_ttl() {
 }
 
 #[test]
-fn format_notification_single_cause_session_resumed() {
+fn test_format_notification_single_cause_session_resumed() {
     let info = make_info(10000, 0.10, vec![CacheBreakCause::SessionResumed]);
     let text = info.format_notification();
     assert!(text.contains("会话恢复"), "text: {text}");
@@ -58,7 +58,7 @@ fn format_notification_single_cause_session_resumed() {
 }
 
 #[test]
-fn format_notification_single_cause_unknown() {
+fn test_format_notification_single_cause_unknown() {
     let info = make_info(4000, 0.04, vec![CacheBreakCause::Unknown]);
     let text = info.format_notification();
     assert!(text.contains("未知原因"), "text: {text}");
@@ -66,7 +66,7 @@ fn format_notification_single_cause_unknown() {
 }
 
 #[test]
-fn format_notification_multiple_causes() {
+fn test_format_notification_multiple_causes() {
     let info = make_info(
         7000,
         0.07,
@@ -86,7 +86,7 @@ fn format_notification_multiple_causes() {
 }
 
 #[test]
-fn format_notification_empty_causes_fallback() {
+fn test_format_notification_empty_causes_fallback() {
     let info = make_info(5000, 0.05, vec![]);
     let text = info.format_notification();
     // Empty causes → cause/dimension clauses omitted entirely
@@ -102,14 +102,14 @@ fn format_notification_empty_causes_fallback() {
 }
 
 #[test]
-fn format_notification_contains_structured_prefix() {
+fn test_format_notification_contains_structured_prefix() {
     let info = make_info(6000, 0.06, vec![CacheBreakCause::TtlExpired]);
     let text = info.format_notification();
     assert!(text.starts_with("[缓存断点]"), "text: {text}");
 }
 
 #[test]
-fn format_notification_percentage_precision() {
+fn test_format_notification_percentage_precision() {
     let info = make_info(3333, 0.03333, vec![CacheBreakCause::Unknown]);
     let text = info.format_notification();
     // drop_ratio * 100 → 3.333% → formatted as {:.1} → "3.3%"
