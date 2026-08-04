@@ -14,7 +14,7 @@ use tempfile::TempDir;
 // Test helpers
 // ---------------------------------------------------------------------------
 
-fn make_engine(rules: Vec<Rule>) -> PermEngine {
+pub(crate) fn make_engine(rules: Vec<Rule>) -> PermEngine {
     let rs = RuleSetBuilder::new()
         .rules(rules)
         .defaults(Defaults {
@@ -30,7 +30,7 @@ fn make_engine(rules: Vec<Rule>) -> PermEngine {
     ))
 }
 
-fn make_sm() -> SessionMgr {
+pub(crate) fn make_sm() -> SessionMgr {
     use closeclaw_gateway::GatewayConfig;
     use closeclaw_session::persistence::ReasoningLevel;
     Arc::new(SessionManager::new(
@@ -46,14 +46,14 @@ fn make_sm() -> SessionMgr {
     ))
 }
 
-fn make_cm() -> ConfigMgr {
+pub(crate) fn make_cm() -> ConfigMgr {
     let tmp = TempDir::new().unwrap();
     Arc::new(
         ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed"),
     )
 }
 
-fn make_af() -> ApprovalMtx {
+pub(crate) fn make_af() -> ApprovalMtx {
     Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
         Arc::clone(&make_sm()) as Arc<dyn closeclaw_common::SessionLookup>,
         Arc::new(|_| {}),
@@ -78,7 +78,7 @@ fn make_af_deny() -> ApprovalMtx {
     )))
 }
 
-fn make_ctx(agent: &str) -> ToolContext {
+pub(crate) fn make_ctx(agent: &str) -> ToolContext {
     ToolContext {
         agent_id: agent.to_string(),
         workdir: None,
@@ -90,7 +90,7 @@ fn make_ctx(agent: &str) -> ToolContext {
     }
 }
 
-fn allow_tool(agent: &str, skill: &str) -> Rule {
+pub(crate) fn allow_tool(agent: &str, skill: &str) -> Rule {
     Rule {
         name: format!("allow-{skill}"),
         subject: Rule::parse_subject(agent),
@@ -104,7 +104,7 @@ fn allow_tool(agent: &str, skill: &str) -> Rule {
     }
 }
 
-fn allow_file(agent: &str, path_glob: &str, op: &str) -> Rule {
+pub(crate) fn allow_file(agent: &str, path_glob: &str, op: &str) -> Rule {
     Rule {
         name: format!("allow-file-{op}"),
         subject: Rule::parse_subject(agent),
@@ -247,7 +247,7 @@ async fn test_read_allowed_with_rules() {
     let args = serde_json::json!({ "path": file.to_str().unwrap() });
     let result = tool.call(args, &make_ctx("a")).await;
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().data["content"], "hello");
+    assert_eq!(result.unwrap().data["content"], "hello\n");
 }
 
 #[tokio::test]
@@ -738,7 +738,7 @@ async fn test_config_write_explicit_allow_still_denied_by_guard() {
 //           error paths, and WriteTool end-to-end behavior.
 // ---------------------------------------------------------------------------
 
-/// EditTool accepts an `edits` array and applies multiple replacements
+/// EditTool accepts an 'edits' array and applies multiple replacements
 /// to the same file in one call (non-incremental, reverse-order).
 #[tokio::test]
 async fn test_edit_with_edits_array() {

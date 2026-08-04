@@ -16,6 +16,7 @@ pub mod git_ops;
 pub mod permission;
 pub mod progress;
 pub mod prompt_template;
+pub(crate) mod read_truncator;
 pub mod search;
 pub mod skill_tool;
 pub mod workflow_tools;
@@ -44,6 +45,12 @@ mod workflow_tools_tests;
 
 #[cfg(test)]
 mod prompt_template_tests;
+
+#[cfg(test)]
+mod read_truncator_tests;
+
+#[cfg(test)]
+mod read_tool_tests;
 
 #[cfg(test)]
 mod progress_tests;
