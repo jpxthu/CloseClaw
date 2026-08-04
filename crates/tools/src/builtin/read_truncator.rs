@@ -131,7 +131,7 @@ fn accumulate_lines(
     let mut trigger: Option<TruncationTrigger> = None;
 
     for line in lines.iter() {
-        if limit.map_or(false, |max| line_count >= max) {
+        if limit.is_some_and(|max| line_count >= max) {
             trigger = Some(TruncationTrigger::Limit);
             break;
         }
