@@ -38,7 +38,7 @@ Gateway 是消息路由中枢。User 通过不同 IM 平台发送的消息由 Ga
 - `/approve`、`/deny` 仅 Owner 可用（非 Owner 调用时收到权限不足提示），与 `/stop`、`/status`、`/help` 等同属 Immediate 类指令，绕过排队条件，始终立即响应
 - 非 Immediate 斜杠指令在满足排队条件时进入该 Session 的待处理队列，向 User 回复"⏳ 正在排队..."
 
-排队条件 = LLM推理 OR 同步工具等结果。活跃维度由 [session §F11](session.md) 定义。
+排队条件定义详见 [session §F10](session.md)（消息排队），活跃维度详见 [session §F11](session.md)。
 
 ### F6. 入站消息队列与过载保护
 

@@ -80,7 +80,7 @@ Agent 可以将子任务委托给子 Session，并等待结果后继续决策。
 inactive 的 session 自动归档，用户无需手动管理。用户可配置归档数据的自动清理时间，默认不自动删除。
 
 - inactive 的 session 自动归档：标记为归档状态，不再作为活跃会话
-- inactive 判定条件 = LLM推理=false AND 同步工具等结果=false AND 后台任务=false AND 子Session=false AND 距上次用户活动超过 configured_inactive_minutes（由 per-agent session 配置提供）。四个活跃维度由 F11 定义
+- inactive 判定条件 = LLM推理=false AND 同步工具等结果=false AND 后台任务=false AND 子Session=false AND 距上次用户活动超过配置的 inactive 时长（每个 Agent 可独立配置，见本节后续说明）。四个活跃维度由 F11 定义
 - 用户配置清理时间后，已归档超过该时长的 session 彻底删除（元数据 + 对话记录）
 - 每个 Agent 可独立配置 inactive 时长和清理时间，主 Session 与子 Session 可以分别设置
 - 未配置时按默认配置（inactive 30 分钟归档、归档数据不自动删除）
@@ -120,7 +120,7 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 
 排队条件 = LLM推理 OR 同步工具等结果。
 
-- 满足排队条件时：用户消息按序排队，排队时用户收到「⏳ 正在排队…」提示。LLM 推理结束后注入，或同步工具结果返回后与用户消息一起注入
+- 满足排队条件时：用户消息按序排队，排队时用户收到「⏳ 正在排队…」提示。LLM 推理结束后注入；同步工具结果返回后，与用户消息一起注入
 - 不满足排队条件时：用户消息立即注入——无论后台任务和子 Session 是否活跃。Session 有其他机制（后台工具完成通知、子 Session 完成通知）提醒 Agent 还有后台任务待处理，Agent 自行判断如何应对
 - 非用户消息（子 Session 完成通知、后台工具结果、记忆注入等）与用户消息沿用同一阻塞框架：满足排队条件时，排队中的非用户消息优先于排队中的用户消息注入；不满足排队条件时，非用户消息立即注入
 
