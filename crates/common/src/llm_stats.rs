@@ -151,27 +151,19 @@ pub struct CacheBreakInfo {
 }
 
 impl CacheBreakCause {
-    /// Returns a human-readable Chinese description for this cause.
-    fn description(&self) -> &'static str {
+    /// Returns `(description, dimension)` for this cause.
+    ///
+    /// `description` is a human-readable Chinese label;
+    /// `dimension` is the English cache-dimension identifier
+    /// matching the code fingerprint key (e.g. `"system prompt"`).
+    fn label(&self) -> (&'static str, &'static str) {
         match self {
-            Self::SystemPromptChanged => "system prompt 变更",
-            Self::ToolsChanged => "工具列表变更",
-            Self::HeadersChanged => "请求头变更",
-            Self::TtlExpired => "缓存 TTL 过期",
-            Self::SessionResumed => "会话恢复",
-            Self::Unknown => "未知原因",
-        }
-    }
-
-    /// Returns the English cache dimension identifier for this cause.
-    fn dimension(&self) -> &'static str {
-        match self {
-            Self::SystemPromptChanged => "system prompt",
-            Self::ToolsChanged => "tools 列表",
-            Self::HeadersChanged => "请求头",
-            Self::TtlExpired => "缓存 TTL",
-            Self::SessionResumed => "会话状态",
-            Self::Unknown => "未知",
+            Self::SystemPromptChanged => ("system prompt 变更", "system prompt"),
+            Self::ToolsChanged => ("工具列表变更", "tools list"),
+            Self::HeadersChanged => ("请求头变更", "headers"),
+            Self::TtlExpired => ("缓存 TTL 过期", "cache ttl"),
+            Self::SessionResumed => ("会话恢复", "session state"),
+            Self::Unknown => ("未知原因", "unknown"),
         }
     }
 }
@@ -181,24 +173,32 @@ impl CacheBreakInfo {
     ///
     /// The notification includes the token drop, percentage,
     /// attributed causes (in Chinese), and affected cache dimensions.
+    /// When `causes` is empty, the cause/dimension clauses are omitted.
     pub fn format_notification(&self) -> String {
-        let causes_str = self
-            .causes
-            .iter()
-            .map(|c| c.description())
-            .collect::<Vec<_>>()
-            .join("、");
-        let dimensions_str = self
-            .causes
-            .iter()
-            .map(|c| c.dimension())
-            .collect::<Vec<_>>()
-            .join("、");
         let drop_pct = self.drop_ratio * 100.0;
-        format!(
-            "[缓存断点] 检测到缓存命中率下降（减少 {} tokens，降幅 {:.1}%）。原因：{}。受影响维度：{}。",
-            self.drop_tokens, drop_pct, causes_str, dimensions_str
-        )
+        let mut text = format!(
+            "[缓存断点] 检测到缓存命中率下降（减少 {} tokens，降幅 {:.1}%）。",
+            self.drop_tokens, drop_pct,
+        );
+        if !self.causes.is_empty() {
+            let causes_str = self
+                .causes
+                .iter()
+                .map(|c| c.label().0)
+                .collect::<Vec<_>>()
+                .join("、");
+            let dimensions_str = self
+                .causes
+                .iter()
+                .map(|c| c.label().1)
+                .collect::<Vec<_>>()
+                .join("、");
+            text.push_str(&format!(
+                "原因：{}。受影响维度：{}。",
+                causes_str, dimensions_str,
+            ));
+        }
+        text
     }
 }
 

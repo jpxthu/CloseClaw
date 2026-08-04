@@ -30,7 +30,7 @@ fn format_notification_single_cause_tools() {
     let info = make_info(3000, 0.03, vec![CacheBreakCause::ToolsChanged]);
     let text = info.format_notification();
     assert!(text.contains("工具列表变更"), "text: {text}");
-    assert!(text.contains("tools 列表"), "text: {text}");
+    assert!(text.contains("tools list"), "text: {text}");
 }
 
 #[test]
@@ -38,7 +38,7 @@ fn format_notification_single_cause_headers() {
     let info = make_info(2500, 0.025, vec![CacheBreakCause::HeadersChanged]);
     let text = info.format_notification();
     assert!(text.contains("请求头变更"), "text: {text}");
-    assert!(text.contains("请求头"), "text: {text}");
+    assert!(text.contains("headers"), "text: {text}");
 }
 
 #[test]
@@ -46,7 +46,7 @@ fn format_notification_single_cause_ttl() {
     let info = make_info(8000, 0.08, vec![CacheBreakCause::TtlExpired]);
     let text = info.format_notification();
     assert!(text.contains("缓存 TTL 过期"), "text: {text}");
-    assert!(text.contains("缓存 TTL"), "text: {text}");
+    assert!(text.contains("cache ttl"), "text: {text}");
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn format_notification_single_cause_session_resumed() {
     let info = make_info(10000, 0.10, vec![CacheBreakCause::SessionResumed]);
     let text = info.format_notification();
     assert!(text.contains("会话恢复"), "text: {text}");
-    assert!(text.contains("会话状态"), "text: {text}");
+    assert!(text.contains("session state"), "text: {text}");
 }
 
 #[test]
@@ -62,7 +62,7 @@ fn format_notification_single_cause_unknown() {
     let info = make_info(4000, 0.04, vec![CacheBreakCause::Unknown]);
     let text = info.format_notification();
     assert!(text.contains("未知原因"), "text: {text}");
-    assert!(text.contains("未知"), "text: {text}");
+    assert!(text.contains("unknown"), "text: {text}");
 }
 
 #[test]
@@ -78,9 +78,9 @@ fn format_notification_multiple_causes() {
     let text = info.format_notification();
     assert!(text.contains("system prompt 变更"), "text: {text}");
     assert!(text.contains("工具列表变更"), "text: {text}");
-    // Both dimensions present
+    // Both dimensions present (English identifiers)
     assert!(text.contains("system prompt"), "text: {text}");
-    assert!(text.contains("tools 列表"), "text: {text}");
+    assert!(text.contains("tools list"), "text: {text}");
     // Joined by Chinese comma
     assert!(text.contains("、"), "text: {text}");
 }
@@ -89,10 +89,16 @@ fn format_notification_multiple_causes() {
 fn format_notification_empty_causes_fallback() {
     let info = make_info(5000, 0.05, vec![]);
     let text = info.format_notification();
-    // Empty causes → empty strings joined → fallback is empty but no panic
+    // Empty causes → cause/dimension clauses omitted entirely
     assert!(text.contains("[缓存断点]"), "header present: {text}");
     assert!(text.contains("降幅 5.0%"), "percentage formatted: {text}");
     assert!(text.contains("减少 5000 tokens"), "token count: {text}");
+    // Should NOT contain "原因：" or "受影响维度：" when causes is empty
+    assert!(!text.contains("原因："), "no cause clause: {text}");
+    assert!(
+        !text.contains("受影响维度："),
+        "no dimension clause: {text}"
+    );
 }
 
 #[test]
