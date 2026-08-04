@@ -11,6 +11,8 @@ pub mod im_plugin_tests;
 pub mod llm_caller;
 pub mod llm_error;
 pub mod llm_stats;
+#[cfg(test)]
+pub mod llm_stats_tests;
 pub mod llm_streaming;
 pub mod llm_types;
 pub mod metrics;

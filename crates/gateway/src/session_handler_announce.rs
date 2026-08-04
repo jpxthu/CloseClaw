@@ -143,6 +143,10 @@ impl SessionMessageHandler {
                         if let Some(emitter) = metrics_emitter {
                             emitter.emit_cache_break(&info);
                         }
+                        cs_write.push_system_notification(
+                            info.format_notification(),
+                            NotificationPriority::Now,
+                        );
                     }
                     cs_write.accumulate_usage(&stream_result.usage);
 

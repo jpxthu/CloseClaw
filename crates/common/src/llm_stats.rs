@@ -150,6 +150,58 @@ pub struct CacheBreakInfo {
     pub causes: Vec<CacheBreakCause>,
 }
 
+impl CacheBreakCause {
+    /// Returns `(description, dimension)` for this cause.
+    ///
+    /// `description` is a human-readable Chinese label;
+    /// `dimension` is the English cache-dimension identifier
+    /// matching the code fingerprint key (e.g. `"system prompt"`).
+    fn label(&self) -> (&'static str, &'static str) {
+        match self {
+            Self::SystemPromptChanged => ("system prompt 变更", "system prompt"),
+            Self::ToolsChanged => ("工具列表变更", "tools list"),
+            Self::HeadersChanged => ("请求头变更", "headers"),
+            Self::TtlExpired => ("缓存 TTL 过期", "cache ttl"),
+            Self::SessionResumed => ("会话恢复", "session state"),
+            Self::Unknown => ("未知原因", "unknown"),
+        }
+    }
+}
+
+impl CacheBreakInfo {
+    /// Formats a user-facing notification for this cache break.
+    ///
+    /// The notification includes the token drop, percentage,
+    /// attributed causes (in Chinese), and affected cache dimensions.
+    /// When `causes` is empty, the cause/dimension clauses are omitted.
+    pub fn format_notification(&self) -> String {
+        let drop_pct = self.drop_ratio * 100.0;
+        let mut text = format!(
+            "[缓存断点] 检测到缓存命中率下降（减少 {} tokens，降幅 {:.1}%）。",
+            self.drop_tokens, drop_pct,
+        );
+        if !self.causes.is_empty() {
+            let causes_str = self
+                .causes
+                .iter()
+                .map(|c| c.label().0)
+                .collect::<Vec<_>>()
+                .join("、");
+            let dimensions_str = self
+                .causes
+                .iter()
+                .map(|c| c.label().1)
+                .collect::<Vec<_>>()
+                .join("、");
+            text.push_str(&format!(
+                "原因：{}。受影响维度：{}。",
+                causes_str, dimensions_str,
+            ));
+        }
+        text
+    }
+}
+
 /// Detects a cache break between two consecutive cache-read token counts.
 ///
 /// Returns `Some(CacheBreakInfo)` when:
