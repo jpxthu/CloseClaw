@@ -67,8 +67,8 @@ Session 创建 / 恢复 / Compaction
 
 1. Archived session 被访问
 2. 从 SessionCheckpoint 重建 ConversationSession
-3. 强制重新走完整构建流程（checkpoint 不存储 system prompt，恢复时从最新文件重建）
-4. 新 system prompt 替换 ConversationSession 中的旧值
+3. 强制重新走完整构建流程（checkpoint 不存储组装后的静态层文本，恢复时从最新文件重建；追加区内容从 checkpoint 的 system_appends 字段恢复，不参与重建，详见 [appends.md](appends.md)）
+4. 新 system prompt（重建的静态层 + 恢复的追加区 + 动态层 + 边界标记）替换 ConversationSession 中的旧值
 
 ## 模块关系
 
