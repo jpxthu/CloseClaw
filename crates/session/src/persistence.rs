@@ -891,6 +891,10 @@ pub trait PersistenceService: Send + Sync {
         Ok(Vec::new())
     }
 
+    /// 列出正在迁移中的 Session（归档中断的崩溃安全中间状态）
+    async fn list_migrating_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        Ok(Vec::new())
+    }
     /// 使给定 session 的本地缓存失效（无实际操作，直接返回 Ok）。
     async fn invalidate_session(&self, _session_id: &str) -> Result<(), PersistenceError> {
         Ok(())

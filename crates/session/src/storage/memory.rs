@@ -13,6 +13,7 @@ use std::sync::RwLock;
 pub struct MemoryStorage {
     checkpoints: RwLock<HashMap<String, SessionCheckpoint>>,
     archived: RwLock<HashMap<String, SessionCheckpoint>>,
+    migrating: RwLock<HashMap<String, SessionCheckpoint>>,
 }
 
 impl MemoryStorage {
@@ -21,6 +22,7 @@ impl MemoryStorage {
         Self {
             checkpoints: RwLock::new(HashMap::new()),
             archived: RwLock::new(HashMap::new()),
+            migrating: RwLock::new(HashMap::new()),
         }
     }
 
@@ -67,11 +69,30 @@ impl PersistenceService for MemoryStorage {
         &self,
         checkpoint: &SessionCheckpoint,
     ) -> Result<(), PersistenceError> {
-        let mut checkpoints = self
-            .checkpoints
-            .write()
-            .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
-        checkpoints.insert(checkpoint.session_id.clone(), checkpoint.clone());
+        // Route to the correct map based on status
+        match checkpoint.status {
+            crate::persistence::SessionStatus::Archived => {
+                let mut archived = self
+                    .archived
+                    .write()
+                    .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+                archived.insert(checkpoint.session_id.clone(), checkpoint.clone());
+            }
+            crate::persistence::SessionStatus::Migrating => {
+                let mut migrating = self
+                    .migrating
+                    .write()
+                    .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+                migrating.insert(checkpoint.session_id.clone(), checkpoint.clone());
+            }
+            crate::persistence::SessionStatus::Active => {
+                let mut checkpoints = self
+                    .checkpoints
+                    .write()
+                    .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+                checkpoints.insert(checkpoint.session_id.clone(), checkpoint.clone());
+            }
+        }
         Ok(())
     }
 
@@ -79,11 +100,22 @@ impl PersistenceService for MemoryStorage {
         &self,
         session_id: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        // Check all three maps (migrating sessions may be in any location)
         let checkpoints = self
             .checkpoints
             .read()
             .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
-        Ok(checkpoints.get(session_id).cloned())
+        if let Some(cp) = checkpoints.get(session_id) {
+            return Ok(Some(cp.clone()));
+        }
+        let migrating = self
+            .migrating
+            .read()
+            .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
+        if let Some(cp) = migrating.get(session_id) {
+            return Ok(Some(cp.clone()));
+        }
+        Ok(None)
     }
 
     async fn load_archived_checkpoint(
@@ -103,6 +135,11 @@ impl PersistenceService for MemoryStorage {
             .write()
             .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
         checkpoints.remove(session_id);
+        let mut migrating = self
+            .migrating
+            .write()
+            .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+        migrating.remove(session_id);
         Ok(())
     }
 
@@ -148,6 +185,14 @@ impl PersistenceService for MemoryStorage {
         &self,
         checkpoint: &SessionCheckpoint,
     ) -> Result<(), PersistenceError> {
+        // Remove from migrating map if present (completing interrupted archive)
+        {
+            let mut migrating = self
+                .migrating
+                .write()
+                .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+            migrating.remove(&checkpoint.session_id);
+        }
         let mut archived = self
             .archived
             .write()
@@ -192,6 +237,14 @@ impl PersistenceService for MemoryStorage {
             .read()
             .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
         Ok(archived.keys().cloned().collect())
+    }
+
+    async fn list_migrating_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        let migrating = self
+            .migrating
+            .read()
+            .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
+        Ok(migrating.keys().cloned().collect())
     }
 
     async fn list_children_sessions(

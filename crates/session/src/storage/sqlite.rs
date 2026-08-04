@@ -275,6 +275,26 @@ impl SqliteStorage {
         .await
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
     }
+
+    /// List IDs of sessions in `migrating` status.
+    pub async fn list_migrating_sessions_inner(&self) -> Result<Vec<String>, PersistenceError> {
+        let data_dir = self.data_dir.clone();
+        spawn_blocking(move || {
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            let mut stmt = conn
+                .prepare("SELECT id FROM sessions WHERE status = 'migrating'")
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            let ids: Vec<String> = stmt
+                .query_map([], |row| row.get(0))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+                .filter_map(|r| r.ok())
+                .collect();
+            Ok(ids)
+        })
+        .await
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    }
 }
 
 impl std::fmt::Display for SqliteStorage {
@@ -721,6 +741,10 @@ impl PersistenceService for SqliteStorage {
         spawn_blocking(move || archive_support::do_list_archived(&data_dir))
             .await
             .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    }
+
+    async fn list_migrating_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        self.list_migrating_sessions_inner().await
     }
 
     /// Invalidate a session (no-op for SQLite backend).

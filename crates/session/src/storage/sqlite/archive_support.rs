@@ -145,13 +145,13 @@ pub fn do_restore(
 
     begin_immediate(&conn)?;
 
-    // Verify archived status
-    let archived: bool = match conn.query_row(
-        "SELECT 1 FROM sessions WHERE id = ?1 AND status = 'archived'",
+    // Verify status is archived or migrating
+    let status: String = match conn.query_row(
+        "SELECT status FROM sessions WHERE id = ?1",
         [session_id],
-        |row| row.get::<_, i64>(0),
+        |row| row.get(0),
     ) {
-        Ok(_) => true,
+        Ok(s) => s,
         Err(rusqlite::Error::QueryReturnedNoRows) => {
             rollback(&conn);
             return Err(PersistenceError::NotFound(session_id.to_string()));
@@ -159,19 +159,23 @@ pub fn do_restore(
         Err(e) => return Err(PersistenceError::Sqlite(e.to_string())),
     };
 
-    if !archived {
+    if status != "archived" && status != "migrating" {
         rollback(&conn);
         return Err(PersistenceError::NotFound(session_id.to_string()));
     }
 
-    let src = data_dir
+    // Move transcript: from archived_sessions/ (if present) to sessions/
+    // For migrating sessions, the file could be in either location.
+    let archived_src = data_dir
         .join("archived_sessions")
         .join(format!("{session_id}.jsonl"));
-    let dst = data_dir
+    let active_dst = data_dir
         .join("sessions")
         .join(format!("{session_id}.jsonl"));
 
-    rename_transcript(&src, &dst)?;
+    if archived_src.exists() && !active_dst.exists() {
+        rename_transcript(&archived_src, &active_dst)?;
+    }
 
     conn.execute(
         "UPDATE sessions SET status = 'active', archived_at = NULL WHERE id = ?1",

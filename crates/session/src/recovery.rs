@@ -211,6 +211,11 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             }
         }
 
+        // Scan migrating sessions (crash interrupted archive between
+        // Step A and Step C of two-step archive).
+        self.scan_migrating_sessions(&mut recovered, &mut failed, &mut checkpoints)
+            .await;
+
         // Collect dirty sessions (those with pending operations)
         let dirty_sessions: Vec<String> = checkpoints
             .iter()
@@ -286,15 +291,11 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         if checkpoint.approval_tool_calls.is_empty() {
             return;
         }
-
         let summary = format_approval_history(&checkpoint.approval_tool_calls);
         if summary.is_empty() {
             return;
         }
-
         let tagged = format!("{}{}", APPROVAL_HISTORY_PREFIX, summary);
-
-        // Replace existing entry in-place if present, otherwise append.
         if let Some(slot) = checkpoint
             .system_appends
             .iter_mut()
@@ -304,12 +305,7 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         } else {
             checkpoint.system_appends.push(tagged);
         }
-
-        tracing::info!(
-            session_id = %session_id,
-            call_count = checkpoint.approval_tool_calls.len(),
-            "injected approval tool call history into system_appends"
-        );
+        tracing::info!(session_id = %session_id, call_count = checkpoint.approval_tool_calls.len(), "injected approval tool call history into system_appends");
     }
 
     /// Inject the plan file Tasks section into checkpoint's system_appends.
@@ -325,20 +321,15 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             Some(ps) => ps,
             None => return,
         };
-
         let plan_file_path = &plan_state.plan_file_path;
         if plan_file_path.is_empty() {
             return;
         }
-
         let tasks_content = match extract_plan_tasks_section(plan_file_path) {
             Some(content) => content,
             None => return,
         };
-
         let tagged = format!("{}{}", PLAN_TASKS_PREFIX, tasks_content);
-
-        // Replace existing entry in-place if present, otherwise append.
         if let Some(slot) = checkpoint
             .system_appends
             .iter_mut()
@@ -348,12 +339,7 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         } else {
             checkpoint.system_appends.push(tagged);
         }
-
-        tracing::info!(
-            session_id = %session_id,
-            plan_file = %plan_file_path,
-            "injected plan file Tasks section into system_appends"
-        );
+        tracing::info!(session_id = %session_id, plan_file = %plan_file_path, "injected plan file Tasks section into system_appends");
     }
 
     /// Inject plan references from session message history into checkpoint's
@@ -369,44 +355,32 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
     /// The trigger condition is explicit: only when layers 1–3 are all
     /// unavailable.
     fn inject_plan_references(&self, session_id: &str, checkpoint: &mut SessionCheckpoint) {
-        // Layer 1: Only trigger when plan_state is unavailable
+        // Only trigger when all three higher layers are unavailable
         if checkpoint.plan_state.is_some() {
             return;
         }
-
-        // Layer 3: Only trigger when approval history was NOT injected
-        // (i.e., no APPROVAL_HISTORY_PREFIX entry exists)
-        let has_approval_history = checkpoint
+        if checkpoint
             .system_appends
             .iter()
-            .any(|s| s.starts_with(APPROVAL_HISTORY_PREFIX));
-        if has_approval_history {
+            .any(|s| s.starts_with(APPROVAL_HISTORY_PREFIX))
+        {
             return;
         }
-
-        // Layer 2: Only trigger when progress summary was NOT injected
-        // (i.e., no PROGRESS_APPEND_PREFIX entry exists in system_appends)
-        let has_progress_summary = checkpoint
+        if checkpoint
             .system_appends
             .iter()
-            .any(|s| s.starts_with(PROGRESS_APPEND_PREFIX));
-        if has_progress_summary {
+            .any(|s| s.starts_with(PROGRESS_APPEND_PREFIX))
+        {
             return;
         }
-
-        // Only trigger when plan_references is non-empty
         if checkpoint.plan_references.is_empty() {
             return;
         }
-
         let summary = format_plan_references(&checkpoint.plan_references);
         if summary.is_empty() {
             return;
         }
-
         let tagged = format!("{}{}", PLAN_REFERENCES_PREFIX, summary);
-
-        // Replace existing entry in-place if present, otherwise append.
         if let Some(slot) = checkpoint
             .system_appends
             .iter_mut()
@@ -416,12 +390,69 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         } else {
             checkpoint.system_appends.push(tagged);
         }
+        tracing::info!(session_id = %session_id, ref_count = checkpoint.plan_references.len(), "layer 4 fallback: injected plan references into system_appends");
+    }
 
-        tracing::info!(
-            session_id = %session_id,
-            ref_count = checkpoint.plan_references.len(),
-            "layer 4 fallback: injected plan references into system_appends"
-        );
+    /// Scan migrating sessions: restore those with pending ops,
+    /// complete archive for the rest.
+    async fn scan_migrating_sessions(
+        &self,
+        recovered: &mut Vec<String>,
+        failed: &mut Vec<String>,
+        checkpoints: &mut HashMap<String, SessionCheckpoint>,
+    ) {
+        let ids = self
+            .storage
+            .list_migrating_sessions()
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!("Failed to list migrating sessions: {}", e);
+                Vec::new()
+            });
+        for sid in &ids {
+            if recovered.contains(sid) {
+                continue;
+            }
+            let cp = match self.storage.load_checkpoint(sid).await {
+                Ok(Some(cp)) => cp,
+                Ok(None) => {
+                    tracing::warn!(session_id = %sid, "Migrating checkpoint not found");
+                    failed.push(sid.clone());
+                    continue;
+                }
+                Err(e) => {
+                    tracing::error!(session_id = %sid, "Failed to load migrating checkpoint: {}", e);
+                    failed.push(sid.clone());
+                    continue;
+                }
+            };
+            if !cp.pending_operations.is_empty() {
+                // Has pending ops — restore to active
+                if let Err(e) = self.storage.restore_checkpoint(sid).await {
+                    tracing::error!(session_id = %sid, "Failed to restore migrating session: {}", e);
+                    failed.push(sid.clone());
+                    continue;
+                }
+                match self.storage.load_checkpoint(sid).await {
+                    Ok(Some(restored)) => {
+                        checkpoints.insert(sid.clone(), restored);
+                        recovered.push(sid.clone());
+                    }
+                    _ => {
+                        tracing::warn!(session_id = %sid, "Restored migrating checkpoint not found");
+                        failed.push(sid.clone());
+                    }
+                }
+            } else {
+                // No pending ops — complete the interrupted archive
+                if let Err(e) = self.storage.archive_checkpoint(&cp).await {
+                    tracing::error!(session_id = %sid, "Failed to complete archive: {}", e);
+                    failed.push(sid.clone());
+                } else {
+                    tracing::info!(session_id = %sid, "Completed interrupted archive");
+                }
+            }
+        }
     }
 
     /// Recover a single session
@@ -487,53 +518,37 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
     /// Build notification text listing pending operations.
     fn build_notification_text(&self, checkpoint: &SessionCheckpoint) -> String {
         use crate::persistence::PendingOperationType;
-
         let restart_time_utc = chrono::Utc::now();
         let restart_time = restart_time_utc.format("%Y-%m-%dT%H:%M:%SZ");
-
-        // Build summary by op_type
+        let mut sections = Vec::new();
         let mut tool_calls = Vec::new();
         let mut sub_spawns = Vec::new();
         let mut outbound_msgs = Vec::new();
-
         for op in &checkpoint.pending_operations {
+            let ts = op.created_at.format("%Y-%m-%dT%H:%M:%SZ");
             match op.op_type {
                 PendingOperationType::ToolCall => {
-                    let tool_name = op.detail.tool_name().unwrap_or("unknown");
+                    let name = op.detail.tool_name().unwrap_or("unknown");
                     let args = op.detail.args_summary().unwrap_or("无参数");
-                    let args_display = if args.is_empty() {
+                    let args = if args.is_empty() {
                         "无参数".to_string()
                     } else {
                         args.to_string()
                     };
-                    tool_calls.push(format!(
-                        "  • 工具调用: {}({}) — 发起于 {}",
-                        tool_name,
-                        args_display,
-                        op.created_at.format("%Y-%m-%dT%H:%M:%SZ")
-                    ));
+                    tool_calls.push(format!("  • 工具调用: {}({}) — 发起于 {}", name, args, ts));
                 }
                 PendingOperationType::SubSessionSpawn => {
-                    let child_id = op.detail.child_session_id().unwrap_or("unknown");
-                    let elapsed = (restart_time_utc - op.created_at).num_seconds();
-                    let duration_str = format_duration_seconds(elapsed);
-                    sub_spawns.push(format!(
-                        "  • 子 Session: {} — 已运行 {}",
-                        child_id, duration_str
-                    ));
+                    let child = op.detail.child_session_id().unwrap_or("unknown");
+                    let elapsed =
+                        format_duration_seconds((restart_time_utc - op.created_at).num_seconds());
+                    sub_spawns.push(format!("  • 子 Session: {} — 已运行 {}", child, elapsed));
                 }
                 PendingOperationType::OutboundMessage => {
-                    let msg_id = op.detail.message_id().unwrap_or("unknown");
-                    outbound_msgs.push(format!(
-                        "  • 出站消息: {} — 创建于 {}",
-                        msg_id,
-                        op.created_at.format("%Y-%m-%dT%H:%M:%SZ")
-                    ));
+                    let msg = op.detail.message_id().unwrap_or("unknown");
+                    outbound_msgs.push(format!("  • 出站消息: {} — 创建于 {}", msg, ts));
                 }
             }
         }
-
-        let mut sections = Vec::new();
         if !tool_calls.is_empty() {
             sections.push(tool_calls.join("\n"));
         }
@@ -543,7 +558,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         if !outbound_msgs.is_empty() {
             sections.push(outbound_msgs.join("\n"));
         }
-
         format!(
             "[系统] 网关已重启（重启时间: {restart_time}）\n\n\
 以下操作在重启前未完成：\n{ops}\n\n\
@@ -635,24 +649,22 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
 /// - 3661 → "1h1m1s"
 /// - 86400 → "1d"
 fn format_duration_seconds(seconds: i64) -> String {
-    let seconds = seconds.max(0) as u64;
-    let days = seconds / 86400;
-    let hours = (seconds % 86400) / 3600;
-    let minutes = (seconds % 3600) / 60;
-    let secs = seconds % 60;
-
+    let s = seconds.max(0) as u64;
+    let (d, s) = (s / 86400, s % 86400);
+    let (h, s) = (s / 3600, s % 3600);
+    let (m, s) = (s / 60, s % 60);
     let mut parts = Vec::new();
-    if days > 0 {
-        parts.push(format!("{}d", days));
+    if d > 0 {
+        parts.push(format!("{}d", d));
     }
-    if hours > 0 {
-        parts.push(format!("{}h", hours));
+    if h > 0 {
+        parts.push(format!("{}h", h));
     }
-    if minutes > 0 {
-        parts.push(format!("{}m", minutes));
+    if m > 0 {
+        parts.push(format!("{}m", m));
     }
-    if secs > 0 || parts.is_empty() {
-        parts.push(format!("{}s", secs));
+    if s > 0 || parts.is_empty() {
+        parts.push(format!("{}s", s));
     }
     parts.join("")
 }
@@ -686,16 +698,14 @@ impl SpawnTree {
     }
 
     /// Get the parent session ID of a given session.
-    ///
-    /// Returns `None` for root nodes or unknown sessions.
     pub fn get_parent(&self, session_id: &str) -> Option<&String> {
         if self.is_root(session_id) {
             return None;
         }
         self.children
             .iter()
-            .find(|(_, children)| children.iter().any(|id| id == session_id))
-            .map(|(parent, _)| parent)
+            .find(|(_, c)| c.iter().any(|id| id == session_id))
+            .map(|(p, _)| p)
     }
 }
 
