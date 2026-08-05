@@ -9,7 +9,6 @@ license = "MIT"
 # Internal crates
 closeclaw-common = { path = "../common" }
 closeclaw-llm = { path = "../llm" }
-closeclaw-gateway = { path = "../gateway" }
 
 # Async runtime
 tokio = { version = "=1.35.0", features = ["full"] }

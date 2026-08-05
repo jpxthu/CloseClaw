@@ -33,6 +33,7 @@ pub mod processor;
 #[cfg(test)]
 pub mod processor_tests;
 pub mod request_context;
+pub mod session_key;
 pub mod session_lookup;
 pub mod session_mode;
 pub mod session_mode_query;
