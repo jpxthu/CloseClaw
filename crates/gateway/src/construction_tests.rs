@@ -110,3 +110,46 @@ fn test_gateway_with_processor_registry_reflects_chain_counts() {
         "Gateway should reflect build_processor_registry outbound count"
     );
 }
+
+// ── Default outbound middleware registration ────────────────────────────────
+
+/// Gateway::new must register the built-in audit and rate-limit middlewares.
+#[tokio::test]
+async fn test_gateway_new_registers_default_middlewares() {
+    let config = GatewayConfig {
+        name: "test-default-mw".to_string(),
+        ..Default::default()
+    };
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    let gw = crate::Gateway::new(config, sm);
+    let mws = gw.get_outbound_middlewares().await;
+    assert_eq!(mws.len(), 2, "expected 2 default middlewares");
+    assert_eq!(mws[0].name(), "audit");
+    assert_eq!(mws[1].name(), "rate_limit");
+}
+
+/// Gateway::with_processor_registry must also register default middlewares.
+#[tokio::test]
+async fn test_gateway_with_processor_registry_registers_default_middlewares() {
+    let config = GatewayConfig {
+        name: "test-default-mw-registry".to_string(),
+        ..Default::default()
+    };
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    let registry = closeclaw_processor_chain::ProcessorRegistry::new();
+    let gw = crate::Gateway::with_processor_registry(config, sm, Arc::new(registry));
+    let mws = gw.get_outbound_middlewares().await;
+    assert_eq!(mws.len(), 2, "expected 2 default middlewares");
+    assert_eq!(mws[0].name(), "audit");
+    assert_eq!(mws[1].name(), "rate_limit");
+}

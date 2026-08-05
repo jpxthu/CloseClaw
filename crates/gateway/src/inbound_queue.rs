@@ -5,6 +5,7 @@
 //! When the queue is full, new messages are rejected with a busy reply.
 
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 use super::Gateway;
@@ -306,12 +307,33 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
 /// The reply text goes through the outbound chain (DslParser → RawLog)
 /// and is then rendered by the IM plugin, consistent with slash-command
 /// and LLM reply paths.
+///
+/// Per design doc: the reply must complete within 2 seconds to avoid
+/// blocking the Gateway. If the send times out, we log and move on.
 async fn send_busy_reply(gateway: &Gateway, request: &InboundRequest) {
-    if let Err(e) = gateway
-        .send_outbound_to_chat(&request.peer_id, &request.platform, BUSY_REPLY_TEXT)
-        .await
-    {
-        tracing::warn!(error = %e, "failed to send busy reply");
+    let result = tokio::time::timeout(
+        Duration::from_secs(2),
+        gateway.send_outbound_to_chat(&request.peer_id, &request.platform, BUSY_REPLY_TEXT),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            tracing::warn!(
+                peer_id = %request.peer_id,
+                platform = %request.platform,
+                error = %e,
+                "failed to send busy reply"
+            );
+        }
+        Err(_elapsed) => {
+            tracing::warn!(
+                peer_id = %request.peer_id,
+                platform = %request.platform,
+                "busy reply timed out after 2s — dropping"
+            );
+        }
     }
 }
 

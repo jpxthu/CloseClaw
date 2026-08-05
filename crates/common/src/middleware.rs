@@ -1,6 +1,6 @@
 //! Outbound middleware extension point.
 //!
-//! Defines the [`OutboundMiddleware`] trait that allows intercepting
+//! Defines the [`OutboundMiddleware`] trait that allows inspecting
 //! rendered outbound messages between IM Adapter rendering and sending.
 //!
 //! The middleware chain runs after [`IMPlugin::render`] produces a
@@ -26,6 +26,10 @@ pub enum MiddlewareError {
         #[source]
         source: anyhow::Error,
     },
+
+    /// A middleware explicitly rejected the outbound message.
+    #[error("middleware `{name}` rejected message: {reason}")]
+    Rejected { name: String, reason: String },
 }
 
 impl MiddlewareError {
@@ -37,6 +41,36 @@ impl MiddlewareError {
             source: anyhow::Error::msg(source.to_string()),
         }
     }
+
+    /// Constructs a `Rejected` error.
+    #[inline]
+    pub fn rejected(name: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::Rejected {
+            name: name.into(),
+            reason: reason.into(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MiddlewareContext
+// ---------------------------------------------------------------------------
+
+/// Context passed to outbound middlewares alongside the rendered output.
+///
+/// Provides session-level metadata that middlewares may need for
+/// inspection, logging, or rate-limiting decisions. The context is
+/// constructed by the Gateway before the middleware chain runs and is
+/// passed as an immutable reference — middlewares must not attempt to
+/// modify it.
+#[derive(Debug, Clone)]
+pub struct MiddlewareContext {
+    /// The session identifier this message belongs to.
+    pub session_id: String,
+    /// The target IM channel (e.g. "feishu", "telegram").
+    pub channel: String,
+    /// The chat / group identifier on the target platform.
+    pub chat_id: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -45,14 +79,21 @@ impl MiddlewareError {
 
 /// Middleware that intercepts rendered outbound messages.
 ///
-/// Implementations can inspect, modify, or reject outbound messages
-/// before they are sent to the target platform. The middleware chain
-/// runs between [`IMPlugin::render`] and [`IMPlugin::send`].
+/// Implementations inspect outbound messages and decide whether to
+/// allow or reject them. The middleware chain runs between
+/// [`IMPlugin::render`] and [`IMPlugin::send`]. Middlewares must not
+/// modify the message content — returning `Ok(())` signals "allow"
+/// and returning `Err(MiddlewareError::Rejected { .. })` signals
+/// "reject".
+///
+/// The [`MiddlewareContext`] provides session-level metadata (session ID,
+/// channel, chat ID) that middlewares can use for decisions such as
+/// rate limiting or audit logging.
 ///
 /// # Examples
 ///
 /// ```ignore
-/// use closeclaw_common::middleware::OutboundMiddleware;
+/// use closeclaw_common::middleware::{MiddlewareContext, OutboundMiddleware};
 /// use closeclaw_common::im_plugin::RenderedOutput;
 ///
 /// struct LoggingMiddleware;
@@ -65,10 +106,11 @@ impl MiddlewareError {
 ///
 ///     async fn process(
 ///         &self,
+///         _ctx: &MiddlewareContext,
 ///         rendered: &RenderedOutput,
-///     ) -> Result<RenderedOutput, MiddlewareError> {
+///     ) -> Result<(), MiddlewareError> {
 ///         tracing::info!("outbound message type={}", rendered.msg_type);
-///         Ok(rendered.clone())
+///         Ok(())
 ///     }
 /// }
 /// ```
@@ -77,10 +119,15 @@ pub trait OutboundMiddleware: Send + Sync {
     /// Return the middleware's name for error reporting and logging.
     fn name(&self) -> &str;
 
-    /// Process the rendered output before it is sent.
+    /// Inspect the rendered output and decide whether to allow or reject.
     ///
-    /// Returning `Ok(rendered)` passes the (possibly modified) output
-    /// to the next middleware in the chain. Returning `Err` short-circuits
-    /// the chain and aborts the send.
-    async fn process(&self, rendered: &RenderedOutput) -> Result<RenderedOutput, MiddlewareError>;
+    /// Returning `Ok(())` allows the message to proceed to the next
+    /// middleware or to the send phase. Returning
+    /// `Err(MiddlewareError::Rejected { .. })` short-circuits the chain
+    /// and the message is not sent.
+    async fn process(
+        &self,
+        ctx: &MiddlewareContext,
+        rendered: &RenderedOutput,
+    ) -> Result<(), MiddlewareError>;
 }

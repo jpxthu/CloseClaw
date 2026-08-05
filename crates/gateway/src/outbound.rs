@@ -4,9 +4,16 @@
 //! [`IMPlugin`](closeclaw_common::im_plugin::IMPlugin) registry.
 
 use super::{Gateway, GatewayError, Message};
+use crate::outbound_helpers::dispatch_text;
+use crate::outbound_helpers::filter_by_verbosity;
+use crate::outbound_helpers::log_middleware_rejection;
+use crate::outbound_helpers::send_render_block;
+use crate::outbound_helpers::StreamContext;
+use crate::outbound_helpers::StreamState;
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::im_plugin::RenderedOutput;
-use closeclaw_common::im_plugin::StreamingOutput;
+use closeclaw_common::MiddlewareContext;
+use closeclaw_processor_chain::run_middleware_chain;
 use std::sync::Arc;
 
 use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
@@ -76,29 +83,18 @@ struct DispatchCtx<'a> {
     chat_id: String,
     /// Optional thread/topic ID for directing the message into a thread.
     thread_id: Option<String>,
+    /// DSL result string from the processor chain (JSON serialized).
+    dsl_result: Option<String>,
+    /// Serialized content blocks (JSON) for checkpoint persistence.
+    content_blocks: Option<String>,
 }
 
 impl Gateway {
     /// Send an outbound message (agent response) via the registered IM plugin.
     ///
-    /// Flow:
-    /// 1. Resolve `chat_id` from `session_id` via `SessionManager::get_chat_id`.
-    /// 2. Resolve the [`IMPlugin`](super::im::IMPlugin) registered for `channel`
-    ///    through `self.plugins`.
-    /// 3. Resolve the session's [`VerbosityLevel`] and inject it into chain
-    ///    metadata for [`VerbosityFilter`](closeclaw_processor_chain::verbosity_filter::VerbosityFilter).
-    /// 4. Run the full outbound processor chain (VerbosityFilter → DslParser →
-    ///    OutboundRawLog) via `process_or_bypass`.
-    /// 5. Extract `dsl_result` from `processed.metadata["dsl_result"]` (stored
-    ///    as a JSON-encoded string by the DSL processor).
-    /// 6. Call `plugin.render(blocks, dsl_result)` to obtain a
-    ///    [`RenderedOutput`](closeclaw_common::im_plugin::RenderedOutput); fall back to a
-    ///    single `ContentBlock::Text` block when `content_blocks` is empty.
-    /// 7. Dispatch by `msg_type` (`"text"` / `"interactive"`) through
-    ///    `plugin.send`. Any other type is an [`GatewayError::OutboundError`].
-    /// 8. After each successful send, trigger checkpoint persistence.
-    /// 9. `thread_id` is resolved via `session_manager.get_thread_id` and
-    ///    passed to `plugin.send`.
+    /// Flow: resolve chat_id + plugin → resolve VerbosityLevel → run processor
+    /// chain (VerbosityFilter → DslParser → OutboundRawLog) → render → dispatch
+    /// by msg_type → persist checkpoint.
     pub async fn send_outbound(
         &self,
         session_id: &str,
@@ -164,24 +160,18 @@ impl Gateway {
                 _ => None,
             })
             .unwrap_or("");
-        let result = self
-            .dispatch_and_persist(DispatchCtx {
-                plugin: &plugin,
-                rendered: &rendered,
-                fallback_text,
-                session_id,
-                channel,
-                chat_id: chat_id.clone(),
-                thread_id: thread_id.clone(),
-            })
-            .await;
-        match result {
-            Ok(()) => Ok(()),
-            Err(_) => {
-                self.send_as_plain_text(&plugin, raw_output, &chat_id, thread_id.as_deref())
-                    .await
-            }
-        }
+        self.dispatch_and_persist(DispatchCtx {
+            plugin: &plugin,
+            rendered: &rendered,
+            fallback_text,
+            session_id,
+            channel,
+            chat_id: chat_id.clone(),
+            thread_id: thread_id.clone(),
+            dsl_result: processed.metadata.get("dsl_result").cloned(),
+            content_blocks: serde_json::to_string(&processed.content_blocks).ok(),
+        })
+        .await
     }
 
     /// Dispatch a rendered output to its destination plugin and persist the
@@ -197,29 +187,36 @@ impl Gateway {
     async fn dispatch_and_persist(&self, ctx: DispatchCtx<'_>) -> Result<(), GatewayError> {
         // Run outbound middleware chain (render → middleware → send).
         let middlewares = self.get_outbound_middlewares().await;
-        let rendered = if middlewares.is_empty() {
-            ctx.rendered.clone()
-        } else {
-            run_middleware_chain(&middlewares, ctx.rendered.clone())
-                .await
-                .map_err(|e| GatewayError::OutboundError(e.to_string()))?
-        };
-        match rendered.msg_type.as_str() {
+        if !middlewares.is_empty() {
+            let mctx = Self::make_middleware_ctx(ctx.session_id, ctx.channel, &ctx.chat_id);
+            if let Err(e) = run_middleware_chain(&middlewares, &mctx, ctx.rendered).await {
+                return log_middleware_rejection(e, ctx.session_id);
+            }
+        }
+        match ctx.rendered.msg_type.as_str() {
             "text" => {
-                let text = rendered
+                let text = ctx
+                    .rendered
                     .payload
                     .get("content")
                     .and_then(|v| v.get("text"))
                     .and_then(|v| v.as_str())
                     .unwrap_or(ctx.fallback_text)
                     .to_string();
-                let msg = Self::make_outbound_msg(ctx.channel, ctx.chat_id.clone(), text);
+                let msg = Self::make_outbound_msg(
+                    ctx.channel,
+                    ctx.chat_id.clone(),
+                    text,
+                    Some(ctx.channel.to_string()),
+                    ctx.dsl_result.clone(),
+                    ctx.content_blocks.clone(),
+                );
                 // Pre-send checkpoint: persist pending before delivery so
                 // recovery can detect the pending operation on crash.
                 self.persist_outbound_checkpoint(ctx.session_id, &msg, false)
                     .await;
                 ctx.plugin
-                    .send(&rendered, &ctx.chat_id, ctx.thread_id.as_deref())
+                    .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
                     .await?;
                 // Post-send checkpoint: mark as sent after successful delivery.
                 self.persist_outbound_checkpoint(ctx.session_id, &msg, true)
@@ -227,15 +224,22 @@ impl Gateway {
                 Ok(())
             }
             "interactive" => {
-                let payload_str =
-                    serde_json::to_string(&rendered.payload).unwrap_or_else(|_| "{}".to_string());
-                let msg = Self::make_outbound_msg(ctx.channel, ctx.chat_id.clone(), payload_str);
+                let payload_str = serde_json::to_string(&ctx.rendered.payload)
+                    .unwrap_or_else(|_| "{}".to_string());
+                let msg = Self::make_outbound_msg(
+                    ctx.channel,
+                    ctx.chat_id.clone(),
+                    payload_str,
+                    Some(ctx.channel.to_string()),
+                    ctx.dsl_result.clone(),
+                    ctx.content_blocks.clone(),
+                );
                 // Pre-send checkpoint: persist pending before delivery so
                 // recovery can detect the pending operation on crash.
                 self.persist_outbound_checkpoint(ctx.session_id, &msg, false)
                     .await;
                 ctx.plugin
-                    .send(&rendered, &ctx.chat_id, ctx.thread_id.as_deref())
+                    .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
                     .await?;
                 // Post-send checkpoint: mark as sent after successful delivery.
                 self.persist_outbound_checkpoint(ctx.session_id, &msg, true)
@@ -244,7 +248,7 @@ impl Gateway {
             }
             _ => Err(GatewayError::OutboundError(format!(
                 "unknown msg_type: {}",
-                rendered.msg_type
+                ctx.rendered.msg_type
             ))),
         }
     }
@@ -260,23 +264,10 @@ impl Gateway {
         content_blocks: Vec<ContentBlock>,
         channel: &str,
     ) -> Result<ProcessedMessage, GatewayError> {
-        let registry = self.processor_registry.read().unwrap().clone();
-        let Some(registry) = registry else {
-            let blocks = if content_blocks.is_empty() {
-                vec![ContentBlock::Text(raw_output.to_string())]
-            } else {
-                content_blocks
-            };
-            return Ok(ProcessedMessage {
-                content_blocks: blocks,
-                metadata: std::collections::HashMap::new(),
-            });
-        };
-        let mut meta = std::collections::HashMap::new();
-        meta.insert("channel".to_string(), channel.to_string());
-        let input = ProcessedMessage {
-            content_blocks,
-            metadata: meta,
+        let meta = Self::make_outbound_meta(&[("channel", channel)]);
+        let input = self.make_outbound_input(raw_output, content_blocks, meta);
+        let Some(registry) = self.processor_registry.read().unwrap().clone() else {
+            return Ok(input);
         };
         registry
             .process_outbound_raw_log_only(input)
@@ -284,8 +275,29 @@ impl Gateway {
             .map_err(|e| GatewayError::OutboundError(e.to_string()))
     }
 
-    /// Run the outbound processor chain if configured, otherwise bypass with
-    /// a synthetic [`ProcessedMessage`] wrapping the raw input.
+    /// Run the outbound chain with VerbosityFilter skipped.
+    ///
+    /// Used by the streaming pipeline finish phase where verbosity filtering
+    /// is handled inline during the stream (not in the post-stream chain).
+    async fn process_outbound_skip_verbosity(
+        &self,
+        raw_output: &str,
+        content_blocks: Vec<ContentBlock>,
+        channel: &str,
+        session_id: &str,
+    ) -> Result<ProcessedMessage, GatewayError> {
+        let meta = Self::make_outbound_meta(&[("channel", channel), ("session_id", session_id)]);
+        let input = self.make_outbound_input(raw_output, content_blocks, meta);
+        let Some(registry) = self.processor_registry.read().unwrap().clone() else {
+            return Ok(input);
+        };
+        registry
+            .process_outbound_skip_verbosity(input)
+            .await
+            .map_err(|e| GatewayError::OutboundError(e.to_string()))
+    }
+
+    /// Run the outbound processor chain if configured, otherwise bypass.
     async fn process_or_bypass(
         &self,
         _raw_output: &str,
@@ -294,30 +306,39 @@ impl Gateway {
         session_id: &str,
         verbosity_level: VerbosityLevel,
     ) -> Result<ProcessedMessage, GatewayError> {
-        let registry = self.processor_registry.read().unwrap().clone();
-        let Some(registry) = registry else {
-            let blocks = if content_blocks.is_empty() {
-                vec![ContentBlock::Text(_raw_output.to_string())]
-            } else {
-                content_blocks
-            };
-            return Ok(ProcessedMessage {
-                content_blocks: blocks,
-                metadata: std::collections::HashMap::new(),
-            });
-        };
-        let mut meta = std::collections::HashMap::new();
-        meta.insert("channel".to_string(), channel.to_string());
-        meta.insert("session_id".to_string(), session_id.to_string());
-        meta.insert("verbosity_level".to_string(), verbosity_level.to_string());
-        let input = ProcessedMessage {
-            content_blocks,
-            metadata: meta,
+        let meta = Self::make_outbound_meta(&[
+            ("channel", channel),
+            ("session_id", session_id),
+            ("verbosity_level", &verbosity_level.to_string()),
+        ]);
+        let input = self.make_outbound_input(_raw_output, content_blocks, meta);
+        let Some(registry) = self.processor_registry.read().unwrap().clone() else {
+            return Ok(input);
         };
         registry
             .process_outbound(input)
             .await
             .map_err(|e| GatewayError::OutboundError(e.to_string()))
+    }
+
+    /// Build a [`ProcessedMessage`] from raw output.
+    fn make_outbound_input(
+        &self,
+        _raw_output: &str,
+        content_blocks: Vec<ContentBlock>,
+        metadata: std::collections::HashMap<String, String>,
+    ) -> ProcessedMessage {
+        ProcessedMessage {
+            content_blocks,
+            metadata,
+        }
+    }
+
+    fn make_outbound_meta(entries: &[(&str, &str)]) -> std::collections::HashMap<String, String> {
+        entries
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     /// Fallback to plain-text output when no IM plugin is registered for
@@ -339,9 +360,7 @@ impl Gateway {
         Ok(())
     }
 
-    /// Fallback to plain-text send when the plugin exists but `render` or
-    /// `send` failed. Constructs a plain-text [`RenderedOutput`] and retries
-    /// via `plugin.send`. Returns the send result.
+    /// Fallback to plain-text send when render/send fails.
     async fn send_as_plain_text(
         &self,
         plugin: &Arc<dyn IMPlugin>,
@@ -362,7 +381,14 @@ impl Gateway {
     }
 
     /// Build a [`Message`] for checkpoint persistence from outbound fields.
-    fn make_outbound_msg(channel: &str, to: String, content: String) -> Message {
+    fn make_outbound_msg(
+        channel: &str,
+        to: String,
+        content: String,
+        platform: Option<String>,
+        dsl_result: Option<String>,
+        content_blocks: Option<String>,
+    ) -> Message {
         Message {
             id: format!("out-{}", chrono::Utc::now().timestamp_millis()),
             from: "agent".to_string(),
@@ -372,6 +398,9 @@ impl Gateway {
             timestamp: chrono::Utc::now().timestamp(),
             metadata: std::collections::HashMap::new(),
             thread_id: None,
+            platform,
+            dsl_result,
+            content_blocks,
         }
     }
 
@@ -406,6 +435,9 @@ impl Gateway {
             "assistant".to_string(),
         );
         pending.target_channel = msg.channel.clone();
+        pending.platform = msg.platform.clone();
+        pending.dsl_result = msg.dsl_result.clone();
+        pending.content_blocks = msg.content_blocks.clone();
         if mark_sent {
             pending.mark_sent();
         }
@@ -427,18 +459,8 @@ impl Gateway {
         }
     }
 
-    /// Send an outbound message to a specific chat via the registered IM plugin.
-    ///
-    /// This is a lightweight variant of [`send_outbound`](Self::send_outbound) that
-    /// does not require a `session_id` — it takes a `chat_id` directly. Useful for
-    /// system messages (e.g. busy replies) that have no associated session.
-    ///
-    /// Flow:
-    /// 1. Resolve the [`IMPlugin`](super::im::IMPlugin) for `channel`.
-    /// 2. Run the full outbound processor chain (VerbosityFilter → DslParser →
-    ///    OutboundRawLog) via `process_or_bypass` with default
-    ///    [`VerbosityLevel::Full`].
-    /// 3. Render via `plugin.render` and dispatch via `plugin.send`.
+    /// Lightweight outbound to a specific chat (no session_id required).
+    /// Useful for system messages like busy replies.
     pub async fn send_outbound_to_chat(
         &self,
         chat_id: &str,
@@ -465,30 +487,20 @@ impl Gateway {
             .and_then(|s| serde_json::from_str(s).ok());
 
         // Render via the plugin.
-        let mut rendered = plugin.render(&processed.content_blocks, dsl_result.as_ref());
+        let rendered = plugin.render(&processed.content_blocks, dsl_result.as_ref());
 
         // Run outbound middleware chain (render → middleware → send).
         let middlewares = self.get_outbound_middlewares().await;
         if !middlewares.is_empty() {
-            match run_middleware_chain(&middlewares, rendered).await {
-                Ok(r) => rendered = r,
-                Err(_) => {
-                    return self
-                        .send_as_plain_text(&plugin, raw_output, chat_id, None)
-                        .await;
-                }
+            let mctx = Self::make_middleware_ctx("", channel, chat_id);
+            if let Err(e) = run_middleware_chain(&middlewares, &mctx, &rendered).await {
+                return log_middleware_rejection(e, chat_id);
             }
         }
 
-        // Dispatch via plugin.send. On failure, fall back to plain-text send.
-        let result = plugin.send(&rendered, chat_id, None).await;
-        match result {
-            Ok(()) => Ok(()),
-            Err(_) => {
-                self.send_as_plain_text(&plugin, raw_output, chat_id, None)
-                    .await
-            }
-        }
+        // Dispatch via plugin.send.
+        plugin.send(&rendered, chat_id, None).await?;
+        Ok(())
     }
 
     /// Send a simplified outbound message, skipping the full processor chain
@@ -518,27 +530,17 @@ impl Gateway {
 
         // Send directly — no outbound middleware chain.
         // On render/send failure, fall back to plain-text send.
-        let result = plugin.send(&rendered, chat_id, None).await;
-        match result {
-            Ok(()) => Ok(()),
-            Err(_) => {
-                self.send_as_plain_text(&plugin, raw_output, chat_id, None)
-                    .await
-            }
+        if plugin.send(&rendered, chat_id, None).await.is_err() {
+            self.send_as_plain_text(&plugin, raw_output, chat_id, None)
+                .await
+        } else {
+            Ok(())
         }
     }
 
     /// Send a streaming LLM response via the registered IM plugin.
     ///
-    /// Drives a [`DefaultStreamingRenderer`] over the [`StreamEvent`] stream,
-    /// dispatching incremental output to `plugin` as it becomes available:
-    /// - Text delta → line buffer → complete lines → `plugin.send` (text)
-    /// - BlockEnd (non-Text) → `plugin.render(&[block], None)` → `plugin.send`
-    /// - MessageEnd → flush remaining content → `plugin.send`
-    ///
-    /// Accumulated `content_blocks` and the LLM-reported `usage` are returned
-    /// in a [`StreamResult`]. `thread_id` is resolved from the session
-    /// checkpoint and forwarded to all `plugin.send` calls.
+    /// Delegates to [`send_outbound_streaming_inner`] for core logic.
     pub async fn send_outbound_streaming<E: std::fmt::Display>(
         &self,
         session_id: &str,
@@ -552,10 +554,8 @@ impl Gateway {
 
     /// Streaming outbound dispatch with session-assembled content blocks.
     ///
-    /// When `session_content_blocks` is provided (from
-    /// [`SessionStream`](closeclaw_session::llm_session::SessionStream)),
-    /// the post-stream pipeline uses them as the source of truth instead
-    /// of the Gateway-internal `StreamState` accumulation.
+    /// When `session_content_blocks` is provided, the post-stream pipeline
+    /// uses them as the source of truth instead of internal StreamState.
     pub async fn send_outbound_streaming_assembled<E: std::fmt::Display>(
         &self,
         session_id: &str,
@@ -585,8 +585,7 @@ impl Gateway {
     ///
     /// When `session_blocks` is provided, the post-stream pipeline uses
     /// those session-assembled `ContentBlock`s instead of the internal
-    /// `StreamState` accumulation. This ensures the Session layer is the
-    /// source of truth for `ContentBlock[]` assembly.
+    /// `StreamState` accumulation.
     async fn send_outbound_streaming_inner<E: std::fmt::Display>(
         &self,
         session_id: &str,
@@ -619,6 +618,8 @@ impl Gateway {
         let timeout_duration = std::time::Duration::from_millis(200);
         let ctx = StreamContext {
             plugin,
+            session_id,
+            channel,
             chat_id: &chat_id,
             thread_id: thread_id.as_deref(),
             middlewares: &middlewares,
@@ -661,7 +662,8 @@ impl Gateway {
             .await
     }
 
-    /// Post-stream pipeline: select content blocks, run processor chain,
+    /// Post-stream pipeline: select content blocks, run processor chain
+    /// (skipping VerbosityFilter — handled inline during the stream),
     /// merge DSL results, and build the final [`StreamResult`].
     async fn finish_streaming_pipeline(
         &self,
@@ -676,18 +678,19 @@ impl Gateway {
             None => (std::mem::take(&mut state.content_blocks), None),
         };
 
+        // Skip VerbosityFilter in the processor chain — the design doc
+        // requires: "收尾阶段不重跑 VerbosityFilter". VerbosityFilter is
+        // applied inline during BlockEnd streaming events. However, the
+        // final content_blocks must still be filtered for downstream
+        // consumers, so we apply VerbosityFilter directly here.
         let processed = self
-            .process_or_bypass(
-                "",
-                content_blocks_for_pipeline,
-                channel,
-                session_id,
-                verbosity_level,
-            )
+            .process_outbound_skip_verbosity("", content_blocks_for_pipeline, channel, session_id)
             .await?;
 
+        let filtered_blocks = filter_by_verbosity(processed.content_blocks, verbosity_level);
+
         Ok(StreamResult {
-            content_blocks: processed.content_blocks,
+            content_blocks: filtered_blocks,
             usage: usage_override.unwrap_or(state.usage),
             retry_attempts: 0,
         })
@@ -840,157 +843,16 @@ impl Gateway {
         }
         Ok(())
     }
-}
 
-// ---------------------------------------------------------------------------
-// Outbound middleware chain
-// ---------------------------------------------------------------------------
-
-/// Run a chain of outbound middlewares on a rendered output.
-///
-/// Processes `rendered` through each middleware in order. If any middleware
-/// returns an error, the chain short-circuits and the error is propagated.
-async fn run_middleware_chain(
-    middlewares: &[std::sync::Arc<dyn closeclaw_common::OutboundMiddleware>],
-    rendered: RenderedOutput,
-) -> Result<RenderedOutput, closeclaw_common::MiddlewareError> {
-    let mut current = rendered;
-    for mw in middlewares {
-        current = mw.process(&current).await?;
-    }
-    Ok(current)
-}
-
-// ---------------------------------------------------------------------------
-// Streaming outbound helpers
-// ---------------------------------------------------------------------------
-
-/// Bundles the streaming outbound context passed to `process_stream_event` and
-/// its sub-handlers. Keeps parameter counts ≤6 (CONTRIBUTING.md limit).
-struct StreamContext<'a> {
-    plugin: &'a std::sync::Arc<dyn IMPlugin>,
-    chat_id: &'a str,
-    thread_id: Option<&'a str>,
-    middlewares: &'a [std::sync::Arc<dyn closeclaw_common::OutboundMiddleware>],
-}
-
-/// Mutable state carried across stream events in `send_outbound_streaming`.
-struct StreamState {
-    content_blocks: Vec<ContentBlock>,
-    usage: UnifiedUsage,
-    verbosity_level: VerbosityLevel,
-    media_name: Option<String>,
-    media_url: Option<String>,
-}
-
-impl StreamState {
-    fn new(verbosity_level: VerbosityLevel) -> Self {
-        Self {
-            content_blocks: Vec::new(),
-            usage: UnifiedUsage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: None,
-                reasoning_tokens: None,
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-            },
-            verbosity_level,
-            media_name: None,
-            media_url: None,
+    pub(crate) fn make_middleware_ctx(
+        session_id: &str,
+        channel: &str,
+        chat_id: &str,
+    ) -> MiddlewareContext {
+        MiddlewareContext {
+            session_id: session_id.to_string(),
+            channel: channel.to_string(),
+            chat_id: chat_id.to_string(),
         }
-    }
-
-    /// Take the accumulated media block and reset state.
-    fn take_media_block(&mut self, block_type: ContentBlockType) -> ContentBlock {
-        let name = self.media_name.take().unwrap_or_default();
-        let url = self.media_url.take().unwrap_or_default();
-        match block_type {
-            ContentBlockType::Image => ContentBlock::Image { name, url },
-            ContentBlockType::Audio => ContentBlock::Audio { name, url },
-            ContentBlockType::File => ContentBlock::File { name, url },
-            _ => unreachable!(),
-        }
-    }
-}
-
-/// Send text messages from `out` into `state` (no DslParser processing).
-async fn dispatch_text(
-    ctx: &StreamContext<'_>,
-    out: StreamingOutput,
-    state: &mut StreamState,
-) -> Result<(), GatewayError> {
-    for text in out.text_messages {
-        tracing::info!(
-            chat_id = ctx.chat_id,
-            content = %text,
-            "streaming outbound text"
-        );
-        if !text.is_empty() {
-            send_text(ctx, &text).await?;
-            state.content_blocks.push(ContentBlock::Text(text));
-        }
-    }
-    Ok(())
-}
-
-/// Construct a text [`RenderedOutput`] and dispatch via `plugin.send`.
-async fn send_text(ctx: &StreamContext<'_>, text: &str) -> Result<(), GatewayError> {
-    let rendered = RenderedOutput {
-        msg_type: "text".to_string(),
-        payload: serde_json::json!({ "content": { "text": text } }),
-    };
-    ctx.plugin
-        .send(&rendered, ctx.chat_id, ctx.thread_id)
-        .await?;
-    Ok(())
-}
-
-/// Render, run outbound middleware, and dispatch via `plugin.send`.
-async fn send_render_block(
-    ctx: &StreamContext<'_>,
-    block: &ContentBlock,
-) -> Result<(), GatewayError> {
-    let mut rendered = ctx.plugin.render(std::slice::from_ref(block), None);
-    if !ctx.middlewares.is_empty() {
-        rendered = run_middleware_chain(ctx.middlewares, rendered)
-            .await
-            .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
-    }
-    tracing::info!(
-        chat_id = ctx.chat_id,
-        content = ?rendered.payload,
-        msg_type = %rendered.msg_type,
-        "streaming outbound render block"
-    );
-    ctx.plugin
-        .send(&rendered, ctx.chat_id, ctx.thread_id)
-        .await?;
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Verbosity filtering
-// ---------------------------------------------------------------------------
-
-/// Filter content blocks based on the session's verbosity level.
-///
-/// - [`VerbosityLevel::Full`]: no filtering, all blocks are kept.
-/// - [`VerbosityLevel::Normal`]: remove [`ContentBlock::Thinking`] blocks.
-/// - [`VerbosityLevel::Off`]: only keep [`ContentBlock::Text`] blocks.
-pub(crate) fn filter_by_verbosity(
-    blocks: Vec<ContentBlock>,
-    level: VerbosityLevel,
-) -> Vec<ContentBlock> {
-    match level {
-        VerbosityLevel::Full => blocks,
-        VerbosityLevel::Normal => blocks
-            .into_iter()
-            .filter(|b| !matches!(b, ContentBlock::Thinking { .. }))
-            .collect(),
-        VerbosityLevel::Off => blocks
-            .into_iter()
-            .filter(|b| matches!(b, ContentBlock::Text(_)))
-            .collect(),
     }
 }

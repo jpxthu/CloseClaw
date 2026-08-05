@@ -5,7 +5,7 @@ use closeclaw_llm::types::{ContentBlock, ContentBlockType};
 
 use std::sync::Arc;
 
-use super::outbound::filter_by_verbosity;
+use super::outbound_helpers::filter_by_verbosity;
 
 #[test]
 fn test_filter_by_verbosity_full() {

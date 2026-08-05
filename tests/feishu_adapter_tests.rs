@@ -106,6 +106,9 @@ async fn test_error_cases() {
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     assert!(a.send_message(&msg, None).await.is_err());
 }

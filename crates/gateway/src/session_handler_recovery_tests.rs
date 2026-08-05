@@ -115,6 +115,9 @@ async fn test_retry_executes_delay_and_reinvokes() {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     let sid = sm.find_or_create("ch", &msg, None).await.unwrap();
 
@@ -151,6 +154,9 @@ async fn test_retry_no_instruction() {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     let sid = sm.find_or_create("ch", &msg, None).await.unwrap();
 
@@ -182,6 +188,9 @@ async fn test_retry_with_instruction_injects_message() {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     let sid = sm.find_or_create("ch", &msg, None).await.unwrap();
 
@@ -224,6 +233,9 @@ async fn test_retry_no_instruction_no_injection() {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     let sid = sm.find_or_create("ch", &msg, None).await.unwrap();
 
@@ -295,6 +307,9 @@ async fn test_notify_user_injects_transcript_and_sends() {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     let sid = sm.find_or_create("ch", &msg, None).await.unwrap();
 
@@ -371,6 +386,9 @@ async fn test_notify_user_no_tx_transcript_still_injected() {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     let sid = sm.find_or_create("ch", &msg, None).await.unwrap();
 
@@ -415,6 +433,9 @@ async fn test_notify_user_multiple_messages_separate_entries() {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     let sid = sm.find_or_create("ch", &msg, None).await.unwrap();
 

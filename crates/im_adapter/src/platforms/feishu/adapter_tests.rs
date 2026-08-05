@@ -1,7 +1,6 @@
 //! Unit tests for Feishu adapter: expand_post_content, parse_message_event
 //! (text/post/image/file/audio with graceful degradation), parse_inbound,
 //! and send_message/send_card_json receive_id_type verification.
-
 use super::*;
 use crate::platforms::feishu::FeishuPlugin;
 use crate::plugin::IMPlugin;
@@ -303,7 +302,6 @@ async fn test_parse_message_event_text_type() {
     assert_eq!(msg.message_type, MessageType::Text);
     assert!(msg.media_refs.is_empty());
 }
-
 #[tokio::test]
 async fn test_parse_message_event_post_type() {
     let adapter = make_test_adapter();
@@ -317,7 +315,6 @@ async fn test_parse_message_event_post_type() {
     assert_eq!(msg.message_type, MessageType::Other("post".to_string()));
     assert!(msg.media_refs.is_empty());
 }
-
 #[tokio::test]
 async fn test_parse_message_event_image_discarded() {
     let adapter = make_test_adapter();
@@ -329,7 +326,6 @@ async fn test_parse_message_event_image_discarded() {
     let result = adapter.parse_message_event(event).await.unwrap();
     assert!(result.is_none(), "image message should be discarded");
 }
-
 #[tokio::test]
 async fn test_parse_message_event_file_discarded() {
     let adapter = make_test_adapter();
@@ -341,7 +337,6 @@ async fn test_parse_message_event_file_discarded() {
     let result = adapter.parse_message_event(event).await.unwrap();
     assert!(result.is_none(), "file message should be discarded");
 }
-
 #[tokio::test]
 async fn test_parse_message_event_audio_discarded() {
     let adapter = make_test_adapter();
@@ -353,7 +348,6 @@ async fn test_parse_message_event_audio_discarded() {
     let result = adapter.parse_message_event(event).await.unwrap();
     assert!(result.is_none(), "audio message should be discarded");
 }
-
 #[tokio::test]
 async fn test_parse_message_event_metadata_account_id() {
     let adapter = make_test_adapter();
@@ -361,7 +355,6 @@ async fn test_parse_message_event_metadata_account_id() {
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.account_id, "ou_sender");
 }
-
 #[tokio::test]
 async fn test_parse_message_event_thread_id_from_root_id() {
     let adapter = make_test_adapter();
@@ -384,7 +377,6 @@ async fn test_parse_text_empty_content_returns_none() {
         "text with empty content should be discarded"
     );
 }
-
 #[tokio::test]
 async fn test_parse_text_missing_text_field_returns_none() {
     let adapter = make_test_adapter();
@@ -394,7 +386,6 @@ async fn test_parse_text_missing_text_field_returns_none() {
         "text with missing text field should be discarded"
     );
 }
-
 #[tokio::test]
 async fn test_parse_post_empty_expand_returns_none() {
     let adapter = make_test_adapter();
@@ -405,7 +396,6 @@ async fn test_parse_post_empty_expand_returns_none() {
         "post with empty expand should be discarded"
     );
 }
-
 #[tokio::test]
 async fn test_parse_text_whitespace_only_returns_none() {
     let adapter = make_test_adapter();
@@ -415,7 +405,6 @@ async fn test_parse_text_whitespace_only_returns_none() {
         "text with whitespace-only content should be discarded"
     );
 }
-
 #[tokio::test]
 async fn test_parse_image_discarded() {
     let adapter = make_test_adapter();
@@ -447,12 +436,14 @@ async fn test_send_message_uses_chat_id_receive_id_type() {
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
 
     adapter.send_message(&msg, None).await.unwrap();
     assert_eq!(received.lock().await.as_deref(), Some("chat_id"));
 }
-
 #[tokio::test]
 async fn test_send_card_json_uses_chat_id_receive_id_type() {
     let received = Arc::new(tokio::sync::Mutex::new(None));
@@ -467,7 +458,6 @@ async fn test_send_card_json_uses_chat_id_receive_id_type() {
         .unwrap();
     assert_eq!(received.lock().await.as_deref(), Some("chat_id"));
 }
-
 #[tokio::test]
 async fn test_send_message_and_card_use_consistent_receive_id_type() {
     let received = Arc::new(tokio::sync::Mutex::new(None));
@@ -485,6 +475,9 @@ async fn test_send_message_and_card_use_consistent_receive_id_type() {
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     adapter.send_message(&msg, None).await.unwrap();
     assert_eq!(received.lock().await.as_deref(), Some("chat_id"));
@@ -536,7 +529,6 @@ async fn test_parse_card_action_forceful_shutdown() {
     assert_eq!(card.metadata.get("card_action").unwrap(), "true");
     assert_eq!(card.metadata.get("chat_id").unwrap(), "oc_chat123");
 }
-
 #[tokio::test]
 async fn test_parse_card_action_unknown_returns_some() {
     let adapter = make_test_adapter();
@@ -567,7 +559,6 @@ async fn test_parse_card_action_unknown_returns_some() {
     let card = result.expect("expected Some(CardActionEvent) for any recognized action");
     assert_eq!(card.action_value, "some_other_action");
 }
-
 #[tokio::test]
 async fn test_parse_card_action_no_value_returns_none() {
     let adapter = make_test_adapter();
@@ -614,7 +605,6 @@ async fn test_parse_inbound_empty_text_returns_none() {
         "parse_inbound should discard empty text messages"
     );
 }
-
 #[tokio::test]
 async fn test_parse_inbound_whitespace_only_text_returns_none() {
     let adapter = Arc::new(make_test_adapter());
@@ -626,7 +616,6 @@ async fn test_parse_inbound_whitespace_only_text_returns_none() {
         "parse_inbound should discard whitespace-only text messages"
     );
 }
-
 #[tokio::test]
 async fn test_parse_inbound_text_type() {
     let adapter = Arc::new(make_test_adapter());
@@ -636,7 +625,6 @@ async fn test_parse_inbound_text_type() {
     assert_eq!(msg.message_type, MessageType::Text);
     assert_eq!(msg.content, "hi");
 }
-
 #[tokio::test]
 async fn test_parse_inbound_post_type() {
     let adapter = Arc::new(make_test_adapter());
@@ -650,7 +638,6 @@ async fn test_parse_inbound_post_type() {
     assert_eq!(msg.message_type, MessageType::Other("post".to_string()));
     assert_eq!(msg.content, "Post\nbody");
 }
-
 #[tokio::test]
 async fn test_parse_inbound_image_discarded() {
     let adapter = Arc::new(make_test_adapter());
@@ -681,7 +668,6 @@ async fn test_parse_inbound_with_identity_mapping() {
     assert_eq!(msg.account_id, "mapped_user");
     assert_eq!(msg.sender_id, "ou_sender");
 }
-
 #[tokio::test]
 async fn test_parse_inbound_without_mapping_fallback() {
     let adapter = Arc::new(make_test_adapter());
@@ -697,7 +683,6 @@ async fn test_parse_inbound_without_mapping_fallback() {
     // No matching mapping → fallback to sender_open_id
     assert_eq!(msg.account_id, "ou_sender");
 }
-
 #[tokio::test]
 async fn test_parse_inbound_no_resolver_fallback() {
     let adapter = Arc::new(make_test_adapter());

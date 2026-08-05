@@ -351,6 +351,9 @@ impl IMPlugin for FeishuPlugin {
                     timestamp: chrono::Utc::now().timestamp(),
                     metadata: HashMap::new(),
                     thread_id: None,
+                    platform: None,
+                    dsl_result: None,
+                    content_blocks: None,
                 };
                 self.adapter
                     .send_message(&message, _thread_id)

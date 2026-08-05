@@ -5,20 +5,21 @@
 //! - `run_middleware_chain` execution order and passthrough
 //! - Middleware called after render (i.e., receives RenderedOutput)
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 
 use crate::middleware::{run_middleware_chain, MiddlewareError, OutboundMiddleware};
 use closeclaw_common::im_plugin::RenderedOutput;
+use closeclaw_common::MiddlewareContext;
 
 // ---------------------------------------------------------------------------
 // Mock middlewares
 // ---------------------------------------------------------------------------
 
 /// Mock middleware that records how many times `process` is called
-/// and returns the input unchanged.
+/// and always allows the message.
 struct PassthroughMiddleware {
     name: String,
     call_count: Arc<AtomicUsize>,
@@ -43,43 +44,31 @@ impl OutboundMiddleware for PassthroughMiddleware {
         &self.name
     }
 
-    async fn process(&self, rendered: &RenderedOutput) -> Result<RenderedOutput, MiddlewareError> {
+    async fn process(
+        &self,
+        _ctx: &MiddlewareContext,
+        _rendered: &RenderedOutput,
+    ) -> Result<(), MiddlewareError> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
-        Ok(rendered.clone())
+        Ok(())
     }
 }
 
-/// Mock middleware that modifies the msg_type to prove it received the output.
-struct TransformMiddleware;
+/// Mock middleware that always rejects, short-circuiting the chain.
+struct RejectingMiddleware;
 
 #[async_trait]
-impl OutboundMiddleware for TransformMiddleware {
+impl OutboundMiddleware for RejectingMiddleware {
     fn name(&self) -> &str {
-        "transform"
+        "rejecting"
     }
 
-    async fn process(&self, rendered: &RenderedOutput) -> Result<RenderedOutput, MiddlewareError> {
-        Ok(RenderedOutput {
-            msg_type: "modified".to_string(),
-            payload: rendered.payload.clone(),
-        })
-    }
-}
-
-/// Mock middleware that always errors, short-circuiting the chain.
-struct FailingMiddleware;
-
-#[async_trait]
-impl OutboundMiddleware for FailingMiddleware {
-    fn name(&self) -> &str {
-        "failing"
-    }
-
-    async fn process(&self, _rendered: &RenderedOutput) -> Result<RenderedOutput, MiddlewareError> {
-        Err(MiddlewareError::middleware_failed(
-            "failing",
-            "intentional error",
-        ))
+    async fn process(
+        &self,
+        _ctx: &MiddlewareContext,
+        _rendered: &RenderedOutput,
+    ) -> Result<(), MiddlewareError> {
+        Err(MiddlewareError::rejected("rejecting", "intentional reject"))
     }
 }
 
@@ -87,6 +76,14 @@ fn sample_rendered() -> RenderedOutput {
     RenderedOutput {
         msg_type: "text".to_string(),
         payload: serde_json::json!({"content": {"text": "hello"}}),
+    }
+}
+
+fn sample_ctx() -> MiddlewareContext {
+    MiddlewareContext {
+        session_id: "sess-1".to_string(),
+        channel: "feishu".to_string(),
+        chat_id: "chat-1".to_string(),
     }
 }
 
@@ -99,27 +96,24 @@ fn test_single_middleware_called() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let (mw, counter) = PassthroughMiddleware::new("mw1");
     let middlewares: Vec<Arc<dyn OutboundMiddleware>> = vec![Arc::new(mw)];
+    let ctx = sample_ctx();
+    let rendered = sample_rendered();
 
-    let result = rt
-        .block_on(run_middleware_chain(&middlewares, sample_rendered()))
+    rt.block_on(run_middleware_chain(&middlewares, &ctx, &rendered))
         .unwrap();
 
     assert_eq!(counter.load(Ordering::SeqCst), 1);
-    assert_eq!(result.msg_type, "text");
 }
 
 #[test]
 fn test_empty_chain_passthrough() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let middlewares: Vec<Arc<dyn OutboundMiddleware>> = vec![];
-    let input = sample_rendered();
+    let ctx = sample_ctx();
+    let rendered = sample_rendered();
 
-    let result = rt
-        .block_on(run_middleware_chain(&middlewares, input.clone()))
+    rt.block_on(run_middleware_chain(&middlewares, &ctx, &rendered))
         .unwrap();
-
-    assert_eq!(result.msg_type, input.msg_type);
-    assert_eq!(result.payload, input.payload);
 }
 
 #[test]
@@ -131,8 +125,11 @@ fn test_multiple_middlewares_called_in_order() {
 
     let middlewares: Vec<Arc<dyn OutboundMiddleware>> =
         vec![Arc::new(mw1), Arc::new(mw2), Arc::new(mw3)];
+    let ctx = sample_ctx();
+    let rendered = sample_rendered();
 
-    let _ = rt.block_on(run_middleware_chain(&middlewares, sample_rendered()));
+    rt.block_on(run_middleware_chain(&middlewares, &ctx, &rendered))
+        .unwrap();
 
     assert_eq!(c1.load(Ordering::SeqCst), 1);
     assert_eq!(c2.load(Ordering::SeqCst), 1);
@@ -140,68 +137,45 @@ fn test_multiple_middlewares_called_in_order() {
 }
 
 #[test]
-fn test_transform_middleware_modifies_output() {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let middlewares: Vec<Arc<dyn OutboundMiddleware>> = vec![Arc::new(TransformMiddleware)];
-
-    let result = rt
-        .block_on(run_middleware_chain(&middlewares, sample_rendered()))
-        .unwrap();
-
-    assert_eq!(result.msg_type, "modified");
-    assert_eq!(
-        result.payload,
-        serde_json::json!({"content": {"text": "hello"}})
-    );
-}
-
-#[test]
-fn test_transform_chain_passthrough_then_transform() {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let (mw_passthrough, c_pt) = PassthroughMiddleware::new("pt");
-    let middlewares: Vec<Arc<dyn OutboundMiddleware>> =
-        vec![Arc::new(mw_passthrough), Arc::new(TransformMiddleware)];
-
-    let result = rt
-        .block_on(run_middleware_chain(&middlewares, sample_rendered()))
-        .unwrap();
-
-    assert_eq!(c_pt.load(Ordering::SeqCst), 1);
-    assert_eq!(result.msg_type, "modified");
-}
-
-#[test]
-fn test_failing_middleware_short_circuits() {
+fn test_rejecting_middleware_short_circuits() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let (mw_ok, c_ok) = PassthroughMiddleware::new("ok");
     let middlewares: Vec<Arc<dyn OutboundMiddleware>> =
-        vec![Arc::new(mw_ok), Arc::new(FailingMiddleware)];
+        vec![Arc::new(mw_ok), Arc::new(RejectingMiddleware)];
+    let ctx = sample_ctx();
+    let rendered = sample_rendered();
 
     let err = rt
-        .block_on(run_middleware_chain(&middlewares, sample_rendered()))
+        .block_on(run_middleware_chain(&middlewares, &ctx, &rendered))
         .unwrap_err();
 
     assert_eq!(c_ok.load(Ordering::SeqCst), 1);
-    assert!(err.to_string().contains("failing"));
+    match err {
+        MiddlewareError::Rejected { name, reason } => {
+            assert_eq!(name, "rejecting");
+            assert_eq!(reason, "intentional reject");
+        }
+        _ => panic!("expected Rejected variant"),
+    }
 }
 
 #[test]
-fn test_failing_middleware_prevents_subsequent_middlewares() {
+fn test_rejecting_middleware_prevents_subsequent_middlewares() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let (mw_late, c_late) = PassthroughMiddleware::new("late");
     let middlewares: Vec<Arc<dyn OutboundMiddleware>> =
-        vec![Arc::new(FailingMiddleware), Arc::new(mw_late)];
+        vec![Arc::new(RejectingMiddleware), Arc::new(mw_late)];
+    let ctx = sample_ctx();
+    let rendered = sample_rendered();
 
-    let _ = rt.block_on(run_middleware_chain(&middlewares, sample_rendered()));
+    let _ = rt.block_on(run_middleware_chain(&middlewares, &ctx, &rendered));
 
     assert_eq!(c_late.load(Ordering::SeqCst), 0);
 }
 
 #[test]
-fn test_middleware_receives_rendered_output_not_raw() {
+fn test_middleware_receives_rendered_output() {
     let rt = tokio::runtime::Runtime::new().unwrap();
-
-    static RECEIVED_RENDERED: AtomicBool = AtomicBool::new(false);
 
     struct VerifyRenderedMiddleware;
 
@@ -213,21 +187,53 @@ fn test_middleware_receives_rendered_output_not_raw() {
 
         async fn process(
             &self,
+            _ctx: &MiddlewareContext,
             rendered: &RenderedOutput,
-        ) -> Result<RenderedOutput, MiddlewareError> {
+        ) -> Result<(), MiddlewareError> {
             assert!(!rendered.msg_type.is_empty());
-            RECEIVED_RENDERED.store(true, Ordering::SeqCst);
-            Ok(rendered.clone())
+            Ok(())
         }
     }
 
     let middlewares: Vec<Arc<dyn OutboundMiddleware>> = vec![Arc::new(VerifyRenderedMiddleware)];
-
+    let ctx = sample_ctx();
     let rendered = RenderedOutput {
         msg_type: "text".to_string(),
         payload: serde_json::json!({"content": {"text": "hello"}}),
     };
 
-    let _ = rt.block_on(run_middleware_chain(&middlewares, rendered));
-    assert!(RECEIVED_RENDERED.load(Ordering::SeqCst));
+    rt.block_on(run_middleware_chain(&middlewares, &ctx, &rendered))
+        .unwrap();
+}
+
+#[test]
+fn test_middleware_receives_context() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    struct CtxCheckMiddleware;
+
+    #[async_trait]
+    impl OutboundMiddleware for CtxCheckMiddleware {
+        fn name(&self) -> &str {
+            "ctx_check"
+        }
+
+        async fn process(
+            &self,
+            ctx: &MiddlewareContext,
+            _rendered: &RenderedOutput,
+        ) -> Result<(), MiddlewareError> {
+            assert_eq!(ctx.session_id, "sess-1");
+            assert_eq!(ctx.channel, "feishu");
+            assert_eq!(ctx.chat_id, "chat-1");
+            Ok(())
+        }
+    }
+
+    let middlewares: Vec<Arc<dyn OutboundMiddleware>> = vec![Arc::new(CtxCheckMiddleware)];
+    let ctx = sample_ctx();
+    let rendered = sample_rendered();
+
+    rt.block_on(run_middleware_chain(&middlewares, &ctx, &rendered))
+        .unwrap();
 }

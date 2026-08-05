@@ -103,6 +103,9 @@ pub(super) fn test_message() -> crate::Message {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     }
 }
 
