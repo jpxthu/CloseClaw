@@ -116,6 +116,8 @@ async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
                 depth: 1,
                 mode: crate::session_manager::SpawnMode::Run,
                 status: ChildSessionStatus::Active,
+                timeout_secs: None,
+                created_at: std::time::Instant::now(),
             },
         )
         .await;

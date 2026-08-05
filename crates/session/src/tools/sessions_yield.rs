@@ -7,6 +7,13 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+/// Default yield timeout in seconds (10 minutes).
+///
+/// Used when no child sessions provide an explicit timeout.
+/// This is the tool-level default; the gateway may apply
+/// a different value via its own `DEFAULT_YIELD_TIMEOUT_SECS`.
+const DEFAULT_YIELD_TIMEOUT_SECS: u64 = 600;
+
 /// Tool that signals the current session to enter active Waiting state.
 pub struct SessionsYieldTool {
     session_manager: Arc<dyn SessionManagerOps>,
@@ -69,9 +76,12 @@ impl Tool for SessionsYieldTool {
 
         session.enter_waiting();
 
+        let children = self.session_manager.list_children(session_id).await;
+        let overall = compute_overall_timeout(&children);
+
         self.session_manager
             .clone()
-            .start_yield_timeout(session_id, &ctx.agent_id, None, None)
+            .start_yield_timeout(session_id, &ctx.agent_id, overall)
             .await;
 
         tracing::info!(
@@ -88,4 +98,20 @@ impl Tool for SessionsYieldTool {
             context_modifier: None,
         })
     }
+}
+
+/// Compute the overall yield timeout for a set of child sessions.
+///
+/// Per the design doc: `max(child timeouts) + 60s buffer`.
+/// When no child provides an explicit timeout, falls back to
+/// [`DEFAULT_YIELD_TIMEOUT_SECS`].
+///
+/// This function is testable independently of the async tool call path.
+pub fn compute_overall_timeout(children: &[crate::spawn::ChildSessionInfo]) -> u64 {
+    children
+        .iter()
+        .filter_map(|c| c.timeout_secs)
+        .max()
+        .unwrap_or(DEFAULT_YIELD_TIMEOUT_SECS)
+        + 60
 }

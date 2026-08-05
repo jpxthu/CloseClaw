@@ -173,12 +173,15 @@ impl SessionManagerOps for MockSessionManagerOps {
         Some(0)
     }
 
+    async fn list_children(&self, _parent_id: &str) -> Vec<super::super::spawn::ChildSessionInfo> {
+        vec![]
+    }
+
     async fn start_yield_timeout(
         self: Arc<Self>,
         _session_id: &str,
         _agent_id: &str,
-        _timeout_secs: Option<u64>,
-        _timeout_warning_secs: Option<u64>,
+        _overall_timeout_secs: u64,
     ) {
     }
 }

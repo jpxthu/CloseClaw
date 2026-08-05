@@ -145,16 +145,22 @@ impl SessionManagerOps for LateBoundSessionManagerOps {
         }
     }
 
+    async fn list_children(&self, parent_id: &str) -> Vec<ChildSessionInfo> {
+        match self.get_ref() {
+            Ok(m) => m.list_children(parent_id).await,
+            Err(_) => vec![],
+        }
+    }
+
     async fn start_yield_timeout(
         self: Arc<Self>,
         session_id: &str,
         agent_id: &str,
-        timeout_secs: Option<u64>,
-        timeout_warning_secs: Option<u64>,
+        overall_timeout_secs: u64,
     ) {
         if let Ok(m) = self.get_ref() {
             let m = Arc::clone(m);
-            m.start_yield_timeout(session_id, agent_id, timeout_secs, timeout_warning_secs)
+            m.start_yield_timeout(session_id, agent_id, overall_timeout_secs)
                 .await;
         }
     }
@@ -216,12 +222,15 @@ mod tests {
             Some(0)
         }
 
+        async fn list_children(&self, _parent_id: &str) -> Vec<ChildSessionInfo> {
+            vec![]
+        }
+
         async fn start_yield_timeout(
             self: Arc<Self>,
             _session_id: &str,
             _agent_id: &str,
-            _timeout_secs: Option<u64>,
-            _timeout_warning_secs: Option<u64>,
+            _overall_timeout_secs: u64,
         ) {
         }
     }
