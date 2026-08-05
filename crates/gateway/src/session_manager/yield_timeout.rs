@@ -151,6 +151,21 @@ impl SessionManager {
         );
 
         // 1. Collect child info with states and elapsed times.
+        //    Hoist conversation session lookup and child_states read
+        //    outside the loop to avoid N repeated lookups.
+        let parent_cs = self.get_conversation_session(session_id).await;
+        let child_states_map = if let Some(ref cs) = parent_cs {
+            let guard = cs.read().await;
+            let map = guard
+                .child_states
+                .read()
+                .expect("child_states lock poisoned")
+                .clone();
+            map
+        } else {
+            return;
+        };
+
         let child_summaries = {
             let children = self.children.read().await;
             let child_list = children.list_children(session_id);
@@ -162,7 +177,16 @@ impl SessionManager {
                 for info in child_list {
                     let elapsed = info.created_at.elapsed();
                     let elapsed_secs = elapsed.as_secs();
-                    let status_str = self.child_status_str(session_id, &info.session_id).await;
+                    let status_str = child_states_map
+                        .get(&info.session_id)
+                        .map(|(state, _)| match state {
+                            ChildSessionState::Running => "运行中",
+                            ChildSessionState::Completed => "已完成",
+                            ChildSessionState::Terminated => "已终止",
+                            ChildSessionState::Errored => "出错",
+                        })
+                        .unwrap_or("未知")
+                        .to_string();
                     summaries.push(format!(
                         "  - {} [{}] 已运行 {} 秒",
                         info.session_id, status_str, elapsed_secs
@@ -173,7 +197,7 @@ impl SessionManager {
         };
 
         // 2. Push structured timeout notification.
-        if let Some(cs) = self.get_conversation_session(session_id).await {
+        if let Some(cs) = &parent_cs {
             let mut cs_write = cs.write().await;
             let header = format!("[超时] 父 session 等待上限 {} 秒已到。\n\n", timeout_secs,);
             let body = format!("子 session 状态:\n{}\n\n", child_summaries,);
@@ -183,7 +207,7 @@ impl SessionManager {
         }
 
         // 3. Exit Waiting state.
-        if let Some(cs) = self.get_conversation_session(session_id).await {
+        if let Some(cs) = &parent_cs {
             cs.read().await.exit_waiting();
         }
 
@@ -197,30 +221,5 @@ impl SessionManager {
             session_id = %session_id,
             "yield timeout handled: session resumed"
         );
-    }
-
-    /// Look up a child session's status string from the parent's
-    /// `child_states` map.
-    async fn child_status_str(&self, parent_id: &str, child_id: &str) -> String {
-        if let Some(cs) = self.get_conversation_session(parent_id).await {
-            let guard = cs.read().await;
-            let states = guard
-                .child_states
-                .read()
-                .expect("child_states lock poisoned");
-            if let Some((state, _)) = states.get(child_id) {
-                match state {
-                    ChildSessionState::Running => "运行中",
-                    ChildSessionState::Completed => "已完成",
-                    ChildSessionState::Terminated => "已终止",
-                    ChildSessionState::Errored => "出错",
-                }
-                .to_string()
-            } else {
-                "未知".to_string()
-            }
-        } else {
-            "未知".to_string()
-        }
     }
 }

@@ -215,9 +215,13 @@ async fn test_yield_timeout_default_value_in_notification() {
     let messages = cs.read().await.messages().to_vec();
     let has_timeout_value = messages.iter().any(|m| {
         m.role == "system"
-            && m.content_blocks.iter().any(
-                |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("等待上限 1 秒已到")),
-            )
+            && m.content_blocks.iter().any(|b| {
+                matches!(
+                    b,
+                    closeclaw_llm::types::ContentBlock::Text(t)
+                        if t.contains("等待上限 1 秒已到")
+                )
+            })
     });
     assert!(
         has_timeout_value,
