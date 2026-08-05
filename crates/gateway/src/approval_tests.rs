@@ -6,6 +6,8 @@
 //! 3. Boundary: message without `/approve` or `/deny` prefix → returns None
 //! 4. Boundary: `/approve` without request_id → returns None (warn logged)
 //! 5. Boundary: empty string → returns None
+//! 6. Non-owner sender → returns Some(ApprovalProcessed) + rejection message sent
+//! 7. None sender → returns Some(ApprovalProcessed) + rejection message sent
 
 use std::sync::Arc;
 
@@ -104,7 +106,13 @@ async fn test_approve_command_with_request_id() {
     install_approval_flow(&gw).await;
 
     let result = gw
-        .try_handle_approval_command("session_1", "/approve REQ_001", Some("owner"))
+        .try_handle_approval_command(
+            "session_1",
+            "/approve REQ_001",
+            Some("owner"),
+            "peer_1",
+            "mock",
+        )
         .await;
 
     assert!(
@@ -120,7 +128,13 @@ async fn test_deny_command_with_request_id() {
     install_approval_flow(&gw).await;
 
     let result = gw
-        .try_handle_approval_command("session_1", "/deny REQ_002", Some("owner"))
+        .try_handle_approval_command(
+            "session_1",
+            "/deny REQ_002",
+            Some("owner"),
+            "peer_1",
+            "mock",
+        )
         .await;
 
     assert!(
@@ -136,7 +150,7 @@ async fn test_no_prefix_returns_none() {
     install_approval_flow(&gw).await;
 
     let result = gw
-        .try_handle_approval_command("session_1", "hello world", Some("owner"))
+        .try_handle_approval_command("session_1", "hello world", Some("owner"), "peer_1", "mock")
         .await;
 
     assert!(result.is_none(), "expected None for non-approval message");
@@ -149,7 +163,7 @@ async fn test_approve_without_request_id_returns_none() {
 
     // /approve with trailing whitespace but no request_id
     let result = gw
-        .try_handle_approval_command("session_1", "/approve   ", Some("owner"))
+        .try_handle_approval_command("session_1", "/approve   ", Some("owner"), "peer_1", "mock")
         .await;
 
     assert!(
@@ -165,7 +179,7 @@ async fn test_approve_bare_returns_none() {
 
     // /approve with absolutely nothing after it
     let result = gw
-        .try_handle_approval_command("session_1", "/approve", Some("owner"))
+        .try_handle_approval_command("session_1", "/approve", Some("owner"), "peer_1", "mock")
         .await;
 
     assert!(result.is_none(), "expected None for bare /approve",);
@@ -177,7 +191,7 @@ async fn test_empty_string_returns_none() {
     install_approval_flow(&gw).await;
 
     let result = gw
-        .try_handle_approval_command("session_1", "", Some("owner"))
+        .try_handle_approval_command("session_1", "", Some("owner"), "peer_1", "mock")
         .await;
 
     assert!(result.is_none(), "expected None for empty string");
@@ -189,34 +203,48 @@ async fn test_whitespace_only_returns_none() {
     install_approval_flow(&gw).await;
 
     let result = gw
-        .try_handle_approval_command("session_1", "   ", Some("owner"))
+        .try_handle_approval_command("session_1", "   ", Some("owner"), "peer_1", "mock")
         .await;
 
     assert!(result.is_none(), "expected None for whitespace-only input");
 }
 
 #[tokio::test]
-async fn test_non_owner_sender_returns_none() {
+async fn test_non_owner_sender_returns_rejected() {
     let gw = make_gw();
     install_approval_flow(&gw).await;
 
     let result = gw
-        .try_handle_approval_command("session_1", "/approve REQ_001", Some("other_user"))
+        .try_handle_approval_command(
+            "session_1",
+            "/approve REQ_001",
+            Some("other_user"),
+            "peer_1",
+            "mock",
+        )
         .await;
 
-    assert!(result.is_none(), "expected None when sender is not owner",);
+    assert!(
+        matches!(result, Some(HandleResult::ApprovalProcessed)),
+        "expected Some(ApprovalProcessed) for non-owner, got {:?}",
+        result,
+    );
 }
 
 #[tokio::test]
-async fn test_none_sender_returns_none() {
+async fn test_none_sender_returns_rejected() {
     let gw = make_gw();
     install_approval_flow(&gw).await;
 
     let result = gw
-        .try_handle_approval_command("session_1", "/approve REQ_001", None)
+        .try_handle_approval_command("session_1", "/approve REQ_001", None, "peer_1", "mock")
         .await;
 
-    assert!(result.is_none(), "expected None when sender is None");
+    assert!(
+        matches!(result, Some(HandleResult::ApprovalProcessed)),
+        "expected Some(ApprovalProcessed) for None sender, got {:?}",
+        result,
+    );
 }
 
 #[tokio::test]
@@ -225,7 +253,7 @@ async fn test_deny_bare_returns_none() {
     install_approval_flow(&gw).await;
 
     let result = gw
-        .try_handle_approval_command("session_1", "/deny", Some("owner"))
+        .try_handle_approval_command("session_1", "/deny", Some("owner"), "peer_1", "mock")
         .await;
 
     assert!(result.is_none(), "expected None for bare /deny");
@@ -238,7 +266,13 @@ async fn test_approve_with_flags_parsed() {
 
     // /approve with --whitelist flag should still parse correctly
     let result = gw
-        .try_handle_approval_command("session_1", "/approve REQ_003 --whitelist", Some("owner"))
+        .try_handle_approval_command(
+            "session_1",
+            "/approve REQ_003 --whitelist",
+            Some("owner"),
+            "peer_1",
+            "mock",
+        )
         .await;
 
     assert!(
@@ -259,6 +293,8 @@ async fn test_approve_with_extra_args_parsed() {
             "session_1",
             "/approve REQ_004 --agent-only extra",
             Some("owner"),
+            "peer_1",
+            "mock",
         )
         .await;
 
