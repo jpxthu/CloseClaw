@@ -89,11 +89,11 @@
   },
   {
     "path": "docs/design/common/core-traits.md",
-    "commit": "bed36a94a04bedd23f9ac6d8464c8e0340140779",
-    "commit_time": "2026-07-30T19:19:58+08:00",
-    "confirmed_time": "2026-07-30T19:27:50.905317+08:00",
+    "commit": "bf29e9c652b8e0369e82aafd3db22b40c2b1f804",
+    "commit_time": "2026-08-05T19:52:57+08:00",
+    "confirmed_time": "2026-08-05T20:04:42.807634+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "设计文档声明为 common crate DI trait 的权威清单，但实际仅覆盖约 16% 的 pub trait（5/30+），设计目标范围不清晰。同时 SkillsFragmentProvider 文档列出但代码缺失，PlanToolsRegistrar 代码存在但文档未列出。"
   },
   {
     "path": "docs/design/common/data-flow.md",
@@ -417,11 +417,11 @@
   },
   {
     "path": "docs/design/session/README.md",
-    "commit": "aca43de7ec6e51fe6615bc91c2075731d6952406",
-    "commit_time": "2026-08-04T19:54:48+08:00",
-    "confirmed_time": "2026-08-04T20:43:48.972231+08:00",
+    "commit": "6038d475c1b67cdb553fca423156ef6326ea581a",
+    "commit_time": "2026-08-05T19:42:11+08:00",
+    "confirmed_time": "2026-08-05T19:45:16.877159+08:00",
     "comment": "",
-    "blocked_reason": "doc_problem: session_exec.rs title says three-dim but code has four; Immediate bypass is slash-layer not queue feature; routing key naming inconsistency docs vs code"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/session/compact-process.md",
