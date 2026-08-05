@@ -15,6 +15,7 @@ use closeclaw_common::LlmCaller;
 use closeclaw_common::NoopMetricsEmitter;
 use closeclaw_config::providers::{ConfigProvider, CredentialsProvider, SystemConfigData};
 use closeclaw_config::{ConfigManager, ConfigSection};
+use closeclaw_gateway as gateway;
 use closeclaw_gateway::{Gateway, GatewayConfig, HandleResult, SessionManager};
 use closeclaw_llm::anthropic::AnthropicProvider;
 use closeclaw_llm::fallback::{FallbackClient, ModelEntry};
@@ -23,7 +24,6 @@ use closeclaw_llm::minimax::MiniMaxProvider;
 use closeclaw_llm::openai::OpenAIProvider;
 use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
 use closeclaw_llm::LLMRegistry;
-use closeclaw_processor_chain as processor_chain;
 use closeclaw_slash::dispatcher::SlashDispatcher;
 use closeclaw_slash::registry::HandlerRegistry;
 use closeclaw_slash::{ClearHandler, HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
@@ -95,7 +95,7 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
         reasoning_level,
     ));
 
-    let processor_registry = Arc::new(processor_chain::build_processor_registry(&gateway_config))
+    let processor_registry = Arc::new(gateway::build_processor_registry(&gateway_config))
         as Arc<dyn closeclaw_common::ProcessorChain>;
     let gateway = Gateway::with_processor_registry(
         gateway_config,

@@ -204,7 +204,7 @@ async fn test_close_outbound_clears_processor_registry() {
     let gw = crate::Gateway::new(config, sm);
 
     let (i, o) = gw.processor_registry_len();
-    assert_eq!(i + o, 0, "no processor registry initially");
+    assert!(i + o > 0, "Gateway::new should have a processor registry");
 
     gw.close_outbound().await;
 

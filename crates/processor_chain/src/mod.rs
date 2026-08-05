@@ -10,8 +10,6 @@
 //! - [`RawMessageLog`] — snapshot of normalized message at each processing step
 //! - [`ProcessError`] — error types
 
-#[cfg(test)]
-mod build_processor_registry_tests;
 pub mod content_normalizer;
 pub mod context;
 #[cfg(test)]
@@ -53,61 +51,6 @@ pub use error::ProcessError;
 pub use middleware::{run_middleware_chain, MiddlewareError, OutboundMiddleware};
 pub use processor::{MessageProcessor, ProcessPhase};
 
-use std::sync::Arc;
-
-use closeclaw_gateway::GatewayConfig;
-
-use self::content_normalizer::ContentNormalizer;
-use self::outbound_raw_log::OutboundRawLogProcessor;
-use self::raw_log_processor::{RawLogConfig, RawLogProcessor};
-use self::verbosity_filter::VerbosityFilter;
-
-/// Build a [`ProcessorRegistry`] with the standard inbound/outbound chains.
-///
-/// Inbound (by priority): [`RawLogProcessor`] (10) → [`SessionRouter`] (20) →
-/// [`ContentNormalizer`] (30).
-///
-/// Outbound (by priority): [`VerbosityFilter`] (5) → [`DslParser`] (10) →
-/// [`OutboundRawLogProcessor`] (20, only when `raw_log_dir` is configured).
-///
-/// [`RawLogProcessor`] and [`OutboundRawLogProcessor`] are registered only
-/// when `config.raw_log_dir` is `Some`.
-pub fn build_processor_registry(config: &GatewayConfig) -> ProcessorRegistry {
-    let mut registry = ProcessorRegistry::default();
-
-    // Inbound: RawLogProcessor (priority 10 — if raw_log_dir is configured)
-    if let Some(ref dir) = config.raw_log_dir {
-        let raw_log_config = RawLogConfig {
-            enabled: true,
-            dir: dir.clone(),
-            retention_days: 7,
-        };
-        let processor =
-            RawLogProcessor::new(raw_log_config).expect("RawLogProcessor initialization failed");
-        registry.register(Arc::new(processor));
-    }
-
-    // Inbound: SessionRouter (priority 20 — computes session_key)
-    registry.register(Arc::new(SessionRouter::new()));
-
-    // Inbound: ContentNormalizer (priority 30)
-    registry.register(Arc::new(ContentNormalizer::new()));
-
-    // Outbound: VerbosityFilter (priority 5)
-    registry.register(Arc::new(VerbosityFilter));
-
-    // Outbound: DslParser (priority 10)
-    registry.register(Arc::new(DslParser));
-
-    // Outbound: OutboundRawLogProcessor (priority 20 — if raw_log_dir is configured)
-    if let Some(ref dir) = config.raw_log_dir {
-        let raw_log_config = RawLogConfig {
-            enabled: true,
-            dir: dir.clone(),
-            retention_days: 7,
-        };
-        registry.register(Arc::new(OutboundRawLogProcessor::new(raw_log_config)));
-    }
-
-    registry
-}
+// Re-export types used by test files via `use super::*;`
+#[cfg(test)]
+use self::raw_log_processor::RawLogConfig;

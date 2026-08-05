@@ -35,7 +35,6 @@ use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::{PermissionEngine, RuleSet};
-use closeclaw_processor_chain as processor_chain;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
 use closeclaw_session::storage::SqliteStorage;
@@ -157,9 +156,10 @@ impl Daemon {
                 PermissionEngine,
                 SkillWatcher,
                 SpawnController,
+                SystemPromptBuilder,
                 ToolsRegistry,
             ],
-            vec![ApprovalFlow, SessionManager, SystemPromptBuilder],
+            vec![ApprovalFlow, SessionManager],
             vec![Gateway],
             vec![AdminRpcServer],
         ]
@@ -313,19 +313,8 @@ impl Daemon {
         session_manager
             .set_checkpoint_manager(Arc::clone(&checkpoint_manager))
             .await;
-        let processor_registry =
-            Arc::new(processor_chain::build_processor_registry(&gateway_config));
-        info!(
-            inbound_len = processor_registry.inbound_len(),
-            outbound_len = processor_registry.outbound_len(),
-            "processor registry built for daemon"
-        );
-        let gateway = Gateway::with_processor_registry(
-            gateway_config,
-            Arc::clone(&session_manager),
-            processor_registry,
-        )
-        .with_checkpoint_manager(Arc::clone(&checkpoint_manager));
+        let gateway = Gateway::new(gateway_config, Arc::clone(&session_manager))
+            .with_checkpoint_manager(Arc::clone(&checkpoint_manager));
         // Storage injection is now handled via the shared CheckpointManager
         // set on both SessionManager and Gateway above. The old
         // gateway.set_storage() path still works as a backward-compatible
