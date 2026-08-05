@@ -117,6 +117,7 @@ impl ShutdownSignal for MockTransitionSignal {
             state,
             busy_count: self.busy_count.load(Ordering::SeqCst),
             is_draining: state == ShutdownState::Draining,
+            pending_items: Vec::new(),
         }
     }
 }

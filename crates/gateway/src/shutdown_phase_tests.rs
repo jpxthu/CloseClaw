@@ -353,6 +353,7 @@ impl ShutdownSignal for MockStateSignal {
             state: self.state,
             busy_count: 0,
             is_draining: self.state == ShutdownState::Draining,
+            pending_items: Vec::new(),
         }
     }
 }
