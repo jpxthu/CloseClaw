@@ -10,9 +10,9 @@ use std::sync::Arc;
 
 // ── Gateway::new ────────────────────────────────────────────────────────────
 
-/// Gateway::new must initialize with no processor registry.
+/// Gateway::new must auto-build a processor registry from config.
 #[test]
-fn test_gateway_new_has_no_processor_registry() {
+fn test_gateway_new_has_processor_registry() {
     let config = GatewayConfig {
         name: "test-new-gw".to_string(),
         ..Default::default()
@@ -25,10 +25,13 @@ fn test_gateway_new_has_no_processor_registry() {
     ));
     let gw = crate::Gateway::new(config, sm);
     let (inbound, outbound) = gw.processor_registry_len();
-    assert_eq!(inbound, 0, "Gateway::new should have 0 inbound processors");
-    assert_eq!(
-        outbound, 0,
-        "Gateway::new should have 0 outbound processors"
+    assert!(
+        inbound > 0,
+        "Gateway::new should auto-build inbound processors"
+    );
+    assert!(
+        outbound > 0,
+        "Gateway::new should auto-build outbound processors"
     );
 }
 

@@ -116,11 +116,12 @@ pub struct Gateway {
 impl Gateway {
     /// Create a new Gateway with the given config and a shared SessionManager.
     pub fn new(config: GatewayConfig, session_manager: Arc<SessionManager>) -> Self {
+        let registry = build_processor_registry(&config);
         Self {
             config,
             plugins: RwLock::new(HashMap::new()),
             session_manager,
-            processor_registry: std::sync::RwLock::new(None),
+            processor_registry: std::sync::RwLock::new(Some(Arc::new(registry))),
             checkpoint_manager: None,
             session_handler: None,
             approval_flow: RwLock::new(None),
