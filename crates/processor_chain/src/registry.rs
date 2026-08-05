@@ -121,14 +121,14 @@ impl ProcessorRegistry {
         })
     }
 
-    /// Drives the outbound processor chain on `llm_output`.
+    /// Internal helper: drive the outbound chain with an optional name filter.
     ///
-    /// Same semantics as [`process_inbound`](ProcessorRegistry::process_inbound) but operates on
-    /// the outbound chain and takes a [`ProcessedMessage`] as input (converted internally to a
-    /// [`MessageContext`]). If the chain is empty the input is returned unchanged (bypass).
-    pub async fn process_outbound(
+    /// When `exclude` is set, any processor whose name matches is skipped.
+    /// This allows running DslParser + OutboundRawLog without VerbosityFilter.
+    async fn process_outbound_filtered(
         &self,
         llm_output: ProcessedMessage,
+        exclude: Option<&str>,
     ) -> Result<ProcessedMessage, ProcessError> {
         if self.outbound.is_empty() {
             return Ok(llm_output);
@@ -158,6 +158,9 @@ impl ProcessorRegistry {
         for processor in sorted {
             if ctx.skip {
                 break;
+            }
+            if exclude == Some(processor.name()) {
+                continue;
             }
             match processor.process(&ctx).await {
                 Ok(Some(out)) => {
@@ -193,6 +196,31 @@ impl ProcessorRegistry {
             },
             metadata: ctx.metadata,
         })
+    }
+
+    /// Drives the outbound processor chain on `llm_output`.
+    ///
+    /// Same semantics as [`process_inbound`](ProcessorRegistry::process_inbound) but operates on
+    /// the outbound chain and takes a [`ProcessedMessage`] as input (converted internally to a
+    /// [`MessageContext`]). If the chain is empty the input is returned unchanged (bypass).
+    pub async fn process_outbound(
+        &self,
+        llm_output: ProcessedMessage,
+    ) -> Result<ProcessedMessage, ProcessError> {
+        self.process_outbound_filtered(llm_output, None).await
+    }
+
+    /// Process the outbound chain, skipping the VerbosityFilter processor.
+    ///
+    /// Runs DslParser → OutboundRawLog without VerbosityFilter. Used by the
+    /// streaming pipeline finish phase where verbosity filtering is handled
+    /// inline during the stream (not in the post-stream chain).
+    pub async fn process_outbound_skip_verbosity(
+        &self,
+        llm_output: ProcessedMessage,
+    ) -> Result<ProcessedMessage, ProcessError> {
+        self.process_outbound_filtered(llm_output, Some("verbosity_filter"))
+            .await
     }
 }
 
@@ -297,6 +325,23 @@ impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
             Ok(None) => Ok(msg),
             Err(e) => Err(convert_process_error(e)),
         }
+    }
+
+    async fn process_outbound_skip_verbosity(
+        &self,
+        msg: closeclaw_common::processor::ProcessedMessage,
+    ) -> Result<
+        closeclaw_common::processor::ProcessedMessage,
+        closeclaw_common::processor::ProcessError,
+    > {
+        let main_msg = ProcessedMessage {
+            content_blocks: msg.content_blocks,
+            metadata: msg.metadata,
+        };
+        self.process_outbound_skip_verbosity(main_msg)
+            .await
+            .map(convert_processed_message)
+            .map_err(convert_process_error)
     }
 
     fn parse_line_for_dsl(

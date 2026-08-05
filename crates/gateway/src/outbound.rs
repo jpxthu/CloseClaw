@@ -82,24 +82,9 @@ struct DispatchCtx<'a> {
 impl Gateway {
     /// Send an outbound message (agent response) via the registered IM plugin.
     ///
-    /// Flow:
-    /// 1. Resolve `chat_id` from `session_id` via `SessionManager::get_chat_id`.
-    /// 2. Resolve the [`IMPlugin`](super::im::IMPlugin) registered for `channel`
-    ///    through `self.plugins`.
-    /// 3. Resolve the session's [`VerbosityLevel`] and inject it into chain
-    ///    metadata for [`VerbosityFilter`](closeclaw_processor_chain::verbosity_filter::VerbosityFilter).
-    /// 4. Run the full outbound processor chain (VerbosityFilter → DslParser →
-    ///    OutboundRawLog) via `process_or_bypass`.
-    /// 5. Extract `dsl_result` from `processed.metadata["dsl_result"]` (stored
-    ///    as a JSON-encoded string by the DSL processor).
-    /// 6. Call `plugin.render(blocks, dsl_result)` to obtain a
-    ///    [`RenderedOutput`](closeclaw_common::im_plugin::RenderedOutput); fall back to a
-    ///    single `ContentBlock::Text` block when `content_blocks` is empty.
-    /// 7. Dispatch by `msg_type` (`"text"` / `"interactive"`) through
-    ///    `plugin.send`. Any other type is an [`GatewayError::OutboundError`].
-    /// 8. After each successful send, trigger checkpoint persistence.
-    /// 9. `thread_id` is resolved via `session_manager.get_thread_id` and
-    ///    passed to `plugin.send`.
+    /// Flow: resolve chat_id + plugin → resolve VerbosityLevel → run processor
+    /// chain (VerbosityFilter → DslParser → OutboundRawLog) → render → dispatch
+    /// by msg_type → persist checkpoint.
     pub async fn send_outbound(
         &self,
         session_id: &str,
@@ -253,23 +238,10 @@ impl Gateway {
         content_blocks: Vec<ContentBlock>,
         channel: &str,
     ) -> Result<ProcessedMessage, GatewayError> {
-        let registry = self.processor_registry.read().unwrap().clone();
-        let Some(registry) = registry else {
-            let blocks = if content_blocks.is_empty() {
-                vec![ContentBlock::Text(raw_output.to_string())]
-            } else {
-                content_blocks
-            };
-            return Ok(ProcessedMessage {
-                content_blocks: blocks,
-                metadata: std::collections::HashMap::new(),
-            });
-        };
-        let mut meta = std::collections::HashMap::new();
-        meta.insert("channel".to_string(), channel.to_string());
-        let input = ProcessedMessage {
-            content_blocks,
-            metadata: meta,
+        let meta = Self::make_outbound_meta(&[("channel", channel)]);
+        let input = self.make_outbound_input(raw_output, content_blocks, meta);
+        let Some(registry) = self.processor_registry.read().unwrap().clone() else {
+            return Ok(input);
         };
         registry
             .process_outbound_raw_log_only(input)
@@ -277,8 +249,29 @@ impl Gateway {
             .map_err(|e| GatewayError::OutboundError(e.to_string()))
     }
 
-    /// Run the outbound processor chain if configured, otherwise bypass with
-    /// a synthetic [`ProcessedMessage`] wrapping the raw input.
+    /// Run the outbound chain with VerbosityFilter skipped.
+    ///
+    /// Used by the streaming pipeline finish phase where verbosity filtering
+    /// is handled inline during the stream (not in the post-stream chain).
+    async fn process_outbound_skip_verbosity(
+        &self,
+        raw_output: &str,
+        content_blocks: Vec<ContentBlock>,
+        channel: &str,
+        session_id: &str,
+    ) -> Result<ProcessedMessage, GatewayError> {
+        let meta = Self::make_outbound_meta(&[("channel", channel), ("session_id", session_id)]);
+        let input = self.make_outbound_input(raw_output, content_blocks, meta);
+        let Some(registry) = self.processor_registry.read().unwrap().clone() else {
+            return Ok(input);
+        };
+        registry
+            .process_outbound_skip_verbosity(input)
+            .await
+            .map_err(|e| GatewayError::OutboundError(e.to_string()))
+    }
+
+    /// Run the outbound processor chain if configured, otherwise bypass.
     async fn process_or_bypass(
         &self,
         _raw_output: &str,
@@ -287,30 +280,39 @@ impl Gateway {
         session_id: &str,
         verbosity_level: VerbosityLevel,
     ) -> Result<ProcessedMessage, GatewayError> {
-        let registry = self.processor_registry.read().unwrap().clone();
-        let Some(registry) = registry else {
-            let blocks = if content_blocks.is_empty() {
-                vec![ContentBlock::Text(_raw_output.to_string())]
-            } else {
-                content_blocks
-            };
-            return Ok(ProcessedMessage {
-                content_blocks: blocks,
-                metadata: std::collections::HashMap::new(),
-            });
-        };
-        let mut meta = std::collections::HashMap::new();
-        meta.insert("channel".to_string(), channel.to_string());
-        meta.insert("session_id".to_string(), session_id.to_string());
-        meta.insert("verbosity_level".to_string(), verbosity_level.to_string());
-        let input = ProcessedMessage {
-            content_blocks,
-            metadata: meta,
+        let meta = Self::make_outbound_meta(&[
+            ("channel", channel),
+            ("session_id", session_id),
+            ("verbosity_level", &verbosity_level.to_string()),
+        ]);
+        let input = self.make_outbound_input(_raw_output, content_blocks, meta);
+        let Some(registry) = self.processor_registry.read().unwrap().clone() else {
+            return Ok(input);
         };
         registry
             .process_outbound(input)
             .await
             .map_err(|e| GatewayError::OutboundError(e.to_string()))
+    }
+
+    /// Build a [`ProcessedMessage`] from raw output.
+    fn make_outbound_input(
+        &self,
+        _raw_output: &str,
+        content_blocks: Vec<ContentBlock>,
+        metadata: std::collections::HashMap<String, String>,
+    ) -> ProcessedMessage {
+        ProcessedMessage {
+            content_blocks,
+            metadata,
+        }
+    }
+
+    fn make_outbound_meta(entries: &[(&str, &str)]) -> std::collections::HashMap<String, String> {
+        entries
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     /// Fallback to plain-text output when no IM plugin is registered for
@@ -499,15 +501,7 @@ impl Gateway {
 
     /// Send a streaming LLM response via the registered IM plugin.
     ///
-    /// Drives a [`DefaultStreamingRenderer`] over the [`StreamEvent`] stream,
-    /// dispatching incremental output to `plugin` as it becomes available:
-    /// - Text delta → line buffer → complete lines → `plugin.send` (text)
-    /// - BlockEnd (non-Text) → `plugin.render(&[block], None)` → `plugin.send`
-    /// - MessageEnd → flush remaining content → `plugin.send`
-    ///
-    /// Accumulated `content_blocks` and the LLM-reported `usage` are returned
-    /// in a [`StreamResult`]. `thread_id` is resolved from the session
-    /// checkpoint and forwarded to all `plugin.send` calls.
+    /// Delegates to [`send_outbound_streaming_inner`] for core logic.
     pub async fn send_outbound_streaming<E: std::fmt::Display>(
         &self,
         session_id: &str,
@@ -521,10 +515,8 @@ impl Gateway {
 
     /// Streaming outbound dispatch with session-assembled content blocks.
     ///
-    /// When `session_content_blocks` is provided (from
-    /// [`SessionStream`](closeclaw_session::llm_session::SessionStream)),
-    /// the post-stream pipeline uses them as the source of truth instead
-    /// of the Gateway-internal `StreamState` accumulation.
+    /// When `session_content_blocks` is provided, the post-stream pipeline
+    /// uses them as the source of truth instead of internal StreamState.
     pub async fn send_outbound_streaming_assembled<E: std::fmt::Display>(
         &self,
         session_id: &str,
@@ -554,8 +546,7 @@ impl Gateway {
     ///
     /// When `session_blocks` is provided, the post-stream pipeline uses
     /// those session-assembled `ContentBlock`s instead of the internal
-    /// `StreamState` accumulation. This ensures the Session layer is the
-    /// source of truth for `ContentBlock[]` assembly.
+    /// `StreamState` accumulation.
     async fn send_outbound_streaming_inner<E: std::fmt::Display>(
         &self,
         session_id: &str,
@@ -632,7 +623,8 @@ impl Gateway {
             .await
     }
 
-    /// Post-stream pipeline: select content blocks, run processor chain,
+    /// Post-stream pipeline: select content blocks, run processor chain
+    /// (skipping VerbosityFilter — handled inline during the stream),
     /// merge DSL results, and build the final [`StreamResult`].
     async fn finish_streaming_pipeline(
         &self,
@@ -647,18 +639,19 @@ impl Gateway {
             None => (std::mem::take(&mut state.content_blocks), None),
         };
 
+        // Skip VerbosityFilter in the processor chain — the design doc
+        // requires: "收尾阶段不重跑 VerbosityFilter". VerbosityFilter is
+        // applied inline during BlockEnd streaming events. However, the
+        // final content_blocks must still be filtered for downstream
+        // consumers, so we apply VerbosityFilter directly here.
         let processed = self
-            .process_or_bypass(
-                "",
-                content_blocks_for_pipeline,
-                channel,
-                session_id,
-                verbosity_level,
-            )
+            .process_outbound_skip_verbosity("", content_blocks_for_pipeline, channel, session_id)
             .await?;
 
+        let filtered_blocks = filter_by_verbosity(processed.content_blocks, verbosity_level);
+
         Ok(StreamResult {
-            content_blocks: processed.content_blocks,
+            content_blocks: filtered_blocks,
             usage: usage_override.unwrap_or(state.usage),
             retry_attempts: 0,
         })
