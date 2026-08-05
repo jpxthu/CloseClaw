@@ -17,6 +17,9 @@ fn test_message() -> Message {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     }
 }
 
@@ -127,6 +130,9 @@ async fn test_resolve_stable_routing_key_different_timestamps() {
         timestamp: chrono::Utc::now().timestamp() + 60_000,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     // Both messages have same (channel, from, to) → same routing_key
     let routing_key1 = SessionManager::compute_routing_key("feishu", &msg1, None);
@@ -599,6 +605,9 @@ async fn test_resolve_different_routing_keys_independent() {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
 
     let id1 = mgr.find_or_create("feishu", &msg1, None).await.unwrap();
@@ -812,6 +821,9 @@ async fn test_per_agent_lock_reuses_mutex_for_same_agent() {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     let msg_c = Message {
         id: "msg-c".to_string(),
@@ -822,6 +834,9 @@ async fn test_per_agent_lock_reuses_mutex_for_same_agent() {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
 
     // Resolve two messages for agent-b and one for agent-c.
@@ -880,6 +895,9 @@ async fn test_per_agent_lock_parallel_different_agents() {
                 timestamp: chrono::Utc::now().timestamp(),
                 metadata: std::collections::HashMap::new(),
                 thread_id: None,
+                platform: None,
+                dsl_result: None,
+                content_blocks: None,
             };
             mgr_clone.find_or_create("feishu", &msg, None).await
         }));
@@ -932,6 +950,9 @@ async fn test_per_agent_lock_serializes_same_agent() {
                 timestamp: chrono::Utc::now().timestamp(),
                 metadata: std::collections::HashMap::new(),
                 thread_id: None,
+                platform: None,
+                dsl_result: None,
+                content_blocks: None,
             };
             // Wait for both tasks to be ready
             barrier_clone.wait().await;
