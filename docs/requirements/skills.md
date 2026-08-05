@@ -50,19 +50,13 @@ System Prompt 每次组装时（新会话创建、归档恢复、上下文压缩
 
 清单按技能来源优先级排序（高优先级在前），同来源内按名称字母序排列。技能清单为空时不注入对应段落。
 
-### F5. 热重载
-
-User 在 session 运行期间修改或新增 SKILL.md 文件后，系统检测到文件变更并触发 System Prompt 中技能清单部分的缓存失效。下次 API 调用时 System Prompt 自动反映最新技能清单。User 无需手动操作也无需关注具体生效时机。
-
-> **交叉引用**：文件变更检测和缓存失效由 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）管理。技能注册中心的元数据刷新见 F1（即插即用）。
-
 ### F6. 条件激活
 
-声明了 paths 字段的技能不在技能清单中（即使同时声明了 user-invocable）。当 Agent 操作的文件路径匹配某技能的 paths 模式时，该技能自动激活——触发 System Prompt 中技能清单部分的缓存失效，下次 API 调用时清单中反映该技能条目。
+声明了 paths 字段的技能不在技能清单中（即使同时声明了 user-invocable）。当 Agent 操作的文件路径匹配某技能的 paths 模式时，该技能自动激活——在下次 System Prompt 组装时清单中反映该技能条目。
 
 条件激活仅注入清单条目（不含正文），正文在调用时按需加载（详见 F7）。
 
-> **交叉引用**：路径匹配检测和激活标记维护由 session 层完成，详见 [session §F2](session.md)（Agent 角色与能力配置）。缓存失效和 System Prompt 重建由 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）管理。
+> **交叉引用**：路径匹配检测和激活标记维护由 session 层完成，详见 [session §F2](session.md)（Agent 角色与能力配置）。System Prompt 组装时机见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 
 ### F7. 技能调用
 
