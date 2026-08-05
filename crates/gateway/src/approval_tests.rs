@@ -297,6 +297,22 @@ async fn test_none_sender_returns_rejected() {
 }
 
 #[tokio::test]
+async fn test_none_sender_deny_returns_rejected() {
+    let gw = make_gw();
+    install_approval_flow(&gw).await;
+
+    let result = gw
+        .try_handle_approval_command("session_1", "/deny REQ_002", None, "peer_1", "mock")
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::ApprovalProcessed)),
+        "expected Some(ApprovalProcessed) for None sender /deny, got {:?}",
+        result,
+    );
+}
+
+#[tokio::test]
 async fn test_deny_bare_returns_none() {
     let gw = make_gw();
     install_approval_flow(&gw).await;

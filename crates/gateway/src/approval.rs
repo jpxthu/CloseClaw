@@ -118,9 +118,17 @@ impl Gateway {
                     sender_id = ?sender_id,
                     "non-owner attempted approval command"
                 );
-                let _ = self
+                if let Err(e) = self
                     .send_outbound_simplified(peer_id, channel, "权限不足：该指令仅限 Owner 使用")
-                    .await;
+                    .await
+                {
+                    tracing::warn!(
+                        session_id,
+                        sender_id = ?sender_id,
+                        error = %e,
+                        "failed to send non-owner rejection message"
+                    );
+                }
                 return Some(HandleResult::ApprovalProcessed);
             }
         }
