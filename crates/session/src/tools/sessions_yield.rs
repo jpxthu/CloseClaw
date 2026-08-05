@@ -76,14 +76,8 @@ impl Tool for SessionsYieldTool {
 
         session.enter_waiting();
 
-        // Compute overall timeout: max(child timeouts) + 60s buffer.
         let children = self.session_manager.list_children(session_id).await;
-        let overall = children
-            .iter()
-            .filter_map(|c| c.timeout_secs)
-            .max()
-            .unwrap_or(DEFAULT_YIELD_TIMEOUT_SECS)
-            + 60;
+        let overall = compute_overall_timeout(&children);
 
         self.session_manager
             .clone()
@@ -104,4 +98,20 @@ impl Tool for SessionsYieldTool {
             context_modifier: None,
         })
     }
+}
+
+/// Compute the overall yield timeout for a set of child sessions.
+///
+/// Per the design doc: `max(child timeouts) + 60s buffer`.
+/// When no child provides an explicit timeout, falls back to
+/// [`DEFAULT_YIELD_TIMEOUT_SECS`].
+///
+/// This function is testable independently of the async tool call path.
+pub fn compute_overall_timeout(children: &[crate::spawn::ChildSessionInfo]) -> u64 {
+    children
+        .iter()
+        .filter_map(|c| c.timeout_secs)
+        .max()
+        .unwrap_or(DEFAULT_YIELD_TIMEOUT_SECS)
+        + 60
 }

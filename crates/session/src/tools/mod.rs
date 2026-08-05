@@ -111,3 +111,6 @@ mod registrar_tests;
 
 #[cfg(test)]
 mod sessions_spawn_tests;
+
+#[cfg(test)]
+mod sessions_yield_tests;
