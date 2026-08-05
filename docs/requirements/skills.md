@@ -42,23 +42,23 @@ SKILL.md 正文（frontmatter 之后的指令文本）支持变量替换，User 
 
 ### F4. 技能清单
 
-System Prompt 每次组装时（新会话创建、归档恢复、上下文压缩完成后），系统从技能注册中心读取当前可用技能，渲染技能清单并注入 System Prompt 固定位置。Agent 在每次 API 调用时通过 System Prompt 看到完整的可用技能列表。
+System Prompt 每次组装时，系统从技能注册中心读取当前可用技能，渲染技能清单并注入 System Prompt 固定位置。Agent 在每次 API 调用时通过 System Prompt 看到完整的可用技能列表。
 
 清单中仅包含已声明 user-invocable 的技能（声明了 paths 的技能遵循 F6 条件激活规则，不在清单中）。
 
-> **交叉引用**：System Prompt 组装触发时机见 [session §F2](session.md)（Agent 角色与能力配置）。System Prompt 各组成部分按固定顺序排列、配置不变时多次组装结果完全相同，从而最大限度利用 KV Cache——详见 [system_prompt §F7](system_prompt.md)（API 前缀缓存利用）。System Prompt 不参与对话压缩——压缩只处理对话消息，System Prompt 完整保留，详见 [session §F3](session.md)（长对话压缩）。
+> **交叉引用**：System Prompt 组装触发时机见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。System Prompt 各组成部分按固定顺序排列、配置不变时多次组装结果完全相同，详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。SP 组装结果在事件之间不变，确保 KV Cache 稳定性，详见 [system_prompt §F7](system_prompt.md)（API 前缀缓存利用）。对话压缩不触碰 System Prompt，详见 [session §F3](session.md)（长对话压缩）。
 
 清单按技能来源优先级排序（高优先级在前），同来源内按名称字母序排列。技能清单为空时不注入对应段落。
 
 ### F5. 技能文件变更
 
-User 在 session 运行期间修改或新增 SKILL.md 文件后，技能变更不会在当前 session 自动生效。文件系统中的技能定义仅在下次 System Prompt 组装时（新会话创建、归档恢复、上下文压缩完成后）反映，不在组装之间响应文件系统变更。
+User 在 session 运行期间修改或新增 SKILL.md 文件后，技能变更不会在当前 session 自动生效。文件系统中的技能定义仅在下次 System Prompt 组装时反映。
 
-> **交叉引用**：System Prompt 组装触发时机见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
+> **交叉引用**：System Prompt 组装触发时机和数据源变更的生效规则见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 
 ### F6. 条件激活
 
-声明了 paths 字段的技能不在技能清单中（即使同时声明了 user-invocable）。当 Agent 操作的文件路径匹配某技能的 paths 模式时，该技能自动激活——在下一个 session turn 即时注入该技能的清单条目，Agent 无需等待 System Prompt 组装即可使用。
+声明了 paths 字段的技能不在技能清单中（即使同时声明了 user-invocable）。当 Agent 操作的文件路径匹配某技能的 paths 模式时，该技能自动激活——系统为该技能在 session 内产生激活标记，并在下一个 turn 即时注入该技能的清单条目，Agent 无需等待 System Prompt 组装即可使用。
 
 条件激活的注入条目与技能清单保持相同格式。仅注入清单条目（不含正文），正文在调用时按需加载（详见 F7）。激活标记的生命周期跟随当前 session，session 结束时清空。
 
@@ -90,7 +90,9 @@ Agent 可通过内置的技能（skill）获得创建技能文件的指导。Use
 ## 关联设计文档
 
 - [✓] skills/README.md
+- [✓] skills/skill-definition.md
 - [✓] skills/skill-listing-injection.md
+- [✓] skills/skill-execution.md
 
 ## 非功能需求
 
