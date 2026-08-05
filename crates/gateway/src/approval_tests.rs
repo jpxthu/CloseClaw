@@ -6,8 +6,11 @@
 //! 3. Boundary: message without `/approve` or `/deny` prefix → returns None
 //! 4. Boundary: `/approve` without request_id → returns None (warn logged)
 //! 5. Boundary: empty string → returns None
-//! 6. Non-owner sender → returns Some(ApprovalProcessed) + rejection message sent
-//! 7. None sender → returns Some(ApprovalProcessed) + rejection message sent
+//! 6. Non-owner sender + `/approve` → returns Some(ApprovalProcessed) + rejection message
+//! 7. None sender + `/approve` → returns Some(ApprovalProcessed) + rejection message
+//! 8. Non-owner sender + `/deny` → returns Some(ApprovalProcessed) + rejection message
+//! 9. Non-owner sender + `/approve` without request_id → returns Some(ApprovalProcessed)
+//!    (permission check precedes request_id parsing)
 
 use std::sync::Arc;
 
@@ -226,7 +229,53 @@ async fn test_non_owner_sender_returns_rejected() {
 
     assert!(
         matches!(result, Some(HandleResult::ApprovalProcessed)),
-        "expected Some(ApprovalProcessed) for non-owner, got {:?}",
+        "expected Some(ApprovalProcessed) for non-owner /approve, got {:?}",
+        result,
+    );
+}
+
+#[tokio::test]
+async fn test_non_owner_deny_returns_rejected() {
+    let gw = make_gw();
+    install_approval_flow(&gw).await;
+
+    let result = gw
+        .try_handle_approval_command(
+            "session_1",
+            "/deny REQ_002",
+            Some("other_user"),
+            "peer_1",
+            "mock",
+        )
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::ApprovalProcessed)),
+        "expected Some(ApprovalProcessed) for non-owner /deny, got {:?}",
+        result,
+    );
+}
+
+#[tokio::test]
+async fn test_non_owner_approve_without_request_id_returns_rejected() {
+    let gw = make_gw();
+    install_approval_flow(&gw).await;
+
+    // Non-owner + /approve without request_id: permission check should
+    // intercept before request_id parsing, returning ApprovalProcessed.
+    let result = gw
+        .try_handle_approval_command(
+            "session_1",
+            "/approve",
+            Some("other_user"),
+            "peer_1",
+            "mock",
+        )
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::ApprovalProcessed)),
+        "expected Some(ApprovalProcessed) for non-owner bare /approve, got {:?}",
         result,
     );
 }
