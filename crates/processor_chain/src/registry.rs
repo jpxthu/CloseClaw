@@ -120,35 +120,44 @@ impl ProcessorRegistry {
             metadata: ctx.metadata,
         })
     }
+}
 
-    /// Drives the outbound processor chain on `llm_output`.
+// ═══════════════════════════════════════════════════════════════════════════
+// Outbound chain helpers
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Build a synthetic [`NormalizedMessage`] from a [`ProcessedMessage`] so we
+/// can reuse [`MessageContext::from_normalized`] in the outbound chain.
+fn synthetic_from_output(output: &ProcessedMessage) -> NormalizedMessage {
+    NormalizedMessage {
+        platform: String::new(),
+        sender_id: String::new(),
+        peer_id: String::new(),
+        content: output.text_content().unwrap_or("").to_string(),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        thread_id: None,
+        account_id: String::new(),
+        chat_name: String::new(),
+    }
+}
+
+impl ProcessorRegistry {
+    /// Internal helper: drive the outbound chain with an optional name filter.
     ///
-    /// Same semantics as [`process_inbound`](ProcessorRegistry::process_inbound) but operates on
-    /// the outbound chain and takes a [`ProcessedMessage`] as input (converted internally to a
-    /// [`MessageContext`]). If the chain is empty the input is returned unchanged (bypass).
-    pub async fn process_outbound(
+    /// When `exclude` is set, any processor whose name matches is skipped.
+    /// This allows running DslParser + OutboundRawLog without VerbosityFilter.
+    async fn process_outbound_filtered(
         &self,
         llm_output: ProcessedMessage,
+        exclude: Option<&str>,
     ) -> Result<ProcessedMessage, ProcessError> {
         if self.outbound.is_empty() {
             return Ok(llm_output);
         }
 
-        // Build a synthetic NormalizedMessage so we can reuse MessageContext::from_normalized.
-        let content = llm_output.text_content().unwrap_or("").to_string();
-        let synthetic = NormalizedMessage {
-            platform: String::new(),
-            sender_id: String::new(),
-            peer_id: String::new(),
-            content,
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            message_type: Default::default(),
-            media_refs: Vec::new(),
-            thread_id: None,
-            account_id: String::new(),
-            chat_name: String::new(),
-        };
-        let mut ctx = MessageContext::from_normalized(synthetic);
+        let mut ctx = MessageContext::from_normalized(synthetic_from_output(&llm_output));
         ctx.metadata = llm_output.metadata.clone();
         ctx.content_blocks = llm_output.content_blocks.clone();
 
@@ -158,6 +167,9 @@ impl ProcessorRegistry {
         for processor in sorted {
             if ctx.skip {
                 break;
+            }
+            if exclude == Some(processor.name()) {
+                continue;
             }
             match processor.process(&ctx).await {
                 Ok(Some(out)) => {
@@ -193,6 +205,31 @@ impl ProcessorRegistry {
             },
             metadata: ctx.metadata,
         })
+    }
+
+    /// Drives the outbound processor chain on `llm_output`.
+    ///
+    /// Same semantics as [`process_inbound`](ProcessorRegistry::process_inbound) but operates on
+    /// the outbound chain and takes a [`ProcessedMessage`] as input (converted internally to a
+    /// [`MessageContext`]). If the chain is empty the input is returned unchanged (bypass).
+    pub async fn process_outbound(
+        &self,
+        llm_output: ProcessedMessage,
+    ) -> Result<ProcessedMessage, ProcessError> {
+        self.process_outbound_filtered(llm_output, None).await
+    }
+
+    /// Process the outbound chain, skipping the VerbosityFilter processor.
+    ///
+    /// Runs DslParser → OutboundRawLog without VerbosityFilter. Used by the
+    /// streaming pipeline finish phase where verbosity filtering is handled
+    /// inline during the stream (not in the post-stream chain).
+    pub async fn process_outbound_skip_verbosity(
+        &self,
+        llm_output: ProcessedMessage,
+    ) -> Result<ProcessedMessage, ProcessError> {
+        self.process_outbound_filtered(llm_output, Some("verbosity_filter"))
+            .await
     }
 }
 
@@ -297,6 +334,23 @@ impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
             Ok(None) => Ok(msg),
             Err(e) => Err(convert_process_error(e)),
         }
+    }
+
+    async fn process_outbound_skip_verbosity(
+        &self,
+        msg: closeclaw_common::processor::ProcessedMessage,
+    ) -> Result<
+        closeclaw_common::processor::ProcessedMessage,
+        closeclaw_common::processor::ProcessError,
+    > {
+        let main_msg = ProcessedMessage {
+            content_blocks: msg.content_blocks,
+            metadata: msg.metadata,
+        };
+        self.process_outbound_skip_verbosity(main_msg)
+            .await
+            .map(convert_processed_message)
+            .map_err(convert_process_error)
     }
 
     fn parse_line_for_dsl(

@@ -79,6 +79,9 @@ async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     mgr.find_or_create("test-channel", &msg, None)
         .await

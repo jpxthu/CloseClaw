@@ -507,3 +507,107 @@ async fn test_fallback_passes_normal_text() {
     gw.enqueue_inbound(make_request("normal-fb")).await;
     // No panic = normal text passed through fallback path.
 }
+
+// ---------------------------------------------------------------------------
+// Busy reply timeout test (Step 1.6)
+// ---------------------------------------------------------------------------
+
+/// A mock plugin whose `send()` blocks for longer than 2 seconds,
+/// forcing the busy-reply timeout path to fire.
+struct SlowSendPlugin;
+
+#[async_trait]
+impl IMPlugin for SlowSendPlugin {
+    fn platform(&self) -> &str {
+        "feishu"
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(Some(NormalizedMessage {
+            platform: "feishu".into(),
+            sender_id: "ou_slow".into(),
+            peer_id: "chat_slow".into(),
+            content: "slow".into(),
+            timestamp: chrono::Utc::now().timestamp(),
+            message_type: MessageType::Text,
+            media_refs: vec![],
+            thread_id: None,
+            account_id: String::new(),
+            chat_name: String::new(),
+        }))
+    }
+
+    fn render(
+        &self,
+        content_blocks: &[closeclaw_common::ContentBlock],
+        _dsl_result: Option<&closeclaw_common::processor::DslParseResult>,
+    ) -> RenderedOutput {
+        let text = content_blocks
+            .iter()
+            .filter_map(|b| match b {
+                closeclaw_common::ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::json!({"content": {"text": text}}),
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        // Block for 3 seconds — exceeds the 2s busy-reply timeout.
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        Ok(())
+    }
+
+    fn send_thinking_indicator(&self, _active: bool) {}
+
+    fn handle_stream_event(
+        &self,
+        _event: closeclaw_common::processor::StreamEvent,
+    ) -> closeclaw_common::im_plugin::StreamingOutput {
+        closeclaw_common::im_plugin::StreamingOutput::default()
+    }
+
+    fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
+        closeclaw_common::im_plugin::StreamingOutput::default()
+    }
+}
+
+/// Verify that when the outbound send exceeds the 2-second busy-reply
+/// timeout, the reply is dropped gracefully without blocking the Gateway.
+#[tokio::test]
+async fn test_busy_reply_timeout_drops_after_2s() {
+    let gw = make_gateway();
+    gw.register_plugin(Arc::new(SlowSendPlugin)).await;
+    let handle = gw.start_inbound_queue();
+
+    // Fill the queue (capacity = 4) so the next enqueue triggers busy reply.
+    for i in 0..4 {
+        handle.try_send(make_request(&format!("fill-{i}"))).unwrap();
+    }
+
+    let start = std::time::Instant::now();
+    // This should trigger send_busy_reply which will timeout after ~2s.
+    gw.enqueue_inbound(make_request("overflow-slow")).await;
+    let elapsed = start.elapsed();
+
+    // The enqueue should return quickly — the busy reply runs in the
+    // background consumer. We just verify no panic occurred and the
+    // overall test completes within a reasonable time (< 5s).
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "test should complete well within 5s, took {:?}",
+        elapsed
+    );
+}

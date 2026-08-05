@@ -319,6 +319,9 @@ async fn test_cross_step_system_append_reflected_in_status() {
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     let sid = sm
         .find_or_create("feishu", &msg, None)

@@ -83,7 +83,7 @@ pub use llm_stats::{
 pub use llm_streaming::{StreamDone, StreamingSink};
 pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinition};
 pub use metrics::{MetricsEmitter, NoopMetricsEmitter};
-pub use middleware::{MiddlewareError, OutboundMiddleware};
+pub use middleware::{MiddlewareContext, MiddlewareError, OutboundMiddleware};
 pub use notifier::{NoopNotifier, PlanStateNotifier};
 pub use path_utils::canonicalize_or_clone;
 pub use permission_check::{
