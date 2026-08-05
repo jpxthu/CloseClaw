@@ -48,7 +48,7 @@ pub struct GatewayConfig {
     pub inbound_queue_capacity: usize,
 }
 
-fn default_inbound_queue_capacity() -> usize {
+pub(crate) fn default_inbound_queue_capacity() -> usize {
     256
 }
 
