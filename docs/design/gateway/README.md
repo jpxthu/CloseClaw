@@ -2,31 +2,37 @@
 
 ## 概述
 
-关联需求文档：[requirements/gateway.md](../requirements/gateway.md)
+关联需求文档：[requirements/gateway.md](../../requirements/gateway.md)
 
 Gateway 是消息路由中枢。它管理所有 IM 平台的插件，调度 Processor Chain 完成消息的出入站处理，做出路由决策（斜杠指令 vs 普通对话），并选择对应平台的 IM 插件完成出站消息的格式转换与发送。
 
-Gateway 自身不含业务逻辑，通过编排下游模块完成消息流转。入站方向维护有界消息队列缓冲高并发请求，出站方向根据交付模式协调 Processor Chain 执行时机，统一经 Processor Chain 处理所有回复（含斜杠指令）。
+Gateway 自身不含业务逻辑，通过编排下游模块完成消息流转。入站方向维护有界消息队列缓冲高并发请求，出站方向根据交付模式协调 Processor Chain 执行时机。LLM 回复和斜杠指令回复统一经出站 Processor Chain 处理后发送，非文本错误回复经简化出站路径发送。
 
 ## 架构
 
-Gateway 由六个职责组成：
+Gateway 由以下职责组成：
 
-- **IM Adapter 管理**：注册和维护各平台插件，入站方向将平台原始格式归一化为统一结构。
-- **Processor Chain 调度**：按 priority 顺序调度入站和出站处理器链。入站链完成消息日志记录和文本标准化。出站链按交付模式决定执行时机——批量模式一次性执行完整链；流式模式分增量阶段（逐 chunk 透传渲染，DslParser 零开销透传、跳过出站日志）和收尾阶段（完整链执行 DSL 解析和出站日志）。
+- **IM Adapter 管理**：注册和维护各平台插件（含 webhook 平台和 terminal 通道的 CLI）。入站方向将平台原始格式归一化为统一结构。
+- **Processor Chain 调度**：按 priority 顺序调度入站和出站处理器链。入站链完成消息日志记录、session_key 计算和文本标准化。出站链按交付模式决定执行时机——批量模式一次性执行完整链；流式模式分增量阶段（逐 chunk 透传渲染，DslParser 零开销透传、跳过出站调试日志）和收尾阶段（执行 DSL 解析和出站调试日志，不重跑 VerbosityFilter）。
 - **路由决策**：根据消息前缀决定走向——以 `/` 开头则拦截分派给 SlashDispatcher（其中 Immediate 指令绕过 Session 队列立即执行），否则路由到 Session 进入 LLM 对话流程。
-- **IM Adapter 选择与渲染**：出站方向根据目标平台选择对应 IM Adapter。渲染细节（行缓冲、块类型路由、平台格式转换）由 IM Adapter 内部负责，Gateway 不介入渲染逻辑。渲染完成后、发送前，Gateway 可插入审计、频率限制等中间件拦截出站消息。发送由 IM Adapter 完成。
-- **出站日志持久化**：出站消息发送后，Gateway 将消息写入 session checkpoint 持久化存储。
-
-- **系统生命周期管理**：Gateway 管理 graceful shutdown——跟踪活跃请求计数、排空入站队列、等待进行中的流式会话完成后退出。
+- **出站中间件**：渲染完成后、发送前，Gateway 按注册顺序链式执行中间件。内置审计中间件（记录敏感操作审计日志）和频率限制中间件（按 session 维度限频）。中间件不得修改消息内容，任一返回拒绝则消息不发送并记录告警。
+- **IM Adapter 选择与渲染**：出站方向根据目标平台选择对应 IM Adapter，调用其渲染接口产出平台格式内容。渲染完成后、发送前，Gateway 执行中间件链，通过后调用 IM Adapter 的发送接口完成消息投递。渲染和发送为分离接口。
+- **出站历史记录**：出站消息发送后，Gateway 将消息写入 session checkpoint 持久化存储，作为对话历史的出站部分。
+- **系统生命周期管理**：Gateway 参与优雅关闭——响应 ShutdownHandle 的 drain 计数（消息处理开始时递增、响应发送完成后递减），排空入站队列，等待进行中的流式会话完成后退出。关闭流程由 Daemon 的 ShutdownHandle 统一协调，Gateway 是被管理组件之一。
 
 Gateway 维护以下运行时注册表：
 
 - **Plugin Registry**：platform → IMPlugin 的映射
 - **Processor Registry**：入站/出站处理器链，按 priority 排序
-- **入站消息队列**：有界缓冲队列，暂存 Gateway 来不及处理的入站消息
+- **入站消息队列**：有界缓冲队列，默认容量 256，可通过配置调整。满则拒收并回复用户，不支持动态调整
 
 **明确不做的职责**（详见下方无关表）：Bootstrap 加载与 System Prompt 构建、LLM 调用、工具注册与工具调用的直接执行。
+
+### 子功能索引
+
+| 文档 | 内容 |
+|------|------|
+| [入站流程](inbound-flow.md) | 入站完整链路：IM Adapter 解析 → Processor Chain → Gateway 路由决策 |
 
 ### 模块分层和数据流
 
@@ -34,7 +40,7 @@ Gateway 维护以下运行时注册表：
 入站：
   webhook → webhook → webhook → ...（高并发）
               ↓
-         [入站消息队列]（有界缓冲，满则拒 + 回复"服务繁忙，请稍后重试"）
+         [入站消息队列]（有界缓冲，默认 256，满则拒 + 通过 webhook 来源平台回复"服务繁忙，请稍后重试"）
               ↓
          [IM Adapter: 平台格式解析]
               ↓
@@ -44,13 +50,14 @@ Gateway 维护以下运行时注册表：
               ↓
          ProcessedMessage
               ↓
-         [Gateway: 非文本检测] → message_type 非 text（image/file/audio）→ 构造错误回复 ContentBlock[] → 跳过 Verbosity/DslParser/中间件 → 出站日志 → 渲染发送
+         [Gateway: 非文本检测] → message_type 非 text（image/file/audio）→ 构造错误回复 ContentBlock[] → 简化出站（跳过 Verbosity/DslParser/中间件，经出站调试日志→渲染→发送）
               ↓（text 消息，继续）
          [Gateway: 调用 SessionManager（传入 session_key + 路由字段），SessionManager 内部提取稳定路由键做查找/创建]
               ↓
          [Gateway: 路由决策]
-              ├─ /approve, /deny → Permission 模块 → 异步等待 Owner 审批
-              ├─ / 开头 → SlashDispatcher → SlashResult → ContentBlock[]（进入出站）
+              ├─ / 开头 →
+              │   ├─ /approve, /deny → Permission 模块 → 异步等待 Owner 审批 → 通过后执行 → ContentBlock[] → 出站
+              │   └─ 其余斜杠 → SlashDispatcher → SlashResult → SideEffectContext 执行 → ContentBlock[]（进入出站）
               └─ 普通   → Session → LLM
                                      ↓
                                 ContentBlock[]（LLM 响应，进入出站）
@@ -61,12 +68,14 @@ Gateway 维护以下运行时注册表：
     ContentBlock[] → [Processor Chain 出站: VerbosityFilter → DslParser → OutboundRawLog]（一次性执行完整链）
                        （Verbosity 过滤等级定义见 [slash 模块 verbose 指令](../slash/verbose.md)）
                    → ProcessedMessage { content_blocks, metadata[dsl_result] }
-                   → [Gateway: 选择 IM Adapter → IM Adapter 一次渲染 → 中间件 → 一次发送]
+                   → [Gateway: 选择 IM Adapter → IM Adapter 一次渲染 → 中间件链（审计、频率限制，按注册顺序执行）→ 一次发送]
+                   → [Gateway: 出站历史记录持久化到 session checkpoint]
 
   流式模式：
     ContentBlock[chunk₀] → [VerbosityFilter → DslParser 透传] → [IM Adapter 增量渲染 → 逐片发送]
                         …（多轮 chunk）
     ContentBlock[] 完整 → [DslParser 完整解析 → OutboundRawLog]（收尾阶段，无新渲染输出）
+                        → [Gateway: 出站历史记录持久化到 session checkpoint]
 
 Gateway 管理流式会话状态（StreamState），跟踪当前流式进度并协调增量阶段与收尾阶段的状态衔接。
 渲染细节（行缓冲、块类型路由、平台格式转换）由 IM Adapter 内部负责，Gateway 不介入渲染逻辑。
@@ -76,14 +85,8 @@ Gateway 管理流式会话状态（StreamState），跟踪当前流式进度并�
 - NormalizedMessage：IM Adapter 产出，Processor Chain 消费
 - [ProcessedMessage](../common/shared-types.md#processedmessage)：Processor Chain 产出，Gateway 消费
 - ContentBlock[]：LLM 响应 / SlashResult 变体产出，Processor Chain 出站消费
-- RenderedOutput：Gateway 调用 IM Adapter 渲染产出，由 IM Adapter 内部发送
+- RenderedOutput：Gateway 调用 IM Adapter 渲染产出（render 接口），渲染完成后 Gateway 执行中间件，通过后调用 IM Adapter 发送接口完成投递
 - **SideEffectContext**：Gateway 构造，封装 Session 引用和回复通道。传给 [SlashResult](../common/shared-types.md#slashresult) 让各变体自行完成副作用，Gateway 不穷举变体。回复内容经出站 Processor Chain 处理后发送（详见 [Slash 模块](../slash/README.md)及 [出站链路](../processor_chain/outbound-chain.md)）
-
-### 子功能索引
-
-| 文档 | 内容 |
-|------|------|
-| [入站流程](inbound-flow.md) | 入站完整链路：IM Adapter 解析 → Processor Chain → Gateway 路由决策 |
 
 ## 数据流
 
@@ -91,31 +94,38 @@ Gateway 管理流式会话状态（StreamState），跟踪当前流式进度并�
 
 Gateway 收到入站 webhook 后，消息先进入入站消息队列（有界缓冲，详见下方「消息队列与排队语义」），再由 IM Adapter 解析后进入 Processor Chain。Processor Chain 入站产出 [ProcessedMessage](../common/shared-types.md#processedmessage) 后，Gateway 按以下路径处理：
 
-- **非文本消息处理**：若消息的 message_type 非 text（image/file/audio），Gateway 直接构造"暂不支持该消息类型"的错误回复（ContentBlock[]），经简化出站路径发送（错误回复为纯文本不含 DSL 指令且无需按 Session 过滤，跳过 Verbosity/DslParser/中间件），直接由 Gateway 记录出站日志后由 IM Adapter 渲染发送。流程到此结束。
+- **非文本消息处理**：若消息的 message_type 非 text（image/file/audio），Gateway 直接构造"暂不支持该消息类型"的错误回复（ContentBlock[]），经简化出站路径发送。简化出站路径是 Gateway 层面的出站通道选择——错误回复为纯文本不含 DSL 指令且无需按 Session 过滤，因此跳过 VerbosityFilter/DslParser/中间件，仅执行 OutboundRawLog（出站调试日志）后渲染发送。流程到此结束。
 
-- **Session 解析**：Gateway 从 metadata 取出 session_key。若 session_key 为空（SessionRouter 计算失败），Gateway 记录 warning 日志，仍通过消息路由字段（platform, sender_id, peer_id, account_id）传给 SessionManager 正常完成 session 查找/创建（详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md)）。session_key 非空时连同路由信息一并传递。若 SessionManager 的 session 查找或创建操作失败（如存储异常），Gateway 向 User 回复错误提示，不进入后续 LLM 对话流程。
+- **Session 解析**：Gateway 从 metadata 取出 session_key。若 session_key 为空（SessionRouter 计算失败），Gateway 记录 warning 日志，仍通过消息路由字段（platform, sender_id, peer_id, account_id）传给 SessionManager 正常完成 session 查找/创建（详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md)）。session_key 是消息级追踪标识，不参与 session 路由——SessionManager 从路由字段中提取稳定路由键做查找。session_key 非空时连同路由信息一并传递。若 SessionManager 的 session 查找或创建操作失败（如存储异常），Gateway 向 User 回复错误提示，不进入后续 LLM 对话流程。
 
 - **路由决策**：获得 session_id 后按消息内容路由：
-  - **`/` 开头 → 斜杠指令**：先拦截 `/approve`、`/deny`（owner 专用，经 Permission 模块审批流程验证，异步等待 owner 决策），其余分派给 SlashDispatcher。Gateway 将 session_id 传给 SlashDispatcher 作为执行上下文（权限校验依赖）。消息不进入 LLM，不追加到对话历史。
+  - **`/` 开头 → 斜杠指令**：先拦截 `/approve`、`/deny`。
+    - `/approve`、`/deny`：Owner 专用，经 ApprovalFlow 管理审批流转（详见 [Permission 模块审批工作流](../permission/approval-workflow.md)）。审批通过后执行对应操作，结果经出站链路发送。
+    - 其余斜杠指令分派给 SlashDispatcher。Gateway 将 session_id 传给 SlashDispatcher 作为执行上下文（权限校验依赖）。消息不进入 LLM，不追加到对话历史。
     - Immediate 指令（如 `/stop`、`/status`、`/help` 等）→ 绕过 Session 忙碌队列立即执行。完整 Immediate 标记见 [Slash 模块 Handler 清单](../slash/README.md#handler-清单)。
-    - 非 Immediate 指令 → 若 Session 正忙则进入 Session 待处理队列（FIFO），Session 空闲后取出执行。入队时回复"⏳ 正在排队..."通知用户。
-  - **普通消息**：若 Session 正忙则进入 Session 待处理队列；空闲则直接进入 LLM 对话流程。若 Session 处于 archived 状态，由 SessionManager 触发 restore 流程，Gateway 向用户发送"正在恢复会话..."通知。Session 就绪后进入 LLM 对话流程，返回 ContentBlock[] 进入出站链路。
+    - 非 Immediate 指令 → 若 Session 正忙则进入 Session 忙碌队列（FIFO），Session 空闲后取出执行。入队时回复"⏳ 正在排队..."通知用户。
+    - 非 Owner 调用 `/approve`、`/deny` → Gateway 直接回复"权限不足：该指令仅限 Owner 使用"，不进入 Permission 模块和 SlashDispatcher。流程到此结束。
+  - **普通消息**：若 Session 正忙则进入 Session 忙碌队列；如果 Session 空闲，则直接进入 LLM 对话流程。若 Session 处于 archived 状态，由 SessionManager 触发 restore 流程，Gateway 向用户发送"正在恢复会话..."通知。Session 就绪后进入 LLM 对话流程，返回 ContentBlock[] 进入出站链路。
 
-> 斜杠指令的解析和 SlashResult 处理详见 [slash 模块](../slash/README.md)。Session 的创建、查找、归档、恢复详见 [Session 模块](../session/README.md)。
+> 斜杠指令的解析和 SlashResult 处理详见 [slash 模块](../slash/README.md)。Session 的创建、查找、归档、恢复详见 [Session 模块](../session/README.md)。审批流程详见 [Permission 模块审批工作流](../permission/approval-workflow.md)。
 
 ### 出站路径
 
 出站路径按交付模式分两种执行时序，但走同一组 Processor Chain 处理器和同一条 IM Adapter 渲染管线：
 
-**批量模式**：LLM 返回完整 ContentBlock[] 后，Gateway 一次性送入 Processor Chain 出站链（VerbosityFilter → DslParser → OutboundRawLog），处理完毕后选择 IM Adapter 一次性渲染。渲染完成后由 Gateway 执行中间件链（审计、频率限制等），通过后的消息由 IM Adapter 发送。
+**批量模式**：LLM 返回完整 ContentBlock[] 后，Gateway 一次性送入 Processor Chain 出站链（VerbosityFilter → DslParser → OutboundRawLog），处理完毕后选择 IM Adapter 一次性渲染。渲染完成后由 Gateway 执行中间件链（审计、频率限制等），通过后的消息由 IM Adapter 发送。发送成功后 Gateway 将消息写入 session checkpoint 持久化存储（出站历史记录）。
 
 **流式模式**：LLM 逐片产出 ContentBlock[] 增量。Gateway 分两个阶段调度 Processor Chain：
-1. **增量阶段**：每个 chunk 经 VerbosityFilter 过滤后送入 DslParser（增量文本零开销透传，无 DSL 指令），跳过 OutboundRawLog。Gateway 交付 IM Adapter 增量渲染并逐片发送。
-2. **收尾阶段**：全部 ContentBlock[] 到齐后，Gateway 重跑完整出站链——DslParser 完整解析 DSL 指令 → OutboundRawLog 写入出站日志。此阶段不产生新渲染输出，消息内容已在增量阶段完成发送。
+1. **增量阶段**：每个 chunk 经 VerbosityFilter 过滤后送入 DslParser（增量文本零开销透传，无 DSL 指令），跳过 OutboundRawLog（出站调试日志）。Gateway 交付 IM Adapter 增量渲染并逐片发送。
+2. **收尾阶段**：全部 ContentBlock[] 到齐后，Gateway 执行 DslParser 完整解析 DSL 指令 → OutboundRawLog 写入出站调试日志。VerbosityFilter 已在增量阶段按 chunk 过滤，收尾阶段不重跑。此阶段不产生新渲染输出，消息内容已在增量阶段完成发送。最后 Gateway 将完整消息写入 session checkpoint 持久化存储。
 
 Gateway 管理流式会话状态（StreamState），跟踪当前流式进度、累积消息内容，确保增量阶段与收尾阶段的状态连贯。
 
 斜杠指令的回复统一经批量模式出站——SlashResult 变体通过 SideEffectContext 的回复通道产出回复内容，由 Gateway 送入出站 Processor Chain 处理，经 IM Adapter 渲染发送。这保证了斜杠指令回复与 LLM 回复使用统一的 Verbosity 过滤、DSL 解析和日志记录链路。
+
+**出站日志的两种形态**：
+- **出站调试日志（OutboundRawLog）**：Processor Chain 内 processor，将 ContentBlock[] 写入调试日志文件。仅在 `raw_log_dir` 配置时注册，用于开发和问题定位。
+- **出站历史记录**：Gateway 在消息发送成功后写入 session checkpoint 持久化存储，记录字段包括 timestamp、session_id、platform、ContentBlock[]、dsl_result。非文本错误回复走简化出站路径，不写 session checkpoint。
 
 ### 消息队列与排队语义
 
@@ -124,18 +134,19 @@ Gateway 涉及两层排队：
 **第 1 层：Gateway 入站队列**
 
 - 位置：IM 平台 webhook 到达后、进入 Processor Chain 之前
-- 性质：有界缓冲队列，不持久化
-- 满行为：拒绝新消息，Gateway 通过 IM Adapter 在 2 秒内回复"服务繁忙，请稍后重试"
-- 重启行为：入站队列为非持久化缓冲队列，重启时内存队列清空。消息可靠性由 IM 平台 webhook 自动重试机制保障——已到达 Gateway 但未返回响应的 webhook，IM 平台超时后自动重发。优雅关闭时 Gateway 先停收新消息、排空已有队列后再退出，将重启丢消息窗口缩至最小。系统整体不会丢失未完成处理的消息
-- 用户感知：文本消息到达 Gateway 后应在 1 秒内收到系统响应或排队提示
+- 性质：有界缓冲队列，不持久化，默认容量 256
+- 满行为：拒绝新消息，Gateway 根据 webhook 来源平台选择对应 IM Adapter 在 2 秒内回复"服务繁忙，请稍后重试"
+- 重启行为：入站队列为非持久化缓冲队列，重启时内存队列清空。消息可靠性由 IM 平台 webhook 自动重试机制保障——已到达 Gateway 但未返回响应的 webhook，IM 平台超时后自动重发。优雅关闭时 Gateway 先停收新消息、排空已有队列后再退出，将重启丢消息窗口缩至最小
+- 用户感知：正常负载下，文本消息到达 Gateway 后应在 1 秒内收到系统响应或排队提示（队列满和审批等待场景不适用）
 - 消费：IM Adapter 按 FIFO 从队列取消息解析，送入 Processor Chain 串行处理
+- webhook 确认：Gateway 在消息出队后即 ack webhook（返回 HTTP 200），不等待完整处理链结束。队列满时 Gateway 仍 ack webhook 并在 2 秒内回复"服务繁忙"——被拒消息由 IM 平台 webhook 自动重试机制保障的场景限于系统重启（消息已到达但未 ack）和优雅关闭 drain 超时，正常队列满拒绝不触发平台重试
 
 **第 2 层：Session 忙碌队列**
 
 - 位置：Gateway 路由决策后、进入 LLM 对话前
-- 触发：Session 正忙（LLM 运行中、工具执行中）时新消息入队
+- 触发：Session 正忙（LLM 调用中或前台工具执行中）时新消息入队
 - 性质：FIFO 待处理队列，Session 空闲后自动取出队首消息
-- 通知：普通消息入队时回复"⏳ 正在排队..."；Immediate 斜杠指令绕过此队列
+- 通知：非 Immediate 消息（普通消息和非 Immediate 斜杠指令）入队时回复"⏳ 正在排队..."；Immediate 斜杠指令绕过此队列
 - 详见 [Session 模块执行状态](../session/README.md)
 
 ```
@@ -149,11 +160,12 @@ Gateway 涉及两层排队：
   ├─ Immediate 指令 → 绕过 Session 队列，直接执行
   └─ 其他 → Session 空闲？
             ├─ 空闲 → 直接处理
-            └─ 正忙 → [Session 忙碌队列]（第 2 层）→ 通知"排队中"
-                           ↓
-                       Session 空闲后 FIFO 取出
-                         ↓
-                    按原路由分派（LLM / SlashDispatcher）
+            └─ 正忙 → [Session 忙碌队列]（第 2 层）→ 通知"⏳ 正在排队..."
+                       ↓
+                   Session 空闲后 FIFO 取出
+                       ↓
+                   ├─ Session archived → restore → 通知"正在恢复会话..."
+                   └─ Session active → 按原路由分派（LLM / SlashDispatcher）
 ```
 
 ### 斜杠指令副作用执行
@@ -166,14 +178,24 @@ SlashResult 的执行通过上下文的回复通道产出回复内容，Gateway 
 
 Gateway 在以下场景调用 Permission 模块：
 
-1. **`/approve`、`/deny`**：消息路由阶段硬拦截——不进 SlashDispatcher，直接在 Gateway 层审批校验（owner 专用）。
+1. **`/approve`、`/deny`**：消息路由阶段硬拦截——不进 SlashDispatcher，直接在 Gateway 层调用 Permission 模块的审批流程验证（owner 专用）。审批通过后执行操作，结果经出站链路发送。
 2. **其他斜杠指令高危操作**（`/exec`、`/git` 写操作）：在 SlashDispatcher 分派到 Handler、Handler 返回 SlashResult 后、执行前校验。Handler 仅做指令解析（无副作用），权限引擎拿到完整操作信息后评估——非 Owner 默认 Deny，但可通过白名单规则授予特定 Agent-User 组合的执行权（详见 [Permission 模块](../permission/README.md)）。
 
 Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不经过权限检查。工具调用的权限检查由 tools 模块触发，Gateway 不参与。
 
+### 出站中间件
+
+Gateway 在渲染完成后、发送前提供中间件拦截点。中间件按注册顺序链式执行：
+
+- **接口**：输入渲染后的出站消息，输出放行（透传）或拒绝（含拒绝原因）
+- **执行契约**：中间件不得修改消息内容，任一中间件返回拒绝则消息不发送并记录告警日志
+- **内置中间件**：
+  - **审计中间件**：记录敏感操作（如 /exec 结果、文件读写）的出站审计日志
+  - **频率限制中间件**：按 session 维度限制出站消息频率，超限时丢弃并记录告警
+
 ## 模块关系
 
-### 上游（谁调用 Gateway）
+### 上游（输入来源）
 
 | 模块 | 关系 |
 |------|------|
@@ -189,6 +211,7 @@ Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不
 | SessionManager | 调用 SessionManager（传入 session_key 和消息路由字段），由 SessionManager 内部提取稳定路由键进行 session 查找/创建。生命周期实现由 SessionManager 负责 |
 | IM Adapter | 选择对应平台插件完成出站渲染与发送 |
 | Permission | 斜杠指令高危操作执行前校验 |
+| ApprovalFlow | `/approve`、`/deny` 指令的审批流转管理（审批请求入队、Owner 通知、回调处理） |
 
 ### 共享类型
 
@@ -199,11 +222,12 @@ Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不
 - [ContentBlock](../common/shared-types.md#contentblock)：LLM 响应 / SlashResult 变体产出，Processor Chain 出站消费
 - [SlashResult](../common/shared-types.md#slashresult)：SlashDispatcher 产出，Gateway 消费
 - [DslParseResult](../common/shared-types.md#dslparseresult-和-dslinstruction)：DslParser 产出，IM Adapter 消费
+- SideEffectContext：Gateway 构造的内部上下文，封装 Session 引用和回复通道，不跨模块传递
+- RenderedOutput：IM Adapter 渲染产出，不跨模块传递
 
 ### 无关
 
+- **Bootstrap**（无调用关系）：Gateway 不参与 Bootstrap 加载
 - **System Prompt**（无调用关系）：Gateway 不参与 system prompt 构建或注入
 - **LLM Provider**（无调用关系）：Gateway 不直接调用 LLM
 - **Tools**（无调用关系）：Gateway 不注册工具、不执行工具调用
-
-
