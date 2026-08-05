@@ -86,13 +86,17 @@ impl Gateway {
     /// Try to intercept an `/approve` or `/deny` approval command.
     ///
     /// Returns `Some(HandleResult::ApprovalProcessed)` if the command was
-    /// handled, or `None` if the message is not an approval command (or
-    /// the sender is not the owner).
+    /// handled, or `None` if the message is not an approval command.
+    ///
+    /// Non-owner senders receive a rejection message and the command is
+    /// still consumed (prevents fall-through to SlashDispatcher).
     pub(super) async fn try_handle_approval_command(
         &self,
         session_id: &str,
         content: &str,
         sender_id: Option<&str>,
+        peer_id: &str,
+        channel: &str,
     ) -> Option<HandleResult> {
         let trimmed = content.trim();
 
@@ -107,7 +111,26 @@ impl Gateway {
         // Verify sender is the owner
         match sender_id {
             Some("owner") => {}
-            _ => return None, // Not owner — fall through to normal message flow
+            _ => {
+                // Non-owner: send rejection and consume the command
+                tracing::warn!(
+                    session_id,
+                    sender_id = ?sender_id,
+                    "non-owner attempted approval command"
+                );
+                if let Err(e) = self
+                    .send_outbound_simplified(peer_id, channel, "权限不足：该指令仅限 Owner 使用")
+                    .await
+                {
+                    tracing::warn!(
+                        session_id,
+                        sender_id = ?sender_id,
+                        error = %e,
+                        "failed to send non-owner rejection message"
+                    );
+                }
+                return Some(HandleResult::ApprovalProcessed);
+            }
         }
 
         // Parse request_id from the rest
