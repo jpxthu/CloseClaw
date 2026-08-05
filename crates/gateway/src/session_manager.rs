@@ -562,6 +562,9 @@ impl SessionManager {
             timestamp: 0,
             metadata: std::collections::HashMap::new(),
             thread_id: None,
+            platform: None,
+            dsl_result: None,
+            content_blocks: None,
         };
         let routing_key = Self::compute_routing_key(channel, &msg, account_id);
         let session_id = {

@@ -134,6 +134,9 @@ fn feishu_msg(from: &str, to: &str) -> crate::Message {
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     }
 }
 

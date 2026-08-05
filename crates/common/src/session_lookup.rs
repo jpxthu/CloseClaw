@@ -21,6 +21,15 @@ pub struct PendingMessage {
     /// 目标渠道标识（如 "feishu"、"telegram"），用于 pending_operation 的 target_channel 字段
     #[serde(default)]
     pub target_channel: String,
+    /// 出站消息的平台标识（如 "feishu"、"telegram"）
+    #[serde(default)]
+    pub platform: Option<String>,
+    /// DSL 解析结果（序列化 JSON 字符串）
+    #[serde(default)]
+    pub dsl_result: Option<String>,
+    /// 出站消息的内容块（序列化 JSON 字符串，ContentBlock[]）
+    #[serde(default)]
+    pub content_blocks: Option<String>,
 }
 
 impl PendingMessage {
@@ -33,6 +42,9 @@ impl PendingMessage {
             sent: false,
             role: None,
             target_channel: String::new(),
+            platform: None,
+            dsl_result: None,
+            content_blocks: None,
         }
     }
 
@@ -45,6 +57,9 @@ impl PendingMessage {
             sent: false,
             role: Some(role),
             target_channel: String::new(),
+            platform: None,
+            dsl_result: None,
+            content_blocks: None,
         }
     }
 
@@ -61,7 +76,28 @@ impl PendingMessage {
             sent: false,
             role: None,
             target_channel,
+            platform: None,
+            dsl_result: None,
+            content_blocks: None,
         }
+    }
+
+    /// Set the platform identifier.
+    pub fn with_platform(mut self, platform: String) -> Self {
+        self.platform = Some(platform);
+        self
+    }
+
+    /// Set the DSL result.
+    pub fn with_dsl_result(mut self, dsl_result: String) -> Self {
+        self.dsl_result = Some(dsl_result);
+        self
+    }
+
+    /// Set the content blocks.
+    pub fn with_content_blocks(mut self, content_blocks: String) -> Self {
+        self.content_blocks = Some(content_blocks);
+        self
     }
 
     /// Mark the message as sent

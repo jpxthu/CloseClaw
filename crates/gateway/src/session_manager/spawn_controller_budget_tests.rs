@@ -1,5 +1,4 @@
-//! Unit tests for spawn depth budget propagation, kill all-mode, and
-//! cascade termination (Step 1.5).
+//! Unit tests for spawn depth budget propagation, kill all-mode, and cascade termination (Step 1.5).
 
 use std::sync::Arc;
 
@@ -18,9 +17,7 @@ use crate::{GatewayConfig, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
 
-// ---------------------------------------------------------------------------
 // Helpers (duplicated from spawn_controller_tests.rs to keep this file self-contained)
-// ---------------------------------------------------------------------------
 
 fn test_config() -> GatewayConfig {
     GatewayConfig {
@@ -63,6 +60,9 @@ async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     mgr.find_or_create("test-channel", &msg, None)
         .await

@@ -28,6 +28,15 @@ pub struct Message {
     pub metadata: HashMap<String, String>,
     #[serde(default)]
     pub thread_id: Option<String>,
+    /// 出站消息的平台标识（如 "feishu"、"telegram"）
+    #[serde(default)]
+    pub platform: Option<String>,
+    /// DSL 解析结果（序列化 JSON 字符串）
+    #[serde(default)]
+    pub dsl_result: Option<String>,
+    /// 出站消息的内容块（序列化 JSON 字符串，ContentBlock[]）
+    #[serde(default)]
+    pub content_blocks: Option<String>,
 }
 
 /// Gateway configuration

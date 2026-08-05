@@ -48,6 +48,9 @@ fn make_msg() -> crate::Message {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     }
 }
 
@@ -850,6 +853,9 @@ async fn test_warning_dedup_resets_after_normal() {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     let sid_normal = sm
         .find_or_create("ch-normal", &normal_msg, None)
