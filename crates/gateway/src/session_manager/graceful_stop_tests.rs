@@ -154,6 +154,7 @@ impl closeclaw_common::shutdown::ShutdownSignal for MockEscalationSignal {
             },
             busy_count: 0,
             is_draining: false,
+            pending_items: Vec::new(),
         }
     }
 }

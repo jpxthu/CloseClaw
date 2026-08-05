@@ -966,9 +966,13 @@ impl Daemon {
 #[cfg(test)]
 mod dreaming_scheduler_tests;
 #[cfg(test)]
+mod lifecycle_abort_tests;
+#[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
 mod shutdown_alignment_tests;
+#[cfg(test)]
+mod shutdown_tests;
 #[cfg(test)]
 #[path = "spawn_controller_crate_reexport_tests.rs"]
 mod spawn_controller_crate_reexport_tests;

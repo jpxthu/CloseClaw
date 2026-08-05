@@ -40,6 +40,8 @@ pub mod session_mode_query;
 pub mod session_state;
 pub mod session_types;
 pub mod shutdown;
+#[cfg(test)]
+pub mod shutdown_tests;
 pub mod skill_listing_provider;
 pub mod skill_registry;
 pub mod slash_router;

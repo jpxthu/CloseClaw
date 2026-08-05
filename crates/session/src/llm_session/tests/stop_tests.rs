@@ -618,6 +618,7 @@ async fn test_graceful_stop_interrupted_by_forceful_escalation() {
                 state: closeclaw_common::shutdown::ShutdownState::Running,
                 busy_count: 0,
                 is_draining: false,
+                pending_items: Vec::new(),
             }
         }
     }

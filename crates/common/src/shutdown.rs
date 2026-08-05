@@ -65,6 +65,8 @@ pub struct DrainStatus {
     pub busy_count: usize,
     /// Whether the coordinator is actively draining.
     pub is_draining: bool,
+    /// Descriptions of currently tracked pending operations.
+    pub pending_items: Vec<String>,
 }
 
 /// Shutdown mode — distinguishes graceful from forceful shutdown.
@@ -105,4 +107,23 @@ pub trait ShutdownSignal: Send + Sync {
 
     /// Returns a structured snapshot of the current drain status.
     fn drain_status(&self) -> DrainStatus;
+
+    /// Increment busy count with a description for drain-status tracking.
+    /// Returns a tracking id that must be passed to
+    /// [`decrement_busy_tracked`] to unregister.
+    ///
+    /// Default implementation delegates to [`increment_busy`] and
+    /// returns 0 (untracked).
+    fn increment_busy_tracked(&self, _desc: &str) -> u64 {
+        self.increment_busy();
+        0
+    }
+
+    /// Decrement busy count and remove the tracked description by id.
+    ///
+    /// Default implementation delegates to [`decrement_busy`] and
+    /// ignores the id.
+    fn decrement_busy_tracked(&self, _id: u64) {
+        self.decrement_busy();
+    }
 }
