@@ -105,6 +105,17 @@ impl SessionManager {
             .collect()
     }
 
+    /// List all child sessions (any status) for a parent.
+    #[allow(dead_code)]
+    pub async fn list_all_children(&self, parent_id: &str) -> Vec<ChildSessionInfo> {
+        let children = self.children.read().await;
+        children
+            .list_children(parent_id)
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
     /// Register a child session under its parent.
     pub async fn register_child(&self, parent_id: &str, info: ChildSessionInfo) {
         let mut children = self.children.write().await;

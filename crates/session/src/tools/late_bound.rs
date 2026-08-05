@@ -145,6 +145,13 @@ impl SessionManagerOps for LateBoundSessionManagerOps {
         }
     }
 
+    async fn list_children(&self, parent_id: &str) -> Vec<ChildSessionInfo> {
+        match self.get_ref() {
+            Ok(m) => m.list_children(parent_id).await,
+            Err(_) => vec![],
+        }
+    }
+
     async fn start_yield_timeout(
         self: Arc<Self>,
         session_id: &str,
@@ -213,6 +220,10 @@ mod tests {
 
         async fn get_session_depth(&self, _session_id: &str) -> Option<u32> {
             Some(0)
+        }
+
+        async fn list_children(&self, _parent_id: &str) -> Vec<ChildSessionInfo> {
+            vec![]
         }
 
         async fn start_yield_timeout(

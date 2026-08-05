@@ -76,9 +76,18 @@ impl Tool for SessionsYieldTool {
 
         session.enter_waiting();
 
+        // Compute overall timeout: max(child timeouts) + 60s buffer.
+        let children = self.session_manager.list_children(session_id).await;
+        let overall = children
+            .iter()
+            .filter_map(|c| c.timeout_secs)
+            .max()
+            .unwrap_or(DEFAULT_YIELD_TIMEOUT_SECS)
+            + 60;
+
         self.session_manager
             .clone()
-            .start_yield_timeout(session_id, &ctx.agent_id, DEFAULT_YIELD_TIMEOUT_SECS)
+            .start_yield_timeout(session_id, &ctx.agent_id, overall)
             .await;
 
         tracing::info!(

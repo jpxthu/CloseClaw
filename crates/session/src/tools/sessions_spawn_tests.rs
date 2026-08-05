@@ -65,6 +65,10 @@ impl SessionManagerOps for MockSessionManager {
         Some(0)
     }
 
+    async fn list_children(&self, _parent_id: &str) -> Vec<crate::spawn::ChildSessionInfo> {
+        vec![]
+    }
+
     async fn start_yield_timeout(
         self: Arc<Self>,
         _session_id: &str,

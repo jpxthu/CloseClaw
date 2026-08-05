@@ -87,6 +87,9 @@ pub trait SessionManagerOps: Send + Sync {
     /// Get the depth of a session in the spawn tree.
     async fn get_session_depth(&self, session_id: &str) -> Option<u32>;
 
+    /// List all child sessions for a given parent.
+    async fn list_children(&self, parent_id: &str) -> Vec<ChildSessionInfo>;
+
     /// Start a yield timeout for the given session.
     ///
     /// Spawns two timers: a warning timer that injects a notification

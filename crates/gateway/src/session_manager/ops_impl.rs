@@ -76,6 +76,10 @@ impl SessionManagerOps for SessionManager {
         self.get_session_depth(session_id).await
     }
 
+    async fn list_children(&self, parent_id: &str) -> Vec<ChildSessionInfo> {
+        self.list_all_children(parent_id).await
+    }
+
     async fn start_yield_timeout(
         self: Arc<Self>,
         session_id: &str,
