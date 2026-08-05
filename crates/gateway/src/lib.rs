@@ -119,7 +119,7 @@ impl Gateway {
     /// Create a new Gateway with the given config and a shared SessionManager.
     pub fn new(config: GatewayConfig, session_manager: Arc<SessionManager>) -> Self {
         let registry = build_processor_registry(&config);
-        Self {
+        let gw = Self {
             config,
             plugins: RwLock::new(HashMap::new()),
             session_manager,
@@ -135,7 +135,9 @@ impl Gateway {
             outbound_middlewares: std::sync::RwLock::new(Vec::new()),
             config_dir: RwLock::new(None),
             metrics_emitter: std::sync::RwLock::new(None),
-        }
+        };
+        register_default_middlewares(&gw);
+        gw
     }
 
     /// Create a new Gateway with the given config, SessionManager and ProcessorRegistry.
@@ -144,7 +146,7 @@ impl Gateway {
         session_manager: Arc<SessionManager>,
         registry: Arc<dyn ProcessorChain>,
     ) -> Self {
-        Self {
+        let gw = Self {
             config,
             plugins: RwLock::new(HashMap::new()),
             session_manager,
@@ -160,7 +162,9 @@ impl Gateway {
             outbound_middlewares: std::sync::RwLock::new(Vec::new()),
             config_dir: RwLock::new(None),
             metrics_emitter: std::sync::RwLock::new(None),
-        }
+        };
+        register_default_middlewares(&gw);
+        gw
     }
 
     /// Set config directory for permission rule persistence.
@@ -896,6 +900,18 @@ pub fn build_processor_registry(config: &GatewayConfig) -> ProcessorRegistry {
     }
 
     registry
+}
+
+/// Register the built-in outbound middlewares on a [`Gateway`].
+///
+/// Every newly constructed Gateway receives:
+/// - [`AuditMiddleware`] — logs every outbound message for audit.
+/// - [`RateLimitMiddleware`] — session-level sliding-window throttling.
+fn register_default_middlewares(gw: &Gateway) {
+    gw.add_outbound_middleware(Arc::new(outbound_middleware::audit::AuditMiddleware));
+    gw.add_outbound_middleware(Arc::new(
+        outbound_middleware::rate_limit::RateLimitMiddleware::new(),
+    ));
 }
 
 #[cfg(test)]
