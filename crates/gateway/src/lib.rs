@@ -930,3 +930,5 @@ pub mod tests_dmscope;
 pub mod tests_processor_chain;
 #[cfg(feature = "full-tests")]
 pub mod tests_thread;
+#[cfg(test)]
+pub mod types_tests;
