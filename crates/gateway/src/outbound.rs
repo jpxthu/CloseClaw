@@ -7,13 +7,13 @@ use super::{Gateway, GatewayError, Message};
 use crate::outbound_helpers::dispatch_text;
 use crate::outbound_helpers::filter_by_verbosity;
 use crate::outbound_helpers::log_middleware_rejection;
-use crate::outbound_helpers::run_middleware_chain;
 use crate::outbound_helpers::send_render_block;
 use crate::outbound_helpers::StreamContext;
 use crate::outbound_helpers::StreamState;
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::MiddlewareContext;
+use closeclaw_processor_chain::run_middleware_chain;
 use std::sync::Arc;
 
 use closeclaw_common::processor::{DslParseResult, ProcessedMessage};

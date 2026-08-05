@@ -120,7 +120,30 @@ impl ProcessorRegistry {
             metadata: ctx.metadata,
         })
     }
+}
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Outbound chain helpers
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Build a synthetic [`NormalizedMessage`] from a [`ProcessedMessage`] so we
+/// can reuse [`MessageContext::from_normalized`] in the outbound chain.
+fn synthetic_from_output(output: &ProcessedMessage) -> NormalizedMessage {
+    NormalizedMessage {
+        platform: String::new(),
+        sender_id: String::new(),
+        peer_id: String::new(),
+        content: output.text_content().unwrap_or("").to_string(),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        thread_id: None,
+        account_id: String::new(),
+        chat_name: String::new(),
+    }
+}
+
+impl ProcessorRegistry {
     /// Internal helper: drive the outbound chain with an optional name filter.
     ///
     /// When `exclude` is set, any processor whose name matches is skipped.
@@ -134,21 +157,7 @@ impl ProcessorRegistry {
             return Ok(llm_output);
         }
 
-        // Build a synthetic NormalizedMessage so we can reuse MessageContext::from_normalized.
-        let content = llm_output.text_content().unwrap_or("").to_string();
-        let synthetic = NormalizedMessage {
-            platform: String::new(),
-            sender_id: String::new(),
-            peer_id: String::new(),
-            content,
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            message_type: Default::default(),
-            media_refs: Vec::new(),
-            thread_id: None,
-            account_id: String::new(),
-            chat_name: String::new(),
-        };
-        let mut ctx = MessageContext::from_normalized(synthetic);
+        let mut ctx = MessageContext::from_normalized(synthetic_from_output(&llm_output));
         ctx.metadata = llm_output.metadata.clone();
         ctx.content_blocks = llm_output.content_blocks.clone();
 

@@ -6,11 +6,11 @@ use crate::Gateway;
 use crate::GatewayError;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::StreamingOutput;
-use closeclaw_common::MiddlewareContext;
 use closeclaw_common::VerbosityLevel;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::types::ContentBlockType;
 use closeclaw_llm::types::UnifiedUsage;
+use closeclaw_processor_chain::run_middleware_chain;
 
 /// Bundles the streaming outbound context passed to `process_stream_event` and
 /// its sub-handlers. Keeps parameter counts ≤6 (CONTRIBUTING.md limit).
@@ -61,26 +61,6 @@ impl StreamState {
             _ => unreachable!(),
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Outbound middleware chain
-// ---------------------------------------------------------------------------
-
-/// Run a chain of outbound middlewares on a rendered output.
-///
-/// Processes `rendered` through each middleware in order. If any middleware
-/// returns an error (including rejection), the chain short-circuits and
-/// the error is propagated.
-pub(crate) async fn run_middleware_chain(
-    middlewares: &[std::sync::Arc<dyn closeclaw_common::OutboundMiddleware>],
-    ctx: &MiddlewareContext,
-    rendered: &RenderedOutput,
-) -> Result<(), closeclaw_common::MiddlewareError> {
-    for mw in middlewares {
-        mw.process(ctx, rendered).await?;
-    }
-    Ok(())
 }
 
 /// Log a middleware chain error and return `Ok(())` so the caller can
@@ -153,7 +133,12 @@ pub(crate) async fn send_render_block(
             return log_middleware_rejection(e, ctx.session_id);
         }
     }
-    tracing::info!(chat_id = ctx.chat_id, content = ?rendered.payload, msg_type = %rendered.msg_type, "streaming outbound render block");
+    tracing::info!(
+        chat_id = ctx.chat_id,
+        content = ?rendered.payload,
+        msg_type = %rendered.msg_type,
+        "streaming outbound render block"
+    );
     ctx.plugin
         .send(&rendered, ctx.chat_id, ctx.thread_id)
         .await?;
