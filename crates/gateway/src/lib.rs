@@ -23,6 +23,7 @@ mod outbound_checkpoint_last_message_at_tests;
 mod outbound_checkpoint_timing_tests;
 #[cfg(test)]
 mod outbound_fallback_tests;
+pub mod outbound_middleware;
 #[cfg(test)]
 mod outbound_tests;
 #[cfg(test)]
