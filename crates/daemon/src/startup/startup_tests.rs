@@ -57,14 +57,15 @@ fn test_all_component_entries_deps_match_design_doc() {
     );
     assert_eq!(dep_map[&SpawnController], vec![AgentRegistry]);
 
+    // Layer 3
+    assert_eq!(
+        dep_map[&SystemPromptBuilder],
+        vec![AgentRegistry, SkillsRegistry]
+    );
     // Layer 4
     assert_eq!(
         dep_map[&SessionManager],
         vec![Storage, AgentRegistry, SkillsRegistry, ToolsRegistry]
-    );
-    assert_eq!(
-        dep_map[&SystemPromptBuilder],
-        vec![AgentRegistry, SkillsRegistry, ToolsRegistry]
     );
     assert_eq!(
         dep_map[&ApprovalFlow],
@@ -106,7 +107,8 @@ fn test_topo_sort_six_layers_match_design_doc() {
     );
 
     // Layer 3: ArchiveSweeper, AnnounceSweeper, DreamingScheduler, IMAdapters,
-    //          PermissionEngine, SkillWatcher, SpawnController, ToolsRegistry
+    //          PermissionEngine, SkillWatcher, SpawnController, SystemPromptBuilder,
+    //          ToolsRegistry
     assert_eq!(
         layers[2],
         vec![
@@ -117,15 +119,16 @@ fn test_topo_sort_six_layers_match_design_doc() {
             PermissionEngine,
             SkillWatcher,
             SpawnController,
+            SystemPromptBuilder,
             ToolsRegistry,
         ],
         "Layer 3 mismatch"
     );
 
-    // Layer 4: ApprovalFlow, SessionManager, SystemPromptBuilder
+    // Layer 4: ApprovalFlow, SessionManager
     assert_eq!(
         layers[3],
-        vec![ApprovalFlow, SessionManager, SystemPromptBuilder],
+        vec![ApprovalFlow, SessionManager],
         "Layer 4 mismatch"
     );
 

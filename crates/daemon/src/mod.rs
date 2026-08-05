@@ -157,9 +157,10 @@ impl Daemon {
                 PermissionEngine,
                 SkillWatcher,
                 SpawnController,
+                SystemPromptBuilder,
                 ToolsRegistry,
             ],
-            vec![ApprovalFlow, SessionManager, SystemPromptBuilder],
+            vec![ApprovalFlow, SessionManager],
             vec![Gateway],
             vec![AdminRpcServer],
         ]
