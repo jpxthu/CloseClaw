@@ -138,7 +138,6 @@ async fn test_depth_budget_checkpoint_vs_config_fallback() {
         .await
         .expect("should pass with config fallback");
     assert_eq!(result.effective_max_spawn_depth, 1);
-
     // Now save a checkpoint with effective budget = 1
     save_checkpoint_with_budget(&sm, &root_id, 0, Some(1), None).await;
 
@@ -185,7 +184,6 @@ async fn test_depth_budget_allowed_when_effective_zero() {
         .await
         .expect("should pass: effective=1, child_depth=1");
     assert_eq!(result.effective_max_spawn_depth, 1);
-
     // Simulate child1 created with effective budget = 1
     let child1_session_id = "child1-budget-zero";
     sm.sessions.write().await.insert(
@@ -207,6 +205,8 @@ async fn test_depth_budget_allowed_when_effective_zero() {
             depth: 1,
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
+            created_at: std::time::Instant::now(),
         },
     )
     .await;
@@ -260,7 +260,6 @@ async fn test_depth_budget_child_narrows_via_min() {
         .expect("should pass: effective=2, child_depth=1");
     assert_eq!(result.effective_max_spawn_depth, 2);
     assert_eq!(result.config.id, "narrow-child");
-
     // Simulate child created with effective budget = 2
     let child_session_id = "narrow-child-session";
     sm.sessions.write().await.insert(
@@ -282,6 +281,8 @@ async fn test_depth_budget_child_narrows_via_min() {
             depth: 1,
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
+            created_at: std::time::Instant::now(),
         },
     )
     .await;
@@ -334,7 +335,6 @@ async fn test_depth_budget_full_multilevel_tree() {
         .await
         .expect("root → child1: should pass, effective=2");
     assert_eq!(result1.effective_max_spawn_depth, 2);
-
     // Simulate child1 created with effective budget = 2
     let child1_sid = "tree-child1";
     sm.sessions.write().await.insert(
@@ -356,6 +356,8 @@ async fn test_depth_budget_full_multilevel_tree() {
             depth: 1,
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
+            created_at: std::time::Instant::now(),
         },
     )
     .await;
@@ -372,7 +374,6 @@ async fn test_depth_budget_full_multilevel_tree() {
         .await
         .expect("child1 → child2: should pass, effective=1");
     assert_eq!(result2.effective_max_spawn_depth, 1);
-
     // Simulate child2 created with effective budget = 1
     let child2_sid = "tree-child2";
     sm.sessions.write().await.insert(
@@ -394,6 +395,8 @@ async fn test_depth_budget_full_multilevel_tree() {
             depth: 2,
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
+            created_at: std::time::Instant::now(),
         },
     )
     .await;
@@ -411,7 +414,6 @@ async fn test_depth_budget_full_multilevel_tree() {
         .await
         .expect("child2 → child3: should pass, effective=0 (leaf node)");
     assert_eq!(result3.effective_max_spawn_depth, 0);
-
     // Simulate child3 created with effective budget = 0
     let child3_sid = "tree-child3";
     sm.sessions.write().await.insert(
@@ -433,6 +435,8 @@ async fn test_depth_budget_full_multilevel_tree() {
             depth: 3,
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
+            created_at: std::time::Instant::now(),
         },
     )
     .await;
@@ -524,6 +528,8 @@ async fn test_kill_run_mode_child_succeeds() {
             depth: 1,
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
+            created_at: std::time::Instant::now(),
         },
     )
     .await;
@@ -600,6 +606,8 @@ async fn test_kill_session_mode_child_succeeds() {
             depth: 1,
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
+            created_at: std::time::Instant::now(),
         },
     )
     .await;
@@ -687,12 +695,13 @@ async fn test_cascade_terminate_all_children_simulation() {
                 depth: 1,
                 mode: mode.clone(),
                 status: ChildSessionStatus::Active,
+                timeout_secs: None,
+                created_at: std::time::Instant::now(),
             },
         )
         .await;
     }
     assert_eq!(mgr.count_active_children(parent_id).await, 3);
-
     // Simulate finish_llm cascade pattern
     let child_ids = mgr.list_active_child_ids(parent_id).await;
     assert_eq!(child_ids.len(), 3);
@@ -753,13 +762,11 @@ fn test_effective_max_spawn_depth_roundtrip() {
     let json = serde_json::to_string(&cp).unwrap();
     let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
     assert_eq!(parsed.effective_max_spawn_depth, Some(3));
-
     // Without value
     let cp2 = SessionCheckpoint::new("rt2".to_string());
     let json2 = serde_json::to_string(&cp2).unwrap();
     let parsed2: SessionCheckpoint = serde_json::from_str(&json2).unwrap();
     assert_eq!(parsed2.effective_max_spawn_depth, None);
-
     // Missing field in old JSON → defaults to None
     let mut json_val = serde_json::to_value(&cp).unwrap();
     json_val
@@ -777,11 +784,9 @@ async fn test_get_effective_max_spawn_depth_from_checkpoint() {
 
     // No checkpoint → returns None
     assert_eq!(sm.get_effective_max_spawn_depth("nonexistent").await, None);
-
     // Save checkpoint with budget
     save_checkpoint_with_budget(&sm, "s1", 0, Some(5), None).await;
     assert_eq!(sm.get_effective_max_spawn_depth("s1").await, Some(5));
-
     // Save checkpoint without budget
     save_checkpoint_with_budget(&sm, "s2", 0, None, None).await;
     assert_eq!(sm.get_effective_max_spawn_depth("s2").await, None);
@@ -816,6 +821,8 @@ async fn test_validate_child_ownership_all_modes() {
             depth: 1,
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
+            created_at: std::time::Instant::now(),
         },
     )
     .await;
@@ -831,6 +838,8 @@ async fn test_validate_child_ownership_all_modes() {
             depth: 1,
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
+            created_at: std::time::Instant::now(),
         },
     )
     .await;
@@ -910,6 +919,8 @@ async fn test_kill_child_cascades_to_grandchild() {
             depth: 1,
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
+            created_at: std::time::Instant::now(),
         },
     )
     .await;
@@ -945,6 +956,8 @@ async fn test_kill_child_cascades_to_grandchild() {
             depth: 2,
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
+            timeout_secs: None,
+            created_at: std::time::Instant::now(),
         },
     )
     .await;

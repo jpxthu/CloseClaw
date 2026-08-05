@@ -87,11 +87,14 @@ pub trait SessionManagerOps: Send + Sync {
     /// Get the depth of a session in the spawn tree.
     async fn get_session_depth(&self, session_id: &str) -> Option<u32>;
 
+    /// List all child sessions for a given parent.
+    async fn list_children(&self, parent_id: &str) -> Vec<ChildSessionInfo>;
+
     /// Start a yield timeout for the given session.
     ///
-    /// Spawns two timers: a warning timer (`timeout_warning_secs`) that injects
-    /// an early notification, and a hard timeout (`timeout_secs`) that terminates
-    /// children and resumes the parent.
+    /// Spawns two timers: a warning timer that injects a notification
+    /// 60 seconds before the hard timeout, and the hard timeout itself
+    /// that injects a structured notification and resumes the parent.
     ///
     /// Takes an `Arc<Self>` so the implementation can spawn a background task
     /// that holds a strong reference.
@@ -99,8 +102,7 @@ pub trait SessionManagerOps: Send + Sync {
         self: Arc<Self>,
         session_id: &str,
         agent_id: &str,
-        timeout_secs: Option<u64>,
-        timeout_warning_secs: Option<u64>,
+        overall_timeout_secs: u64,
     );
 }
 
@@ -109,3 +111,6 @@ mod registrar_tests;
 
 #[cfg(test)]
 mod sessions_spawn_tests;
+
+#[cfg(test)]
+mod sessions_yield_tests;
