@@ -422,7 +422,7 @@ impl Gateway {
 
         // ── Approval command interception ──────────────────────────────
         if let Some(result) = self
-            .try_handle_approval_command(&session_id, &content, sender_id)
+            .try_handle_approval_command(&session_id, &content, sender_id, peer_id, channel)
             .await
         {
             return Some(result);
