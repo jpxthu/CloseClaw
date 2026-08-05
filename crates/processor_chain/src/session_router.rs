@@ -13,7 +13,7 @@
 
 use async_trait::async_trait;
 
-use closeclaw_gateway::compute_session_key;
+use closeclaw_common::session_key::compute_session_key;
 
 use super::context::MessageContext;
 use super::error::ProcessError;

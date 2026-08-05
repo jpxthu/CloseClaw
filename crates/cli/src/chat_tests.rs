@@ -10,7 +10,7 @@ use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
 
 use super::chat::build_gateway;
-use closeclaw_processor_chain::build_processor_registry;
+use closeclaw_gateway::build_processor_registry;
 
 // ── Processor Registry tests ────────────────────────────────────────────────
 
@@ -47,8 +47,8 @@ async fn test_build_processor_registry_outbound_count() {
     };
     let registry = build_processor_registry(&config);
 
-    // 1 outbound (DslParser)
-    assert_eq!(registry.outbound_len(), 1);
+    // 2 outbound (VerbosityFilter + DslParser)
+    assert_eq!(registry.outbound_len(), 2);
 }
 
 #[tokio::test]
@@ -63,8 +63,8 @@ async fn test_build_processor_registry_with_raw_log() {
 
     // With raw_log_dir: 3 inbound (RawLogProcessor + SessionRouter + ContentNormalizer)
     assert_eq!(registry.inbound_len(), 3);
-    // 2 outbound (OutboundRawLogProcessor + DslParser)
-    assert_eq!(registry.outbound_len(), 2);
+    // 3 outbound (VerbosityFilter + DslParser + OutboundRawLogProcessor)
+    assert_eq!(registry.outbound_len(), 3);
 }
 
 // ── Gateway build tests ─────────────────────────────────────────────────────
