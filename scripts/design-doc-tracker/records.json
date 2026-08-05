@@ -91,9 +91,9 @@
     "path": "docs/design/common/core-traits.md",
     "commit": "bed36a94a04bedd23f9ac6d8464c8e0340140779",
     "commit_time": "2026-07-30T19:19:58+08:00",
-    "confirmed_time": "2026-07-30T19:27:50.905317+08:00",
+    "confirmed_time": "2026-08-05T19:51:23.333098+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "文档内部矛盾"
   },
   {
     "path": "docs/design/common/data-flow.md",
@@ -417,11 +417,11 @@
   },
   {
     "path": "docs/design/session/README.md",
-    "commit": "aca43de7ec6e51fe6615bc91c2075731d6952406",
-    "commit_time": "2026-08-04T19:54:48+08:00",
-    "confirmed_time": "2026-08-04T20:43:48.972231+08:00",
+    "commit": "6038d475c1b67cdb553fca423156ef6326ea581a",
+    "commit_time": "2026-08-05T19:42:11+08:00",
+    "confirmed_time": "2026-08-05T19:45:16.877159+08:00",
     "comment": "",
-    "blocked_reason": "doc_problem: session_exec.rs title says three-dim but code has four; Immediate bypass is slash-layer not queue feature; routing key naming inconsistency docs vs code"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/session/compact-process.md",
