@@ -131,9 +131,9 @@
     "path": "docs/design/daemon/README.md",
     "commit": "bed8b1b37b401a3add5653a84a094d5140d3b41f",
     "commit_time": "2026-07-16T22:41:13+08:00",
-    "confirmed_time": "2026-07-16T23:02:44.416545+08:00",
+    "confirmed_time": "2026-08-05T20:19:04.302376+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "设计文档层级表声明 SystemPromptBuilder 在 Layer 3（依赖 AgentRegistry, SkillsRegistry），但代码中 SystemPromptBuilderAdapter 持有 Arc<ToolRegistry> 用于生成 tools section，实际依赖 ToolsRegistry（Layer 3 组件），导致 topo-sort 将其推到 Phase 4。文档层级归属与代码架构需求矛盾，需 Owner 确认：(1) 文档层级表应补充 ToolsRegistry 依赖，或 (2) 代码需重构去除 ToolsRegistry 依赖。"
   },
   {
     "path": "docs/design/daemon/shutdown.md",
