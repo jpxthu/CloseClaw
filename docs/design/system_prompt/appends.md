@@ -13,7 +13,7 @@ AppendSection 位于 system prompt 末尾，与静态层 Section 无优先级冲
 - `/system clear`：清空追加内容
 - `/system list`：查看当前追加列表
 
-详细设计见 [slash/system-append](docs/design/slash/system-append.md)。
+详细设计见 [slash/system-append](../slash/system-append.md)。
 
 追加区持久化在 SessionCheckpoint 中，不受上下文压缩影响。会话恢复时从 checkpoint 重建，之前的追加内容完整保留。`/system clear` 触发持久化更新。
 
@@ -49,7 +49,7 @@ CheckpointManager.save() 持久化空列表
 
 ### 上游
 
-- **Slash 模块**：`/system` 指令触发追加区的增删操作。详细交互见 [slash/system-append](docs/design/slash/system-append.md)。
+- **Slash 模块**：`/system` 指令触发追加区的增删操作。详细交互见 [slash/system-append](../slash/system-append.md)。
 
 ### 下游
 

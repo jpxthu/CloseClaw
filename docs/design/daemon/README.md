@@ -26,7 +26,6 @@
 | 3 | Permission Engine | AgentRegistry |
 | 3 | Tools Registry | Skills Registry |
 | 3 | ArchiveSweeper | Storage, SessionConfigProvider |
-| 3 | Skill Watcher | Skills Registry |
 | 3 | SpawnController | AgentRegistry |
 | 3 | DreamingScheduler | Storage, SessionConfigProvider |
 | 3 | System Prompt 构建器 | AgentRegistry, Skills Registry |
@@ -70,7 +69,6 @@ Daemon 启动（依赖驱动，按拓扑序分层执行）
   │   ├── Permission Engine（加载全局默认策略，Agent 维度规则延迟加载）
   │   ├── Tools Registry（各模块注册工具定义，SpawnController 注入）
   │   ├── ArchiveSweeper（spawn 后台任务，定时扫描 idle session 归档 + 过期 archive 清理，详见 [session-lifecycle.md](../session/session-lifecycle.md)）
-  │   ├── Skill Watcher（spawn 后台任务，监听 skill 文件变更）
   │   ├── SpawnController（校验 Agent spawn 权限，注入 ToolRegistry）
   │   ├── DreamingScheduler（spawn 后台任务，定时扫描 archived 会话，触发记忆挖掘与升格）
   │   └── System Prompt 构建器（SessionManager 内部调用构建函数，持有 Prompt 覆盖配置，初始为空）
@@ -136,7 +134,6 @@ Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | ApprovalFlow | 启动时创建并注入到 Gateway，Daemon 持有其所有权 |
 | SpawnController | 启动时创建并注入 ToolRegistry，校验 Agent spawn 权限 |
 | Config Hot Reload | 启动时 spawn 后台任务，监听配置文件变更并触发重载 |
-| Skill Watcher | 启动时 spawn 后台任务 |
 | DreamingScheduler | 定时扫描 archived 会话触发记忆挖掘与升格（先 dreaming 后 mining） |
 
 - **无关**：**Processor Chain**（无调用关系）——处理器链由 Gateway 调度，Daemon 不直接参与
