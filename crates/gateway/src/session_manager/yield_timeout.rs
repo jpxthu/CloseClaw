@@ -43,11 +43,7 @@ impl SessionManager {
         overall_timeout_secs: u64,
     ) {
         let duration = Duration::from_secs(overall_timeout_secs);
-        let warning_secs = if overall_timeout_secs > 60 {
-            overall_timeout_secs - 60
-        } else {
-            0
-        };
+        let warning_secs = overall_timeout_secs.saturating_sub(60);
         let warning_duration = Duration::from_secs(warning_secs);
 
         // Abort any existing timeout handles (defensive).
