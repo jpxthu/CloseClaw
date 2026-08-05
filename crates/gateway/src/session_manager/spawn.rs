@@ -106,7 +106,6 @@ impl SessionManager {
     }
 
     /// List all child sessions (any status) for a parent.
-    #[allow(dead_code)]
     pub async fn list_all_children(&self, parent_id: &str) -> Vec<ChildSessionInfo> {
         let children = self.children.read().await;
         children

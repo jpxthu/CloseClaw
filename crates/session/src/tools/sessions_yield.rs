@@ -10,8 +10,8 @@ use std::sync::Arc;
 /// Default yield timeout in seconds (10 minutes).
 ///
 /// Used when no child sessions provide an explicit timeout.
-/// Must stay in sync with the gateway crate's
-/// `DEFAULT_YIELD_TIMEOUT_SECS`.
+/// This is the tool-level default; the gateway may apply
+/// a different value via its own `DEFAULT_YIELD_TIMEOUT_SECS`.
 const DEFAULT_YIELD_TIMEOUT_SECS: u64 = 600;
 
 /// Tool that signals the current session to enter active Waiting state.

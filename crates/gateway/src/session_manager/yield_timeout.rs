@@ -175,11 +175,10 @@ impl SessionManager {
         // 2. Push structured timeout notification.
         if let Some(cs) = self.get_conversation_session(session_id).await {
             let mut cs_write = cs.write().await;
-            let notification = format!(
-                "[超时] 父 session 等待上限 {} 秒已到。\n\n子 session 状态:\n{}\n\n仍在运行的子 session 将继续执行，完成后结果按正常路径注入。",
-                timeout_secs,
-                child_summaries
-            );
+            let header = format!("[超时] 父 session 等待上限 {} 秒已到。\n\n", timeout_secs,);
+            let body = format!("子 session 状态:\n{}\n\n", child_summaries,);
+            let tail = "仍在运行的子 session 将继续执行，完成后结果按正常路径注入。";
+            let notification = format!("{}{}{}", header, body, tail);
             cs_write.push_system_notification(notification, NotificationPriority::Next);
         }
 
