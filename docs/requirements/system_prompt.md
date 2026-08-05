@@ -24,7 +24,7 @@ Agent 需要在 System Prompt 中看到当前可用的工具清单，以便在�
 
 - **工具清单**：工具清单的字段内容、常用/延迟分组、危险度标记、长度截断与探索提示由 [tools §F1](tools.md) 定义。本模块消费 tools 模块渲染好的工具清单结果
 - 当工具定义发生变更时，清单自动更新
-- 技能清单不进入 System Prompt 静态层——由 session 模块作为 per-turn attachment 在每个 turn 注入 instruction block，详见 [skills §F4](skills.md)（技能清单）。技能正文内容在模型决定使用时按需注入，不预先进入 System Prompt
+- 技能清单的注入位置和组装时机由 [skills §F4](skills.md)（技能清单）定义。技能正文内容在模型决定使用时按需注入，不预先进入 System Prompt
 
 > **交叉引用**：当前 Agent 可用的工具范围（白名单/黑名单），由 [agent §F3](agent.md)（Agent 能力组合）定义。本模块负责将可用工具清单渲染为 System Prompt 中的分组描述文本。
 
@@ -58,6 +58,7 @@ Owner 可以在对话中通过指令管理 System Prompt 末尾的动态指令�
 System Prompt 中在会话生命周期内不变的内容应走缓存机制，避免每次请求都重复读取文件和生成描述文本：
 
 - 文件内容未变更时复用已加载的版本，不触发重复读取
+- System Prompt 各组成部分按固定顺序排列，配置不变时多次组装结果完全相同
 - 以下事件触发全部缓存失效并重建：
   - Owner 执行清空会话指令
   - Owner 清除动态指令
