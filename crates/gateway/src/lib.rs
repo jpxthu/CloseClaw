@@ -855,9 +855,17 @@ pub fn build_processor_registry(config: &GatewayConfig) -> ProcessorRegistry {
             dir: dir.clone(),
             retention_days: 7,
         };
-        let processor =
-            RawLogProcessor::new(raw_log_config).expect("RawLogProcessor initialization failed");
-        registry.register(Arc::new(processor));
+        match RawLogProcessor::new(raw_log_config) {
+            Ok(processor) => {
+                registry.register(Arc::new(processor));
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "RawLogProcessor initialization failed — skipping inbound raw log processor"
+                );
+            }
+        }
     }
 
     // Inbound: SessionRouter (priority 20 — computes session_key)
