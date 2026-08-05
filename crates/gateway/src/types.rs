@@ -43,13 +43,13 @@ pub struct GatewayConfig {
     #[serde(default)]
     pub raw_log_dir: Option<std::path::PathBuf>,
     /// Maximum number of messages the inbound queue can buffer.
-    /// Defaults to 64.
+    /// Defaults to 256.
     #[serde(default = "default_inbound_queue_capacity")]
     pub inbound_queue_capacity: usize,
 }
 
 fn default_inbound_queue_capacity() -> usize {
-    64
+    256
 }
 
 #[allow(clippy::derivable_impls)]
