@@ -46,7 +46,7 @@ System Prompt 每次组装时，系统从技能注册中心读取当前可用技
 
 清单中仅包含已声明 user-invocable 的技能（声明了 paths 的技能遵循 F6 条件激活规则，不在清单中）。
 
-> **交叉引用**：System Prompt 组装触发时机见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。System Prompt 各组成部分按固定顺序排列、配置不变时多次组装结果完全相同，详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。SP 组装结果在事件之间不变，确保 KV Cache 稳定性，详见 [system_prompt §F7](system_prompt.md)（API 前缀缓存利用）。对话压缩不触碰 System Prompt，详见 [session §F3](session.md)（长对话压缩）。
+> **交叉引用**：System Prompt 组装触发时机见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。System Prompt 各组成部分按固定顺序排列、配置不变时多次组装结果完全相同，详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。SP 组装结果在事件之间不变，确保模型服务端缓存持续命中，详见 [system_prompt §F7](system_prompt.md)（API 前缀缓存利用）。对话压缩不触碰 System Prompt，详见 [session §F3](session.md)（长对话压缩）。
 
 清单按技能来源优先级排序（高优先级在前），同来源内按名称字母序排列。技能清单为空时不注入对应段落。
 
@@ -85,7 +85,7 @@ User 也可通过斜杠命令直接调用声明了 user-invocable 的技能。
 
 ### F10. 技能创建
 
-Agent 可通过内置的技能（skill）获得创建技能文件的指导。User 在对话中描述需求后，Agent 按该 skill 的指令创建符合规范的 SKILL.md 文件，包含正确的 frontmatter 和指令正文。
+Agent 可通过内置技能获得创建技能文件的指导。User 在对话中描述需求后，Agent 按该技能的指令创建符合规范的 SKILL.md 文件，包含正确的 frontmatter 和指令正文。
 
 ## 关联设计文档
 
