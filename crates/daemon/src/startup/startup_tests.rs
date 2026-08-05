@@ -532,3 +532,81 @@ fn test_all_parallel() {
     // A < B < C by id.name(): AgentRegistry < ConfigManager < Storage
     assert_eq!(layers[0], vec![AgentRegistry, ConfigManager, Storage]);
 }
+
+// ======================================================================
+// Step 1.3 — SystemPromptBuilder layer and dependency tests
+// ======================================================================
+
+/// SystemPromptBuilder must reside in Layer 3 (CoreServices phase).
+#[test]
+fn test_system_prompt_builder_in_core_services_layer() {
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+
+    // Layer index 2 = third layer = CoreServices
+    assert!(
+        layers[2].contains(&ComponentId::SystemPromptBuilder),
+        "SystemPromptBuilder must be in Layer 3 (CoreServices), got layers: {:?}",
+        layers
+            .iter()
+            .enumerate()
+            .map(|(i, l)| (i, l.iter().map(|c| c.name()).collect::<Vec<_>>()))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// SystemPromptBuilder dependencies must be exactly [AgentRegistry, SkillsRegistry].
+#[test]
+fn test_system_prompt_builder_deps_only_agent_and_skills() {
+    let entries = all_component_entries();
+    let dep_map: std::collections::HashMap<ComponentId, Vec<ComponentId>> =
+        entries.iter().map(|e| (e.id, e.deps.clone())).collect();
+
+    let deps = &dep_map[&ComponentId::SystemPromptBuilder];
+    assert_eq!(
+        deps,
+        &vec![ComponentId::AgentRegistry, ComponentId::SkillsRegistry],
+        "SystemPromptBuilder must depend only on [AgentRegistry, SkillsRegistry]"
+    );
+}
+
+/// SystemPromptBuilder must NOT depend on ToolsRegistry.
+#[test]
+fn test_system_prompt_builder_no_tools_registry_dep() {
+    let entries = all_component_entries();
+    let dep_map: std::collections::HashMap<ComponentId, Vec<ComponentId>> =
+        entries.iter().map(|e| (e.id, e.deps.clone())).collect();
+
+    let deps = &dep_map[&ComponentId::SystemPromptBuilder];
+    assert!(
+        !deps.contains(&ComponentId::ToolsRegistry),
+        "SystemPromptBuilder must NOT depend on ToolsRegistry (design doc Layer 3)"
+    );
+}
+
+/// validate_phase_components passes when SystemPromptBuilder is in the
+/// correct CoreServices phase (Layer 3).
+#[test]
+fn test_validate_phase_components_with_system_prompt_builder() {
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+
+    let result = crate::Daemon::validate_phase_components(&layers);
+    assert!(
+        result.is_ok(),
+        "validate_phase_components should succeed with SystemPromptBuilder in CoreServices: {:?}",
+        result.err()
+    );
+
+    let phases = result.unwrap();
+    // Phase 3 (index 2) = CoreServices
+    assert!(
+        phases[2].contains(&ComponentId::SystemPromptBuilder),
+        "Phase 3 (CoreServices) must contain SystemPromptBuilder"
+    );
+    // Phase 4 (index 3) = Wiring must NOT contain SystemPromptBuilder
+    assert!(
+        !phases[3].contains(&ComponentId::SystemPromptBuilder),
+        "Phase 4 (Wiring) must NOT contain SystemPromptBuilder"
+    );
+}

@@ -887,6 +887,8 @@ pub fn build_processor_registry(config: &GatewayConfig) -> ProcessorRegistry {
 #[cfg(test)]
 pub mod compute_session_key_tests;
 #[cfg(test)]
+pub mod construction_tests;
+#[cfg(test)]
 pub mod inbound_chain_tests;
 #[cfg(test)]
 pub mod non_text_interception_tests;
