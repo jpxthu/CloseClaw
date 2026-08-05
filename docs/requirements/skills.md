@@ -42,26 +42,27 @@ SKILL.md 正文（frontmatter 之后的指令文本）支持变量替换，User 
 
 ### F4. 技能清单
 
-Session 启动时，系统向 Agent 注入一份技能清单（名称、描述、决策提示、成本估算），让 Agent 在对话开始时就知道有哪些技能可用。清单中仅包含已声明 user-invocable 的技能（声明了 paths 的技能的例外，见 F6）。
+System Prompt 每次组装时，系统从技能注册中心读取当前可用技能，渲染技能清单并注入 System Prompt 固定位置。Agent 在每次 API 调用时通过 System Prompt 看到完整的可用技能列表。
 
-**增量注入**：后续 session turn 中若有新技能被激活或既有技能元数据变更（条件激活、热重载等），仅增量注入变更条目，不重发全量清单。增量注入须保持与初始注入相同的格式与位置，确保不破坏 Agent 对话上下文的连续性。
-> **交叉引用**：技能清单由 session 模块作为 per-turn attachment 在每个 turn 注入 instruction block，不进入 System Prompt 静态层。详见 [session §F2](session.md)（Agent 角色与能力配置）。
+清单中仅包含已声明 user-invocable 的技能（声明了 paths 的技能遵循 F6 条件激活规则，不在清单中）。
 
-清单按技能来源优先级排序（高优先级在前），同来源内按名称字母序排列。技能清单为空时不注入。
+> **交叉引用**：System Prompt 组装触发时机见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。System Prompt 各组成部分按固定顺序排列、配置不变时多次组装结果完全相同，详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。SP 组装结果在事件之间不变，确保模型服务端缓存持续命中，详见 [system_prompt §F7](system_prompt.md)（API 前缀缓存利用）。对话压缩不触碰 System Prompt，详见 [session §F3](session.md)（长对话压缩）。
 
-> **交叉引用**：对话压缩时技能清单受保护（由 session 模块保证），详见 [session §F3](session.md)（长对话压缩）。
+清单按技能来源优先级排序（高优先级在前），同来源内按名称字母序排列。技能清单为空时不注入对应段落。
 
-### F5. 热重载
+### F5. 技能文件变更
 
-User 在 session 运行期间修改或新增 SKILL.md 文件后，技能变更在下一个 session turn 以增量方式注入 Agent 的技能清单。User 无需手动操作也无需关注具体生效时机。
-> **交叉引用**：生效时机由 session 生命周期驱动。文件监听触发的缓存失效和清单更新由 session 模块管理，详见 [session §F2](session.md)（Agent 角色与能力配置）。
+User 在 session 运行期间修改或新增 SKILL.md 文件后，技能变更不会在当前 session 自动生效。文件系统中的技能定义仅在下次 System Prompt 组装时反映。
+
+> **交叉引用**：System Prompt 组装触发时机和数据源变更的生效规则见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 
 ### F6. 条件激活
 
-声明了 paths 字段的技能不在初始技能清单中（即使同时声明了 user-invocable）。当 Agent 操作的文件路径匹配某技能的 paths 模式时，该技能自动激活——在下一个 session turn 以增量方式注入技能清单条目（不含正文，正文在调用时按需加载，详见 F7）。
+声明了 paths 字段的技能不在技能清单中（即使同时声明了 user-invocable）。当 Agent 操作的文件路径匹配某技能的 paths 模式时，该技能自动激活——系统为该技能在 session 内产生激活标记，并在下一个 turn 即时注入该技能的清单条目，Agent 无需等待 System Prompt 组装即可使用。
 
-条件激活的增量注入须保持与初始注入相同的格式与位置，确保不破坏 Agent 对话上下文的连续性。
-> **交叉引用**：增量注入由 session 模块负责，路径匹配检测和激活标记维护在 session 层完成，详见 [session §F2](session.md)（Agent 角色与能力配置）。
+条件激活的注入条目与技能清单保持相同格式。仅注入清单条目（不含正文），正文在调用时按需加载（详见 F7）。激活标记的生命周期跟随当前 session，session 结束时清空。
+
+> **交叉引用**：路径匹配检测和激活标记维护由 session 层完成，详见 [session §F2](session.md)（Agent 角色与能力配置）。上下文压缩完成后 System Prompt 重新组装时，技能清单包含当前 session 已激活的条件技能，详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 
 ### F7. 技能调用
 
@@ -84,12 +85,14 @@ User 也可通过斜杠命令直接调用声明了 user-invocable 的技能。
 
 ### F10. 技能创建
 
-Agent 可通过内置的技能（skill）获得创建技能文件的指导。User 在对话中描述需求后，Agent 按该 skill 的指令创建符合规范的 SKILL.md 文件，包含正确的 frontmatter 和指令正文。
+Agent 可通过内置技能获得创建技能文件的指导。User 在对话中描述需求后，Agent 按该技能的指令创建符合规范的 SKILL.md 文件，包含正确的 frontmatter 和指令正文。
 
 ## 关联设计文档
 
 - [✓] skills/README.md
+- [✓] skills/skill-definition.md
 - [✓] skills/skill-listing-injection.md
+- [✓] skills/skill-execution.md
 
 ## 非功能需求
 
