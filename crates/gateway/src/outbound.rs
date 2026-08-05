@@ -165,24 +165,16 @@ impl Gateway {
                 _ => None,
             })
             .unwrap_or("");
-        let result = self
-            .dispatch_and_persist(DispatchCtx {
-                plugin: &plugin,
-                rendered: &rendered,
-                fallback_text,
-                session_id,
-                channel,
-                chat_id: chat_id.clone(),
-                thread_id: thread_id.clone(),
-            })
-            .await;
-        match result {
-            Ok(()) => Ok(()),
-            Err(_) => {
-                self.send_as_plain_text(&plugin, raw_output, &chat_id, thread_id.as_deref())
-                    .await
-            }
-        }
+        self.dispatch_and_persist(DispatchCtx {
+            plugin: &plugin,
+            rendered: &rendered,
+            fallback_text,
+            session_id,
+            channel,
+            chat_id: chat_id.clone(),
+            thread_id: thread_id.clone(),
+        })
+        .await
     }
 
     /// Dispatch a rendered output to its destination plugin and persist the
@@ -200,9 +192,9 @@ impl Gateway {
         let middlewares = self.get_outbound_middlewares().await;
         if !middlewares.is_empty() {
             let mctx = Self::make_middleware_ctx(ctx.session_id, ctx.channel, &ctx.chat_id);
-            run_middleware_chain(&middlewares, &mctx, ctx.rendered)
-                .await
-                .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
+            if let Err(e) = run_middleware_chain(&middlewares, &mctx, ctx.rendered).await {
+                return log_middleware_rejection(e, ctx.session_id);
+            }
         }
         match ctx.rendered.msg_type.as_str() {
             "text" => {
@@ -340,9 +332,7 @@ impl Gateway {
         Ok(())
     }
 
-    /// Fallback to plain-text send when the plugin exists but `render` or
-    /// `send` failed. Constructs a plain-text [`RenderedOutput`] and retries
-    /// via `plugin.send`. Returns the send result.
+    /// Fallback to plain-text send when render/send fails.
     async fn send_as_plain_text(
         &self,
         plugin: &Arc<dyn IMPlugin>,
@@ -428,18 +418,8 @@ impl Gateway {
         }
     }
 
-    /// Send an outbound message to a specific chat via the registered IM plugin.
-    ///
-    /// This is a lightweight variant of [`send_outbound`](Self::send_outbound) that
-    /// does not require a `session_id` — it takes a `chat_id` directly. Useful for
-    /// system messages (e.g. busy replies) that have no associated session.
-    ///
-    /// Flow:
-    /// 1. Resolve the [`IMPlugin`](super::im::IMPlugin) for `channel`.
-    /// 2. Run the full outbound processor chain (VerbosityFilter → DslParser →
-    ///    OutboundRawLog) via `process_or_bypass` with default
-    ///    [`VerbosityLevel::Full`].
-    /// 3. Render via `plugin.render` and dispatch via `plugin.send`.
+    /// Lightweight outbound to a specific chat (no session_id required).
+    /// Useful for system messages like busy replies.
     pub async fn send_outbound_to_chat(
         &self,
         chat_id: &str,
@@ -472,25 +452,14 @@ impl Gateway {
         let middlewares = self.get_outbound_middlewares().await;
         if !middlewares.is_empty() {
             let mctx = Self::make_middleware_ctx("", channel, chat_id);
-            if run_middleware_chain(&middlewares, &mctx, &rendered)
-                .await
-                .is_err()
-            {
-                return self
-                    .send_as_plain_text(&plugin, raw_output, chat_id, None)
-                    .await;
+            if let Err(e) = run_middleware_chain(&middlewares, &mctx, &rendered).await {
+                return log_middleware_rejection(e, chat_id);
             }
         }
 
-        // Dispatch via plugin.send. On failure, fall back to plain-text send.
-        let result = plugin.send(&rendered, chat_id, None).await;
-        match result {
-            Ok(()) => Ok(()),
-            Err(_) => {
-                self.send_as_plain_text(&plugin, raw_output, chat_id, None)
-                    .await
-            }
-        }
+        // Dispatch via plugin.send.
+        plugin.send(&rendered, chat_id, None).await?;
+        Ok(())
     }
 
     /// Send a simplified outbound message, skipping the full processor chain
@@ -872,6 +841,32 @@ async fn run_middleware_chain(
     Ok(())
 }
 
+/// Log a middleware chain error and return `Ok(())` so the caller can
+/// discard the message without propagating the error.
+fn log_middleware_rejection(
+    e: closeclaw_common::MiddlewareError,
+    session_id: &str,
+) -> Result<(), GatewayError> {
+    match e {
+        closeclaw_common::MiddlewareError::Rejected { name, reason } => {
+            tracing::warn!(
+                middleware = %name,
+                reason = %reason,
+                session_id,
+                "middleware rejected outbound message, discarding"
+            );
+        }
+        closeclaw_common::MiddlewareError::MiddlewareFailed { name, .. } => {
+            tracing::warn!(
+                middleware = %name,
+                session_id,
+                "middleware failed, discarding outbound message"
+            );
+        }
+    }
+    Ok(())
+}
+
 // Streaming outbound helpers
 // ---------------------------------------------------------------------------
 
@@ -962,9 +957,9 @@ async fn send_render_block(
     let rendered = ctx.plugin.render(std::slice::from_ref(block), None);
     if !ctx.middlewares.is_empty() {
         let mctx = Gateway::make_middleware_ctx(ctx.session_id, ctx.channel, ctx.chat_id);
-        run_middleware_chain(ctx.middlewares, &mctx, &rendered)
-            .await
-            .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
+        if let Err(e) = run_middleware_chain(ctx.middlewares, &mctx, &rendered).await {
+            return log_middleware_rejection(e, ctx.session_id);
+        }
     }
     tracing::info!(chat_id = ctx.chat_id, content = ?rendered.payload, msg_type = %rendered.msg_type, "streaming outbound render block");
     ctx.plugin
