@@ -5,7 +5,7 @@ use closeclaw_config::SystemConfigData;
 use closeclaw_permission::engine::rejection_log::FileRejectionLogger;
 use closeclaw_permission::{Defaults, PermissionEngine, RuleSet};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{error, info, warn};
 
 // --- Lifecycle: start, run ---
 impl Daemon {
@@ -199,16 +199,26 @@ impl Daemon {
 
         // Initiate graceful drain
         let shutdown_handle = self.shutdown.clone();
-        let mut shutdown_task = tokio::spawn(async move {
-            shutdown_handle.initiate_shutdown().await;
-        });
+        let mut shutdown_task =
+            tokio::spawn(async move { shutdown_handle.initiate_shutdown().await });
 
         // Monitor for escalation signals during drain
         loop {
             tokio::select! {
                 result = &mut shutdown_task => {
-                    if let Err(e) = result {
-                        tracing::error!(error = %e, "shutdown task panicked");
+                    match result {
+                        Ok(remaining) => {
+                            if remaining > 0 {
+                                info!(
+                                    remaining,
+                                    "drain completed with {} operations still in-flight",
+                                    remaining
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            error!(error = %e, "shutdown task panicked");
+                        }
                     }
                     break;
                 }
@@ -280,7 +290,7 @@ impl Daemon {
                             stop_result = Some(sr);
                         }
                         Err(e) => {
-                            tracing::error!(error = %e, "session stop task panicked");
+                            error!(error = %e, "session stop task panicked");
                             stop_result = Some(
                                 closeclaw_gateway::session_manager::stop::StopResult::default()
                             );
@@ -383,6 +393,7 @@ impl Daemon {
     ///
     /// - Drops SkillWatcher and ConfigWatcher (RAII) via `take()`
     /// - Signals ArchiveSweeper and DreamingScheduler to stop
+    /// - Verifies all background tasks have exited (abort + confirm)
     /// - Clears pending approval requests
     async fn phase_3_background_stop(&mut self) {
         // SkillWatcher and ConfigWatcher are RAII — stop on drop.
@@ -406,43 +417,89 @@ impl Daemon {
         // Signal PlanArchiveTask to stop
         let _ = self.plan_archive_shutdown_tx.send(());
 
-        // Wait for all background tasks to exit (15s timeout per task)
+        // Wait for all background tasks to exit, aborting on timeout.
         let join_timeout = std::time::Duration::from_secs(10);
+        let abort_grace = std::time::Duration::from_secs(3);
 
         if let Some(handle) = self.archive_sweeper_handle.take() {
-            match tokio::time::timeout(join_timeout, handle).await {
-                Ok(Ok(())) => tracing::info!("ArchiveSweeper exited cleanly"),
-                Ok(Err(e)) => tracing::warn!(error = %e, "ArchiveSweeper task panicked"),
-                Err(_) => tracing::warn!("ArchiveSweeper did not exit within 10s, continuing"),
-            }
+            Self::abort_and_join_background_task(
+                handle,
+                "ArchiveSweeper",
+                join_timeout,
+                abort_grace,
+            )
+            .await;
         }
 
         if let Some(handle) = self.announce_sweeper_handle.take() {
-            match tokio::time::timeout(join_timeout, handle).await {
-                Ok(Ok(())) => tracing::info!("AnnounceSweeper exited cleanly"),
-                Ok(Err(e)) => tracing::warn!(error = %e, "AnnounceSweeper task panicked"),
-                Err(_) => tracing::warn!("AnnounceSweeper did not exit within 10s, continuing"),
-            }
+            Self::abort_and_join_background_task(
+                handle,
+                "AnnounceSweeper",
+                join_timeout,
+                abort_grace,
+            )
+            .await;
         }
 
         if let Some(handle) = self.dreaming_scheduler_handle.take() {
-            match tokio::time::timeout(join_timeout, handle).await {
-                Ok(Ok(())) => tracing::info!("DreamingScheduler exited cleanly"),
-                Ok(Err(e)) => tracing::warn!(error = %e, "DreamingScheduler task panicked"),
-                Err(_) => tracing::warn!("DreamingScheduler did not exit within 10s, continuing"),
-            }
+            Self::abort_and_join_background_task(
+                handle,
+                "DreamingScheduler",
+                join_timeout,
+                abort_grace,
+            )
+            .await;
         }
 
         if let Some(handle) = self.plan_archive_task_handle.take() {
-            match tokio::time::timeout(join_timeout, handle).await {
-                Ok(Ok(())) => tracing::info!("PlanArchiveTask exited cleanly"),
-                Ok(Err(e)) => tracing::warn!(error = %e, "PlanArchiveTask task panicked"),
-                Err(_) => tracing::warn!("PlanArchiveTask did not exit within 10s, continuing"),
-            }
+            Self::abort_and_join_background_task(
+                handle,
+                "PlanArchiveTask",
+                join_timeout,
+                abort_grace,
+            )
+            .await;
         }
 
         // Clear pending approval requests (denied with callbacks triggered)
         self.approval_flow.lock().await.clear();
+    }
+
+    /// Wait for a background task to exit within `timeout`.
+    ///
+    /// If the task does not exit in time, it is aborted and a short
+    /// `abort_grace` is given to confirm termination.  A final log is
+    /// emitted if the task is still alive after abort (theoretically
+    /// impossible, but logged defensively at error level).
+    async fn abort_and_join_background_task(
+        mut handle: tokio::task::JoinHandle<()>,
+        name: &str,
+        timeout: std::time::Duration,
+        abort_grace: std::time::Duration,
+    ) {
+        match tokio::time::timeout(timeout, &mut handle).await {
+            Ok(Ok(())) => {
+                info!("{} exited cleanly", name);
+            }
+            Ok(Err(e)) => {
+                warn!(error = %e, "{} task panicked", name);
+            }
+            Err(_) => {
+                warn!("{} did not exit within {:?}, aborting", name, timeout);
+                handle.abort();
+                match tokio::time::timeout(abort_grace, handle).await {
+                    Ok(Ok(())) => {
+                        info!("{} terminated after abort", name);
+                    }
+                    Ok(Err(_)) => {
+                        info!("{} task panicked on abort join — terminated", name);
+                    }
+                    Err(_) => {
+                        error!("{} still alive after abort — possible resource leak", name);
+                    }
+                }
+            }
+        }
     }
     /// Phase 4: Final persistence — flush checkpoints and sync WAL.
     async fn phase_4_final_persist(&self, mode: crate::shutdown::ShutdownMode) {
