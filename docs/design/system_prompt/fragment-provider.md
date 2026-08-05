@@ -2,7 +2,7 @@
 
 ## 概述
 
-PromptFragmentProvider 是系统提示词片段提供者的统一 trait，定义在 [common 模块](../common/core-traits.md#promptfragmentprovider)。将静态层各数据来源（bootstrap 文件、ToolRegistry、MEMORY.md）抽象为一致的接口。System Prompt Builder 通过收集已注册的 Provider 并依次调用，组装静态层内容，不再硬编码各来源的特定接口。
+PromptFragmentProvider 是系统提示词片段提供者的统一 trait，定义在 [common 模块](../common/core-traits.md#promptfragmentprovider)。将静态层各数据来源（bootstrap 文件、ToolRegistry、SkillRegistry、MEMORY.md）抽象为一致的接口。System Prompt Builder 通过收集已注册的 Provider 并依次调用，组装静态层内容，不再硬编码各来源的特定接口。
 
 ## 架构
 
@@ -28,15 +28,16 @@ Builder 在构建时提供的上下文，传递给每个 Provider。定义见 [s
 6. 按序拼接所有 Fragment 的内容
 7. 产出静态层完整文本
 
-### 三个标准 Provider
+### 四个标准 Provider
 
 | Provider | priority | 来源 | 产出 |
 |----------|----------|------|------|
 | BootstrapFragmentProvider | 1 | bootstrap 文件（Bootstrap Loader） | 多文件聚合为单个 Fragment（内部以 `## 文件名` 分隔） |
 | ToolsFragmentProvider | 2 | ToolRegistry | ToolsSection |
-| MemoryFragmentProvider | 3 | MEMORY.md | MemorySection |
+| SkillsFragmentProvider | 3 | SkillRegistry | SkillsSection |
+| MemoryFragmentProvider | 4 | MEMORY.md | MemorySection |
 
-BootstrapFragmentProvider 将多文件内容聚合到单 Fragment 中，每文件以 `## 文件名` 为 Section 标题。文件注入顺序与 [static-layer.md](static-layer.md) 的固定顺序一致（AGENTS.md → SOUL.md → IDENTITY.md → USER.md → TOOLS.md → BOOTSTRAP.md）。每个 `##` 标题块是逻辑上的一个 Section，在 Provider 层面聚合到一个 PromptFragment 中传递。MemoryFragmentProvider 根据 FragmentContext 中的 bootstrap_mode 判断——Minimal 模式（子 Agent 会话）返回空 Fragment，不暴露长期记忆；Full 模式（主 Agent 会话）读取 MEMORY.md 生成 MemorySection（无 workspace 目录或 MEMORY.md 文件缺失时同样返回空）。各 Provider 产出与原 Builder 中硬编码的文本完全一致——仅抽象了获取方式，不改变输出内容。
+BootstrapFragmentProvider 将多文件内容聚合到单 Fragment 中，每文件以 `## 文件名` 为 Section 标题。文件注入顺序与 [static-layer.md](static-layer.md) 的固定顺序一致（AGENTS.md → SOUL.md → IDENTITY.md → USER.md → TOOLS.md → BOOTSTRAP.md）。每个 `##` 标题块是逻辑上的一个 Section，在 Provider 层面聚合到一个 PromptFragment 中传递。SkillsFragmentProvider 从 SkillRegistry 获取技能元数据，按 [skills/skill-listing-injection](../skills/skill-listing-injection.md) 的规则过滤、排序、格式化，产出 SkillsSection。MemoryFragmentProvider 根据 FragmentContext 中的 bootstrap_mode 判断——Minimal 模式（子 Agent 会话）返回空 Fragment，不暴露长期记忆；Full 模式（主 Agent 会话）读取 MEMORY.md 生成 MemorySection（无 workspace 目录或 MEMORY.md 文件缺失时同样返回空）。各 Provider 产出与原 Builder 中硬编码的文本完全一致——仅抽象了获取方式，不改变输出内容。
 
 ### Section 级缓存
 
@@ -49,6 +50,7 @@ Builder 在请求片段前检查缓存键命中。缓存失效策略详见 [stat
 3. 按优先级遍历注册的 Provider：
    - **BootstrapFragmentProvider**：检查缓存命中（基于 bootstrap 文件修改时间）→ Bootstrap Loader 读文件 → 聚合多文件为单 Fragment → 产出 Fragment（无 workspace 目录时返回空）
    - **ToolsFragmentProvider**：ToolRegistry 生成分组索引 → 产出 Fragment
+   - **SkillsFragmentProvider**：从 SkillRegistry 获取技能元数据 → 过滤、排序、格式化 → 产出 Fragment（无可用技能时返回空）
    - **MemoryFragmentProvider**：检查缓存命中（基于 MEMORY.md 修改时间）→ 读 MEMORY.md → 产出 Fragment（文件缺失时返回空；无 workspace 目录时返回空；Minimal 模式返回空）
 4. 跳过返回空的 Provider
 5. 按序拼接所有产出 Fragment 的内容
@@ -56,7 +58,7 @@ Builder 在请求片段前检查缓存键命中。缓存失效策略详见 [stat
 
 ### 兜底
 
-兜底规则与 PromptFragmentProvider 接口契约一致（见 [core-traits](../common/core-traits.md#promptfragmentprovider)）。所有 Provider 均返回空时使用默认 prompt，无 workspace 目录时静态层仅含工具片段。
+兜底规则与 PromptFragmentProvider 接口契约一致（见 [core-traits](../common/core-traits.md#promptfragmentprovider)）。所有 Provider 均返回空时使用默认 prompt，无 workspace 目录时静态层仅含工具片段和技能片段。
 
 ## 模块关系
 
@@ -69,6 +71,7 @@ Builder 在请求片段前检查缓存键命中。缓存失效策略详见 [stat
 
 - **Bootstrap Loader**：BootstrapFragmentProvider 调用，提供 bootstrap 文件内容。
 - **ToolRegistry**：ToolsFragmentProvider 调用，生成工具分组索引。
+- **SkillRegistry**：SkillsFragmentProvider 调用，获取技能元数据。
 - **MEMORY.md**：MemoryFragmentProvider 直接读取，作为长期记忆 Section 来源。
 
 ### 无关

@@ -2,7 +2,7 @@
 
 ## 概述
 
-描述 session 生命周期中的四类注入机制：system prompt 注入（构建时触发）、动态层注入（每请求即时构建）、skill 清单注入（per-turn attachment）、消息级注入（memory_injection 槽位）。此外，后台任务和子 Agent 完成后的结果注入通过优先级消息队列实现，详见 [session-execution.md](session-execution.md) 统一消息队列节。system prompt 的结构定义在 [system_prompt/README](docs/design/system_prompt/README.md)，skill 清单的生成规则定义在 [skills/skill-listing-injection](docs/design/skills/skill-listing-injection.md)。
+描述 session 生命周期中的四类注入机制：system prompt 注入（构建时触发）、动态层注入（每请求即时构建）、条件激活 skill 消息注入（per-turn 增量）、消息级注入（memory_injection 槽位）。此外，后台任务和子 Agent 完成后的结果注入通过优先级消息队列实现，详见 [session-execution.md](session-execution.md) 统一消息队列节。system prompt 的结构定义在 [system_prompt/README](../system_prompt/README.md)，技能清单的生成规则定义在 [skills/skill-listing-injection](../skills/skill-listing-injection.md)。
 
 ## 架构
 
@@ -14,7 +14,7 @@
 - **archived session 恢复**：从存储恢复后触发重建（checkpoint 不存 system prompt，恢复时从最新文件重新构建）
 - **compaction 完成**：压缩对话历史后触发重建，确保 system prompt 内容与最新 bootstrap 文件一致
 
-构建逻辑、Section 类型定义、组装规则和容错策略全部在 [system_prompt/README](docs/design/system_prompt/README.md) 定义。注入链路只负责在正确的时机触发调用、传递参数、接收结果并存入 ConversationSession。
+构建逻辑、Section 类型定义、组装规则和容错策略全部在 [system_prompt/README](../system_prompt/README.md) 定义。注入链路只负责在正确的时机触发调用、传递参数、接收结果并存入 ConversationSession。
 
 ### 三分支决策
 
@@ -40,26 +40,22 @@ AppendSection 是独立于动态层的第三分区（详见 system_prompt/README
 
 ### Session 恢复时的注入
 
-Archived session 被重新访问时触发完整重建，流程与新 session 相同。详见 [system_prompt/README 恢复](docs/design/system_prompt/README.md#恢复)。
+Archived session 被重新访问时触发完整重建，流程与新 session 相同。详见 [system_prompt/README 恢复](../system_prompt/README.md#恢复)。
 
-### Skill 清单注入（per-turn attachment）
+### 条件激活 skill 消息注入
 
-技能清单不在 system prompt 静态层中，而是由 Session 模块在每个 turn 作为 attachment 注入 Agent 对话上下文。注入时机为每次 API 请求组装消息时、LLM 调用之前。
+技能清单的基础部分已迁入 System Prompt 静态层（SkillsSection），由 SP Builder 在组装时注入，详见 [system_prompt/static-layer](../system_prompt/static-layer.md)。本模块仅在条件激活时负责 per-turn 增量注入。
 
-**清单获取**：Session 模块每 turn 从 DiskSkillRegistry 获取当前所有可见 skill 的摘要清单。清单的过滤、排序、格式化规则见 [skills/skill-listing-injection](docs/design/skills/skill-listing-injection.md)。
+**触发条件**：Agent 当前 turn 操作的文件路径匹配某 skill 的 `paths` 模式（paths 为 glob 模式，详见 [skills/skill-definition](../skills/skill-definition.md) §Frontmatter 字段）。
 
-**注入策略**：
-- **首 turn**：注入完整初始清单。清单作为 attachment 消息插入 instruction block
-- **后续 turn**：Session 保持上一 turn 的清单快照，获取最新清单后计算差异（新增/删除/修改的条目），仅将变更条目作为 attachment 注入。增量注入保持与初始注入相同的格式和位置
-- **空清单**：清单为空时不注入 attachment，Agent 对话上下文中不出现技能清单相关内容
+**注入流程**：
+1. 路径匹配后，Session 模块内部标记该 skill 为激活
+2. 下一 turn 组装消息时，Session 以系统消息形式注入该 skill 的清单条目（含 ⚡ 标记，不含正文）
+3. 注入的清单条目格式与 SkillsSection 保持一致，详见 [skills/skill-listing-injection](../skills/skill-listing-injection.md) §格式化
+4. 激活标记随当前 session 生命周期，session 结束时清空
+5. 下次 SP 重建时，SkillsFragmentProvider 从 Session 读取激活标记，将已激活技能纳入完整清单统一渲染
 
-**条件激活**：声明了 `paths` 匹配模式的 skill 不在初始清单中。当 Agent 当前 turn 操作的文件路径匹配某 skill 的 `paths` 模式时，Session 模块内部标记该 skill 为激活——下一 turn 以增量方式注入该 skill 的清单条目（含 ⚡ 标记，不含正文）。激活标记跟随当前 session 生命周期，session 结束时清空。
-
-**文件变更**：skill 文件变更由 DiskSkillRegistry 的文件监听器处理（300ms debounce → 缓存失效 → 重新扫描）。Session 模块不参与监听——仅在下 turn 请求清单时获得最新数据，diff 计算自然体现变更。详见 [skills/skill-listing-injection](docs/design/skills/skill-listing-injection.md) 增量更新节。
-
-**压缩保护**：技能清单的 attachment 消息受 Session 模块保护，不参与 compaction。详见 [skills/skill-listing-injection](docs/design/skills/skill-listing-injection.md) 模块关系节。
-
-**与 system prompt 的关系**：技能清单不进入 system prompt 任何分区（静态层、动态层、追加区）。skill 正文在 Agent 调用时才按需加载（详见 [skills/skill-execution](docs/design/skills/skill-execution.md)），也不进入 system prompt。
+**与基础清单的关系**：条件激活注入仅处理增量（新激活的单个条目），基础清单在 SP 组装时由 SkillsFragmentProvider 统一注入。SP 重建后，条件激活条目自然并入静态层，不再需要 per-turn 增量注入。
 
 ### 消息级注入：memory_injection 槽位
 
@@ -117,24 +113,23 @@ session 暴露一个 `memory_injection` 槽位，供 memory 模块的 active-sea
 
 builder 内部通过 Bootstrap Loader 加载文件、按需组装各 Section。
 
-注入链路不关心 builder 内部的 Section 组装细节——哪些 Section 参与、如何渲染、缺失文件如何容错、失败时如何处理——这些由 System Prompt Builder 在 [system_prompt/README 架构](docs/design/system_prompt/README.md#架构) 中定义的规则决定。注入链路只关心：触发条件、传什么参数、拿回什么结果、结果存哪里。
+注入链路不关心 builder 内部的 Section 组装细节——哪些 Section 参与、如何渲染、缺失文件如何容错、失败时如何处理——这些由 System Prompt Builder 在 [system_prompt/README 架构](../system_prompt/README.md#架构) 中定义的规则决定。注入链路只关心：触发条件、传什么参数、拿回什么结果、结果存哪里。
 
 ### 无 Workspace 时
 
-session 无对应 workspace 目录时，builder 检测到 workspace 不存在后自行跳过 bootstrap 文件加载，仅生成 ToolsSection（详见 [system_prompt/static-layer.md](../system_prompt/static-layer.md)）。注入链路不参与此决策。
+session 无对应 workspace 目录时，builder 检测到 workspace 不存在后自行跳过 bootstrap 文件加载，仅生成 ToolsSection 和 SkillsSection（详见 [system_prompt/static-layer.md](../system_prompt/static-layer.md)）。注入链路不参与此决策。
 
 ## 模块关系
 
 ### 上游
 
-- **SessionManager**：session 生命周期协调者，在合适的时机触发 system prompt 注入。持有 ToolRegistry 引用，作为注入参数传递给 builder。同时持有 DiskSkillRegistry 引用，在每 turn 组装消息时获取 skill 清单用于 per-turn attachment 注入。
+- **SessionManager**：session 生命周期协调者，在合适的时机触发 system prompt 注入。持有 ToolRegistry 引用，作为注入参数传递给 builder。
 - **Memory 模块（active-searcher）**：写入 `memory_injection` 槽位，提供 tool role 记忆摘要及位置模式。
 
 ### 下游
 
-- **System Prompt Builder**：接收 bootstrap 文件、ToolRegistry 引用和 agent_id，返回组装完成的 system prompt。builder 的内部逻辑在 [system_prompt/README](docs/design/system_prompt/README.md) 定义。
-- **DiskSkillRegistry**：Session 每 turn 从此获取最新 skill 清单，用于 per-turn attachment 注入。清单过滤、排序、格式化规则在 [skills/skill-listing-injection](docs/design/skills/skill-listing-injection.md) 定义。
-- **Skills 模块**：提供 skill 定义（[skills/skill-definition](docs/design/skills/skill-definition.md)）和清单生成（[skills/skill-listing-injection](docs/design/skills/skill-listing-injection.md)），Session 负责消费清单并注入为 per-turn attachment。
+- **System Prompt Builder**：接收 bootstrap 文件、ToolRegistry 引用和 agent_id，返回组装完成的 system prompt。builder 的内部逻辑在 [system_prompt/README](../system_prompt/README.md) 定义。
+- **Skills 模块**：提供 skill 定义（[skills/skill-definition](../skills/skill-definition.md)）。条件激活时，Session 读取 skill 元数据生成清单条目并注入为系统消息。
 
 ### 无关
 

@@ -44,7 +44,7 @@ Session 启动时，磁盘加载层扫描前四层文件系统目录（ExtraDirs
 
 正文采用按需加载策略：启动时只解析 frontmatter 并注册 skill 元数据，skill 被调用时才读取正文。
 
-目录扫描仅遍历一级子目录下的 SKILL.md 文件，不递归子目录。扫描结果以 frontmatter 元数据缓存，文件未变更时不重新解析。扫描阶段的错误不导致 session 启动失败。
+目录扫描仅遍历一级子目录下的 SKILL.md 文件，不递归子目录。扫描结果以 frontmatter 元数据缓存。扫描阶段的错误不导致 session 启动失败。
 
 ### 注册中心
 
@@ -55,7 +55,7 @@ Session 启动时，磁盘加载层扫描前四层文件系统目录（ExtraDirs
 
 查询路由：先查 DiskSkillRegistry，未命中再查 BuiltinSkillRegistry。同名覆盖仅在同一注册表内生效；跨注册表的优先级由查询路由顺序保证——DiskSkillRegistry 优先于 BuiltinSkillRegistry。
 
-注册中心内容在 session 内冻结（热重载除外，详见 [skill-listing-injection.md](skill-listing-injection.md) §文件监听与热重载）。
+注册中心内容在 session 内冻结。
 
 ### 错误处理
 
@@ -63,7 +63,7 @@ Session 启动时，磁盘加载层扫描前四层文件系统目录（ExtraDirs
 
 - skill 目录路径不存在或无法访问 → 跳过该来源，记录提示
 - 单个 SKILL.md 格式错误或必填字段缺失 → 跳过该 skill，其他 skill 正常加载
-- 同名冲突 → 跳过低优先级版本，记录提示
+- 同名冲突 → 跳过低优先级版本，记录警告
 
 ## 数据流
 
@@ -80,7 +80,7 @@ Session 启动时，磁盘加载层扫描前四层文件系统目录（ExtraDirs
    - 同名覆盖 → 低优先级版本跳过并记录
 4. 磁盘扫描的技能 → 写入 DiskSkillRegistry
 5. 内置技能 → 写入 BuiltinSkillRegistry
-6. 注册中心冻结（热重载除外）
+6. 注册中心冻结
 
 ### 按需加载正文
 

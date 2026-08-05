@@ -2,7 +2,7 @@
 
 ## 概述
 
-- 关联需求文档：[requirements/system_prompt.md](../requirements/system_prompt.md)
+- 关联需求文档：[requirements/system_prompt.md](../../requirements/system_prompt.md)
 
 System Prompt 是每次 API 调用时发送给 LLM 的固定前缀，承载 agent 的身份定义、能力边界和运行上下文，由静态层、动态层、追加区三个独立分区组成，静态层与动态层之间通过边界标记分隔。
 
@@ -19,6 +19,7 @@ Session 创建 / 恢复 / Compaction
        │
        ├── BootstrapFragmentProvider ── bootstrap 文件（AGENTS.md / SOUL.md 等）
        ├── ToolsFragmentProvider ── 工具分组索引
+       ├── SkillsFragmentProvider ── 技能清单（SkillsSection 来源）
        └── MemoryFragmentProvider ── 长期记忆（MemorySection 来源）
        │
        ▼
@@ -76,17 +77,17 @@ Session 创建 / 恢复 / Compaction
 
 - **SessionManager**：在 session 创建和恢复时触发 system prompt 构建。
 - **Memory 模块**：提供 MEMORY.md，作为 static system prompt 的长期记忆段来源。
+- **Skills 模块**：提供技能清单数据（从 SkillRegistry 获取技能元数据），由 system_prompt 模块的 SkillsFragmentProvider 消费并渲染为 SkillsSection。清单的过滤、排序、格式化规则见 [skills/skill-listing-injection](../skills/skill-listing-injection.md)。
 - **Mode 模块**：提供当前 session 模式的指令内容（Plan Mode 双路径工作流指令 / Auto Mode 连续执行指令），注入动态层 ModeInstruction Section。
-- **Slash 模块**：`/system` 指令向 Session 写入 system_appends，system prompt 在每次 API 请求时从 Session 读取并拼入追加区。详细交互见 [slash/system-append](docs/design/slash/system-append.md)。
+- **Slash 模块**：`/system` 指令向 Session 写入 system_appends，system prompt 在每次 API 请求时从 Session 读取并拼入追加区。详细交互见 [slash/system-append](../slash/system-append.md)。
 
 ### 下游
 
-- **PromptFragmentProvider**（定义见 [common/core-traits](../common/core-traits.md#promptfragmentprovider)）：System Prompt Builder 通过此 trait 获取各来源的片段。各 Provider 实现分别调用 Bootstrap Loader、ToolRegistry 和 MEMORY.md。
-- **Cache Adapter**：接收已切分的静态区和动态区字段，对静态层注入缓存控制参数。详见 [llm/cache-adapter](docs/design/llm/cache-adapter.md)。
+- **PromptFragmentProvider**（定义见 [common/core-traits](../common/core-traits.md#promptfragmentprovider)）：System Prompt Builder 通过此 trait 获取各来源的片段。各 Provider 实现分别调用 Bootstrap Loader、ToolRegistry、SkillRegistry 和 MEMORY.md。
+- **Cache Adapter**：接收已切分的静态区和动态区字段，对静态层注入缓存控制参数。详见 [llm/cache-adapter](../llm/cache-adapter.md)。
 
 ### 无关
 
 - **LLM Provider**：构建流程本身不调用 provider，构建完成后通过 ConversationSession 传递。
 - **Compaction 模块**：压缩完成后通过回调触发重建，但 system prompt 不参与消息压缩逻辑。
 - **Permission 模块**：权限检查在 Gateway 层，发生在 system prompt 构建之前。
-- **Skills 模块**（无调用关系）：技能清单由 Session 模块作为 per-turn attachment 注入（详见 [session/session-injection](docs/design/session/session-injection.md)），不进入 system prompt 任何分区。

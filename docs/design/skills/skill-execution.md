@@ -18,13 +18,13 @@ SkillTool — 查找 → 按类型分流
 
 ### SkillTool
 
-Skills 模块通过 Tools 模块的注册机制向 ToolRegistry 注册 SkillTool。Agent 根据技能清单（由 skill-listing-injection 模块在每个 turn 生成并注入）中的 description 和 when-to-use 判断是否调用某个 skill，调用时通过 SkillTool 发起。
+Skills 模块通过 Tools 模块的注册机制向 ToolRegistry 注册 SkillTool。Agent 根据 System Prompt 中 SkillsSection 的技能清单（由 skill-listing-injection 模块在 SP 组装时生成）中的 description 和 when-to-use 判断是否调用某个 skill，调用时通过 SkillTool 发起。
 
 User 也可通过斜杠命令直接调用声明了 user-invocable 字段的技能。
 
 ### 正文加载（磁盘技能）
 
-磁盘技能的正文采用按需加载策略（详见 [skill-definition.md](skill-definition.md) §磁盘加载）。正文加载完成后进行变量替换：`${SKILL_DIR}` 引用技能所在目录路径，`${SESSION_ID}` 引用当前会话 ID。
+磁盘技能的正文采用按需加载策略（详见 [skill-definition.md](skill-definition.md) §磁盘加载）。正文加载完成后进行变量替换，规则见 [skill-definition.md](skill-definition.md) §Frontmatter 字段。
 
 ### Inline 执行（磁盘技能）
 
@@ -40,7 +40,7 @@ Skills 模块提供 SkillCreator 内置技能（Bundled 类型），为 Agent �
 
 ## 数据流
 
-Agent 通过技能清单（由 skill-listing-injection 在每个 turn 生成并注入）获知可用技能，据此决策是否调用。调用流程：
+Agent 通过 System Prompt 中的技能清单（由 skill-listing-injection 在 SP 组装时生成）获知可用技能，据此决策是否调用。调用流程：
 
 1. Agent 决策调用 skill，或 User 通过斜杠命令直接调用
 2. SkillTool 收到调用请求
@@ -50,7 +50,7 @@ Agent 通过技能清单（由 skill-listing-injection 在每个 turn 生成并�
      - 命中 → Bundled 技能，走步骤 7-8
      - 仍不存在 → 返回错误
 4. 从磁盘按需加载 skill 正文（指令文本）
-5. 替换正文中的 `${SKILL_DIR}` 和 `${SESSION_ID}` 变量，未识别变量保持原样
+5. 替换正文中的变量（规则见 [skill-definition.md](skill-definition.md) §Frontmatter 字段），未识别变量保持原样
 6. 正文注入 Agent 对话上下文
 7. 通过 trait 方法分发执行原生代码逻辑
 8. 执行结果以 meta message 注入 Agent 对话上下文

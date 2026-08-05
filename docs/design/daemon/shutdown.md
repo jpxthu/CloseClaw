@@ -23,7 +23,7 @@ ShutdownHandle 是关闭流程的中央协调器，在 Daemon 启动时创建，
 | 异步工具执行 | 工具进程创建 | 进程退出 |
 | 子 session 处理 | 子 session 创建 | 子 session 结果注入父 session |
 
-ShutdownHandle 不管理后台任务（ArchiveSweeper、Skill Watcher、Config Hot Reload、DreamingScheduler 等）——这些有自己的停止接口，不属于活跃操作计数范畴。
+ShutdownHandle 不管理后台任务（ArchiveSweeper、Config Hot Reload、DreamingScheduler 等）——这些有自己的停止接口，不属于活跃操作计数范畴。
 
 ### 双模关闭
 
@@ -79,7 +79,6 @@ Daemon 不依赖 session 停止流程的硬超时自动升级——工具执行�
 
 4. **Phase 3：后台任务停止**
    - ArchiveSweeper：取消定时器，给当前扫描短 grace period（等待当前迭代完成，最长 10 秒）后强制停止。强制停止时若残留未完成的归档操作，由启动恢复扫描处理，不产生持久副作用
-   - Skill Watcher：取消文件监听。无 in-flight 操作（事件驱动，只监听不执行长任务），取消即停，无副作用
    - Config Hot Reload：取消文件监听。无 in-flight 操作，取消即停，无副作用
    - DreamingScheduler：取消定时器，给当前扫描短 grace period（等待当前迭代完成，最长 10 秒）后强制停止。强制停止时若残留未完成的 dreaming 操作，由启动恢复扫描处理，不产生持久副作用
    - 验证所有后台任务线程已退出，确认无残留工作
@@ -152,7 +151,7 @@ Graceful 关闭期间，向用户发送实时状态，收集各组件状态汇�
 - **IM Adapters**：关闭入站/出站连接
 - **Gateway**：清理路由表和注册表
 - **SqliteStorage**：关闭存储连接
-- **后台任务**（ArchiveSweeper、Skill Watcher、Config Hot Reload、DreamingScheduler）：逐一停止
+- **后台任务**（ArchiveSweeper、Config Hot Reload、DreamingScheduler）：逐一停止
 
 ### 无关
 
