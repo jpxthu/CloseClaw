@@ -1,8 +1,7 @@
 //! Running statistics accumulator for cross-turn LLM usage tracking.
 //!
-//! `RunningStats` accumulates token usage across multiple API calls within
-//! a session, including cache hit/write metrics, and exposes derived
-//! statistics like cache hit rate.
+//! `RunningStats` accumulates token usage across multiple API calls within a session,
+//! including cache hit/write metrics, and exposes derived statistics like cache hit rate.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -262,6 +261,8 @@ pub struct RunningStats {
     pub total_cache_write_tokens: u64,
     /// Number of API calls accumulated.
     pub request_count: u64,
+    /// Cumulative reasoning tokens across all calls.
+    pub total_reasoning_tokens: u64,
     /// `cache_read_tokens` from the most recent API call.
     ///
     /// `None` before any calls have been accumulated.
@@ -282,6 +283,7 @@ impl PartialEq for RunningStats {
             && self.total_cache_read_tokens == other.total_cache_read_tokens
             && self.total_cache_write_tokens == other.total_cache_write_tokens
             && self.request_count == other.request_count
+            && self.total_reasoning_tokens == other.total_reasoning_tokens
             && self.last_cache_read_tokens == other.last_cache_read_tokens
             && self.pending_changes == other.pending_changes
         // last_fingerprint excluded: Instant does not implement Eq
@@ -301,6 +303,7 @@ impl RunningStats {
             total_cache_read_tokens: 0,
             total_cache_write_tokens: 0,
             request_count: 0,
+            total_reasoning_tokens: 0,
             last_cache_read_tokens: None,
             last_fingerprint: None,
             pending_changes: None,
@@ -355,6 +358,7 @@ impl RunningStats {
         self.total_tokens += total;
         self.total_cache_read_tokens += cache_read;
         self.total_cache_write_tokens += cache_write;
+        self.total_reasoning_tokens += usage.reasoning_tokens.map_or(0u64, u64::from);
         self.request_count += 1;
     }
 
@@ -479,12 +483,13 @@ mod tests {
         total: Option<u32>,
         cache_read: Option<u32>,
         cache_write: Option<u32>,
+        reasoning_tokens: Option<u32>,
     ) -> UnifiedUsage {
         UnifiedUsage {
             prompt_tokens: prompt,
             completion_tokens: completion,
             total_tokens: total,
-            reasoning_tokens: None,
+            reasoning_tokens,
             cache_read_tokens: cache_read,
             cache_write_tokens: cache_write,
         }
@@ -499,12 +504,13 @@ mod tests {
         assert_eq!(stats.total_cache_read_tokens, 0);
         assert_eq!(stats.total_cache_write_tokens, 0);
         assert_eq!(stats.request_count, 0);
+        assert_eq!(stats.total_reasoning_tokens, 0);
     }
 
     #[test]
     fn test_accumulate_basic() {
         let mut stats = RunningStats::new();
-        stats.accumulate(&make_usage(100, 50, Some(150), Some(30), Some(20)));
+        stats.accumulate(&make_usage(100, 50, Some(150), Some(30), Some(20), None));
         assert_eq!(stats.total_prompt_tokens, 100);
         assert_eq!(stats.total_completion_tokens, 50);
         assert_eq!(stats.total_tokens, 150);
@@ -512,7 +518,7 @@ mod tests {
         assert_eq!(stats.total_cache_write_tokens, 20);
         assert_eq!(stats.request_count, 1);
 
-        stats.accumulate(&make_usage(200, 80, Some(280), Some(60), None));
+        stats.accumulate(&make_usage(200, 80, Some(280), Some(60), None, None));
         assert_eq!(stats.total_prompt_tokens, 300);
         assert_eq!(stats.total_completion_tokens, 130);
         assert_eq!(stats.total_tokens, 430);
@@ -522,9 +528,29 @@ mod tests {
     }
 
     #[test]
+    fn test_accumulate_reasoning_tokens() {
+        let mut stats = RunningStats::new();
+
+        // First call with reasoning_tokens = Some(100)
+        stats.accumulate(&make_usage(100, 50, Some(150), None, None, Some(100)));
+        assert_eq!(stats.total_reasoning_tokens, 100);
+        assert_eq!(stats.request_count, 1);
+
+        // Second call with reasoning_tokens = None → treated as 0
+        stats.accumulate(&make_usage(100, 50, Some(150), None, None, None));
+        assert_eq!(stats.total_reasoning_tokens, 100);
+        assert_eq!(stats.request_count, 2);
+
+        // Third call with reasoning_tokens = Some(200)
+        stats.accumulate(&make_usage(100, 50, Some(150), None, None, Some(200)));
+        assert_eq!(stats.total_reasoning_tokens, 300);
+        assert_eq!(stats.request_count, 3);
+    }
+
+    #[test]
     fn test_accumulate_all_none_cache_fields() {
         let mut stats = RunningStats::new();
-        stats.accumulate(&make_usage(100, 50, Some(150), None, None));
+        stats.accumulate(&make_usage(100, 50, Some(150), None, None, None));
         assert_eq!(stats.total_cache_read_tokens, 0);
         assert_eq!(stats.total_cache_write_tokens, 0);
     }
@@ -532,14 +558,14 @@ mod tests {
     #[test]
     fn test_accumulate_total_none_computed() {
         let mut stats = RunningStats::new();
-        stats.accumulate(&make_usage(100, 50, None, None, None));
+        stats.accumulate(&make_usage(100, 50, None, None, None, None));
         assert_eq!(stats.total_tokens, 150);
     }
 
     #[test]
     fn test_accumulate_partial_none() {
         let mut stats = RunningStats::new();
-        stats.accumulate(&make_usage(100, 50, None, Some(40), None));
+        stats.accumulate(&make_usage(100, 50, None, Some(40), None, None));
         assert_eq!(stats.total_tokens, 150);
         assert_eq!(stats.total_cache_read_tokens, 40);
         assert_eq!(stats.total_cache_write_tokens, 0);
@@ -548,7 +574,7 @@ mod tests {
     #[test]
     fn test_cache_hit_rate_normal() {
         let mut stats = RunningStats::new();
-        stats.accumulate(&make_usage(100, 50, Some(150), Some(30), None));
+        stats.accumulate(&make_usage(100, 50, Some(150), Some(30), None, None));
         let rate = stats.cache_hit_rate();
         assert!((rate - 0.3).abs() < f64::EPSILON);
     }
@@ -562,7 +588,7 @@ mod tests {
     #[test]
     fn test_total_cache_saved() {
         let mut stats = RunningStats::new();
-        stats.accumulate(&make_usage(100, 50, Some(150), Some(42), Some(10)));
+        stats.accumulate(&make_usage(100, 50, Some(150), Some(42), Some(10), None));
         assert_eq!(stats.total_cache_saved(), 42);
     }
 
@@ -570,6 +596,7 @@ mod tests {
     fn test_default_trait() {
         let stats = RunningStats::default();
         assert_eq!(stats.request_count, 0);
+        assert_eq!(stats.total_reasoning_tokens, 0);
     }
 
     // ── detect_cache_break unit tests ──────────────────────────────
@@ -805,7 +832,7 @@ mod tests {
     #[test]
     fn last_cache_read_tokens_none_when_cache_read_none() {
         let mut stats = RunningStats::new();
-        stats.accumulate(&make_usage(100, 50, Some(150), None, None));
+        stats.accumulate(&make_usage(100, 50, Some(150), None, None, None));
         assert_eq!(stats.last_cache_read_tokens, None);
     }
 
