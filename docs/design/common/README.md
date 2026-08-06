@@ -17,7 +17,7 @@ common/
 
 ## 数据流
 
-common 本身不参与运行时数据流。它定义的数据结构在业务模块间传递，trait 接口在依赖注入时绑定实现。各共享类型的全系统流动路径总览见 [data-flow](data-flow.md)，详细流动路径（字段级、判断分支、渲染差异）见 [shared-types](shared-types.md)。
+common 本身不参与运行时数据流。它定义的数据结构在业务模块间传递，trait 接口在依赖注入时绑定实现。共享类型的主要入站/出站流动路径总览见 [data-flow](data-flow.md)，详细流动路径（字段级、判断分支、渲染差异）见 [shared-types](shared-types.md)。
 
 ## 模块关系
 

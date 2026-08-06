@@ -28,7 +28,7 @@ NormalizedMessage 是平台无关的统一入站消息结构，屏蔽各 IM 平�
 
 **引用/回复消息处理**：IM Adapter 在解析被引用的消息时，将其内容渲染为 markdown blockquote（`> 引用内容`），截断至 500 字符（超出追加 `...`），拼接在 `content` 字段之前。不传递独立的引用消息字段——LLM 在对话文本中直接看到 blockquote。
 
-**消息过滤规则**：text 类型空 content 消息在解析阶段丢弃，不产 NormalizedMessage。非文本消息（image/file/audio）正常产 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空），由下游 Gateway 统一处理。非文本消息 media_refs 为空列表时，消息仍正常传递——content 和 media_refs 均为空，下游 Gateway 根据 message_type 判断类型后构造错误回复
+**消息过滤规则**：text 类型空 content 消息在解析阶段丢弃，不产生 NormalizedMessage。非文本消息（image/file/audio）正常产 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空），由下游 Gateway 统一处理。当前多模态未支持，所有非文本消息由 Gateway 构造错误回复并经简化出站路径发送（跳过 VerbosityFilter 和 DslParser，直接打包 ProcessedMessage 后出站）。
 
 **身份映射**：`account_id` 由 IM Adapter 在解析入站消息时填入。与其他字段（platform、sender_id 等直接从消息 payload 提取）不同，account_id 需通过 sender_id 查询账户绑定表获取，非直接取值。映射规则：以 sender_id 为键查询账户绑定表，找到对应的 CloseClaw 账户 ID。一个账户可绑定多个平台的 sender_id。terminal 平台恒为 "owner"，无需查表。详见 [config 模块 accounts.json](../config/README.md)。
 
@@ -49,9 +49,7 @@ NormalizedMessage 中引用的子结构：
 
 ### ContentBlock
 
-ContentBlock 是跨模块传递的结构化内容单元。主要用于出站方向——入站方向仅使用 ContentBlock::Text 单个变体作为 ProcessedMessage 的内容载体。所有出站内容——LLM 回复和斜杠指令回复——均以 ContentBlock[] 数组形式传递，贯穿 Verbosity 过滤、DSL 解析、出站日志记录和平台渲染全链路。
-
-ContentBlock[] 的类型定义服务于出站方向——LLM 和斜杠指令以 ContentBlock[] 产出结构化内容。入站方向经 Processor Chain 处理后，标准化文本以 ContentBlock::Text 形式放入 [ProcessedMessage](#processedmessage) 的 content_blocks 字段，入站不涉及 ContentBlock 的其他变体。
+ContentBlock 是跨模块传递的结构化内容单元。所有出站内容——LLM 回复和斜杠指令回复——均以 ContentBlock[] 数组形式传递，贯穿 Verbosity 过滤、DSL 解析、出站日志记录和平台渲染全链路。入站方向经 Processor Chain 处理后，标准化文本以 ContentBlock::Text 形式放入 [ProcessedMessage](#processedmessage) 的 content_blocks 字段，入站不涉及 ContentBlock 的其他变体。
 
 ContentBlock 共 7 种变体，按语义和渲染策略分为两类：
 
@@ -76,7 +74,7 @@ ContentBlock 共 7 种变体，按语义和渲染策略分为两类：
 
 - **Text 是唯一可能包含 DSL 指令的变体**。DslParser 仅遍历 Text 块逐行扫描 DSL，解析后从 Text 块中移除 DSL 行。其余 6 种变体由 DslParser 透传
 - **流式渲染差异化**：Text 块逐行缓冲输出（以句末标点或换行符为行边界）；Thinking/ToolUse/ToolResult 块等待全块就绪后一次交付渲染；Image/Audio/File 块不参与流式渲染，交由平台格式渲染器处理
-- **输出格式决策**：各平台 Renderer 按 ContentBlock 类型组合选择输出格式——纯文本块（不含 Thinking/ToolUse/ToolResult 块）→ 纯文本消息；含 Thinking/ToolUse/ToolResult 块或多块 → 富格式/卡片消息
+- **输出格式决策**：各平台 Renderer 按内容特征选择输出格式（纯文本 vs 富格式），完整规则见 [RenderedOutput §输出格式决策](#renderedoutput)
 - **Verbosity 过滤**以单个 ContentBlock 为粒度执行——每个 ContentBlock 到达时按当前 Session 的 verbosity 等级判断其可见性，流式模式下逐块实时过滤。Verbosity 等级定义见 [slash 模块 verbose 指令](../slash/verbose.md)
 
 ### DslParseResult 和 DslInstruction
@@ -130,7 +128,7 @@ SlashResult 共 10 种变体：
 | Exec | 执行系统命令（高危操作，执行前经 Permission 模块校验） | ContentBlock[]（命令输出经出站 Processor Chain） |
 | Unknown | 未知指令回退 | ContentBlock::Text（提示信息） |
 
-**执行模型**：Gateway 不感知具体 SlashResult 变体。Handler 返回 SlashResult 后，Gateway 统一调用执行方法，由各变体自行完成副作用。新增指令只需新增 SlashResult 变体及其执行实现，Gateway 无需改动。
+**执行模型**：Handler 返回 SlashResult 后，Gateway 统一调用执行方法，由各变体自行完成副作用（含权限校验）。新增指令只需新增 SlashResult 变体及其执行实现，Gateway 无需改动。
 
 **SideEffectContext**：Gateway 在收到 SlashResult 后构造的执行上下文。携带当前 Session 的操作能力（用于模式切换、会话创建/停止、压缩等操作）和回复通道（用于产出回复内容）。SideEffectContext 由 Gateway 管理，SlashResult 不持有其引用。
 
@@ -165,7 +163,7 @@ RenderedOutput 是 IMPlugin 渲染方法产出的平台原生格式消息结构�
 | `msg_type` | string | 消息格式类型（如 `"text"`、`"interactive"`），由 Renderer 按内容特征选择 |
 | `payload` | any | 平台原生格式的消息体，结构由各平台 Renderer 定义。Gateway 中间件和 Adapter 发送不解析 payload 内容 |
 
-**输出格式决策**：各平台 Renderer 按 ContentBlock 类型组合选择 msg_type——纯文本块（不含 Thinking/ToolUse/ToolResult）→ `"text"`；含 Thinking/ToolUse/ToolResult 块或多块 → `"interactive"`。
+**输出格式决策**：由各平台 Renderer 按内容特征选择输出格式，规则详见 [IM Adapter §平台渲染选择](../im_adapter/README.md#平台渲染选择)。大致原则：纯文本、无格式标记、无 DSL → `"text"`；含 markdown 格式/换行/DSL/Thinking/ToolUse/ToolResult 块 → `"interactive"`。
 
 ### VerbosityLevel
 
@@ -275,7 +273,7 @@ ProcessedMessage {
   metadata: { session_key: "{timestamp}-{hash}", message_type: "<原始 message_type>" }
 }
   ↓
-Gateway — 先检查 message_type：非 text（image/file/audio）构造错误回复经简化出站路径发送；text 消息从 content_blocks[0] 取 Text 内容做路由决策（/ 开头 → 斜杠指令；否则 → LLM 对话），从 metadata 取 session_key 传给 SessionManager
+Gateway — 先检查 message_type：非 text（image/file/audio）构造错误回复经简化出站路径发送（跳过 VerbosityFilter 和 DslParser，由 OutboundRawLog 打包 ProcessedMessage 出站）；text 消息从 content_blocks[0] 取 Text 内容做路由决策（/ 开头 → 斜杠指令；否则 → LLM 对话），从 metadata 取 session_key 传给 SessionManager
 ```
 
 出站方向：
@@ -337,7 +335,7 @@ IMPlugin.render() → RenderedOutput { msg_type, payload }
   ↓
 [Gateway 中间件插入点] — 审计、频率限制等
   ↓
-IMPlugin.send(payload, peer_id, thread_id) → 平台发送 API
+IMPlugin.send(rendered_output, peer_id, thread_id) → 平台发送 API
 ```
 
 RenderedOutput 的生命周期：IMPlugin 渲染产出 → Gateway 中间件 → IMPlugin 发送后销毁。
@@ -426,7 +424,7 @@ Plan Mode 结束时销毁 PlanState
 ### RenderedOutput
 
 - **生产者**：IM Adapter 各平台 Renderer（IMPlugin.render() 产出）
-- **消费者**：Gateway（中间件插入点，在渲染和发送之间）；IM Adapter（IMPlugin.send() 消费 payload 发送）
+- **消费者**：Gateway（中间件——在渲染与发送之间插入审计、频率限制等中间件，不改变 RenderedOutput 内容）；IM Adapter（IMPlugin.send() 消费 RenderedOutput 发送）
 - **无关**：Processor Chain（RenderedOutput 在 Processor Chain 之后产出，不经过链处理）、LLM Provider（不接触 RenderedOutput）
 
 ### VerbosityLevel

@@ -6,11 +6,11 @@
 
 ## 架构
 
-共享类型按流动方向和生命周期分为入站、出站、特殊三类：
+共享类型按流动方向和生命周期分为入站、出站、跨方向三类：
 
 - **入站类型**：从外部消息进入系统，经处理后进入 LLM 对话
 - **出站类型**：LLM 或斜杠指令产出，经处理后发送到外部
-- **特殊类型**：生命周期跨越多个模块或方向，不纯粹属于入站或出站
+- **跨方向类型**：生命周期跨越多个模块或方向，不纯粹属于入站或出站
 
 ## 数据流
 
@@ -52,7 +52,7 @@ ProcessedMessage { content_blocks, metadata: { dsl_result } }
   ↓
 [IM Adapter 渲染]
   批量模式：一次性渲染全部 ContentBlock[]
-  流式模式：增量渲染，Text 逐行缓冲输出；Thinking/ToolUse/ToolResult 全块就绪后一次渲染；Image/Audio/File 不参与流式渲染，交由平台格式渲染器处理
+  流式模式：增量渲染，规则见 [shared-types ContentBlock §流式渲染差异化](shared-types.md)
   ↓
 [中间件插入点] — Gateway 可在渲染完成后、发送前插入审计、频率限制等中间件
   ↓
