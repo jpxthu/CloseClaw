@@ -353,7 +353,7 @@ async fn test_tools_section_cache_invalidated() {
 #[tokio::test]
 async fn test_prompt_builder_no_skill_listing_in_output() {
     let tool_reg = Arc::new(ToolRegistry::new());
-    let builder = PromptBuilder::new(tool_reg, None, None, None);
+    let builder = PromptBuilder::new(tool_reg, None, None, None, None);
     let ctx = FragmentContext::test_default();
     let result = builder.build(&ctx).await;
     assert!(
@@ -372,8 +372,8 @@ async fn test_prompt_builder_no_skill_listing_in_output() {
 async fn test_prompt_builder_instance_isolation() {
     let tool_reg_a = Arc::new(ToolRegistry::new());
     let tool_reg_b = Arc::new(ToolRegistry::new());
-    let builder_a = PromptBuilder::new(tool_reg_a, None, None, None);
-    let builder_b = PromptBuilder::new(tool_reg_b, None, None, None);
+    let builder_a = PromptBuilder::new(tool_reg_a, None, None, None, None);
+    let builder_b = PromptBuilder::new(tool_reg_b, None, None, None, None);
 
     // Verify they have separate cache instances
     let cache_a = builder_a.shared_cache();

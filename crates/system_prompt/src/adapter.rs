@@ -29,6 +29,7 @@ pub struct SystemPromptBuilderAdapter {
     agent_registry: Arc<RwLock<AgentRegistry>>,
     workspace_dir: PathBuf,
     shared_cache: Arc<RwLock<SectionCache>>,
+    skill_listing_provider: Option<Arc<dyn closeclaw_common::SkillListingProvider>>,
 }
 
 impl SystemPromptBuilderAdapter {
@@ -50,6 +51,7 @@ impl SystemPromptBuilderAdapter {
             agent_registry,
             workspace_dir,
             shared_cache: Arc::new(RwLock::new(SectionCache::new())),
+            skill_listing_provider: None,
         }
     }
 
@@ -68,7 +70,17 @@ impl SystemPromptBuilderAdapter {
             agent_registry,
             workspace_dir,
             shared_cache,
+            skill_listing_provider: None,
         }
+    }
+
+    /// Set the skill listing provider for the skills section.
+    pub fn with_skill_listing_provider(
+        mut self,
+        provider: Option<Arc<dyn closeclaw_common::SkillListingProvider>>,
+    ) -> Self {
+        self.skill_listing_provider = provider;
+        self
     }
 
     /// Get a reference to the shared section cache.
@@ -150,6 +162,7 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
             bootstrap_mode_override: Some(bootstrap_mode),
             session_mode: None,
             effective_spawn_budget: None,
+            skill_listing_provider: self.skill_listing_provider.clone(),
         };
 
         let static_layer = crate::builder::build_from_workspace_with_cache(
