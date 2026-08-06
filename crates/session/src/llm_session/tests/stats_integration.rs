@@ -111,3 +111,30 @@ fn test_session_total_cache_saved() {
     session.accumulate_usage(&make_usage(100, 50, Some(150), Some(42), Some(10)));
     assert_eq!(session.stats().total_cache_saved(), 42);
 }
+
+/// Verify that `ConversationSession::drop` calls `RunningStats::reset()`.
+///
+/// We cannot inspect stats after drop (the session is gone), so we verify
+/// the contract indirectly: accumulate data, then manually call `reset()`
+/// (which is exactly what `Drop` does) and confirm all counters return to zero.
+/// This validates the reset logic that `Drop` invokes.
+#[test]
+fn test_session_drop_resets_stats() {
+    let mut session =
+        ConversationSession::new("sess_drop_reset".into(), "gpt-4o".into(), tmp_path());
+    session.accumulate_usage(&make_usage(100, 50, Some(150), Some(30), Some(20)));
+    assert_eq!(session.stats().total_prompt_tokens, 100);
+    assert_eq!(session.stats().total_completion_tokens, 50);
+    assert_eq!(session.stats().request_count, 1);
+
+    // Simulate what Drop does
+    session.stats_mut().reset();
+
+    let stats = session.stats();
+    assert_eq!(stats.total_prompt_tokens, 0);
+    assert_eq!(stats.total_completion_tokens, 0);
+    assert_eq!(stats.total_tokens, 0);
+    assert_eq!(stats.total_cache_read_tokens, 0);
+    assert_eq!(stats.total_cache_write_tokens, 0);
+    assert_eq!(stats.request_count, 0);
+}

@@ -973,6 +973,13 @@ impl std::fmt::Debug for ConversationSession {
             .finish()
     }
 }
+
+impl Drop for ConversationSession {
+    fn drop(&mut self) {
+        self.stats.reset();
+    }
+}
+
 #[cfg(test)]
 #[allow(deprecated)]
 /// Helper: create a temporary directory path for tests.
