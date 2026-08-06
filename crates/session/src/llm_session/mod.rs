@@ -785,15 +785,14 @@ impl ConversationSession {
     ) {
         self.stats.set_cache_break_thresholds(thresholds);
     }
+    /// Returns a reference to the most recent cache break event, if any.
+    pub fn last_cache_break(&self) -> Option<&closeclaw_common::CacheBreakInfo> {
+        self.stats.last_cache_break()
+    }
 
     // ── System appends ──────────────────────────────────────────
 
     /// Append `content` to the per-session append-section list.
-    ///
-    /// The content is stored as-is. Callers are responsible for
-    /// enforcing length limits (e.g. `SystemHandler` rejects content
-    /// exceeding `APPEND_SECTION_MAX_LEN`).
-    ///
     /// Returns the index of the newly added item (0-based, sequential).
     pub fn add_system_append(&mut self, content: String) -> usize {
         let next_index = self.system_appends.len();

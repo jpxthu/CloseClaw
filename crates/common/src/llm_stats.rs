@@ -320,6 +320,8 @@ pub struct RunningStats {
     /// Pending component changes detected by comparing the latest
     /// fingerprint against `last_fingerprint`.
     pub pending_changes: Option<PendingChanges>,
+    /// The most recent cache break event, if any.
+    pub last_cache_break: Option<CacheBreakInfo>,
 }
 
 impl PartialEq for RunningStats {
@@ -334,6 +336,7 @@ impl PartialEq for RunningStats {
             && self.cache_break_thresholds == other.cache_break_thresholds
             && self.last_cache_read_tokens == other.last_cache_read_tokens
             && self.last_cache_hit_rate == other.last_cache_hit_rate
+            && self.last_cache_break == other.last_cache_break
             && self.pending_changes == other.pending_changes
         // last_fingerprint excluded: Instant does not implement Eq
     }
@@ -358,6 +361,7 @@ impl RunningStats {
             last_cache_hit_rate: None,
             last_fingerprint: None,
             pending_changes: None,
+            last_cache_break: None,
         }
     }
 
@@ -433,6 +437,7 @@ impl RunningStats {
         // Attribute causes when a cache break is detected.
         if let Some(ref mut break_info) = info {
             break_info.causes = self.attribute_cache_break_causes();
+            self.last_cache_break = Some(break_info.clone());
             tracing::warn!(
                 previous = break_info.previous_cache_read,
                 current = break_info.current_cache_read,
@@ -498,6 +503,11 @@ impl RunningStats {
         self.last_cache_read_tokens
     }
 
+    /// Returns a reference to the most recent cache break event, if any.
+    pub fn last_cache_break(&self) -> Option<&CacheBreakInfo> {
+        self.last_cache_break.as_ref()
+    }
+
     /// Sets custom cache break detection thresholds.
     pub fn set_cache_break_thresholds(&mut self, thresholds: CacheBreakThresholds) {
         self.cache_break_thresholds = Some(thresholds);
@@ -521,6 +531,7 @@ impl RunningStats {
         self.last_cache_hit_rate = None;
         self.last_fingerprint = None;
         self.pending_changes = None;
+        self.last_cache_break = None;
     }
 }
 
