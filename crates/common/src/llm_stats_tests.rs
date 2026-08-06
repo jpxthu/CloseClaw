@@ -81,6 +81,40 @@ fn test_format_notification_empty_causes_fallback() {
 }
 
 #[test]
+fn test_format_notification_contains_possible_causes() {
+    let info = make_info(5000, 0.05);
+    let text = info.format_notification();
+    assert!(text.contains("可能原因："), "cause prefix present: {text}");
+    assert!(text.contains("上下文变更"), "cause 1 present: {text}");
+    assert!(text.contains("缓存 TTL 过期"), "cause 2 present: {text}");
+    assert!(text.contains("模型/参数变更"), "cause 3 present: {text}");
+}
+
+#[test]
+fn test_format_notification_causes_after_period() {
+    let info = make_info(3000, 0.03);
+    let text = info.format_notification();
+    // Causes should come after the numeric section ending with '。'
+    let causes_pos = text.find("可能原因：").expect("causes marker");
+    let period_pos = text.rfind('。').expect("period before causes");
+    assert!(
+        causes_pos > period_pos,
+        "causes should appear after last period: {text}"
+    );
+}
+
+#[test]
+fn test_format_notification_numerical_format_unaffected() {
+    let info = make_info(6000, 0.06);
+    let text = info.format_notification();
+    assert!(text.contains("[缓存断点]"), "header: {text}");
+    assert!(text.contains("50.0%"), "prev rate: {text}");
+    assert!(text.contains("45.0%"), "curr rate: {text}");
+    assert!(text.contains("减少 6000 tokens"), "token drop: {text}");
+    assert!(text.contains("降幅 6.0%"), "ratio: {text}");
+}
+
+#[test]
 fn test_format_notification_contains_structured_prefix() {
     let info = make_info(6000, 0.06);
     let text = info.format_notification();
@@ -93,6 +127,17 @@ fn test_format_notification_percentage_precision() {
     let text = info.format_notification();
     // drop_ratio * 100 → 3.333% → formatted as {:.1} → "3.3%"
     assert!(text.contains("3.3%"), "text: {text}");
+}
+
+#[test]
+fn test_format_notification_no_extra_spaces() {
+    let info = make_info(5000, 0.05);
+    let text = info.format_notification();
+    // Period must be immediately followed by 可能原因, no extra whitespace.
+    assert!(
+        text.contains("。可能原因："),
+        "'。' must be immediately followed by '可能原因：' without spaces: {text}"
+    );
 }
 
 // ── detect_cache_break standalone tests ───────────────────────────
