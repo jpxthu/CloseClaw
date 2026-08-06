@@ -12,6 +12,8 @@ pub mod skill_creator;
 #[cfg(test)]
 mod skill_creator_tests;
 pub mod tool_registrar;
+#[cfg(test)]
+mod tool_registrar_tests;
 
 pub use builtin::builtin_skills;
 pub use coding_agent::CodingAgentSkill;

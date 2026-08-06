@@ -384,3 +384,56 @@ async fn test_prompt_builder_instance_isolation() {
         "two PromptBuilder instances must have separate SectionCache instances"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Step 1.5: PromptBuilder with Skills provider priority ordering
+// ---------------------------------------------------------------------------
+
+/// Mock SkillListingProvider that produces a fixed listing.
+struct MockSkillListing;
+
+impl closeclaw_common::SkillListingProvider for MockSkillListing {
+    fn generate_listing(
+        &self,
+        _agent_id: Option<&str>,
+        _agent_skills: Option<&[String]>,
+    ) -> String {
+        "- **test-skill**: A test skill".to_string()
+    }
+
+    fn generate_listing_excluding_conditional(
+        &self,
+        _agent_id: Option<&str>,
+        _agent_skills: Option<&[String]>,
+    ) -> String {
+        "- **test-skill**: A test skill".to_string()
+    }
+
+    fn find_conditional_matches(
+        &self,
+        _paths: &[std::path::PathBuf],
+    ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+        vec![]
+    }
+}
+
+/// Verify that registering all 4 providers (Bootstrap, Tools, Skills, Memory)
+/// yields priorities sorted as [1, 2, 3, 4].
+#[test]
+fn test_prompt_builder_with_skills_provider() {
+    let tool_reg = Arc::new(ToolRegistry::new());
+    let skill_listing: Option<Arc<dyn closeclaw_common::SkillListingProvider>> =
+        Some(Arc::new(MockSkillListing));
+    let builder = PromptBuilder::new(tool_reg, None, None, None, skill_listing);
+
+    assert_eq!(builder.providers.len(), 4, "expected 4 providers");
+
+    let priorities: Vec<u32> = builder.providers.iter().map(|p| p.priority()).collect();
+    assert_eq!(priorities, vec![1, 2, 3, 4]);
+
+    // Verify provider names match the expected order.
+    assert_eq!(builder.providers[0].name(), "bootstrap");
+    assert_eq!(builder.providers[1].name(), "tools");
+    assert_eq!(builder.providers[2].name(), "skills");
+    assert_eq!(builder.providers[3].name(), "memory");
+}
