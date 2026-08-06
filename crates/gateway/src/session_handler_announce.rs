@@ -701,4 +701,69 @@ mod tests {
         let result = resolve_effective_reasoning_level("some-model", ReasoningLevel::Medium, &kb);
         assert_eq!(result, ReasoningLevel::Medium);
     }
+
+    #[test]
+    fn test_resolve_effective_level_toggle_maps_to_high() {
+        // Toggle models (e.g. glm-5.1) map any requested level to High.
+        let kb = ProviderModelKnowledge::new();
+        for level in [
+            ReasoningLevel::Low,
+            ReasoningLevel::Medium,
+            ReasoningLevel::High,
+            ReasoningLevel::Max,
+        ] {
+            let result = resolve_effective_reasoning_level("glm-5.1", level, &kb);
+            assert_eq!(
+                result,
+                ReasoningLevel::High,
+                "Toggle should map {:?} → High",
+                level
+            );
+        }
+    }
+
+    #[test]
+    fn test_resolve_effective_level_levels_all_enabled() {
+        // deepseek-v4-flash: off=true, base=true, reasoner=true
+        let kb = ProviderModelKnowledge::new();
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::Max, &kb),
+            ReasoningLevel::Max,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::High, &kb),
+            ReasoningLevel::High,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::Medium, &kb),
+            ReasoningLevel::Medium,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::Low, &kb),
+            ReasoningLevel::Low,
+        );
+    }
+
+    #[test]
+    fn test_resolve_effective_level_levels_no_off() {
+        // deepseek-v4-pro: off=false, base=true, reasoner=true
+        // Medium+ supported directly; Low falls through to Low (no off support).
+        let kb = ProviderModelKnowledge::new();
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::Max, &kb),
+            ReasoningLevel::Max,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::High, &kb),
+            ReasoningLevel::High,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::Medium, &kb),
+            ReasoningLevel::Medium,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::Low, &kb),
+            ReasoningLevel::Low,
+        );
+    }
 }

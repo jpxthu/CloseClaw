@@ -437,3 +437,42 @@ fn test_default_trait() {
 
 // ── cache break attribution tests removed ──────────────────────
 // (PromptFingerprint and cause attribution removed per plan Step 1.7)
+
+// ── hit rate + token breakpoint interaction tests ──────────────
+
+#[test]
+fn detect_cache_break_hit_rate_and_token_both_trigger() {
+    // When both hit-rate drop and token drop exceed thresholds,
+    // CacheBreakInfo should contain both hit-rate and token data.
+    let mut stats = RunningStats::new();
+    // Previous call: 80000 cache_read / 100000 prompt = 0.8 hit rate
+    stats.detect_cache_break_and_update(Some(80000), Some(100000));
+    // Current call: 40000 cache_read / 100000 prompt = 0.4 hit rate
+    // Token drop: 40000 > min_drop_tokens(2000) ✓
+    // Rate drop: 0.4 < 0.05 threshold ✓
+    let info = stats
+        .detect_cache_break_and_update(Some(40000), Some(100000))
+        .expect("should detect break when both thresholds met");
+    assert_eq!(info.previous_cache_read, 80000);
+    assert_eq!(info.current_cache_read, 40000);
+    assert_eq!(info.drop_tokens, 40000);
+    assert!((info.previous_hit_rate - 0.8).abs() < f64::EPSILON);
+    assert!((info.current_hit_rate - 0.4).abs() < f64::EPSILON);
+}
+
+#[test]
+fn detect_cache_break_hit_rate_only_triggers() {
+    // When token drop is below min_drop_tokens but hit-rate drops significantly,
+    // break is triggered by rate alone.
+    let mut stats = RunningStats::new();
+    // Previous: 9900/10000 = 0.99
+    stats.detect_cache_break_and_update(Some(9900), Some(10000));
+    // Current: 100/10000 = 0.01 → rate drop = 0.98 >> 0.05
+    // Token drop = 9800 > min_drop_tokens(2000) → also token triggered
+    let info = stats
+        .detect_cache_break_and_update(Some(100), Some(10000))
+        .expect("should detect break");
+    assert!((info.previous_hit_rate - 0.99).abs() < 1e-6);
+    assert!((info.current_hit_rate - 0.01).abs() < 1e-6);
+    assert_eq!(info.drop_tokens, 9800);
+}
