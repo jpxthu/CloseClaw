@@ -388,6 +388,66 @@ fn test_new_is_zeroed() {
     assert_eq!(stats.total_reasoning_tokens, 0);
 }
 
+// ── Step 1.2: RunningStats::default() / new() behavior tests ──
+
+#[test]
+fn test_default_all_numeric_fields_are_zero() {
+    let stats = RunningStats::default();
+    assert_eq!(
+        stats.total_prompt_tokens, 0,
+        "total_prompt_tokens should be 0"
+    );
+    assert_eq!(
+        stats.total_completion_tokens, 0,
+        "total_completion_tokens should be 0"
+    );
+    assert_eq!(stats.total_tokens, 0, "total_tokens should be 0");
+    assert_eq!(
+        stats.total_cache_read_tokens, 0,
+        "total_cache_read_tokens should be 0"
+    );
+    assert_eq!(
+        stats.total_cache_write_tokens, 0,
+        "total_cache_write_tokens should be 0"
+    );
+    assert_eq!(stats.request_count, 0, "request_count should be 0");
+    assert_eq!(
+        stats.total_reasoning_tokens, 0,
+        "total_reasoning_tokens should be 0"
+    );
+}
+
+#[test]
+fn test_default_option_fields_are_none() {
+    let stats = RunningStats::default();
+    assert!(
+        stats.cache_break_thresholds.is_none(),
+        "cache_break_thresholds should be None"
+    );
+    assert!(
+        stats.last_cache_read_tokens.is_none(),
+        "last_cache_read_tokens should be None"
+    );
+    assert!(
+        stats.last_cache_hit_rate.is_none(),
+        "last_cache_hit_rate should be None"
+    );
+    assert!(
+        stats.last_cache_break.is_none(),
+        "last_cache_break should be None"
+    );
+}
+
+#[test]
+fn test_default_and_new_are_equivalent() {
+    let from_default = RunningStats::default();
+    let from_new = RunningStats::new();
+    assert_eq!(
+        from_default, from_new,
+        "default() and new() must produce identical results"
+    );
+}
+
 #[test]
 fn test_accumulate_basic() {
     let mut stats = RunningStats::new();

@@ -117,7 +117,7 @@ pub fn detect_cache_break(
 ///
 /// All fields use `u64` to avoid overflow in long sessions that may
 /// exceed 4 billion tokens.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RunningStats {
     /// Cumulative prompt tokens across all calls.
     pub total_prompt_tokens: u64,
@@ -360,24 +360,6 @@ impl RunningStats {
                 previous_hit_rate: prev_rate,
                 current_hit_rate: current_rate,
             });
-        }
-    }
-}
-
-impl Default for RunningStats {
-    fn default() -> Self {
-        Self {
-            total_prompt_tokens: 0,
-            total_completion_tokens: 0,
-            total_tokens: 0,
-            total_cache_read_tokens: 0,
-            total_cache_write_tokens: 0,
-            request_count: 0,
-            total_reasoning_tokens: 0,
-            cache_break_thresholds: None,
-            last_cache_read_tokens: None,
-            last_cache_hit_rate: None,
-            last_cache_break: None,
         }
     }
 }
