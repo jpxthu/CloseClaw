@@ -199,7 +199,11 @@ impl RunningStats {
         current_prompt_tokens: Option<u32>,
     ) -> Option<CacheBreakInfo> {
         let prev_rate = self.last_cache_hit_rate;
-        let mut info = detect_cache_break(self.last_cache_read_tokens, current_cache_read, None);
+        let mut info = detect_cache_break(
+            self.last_cache_read_tokens,
+            current_cache_read,
+            self.cache_break_thresholds.as_ref(),
+        );
         self.last_cache_read_tokens = current_cache_read;
 
         // Compute current per-call hit rate.

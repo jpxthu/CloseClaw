@@ -139,9 +139,7 @@ impl SessionManager {
                 .with_system_prompt("")
                 .with_reasoning_level(self.default_reasoning_level)
                 .with_bootstrap_mode(bootstrap_mode);
-        if let Some(ref thresholds) = *self.default_cache_break_thresholds.read().unwrap() {
-            conv.set_cache_break_thresholds(thresholds.clone());
-        }
+        self.apply_default_cache_break_thresholds(&mut conv);
         // Force invalidate all static layer caches before rebuild to ensure
         // the recovered session gets the latest file contents, even when
         // file mtimes haven't changed.

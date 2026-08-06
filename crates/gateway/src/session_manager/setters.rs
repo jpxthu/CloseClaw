@@ -335,4 +335,15 @@ impl SessionManager {
     pub fn default_cache_break_thresholds(&self) -> Option<CacheBreakThresholds> {
         self.default_cache_break_thresholds.read().unwrap().clone()
     }
+
+    /// Apply the default cache break thresholds to a conversation session.
+    ///
+    /// If defaults are configured, sets them on the session. This centralizes
+    /// the threshold propagation that was previously duplicated across
+    /// `channel.rs`, `recovery_injection.rs`, and `resolve.rs`.
+    pub(super) fn apply_default_cache_break_thresholds(&self, conv: &mut ConversationSession) {
+        if let Some(ref thresholds) = *self.default_cache_break_thresholds.read().unwrap() {
+            conv.set_cache_break_thresholds(thresholds.clone());
+        }
+    }
 }
