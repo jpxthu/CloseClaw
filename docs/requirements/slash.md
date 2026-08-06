@@ -2,7 +2,7 @@
 
 ## 概述
 
-通过以 `/` 开头的消息，User 和 Owner 可以发送系统控制指令，这些指令不进入 LLM 对话流程，由 Gateway 拦截并分派给对应的指令处理器执行。部分指令标记为 Immediate —— 可绕过排队条件立即响应；非 Immediate 指令需满足排队条件才响应。
+通过以 `/` 开头的消息，Owner 和 User 可以发送系统控制指令，这些指令不进入 LLM 对话流程，由 Gateway 拦截并分派给对应的指令处理器执行。部分指令标记为 Immediate —— 可绕过排队条件立即响应；非 Immediate 指令需满足排队条件才响应。
 
 排队条件定义详见 [session §F10](session.md)（消息排队），活跃维度详见 [session §F11](session.md)。
 
@@ -10,11 +10,11 @@
 
 ### F1. 斜杠指令入口
 
-User 或 Owner 发送以 `/` 开头的消息时，消息不被路由到 LLM 对话流程，由 Gateway 拦截并解析为指令名和参数，分派给对应的指令处理器执行。不以 `/` 开头的消息正常路由到 LLM 对话。无匹配处理器的指令向 User 返回友好错误提示，引导使用 `/help` 查看可用指令。
+Owner 或 User 发送以 `/` 开头的消息时，消息不被路由到 LLM 对话流程，由 Gateway 拦截并解析为指令名和参数，分派给对应的指令处理器执行。不以 `/` 开头的消息正常路由到 LLM 对话。无匹配处理器的指令向 User 返回友好错误提示，引导使用 `/help` 查看可用指令。
 
-各指令的 Immediate 标记见后续各功能域的指令列表中标注。
+各指令的 Immediate 标记由后续各功能域的指令列表分别标注；未标注者默认为非 Immediate。
 
-> **交叉引用**：所有以 `/` 开头的消息统一由斜杠指令系统拦截和分派，包括 `/approve`、`/deny` 等审批类指令。审批流程本身由 Permission 模块负责，详见 [permission §F2](permission.md)（权限维度）。指令拦截和响应优先级由 Gateway 负责，详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
+> **交叉引用**：斜杠指令的拦截和分派由 Gateway 负责，详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 
 ### F2. 模式切换
 
@@ -24,11 +24,11 @@ User 或 Owner 发送以 `/` 开头的消息时，消息不被路由到 LLM 对�
 
 ### F3. 会话管理
 
-Owner 和 User 可以创建新会话，以及强行终止当前 Agent 运行。
+Owner 和 User 可以创建新会话，以及强制终止当前 Agent 运行。
 
 **指令**：
 - `/new`：创建新会话
-- `/stop`：终止当前 session 运行（Immediate）
+- `/stop`：终止当前会话运行（Immediate）
 
 > **交叉引用**：会话创建、停止、归档的完整生命周期定义在 [session §F1](session.md)（对话持久化与恢复）与 [session §F4](session.md)（子 Session 委托与协调）。
 
@@ -62,7 +62,7 @@ Owner 和 User 可以在运行时向 system prompt 的追加区动态添加指�
 
 追加内容超过 500 字符时，直接拒绝并向 User 返回错误提示，不进行截断。`/system add` 不带内容时，向 User 返回用法提示。
 
-> **交叉引用**：追加区在 system prompt 中的位置由 [system_prompt §F5](system_prompt.md)（动态指令管理）定义；追加内容的存储和持久化由 [session §F2](session.md)（Agent 角色与能力配置）定义。
+> **交叉引用**：追加区在 system prompt 中的位置由 [system_prompt §F5](system_prompt.md)（动态指令管理）定义；追加内容的存储和持久化由 [session §F2](session.md)（会话恢复）定义。
 
 ### F7. 工作目录操作
 
@@ -107,9 +107,7 @@ Owner 和 User 可以查询和设置当前会话的 LLM 推理深度。
 
 ### F11. 展示等级
 
-Owner 和 User 可以查询和设置当前会话的展示等级。展示等级控制 Agent 内部工作细节向 User 展示的量。
-
-切换等级不影响当前正在输出的消息，仅对后续新消息生效。该指令为 Immediate。
+Owner 和 User 可以查询和设置当前会话的展示等级。切换等级不影响当前正在输出的消息，仅对后续新消息生效。该指令为 Immediate。
 
 **指令**：
 - `/verbose`（无参数）：查询当前展示等级
@@ -122,6 +120,12 @@ Owner 和 User 可以查询和设置当前会话的展示等级。展示等级�
 `/plans` 指令的完整语法、参数和业务行为由 mode 模块定义。slash 模块仅提供 Gateway 层的指令拦截和分派机制（见 F1）。`/plans` 为非 Immediate 指令。
 
 > **交叉引用**：指令语法和 plan 浏览语义详见 [mode §F6](mode.md)（plan 浏览与管理）。
+
+### F13. 审批指令
+
+Owner 通过 `/approve-once`、`/approve-whitelist`、`/deny` 对 Agent 操作进行放行或拒绝。三条指令均为 Immediate，仅 Owner 可用，非 Owner 调用时返回权限不足提示。
+
+> **交叉引用**：审批决策的完整语义（单次放行/加入白名单/拒绝）、ID 规则、超时参数详见 [permission §F5](permission.md)（审批工作流）。指令的 Immediate 标记和身份校验详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 
 ## 关联设计文档
 
@@ -139,5 +143,6 @@ Owner 和 User 可以查询和设置当前会话的展示等级。展示等级�
 
 ## 非功能需求
 
-- Immediate 指令（/stop、/status、/mode、/reasoning、/verbose、/help 的查询形态）在 LLM 运行中必须可达，User 不感知延迟
+- Immediate 指令在 LLM 运行中必须可达，Owner 不感知延迟：/stop、/status、/mode（无参数查询形态）、/reasoning（无参数查询形态）、/verbose（无参数查询形态）、/help
+> 审批指令（/approve-once、/approve-whitelist、/deny）的 Immediate 可达性见 [gateway §F5](gateway.md)。
 - `/exec` 和 `/git` 写操作必须经过权限审批方可执行，不可绕过
