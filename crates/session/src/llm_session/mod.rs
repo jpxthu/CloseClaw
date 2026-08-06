@@ -768,20 +768,20 @@ impl ConversationSession {
         self.stats
             .detect_cache_break_and_update(current_cache_read, current_prompt_tokens)
     }
-
     /// Accumulates a single API call's usage into the session stats.
     pub fn accumulate_usage(&mut self, usage: &UnifiedUsage) {
         self.stats.accumulate(usage);
     }
-}
+    /// Sets cache break detection thresholds on session stats.
+    pub fn set_cache_break_thresholds(
+        &mut self,
+        thresholds: closeclaw_common::CacheBreakThresholds,
+    ) {
+        self.stats.set_cache_break_thresholds(thresholds);
+    }
 
-/// Per-session append-section items (managed by `/system` subcommand).
-///
-/// Replaces the previous global static `APPEND_SECTION` in
-/// [`crate::system_prompt::sections`] so archived sessions can
-/// restore their append list intact. The legacy global was removed
-/// in #862 and is no longer present.
-impl ConversationSession {
+    // ── System appends ──────────────────────────────────────────
+
     /// Append `content` to the per-session append-section list.
     ///
     /// The content is stored as-is. Callers are responsible for
@@ -834,12 +834,9 @@ impl ConversationSession {
             .expect("progress_appends lock poisoned")
             .clone()
     }
-}
 
-/// Active-yield (Waiting state) methods.
-///
-/// Provides the runtime basis for `sessions_yield` (Step 1.5).
-impl ConversationSession {
+    // ── Active-yield (Waiting state) methods ───────────────────
+
     /// Enter active Waiting state (set yielding flag).
     pub fn enter_waiting(&self) {
         self.is_yielding.store(true, Ordering::SeqCst);

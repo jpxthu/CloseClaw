@@ -292,10 +292,12 @@ impl Daemon {
             max_message_size: 16_384,
             ..Default::default()
         };
-        let reasoning_level = config_manager
+        let llm_config = config_manager
             .section(ConfigSection::System)
             .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
-            .and_then(|sys| sys.llm)
+            .and_then(|sys| sys.llm);
+        let reasoning_level = llm_config
+            .as_ref()
             .map(|llm| llm.reasoning_level)
             .unwrap_or_default();
         let session_manager = Arc::new(SessionManager::new(
@@ -304,6 +306,16 @@ impl Daemon {
             Some(PathBuf::from(config_dir)),
             reasoning_level,
         ));
+        if let Some(ref llm) = llm_config {
+            if let Some(ref cache_break) = llm.cache_break {
+                session_manager.set_default_cache_break_thresholds(
+                    closeclaw_common::CacheBreakThresholds {
+                        drop_ratio_threshold: cache_break.drop_ratio_threshold,
+                        min_drop_tokens: cache_break.min_drop_tokens,
+                    },
+                );
+            }
+        }
         // Create a shared CheckpointManager for SessionManager and Gateway.
         // This unifies the persistence coordination layer (cache + storage)
         // between the two components, matching the architecture diagram.

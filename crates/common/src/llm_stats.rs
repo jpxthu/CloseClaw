@@ -301,6 +301,10 @@ pub struct RunningStats {
     pub request_count: u64,
     /// Cumulative reasoning tokens across all calls.
     pub total_reasoning_tokens: u64,
+    /// Custom cache break detection thresholds.
+    ///
+    /// When `None`, [`CacheBreakThresholds::default`] is used.
+    pub cache_break_thresholds: Option<CacheBreakThresholds>,
     /// `cache_read_tokens` from the most recent API call.
     ///
     /// `None` before any calls have been accumulated.
@@ -327,6 +331,7 @@ impl PartialEq for RunningStats {
             && self.total_cache_write_tokens == other.total_cache_write_tokens
             && self.request_count == other.request_count
             && self.total_reasoning_tokens == other.total_reasoning_tokens
+            && self.cache_break_thresholds == other.cache_break_thresholds
             && self.last_cache_read_tokens == other.last_cache_read_tokens
             && self.last_cache_hit_rate == other.last_cache_hit_rate
             && self.pending_changes == other.pending_changes
@@ -348,6 +353,7 @@ impl RunningStats {
             total_cache_write_tokens: 0,
             request_count: 0,
             total_reasoning_tokens: 0,
+            cache_break_thresholds: None,
             last_cache_read_tokens: None,
             last_cache_hit_rate: None,
             last_fingerprint: None,
@@ -382,7 +388,7 @@ impl RunningStats {
 
         // Override with hit-rate based detection when both rates available.
         if let (Some(prev), Some(curr)) = (prev_rate, current_rate) {
-            let th = CacheBreakThresholds::default();
+            let th = self.cache_break_thresholds.clone().unwrap_or_default();
             let rate_drop = prev - curr;
             if rate_drop > th.drop_ratio_threshold {
                 let drop_ok = info
@@ -490,6 +496,11 @@ impl RunningStats {
     /// or `None` if no calls have been accumulated yet.
     pub fn last_cache_read_tokens(&self) -> Option<u32> {
         self.last_cache_read_tokens
+    }
+
+    /// Sets custom cache break detection thresholds.
+    pub fn set_cache_break_thresholds(&mut self, thresholds: CacheBreakThresholds) {
+        self.cache_break_thresholds = Some(thresholds);
     }
 }
 

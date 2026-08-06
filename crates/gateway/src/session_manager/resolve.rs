@@ -150,6 +150,11 @@ impl SessionManager {
                             )
                             .with_system_prompt("")
                             .with_reasoning_level(self.default_reasoning_level);
+                            if let Some(ref thresholds) =
+                                *self.default_cache_break_thresholds.read().unwrap()
+                            {
+                                conv_session.set_cache_break_thresholds(thresholds.clone());
+                            }
                             // Wire shutdown handle for busy-count tracking.
                             if let Some(sh) = self.get_shutdown_handle().await {
                                 conv_session.set_shutdown_handle(sh);
@@ -438,6 +443,11 @@ impl SessionManager {
                             )
                             .with_system_prompt("")
                             .with_reasoning_level(self.default_reasoning_level);
+                            if let Some(ref thresholds) =
+                                *self.default_cache_break_thresholds.read().unwrap()
+                            {
+                                conv_session.set_cache_break_thresholds(thresholds.clone());
+                            }
                             // Wire shutdown handle for busy-count tracking.
                             if let Some(sh) = self.get_shutdown_handle().await {
                                 conv_session.set_shutdown_handle(sh);
@@ -617,6 +627,9 @@ impl SessionManager {
             ConversationSession::new(session_id.clone(), "default".to_string(), workdir_path)
                 .with_system_prompt("")
                 .with_reasoning_level(self.default_reasoning_level);
+        if let Some(ref thresholds) = *self.default_cache_break_thresholds.read().unwrap() {
+            conv_session.set_cache_break_thresholds(thresholds.clone());
+        }
         // Wire shutdown handle for busy-count tracking.
         if let Some(sh) = self.get_shutdown_handle().await {
             conv_session.set_shutdown_handle(sh);
