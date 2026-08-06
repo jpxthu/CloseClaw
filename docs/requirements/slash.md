@@ -14,7 +14,7 @@ User 或 Owner 发送以 `/` 开头的消息时，消息不被路由到 LLM 对�
 
 各指令的 Immediate 标记见后续各功能域的指令列表中标注。
 
-> **交叉引用**：所有以 `/` 开头的消息统一由斜杠指令系统拦截和分派，包括 `/approve`、`/deny` 等审批类指令。审批流程本身由 Permission 模块负责，详见 [permission §F2](permission.md)（权限维度）。指令拦截和响应优先级由 Gateway 负责，详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
+> **交叉引用**：所有以 `/` 开头的消息统一由斜杠指令系统拦截和分派，包括 `/approve-once`、`/approve-whitelist`、`/deny` 等审批类指令。审批流程本身由 Permission 模块负责，详见 [permission §F5](permission.md)（审批工作流）。指令拦截和响应优先级由 Gateway 负责，详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 
 ### F2. 模式切换
 
@@ -123,6 +123,25 @@ Owner 和 User 可以查询和设置当前会话的展示等级。展示等级�
 
 > **交叉引用**：指令语法和 plan 浏览语义详见 [mode §F6](mode.md)（plan 浏览与管理）。
 
+### F13. 审批指令
+
+Owner 通过审批指令对 Agent 操作做出放行或拒绝决策。三条指令均为 Immediate，仅 Owner 可用，非 Owner 调用时返回权限不足提示。
+
+**指令**：
+- `/approve-once <id>`：单次放行本次操作，不持久化
+- `/approve-whitelist <id>`：加入白名单，写入永久规则
+- `/deny <id>`：拒绝本次操作
+
+**ID 规则**：
+- ID 为当前 Session 内的递增数字，从 1 开始，每个 Session 独立计数
+- 审批指令的 Session 上下文由消息通道提供——在哪个对话中发审批指令，即对应哪个 Session 的审批请求
+
+**超时**：
+- 审批请求有超时时间（由 Permission 模块定义），超时后系统自动视为拒绝
+- 超时后 Owner 再发审批指令，系统返回错误提示「该审批已超时」
+
+> **交叉引用**：审批请求的触发、去重、快照和超时参数详见 [permission §F5](permission.md)（审批工作流）。指令拦截和 Immediate 标记详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。交互卡片路径由 [im_adapter §F3](im_adapter.md)（出站消息格式自动选择）和 [processor_chain §F5](processor_chain.md)（DSL 交互指令）提供支持。
+
 ## 关联设计文档
 
 - [✓] slash/README.md
@@ -136,8 +155,10 @@ Owner 和 User 可以查询和设置当前会话的展示等级。展示等级�
 - [✓] slash/help.md
 - [✓] slash/reasoning.md
 - [✓] slash/verbose.md
+- [✓] [permission/approval-workflow.md](../design/permission/approval-workflow.md)
 
 ## 非功能需求
 
-- Immediate 指令（/stop、/status、/mode、/reasoning、/verbose、/help 的查询形态）在 LLM 运行中必须可达，User 不感知延迟
+- Immediate 指令在 LLM 运行中必须可达，Owner 不感知延迟：/stop、/status、/mode（无参数查询形态）、/reasoning（无参数查询形态）、/verbose（无参数查询形态）、/help、/approve-once、/approve-whitelist、/deny
 - `/exec` 和 `/git` 写操作必须经过权限审批方可执行，不可绕过
+- 审批指令仅 Owner 可用，非 Owner 调用时不可绕过身份校验
