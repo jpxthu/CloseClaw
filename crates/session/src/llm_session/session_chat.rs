@@ -76,6 +76,25 @@ impl ConversationSession {
     ///    if the result is empty, insert an empty Text placeholder.
     pub(crate) fn clean_thinking_content(messages: &[SessionMessage]) -> Vec<SessionMessage> {
         // Pass 1: filter out orphaned thinking messages.
+        //
+        // Design doc (Thinking 内容管理 → 孤立 Thinking 清理):
+        //   "清理时移除没有同消息 ID non-Thinking 兄弟 block 的孤立 Thinking 消息。"
+        //
+        // Implementation note — equivalence to design doc:
+        // Under the current streaming architecture, StreamingContentAssembler
+        // merges all content blocks from a single response into one
+        // SessionMessage (created by `append_response`). Each SessionMessage
+        // is therefore already a self-contained logical message.  A message
+        // whose content_blocks are ALL Thinking blocks has no non-Thinking
+        // sibling, so it is exactly the "orphaned Thinking message" the design
+        // doc describes.  The filter below removes such messages, which is
+        // equivalent to the doc's "remove orphaned Thinking messages without
+        // a same-message-ID non-Thinking sibling block".
+        //
+        // This equivalence holds as long as StreamingContentAssembler keeps
+        // assembling a single response into one SessionMessage.  If a future
+        // refactor splits a response across multiple SessionMessages, this
+        // filter would need to be revisited.
         let mut cleaned: Vec<SessionMessage> = messages
             .iter()
             .filter(|msg| {

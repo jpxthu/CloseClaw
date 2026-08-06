@@ -49,16 +49,20 @@ pub struct CacheBreakInfo {
     pub current_hit_rate: f64,
 }
 
+/// Static text appended to cache-break notifications listing common causes.
+const POSSIBLE_CAUSES: &str = "可能原因：上下文变更、缓存 TTL 过期、模型/参数变更";
+
 impl CacheBreakInfo {
     /// Formats a user-facing notification for this cache break.
     ///
-    /// The notification includes the hit-rate comparison and token drop.
+    /// The notification includes the hit-rate comparison and token drop,
+    /// followed by possible causes (static list, no runtime detection).
     pub fn format_notification(&self) -> String {
         let drop_pct = self.drop_ratio * 100.0;
         let prev_rate_pct = self.previous_hit_rate * 100.0;
         let curr_rate_pct = self.current_hit_rate * 100.0;
         format!(
-            "[缓存断点] 缓存命中率从 {:.1}% 降至 {:.1}%（减少 {} tokens，降幅 {:.1}%）。",
+            "[缓存断点] 缓存命中率从 {:.1}% 降至 {:.1}%（减少 {} tokens，降幅 {:.1}%）。{POSSIBLE_CAUSES}",
             prev_rate_pct, curr_rate_pct, self.drop_tokens, drop_pct,
         )
     }
