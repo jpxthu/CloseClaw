@@ -315,31 +315,6 @@ impl SessionMessageHandler {
                 cs.set_llm_state(LlmState::Requesting);
             }
 
-            // Record pre-call fingerprint for cache-break attribution.
-            // Pass actual registered tool names so fingerprint includes
-            // the tools dimension (not just the system prompt).
-            // Pass provider default headers to activate the HeadersChanged
-            // cache break dimension.
-            if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-                let mut cs_write = cs.write().await;
-                let sys = cs_write.system_prompt().map(|s| s.to_string());
-                let tool_names: Option<Vec<String>> =
-                    match session_manager.get_tool_registry().await {
-                        Some(tr) => Some(tr.list_tool_names().await),
-                        None => None,
-                    };
-                let tools_ref: Option<&[String]> = tool_names.as_deref();
-                let headers_pairs: Vec<(String, String)> = cs_write
-                    .llm_caller()
-                    .map(|c| c.default_header_pairs())
-                    .unwrap_or_default();
-                let headers_refs: Vec<(&str, &str)> = headers_pairs
-                    .iter()
-                    .map(|(k, v)| (k.as_str(), v.as_str()))
-                    .collect();
-                cs_write.record_prompt_fingerprint(sys.as_deref(), tools_ref, Some(&headers_refs));
-            }
-
             // Non-streaming path: delegate to ConversationSession.
             // Set default request context (no inbound metadata for queued messages).
             if let Some(cs) = session_manager.get_conversation_session(session_id).await {
