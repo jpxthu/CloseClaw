@@ -171,7 +171,7 @@ impl SlashHandler for ReasoningHandler {
     async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
         let arg = args.trim();
 
-        // No arguments — return the current reasoning level.
+        // No arguments — return the effective reasoning level.
         if arg.is_empty() {
             let Some(conv) = self
                 .session_manager
@@ -181,16 +181,28 @@ impl SlashHandler for ReasoningHandler {
                 return SlashResult::Reply("当前会话未激活".to_owned());
             };
             let cs = conv.read().await;
-            let level = cs.reasoning_level();
+            let level = cs.effective_reasoning_level();
             return SlashResult::Reply(format!("当前推理深度：{level}"));
         }
 
         // With argument — parse and return SetReasoning.
         match Self::parse_level(arg) {
             Some(level) => SlashResult::SetReasoning { level },
-            None => SlashResult::Reply(format!(
-                "无效的推理深度：{arg}。可选值：low, medium, high, max, off"
-            )),
+            None => {
+                // Invalid input: echo current effective level + available values.
+                let current_level = if let Some(conv) = self
+                    .session_manager
+                    .get_conversation_session(&ctx.session_id)
+                    .await
+                {
+                    conv.read().await.effective_reasoning_level()
+                } else {
+                    ReasoningLevel::default()
+                };
+                SlashResult::Reply(format!(
+                    "无效的推理深度：{arg}。当前推理深度：{current_level}。可选值：low, medium, high, max, off"
+                ))
+            }
         }
     }
 }

@@ -230,12 +230,48 @@ pub struct AuthProfilesConfig {
     pub profiles: BTreeMap<String, AuthProfileEntryConfig>,
 }
 
+/// Cache break detection configuration.
+///
+/// Controls the thresholds for detecting KV cache hit-rate drops.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheBreakConfig {
+    /// Minimum hit-rate drop ratio to trigger a cache break.
+    /// Default: 0.05 (5%).
+    #[serde(default = "default_drop_ratio_threshold")]
+    pub drop_ratio_threshold: f64,
+    /// Minimum absolute token drop (per call) to consider a break.
+    /// Default: 2000.
+    #[serde(default = "default_min_drop_tokens")]
+    pub min_drop_tokens: u32,
+}
+
+fn default_drop_ratio_threshold() -> f64 {
+    0.05
+}
+
+fn default_min_drop_tokens() -> u32 {
+    2000
+}
+
+impl Default for CacheBreakConfig {
+    fn default() -> Self {
+        Self {
+            drop_ratio_threshold: default_drop_ratio_threshold(),
+            min_drop_tokens: default_min_drop_tokens(),
+        }
+    }
+}
+
 /// LLM inference settings.
-#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LlmConfig {
     #[serde(default)]
     pub reasoning_level: ReasoningLevel,
+    /// Optional cache break detection thresholds.
+    #[serde(default)]
+    pub cache_break: Option<CacheBreakConfig>,
 }
 
 /// Rejection log configuration.
@@ -298,7 +334,7 @@ impl Default for PlanArchiveConfig {
 /// Represents the union of all "system" fields in openclaw.json:
 /// wizard, update, meta, messages, commands, session, cron, hooks,
 /// browser, and auth (profiles only).
-#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemConfigData {
     #[serde(default)]
@@ -399,7 +435,9 @@ impl ConfigProvider for SystemConfigData {
                 .as_ref()
                 .is_none_or(|b| b == &BrowserConfig::default())
             && self.auth.is_none()
-            && self.llm.as_ref().is_none_or(|l| l == &LlmConfig::default())
+            && self.llm.as_ref().is_none_or(|l| {
+                l.reasoning_level == ReasoningLevel::default() && l.cache_break.is_none()
+            })
             && self
                 .rejection_log
                 .as_ref()

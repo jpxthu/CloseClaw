@@ -73,6 +73,14 @@ impl std::fmt::Debug for UnifiedFallbackClient {
 }
 
 impl UnifiedFallbackClient {
+    /// Returns a reference to the fallback chain entries.
+    ///
+    /// Each entry contains a `provider_id` and `model_id` that can be
+    /// used to look up provider knowledge (e.g. reasoning level support).
+    pub fn chain(&self) -> &[ChainEntry] {
+        &self.chain
+    }
+
     /// Create a new `UnifiedFallbackClient`.
     ///
     /// # Arguments

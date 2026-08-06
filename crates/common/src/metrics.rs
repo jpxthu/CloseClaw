@@ -32,7 +32,6 @@ impl MetricsEmitter for NoopMetricsEmitter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm_stats::CacheBreakCause;
 
     /// Verify that `NoopMetricsEmitter` does not panic and can be
     /// called with a real `CacheBreakInfo`.
@@ -44,7 +43,8 @@ mod tests {
             current_cache_read: 5_000,
             drop_tokens: 5_000,
             drop_ratio: 0.5,
-            causes: vec![CacheBreakCause::TtlExpired],
+            previous_hit_rate: 0.5,
+            current_hit_rate: 0.25,
         };
         emitter.emit_cache_break(&info);
     }
@@ -74,7 +74,8 @@ mod tests {
             current_cache_read: 1_000,
             drop_tokens: 19_000,
             drop_ratio: 0.95,
-            causes: vec![CacheBreakCause::ToolsChanged],
+            previous_hit_rate: 0.8,
+            current_hit_rate: 0.05,
         };
         emitter.emit_cache_break(&info);
         assert!(emitter.called.load(Ordering::Relaxed));

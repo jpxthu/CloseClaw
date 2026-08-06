@@ -11,7 +11,6 @@
 
 use closeclaw_llm::types::UnifiedUsage;
 use closeclaw_session::llm_session::ConversationSession;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 use tracing::Subscriber;
@@ -81,7 +80,7 @@ impl tracing::field::Visit for MsgVisitor {
 /// This mirrors the session handler flow in
 /// `session_handler_announce.rs` (detect → accumulate).
 fn simulate_round(session: &mut ConversationSession, usage: &UnifiedUsage) {
-    session.detect_cache_break_for_usage(usage.cache_read_tokens);
+    session.detect_cache_break_for_usage(usage.cache_read_tokens, Some(usage.prompt_tokens));
     session.accumulate_usage(usage);
 }
 
@@ -206,7 +205,8 @@ async fn test_cache_break_detection() {
 
     // Round 4: cache drops to 10 000 (drop = 40 000, ratio = 80%)
     let drop_usage = make_usage(1000, 200, Some(1200), Some(10_000), None);
-    let break_info = session.detect_cache_break_for_usage(drop_usage.cache_read_tokens);
+    let break_info = session
+        .detect_cache_break_for_usage(drop_usage.cache_read_tokens, Some(drop_usage.prompt_tokens));
 
     // Assert: detect returns Some with correct break info
     let info = break_info.expect("expected cache break to be detected");

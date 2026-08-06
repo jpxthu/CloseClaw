@@ -208,6 +208,11 @@ impl SessionMessageHandler {
         self.model_knowledge = Some(knowledge);
         self
     }
+    /// Returns a reference to the model knowledge base, if set.
+    pub fn model_knowledge(&self) -> Option<&ProviderModelKnowledge> {
+        self.model_knowledge.as_ref()
+    }
+
     /// Set the metrics emitter for operational metrics.
     pub fn with_metrics_emitter(
         mut self,
