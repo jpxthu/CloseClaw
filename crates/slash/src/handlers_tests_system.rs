@@ -39,6 +39,9 @@ async fn create_test_session(sm: &SessionManager) -> String {
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     sm.find_or_create("feishu", &msg, None)
         .await

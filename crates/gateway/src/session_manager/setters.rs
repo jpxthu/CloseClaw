@@ -8,8 +8,8 @@ use super::SessionManager;
 use crate::shutdown_handle::ShutdownHandle;
 use closeclaw_common::IMPlugin;
 use closeclaw_common::{
-    DynamicPromptBuilder, LlmCaller, PromptOverrides, SkillListingProvider, SkillRegistryQuery,
-    SystemPromptBuilder, ToolRegistryQuery,
+    CacheBreakThresholds, DynamicPromptBuilder, LlmCaller, PromptOverrides, SkillListingProvider,
+    SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
 };
 use closeclaw_config::manager::{ConfigManager, ConfigSnapshot};
 use closeclaw_session::bootstrap::loader::BootstrapMode;
@@ -324,5 +324,26 @@ impl SessionManager {
     /// Set the persistence coordination layer directly.
     pub async fn set_checkpoint_manager(&self, cm: Arc<CheckpointManager<dyn PersistenceService>>) {
         *self.checkpoint_manager.write().await = Some(cm);
+    }
+
+    /// Set the default cache break detection thresholds for new sessions.
+    pub fn set_default_cache_break_thresholds(&self, thresholds: CacheBreakThresholds) {
+        *self.default_cache_break_thresholds.write().unwrap() = Some(thresholds);
+    }
+
+    /// Get the default cache break detection thresholds, if set.
+    pub fn default_cache_break_thresholds(&self) -> Option<CacheBreakThresholds> {
+        self.default_cache_break_thresholds.read().unwrap().clone()
+    }
+
+    /// Apply the default cache break thresholds to a conversation session.
+    ///
+    /// If defaults are configured, sets them on the session. This centralizes
+    /// the threshold propagation that was previously duplicated across
+    /// `channel.rs`, `recovery_injection.rs`, and `resolve.rs`.
+    pub(super) fn apply_default_cache_break_thresholds(&self, conv: &mut ConversationSession) {
+        if let Some(ref thresholds) = *self.default_cache_break_thresholds.read().unwrap() {
+            conv.set_cache_break_thresholds(thresholds.clone());
+        }
     }
 }

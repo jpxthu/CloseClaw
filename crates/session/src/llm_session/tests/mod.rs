@@ -567,6 +567,31 @@ fn test_build_api_request_reasoning_level_medium() {
     assert_eq!(req.reasoning_level, ReasoningLevel::Medium);
 }
 
+// ── effective_reasoning_level tests ──────────────────────────────────────
+
+#[test]
+fn test_effective_reasoning_level_defaults_to_reasoning_level() {
+    let session = ConversationSession::new("s_erl1".into(), "gpt-4o".into(), tmp_path());
+    assert_eq!(session.effective_reasoning_level(), ReasoningLevel::High);
+}
+
+#[test]
+fn test_effective_reasoning_level_after_set() {
+    let mut session = ConversationSession::new("s_erl2".into(), "gpt-4o".into(), tmp_path());
+    session.set_effective_reasoning_level(ReasoningLevel::Low);
+    assert_eq!(session.effective_reasoning_level(), ReasoningLevel::Low);
+}
+
+#[test]
+fn test_set_reasoning_level_resets_effective() {
+    let mut session = ConversationSession::new("s_erl3".into(), "gpt-4o".into(), tmp_path());
+    session.set_effective_reasoning_level(ReasoningLevel::Medium);
+    assert_eq!(session.effective_reasoning_level(), ReasoningLevel::Medium);
+    // Setting reasoning_level should reset effective to None (fallback).
+    session.set_reasoning_level(ReasoningLevel::High);
+    assert_eq!(session.effective_reasoning_level(), ReasoningLevel::High);
+}
+
 // ── clear_pending tests ─────────────────────────────────────────────────
 
 #[test]

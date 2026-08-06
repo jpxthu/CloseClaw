@@ -191,7 +191,7 @@ impl SlashHandler for StatusHandler {
         let llm_status = if busy { "运行中" } else { "空闲" };
 
         let model = cs.model();
-        let reasoning = cs.reasoning_level();
+        let reasoning = cs.effective_reasoning_level();
         let mode = cs.session_mode();
         let mode_label = match mode {
             SessionMode::Normal => "Normal",
@@ -246,6 +246,11 @@ impl SlashHandler for StatusHandler {
             for (i, s) in appends.iter().enumerate() {
                 lines.push(format!("  [{i}] {s}"));
             }
+        }
+
+        // Cache break event (most recent).
+        if let Some(cb) = cs.last_cache_break() {
+            lines.push(cb.format_notification());
         }
 
         SlashResult::Reply(lines.join("\n"))

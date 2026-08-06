@@ -434,31 +434,13 @@ fn test_decorate_headers_content_type() {
         "application/json"
     );
 }
-// ── reasoning_level non-injection tests ─────────────────────────────────
+// ── reasoning_level downgrade tests ───────────────────────────────────────
+// Anthropic only supports High. Non-High levels are downgraded to High
+// inside build_request_body (cloned + mutated). The body itself never
+// contains reasoning fields.
 #[test]
-fn test_build_request_does_not_inject_reasoning_level() {
+fn test_build_request_downgrades_non_high_reasoning_level() {
     let proto = AnthropicProtocol::new();
-    let levels = [
-        ReasoningLevel::Low,
-        ReasoningLevel::Medium,
-        ReasoningLevel::High,
-        ReasoningLevel::Max,
-    ];
-    for level in levels {
-        let mut request = make_request();
-        request.reasoning_level = level;
-        let body = proto.build_request(&request).unwrap();
-        assert!(body.get("thinking").is_none());
-        assert!(body.get("reasoning_effort").is_none());
-        assert!(body.get("reasoning_level").is_none());
-    }
-}
-
-// ── reasoning_level logging tests ──────────────────────────────────────────
-#[test]
-fn test_build_request_logs_non_high_reasoning_level() {
-    let proto = AnthropicProtocol::new();
-    // Non-High levels are logged as downgraded; body itself is unaffected.
     let non_high_levels = [
         ReasoningLevel::Low,
         ReasoningLevel::Medium,
@@ -468,7 +450,7 @@ fn test_build_request_logs_non_high_reasoning_level() {
         let mut request = make_request();
         request.reasoning_level = level;
         let body = proto.build_request(&request).unwrap();
-        // No reasoning fields injected (same as High behavior)
+        // No reasoning fields injected — Anthropic ignores them
         assert!(body.get("thinking").is_none());
         assert!(body.get("reasoning_effort").is_none());
         assert!(body.get("reasoning_level").is_none());

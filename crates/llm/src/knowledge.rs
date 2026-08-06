@@ -103,6 +103,11 @@ impl ProviderModelKnowledge {
         Self { inner }
     }
 
+    /// List all provider ids in the knowledge base.
+    pub fn all_providers(&self) -> Vec<&str> {
+        self.inner.keys().map(|k| k.as_str()).collect()
+    }
+
     /// Find recommended params for a specific provider + model.
     pub fn find(&self, provider_id: &str, model_id: &str) -> Option<ModelRecommendParams> {
         self.inner

@@ -10,6 +10,7 @@ use crate::registry::HandlerRegistry;
 use crate::{BackgroundHandler, HelpHandler, NewSessionHandler, StatusHandler, StopHandler};
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_gateway::session_manager::SessionManager;
+use closeclaw_session::persistence::ReasoningLevel;
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -51,6 +52,9 @@ async fn create_test_session(sm: &SessionManager) -> String {
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     sm.find_or_create("feishu", &msg, None)
         .await
@@ -205,6 +209,96 @@ async fn test_status_handler_with_session() {
             assert!(t.contains("追加指令"), "missing appends, got: {t}");
         }
         _ => panic!("expected Reply with status fields"),
+    }
+}
+
+#[tokio::test]
+async fn test_status_handler_shows_effective_reasoning_level() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    // Set effective level different from configured default (High).
+    if let Some(conv) = sm.get_conversation_session(&sid).await {
+        conv.write()
+            .await
+            .set_effective_reasoning_level(ReasoningLevel::Medium);
+    }
+    let h = StatusHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => {
+            // Should show effective level Medium, not configured High.
+            assert!(
+                t.contains("推理深度：Medium"),
+                "should show effective level Medium, got: {t}"
+            );
+            assert!(
+                !t.contains("推理深度：High"),
+                "should not show configured level High, got: {t}"
+            );
+        }
+        _ => panic!("expected Reply"),
+    }
+}
+
+#[tokio::test]
+async fn test_status_handler_shows_cache_break_event() {
+    use closeclaw_common::llm_stats::CacheBreakInfo;
+
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    // Inject a cache break event into session stats.
+    if let Some(conv) = sm.get_conversation_session(&sid).await {
+        let mut cs = conv.write().await;
+        let stats = cs.stats_mut();
+        stats.last_cache_break = Some(CacheBreakInfo {
+            previous_cache_read: 100_000,
+            current_cache_read: 80_000,
+            drop_tokens: 20_000,
+            drop_ratio: 0.20,
+            previous_hit_rate: 0.50,
+            current_hit_rate: 0.30,
+        });
+    }
+    let h = StatusHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => {
+            // Should contain the cache break notification.
+            assert!(
+                t.contains("[缓存断点]"),
+                "should show cache break event, got: {t}"
+            );
+            assert!(
+                t.contains("50.0%"),
+                "should show previous hit rate, got: {t}"
+            );
+            assert!(
+                t.contains("30.0%"),
+                "should show current hit rate, got: {t}"
+            );
+        }
+        _ => panic!("expected Reply"),
+    }
+}
+
+#[tokio::test]
+async fn test_status_handler_no_cache_break_when_none() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    let h = StatusHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => {
+            // Should NOT contain cache break event.
+            assert!(
+                !t.contains("[缓存断点]"),
+                "should not show cache break when none, got: {t}"
+            );
+        }
+        _ => panic!("expected Reply"),
     }
 }
 

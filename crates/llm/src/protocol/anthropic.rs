@@ -93,7 +93,12 @@ impl ChatProtocol for AnthropicProtocol {
 // ─── build_request helpers ───────────────────────────────────────────────────
 
 /// Build an Anthropic `/v1/messages` request body.
+///
+/// Anthropic only supports `High` reasoning. When the caller requests a
+/// different level the request is cloned and the level is forced to `High`
+/// so downstream consumers see the effective level.
 fn build_request_body(request: &InternalRequest) -> Result<serde_json::Value> {
+    let mut request = request.clone();
     if request.reasoning_level != ReasoningLevel::High {
         tracing::info!(
             provider = "anthropic",
@@ -102,6 +107,7 @@ fn build_request_body(request: &InternalRequest) -> Result<serde_json::Value> {
             to = %ReasoningLevel::High,
             "reasoning level downgraded: Anthropic supports High only"
         );
+        request.reasoning_level = ReasoningLevel::High;
     }
 
     let mut messages: Vec<serde_json::Value> = request.messages.iter().map(build_message).collect();

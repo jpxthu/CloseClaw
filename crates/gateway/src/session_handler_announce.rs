@@ -26,9 +26,77 @@ use crate::session_manager::SessionManager;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::llm_session::ChatSession;
+use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::run_health::RecoverableAction;
 use closeclaw_tasks::NotificationPriority;
 use tokio::time::Instant;
+
+/// Resolve effective level for a multi-level provider.
+///
+/// Picks the highest supported level that is ≤ `requested`.
+fn resolve_for_levels(
+    requested: ReasoningLevel,
+    off: bool,
+    base: bool,
+    reasoner: bool,
+) -> ReasoningLevel {
+    match requested {
+        ReasoningLevel::Max if reasoner => ReasoningLevel::Max,
+        ReasoningLevel::Max => ReasoningLevel::High,
+        ReasoningLevel::High if reasoner => ReasoningLevel::High,
+        ReasoningLevel::High => {
+            if base {
+                ReasoningLevel::Medium
+            } else if off {
+                ReasoningLevel::Low
+            } else {
+                ReasoningLevel::High
+            }
+        }
+        ReasoningLevel::Medium if base => ReasoningLevel::Medium,
+        ReasoningLevel::Medium => {
+            if off {
+                ReasoningLevel::Low
+            } else {
+                ReasoningLevel::Medium
+            }
+        }
+        ReasoningLevel::Low if off => ReasoningLevel::Low,
+        ReasoningLevel::Low => ReasoningLevel::Low,
+    }
+}
+
+/// Resolve the effective reasoning level for a given model.
+///
+/// Iterates through the knowledge base to find the provider that
+/// serves this model, then checks if the requested level is
+/// supported. If not, returns the highest supported level.
+/// Falls back to `requested` when the model is not in the knowledge base.
+fn resolve_effective_reasoning_level(
+    model: &str,
+    requested: ReasoningLevel,
+    knowledge: &closeclaw_llm::ProviderModelKnowledge,
+) -> ReasoningLevel {
+    for provider_id in knowledge.all_providers() {
+        let models = knowledge.all_models(provider_id);
+        if models.iter().any(|m| *m == model) {
+            if let Some(params) = knowledge.find(provider_id, model) {
+                return match params.reasoning_levels {
+                    closeclaw_llm::knowledge::ReasoningLevels::None => requested,
+                    closeclaw_llm::knowledge::ReasoningLevels::Toggle { .. } => {
+                        ReasoningLevel::High
+                    }
+                    closeclaw_llm::knowledge::ReasoningLevels::Levels {
+                        off,
+                        base,
+                        reasoner,
+                    } => resolve_for_levels(requested, off, base, reasoner),
+                };
+            }
+        }
+    }
+    requested
+}
 
 /// Turn-level timing metadata passed through the health
 /// check pipeline so hard rules receive actual runtime values.
@@ -129,9 +197,10 @@ impl SessionMessageHandler {
                     cs_write.process_workflow_tool_results(&stream_result.content_blocks);
                     // Cache break detection (must run before accumulate_usage
                     // so that last_cache_read_tokens still holds the previous value).
-                    if let Some(info) =
-                        cs_write.detect_cache_break_for_usage(stream_result.usage.cache_read_tokens)
-                    {
+                    if let Some(info) = cs_write.detect_cache_break_for_usage(
+                        stream_result.usage.cache_read_tokens,
+                        Some(stream_result.usage.prompt_tokens),
+                    ) {
                         tracing::warn!(
                             session_id,
                             previous = info.previous_cache_read,
@@ -149,6 +218,16 @@ impl SessionMessageHandler {
                         );
                     }
                     cs_write.accumulate_usage(&stream_result.usage);
+
+                    // Resolve effective reasoning level (post-provider-downgrade).
+                    if let Some(knowledge) = gateway.and_then(|g| g.model_knowledge()) {
+                        let effective = resolve_effective_reasoning_level(
+                            cs_write.model(),
+                            cs_write.reasoning_level(),
+                            knowledge,
+                        );
+                        cs_write.set_effective_reasoning_level(effective);
+                    }
 
                     // Run health check at turn boundary.
                     let mut recovery_action = None;
@@ -236,31 +315,6 @@ impl SessionMessageHandler {
                 let cs = cs.write().await;
                 cs.set_llm_busy(true);
                 cs.set_llm_state(LlmState::Requesting);
-            }
-
-            // Record pre-call fingerprint for cache-break attribution.
-            // Pass actual registered tool names so fingerprint includes
-            // the tools dimension (not just the system prompt).
-            // Pass provider default headers to activate the HeadersChanged
-            // cache break dimension.
-            if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-                let mut cs_write = cs.write().await;
-                let sys = cs_write.system_prompt().map(|s| s.to_string());
-                let tool_names: Option<Vec<String>> =
-                    match session_manager.get_tool_registry().await {
-                        Some(tr) => Some(tr.list_tool_names().await),
-                        None => None,
-                    };
-                let tools_ref: Option<&[String]> = tool_names.as_deref();
-                let headers_pairs: Vec<(String, String)> = cs_write
-                    .llm_caller()
-                    .map(|c| c.default_header_pairs())
-                    .unwrap_or_default();
-                let headers_refs: Vec<(&str, &str)> = headers_pairs
-                    .iter()
-                    .map(|(k, v)| (k.as_str(), v.as_str()))
-                    .collect();
-                cs_write.record_prompt_fingerprint(sys.as_deref(), tools_ref, Some(&headers_refs));
             }
 
             // Non-streaming path: delegate to ConversationSession.
@@ -626,5 +680,92 @@ impl SessionMessageHandler {
         }
         cs_write.inject_system_message(text);
         drop(cs_write);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use closeclaw_llm::ProviderModelKnowledge;
+    use closeclaw_session::persistence::ReasoningLevel;
+
+    #[test]
+    fn test_resolve_effective_level_model_not_found_returns_requested() {
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level("unknown-model", ReasoningLevel::Max, &kb);
+        assert_eq!(result, ReasoningLevel::Max);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_none_returns_requested() {
+        // With an empty knowledge base, model not found → requested.
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level("some-model", ReasoningLevel::Medium, &kb);
+        assert_eq!(result, ReasoningLevel::Medium);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_toggle_maps_to_high() {
+        // Toggle models (e.g. glm-5.1) map any requested level to High.
+        let kb = ProviderModelKnowledge::new();
+        for level in [
+            ReasoningLevel::Low,
+            ReasoningLevel::Medium,
+            ReasoningLevel::High,
+            ReasoningLevel::Max,
+        ] {
+            let result = resolve_effective_reasoning_level("glm-5.1", level, &kb);
+            assert_eq!(
+                result,
+                ReasoningLevel::High,
+                "Toggle should map {:?} → High",
+                level
+            );
+        }
+    }
+
+    #[test]
+    fn test_resolve_effective_level_levels_all_enabled() {
+        // deepseek-v4-flash: off=true, base=true, reasoner=true
+        let kb = ProviderModelKnowledge::new();
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::Max, &kb),
+            ReasoningLevel::Max,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::High, &kb),
+            ReasoningLevel::High,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::Medium, &kb),
+            ReasoningLevel::Medium,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::Low, &kb),
+            ReasoningLevel::Low,
+        );
+    }
+
+    #[test]
+    fn test_resolve_effective_level_levels_no_off() {
+        // deepseek-v4-pro: off=false, base=true, reasoner=true
+        // Medium+ supported directly; Low falls through to Low (no off support).
+        let kb = ProviderModelKnowledge::new();
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::Max, &kb),
+            ReasoningLevel::Max,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::High, &kb),
+            ReasoningLevel::High,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::Medium, &kb),
+            ReasoningLevel::Medium,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::Low, &kb),
+            ReasoningLevel::Low,
+        );
     }
 }

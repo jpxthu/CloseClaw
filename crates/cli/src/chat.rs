@@ -73,27 +73,37 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
         ..Default::default()
     };
 
-    let reasoning_level = {
+    let llm_config = {
         let config_dir = dirs::home_dir()
             .map(|h| h.join(".closeclaw"))
             .unwrap_or_else(|| PathBuf::from(".closeclaw"));
         let config_subdir = config_dir.join("config");
-        ConfigManager::new(config_subdir)
-            .ok()
-            .and_then(|cm| {
-                cm.section(ConfigSection::System)
-                    .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
-                    .and_then(|sys| sys.llm)
-                    .map(|llm| llm.reasoning_level)
-            })
-            .unwrap_or_default()
+        ConfigManager::new(config_subdir).ok().and_then(|cm| {
+            cm.section(ConfigSection::System)
+                .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
+                .and_then(|sys| sys.llm)
+        })
     };
+    let reasoning_level = llm_config
+        .as_ref()
+        .map(|llm| llm.reasoning_level)
+        .unwrap_or_default();
     let session_manager = Arc::new(SessionManager::new(
         &gateway_config,
         None,
         None,
         reasoning_level,
     ));
+    if let Some(ref llm) = llm_config {
+        if let Some(ref cache_break) = llm.cache_break {
+            session_manager.set_default_cache_break_thresholds(
+                closeclaw_common::CacheBreakThresholds {
+                    drop_ratio_threshold: cache_break.drop_ratio_threshold,
+                    min_drop_tokens: cache_break.min_drop_tokens,
+                },
+            );
+        }
+    }
 
     let processor_registry = Arc::new(gateway::build_processor_registry(&gateway_config))
         as Arc<dyn closeclaw_common::ProcessorChain>;
