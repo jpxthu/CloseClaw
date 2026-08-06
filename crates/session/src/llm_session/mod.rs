@@ -775,7 +775,10 @@ impl ConversationSession {
     pub fn last_cache_break(&self) -> Option<&closeclaw_common::CacheBreakInfo> {
         self.stats.last_cache_break()
     }
+}
 
+/// System appends and progress notification methods.
+impl ConversationSession {
     // ── System appends ──────────────────────────────────────────
 
     /// Append `content` to the per-session append-section list.
@@ -825,7 +828,10 @@ impl ConversationSession {
             .expect("progress_appends lock poisoned")
             .clone()
     }
+}
 
+/// Active-yield (Waiting state) methods.
+impl ConversationSession {
     // ── Active-yield (Waiting state) methods ───────────────────
 
     /// Enter active Waiting state (set yielding flag).

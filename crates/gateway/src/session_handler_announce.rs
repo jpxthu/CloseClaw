@@ -31,6 +31,41 @@ use closeclaw_session::run_health::RecoverableAction;
 use closeclaw_tasks::NotificationPriority;
 use tokio::time::Instant;
 
+/// Resolve effective level for a multi-level provider.
+///
+/// Picks the highest supported level that is ≤ `requested`.
+fn resolve_for_levels(
+    requested: ReasoningLevel,
+    off: bool,
+    base: bool,
+    reasoner: bool,
+) -> ReasoningLevel {
+    match requested {
+        ReasoningLevel::Max if reasoner => ReasoningLevel::Max,
+        ReasoningLevel::Max => ReasoningLevel::High,
+        ReasoningLevel::High if reasoner => ReasoningLevel::High,
+        ReasoningLevel::High => {
+            if base {
+                ReasoningLevel::Medium
+            } else if off {
+                ReasoningLevel::Low
+            } else {
+                ReasoningLevel::High
+            }
+        }
+        ReasoningLevel::Medium if base => ReasoningLevel::Medium,
+        ReasoningLevel::Medium => {
+            if off {
+                ReasoningLevel::Low
+            } else {
+                ReasoningLevel::Medium
+            }
+        }
+        ReasoningLevel::Low if off => ReasoningLevel::Low,
+        ReasoningLevel::Low => ReasoningLevel::Low,
+    }
+}
+
 /// Resolve the effective reasoning level for a given model.
 ///
 /// Iterates through the knowledge base to find the provider that
@@ -47,52 +82,19 @@ fn resolve_effective_reasoning_level(
         if models.iter().any(|m| *m == model) {
             if let Some(params) = knowledge.find(provider_id, model) {
                 return match params.reasoning_levels {
-                    closeclaw_llm::knowledge::ReasoningLevels::None => {
-                        // Provider doesn't support reasoning —
-                        // keep requested level (provider handles it).
-                        requested
-                    }
+                    closeclaw_llm::knowledge::ReasoningLevels::None => requested,
                     closeclaw_llm::knowledge::ReasoningLevels::Toggle { .. } => {
-                        // Toggle: on/off only — any level maps to High.
                         ReasoningLevel::High
                     }
                     closeclaw_llm::knowledge::ReasoningLevels::Levels {
                         off,
                         base,
                         reasoner,
-                    } => {
-                        // Multi-level: pick the highest supported
-                        // level that is ≤ requested.
-                        match requested {
-                            ReasoningLevel::Max if reasoner => ReasoningLevel::Max,
-                            ReasoningLevel::Max => ReasoningLevel::High,
-                            ReasoningLevel::High if reasoner => ReasoningLevel::High,
-                            ReasoningLevel::High => {
-                                if base {
-                                    ReasoningLevel::Medium
-                                } else if off {
-                                    ReasoningLevel::Low
-                                } else {
-                                    ReasoningLevel::High
-                                }
-                            }
-                            ReasoningLevel::Medium if base => ReasoningLevel::Medium,
-                            ReasoningLevel::Medium => {
-                                if off {
-                                    ReasoningLevel::Low
-                                } else {
-                                    ReasoningLevel::Medium
-                                }
-                            }
-                            ReasoningLevel::Low if off => ReasoningLevel::Low,
-                            ReasoningLevel::Low => ReasoningLevel::Low,
-                        }
-                    }
+                    } => resolve_for_levels(requested, off, base, reasoner),
                 };
             }
         }
     }
-    // Model not found in knowledge base — return requested level.
     requested
 }
 

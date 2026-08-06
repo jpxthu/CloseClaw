@@ -168,19 +168,7 @@ impl Eq for RunningStats {}
 impl RunningStats {
     /// Creates a new `RunningStats` with all counters zeroed.
     pub fn new() -> Self {
-        Self {
-            total_prompt_tokens: 0,
-            total_completion_tokens: 0,
-            total_tokens: 0,
-            total_cache_read_tokens: 0,
-            total_cache_write_tokens: 0,
-            request_count: 0,
-            total_reasoning_tokens: 0,
-            cache_break_thresholds: None,
-            last_cache_read_tokens: None,
-            last_cache_hit_rate: None,
-            last_cache_break: None,
-        }
+        Self::default()
     }
 
     /// Detects a cache break by comparing per-call hit rates.
@@ -204,6 +192,8 @@ impl RunningStats {
             current_cache_read,
             self.cache_break_thresholds.as_ref(),
         );
+        // Save previous value for rate-based comparison; update after rate check.
+        let prev_cache_read = self.last_cache_read_tokens;
         self.last_cache_read_tokens = current_cache_read;
 
         // Compute current per-call hit rate.
@@ -214,42 +204,13 @@ impl RunningStats {
 
         // Override with hit-rate based detection when both rates available.
         if let (Some(prev), Some(curr)) = (prev_rate, current_rate) {
-            let th = self.cache_break_thresholds.clone().unwrap_or_default();
-            let rate_drop = prev - curr;
-            if rate_drop > th.drop_ratio_threshold {
-                let drop_ok = info
-                    .as_ref()
-                    .map(|i| i.drop_tokens > th.min_drop_tokens)
-                    .unwrap_or(false);
-                if drop_ok {
-                    // Enhance existing info with hit-rate data.
-                    if let Some(ref mut b) = info {
-                        b.previous_hit_rate = prev;
-                        b.current_hit_rate = curr;
-                    }
-                } else {
-                    // Trigger break based on rate drop alone.
-                    let prev_ct = self.last_cache_read_tokens.unwrap_or(0);
-                    let curr_ct = current_cache_read.unwrap_or(0);
-                    let drop_tokens = prev_ct.saturating_sub(curr_ct);
-                    let drop_ratio = if prev_ct > 0 {
-                        drop_tokens as f64 / prev_ct as f64
-                    } else {
-                        0.0
-                    };
-                    info = Some(CacheBreakInfo {
-                        previous_cache_read: prev_ct,
-                        current_cache_read: curr_ct,
-                        drop_tokens,
-                        drop_ratio,
-                        previous_hit_rate: prev,
-                        current_hit_rate: curr,
-                    });
+            self.apply_rate_break(&mut info, prev, curr, prev_cache_read, current_cache_read);
+            // If token break exists but rate drop didn't trigger, fill rates.
+            if let Some(ref mut b) = info {
+                if b.previous_hit_rate == 0.0 && b.current_hit_rate == 0.0 {
+                    b.previous_hit_rate = prev;
+                    b.current_hit_rate = curr;
                 }
-            } else if let Some(ref mut b) = info {
-                // Even if no break, fill in hit rates for diagnostics.
-                b.previous_hit_rate = prev;
-                b.current_hit_rate = curr;
             }
         }
 
@@ -258,18 +219,23 @@ impl RunningStats {
         // Store cache break info when a break is detected.
         if let Some(ref break_info) = info {
             self.last_cache_break = Some(break_info.clone());
-            tracing::warn!(
-                previous = break_info.previous_cache_read,
-                current = break_info.current_cache_read,
-                drop_tokens = break_info.drop_tokens,
-                drop_ratio = break_info.drop_ratio,
-                previous_hit_rate = break_info.previous_hit_rate,
-                current_hit_rate = break_info.current_hit_rate,
-                "KV cache break: prefix invalidated between consecutive calls"
-            );
+            Self::log_cache_break(break_info);
         }
 
         info
+    }
+
+    /// Logs a detected cache break event.
+    fn log_cache_break(break_info: &CacheBreakInfo) {
+        tracing::warn!(
+            previous = break_info.previous_cache_read,
+            current = break_info.current_cache_read,
+            drop_tokens = break_info.drop_tokens,
+            drop_ratio = break_info.drop_ratio,
+            previous_hit_rate = break_info.previous_hit_rate,
+            current_hit_rate = break_info.current_hit_rate,
+            "KV cache break: prefix invalidated between consecutive calls"
+        );
     }
 
     /// Accumulates a single API call's usage into the running totals.
@@ -295,12 +261,12 @@ impl RunningStats {
         self.total_reasoning_tokens += usage.reasoning_tokens.map_or(0u64, u64::from);
         self.request_count += 1;
     }
+}
 
+/// Helper getters, setters, and derived-statistics methods.
+impl RunningStats {
     /// Returns the cache hit rate as a fraction in `[0.0, 1.0]`.
-    ///
-    /// Computed as `total_cache_read_tokens / total_prompt_tokens`.
-    /// Returns `0.0` when `total_prompt_tokens` is zero to avoid
-    /// division by zero.
+    /// Returns `0.0` when `total_prompt_tokens` is zero.
     pub fn cache_hit_rate(&self) -> f64 {
         if self.total_prompt_tokens == 0 {
             return 0.0;
@@ -332,11 +298,8 @@ impl RunningStats {
         self.cache_break_thresholds = Some(thresholds);
     }
 
-    /// Resets all counters, snapshots, and fingerprint data to their
-    /// initial values.
-    ///
-    /// This is intended to be called at session end to avoid stale
-    /// statistics carrying over into a new session.
+    /// Resets all counters and snapshots to initial values.
+    /// Intended for session-end cleanup.
     pub fn reset(&mut self) {
         self.total_prompt_tokens = 0;
         self.total_completion_tokens = 0;
@@ -350,10 +313,67 @@ impl RunningStats {
         self.last_cache_hit_rate = None;
         self.last_cache_break = None;
     }
+
+    /// Checks whether a hit-rate drop between consecutive calls exceeds
+    /// the configured threshold.
+    ///
+    /// Returns `true` when the rate drop exceeds `drop_ratio_threshold`.
+    fn did_rate_drop_exceed_threshold(&self, prev_rate: f64, current_rate: f64) -> bool {
+        let th = self.cache_break_thresholds.clone().unwrap_or_default();
+        (prev_rate - current_rate) > th.drop_ratio_threshold
+    }
+
+    /// Applies rate-based break detection: either enhances an existing
+    /// token break with hit-rate data, or creates a rate-only break.
+    fn apply_rate_break(
+        &self,
+        info: &mut Option<CacheBreakInfo>,
+        prev_rate: f64,
+        current_rate: f64,
+        prev_cache_read: Option<u32>,
+        current_cache_read: Option<u32>,
+    ) {
+        if !self.did_rate_drop_exceed_threshold(prev_rate, current_rate) {
+            return;
+        }
+        if let Some(ref mut b) = info {
+            b.previous_hit_rate = prev_rate;
+            b.current_hit_rate = current_rate;
+        } else {
+            let prev_ct = prev_cache_read.unwrap_or(0);
+            let curr_ct = current_cache_read.unwrap_or(0);
+            let drop_tokens = prev_ct.saturating_sub(curr_ct);
+            let drop_ratio = if prev_ct > 0 {
+                drop_tokens as f64 / prev_ct as f64
+            } else {
+                0.0
+            };
+            *info = Some(CacheBreakInfo {
+                previous_cache_read: prev_ct,
+                current_cache_read: curr_ct,
+                drop_tokens,
+                drop_ratio,
+                previous_hit_rate: prev_rate,
+                current_hit_rate: current_rate,
+            });
+        }
+    }
 }
 
 impl Default for RunningStats {
     fn default() -> Self {
-        Self::new()
+        Self {
+            total_prompt_tokens: 0,
+            total_completion_tokens: 0,
+            total_tokens: 0,
+            total_cache_read_tokens: 0,
+            total_cache_write_tokens: 0,
+            request_count: 0,
+            total_reasoning_tokens: 0,
+            cache_break_thresholds: None,
+            last_cache_read_tokens: None,
+            last_cache_hit_rate: None,
+            last_cache_break: None,
+        }
     }
 }

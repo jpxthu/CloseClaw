@@ -476,3 +476,23 @@ fn detect_cache_break_hit_rate_only_triggers() {
     assert!((info.current_hit_rate - 0.01).abs() < 1e-6);
     assert_eq!(info.drop_tokens, 9800);
 }
+
+#[test]
+fn detect_cache_break_rate_only_no_token_break() {
+    // Pure rate-only break: token drop is below min_drop_tokens (1999 < 2000)
+    // but hit-rate drops significantly (0.5 → 0.3001, drop = 0.1999 > 0.05).
+    let mut stats = RunningStats::new();
+    // Previous call: 5000/10000 = 0.5 hit rate
+    stats.detect_cache_break_and_update(Some(5000), Some(10000));
+    // Current call: 3001/10000 = 0.3001 hit rate
+    // Token drop: 5000 - 3001 = 1999 < min_drop_tokens(2000) → no token break
+    // Rate drop: 0.5 - 0.3001 = 0.1999 > drop_ratio_threshold(0.05) → rate break
+    let info = stats
+        .detect_cache_break_and_update(Some(3001), Some(10000))
+        .expect("rate-only break should trigger");
+    assert_eq!(info.previous_cache_read, 5000);
+    assert_eq!(info.current_cache_read, 3001);
+    assert_eq!(info.drop_tokens, 1999);
+    assert!((info.previous_hit_rate - 0.5).abs() < 1e-6);
+    assert!((info.current_hit_rate - 0.3001).abs() < 1e-6);
+}
