@@ -89,11 +89,11 @@
   },
   {
     "path": "docs/design/common/core-traits.md",
-    "commit": "bf29e9c652b8e0369e82aafd3db22b40c2b1f804",
-    "commit_time": "2026-08-05T19:52:57+08:00",
-    "confirmed_time": "2026-08-05T20:04:42.807634+08:00",
+    "commit": "8a08692156ddfe475ba542c0bb4a747363103221",
+    "commit_time": "2026-08-07T03:41:14+08:00",
+    "confirmed_time": "2026-08-07T03:51:11.828304+08:00",
     "comment": "",
-    "blocked_reason": "设计文档声明为 common crate DI trait 的权威清单，但实际仅覆盖约 16% 的 pub trait（5/30+），设计目标范围不清晰。同时 SkillsFragmentProvider 文档列出但代码缺失，PlanToolsRegistrar 代码存在但文档未列出。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/common/data-flow.md",
