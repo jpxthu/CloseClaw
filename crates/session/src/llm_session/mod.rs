@@ -114,6 +114,8 @@ pub struct ConversationSession {
     is_llm_busy: Arc<AtomicBool>,
     unified_queue: session_pending_queue::UnifiedMessageQueue,
     reasoning_level: ReasoningLevel,
+    /// Effective reasoning level after provider downgrade (`None` = fallback to `reasoning_level`).
+    effective_reasoning_level: Option<ReasoningLevel>,
     workdir: PathBuf,
     stats: RunningStats,
     streaming_sink: Option<Arc<dyn StreamingSink>>,
@@ -253,6 +255,7 @@ impl ConversationSession {
             is_llm_busy: Arc::new(AtomicBool::new(false)),
             unified_queue: session_pending_queue::UnifiedMessageQueue::default(),
             reasoning_level: ReasoningLevel::default(),
+            effective_reasoning_level: None,
             workdir,
             stats: RunningStats::new(),
             created_at: Utc::now().timestamp(),
@@ -480,9 +483,20 @@ impl ConversationSession {
     pub fn reasoning_level(&self) -> ReasoningLevel {
         self.reasoning_level
     }
+    /// Effective reasoning level (post-provider-downgrade), falls back to `reasoning_level`.
+    pub fn effective_reasoning_level(&self) -> ReasoningLevel {
+        self.effective_reasoning_level
+            .unwrap_or(self.reasoning_level)
+    }
+    /// Sets the effective reasoning level after provider downgrade detection.
+    pub fn set_effective_reasoning_level(&mut self, level: ReasoningLevel) {
+        self.effective_reasoning_level = Some(level);
+    }
     /// Overrides the reasoning level at runtime.
     pub fn set_reasoning_level(&mut self, level: ReasoningLevel) {
         self.reasoning_level = level;
+        // Reset effective level — will be re-evaluated on next LLM call.
+        self.effective_reasoning_level = None;
     }
     /// Returns the current verbosity level.
     pub fn verbosity_level(&self) -> VerbosityLevel {
@@ -518,7 +532,6 @@ impl ConversationSession {
     pub fn memory_injection_arc(&self) -> &Arc<Mutex<Option<MemoryInjection>>> {
         &self.memory_injection
     }
-
     /// Write a memory-injection payload into the slot.
     ///
     /// Applies session-level dedup: if the injection carries a
@@ -560,7 +573,6 @@ impl ConversationSession {
             .expect("memory_injection lock poisoned");
         slot.take()
     }
-
     /// Record that `event_id` has been injected in the current session.
     /// If no injection exists yet, this is a no-op.
     pub fn add_injected_event_id(&self, event_id: i64) {
@@ -589,7 +601,6 @@ impl ConversationSession {
     pub fn replace_system_prompt(&mut self, prompt: impl Into<String>) {
         self.system_prompt = Some(prompt.into());
     }
-
     /// Returns the current system prompt, if any.
     pub fn system_prompt(&self) -> Option<&str> {
         self.system_prompt.as_deref()
@@ -631,7 +642,6 @@ impl ConversationSession {
         self.replace_system_prompt(prompt.clone());
         prompt
     }
-
     pub(crate) fn push_message(&mut self, role: &str, content_blocks: Vec<ContentBlock>) {
         self.push_message_with_timestamp(role, content_blocks, chrono::Utc::now());
     }
@@ -654,12 +664,10 @@ impl ConversationSession {
     pub fn set_llm_busy(&self, busy: bool) {
         self.is_llm_busy.store(busy, Ordering::SeqCst);
     }
-
     /// Returns the model name.
     pub fn model(&self) -> &str {
         &self.model
     }
-
     /// Clone messages from `source`, preserving original timestamps.
     pub(crate) fn clone_messages_from(&mut self, source: &[SessionMessage]) {
         for msg in source {
@@ -727,7 +735,6 @@ impl ConversationSession {
         None
     }
 }
-
 /// Stats and streaming-sink accessors.
 impl ConversationSession {
     /// Returns a read-only reference to the running usage statistics.
@@ -758,7 +765,6 @@ impl ConversationSession {
     pub fn streaming_sink(&self) -> Option<&Arc<dyn StreamingSink>> {
         self.streaming_sink.as_ref()
     }
-
     /// Detects a cache break by comparing per-call hit rates.
     pub fn detect_cache_break_for_usage(
         &mut self,
@@ -842,13 +848,11 @@ impl ConversationSession {
         self.is_yielding.store(true, Ordering::SeqCst);
         tracing::debug!(session_id = %self.session_id, "entered active Waiting");
     }
-
     /// Exit active Waiting state and resume normal processing.
     pub fn exit_waiting(&self) {
         self.is_yielding.store(false, Ordering::SeqCst);
         tracing::debug!(session_id = %self.session_id, "exited active Waiting");
     }
-
     /// Returns `true` if the session is in active Waiting (yielding).
     pub fn is_waiting(&self) -> bool {
         self.is_yielding.load(Ordering::SeqCst)
@@ -865,7 +869,6 @@ impl ConversationSession {
             .any(|(s, _)| *s == ChildSessionState::Running)
     }
 }
-
 impl std::fmt::Debug for ConversationSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConversationSession")
@@ -879,6 +882,7 @@ impl std::fmt::Debug for ConversationSession {
             .field("is_sub_agent", &self.is_sub_agent)
             .field("unified_queue", &self.unified_queue)
             .field("reasoning_level", &self.reasoning_level)
+            .field("effective_reasoning_level", &self.effective_reasoning_level)
             .field("workdir", &self.workdir)
             .field("created_at", &self.created_at)
             .field("stats", &self.stats)

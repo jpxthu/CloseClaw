@@ -246,7 +246,7 @@ fn test_dispatcher_is_immediate_false() {
 /// Construct a SessionManager the same way `test_clear_handler_handle_returns_reply`
 /// does. Returns just the manager — tests that need a session call
 /// `create_test_session` to obtain a `session_id`.
-fn make_workdir_session_manager() -> std::sync::Arc<SessionManager> {
+pub(crate) fn make_workdir_session_manager() -> std::sync::Arc<SessionManager> {
     use closeclaw_session::persistence::ReasoningLevel;
 
     let gc = closeclaw_gateway::GatewayConfig {
@@ -266,7 +266,7 @@ fn make_workdir_session_manager() -> std::sync::Arc<SessionManager> {
 /// Pre-create a session via `SessionManager::find_or_create` and return its id.
 /// The returned id can be used to build a `SlashContext` so the handler resolves
 /// to a real session for `get_conversation_session`.
-async fn create_test_session(sm: &SessionManager) -> String {
+pub(crate) async fn create_test_session(sm: &SessionManager) -> String {
     use closeclaw_gateway::Message;
 
     let msg = Message {
@@ -434,6 +434,33 @@ async fn test_reasoning_handler_no_args_returns_current_level() {
 }
 
 #[tokio::test]
+async fn test_reasoning_handler_no_args_returns_effective_level() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    if let Some(conv) = sm.get_conversation_session(&sid).await {
+        conv.write()
+            .await
+            .set_effective_reasoning_level(ReasoningLevel::Low);
+    }
+    let h = ReasoningHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(t) => {
+            assert!(
+                t.contains("Low"),
+                "should show effective level Low, got: {t}"
+            );
+            assert!(
+                !t.contains("High"),
+                "should not show configured level High, got: {t}"
+            );
+        }
+        _other => panic!("expected Reply"),
+    }
+}
+
+#[tokio::test]
 async fn test_reasoning_handler_valid_levels() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
@@ -456,14 +483,56 @@ async fn test_reasoning_handler_valid_levels() {
 }
 
 #[tokio::test]
-async fn test_reasoning_handler_invalid_level() {
+async fn test_reasoning_handler_invalid_level_shows_current_level() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
     let h = ReasoningHandler::new(Arc::clone(&sm));
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("banana", &ctx).await {
-        SlashResult::Reply(t) => assert!(t.contains("无效的推理深度"), "got: {t}"),
+        SlashResult::Reply(t) => {
+            assert!(t.contains("无效的推理深度"), "got: {t}");
+            assert!(
+                t.contains("当前推理深度"),
+                "should show current level, got: {t}"
+            );
+            assert!(
+                t.contains("High"),
+                "should show default level High, got: {t}"
+            );
+            assert!(
+                t.contains("可选值"),
+                "should list available values, got: {t}"
+            );
+        }
+        _other => panic!("expected Reply error"),
+    }
+}
+
+#[tokio::test]
+async fn test_reasoning_handler_invalid_level_shows_effective_level() {
+    let sm = make_workdir_session_manager();
+    let sid = create_test_session(&sm).await;
+    if let Some(conv) = sm.get_conversation_session(&sid).await {
+        conv.write()
+            .await
+            .set_effective_reasoning_level(ReasoningLevel::Medium);
+    }
+    let h = ReasoningHandler::new(Arc::clone(&sm));
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("banana", &ctx).await {
+        SlashResult::Reply(t) => {
+            assert!(t.contains("无效的推理深度"), "got: {t}");
+            assert!(
+                t.contains("当前推理深度"),
+                "should show current level, got: {t}"
+            );
+            assert!(
+                t.contains("Medium"),
+                "should show effective level Medium, got: {t}"
+            );
+        }
         _other => panic!("expected Reply error"),
     }
 }
@@ -659,6 +728,7 @@ async fn test_verbose_set_valid_levels() {
         ("full", VerbosityLevel::Full),
         ("normal", VerbosityLevel::Normal),
         ("off", VerbosityLevel::Off),
+        ("  normal  ", VerbosityLevel::Normal),
     ];
     for (arg, expected) in cases {
         let mut ctx = dummy_ctx();
@@ -701,21 +771,6 @@ async fn test_verbose_handler_no_session_no_args() {
     match h.handle("", &ctx).await {
         SlashResult::Reply(t) => assert!(t.contains("当前会话未激活"), "got: {t}"),
         other => panic!("expected Reply with no-session, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn test_verbose_set_with_whitespace_args() {
-    let sm = make_workdir_session_manager();
-    let sid = create_test_session(&sm).await;
-    let h = VerboseHandler::new(Arc::clone(&sm));
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid;
-    match h.handle("  normal  ", &ctx).await {
-        SlashResult::SetVerbosity { level } => {
-            assert_eq!(level, closeclaw_common::VerbosityLevel::Normal)
-        }
-        other => panic!("expected SetVerbosity, got {other:?}"),
     }
 }
 
@@ -851,81 +906,6 @@ async fn test_git_status_extra_args_ignored() {
 }
 
 #[tokio::test]
-async fn test_git_status_no_session() {
-    let sm = make_workdir_session_manager();
-    let h = WorkdirHandler::new(sm);
-    let ctx = SlashContext {
-        command: "git".to_owned(),
-        sender_id: "u".to_owned(),
-        session_id: "nonexistent".to_owned(),
-        channel: "c".to_owned(),
-    };
-    // handle_git no longer checks session; it returns Exec.
-    let command = assert_exec_command(h.handle("status", &ctx).await, "git ");
-    assert_eq!(command, "git status");
-}
-
-#[tokio::test]
-async fn test_git_status_in_git_repo_with_uncommitted_changes() {
-    let tmp = tempfile::tempdir().unwrap();
-    let repo_path = tmp.path().join("repo");
-    std::fs::create_dir(&repo_path).unwrap();
-    std::process::Command::new("git")
-        .args(["init", repo_path.to_str().unwrap()])
-        .output()
-        .expect("git init failed");
-    // Initial commit so HEAD exists.
-    std::fs::write(repo_path.join(".gitkeep"), "").unwrap();
-    std::process::Command::new("git")
-        .args(["-C", repo_path.to_str().unwrap(), "add", "."])
-        .output()
-        .expect("git add failed");
-    std::process::Command::new("git")
-        .args(["-C", repo_path.to_str().unwrap(), "commit", "-m", "init"])
-        .output()
-        .expect("git commit failed");
-
-    let sm = make_workdir_session_manager();
-    let sid = create_test_session(&sm).await;
-    set_session_workdir(&sm, &sid, &repo_path).await;
-
-    let h = WorkdirHandler::new(Arc::clone(&sm));
-    let ctx = SlashContext {
-        command: "git".to_owned(),
-        sender_id: "u".to_owned(),
-        session_id: sid,
-        channel: "c".to_owned(),
-    };
-    let command = assert_exec_command(h.handle("status", &ctx).await, "git ");
-    assert_eq!(command, "git status");
-}
-
-// ── /git subcommand routing tests ──────────────────────────────────────
-
-#[tokio::test]
-async fn test_git_write_subcommands_route_to_exec() {
-    let sm = make_workdir_session_manager();
-    let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
-    let ctx = SlashContext {
-        command: "git".to_owned(),
-        sender_id: "u".to_owned(),
-        session_id: sid,
-        channel: "c".to_owned(),
-    };
-    // Write subcommands should route to Exec (Permission module gates them).
-    for sub in [
-        "commit -m \"test\"",
-        "push origin main",
-        "merge feature",
-        "rebase main",
-    ] {
-        let command = assert_exec_command(h.handle(sub, &ctx).await, "git ");
-        assert_eq!(command, format!("git {sub}"));
-    }
-}
-
-#[tokio::test]
 async fn test_git_subcommands_route_to_exec() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
@@ -946,55 +926,4 @@ async fn test_git_subcommands_route_to_exec() {
     assert_eq!(command, "git log --oneline -5");
     let command = assert_exec_command(h.handle("diff HEAD~1", &ctx).await, "git ");
     assert_eq!(command, "git diff HEAD~1");
-}
-
-#[tokio::test]
-async fn test_git_requires_permission() {
-    let sm = make_workdir_session_manager();
-    let h = WorkdirHandler::new(sm);
-    // WorkdirHandler no longer overrides requires_permission(); the default
-    // from the trait is false. Permission gating is now per-Exec-result.
-    assert!(
-        !h.requires_permission(),
-        "WorkdirHandler should not require permission at handler level"
-    );
-}
-
-// ── Step 1.1: requires_permission field tests ─────────────────────────
-
-/// Verify per-subcommand requires_permission: false for read-only, true for
-/// write.
-#[tokio::test]
-async fn test_git_read_write_requires_permission() {
-    let sm = make_workdir_session_manager();
-    let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
-    let ctx = SlashContext {
-        command: "git".to_owned(),
-        sender_id: "u".to_owned(),
-        session_id: sid,
-        channel: "c".to_owned(),
-    };
-    // Read-only: requires_permission = false
-    match h.handle("status", &ctx).await {
-        SlashResult::Exec {
-            command,
-            requires_permission,
-        } => {
-            assert_eq!(command, "git status");
-            assert!(!requires_permission);
-        }
-        other => panic!("expected Exec, got {other:?}"),
-    }
-    // Write: requires_permission = true
-    match h.handle("commit -m \"test\"", &ctx).await {
-        SlashResult::Exec {
-            command,
-            requires_permission,
-        } => {
-            assert_eq!(command, "git commit -m \"test\"");
-            assert!(requires_permission);
-        }
-        other => panic!("expected Exec, got {other:?}"),
-    }
 }

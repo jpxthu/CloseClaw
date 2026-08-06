@@ -26,9 +26,75 @@ use crate::session_manager::SessionManager;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::llm_session::ChatSession;
+use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::run_health::RecoverableAction;
 use closeclaw_tasks::NotificationPriority;
 use tokio::time::Instant;
+
+/// Resolve the effective reasoning level for a given model.
+///
+/// Iterates through the knowledge base to find the provider that
+/// serves this model, then checks if the requested level is
+/// supported. If not, returns the highest supported level.
+/// Falls back to `requested` when the model is not in the knowledge base.
+fn resolve_effective_reasoning_level(
+    model: &str,
+    requested: ReasoningLevel,
+    knowledge: &closeclaw_llm::ProviderModelKnowledge,
+) -> ReasoningLevel {
+    for provider_id in knowledge.all_providers() {
+        let models = knowledge.all_models(provider_id);
+        if models.iter().any(|m| *m == model) {
+            if let Some(params) = knowledge.find(provider_id, model) {
+                return match params.reasoning_levels {
+                    closeclaw_llm::knowledge::ReasoningLevels::None => {
+                        // Provider doesn't support reasoning —
+                        // keep requested level (provider handles it).
+                        requested
+                    }
+                    closeclaw_llm::knowledge::ReasoningLevels::Toggle { .. } => {
+                        // Toggle: on/off only — any level maps to High.
+                        ReasoningLevel::High
+                    }
+                    closeclaw_llm::knowledge::ReasoningLevels::Levels {
+                        off,
+                        base,
+                        reasoner,
+                    } => {
+                        // Multi-level: pick the highest supported
+                        // level that is ≤ requested.
+                        match requested {
+                            ReasoningLevel::Max if reasoner => ReasoningLevel::Max,
+                            ReasoningLevel::Max => ReasoningLevel::High,
+                            ReasoningLevel::High if reasoner => ReasoningLevel::High,
+                            ReasoningLevel::High => {
+                                if base {
+                                    ReasoningLevel::Medium
+                                } else if off {
+                                    ReasoningLevel::Low
+                                } else {
+                                    ReasoningLevel::High
+                                }
+                            }
+                            ReasoningLevel::Medium if base => ReasoningLevel::Medium,
+                            ReasoningLevel::Medium => {
+                                if off {
+                                    ReasoningLevel::Low
+                                } else {
+                                    ReasoningLevel::Medium
+                                }
+                            }
+                            ReasoningLevel::Low if off => ReasoningLevel::Low,
+                            ReasoningLevel::Low => ReasoningLevel::Low,
+                        }
+                    }
+                };
+            }
+        }
+    }
+    // Model not found in knowledge base — return requested level.
+    requested
+}
 
 /// Turn-level timing metadata passed through the health
 /// check pipeline so hard rules receive actual runtime values.
@@ -150,6 +216,16 @@ impl SessionMessageHandler {
                         );
                     }
                     cs_write.accumulate_usage(&stream_result.usage);
+
+                    // Resolve effective reasoning level (post-provider-downgrade).
+                    if let Some(knowledge) = gateway.and_then(|g| g.model_knowledge()) {
+                        let effective = resolve_effective_reasoning_level(
+                            cs_write.model(),
+                            cs_write.reasoning_level(),
+                            knowledge,
+                        );
+                        cs_write.set_effective_reasoning_level(effective);
+                    }
 
                     // Run health check at turn boundary.
                     let mut recovery_action = None;
@@ -627,5 +703,27 @@ impl SessionMessageHandler {
         }
         cs_write.inject_system_message(text);
         drop(cs_write);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use closeclaw_llm::ProviderModelKnowledge;
+    use closeclaw_session::persistence::ReasoningLevel;
+
+    #[test]
+    fn test_resolve_effective_level_model_not_found_returns_requested() {
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level("unknown-model", ReasoningLevel::Max, &kb);
+        assert_eq!(result, ReasoningLevel::Max);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_none_returns_requested() {
+        // With an empty knowledge base, model not found → requested.
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level("some-model", ReasoningLevel::Medium, &kb);
+        assert_eq!(result, ReasoningLevel::Medium);
     }
 }

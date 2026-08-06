@@ -72,6 +72,7 @@ use closeclaw_common::processor::ProcessedMessage;
 pub use closeclaw_common::processor::ProcessorChain;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_common::slash_router::SlashRouter;
+use closeclaw_llm::ProviderModelKnowledge;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
@@ -278,6 +279,13 @@ impl Gateway {
 
     pub async fn has_session_handler(&self) -> bool {
         self.session_handler.is_some()
+    }
+
+    /// Returns a reference to the model knowledge base, if the session handler is set.
+    pub fn model_knowledge(&self) -> Option<&ProviderModelKnowledge> {
+        self.session_handler
+            .as_ref()
+            .and_then(|h| h.model_knowledge())
     }
 
     pub fn config_name(&self) -> &str {
