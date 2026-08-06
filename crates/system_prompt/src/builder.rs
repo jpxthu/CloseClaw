@@ -5,10 +5,12 @@
 use crate::fragment::{FragmentContext, PromptFragmentProvider};
 use crate::providers::bootstrap::BootstrapFragmentProvider;
 use crate::providers::memory::MemoryFragmentProvider;
+use crate::providers::skills::SkillsFragmentProvider;
 use crate::providers::tools::ToolsFragmentProvider;
 use crate::sections::{Section, SectionCache};
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::BootstrapMode;
+use closeclaw_common::SkillListingProvider;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -45,6 +47,7 @@ impl PromptBuilder {
         agent_tools: Option<Vec<String>>,
         agent_disallowed_tools: Option<Vec<String>>,
         session_mode: Option<SessionMode>,
+        skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
     ) -> Self {
         Self::new_with_cache(
             tool_registry,
@@ -52,6 +55,7 @@ impl PromptBuilder {
             agent_disallowed_tools,
             session_mode,
             Arc::new(RwLock::new(SectionCache::new())),
+            skill_listing_provider,
         )
     }
 
@@ -65,6 +69,7 @@ impl PromptBuilder {
         agent_disallowed_tools: Option<Vec<String>>,
         session_mode: Option<SessionMode>,
         shared_cache: Arc<RwLock<SectionCache>>,
+        skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
     ) -> Self {
         let mut providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
             Box::new(BootstrapFragmentProvider::new()),
@@ -74,8 +79,11 @@ impl PromptBuilder {
                 agent_disallowed_tools,
                 session_mode,
             )),
-            Box::new(MemoryFragmentProvider::new()),
         ];
+        if let Some(listing) = skill_listing_provider {
+            providers.push(Box::new(SkillsFragmentProvider::new(listing)));
+        }
+        providers.push(Box::new(MemoryFragmentProvider::new()));
         providers.sort_by_key(|p| p.priority());
 
         Self {
@@ -190,6 +198,11 @@ pub struct WorkspaceBuildConfig {
     pub agent_tools: Option<Vec<String>>,
     /// Agent-level tool blacklist from config (`disallowedTools` field).
     pub agent_disallowed_tools: Option<Vec<String>>,
+    /// Skill listing provider for the skills section.
+    /// When `Some`, a [`SkillsFragmentProvider`] is registered in the
+    /// provider pipeline (priority=3).
+    pub skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
+
     /// Additional dynamic sections to include.
     pub dynamic_sections: Vec<Section>,
     /// Content to append at the end of the prompt.
@@ -255,12 +268,14 @@ pub async fn build_from_workspace_with_cache<P: AsRef<Path>>(
             config.agent_disallowed_tools,
             config.session_mode,
             cache,
+            config.skill_listing_provider,
         ),
         None => PromptBuilder::new(
             tool_registry,
             config.agent_tools,
             config.agent_disallowed_tools,
             config.session_mode,
+            config.skill_listing_provider,
         ),
     };
 
@@ -367,6 +382,7 @@ mod tests {
             bootstrap_mode_override: None,
             session_mode: None,
             effective_spawn_budget: None,
+            skill_listing_provider: None,
         };
         assert!(config.agent_id.is_none());
     }
@@ -385,6 +401,7 @@ mod tests {
             bootstrap_mode_override: Some(BootstrapMode::Minimal),
             session_mode: None,
             effective_spawn_budget: None,
+            skill_listing_provider: None,
         };
         assert_eq!(config.agent_id.as_deref(), Some("test-agent"));
         assert_eq!(config.bootstrap_mode_override, Some(BootstrapMode::Minimal));
@@ -395,7 +412,7 @@ mod tests {
     #[test]
     fn test_prompt_builder_new() {
         let tool_reg = Arc::new(ToolRegistry::new());
-        let builder = PromptBuilder::new(tool_reg, None, None, None);
+        let builder = PromptBuilder::new(tool_reg, None, None, None, None);
         // Verify construction succeeds, providers are registered, and list is non-empty.
         assert!(!builder.providers.is_empty());
         assert_eq!(builder.providers.len(), 3);
@@ -404,10 +421,10 @@ mod tests {
     #[test]
     fn test_prompt_builder_providers_sorted_by_priority() {
         let tool_reg = Arc::new(ToolRegistry::new());
-        let builder = PromptBuilder::new(tool_reg, None, None, None);
+        let builder = PromptBuilder::new(tool_reg, None, None, None, None);
         let priorities: Vec<u32> = builder.providers.iter().map(|p| p.priority()).collect();
-        // Bootstrap=1, Tools=2, Memory=3
-        assert_eq!(priorities, vec![1, 2, 3]);
+        // Bootstrap=1, Tools=2, Memory=4 (no Skills provider when None)
+        assert_eq!(priorities, vec![1, 2, 4]);
         // Verify provider names match expected order.
         assert_eq!(builder.providers[0].name(), "bootstrap");
         assert_eq!(builder.providers[1].name(), "tools");
@@ -417,7 +434,7 @@ mod tests {
     #[tokio::test]
     async fn test_prompt_builder_build_fallback_default() {
         let tool_reg = Arc::new(ToolRegistry::new());
-        let builder = PromptBuilder::new(tool_reg, None, None, None);
+        let builder = PromptBuilder::new(tool_reg, None, None, None, None);
 
         // No bootstrap_dir → BootstrapFragmentProvider returns None
         // Empty tool registry → ToolsFragmentProvider returns None
@@ -434,7 +451,7 @@ mod tests {
         std::fs::write(tmp.path().join("MEMORY.md"), "remember X").unwrap();
 
         let tool_reg = Arc::new(ToolRegistry::new());
-        let builder = PromptBuilder::new(tool_reg, None, None, None);
+        let builder = PromptBuilder::new(tool_reg, None, None, None, None);
 
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_path_buf(),
@@ -464,6 +481,7 @@ mod tests {
             bootstrap_mode_override: Some(BootstrapMode::Minimal),
             session_mode: None,
             effective_spawn_budget: None,
+            skill_listing_provider: None,
         };
 
         let result = build_from_workspace(tmp.path(), config).await;
@@ -489,6 +507,7 @@ mod tests {
             bootstrap_mode_override: None,
             session_mode: None,
             effective_spawn_budget: None,
+            skill_listing_provider: None,
         };
 
         let result = build_from_workspace(tmp.path(), config).await;
