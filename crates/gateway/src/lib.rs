@@ -24,6 +24,8 @@ mod outbound_checkpoint_timing_tests;
 #[cfg(test)]
 mod outbound_fallback_tests;
 mod outbound_helpers;
+#[cfg(test)]
+mod outbound_helpers_tests;
 pub mod outbound_middleware;
 #[cfg(test)]
 mod outbound_tests;

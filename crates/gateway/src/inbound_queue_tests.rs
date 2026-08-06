@@ -509,6 +509,121 @@ async fn test_fallback_passes_normal_text() {
 }
 
 // ---------------------------------------------------------------------------
+// Busy reply uses simplified outbound path (Step 1.3)
+// ---------------------------------------------------------------------------
+
+/// A middleware that rejects every outbound message.
+/// Used to verify that busy reply bypasses the middleware chain
+/// (i.e. uses send_outbound_simplified, not send_outbound_to_chat).
+struct RejectAllMiddleware;
+
+#[async_trait]
+impl closeclaw_common::OutboundMiddleware for RejectAllMiddleware {
+    fn name(&self) -> &str {
+        "reject-all"
+    }
+
+    async fn process(
+        &self,
+        _ctx: &closeclaw_common::MiddlewareContext,
+        _rendered: &RenderedOutput,
+    ) -> Result<(), closeclaw_common::MiddlewareError> {
+        Err(closeclaw_common::MiddlewareError::rejected(
+            "reject-all",
+            "blocked",
+        ))
+    }
+}
+
+/// A mock plugin that tracks whether `send()` was called.
+struct TrackingSendPlugin {
+    send_called: std::sync::atomic::AtomicBool,
+}
+
+impl TrackingSendPlugin {
+    fn new() -> Self {
+        Self {
+            send_called: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    fn was_send_called(&self) -> bool {
+        self.send_called.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl IMPlugin for TrackingSendPlugin {
+    fn platform(&self) -> &str {
+        "feishu"
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(None)
+    }
+
+    fn render(
+        &self,
+        _content_blocks: &[ContentBlock],
+        _dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::json!({"content": {"text": "busy"}}),
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        self.send_called
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+/// Verify that busy reply goes through the simplified outbound path.
+///
+/// Strategy: register a rejecting middleware. If busy reply used
+/// `send_outbound_to_chat`, the middleware would reject the message
+/// and `plugin.send()` would never be called. Since it uses
+/// `send_outbound_simplified`, the middleware is skipped and the
+/// plugin receives the send call.
+#[tokio::test]
+async fn test_busy_reply_uses_simplified_outbound_path() {
+    let gw = make_gateway();
+    let plugin = Arc::new(TrackingSendPlugin::new());
+    gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
+        .await;
+    // Register a middleware that rejects all messages.
+    gw.add_outbound_middleware(Arc::new(RejectAllMiddleware));
+
+    let handle = gw.start_inbound_queue();
+    // Fill queue (capacity = 4) to trigger busy reply.
+    for i in 0..4 {
+        handle.try_send(make_request(&format!("fill-{i}"))).unwrap();
+    }
+
+    // Overflow triggers busy reply via simplified path (no middleware).
+    gw.enqueue_inbound(make_request("overflow-mw-test")).await;
+
+    // Give time for busy reply to execute.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Plugin.send should have been called — simplified path skips middleware.
+    assert!(
+        plugin.was_send_called(),
+        "send_outbound_simplified should call plugin.send()"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Busy reply timeout test (Step 1.6)
 // ---------------------------------------------------------------------------
 
