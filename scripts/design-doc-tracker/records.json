@@ -145,11 +145,11 @@
   },
   {
     "path": "docs/design/gateway/README.md",
-    "commit": "0de3bf70f7f33c6655bbf9a779ffdf7e69c23bc3",
-    "commit_time": "2026-07-16T23:03:28+08:00",
-    "confirmed_time": "2026-08-06T11:12:23.956155+08:00",
+    "commit": "7a5c737aa0c610ea0e3a710aa54d45c3ae10b7d9",
+    "commit_time": "2026-08-07T05:07:08+08:00",
+    "confirmed_time": "2026-08-07T05:21:21.703594+08:00",
     "comment": "",
-    "blocked_reason": "文档内部矛盾：出站日志描述不一致。批量模式和流式收尾阶段的数据流图示将OutboundRawLog画为固定组件，但出站日志的两种形态章节明确说明仅在raw_log_dir配置时注册"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/gateway/inbound-flow.md",
