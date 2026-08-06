@@ -66,7 +66,7 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
     }
 
     fn priority(&self) -> u32 {
-        3
+        4
     }
 
     async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
@@ -115,7 +115,7 @@ mod tests {
     fn test_provider_name_and_priority() {
         let provider = MemoryFragmentProvider::new();
         assert_eq!(provider.name(), "memory");
-        assert_eq!(provider.priority(), 3);
+        assert_eq!(provider.priority(), 4);
     }
 
     #[tokio::test]

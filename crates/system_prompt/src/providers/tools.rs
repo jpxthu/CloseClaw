@@ -224,10 +224,12 @@ mod tests {
                 permission_engine,
                 approval_flow.clone(),
             )),
-            Box::new(closeclaw_tools::SkillsToolsRegistrar::new(
-                disk_registry,
-                Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
-            )),
+            Box::new(closeclaw_tools::SkillsToolsRegistrar::new(Arc::new(
+                closeclaw_tools::SkillTool::new(
+                    disk_registry,
+                    Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
+                ),
+            ))),
             Box::new(closeclaw_tools::PlanToolsRegistrar::new(
                 Arc::new(std::sync::Mutex::new(closeclaw_common::PlanState::new())),
                 session_manager.clone(),
