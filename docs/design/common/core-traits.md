@@ -2,9 +2,9 @@
 
 ## 概述
 
-核心 trait 是跨模块依赖注入的接口契约。每个 trait 在本文档中唯一定义其完整接口，各业务模块文档通过引用指向此处，不在自身文档中重复定义 trait 签名。
+核心 trait 是跨模块依赖注入的接口契约。本文档唯一定义 common crate 中每个核心 DI trait 的完整接口。各业务模块文档通过引用指向此处，不在自身文档中重复定义本文档已收录的 trait。各业务模块文档通过引用指向此处，不在自身文档中重复定义本文档已收录的 trait。
 
-> **本文档是 common crate 中 DI trait 的权威清单。** 若代码中 common crate 存在本文档未收录的 pub trait，该 trait 不属于 common 的跨模块 DI 接口，应移至对应领域模块的 crate。反之，本文档定义的所有 trait 和接口，代码中均位于 common crate（或其子 crate）。各业务模块文档通过引用指向此处，不在自身文档中重复定义本文档已收录的 trait。
+未被收录的 trait 不属于 common 的跨模块 DI 接口，属于对应领域模块的接口，应放在领域模块文档中。代码映射规则见 [common README](README.md) 边界规则——common crate 中 pub trait 必须已在本文档中唯一定义；本文档定义的所有 trait，代码中均位于 common crate。
 
 ## 架构
 
@@ -19,11 +19,13 @@
 | 标识 | Provider 的唯一名称，用于注册和日志 |
 | 优先级 | 数值越小越靠前，决定片段在静态层中的排列顺序 |
 | 片段生成 | 根据 [FragmentContext](shared-types.md#fragmentcontext) 产出 [PromptFragment](shared-types.md#promptfragment)。无内容时返回空（文件缺失、agent 无可见 skill 等），Builder 自动跳过 |
-| 缓存键 | Section 级缓存的标识。不可缓存时返回空。文件型 Provider 基于文件修改时间生成键，注册表型 Provider 由各自注册表管理失效 |
+| 缓存键 | 片段级缓存的标识。不可缓存时返回空。文件型 Provider 基于文件修改时间生成键，注册表型 Provider 由各自注册表管理失效 |
 
-四个标准 Provider（BootstrapFragmentProvider / ToolsFragmentProvider / SkillsFragmentProvider / MemoryFragmentProvider）的定义和 Provider 注册编排流程详见 [fragment-provider](../system_prompt/fragment-provider.md)。
+各业务模块通过实现此 trait 提供系统提示词片段。具体 Provider 实现和注册编排流程详见 [fragment-provider](../system_prompt/fragment-provider.md)。
 
-兜底规则：所有 Provider 均返回空时，使用默认 prompt。无 workspace 目录时 BootstrapFragmentProvider 返回空，静态层仅含工具片段和技能片段。
+兜底规则：所有 Provider 均返回空时，系统使用默认 prompt。
+
+无 workspace 目录时，BootstrapFragmentProvider 返回空（该行为由 fragment-provider.md 定义，本 trait 接口仅约定 Provider 返回空的处理规则，不感知具体 Provider 实现）。
 
 ### ToolRegistrar
 
@@ -38,10 +40,10 @@
 | 注册 | 接收 [ToolRegistry](#toolregistry) 引用，将本模块所有工具一次性注册。工具名冲突时中断启动 |
 
 注册阶段的错误策略：
-- **工具名冲突**：报告冲突工具名和双方 Registrar，中断启动
-- **单个 Registrar 内部错误**：由 Registrar 自行处理（跳过无效工具并记录警告，不中断其他工具注册）。Registrar 整体注册失败则报告错误
+- **工具名冲突**：ToolRegistry 拒绝注册并报告冲突工具名和双方 Registrar，启动编排层据此中断启动
+- **单个 Registrar 内部错误**：由 Registrar 自行处理（跳过无效工具并记录警告，不中断其他工具注册）。Registrar 整体注册失败则报告错误并中断启动
 
-四个标准 Registrar（CoreToolsRegistrar / SessionToolsRegistrar / SkillsToolsRegistrar / ImAdapterToolsRegistrar）的定义和编排流程详见 [tool-registrar](../tools/tool-registrar.md)。
+各业务模块通过实现此 trait 注册自身工具。具体 Registrar 实现和编排流程详见 [tool-registrar](../tools/tool-registrar.md)。
 
 ### ToolRegistry
 
@@ -60,7 +62,7 @@
 
 ### Tool trait
 
-**用途**：所有工具的统一切入点接口。每个工具实现此 trait，ToolRegistry 通过此接口统一管理工具的标识、描述和输入模式。Tools 模块提供该 trait 的实现说明和工具注册流程。
+**用途**：所有工具的统一切入点接口。每个工具实现此 trait，ToolRegistry 通过此接口统一管理工具的标识、描述、输入模式和运行时标记。Tools 模块提供该 trait 的实现说明和工具注册流程。
 
 **接口契约**：
 
@@ -69,7 +71,7 @@
 | 标识 | `name`：工具名，用于索引和发现；`group`：所属分组，用于索引聚合 |
 | 摘要 | `summary`：一句话描述，用于工具列表场景 |
 | 行为描述 | `detail`：完整的功能说明。常用工具的行为描述进入一级索引供 LLM 理解工具用途 |
-| 动态 prompt 生成 | `generate_prompt`：根据运行时上下文（权限、可用工具、工作目录等）动态调整工具描述，默认实现回退到 `detail` |
+| 动态 prompt 生成 | `generate_prompt`：根据运行时上下文（权限、可用工具、工作目录等）动态调整工具描述，默认实现回退到 `detail`。生成的描述由 System Prompt Builder 注入工具 prompt，由 ToolRegistry 索引构建消费 |
 | 参数模式 | `input_schema`：JSON Schema 格式，直接暴露为 API schema |
 | 运行时标记 | `flags`：标识工具是否只读、是否破坏性、是否昂贵、是否默认延迟加载、是否并发安全 |
 
@@ -84,7 +86,7 @@
 | 要素 | 说明 |
 |------|------|
 | 标识 | Plugin 的唯一平台名（如 `"feishu"`、`"terminal"`），用于 Gateway 的 Plugin Registry 路由 |
-| 入站 | 解析平台原生 webhook/事件 payload 为 [NormalizedMessage](shared-types.md#normalizedmessage)。空内容消息在解析阶段丢弃，非文本消息正常产出 NormalizedMessage（message_type 标记类型，media_refs 存储引用） |
+| 入站 | 解析平台原生 webhook/事件 payload 为 [NormalizedMessage](shared-types.md#normalizedmessage)。text 类型空 content 消息在解析阶段丢弃，非文本消息（image/file/audio）正常产出 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空） |
 | 渲染 | 接收 [ContentBlock](shared-types.md#contentblock)[] 和 [DslParseResult](shared-types.md#dslparseresult-和-dslinstruction)，按平台能力选择输出格式（纯文本或富格式），产出 [RenderedOutput](shared-types.md#renderedoutput)。渲染是纯数据转换，无副作用 |
 | 发送 | 接收 [RenderedOutput](shared-types.md#renderedoutput)，以指定目标（peer_id + thread_id）调用平台发送 API |
 | 生命周期 | `init()`：启动时初始化（连接池、token 等），不需要的插件空实现；`shutdown()`：关闭时清理资源，不需要的插件空实现 |
@@ -97,23 +99,25 @@
 
 ## 数据流
 
-core-traits 本身不参与运行时数据流。trait 接口在依赖注入时绑定实现，各业务模块通过 trait 接口交互而非直接依赖实现模块。
+core-traits 不定义具体的业务数据流。以下描述各 trait 实现方在依赖注入后的典型调用路径，供模块开发者理解接口在系统中的运转方式。详细数据流见各业务模块文档。
 
 ### PromptFragmentProvider 注册与调用
 
-1. 系统启动 → System Prompt Builder 收集所有 Provider 实现者 → 按优先级排序
-2. 构建触发（session 创建/恢复/compaction）
-3. Builder 构建 [FragmentContext](shared-types.md#fragmentcontext)（agent 标识 + bootstrap 模式 + 工作目录）
-4. 按优先级遍历 Provider → 检查缓存（命中则复用，未命中则调用片段生成）→ 跳过返回空的 → 按序拼接产出 [PromptFragment](shared-types.md#promptfragment)
-5. 写入 [ConversationSession](../session/README.md) 的 system prompt 字段
+System Prompt Builder 收集已注册 Provider → 按优先级排序 → 依次请求片段（传入 FragmentContext）→ 跳过空返回 → 拼接产出静态层文本 → 写入 ConversationSession 的 system prompt 字段。
 
-缓存由 Builder 内部管理，详细缓存策略和失效规则见 [fragment-provider](../system_prompt/fragment-provider.md)。
+完整数据流（含字段级详解、缓存策略）见 [fragment-provider](../system_prompt/fragment-provider.md)，核心数据结构的产出链路见 [shared-types 数据流](shared-types.md#数据流)。
 
 ### ToolRegistrar 注册与编排
 
 1. 系统启动 → Tools 模块收集所有 ToolRegistrar 实现者 → 按优先级排序
 2. 依次调用各 Registrar → 向 [ToolRegistry](#toolregistry) 注册工具 → 注册完成 → ToolRegistry 冻结
-3. 后续流程（索引构建、工具发现、system prompt 注入）不变
+3. 后续流程（索引构建、工具发现、system prompt 注入）照常进行
+
+### IMPlugin 入站与出站
+
+Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payload → 产出 NormalizedMessage → 进入 Processor Chain → 出站时 Gateway 将 ContentBlock[] 和 DslParseResult 传给同平台 IMPlugin 渲染为 RenderedOutput → 中间件插入点（审计、频率限制）→ IMPlugin 发送到平台。
+
+完整数据流（入站链路含 account_id 映射、出站链路含平台渲染差异）见 [shared-types 数据流](shared-types.md#数据流)。
 
 ## 模块关系
 
@@ -122,9 +126,9 @@ core-traits 本身不参与运行时数据流。trait 接口在依赖注入时�
   - **system_prompt**（实现 BootstrapFragmentProvider，System Prompt Builder 收集所有 Provider 并触发生成）
   - **tools**（实现 ToolsFragmentProvider 和 CoreToolsRegistrar，提供 ToolRegistry 具体实现，收集 ToolRegistrar 实现者并编排调用）
   - **session**（实现 SessionToolsRegistrar）
-  - **skills**（实现 SkillsToolsRegistrar）
+  - **skills**（实现 SkillsToolsRegistrar 和 SkillsFragmentProvider）
   - **memory**（实现 MemoryFragmentProvider）
   - **im_adapter**（实现 ImAdapterToolsRegistrar；各平台插件实现 IMPlugin trait，Gateway 通过 Plugin Registry 消费）
   - **gateway**（消费 IMPlugin trait，维护平台到插件的 Plugin Registry 映射）
-  - **cli**（TerminalAdapter 实现 IMPlugin trait，提供 terminal 渠道的插件实现）
+  - **cli**（TerminalPlugin 实现 IMPlugin trait，提供 terminal 渠道的插件实现，TerminalAdapter 为其入站解析子组件）
 - **无关**：Processor Chain（不参与 trait 接口定义或 DI 绑定）
