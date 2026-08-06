@@ -660,7 +660,15 @@ async fn test_streaming_text_outbound_log_and_send_order() {
 async fn test_streaming_non_text_block_rendered_and_sent() {
     let chain = Arc::new(MockProcessorChain::new());
     let plugin = Arc::new(CapturingPlugin::new("mock"));
-    let (gw, _sm, sid) = setup_streaming(chain.clone(), plugin.clone()).await;
+    let (gw, sm, sid) = setup_streaming(chain.clone(), plugin.clone()).await;
+
+    // Explicitly set verbosity to Full so this test validates non-Text
+    // block rendering behavior at Full verbosity (not affected by default).
+    if let Some(cs) = sm.get_conversation_session(&sid).await {
+        cs.write()
+            .await
+            .set_verbosity_level(closeclaw_common::VerbosityLevel::Full);
+    }
 
     let events = vec![
         Ok::<_, String>(StreamEvent::BlockStart {
@@ -704,7 +712,7 @@ async fn test_streaming_non_text_block_rendered_and_sent() {
         .await
         .unwrap();
 
-    // Step 1.6: In Full mode (default), both Thinking and Text blocks are
+    // Step 1.6: In Full mode (set explicitly), both Thinking and Text blocks are
     // sent via send_render_block during streaming.
     let sent = plugin.drain_sent();
     assert_eq!(

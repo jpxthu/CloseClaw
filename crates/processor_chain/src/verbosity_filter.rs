@@ -50,7 +50,7 @@ impl VerbosityFilter {
         }
     }
 
-    /// Parse verbosity level from metadata string, defaulting to `Full`.
+    /// Parse verbosity level from metadata string, defaulting to `Normal`.
     pub(crate) fn verbosity_from_metadata(
         metadata: &std::collections::HashMap<String, String>,
     ) -> VerbosityLevel {
