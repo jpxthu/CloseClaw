@@ -162,7 +162,7 @@ mod tests {
     use closeclaw_skills::DiskSkillRegistry;
     use closeclaw_tasks::BackgroundTaskManager;
     use closeclaw_tools::{
-        CoreToolsRegistrar, PlanToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar,
+        CoreToolsRegistrar, PlanToolsRegistrar, SkillTool, SkillsToolsRegistrar, ToolRegistrar,
     };
     use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
@@ -251,10 +251,10 @@ mod tests {
                 permission_engine,
                 approval_flow.clone(),
             )),
-            Box::new(SkillsToolsRegistrar::new(
+            Box::new(SkillsToolsRegistrar::new(Arc::new(SkillTool::new(
                 disk_registry,
                 Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
-            )),
+            )))),
             Box::new(PlanToolsRegistrar::new(
                 Arc::new(Mutex::new(PlanState::new())),
                 session_manager.clone(),

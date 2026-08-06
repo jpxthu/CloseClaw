@@ -11,6 +11,7 @@ pub mod registry;
 pub mod skill_creator;
 #[cfg(test)]
 mod skill_creator_tests;
+pub mod tool_registrar;
 
 pub use builtin::builtin_skills;
 pub use coding_agent::CodingAgentSkill;
@@ -20,3 +21,4 @@ pub use disk::{
 };
 pub use registry::{BuiltinSkillRegistry, Skill, SkillError, SkillListingMeta, SkillManifest};
 pub use skill_creator::SkillCreatorSkill;
+pub use tool_registrar::SkillsToolsRegistrar;
