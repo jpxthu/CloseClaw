@@ -74,18 +74,33 @@ fn test_filter_normal_keeps_tool_use_and_result() {
 }
 
 #[test]
-fn test_filter_off_only_keeps_text() {
+fn test_filter_off_keeps_text_and_media() {
     let blocks = vec![
         text_block("hello"),
         thinking_block("thinking"),
         tool_use_block("search"),
         tool_result_block("result"),
         text_block("world"),
+        ContentBlock::Image {
+            name: "img.png".to_string(),
+            url: "https://example.com/img.png".to_string(),
+        },
+        ContentBlock::Audio {
+            name: "audio.wav".to_string(),
+            url: "https://example.com/audio.wav".to_string(),
+        },
+        ContentBlock::File {
+            name: "doc.pdf".to_string(),
+            url: "https://example.com/doc.pdf".to_string(),
+        },
     ];
     let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
-    assert_eq!(result.len(), 2);
-    assert!(matches!(result[0], ContentBlock::Text(_)));
-    assert!(matches!(result[1], ContentBlock::Text(_)));
+    assert_eq!(result.len(), 5);
+    assert!(matches!(&result[0], ContentBlock::Text(t) if t == "hello"));
+    assert!(matches!(&result[1], ContentBlock::Text(t) if t == "world"));
+    assert!(matches!(&result[2], ContentBlock::Image { .. }));
+    assert!(matches!(&result[3], ContentBlock::Audio { .. }));
+    assert!(matches!(&result[4], ContentBlock::File { .. }));
 }
 
 #[test]
@@ -170,9 +185,9 @@ fn test_filter_normal_all_thinking_produces_empty() {
     );
 }
 
-/// Off mode with mixed content types should keep only Text blocks.
+/// Off mode with mixed content types should keep only final reply blocks.
 #[test]
-fn test_filter_off_mixed_content_keeps_only_text() {
+fn test_filter_off_mixed_content_keeps_final_reply() {
     let blocks = vec![
         thinking_block("thinking"),
         text_block("hello"),
@@ -180,11 +195,30 @@ fn test_filter_off_mixed_content_keeps_only_text() {
         tool_result_block("result"),
         text_block("world"),
         thinking_block("more thinking"),
+        ContentBlock::Image {
+            name: "img.png".to_string(),
+            url: "https://example.com/img.png".to_string(),
+        },
+        ContentBlock::Audio {
+            name: "audio.wav".to_string(),
+            url: "https://example.com/audio.wav".to_string(),
+        },
+        ContentBlock::File {
+            name: "doc.pdf".to_string(),
+            url: "https://example.com/doc.pdf".to_string(),
+        },
     ];
     let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
-    assert_eq!(result.len(), 2, "Off mode should keep only Text blocks");
+    assert_eq!(
+        result.len(),
+        5,
+        "Off mode should keep Text + Image + Audio + File"
+    );
     assert!(matches!(&result[0], ContentBlock::Text(t) if t == "hello"));
     assert!(matches!(&result[1], ContentBlock::Text(t) if t == "world"));
+    assert!(matches!(&result[2], ContentBlock::Image { .. }));
+    assert!(matches!(&result[3], ContentBlock::Audio { .. }));
+    assert!(matches!(&result[4], ContentBlock::File { .. }));
 }
 
 /// Normal mode preserves ToolUse and ToolResult alongside Text.
@@ -203,6 +237,58 @@ fn test_filter_normal_preserves_tool_blocks() {
     assert!(matches!(&result[1], ContentBlock::ToolUse { .. }));
     assert!(matches!(&result[2], ContentBlock::ToolResult { .. }));
     assert!(matches!(&result[3], ContentBlock::Text(t) if t == "after"));
+}
+
+/// Off mode with only Image block should preserve it.
+#[test]
+fn test_filter_off_keeps_image_block() {
+    let blocks = vec![ContentBlock::Image {
+        name: "photo.jpg".to_string(),
+        url: "https://example.com/photo.jpg".to_string(),
+    }];
+    let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
+    assert_eq!(result.len(), 1);
+    assert!(matches!(&result[0], ContentBlock::Image { .. }));
+}
+
+/// Off mode with only Audio block should preserve it.
+#[test]
+fn test_filter_off_keeps_audio_block() {
+    let blocks = vec![ContentBlock::Audio {
+        name: "voice.mp3".to_string(),
+        url: "https://example.com/voice.mp3".to_string(),
+    }];
+    let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
+    assert_eq!(result.len(), 1);
+    assert!(matches!(&result[0], ContentBlock::Audio { .. }));
+}
+
+/// Off mode with only File block should preserve it.
+#[test]
+fn test_filter_off_keeps_file_block() {
+    let blocks = vec![ContentBlock::File {
+        name: "report.csv".to_string(),
+        url: "https://example.com/report.csv".to_string(),
+    }];
+    let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
+    assert_eq!(result.len(), 1);
+    assert!(matches!(&result[0], ContentBlock::File { .. }));
+}
+
+/// Off mode with all intermediate blocks should produce empty.
+#[test]
+fn test_filter_off_all_intermediate_produces_empty() {
+    let blocks = vec![
+        thinking_block("thinking"),
+        tool_use_block("search"),
+        tool_result_block("result"),
+        thinking_block("more thinking"),
+    ];
+    let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
+    assert!(
+        result.is_empty(),
+        "Off mode should filter all intermediate blocks"
+    );
 }
 
 /// Full mode passes all block types without filtering.
