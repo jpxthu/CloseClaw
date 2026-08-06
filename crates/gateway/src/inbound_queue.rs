@@ -302,18 +302,18 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
     }
 }
 
-/// Send a "service busy" reply via the outbound Processor Chain.
+/// Send a "service busy" reply via the simplified outbound path.
 ///
-/// The reply text goes through the outbound chain (DslParser → RawLog)
-/// and is then rendered by the IM plugin, consistent with slash-command
-/// and LLM reply paths.
+/// The reply text skips VerbosityFilter/DslParser/middleware and goes
+/// directly through OutboundRawLog → render → send, per design doc:
+/// "non-text error replies are sent via the simplified outbound path".
 ///
 /// Per design doc: the reply must complete within 2 seconds to avoid
 /// blocking the Gateway. If the send times out, we log and move on.
 async fn send_busy_reply(gateway: &Gateway, request: &InboundRequest) {
     let result = tokio::time::timeout(
         Duration::from_secs(2),
-        gateway.send_outbound_to_chat(&request.peer_id, &request.platform, BUSY_REPLY_TEXT),
+        gateway.send_outbound_simplified(&request.peer_id, &request.platform, BUSY_REPLY_TEXT),
     )
     .await;
 
