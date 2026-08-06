@@ -129,6 +129,17 @@ fn test_format_notification_percentage_precision() {
     assert!(text.contains("3.3%"), "text: {text}");
 }
 
+#[test]
+fn test_format_notification_no_extra_spaces() {
+    let info = make_info(5000, 0.05);
+    let text = info.format_notification();
+    // Period must be immediately followed by 可能原因, no extra whitespace.
+    assert!(
+        text.contains("。可能原因："),
+        "'。' must be immediately followed by '可能原因：' without spaces: {text}"
+    );
+}
+
 // ── detect_cache_break standalone tests ───────────────────────────
 
 #[test]
