@@ -742,6 +742,11 @@ impl ConversationSession {
         &self.stats
     }
 
+    /// Returns a mutable reference to the running usage statistics.
+    pub fn stats_mut(&mut self) -> &mut RunningStats {
+        &mut self.stats
+    }
+
     /// Returns the streaming sink, if set.
     pub fn streaming_sink(&self) -> Option<&Arc<dyn StreamingSink>> {
         self.streaming_sink.as_ref()

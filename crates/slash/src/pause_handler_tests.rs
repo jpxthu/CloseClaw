@@ -63,6 +63,9 @@ async fn create_test_session(sm: &SessionManager) -> String {
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     sm.find_or_create("feishu", &msg, None)
         .await
@@ -81,6 +84,9 @@ async fn create_session_with_auto_mode(sm: &SessionManager) -> String {
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     let sid = sm
         .find_or_create("feishu", &msg, None)
@@ -108,6 +114,9 @@ async fn create_session_with_plan_mode(sm: &SessionManager) -> String {
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     let sid = sm
         .find_or_create("feishu", &msg, None)
