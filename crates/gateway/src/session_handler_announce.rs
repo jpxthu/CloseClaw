@@ -129,9 +129,10 @@ impl SessionMessageHandler {
                     cs_write.process_workflow_tool_results(&stream_result.content_blocks);
                     // Cache break detection (must run before accumulate_usage
                     // so that last_cache_read_tokens still holds the previous value).
-                    if let Some(info) =
-                        cs_write.detect_cache_break_for_usage(stream_result.usage.cache_read_tokens)
-                    {
+                    if let Some(info) = cs_write.detect_cache_break_for_usage(
+                        stream_result.usage.cache_read_tokens,
+                        Some(stream_result.usage.prompt_tokens),
+                    ) {
                         tracing::warn!(
                             session_id,
                             previous = info.previous_cache_read,

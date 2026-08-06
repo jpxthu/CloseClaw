@@ -759,15 +759,14 @@ impl ConversationSession {
         self.streaming_sink.as_ref()
     }
 
-    /// Detects a cache break between the previous and current
-    /// `cache_read_tokens`, then updates the tracked last value.
-    ///
-    /// Delegates to [`RunningStats::detect_cache_break_and_update`].
+    /// Detects a cache break by comparing per-call hit rates.
     pub fn detect_cache_break_for_usage(
         &mut self,
         current_cache_read: Option<u32>,
+        current_prompt_tokens: Option<u32>,
     ) -> Option<closeclaw_common::CacheBreakInfo> {
-        self.stats.detect_cache_break_and_update(current_cache_read)
+        self.stats
+            .detect_cache_break_and_update(current_cache_read, current_prompt_tokens)
     }
 
     /// Accumulates a single API call's usage into the session stats.

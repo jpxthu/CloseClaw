@@ -44,6 +44,8 @@ mod tests {
             current_cache_read: 5_000,
             drop_tokens: 5_000,
             drop_ratio: 0.5,
+            previous_hit_rate: 0.5,
+            current_hit_rate: 0.25,
             causes: vec![CacheBreakCause::TtlExpired],
         };
         emitter.emit_cache_break(&info);
@@ -74,6 +76,8 @@ mod tests {
             current_cache_read: 1_000,
             drop_tokens: 19_000,
             drop_ratio: 0.95,
+            previous_hit_rate: 0.8,
+            current_hit_rate: 0.05,
             causes: vec![CacheBreakCause::ToolsChanged],
         };
         emitter.emit_cache_break(&info);

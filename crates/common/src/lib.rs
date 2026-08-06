@@ -77,8 +77,8 @@ pub use im_plugin::{
 pub use llm_caller::LlmCaller;
 pub use llm_error::{ErrorKind, LLMError};
 pub use llm_stats::{
-    detect_cache_break, CacheBreakCause, CacheBreakInfo, PendingChanges, PromptFingerprint,
-    RunningStats,
+    detect_cache_break, CacheBreakCause, CacheBreakInfo, CacheBreakThresholds, PendingChanges,
+    PromptFingerprint, RunningStats,
 };
 pub use llm_streaming::{StreamDone, StreamingSink};
 pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinition};

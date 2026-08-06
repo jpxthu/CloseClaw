@@ -455,6 +455,7 @@ fn test_system_config_data_llm_defaults_when_missing() {
 fn test_llm_config_serde_roundtrip() {
     let config = LlmConfig {
         reasoning_level: ReasoningLevel::Medium,
+        cache_break: None,
     };
     let json = serde_json::to_string(&config).unwrap();
     let parsed: LlmConfig = serde_json::from_str(&json).unwrap();

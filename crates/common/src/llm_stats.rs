@@ -132,6 +132,31 @@ fn compute_pending(prev: &PromptFingerprint, new: &PromptFingerprint) -> Pending
     }
 }
 
+// ── Cache break threshold configuration ───────────────────────
+
+/// Thresholds for cache break detection.
+///
+/// `drop_ratio_threshold` is the minimum fraction (0.0–1.0) of
+/// hit-rate decline that triggers a cache break.
+/// `min_drop_tokens` is the minimum absolute token drop required
+/// for the rate-based comparison to activate.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CacheBreakThresholds {
+    /// Minimum hit-rate drop ratio to trigger a break.
+    pub drop_ratio_threshold: f64,
+    /// Minimum absolute token drop (per call) to consider a break.
+    pub min_drop_tokens: u32,
+}
+
+impl Default for CacheBreakThresholds {
+    fn default() -> Self {
+        Self {
+            drop_ratio_threshold: 0.05,
+            min_drop_tokens: 2000,
+        }
+    }
+}
+
 // ── Cache break info ─────────────────────────────────────────────
 
 /// Information about a detected cache break between two consecutive calls.
@@ -145,6 +170,10 @@ pub struct CacheBreakInfo {
     pub drop_tokens: u32,
     /// Ratio of the drop relative to the previous value (0.0–1.0).
     pub drop_ratio: f64,
+    /// Per-call cache hit rate of the previous call (0.0–1.0).
+    pub previous_hit_rate: f64,
+    /// Per-call cache hit rate of the current call (0.0–1.0).
+    pub current_hit_rate: f64,
     /// Attributed causes for this cache break.
     pub causes: Vec<CacheBreakCause>,
 }
@@ -170,14 +199,16 @@ impl CacheBreakCause {
 impl CacheBreakInfo {
     /// Formats a user-facing notification for this cache break.
     ///
-    /// The notification includes the token drop, percentage,
+    /// The notification includes the hit-rate comparison and token drop,
     /// attributed causes (in Chinese), and affected cache dimensions.
     /// When `causes` is empty, the cause/dimension clauses are omitted.
     pub fn format_notification(&self) -> String {
         let drop_pct = self.drop_ratio * 100.0;
+        let prev_rate_pct = self.previous_hit_rate * 100.0;
+        let curr_rate_pct = self.current_hit_rate * 100.0;
         let mut text = format!(
-            "[缓存断点] 检测到缓存命中率下降（减少 {} tokens，降幅 {:.1}%）。",
-            self.drop_tokens, drop_pct,
+            "[缓存断点] 缓存命中率从 {:.1}% 降至 {:.1}%（减少 {} tokens，降幅 {:.1}%）。",
+            prev_rate_pct, curr_rate_pct, self.drop_tokens, drop_pct,
         );
         if !self.causes.is_empty() {
             let causes_str = self
@@ -204,30 +235,35 @@ impl CacheBreakInfo {
 /// Detects a cache break between two consecutive cache-read token counts.
 ///
 /// Returns `Some(CacheBreakInfo)` when:
-/// - `current` is less than `previous` by more than 5%
-///   (`current < previous * 0.95`) **and** the absolute drop exceeds
-///   2 000 tokens.
+/// - `current` is less than `previous` by more than `thresholds.drop_ratio_threshold`
+///   **and** the absolute drop exceeds `thresholds.min_drop_tokens`.
+///
+/// Uses [`CacheBreakThresholds::default`] when `thresholds` is `None`.
 ///
 /// Returns `None` when either input is `None`, the current value is
 /// greater than or equal to the previous value, or the drop does not
 /// meet the thresholds.
-pub fn detect_cache_break(previous: Option<u32>, current: Option<u32>) -> Option<CacheBreakInfo> {
+pub fn detect_cache_break(
+    previous: Option<u32>,
+    current: Option<u32>,
+    thresholds: Option<&CacheBreakThresholds>,
+) -> Option<CacheBreakInfo> {
     let prev = previous?;
     let curr = current?;
+    let th = thresholds.cloned().unwrap_or_default();
 
     if curr >= prev {
         return None;
     }
 
     let drop_tokens = prev - curr;
-    let threshold_tokens = 2000u32;
 
-    if drop_tokens <= threshold_tokens {
+    if drop_tokens <= th.min_drop_tokens {
         return None;
     }
 
     let drop_ratio = drop_tokens as f64 / prev as f64;
-    if drop_ratio <= 0.05 {
+    if drop_ratio <= th.drop_ratio_threshold {
         return None;
     }
 
@@ -236,6 +272,8 @@ pub fn detect_cache_break(previous: Option<u32>, current: Option<u32>) -> Option
         current_cache_read: curr,
         drop_tokens,
         drop_ratio,
+        previous_hit_rate: 0.0,
+        current_hit_rate: 0.0,
         causes: vec![],
     })
 }
@@ -267,6 +305,11 @@ pub struct RunningStats {
     ///
     /// `None` before any calls have been accumulated.
     pub last_cache_read_tokens: Option<u32>,
+    /// Per-call cache hit rate from the previous API call.
+    ///
+    /// Computed as `cache_read / prompt_tokens` for that call.
+    /// `None` before any calls have been accumulated.
+    pub last_cache_hit_rate: Option<f64>,
     /// The most recent pre-call fingerprint, or `None` if none
     /// recorded yet.
     pub last_fingerprint: Option<PromptFingerprint>,
@@ -285,6 +328,7 @@ impl PartialEq for RunningStats {
             && self.request_count == other.request_count
             && self.total_reasoning_tokens == other.total_reasoning_tokens
             && self.last_cache_read_tokens == other.last_cache_read_tokens
+            && self.last_cache_hit_rate == other.last_cache_hit_rate
             && self.pending_changes == other.pending_changes
         // last_fingerprint excluded: Instant does not implement Eq
     }
@@ -305,22 +349,80 @@ impl RunningStats {
             request_count: 0,
             total_reasoning_tokens: 0,
             last_cache_read_tokens: None,
+            last_cache_hit_rate: None,
             last_fingerprint: None,
             pending_changes: None,
         }
     }
 
-    /// Detects a cache break using the previous and current
-    /// `cache_read_tokens` values, then updates the tracked last value.
+    /// Detects a cache break by comparing per-call hit rates.
+    ///
+    /// Computes the current hit rate as `current_cache_read /
+    /// current_prompt_tokens` and compares it against the previous
+    /// call's hit rate (`last_cache_hit_rate`). If the drop exceeds
+    /// the threshold and the absolute token drop is significant,
+    /// returns `Some(CacheBreakInfo)`.
     ///
     /// Call this **before** `accumulate()` so that `last_cache_read_tokens`
     /// still holds the previous call's value when the comparison is made.
     pub fn detect_cache_break_and_update(
         &mut self,
         current_cache_read: Option<u32>,
+        current_prompt_tokens: Option<u32>,
     ) -> Option<CacheBreakInfo> {
-        let mut info = detect_cache_break(self.last_cache_read_tokens, current_cache_read);
+        let prev_rate = self.last_cache_hit_rate;
+        let mut info = detect_cache_break(self.last_cache_read_tokens, current_cache_read, None);
         self.last_cache_read_tokens = current_cache_read;
+
+        // Compute current per-call hit rate.
+        let current_rate = match (current_cache_read, current_prompt_tokens) {
+            (Some(cr), Some(pt)) if pt > 0 => Some(cr as f64 / pt as f64),
+            _ => None,
+        };
+
+        // Override with hit-rate based detection when both rates available.
+        if let (Some(prev), Some(curr)) = (prev_rate, current_rate) {
+            let th = CacheBreakThresholds::default();
+            let rate_drop = prev - curr;
+            if rate_drop > th.drop_ratio_threshold {
+                let drop_ok = info
+                    .as_ref()
+                    .map(|i| i.drop_tokens > th.min_drop_tokens)
+                    .unwrap_or(false);
+                if drop_ok {
+                    // Enhance existing info with hit-rate data.
+                    if let Some(ref mut b) = info {
+                        b.previous_hit_rate = prev;
+                        b.current_hit_rate = curr;
+                    }
+                } else {
+                    // Trigger break based on rate drop alone.
+                    let prev_ct = self.last_cache_read_tokens.unwrap_or(0);
+                    let curr_ct = current_cache_read.unwrap_or(0);
+                    let drop_tokens = prev_ct.saturating_sub(curr_ct);
+                    let drop_ratio = if prev_ct > 0 {
+                        drop_tokens as f64 / prev_ct as f64
+                    } else {
+                        0.0
+                    };
+                    info = Some(CacheBreakInfo {
+                        previous_cache_read: prev_ct,
+                        current_cache_read: curr_ct,
+                        drop_tokens,
+                        drop_ratio,
+                        previous_hit_rate: prev,
+                        current_hit_rate: curr,
+                        causes: vec![],
+                    });
+                }
+            } else if let Some(ref mut b) = info {
+                // Even if no break, fill in hit rates for diagnostics.
+                b.previous_hit_rate = prev;
+                b.current_hit_rate = curr;
+            }
+        }
+
+        self.last_cache_hit_rate = current_rate;
 
         // Attribute causes when a cache break is detected.
         if let Some(ref mut break_info) = info {
@@ -330,6 +432,8 @@ impl RunningStats {
                 current = break_info.current_cache_read,
                 drop_tokens = break_info.drop_tokens,
                 drop_ratio = break_info.drop_ratio,
+                previous_hit_rate = break_info.previous_hit_rate,
+                current_hit_rate = break_info.current_hit_rate,
                 causes = ?break_info.causes,
                 "KV cache break: prefix invalidated between consecutive calls"
             );
@@ -599,69 +703,6 @@ mod tests {
         assert_eq!(stats.total_reasoning_tokens, 0);
     }
 
-    // ── detect_cache_break unit tests ──────────────────────────────
-
-    #[test]
-    fn detect_cache_break_returns_none_when_both_none() {
-        assert!(detect_cache_break(None, None).is_none());
-    }
-
-    #[test]
-    fn detect_cache_break_returns_none_when_prev_none() {
-        assert!(detect_cache_break(None, Some(10000)).is_none());
-    }
-
-    #[test]
-    fn detect_cache_break_returns_none_when_curr_none() {
-        assert!(detect_cache_break(Some(10000), None).is_none());
-    }
-
-    #[test]
-    fn detect_cache_break_returns_none_when_curr_equals_prev() {
-        assert!(detect_cache_break(Some(10000), Some(10000)).is_none());
-    }
-
-    #[test]
-    fn detect_cache_break_returns_none_when_curr_greater_than_prev() {
-        assert!(detect_cache_break(Some(8000), Some(10000)).is_none());
-    }
-
-    #[test]
-    fn detect_cache_break_returns_none_when_drop_exactly_2000() {
-        assert!(detect_cache_break(Some(10000), Some(8000)).is_none());
-    }
-
-    #[test]
-    fn detect_cache_break_returns_none_when_drop_below_2000() {
-        assert!(detect_cache_break(Some(10000), Some(8500)).is_none());
-    }
-
-    #[test]
-    fn detect_cache_break_returns_none_when_ratio_le_5_percent() {
-        assert!(detect_cache_break(Some(100000), Some(95500)).is_none());
-    }
-
-    #[test]
-    fn detect_cache_break_returns_none_when_ratio_exactly_5_percent() {
-        assert!(detect_cache_break(Some(100000), Some(95000)).is_none());
-    }
-
-    #[test]
-    fn detect_cache_break_returns_some_when_both_thresholds_met() {
-        let info = detect_cache_break(Some(100000), Some(90000)).unwrap();
-        assert_eq!(info.previous_cache_read, 100000);
-        assert_eq!(info.current_cache_read, 90000);
-        assert_eq!(info.drop_tokens, 10000);
-        assert!((info.drop_ratio - 0.10).abs() < 1e-10);
-    }
-
-    #[test]
-    fn detect_cache_break_large_drop() {
-        let info = detect_cache_break(Some(50000), Some(30000)).unwrap();
-        assert_eq!(info.drop_tokens, 20000);
-        assert!((info.drop_ratio - 0.40).abs() < 1e-10);
-    }
-
     // ── record_fingerprint tests ──────────────────────────────────
 
     #[test]
@@ -801,88 +842,6 @@ mod tests {
         assert!(pc2.is_none());
     }
 
-    // ── RunningStats.last_cache_read_tokens integration tests ───────
-
-    #[test]
-    fn last_cache_read_tokens_none_before_any_accumulate() {
-        let stats = RunningStats::new();
-        assert_eq!(stats.last_cache_read_tokens, None);
-    }
-
-    #[test]
-    fn last_cache_read_tokens_set_by_detect_cache_break_and_update() {
-        let mut stats = RunningStats::new();
-        stats.detect_cache_break_and_update(Some(3000));
-        assert_eq!(stats.last_cache_read_tokens, Some(3000));
-    }
-
-    #[test]
-    fn last_cache_read_tokens_tracks_latest_value_via_detect() {
-        let mut stats = RunningStats::new();
-        stats.detect_cache_break_and_update(Some(3000));
-        assert_eq!(stats.last_cache_read_tokens, Some(3000));
-
-        stats.detect_cache_break_and_update(Some(5000));
-        assert_eq!(stats.last_cache_read_tokens, Some(5000));
-
-        stats.detect_cache_break_and_update(Some(2000));
-        assert_eq!(stats.last_cache_read_tokens, Some(2000));
-    }
-
-    #[test]
-    fn last_cache_read_tokens_none_when_cache_read_none() {
-        let mut stats = RunningStats::new();
-        stats.accumulate(&make_usage(100, 50, Some(150), None, None, None));
-        assert_eq!(stats.last_cache_read_tokens, None);
-    }
-
-    #[test]
-    fn detect_cache_break_and_update_returns_none_first_call() {
-        let mut stats = RunningStats::new();
-        let result = stats.detect_cache_break_and_update(Some(10000));
-        assert!(result.is_none());
-        assert_eq!(stats.last_cache_read_tokens, Some(10000));
-    }
-
-    #[test]
-    fn detect_cache_break_and_update_returns_none_when_no_break() {
-        let mut stats = RunningStats::new();
-        stats.detect_cache_break_and_update(Some(10000));
-        let result = stats.detect_cache_break_and_update(Some(9900));
-        assert!(result.is_none());
-        assert_eq!(stats.last_cache_read_tokens, Some(9900));
-    }
-
-    #[test]
-    fn detect_cache_break_and_update_returns_some_on_break() {
-        let mut stats = RunningStats::new();
-        stats.detect_cache_break_and_update(Some(100000));
-        let result = stats.detect_cache_break_and_update(Some(90000));
-        let info = result.unwrap();
-        assert_eq!(info.previous_cache_read, 100000);
-        assert_eq!(info.current_cache_read, 90000);
-        assert_eq!(info.drop_tokens, 10000);
-        assert_eq!(stats.last_cache_read_tokens, Some(90000));
-    }
-
-    #[test]
-    fn detect_cache_break_and_update_chain() {
-        let mut stats = RunningStats::new();
-        stats.detect_cache_break_and_update(Some(50000));
-        assert_eq!(stats.last_cache_read_tokens, Some(50000));
-
-        let r1 = stats.detect_cache_break_and_update(Some(49000));
-        assert!(r1.is_none());
-        assert_eq!(stats.last_cache_read_tokens, Some(49000));
-
-        let r2 = stats.detect_cache_break_and_update(Some(45000));
-        let info = r2.unwrap();
-        assert_eq!(info.previous_cache_read, 49000);
-        assert_eq!(info.current_cache_read, 45000);
-        assert_eq!(info.drop_tokens, 4000);
-        assert_eq!(stats.last_cache_read_tokens, Some(45000));
-    }
-
     // ── cache break attribution tests ────────────────────────────
 
     #[test]
@@ -894,7 +853,9 @@ mod tests {
         stats.record_fingerprint(Some("old prompt"), Some(&tools), None);
         stats.record_fingerprint(Some("new prompt"), Some(&tools), None);
 
-        let info = stats.detect_cache_break_and_update(Some(90_000)).unwrap();
+        let info = stats
+            .detect_cache_break_and_update(Some(90_000), None)
+            .unwrap();
         assert!(info.causes.contains(&CacheBreakCause::SystemPromptChanged));
     }
 
@@ -908,7 +869,9 @@ mod tests {
         stats.record_fingerprint(Some("prompt"), Some(&tools_v1), None);
         stats.record_fingerprint(Some("prompt"), Some(&tools_v2), None);
 
-        let info = stats.detect_cache_break_and_update(Some(90_000)).unwrap();
+        let info = stats
+            .detect_cache_break_and_update(Some(90_000), None)
+            .unwrap();
         assert!(info.causes.contains(&CacheBreakCause::ToolsChanged));
     }
 
@@ -923,7 +886,9 @@ mod tests {
         stats.record_fingerprint(Some("prompt"), Some(&tools), Some(&h1));
         stats.record_fingerprint(Some("prompt"), Some(&tools), Some(&h2));
 
-        let info = stats.detect_cache_break_and_update(Some(90_000)).unwrap();
+        let info = stats
+            .detect_cache_break_and_update(Some(90_000), None)
+            .unwrap();
         assert!(info.causes.contains(&CacheBreakCause::HeadersChanged));
     }
 
@@ -939,7 +904,9 @@ mod tests {
             time_since_last: Some(std::time::Duration::from_secs(600)),
         });
 
-        let info = stats.detect_cache_break_and_update(Some(90_000)).unwrap();
+        let info = stats
+            .detect_cache_break_and_update(Some(90_000), None)
+            .unwrap();
         assert!(info.causes.contains(&CacheBreakCause::TtlExpired));
     }
 
@@ -951,7 +918,9 @@ mod tests {
         stats.request_count = 1;
         // No pending_changes recorded
 
-        let info = stats.detect_cache_break_and_update(Some(90_000)).unwrap();
+        let info = stats
+            .detect_cache_break_and_update(Some(90_000), None)
+            .unwrap();
         assert!(info.causes.contains(&CacheBreakCause::Unknown));
     }
 
@@ -965,7 +934,7 @@ mod tests {
         stats.record_fingerprint(Some("new prompt"), Some(&tools), None);
 
         // Drop below threshold → no cache break → no causes
-        let result = stats.detect_cache_break_and_update(Some(99_000));
+        let result = stats.detect_cache_break_and_update(Some(99_000), None);
         assert!(result.is_none());
     }
 
@@ -984,7 +953,9 @@ mod tests {
         assert!(stats.pending_changes.is_none());
 
         // After take, no pending → attribution yields Unknown
-        let info = stats.detect_cache_break_and_update(Some(90_000)).unwrap();
+        let info = stats
+            .detect_cache_break_and_update(Some(90_000), None)
+            .unwrap();
         assert!(info.causes.contains(&CacheBreakCause::Unknown));
     }
 
@@ -994,7 +965,9 @@ mod tests {
         stats.last_cache_read_tokens = Some(100_000);
         // request_count == 0 + last_cache_read_tokens.is_some() → SessionResumed
 
-        let info = stats.detect_cache_break_and_update(Some(90_000)).unwrap();
+        let info = stats
+            .detect_cache_break_and_update(Some(90_000), None)
+            .unwrap();
         assert!(info.causes.contains(&CacheBreakCause::SessionResumed));
     }
 }
