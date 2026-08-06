@@ -721,12 +721,18 @@ impl Daemon {
             new_reg.populate(configs);
             Arc::new(std::sync::RwLock::new(new_reg))
         };
+        let skill_provider: Arc<dyn closeclaw_common::SkillListingProvider> =
+            Arc::new(crate::bridge::SkillListingProviderWrapper::new(
+                skill_registry.clone(),
+                Arc::clone(&builtin_skill_listing),
+            ));
         let prompt_builder_adapter = Arc::new(
             closeclaw_system_prompt::adapter::SystemPromptBuilderAdapter::new_with_cache(
                 Arc::clone(tool_registry),
                 adapter_registry,
                 data_dir.to_path_buf(),
                 Arc::clone(shared_cache),
+                Some(skill_provider),
             ),
         ) as Arc<dyn closeclaw_common::SystemPromptBuilder>;
         session_manager

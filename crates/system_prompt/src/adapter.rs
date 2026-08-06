@@ -64,23 +64,15 @@ impl SystemPromptBuilderAdapter {
         agent_registry: Arc<RwLock<AgentRegistry>>,
         workspace_dir: PathBuf,
         shared_cache: Arc<RwLock<SectionCache>>,
+        skill_listing_provider: Option<Arc<dyn closeclaw_common::SkillListingProvider>>,
     ) -> Self {
         Self {
             tool_registry,
             agent_registry,
             workspace_dir,
             shared_cache,
-            skill_listing_provider: None,
+            skill_listing_provider,
         }
-    }
-
-    /// Set the skill listing provider for the skills section.
-    pub fn with_skill_listing_provider(
-        mut self,
-        provider: Option<Arc<dyn closeclaw_common::SkillListingProvider>>,
-    ) -> Self {
-        self.skill_listing_provider = provider;
-        self
     }
 
     /// Get a reference to the shared section cache.
