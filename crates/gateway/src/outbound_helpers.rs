@@ -109,12 +109,19 @@ pub(crate) async fn dispatch_text(
     Ok(())
 }
 
-/// Construct a text [`RenderedOutput`] and dispatch via `plugin.send`.
+/// Construct a text [`RenderedOutput`], run outbound middleware, and dispatch
+/// via `plugin.send`.
 pub(crate) async fn send_text(ctx: &StreamContext<'_>, text: &str) -> Result<(), GatewayError> {
     let rendered = RenderedOutput {
         msg_type: "text".to_string(),
         payload: serde_json::json!({"content": {"text": text}}),
     };
+    if !ctx.middlewares.is_empty() {
+        let mctx = Gateway::make_middleware_ctx(ctx.session_id, ctx.channel, ctx.chat_id);
+        if let Err(e) = run_middleware_chain(ctx.middlewares, &mctx, &rendered).await {
+            return log_middleware_rejection(e, ctx.session_id);
+        }
+    }
     ctx.plugin
         .send(&rendered, ctx.chat_id, ctx.thread_id)
         .await
