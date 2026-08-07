@@ -45,6 +45,7 @@ notify = "6.1"
 # Internal crates
 closeclaw-common = { path = "../common" }
 closeclaw-config = { path = "../config" }
+closeclaw-debug-log = { path = "../debug_log" }
 closeclaw-agent = { path = "../agent" }
 closeclaw-cli = { path = "../cli" }
 closeclaw-gateway = { path = "../gateway" }

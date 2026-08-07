@@ -247,7 +247,6 @@ impl SessionManager {
         if cp.outbound_pending.is_empty() {
             return Ok(0);
         }
-
         // 3. Collect unsent message indices.
         let unsent_indices: Vec<usize> = cp
             .outbound_pending
@@ -260,13 +259,11 @@ impl SessionManager {
         if unsent_indices.is_empty() {
             return Ok(0);
         }
-
         // 4. Fallback channel from sessions map (when target_channel is empty).
         let fallback_channel = {
             let sessions = self.sessions.read().await;
             sessions.get(session_id).map(|s| s.channel.clone())
         };
-
         // 5. Get Gateway reference for outbound delivery.
         let gw = self
             .get_gateway_ref()
@@ -332,7 +329,7 @@ impl SessionManager {
                 .cloned()
                 .unwrap_or_else(|| pm.content.clone());
             match gw
-                .send_outbound(session_id, &channel, &content, vec![])
+                .send_outbound(session_id, &channel, &content, vec![], None, None)
                 .await
             {
                 Ok(()) => {
@@ -900,7 +897,10 @@ impl SessionManager {
                     }
                     // Send response to user via Gateway outbound pipeline.
                     if let (Some(ref gw), Some(ref ch)) = (&gw, &channel) {
-                        if let Err(e) = gw.send_outbound(session_id, ch, &text, vec![]).await {
+                        if let Err(e) = gw
+                            .send_outbound(session_id, ch, &text, vec![], None, None)
+                            .await
+                        {
                             warn!(
                                 session_id = %session_id,
                                 error = %e,

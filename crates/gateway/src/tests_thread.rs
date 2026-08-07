@@ -242,7 +242,7 @@ async fn test_send_outbound_forwards_thread_id() {
     let (gw, _sm, plugin) = setup_with_thread_id(Some("omt_from_ckpt")).await;
     let msg = make_message("agent-1", "hello");
     let sid = _sm.find_or_create("mock", &msg, None).await.unwrap();
-    gw.send_outbound(&sid, "mock", "hello world", vec![])
+    gw.send_outbound(&sid, "mock", "hello world", vec![], None, None)
         .await
         .unwrap();
     assert_eq!(
@@ -257,7 +257,7 @@ async fn test_send_outbound_no_thread_id() {
     let (gw, _sm, plugin) = setup_with_thread_id(None).await;
     let msg = make_message("agent-1", "hello");
     let sid = _sm.find_or_create("mock", &msg, None).await.unwrap();
-    gw.send_outbound(&sid, "mock", "hello world", vec![])
+    gw.send_outbound(&sid, "mock", "hello world", vec![], None, None)
         .await
         .unwrap();
     assert!(

@@ -88,6 +88,7 @@ impl MessageProcessor for SessionRouter {
                 thread_id: None,
                 account_id: String::new(),
                 chat_name: String::new(),
+                ..Default::default()
             }
         });
 

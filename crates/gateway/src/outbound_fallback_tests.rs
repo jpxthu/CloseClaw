@@ -206,7 +206,9 @@ async fn make_gw(
 #[tokio::test]
 async fn test_send_outbound_no_plugin_returns_ok() {
     let gw = make_gw("s1", "mock", None).await;
-    let result = gw.send_outbound("s1", "mock", "hello", vec![]).await;
+    let result = gw
+        .send_outbound("s1", "mock", "hello", vec![], None, None)
+        .await;
     assert!(
         result.is_ok(),
         "no-plugin fallback should return Ok, got {:?}",
@@ -250,7 +252,9 @@ async fn test_send_outbound_send_fails_fallback_plain_text() {
         })),
     )
     .await;
-    let result = gw.send_outbound("s4", "mock", "hello", vec![]).await;
+    let result = gw
+        .send_outbound("s4", "mock", "hello", vec![], None, None)
+        .await;
     // send fails, send_as_plain_text also fails (FailingSendMock), so error propagates.
     assert!(result.is_err(), "send failure should propagate error");
 }
@@ -297,7 +301,9 @@ async fn test_send_outbound_double_failure_returns_error() {
         })),
     )
     .await;
-    let result = gw.send_outbound("s7", "mock", "hello", vec![]).await;
+    let result = gw
+        .send_outbound("s7", "mock", "hello", vec![], None, None)
+        .await;
     assert!(result.is_err(), "double failure should return error");
 }
 
@@ -343,7 +349,7 @@ async fn test_no_plugin_exercises_fallback_path() {
     let gw = make_gw("s10", "mock", None).await;
     // send_outbound requires session_id → chat_id resolution.
     let result = gw
-        .send_outbound("s10", "mock", "fallback test", vec![])
+        .send_outbound("s10", "mock", "fallback test", vec![], None, None)
         .await;
     assert!(
         result.is_ok(),
@@ -377,7 +383,9 @@ async fn test_send_outbound_plugin_works_normally() {
         })),
     )
     .await;
-    let result = gw.send_outbound("s12", "mock", "hello world", vec![]).await;
+    let result = gw
+        .send_outbound("s12", "mock", "hello world", vec![], None, None)
+        .await;
     assert!(
         result.is_ok(),
         "normal path should succeed, got {:?}",
@@ -432,14 +440,18 @@ async fn test_send_outbound_simplified_plugin_works_normally() {
 #[tokio::test]
 async fn test_send_outbound_no_plugin_empty_channel() {
     let gw = make_gw("s15", "", None).await;
-    let result = gw.send_outbound("s15", "", "hello", vec![]).await;
+    let result = gw
+        .send_outbound("s15", "", "hello", vec![], None, None)
+        .await;
     assert!(result.is_ok(), "empty channel no-plugin should return Ok");
 }
 
 #[tokio::test]
 async fn test_send_outbound_no_plugin_empty_raw_output() {
     let gw = make_gw("s16", "mock", None).await;
-    let result = gw.send_outbound("s16", "mock", "", vec![]).await;
+    let result = gw
+        .send_outbound("s16", "mock", "", vec![], None, None)
+        .await;
     assert!(
         result.is_ok(),
         "empty raw_output no-plugin should return Ok"
@@ -488,7 +500,7 @@ async fn test_send_outbound_simplified_empty_raw_output() {
 async fn test_send_outbound_missing_session_returns_error() {
     let gw = make_gw("s_valid", "mock", None).await;
     let result = gw
-        .send_outbound("nonexistent_session", "mock", "hello", vec![])
+        .send_outbound("nonexistent_session", "mock", "hello", vec![], None, None)
         .await;
     assert!(
         matches!(result, Err(GatewayError::MissingSessionId)),

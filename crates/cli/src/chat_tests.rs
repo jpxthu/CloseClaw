@@ -574,6 +574,7 @@ fn test_normalized_to_inbound_platform() {
         thread_id: None,
         account_id: "owner".to_string(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.platform, "terminal");
@@ -593,6 +594,7 @@ fn test_normalized_to_inbound_peer_id() {
         thread_id: None,
         account_id: "owner".to_string(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.peer_id, "cli");
@@ -612,6 +614,7 @@ fn test_normalized_to_inbound_sender_id() {
         thread_id: None,
         account_id: "owner".to_string(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.sender_id, "custom-sender-42");
@@ -632,6 +635,7 @@ fn test_normalized_to_inbound_timestamp() {
         thread_id: None,
         account_id: "owner".to_string(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.timestamp_ms, ts);
@@ -651,6 +655,7 @@ fn test_normalized_to_inbound_account_id_present() {
         thread_id: None,
         account_id: "owner".to_string(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.account_id.as_deref(), Some("owner"));
@@ -670,6 +675,7 @@ fn test_normalized_to_inbound_account_id_empty() {
         thread_id: None,
         account_id: String::new(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.account_id.as_deref(), Some(""));
@@ -689,6 +695,7 @@ fn test_normalized_to_inbound_content_preserved() {
         thread_id: None,
         account_id: "owner".to_string(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.content, "line1\nline2");
@@ -708,6 +715,7 @@ fn test_normalized_to_inbound_message_id_format() {
         thread_id: None,
         account_id: String::new(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let input = normalized_to_inbound(&msg);
     assert_eq!(input.message_id, "cli-u99-42");

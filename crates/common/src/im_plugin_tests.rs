@@ -15,6 +15,7 @@ fn make_normalized(account_id: &str) -> NormalizedMessage {
         thread_id: None,
         account_id: account_id.into(),
         chat_name: String::new(),
+        ..Default::default()
     }
 }
 

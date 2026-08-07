@@ -68,6 +68,7 @@ fn webhook_to_normalized_message(webhook: &serde_json::Value) -> NormalizedMessa
         thread_id: None,
         account_id: message_id,
         chat_name: String::new(),
+        ..Default::default()
     }
 }
 

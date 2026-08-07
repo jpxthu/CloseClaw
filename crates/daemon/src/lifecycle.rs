@@ -2,6 +2,7 @@
 
 use super::{Daemon, Phase5Deps};
 use closeclaw_config::SystemConfigData;
+use closeclaw_debug_log::{DebugLog, DebugLogConfig};
 use closeclaw_permission::engine::rejection_log::FileRejectionLogger;
 use closeclaw_permission::{Defaults, PermissionEngine, RuleSet};
 use std::sync::Arc;
@@ -41,6 +42,12 @@ impl Daemon {
         let common_sh = crate::bridge::common_shutdown_handle(&shutdown);
         gateway.set_shutdown_handle(Arc::clone(&common_sh));
         session_manager.set_shutdown_handle(common_sh).await;
+        // Initialize DebugLog from config and inject into Gateway.
+        // Config missing or invalid → Gateway runs without debug logging.
+        if let Some(debug_log) = Self::init_debug_log(config_dir).await {
+            gateway.set_debug_log(debug_log).await;
+            info!("DebugLog injected into Gateway");
+        }
         let (approval_flow, builtin_skill_registry) = Self::init_phase_4_wiring(
             &gateway,
             &session_manager,
@@ -682,6 +689,40 @@ impl Daemon {
                 error = %e,
                 "openclaw.json migration failed — continuing with existing config"
             ),
+        }
+    }
+
+    /// Initialize the debug log framework from config.
+    ///
+    /// Reads `{config_dir}/config/debug_log.json`. If the file is missing
+    /// or invalid, returns `None` — the daemon continues without debug logging.
+    async fn init_debug_log(config_dir: &str) -> Option<DebugLog> {
+        let config_path = std::path::Path::new(config_dir)
+            .join("config")
+            .join("debug_log.json");
+        if !config_path.exists() {
+            tracing::debug!("debug_log.json not found — skipping debug log init");
+            return None;
+        }
+        match DebugLogConfig::from_file(&config_path).await {
+            Ok(config) => match DebugLog::new(config).await {
+                Ok(debug_log) => Some(debug_log),
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "failed to create DebugLog instance — continuing without"
+                    );
+                    None
+                }
+            },
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    path = %config_path.display(),
+                    "failed to load debug_log.json — continuing without"
+                );
+                None
+            }
         }
     }
 }
