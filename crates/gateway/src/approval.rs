@@ -1,8 +1,8 @@
 //! Approval command handling for the Gateway.
 //!
 //! Provides `set_approval_flow()` for installing the approval flow and
-//! `try_handle_approval_command()` for intercepting `/approve` / `/deny`
-//! commands from the owner.
+//! `try_handle_approval_command()` for intercepting `/approve-once` /
+//! `/approve-whitelist` / `/approve` / `/deny` commands from the owner.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,7 +17,8 @@ use closeclaw_permission::approval_flow::{ApprovalFlow, ApprovalNotification};
 use super::{Gateway, HandleResult};
 
 impl Gateway {
-    /// Set the approval flow for intercepting `/approve` / `/deny` commands.
+    /// Set the approval flow for intercepting `/approve-once` /
+    /// `/approve-whitelist` / `/approve` / `/deny` commands.
     ///
     /// Also installs the `on_notify_owner` callback that sends approval
     /// notifications to the owner via the Gateway's plugins.
@@ -43,8 +44,8 @@ impl Gateway {
 
             let text = format!(
                 "⚠️ 审批 [{}] Agent [{}] 以 [{}] 执行 [{}] (风险:{})。\n\
-                 回复 /approve {} 放行 或 /deny {} 拒绝。\n\
-                 可选：/approve {} --whitelist 加入白名单（默认自动推断维度），\n\
+                 回复 /approve-once {} 放行 或 /deny {} 拒绝。\n\
+                 可选：/approve-whitelist {} 加入白名单（默认自动推断维度），\n\
                  --agent-only 仅 Agent，--user-and-agent 同时覆盖 Agent 和 User。",
                 request_id, agent, user, op, risk, request_id, request_id, request_id,
             );
@@ -83,7 +84,13 @@ impl Gateway {
         *self.approval_flow.write().await = Some(flow);
     }
 
-    /// Try to intercept an `/approve` or `/deny` approval command.
+    /// Try to intercept an approval command.
+    ///
+    /// Supported prefixes (checked in order):
+    /// - `/approve-once <id>` → `ApprovalMode::Once`
+    /// - `/approve-whitelist <id> [--agent-only|--user-and-agent]` → `ApprovalMode::WithWhitelist`
+    /// - `/approve <id>` → `ApprovalMode::Once` (backward compatible)
+    /// - `/deny <id>` → deny flow
     ///
     /// Returns `Some(HandleResult::ApprovalProcessed)` if the command was
     /// handled, or `None` if the message is not an approval command.
@@ -100,13 +107,19 @@ impl Gateway {
     ) -> Option<HandleResult> {
         let trimmed = content.trim();
 
-        // Check for /approve or /deny prefix
-        let (is_approve, rest) = if let Some(r) = trimmed.strip_prefix("/approve") {
-            (true, r.trim())
-        } else {
-            let r = trimmed.strip_prefix("/deny")?;
-            (false, r.trim())
-        };
+        // Check for /approve-once, /approve-whitelist, /approve, or /deny prefix.
+        // Order matters: more specific prefixes must be checked first.
+        let (is_approve, rest, mode_override) =
+            if let Some(r) = trimmed.strip_prefix("/approve-once") {
+                (true, r.trim(), Some(ApprovalMode::Once))
+            } else if let Some(r) = trimmed.strip_prefix("/approve-whitelist") {
+                (true, r.trim(), None) // mode parsed below from flags
+            } else if let Some(r) = trimmed.strip_prefix("/approve") {
+                (true, r.trim(), Some(ApprovalMode::Once))
+            } else {
+                let r = trimmed.strip_prefix("/deny")?;
+                (false, r.trim(), None)
+            };
 
         // Verify sender is the owner
         match sender_id {
@@ -144,8 +157,11 @@ impl Gateway {
             return None;
         }
 
-        // Determine approval mode (--whitelist, --agent-only, --user-and-agent flags)
-        let mode = if rest.contains("--whitelist") {
+        // Determine approval mode
+        let mode = if let Some(m) = mode_override {
+            m
+        } else {
+            // /approve-whitelist path: parse --agent-only / --user-and-agent flags
             let target = if rest.contains("--user-and-agent") {
                 WhitelistTarget::UserAndAgent
             } else if rest.contains("--agent-only") {
@@ -154,8 +170,6 @@ impl Gateway {
                 WhitelistTarget::Auto
             };
             ApprovalMode::WithWhitelist { target }
-        } else {
-            ApprovalMode::Once
         };
 
         // Get the approval flow

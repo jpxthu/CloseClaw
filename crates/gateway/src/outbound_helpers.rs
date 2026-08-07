@@ -2,7 +2,6 @@
 //!
 //! Extracted from `outbound.rs` to stay within the 1000-line file limit.
 
-use crate::Gateway;
 use crate::GatewayError;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::StreamingOutput;
@@ -10,17 +9,19 @@ use closeclaw_common::VerbosityLevel;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::types::ContentBlockType;
 use closeclaw_llm::types::UnifiedUsage;
-use closeclaw_processor_chain::run_middleware_chain;
 
 /// Bundles the streaming outbound context passed to `process_stream_event` and
 /// its sub-handlers. Keeps parameter counts ≤6 (CONTRIBUTING.md limit).
+///
+/// `session_id` and `channel` are retained as session metadata for potential
+/// future use by stream handlers or logging.
+#[allow(dead_code)]
 pub(crate) struct StreamContext<'a> {
     pub plugin: &'a std::sync::Arc<dyn closeclaw_common::im_plugin::IMPlugin>,
     pub session_id: &'a str,
     pub channel: &'a str,
     pub chat_id: &'a str,
     pub thread_id: Option<&'a str>,
-    pub middlewares: &'a [std::sync::Arc<dyn closeclaw_common::OutboundMiddleware>],
 }
 
 /// Mutable state carried across stream events in `send_outbound_streaming`.
@@ -109,37 +110,32 @@ pub(crate) async fn dispatch_text(
     Ok(())
 }
 
-/// Construct a text [`RenderedOutput`], run outbound middleware, and dispatch
-/// via `plugin.send`.
+/// Construct a text [`RenderedOutput`] and dispatch via `plugin.send`.
+///
+/// Outbound middleware is no longer applied per-chunk during streaming.
+/// Instead, a pre-flight check runs once before the stream loop starts
+/// (see [`crate::outbound::Gateway::send_outbound_streaming_inner`]).
 pub(crate) async fn send_text(ctx: &StreamContext<'_>, text: &str) -> Result<(), GatewayError> {
     let rendered = RenderedOutput {
         msg_type: "text".to_string(),
         payload: serde_json::json!({"content": {"text": text}}),
     };
-    if !ctx.middlewares.is_empty() {
-        let mctx = Gateway::make_middleware_ctx(ctx.session_id, ctx.channel, ctx.chat_id);
-        if let Err(e) = run_middleware_chain(ctx.middlewares, &mctx, &rendered).await {
-            return log_middleware_rejection(e, ctx.session_id);
-        }
-    }
     ctx.plugin
         .send(&rendered, ctx.chat_id, ctx.thread_id)
         .await
         .map_err(Into::into)
 }
 
-/// Render, run outbound middleware, and dispatch via `plugin.send`.
+/// Render and dispatch via `plugin.send`.
+///
+/// Outbound middleware is no longer applied per-chunk during streaming.
+/// Instead, a pre-flight check runs once before the stream loop starts
+/// (see [`crate::outbound::Gateway::send_outbound_streaming_inner`]).
 pub(crate) async fn send_render_block(
     ctx: &StreamContext<'_>,
     block: &ContentBlock,
 ) -> Result<(), GatewayError> {
     let rendered = ctx.plugin.render(std::slice::from_ref(block), None);
-    if !ctx.middlewares.is_empty() {
-        let mctx = Gateway::make_middleware_ctx(ctx.session_id, ctx.channel, ctx.chat_id);
-        if let Err(e) = run_middleware_chain(ctx.middlewares, &mctx, &rendered).await {
-            return log_middleware_rejection(e, ctx.session_id);
-        }
-    }
     tracing::info!(
         chat_id = ctx.chat_id,
         content = ?rendered.payload,
