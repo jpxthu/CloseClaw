@@ -27,7 +27,7 @@ impl TraceContext {
 
     /// Derive a child span from the current context.
     ///
-    /// The child inherits `trace_id` and `session_key` from the parent,
+    /// The child inherits `trace_id` from the parent,
     /// and sets `parent_span_id` to the current `span_id`.
     pub fn child(&self) -> Self {
         Self {

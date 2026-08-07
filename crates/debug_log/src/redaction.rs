@@ -60,11 +60,8 @@ impl RedactionEngine {
             serde_json::Value::Object(map) => {
                 let keys: Vec<String> = map.keys().cloned().collect();
                 for key in keys {
-                    let dominated = self.field_matches(&key);
-                    if dominated {
-                        if let Some(replacement) = self.replacement_for(&key) {
-                            map.insert(key, serde_json::Value::String(replacement));
-                        }
+                    if let Some(pattern) = self.find_matching_pattern(&key) {
+                        map.insert(key, serde_json::Value::String(pattern.replacement.clone()));
                     } else if let Some(val) = map.get_mut(&key) {
                         self.redact(val);
                     }
@@ -79,27 +76,14 @@ impl RedactionEngine {
         }
     }
 
-    /// Check whether any pattern matches the given field name.
-    fn field_matches(&self, field: &str) -> bool {
-        self.patterns.iter().any(|p| match p.match_type {
+    /// Find the first pattern that matches the given field name.
+    fn find_matching_pattern(&self, field: &str) -> Option<&RedactionPattern> {
+        self.patterns.iter().find(|p| match p.match_type {
             PatternMatch::Exact => p.field.eq_ignore_ascii_case(field),
             PatternMatch::Prefix => field
                 .to_ascii_lowercase()
                 .starts_with(&p.field.to_ascii_lowercase()),
         })
-    }
-
-    /// Return the replacement string for the first matching pattern.
-    fn replacement_for(&self, field: &str) -> Option<String> {
-        self.patterns
-            .iter()
-            .find(|p| match p.match_type {
-                PatternMatch::Exact => p.field.eq_ignore_ascii_case(field),
-                PatternMatch::Prefix => field
-                    .to_ascii_lowercase()
-                    .starts_with(&p.field.to_ascii_lowercase()),
-            })
-            .map(|p| p.replacement.clone())
     }
 }
 
