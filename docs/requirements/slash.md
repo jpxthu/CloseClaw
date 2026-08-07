@@ -129,7 +129,7 @@ Owner 通过 `/approve-once`、`/approve-whitelist`、`/deny` 对 Agent 操作�
 
 ### F14. 调试日志
 
-斜杠指令模块在以下环节记录调试日志：
+Slash 模块在以下环节记录调试日志：
 - 指令匹配与分派结果
 - 指令执行起止与耗时
 - 指令执行异常
