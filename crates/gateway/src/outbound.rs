@@ -219,8 +219,6 @@ impl Gateway {
                     ctx.dsl_result.clone(),
                     ctx.content_blocks.clone(),
                 );
-                self.persist_outbound_checkpoint(ctx.session_id, &msg, false)
-                    .await;
                 ctx.plugin
                     .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
                     .await?;
@@ -238,8 +236,6 @@ impl Gateway {
                     ctx.dsl_result.clone(),
                     ctx.content_blocks.clone(),
                 );
-                self.persist_outbound_checkpoint(ctx.session_id, &msg, false)
-                    .await;
                 ctx.plugin
                     .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
                     .await?;

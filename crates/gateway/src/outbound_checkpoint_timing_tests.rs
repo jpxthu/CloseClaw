@@ -1,8 +1,8 @@
-//! Tests for outbound checkpoint persistence timing (Step 1.1).
+//! Tests for outbound checkpoint persistence timing.
 //!
-//! Verifies that `dispatch_and_persist` persists the checkpoint *before*
-//! calling `plugin.send()` (mark_sent=false) and updates it *after*
-//! successful delivery (mark_sent=true).
+//! Verifies that `dispatch_and_persist` persists the checkpoint *after*
+//! successful delivery (mark_sent=true). Pre-send checkpoints are not used
+//! (design doc: checkpoint is written after send succeeds).
 
 use crate::{GatewayConfig, SessionManager};
 use closeclaw_common::im_plugin::{
@@ -248,11 +248,10 @@ async fn setup_timing_gw(persist: Arc<TimingMockPersist>) -> SetupResult {
 // Tests
 // ---------------------------------------------------------------------------
 
-/// Verify that `dispatch_and_persist` persists the checkpoint with
-/// mark_sent=false *before* calling plugin.send(), and with
-/// mark_sent=true *after* successful delivery.
+/// Verify that `dispatch_and_persist` persists the checkpoint only *after*
+/// successful delivery (mark_sent=true). No pre-send checkpoint is written.
 #[tokio::test]
-async fn test_checkpoint_persisted_before_send_then_marked_sent() {
+async fn test_checkpoint_persisted_after_send_only() {
     let persist = Arc::new(TimingMockPersist::new());
     let setup = setup_timing_gw(Arc::clone(&persist)).await;
 
@@ -265,38 +264,33 @@ async fn test_checkpoint_persisted_before_send_then_marked_sent() {
             .await
     });
 
-    // Wait for send() to be entered (first persist has happened).
+    // Wait for send() to be entered. No persist should have happened yet.
     setup.entered_send.notified().await;
 
-    // At this point, the first persist (mark_sent=false) has completed
-    // and plugin.send() is blocked. Verify the intermediate state.
+    // At this point, send() is entered but no pre-send checkpoint exists.
     let saves = persist.get_saves().await;
-    assert_eq!(saves.len(), 1, "should have 1 save before send completes");
-    assert_eq!(saves[0].session_id, setup.session_id);
-    assert_eq!(saves[0].pending_count, 1);
-    assert!(
-        !saves[0].last_pending_sent,
-        "first persist should NOT be marked sent"
+    assert_eq!(
+        saves.len(),
+        0,
+        "no persist should happen before send completes"
     );
 
-    // Let send() complete. The task will continue and do the second persist.
+    // Let send() complete. The task will continue and do the persist.
     setup.ok_to_return.notify_one();
     let result = handle.await.expect("task should not panic");
     assert!(result.is_ok(), "send_outbound should succeed");
 
-    // After send completes, verify the second persist (mark_sent=true).
+    // After send completes, verify the persist (mark_sent=true).
     let saves = persist.get_saves().await;
-    assert_eq!(saves.len(), 2, "should have 2 saves total");
-    assert!(
-        saves[1].last_pending_sent,
-        "second persist should be marked sent"
-    );
+    assert_eq!(saves.len(), 1, "should have 1 save after send completes");
+    assert_eq!(saves[0].session_id, setup.session_id);
+    assert_eq!(saves[0].pending_count, 1);
+    assert!(saves[0].last_pending_sent, "persist should be marked sent");
 }
 
-/// Verify that both text and interactive message types go through
-/// the two-phase persist flow.
+/// Verify that interactive message types also persist only after send.
 #[tokio::test]
-async fn test_interactive_message_two_phase_persist() {
+async fn test_interactive_message_persist_after_send() {
     let persist = Arc::new(TimingMockPersist::new());
     let sm = Arc::new(SessionManager::new(
         &test_config(),
@@ -343,16 +337,15 @@ async fn test_interactive_message_two_phase_persist() {
     entered.notified().await;
 
     let saves = persist.get_saves().await;
-    assert_eq!(saves.len(), 1, "should have 1 save before send");
-    assert!(!saves[0].last_pending_sent, "should not be sent yet");
+    assert_eq!(saves.len(), 0, "no persist before send completes");
 
     ok.notify_one();
     let result = handle.await.expect("task should not panic");
     assert!(result.is_ok());
 
     let saves = persist.get_saves().await;
-    assert_eq!(saves.len(), 2, "should have 2 saves");
-    assert!(saves[1].last_pending_sent, "should be marked sent");
+    assert_eq!(saves.len(), 1, "should have 1 save after send");
+    assert!(saves[0].last_pending_sent, "should be marked sent");
 }
 
 // ---------------------------------------------------------------------------
@@ -433,10 +426,13 @@ async fn test_checkpoint_persists_platform_dsl_result_content_blocks() {
             .await
     });
 
-    // Wait for send() to be entered (first persist has happened).
+    // Wait for send() to be entered, then let it complete.
     setup.entered_send.notified().await;
+    setup.ok_to_return.notify_one();
+    let result = handle.await.expect("task should not panic");
+    assert!(result.is_ok());
 
-    // Verify the first persist has the new fields.
+    // After send completes, the checkpoint should have the new fields.
     let saves = persist.get_saves().await;
     assert_eq!(saves.len(), 1);
 
@@ -455,11 +451,6 @@ async fn test_checkpoint_persists_platform_dsl_result_content_blocks() {
     assert_eq!(pending.platform.as_deref(), Some("mock"));
     // dsl_result and content_blocks may be None for empty content_blocks
     // input, but platform should always be set to the channel name.
-
-    // Let send() complete.
-    setup.ok_to_return.notify_one();
-    let result = handle.await.expect("task should not panic");
-    assert!(result.is_ok());
 }
 
 /// Verify that a loaded checkpoint round-trips platform, dsl_result,
