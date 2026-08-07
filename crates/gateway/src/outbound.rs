@@ -87,6 +87,10 @@ struct DispatchCtx<'a> {
     dsl_result: Option<String>,
     /// Serialized content blocks (JSON) for checkpoint persistence.
     content_blocks: Option<String>,
+    /// Inbound trace_id for debug log event correlation.
+    trace_id: Option<String>,
+    /// Inbound session_key for debug log event correlation.
+    session_key: Option<String>,
 }
 
 impl Gateway {
@@ -101,6 +105,8 @@ impl Gateway {
         channel: &str,
         raw_output: &str,
         content_blocks: Vec<ContentBlock>,
+        trace_id: Option<String>,
+        session_key: Option<String>,
     ) -> Result<(), GatewayError> {
         // 1. Resolve chat_id and plugin.
         let chat_id = self
@@ -170,6 +176,8 @@ impl Gateway {
             thread_id: thread_id.clone(),
             dsl_result: processed.metadata.get("dsl_result").cloned(),
             content_blocks: serde_json::to_string(&processed.content_blocks).ok(),
+            trace_id,
+            session_key,
         })
         .await
     }
@@ -211,17 +219,13 @@ impl Gateway {
                     ctx.dsl_result.clone(),
                     ctx.content_blocks.clone(),
                 );
-                // Pre-send checkpoint: persist pending before delivery so
-                // recovery can detect the pending operation on crash.
                 self.persist_outbound_checkpoint(ctx.session_id, &msg, false)
                     .await;
                 ctx.plugin
                     .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
                     .await?;
-                // Post-send checkpoint: mark as sent after successful delivery.
                 self.persist_outbound_checkpoint(ctx.session_id, &msg, true)
                     .await;
-                Ok(())
             }
             "interactive" => {
                 let payload_str = serde_json::to_string(&ctx.rendered.payload)
@@ -234,23 +238,61 @@ impl Gateway {
                     ctx.dsl_result.clone(),
                     ctx.content_blocks.clone(),
                 );
-                // Pre-send checkpoint: persist pending before delivery so
-                // recovery can detect the pending operation on crash.
                 self.persist_outbound_checkpoint(ctx.session_id, &msg, false)
                     .await;
                 ctx.plugin
                     .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
                     .await?;
-                // Post-send checkpoint: mark as sent after successful delivery.
                 self.persist_outbound_checkpoint(ctx.session_id, &msg, true)
                     .await;
-                Ok(())
             }
-            _ => Err(GatewayError::OutboundError(format!(
-                "unknown msg_type: {}",
-                ctx.rendered.msg_type
-            ))),
+            _ => {
+                return Err(GatewayError::OutboundError(format!(
+                    "unknown msg_type: {}",
+                    ctx.rendered.msg_type
+                )))
+            }
         }
+        // Debug log: send.completed (unified for text and interactive)
+        self.emit_send_completed_log(
+            ctx.session_id,
+            ctx.channel,
+            &ctx.chat_id,
+            ctx.trace_id.as_deref(),
+            ctx.session_key.as_deref(),
+        );
+        Ok(())
+    }
+
+    /// Emit a unified `send.completed` debug log event.
+    ///
+    /// Extracted from the text/interactive branches in
+    /// [`dispatch_and_persist`] to eliminate duplicated emit code.
+    /// When `trace_id` is `None`, the emit is skipped.
+    fn emit_send_completed_log(
+        &self,
+        _session_id: &str,
+        channel: &str,
+        peer_id: &str,
+        trace_id: Option<&str>,
+        session_key: Option<&str>,
+    ) {
+        let Some(tid) = trace_id else {
+            return;
+        };
+        let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
+        crate::debug_log_emitter::emit_debug_event(
+            guard.as_ref(),
+            tid,
+            session_key,
+            closeclaw_debug_log::LogLevel::Info,
+            "gateway",
+            "send.completed",
+            serde_json::json!({
+                "channel": channel,
+                "peer_id": peer_id,
+            }),
+        );
     }
 
     /// Run only the outbound raw-log processor, bypassing the full chain.

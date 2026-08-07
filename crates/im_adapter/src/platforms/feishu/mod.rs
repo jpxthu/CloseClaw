@@ -13,6 +13,8 @@ mod cleaner_tests;
 mod feishu_tests;
 pub mod renderer;
 pub mod tools;
+#[cfg(test)]
+mod trace_id_tests;
 
 use crate::error::AdapterError;
 use crate::normalized::{add_code_block_language_hint, normalize_urls};

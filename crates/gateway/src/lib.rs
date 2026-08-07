@@ -5,6 +5,9 @@ pub mod approval;
 #[cfg(test)]
 pub mod approval_tests;
 pub mod card_action;
+mod debug_log_emitter;
+#[cfg(test)]
+pub mod debug_log_tests;
 pub(crate) mod health_check_builders;
 #[cfg(test)]
 mod health_check_builders_tests;
@@ -29,6 +32,7 @@ mod outbound_helpers_tests;
 pub mod outbound_middleware;
 #[cfg(test)]
 mod outbound_tests;
+mod processor_registry_builder;
 #[cfg(test)]
 mod receiving_transition_tests;
 pub mod session_handler;
@@ -74,6 +78,7 @@ use closeclaw_common::processor::ProcessedMessage;
 pub use closeclaw_common::processor::ProcessorChain;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_common::slash_router::SlashRouter;
+use closeclaw_debug_log::{DebugLog, LogLevel};
 use closeclaw_llm::ProviderModelKnowledge;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
@@ -116,6 +121,8 @@ pub struct Gateway {
     config_dir: RwLock<Option<std::path::PathBuf>>,
     /// Metrics emitter for operational metrics (cache breaks, etc.).
     metrics_emitter: std::sync::RwLock<Option<Arc<dyn closeclaw_common::MetricsEmitter>>>,
+    /// Debug log framework instance for structured event logging.
+    debug_log: std::sync::RwLock<Option<DebugLog>>,
 }
 
 impl Gateway {
@@ -138,6 +145,7 @@ impl Gateway {
             outbound_middlewares: std::sync::RwLock::new(Vec::new()),
             config_dir: RwLock::new(None),
             metrics_emitter: std::sync::RwLock::new(None),
+            debug_log: std::sync::RwLock::new(None),
         };
         register_default_middlewares(&gw);
         gw
@@ -165,6 +173,7 @@ impl Gateway {
             outbound_middlewares: std::sync::RwLock::new(Vec::new()),
             config_dir: RwLock::new(None),
             metrics_emitter: std::sync::RwLock::new(None),
+            debug_log: std::sync::RwLock::new(None),
         };
         register_default_middlewares(&gw);
         gw
@@ -238,6 +247,13 @@ impl Gateway {
     pub async fn set_metrics_emitter(&self, emitter: Arc<dyn closeclaw_common::MetricsEmitter>) {
         if let Ok(mut slot) = self.metrics_emitter.write() {
             *slot = Some(emitter);
+        }
+    }
+
+    /// Inject a [`DebugLog`] instance for structured event logging.
+    pub async fn set_debug_log(&self, debug_log: DebugLog) {
+        if let Ok(mut slot) = self.debug_log.write() {
+            *slot = Some(debug_log);
         }
     }
 
@@ -324,6 +340,24 @@ impl Gateway {
             .get("peer_id")
             .map(|s| s.as_str())
             .unwrap_or("");
+
+        // ── Debug log: message.arrived ──────────────────────────────
+        if let Some(trace_id) = processed.metadata.get("trace_id") {
+            let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
+            debug_log_emitter::emit_debug_event(
+                guard.as_ref(),
+                trace_id,
+                processed.metadata.get("session_key").map(|s| s.as_str()),
+                LogLevel::Info,
+                "gateway",
+                "message.arrived",
+                serde_json::json!({
+                    "sender_id": sender_id.unwrap_or(""),
+                    "peer_id": peer_id,
+                    "channel": channel,
+                }),
+            );
+        }
 
         // ── Non-text message interception (before session resolution) ─
         // Per design doc: non-text messages (image/file/audio) get a
@@ -740,6 +774,22 @@ impl Gateway {
                     .resolve(session_key, channel, &message, account_id)
                     .await
                     .map_err(|e| GatewayError::AdapterError(e.to_string()))?;
+                // Debug log: route.decision (new path)
+                if let Some(trace_id) = message.metadata.get("trace_id") {
+                    let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
+                    debug_log_emitter::emit_debug_event(
+                        guard.as_ref(),
+                        trace_id,
+                        Some(session_key),
+                        LogLevel::Info,
+                        "gateway",
+                        "route.decision",
+                        serde_json::json!({
+                            "session_key": session_key,
+                            "session_id": session_id,
+                        }),
+                    );
+                }
                 // Send restore notification through outbound chain (if any).
                 if let Some(chat_id) = self
                     .session_manager
@@ -764,6 +814,21 @@ impl Gateway {
         // --- Fallback: session_id (old path, backward compatible) ---
         if let Some(session_id) = message.metadata.get("session_id") {
             if !session_id.is_empty() {
+                // Debug log: route.decision (fallback path)
+                if let Some(trace_id) = message.metadata.get("trace_id") {
+                    let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
+                    debug_log_emitter::emit_debug_event(
+                        guard.as_ref(),
+                        trace_id,
+                        None,
+                        LogLevel::Info,
+                        "gateway",
+                        "route.decision",
+                        serde_json::json!({
+                            "session_id": session_id,
+                        }),
+                    );
+                }
                 return self.forward_to_plugin(channel, &message, session_id).await;
             }
         }
@@ -803,6 +868,7 @@ impl Gateway {
             thread_id: input.thread_id.clone(),
             account_id: input.account_id.clone().unwrap_or_default(),
             chat_name: String::new(),
+            ..Default::default()
         };
 
         match registry.process_inbound(normalized).await {
@@ -846,83 +912,11 @@ fn build_extra_metadata(input: &InboundChainInput) -> std::collections::HashMap<
     meta
 }
 
-use closeclaw_processor_chain::content_normalizer::ContentNormalizer;
-use closeclaw_processor_chain::outbound_raw_log::OutboundRawLogProcessor;
-use closeclaw_processor_chain::raw_log_processor::{RawLogConfig, RawLogProcessor};
-use closeclaw_processor_chain::registry::ProcessorRegistry;
-use closeclaw_processor_chain::session_router::SessionRouter;
-use closeclaw_processor_chain::verbosity_filter::VerbosityFilter;
-use closeclaw_processor_chain::DslParser;
-
 /// Build a [`ProcessorRegistry`] with the standard inbound/outbound chains.
-///
-/// Inbound (by priority): [`RawLogProcessor`] (10) → [`SessionRouter`] (20) →
-/// [`ContentNormalizer`] (30).
-///
-/// Outbound (by priority): [`VerbosityFilter`] (5) → [`DslParser`] (10) →
-/// [`OutboundRawLogProcessor`] (20, only when `raw_log_dir` is configured).
-///
-/// [`RawLogProcessor`] and [`OutboundRawLogProcessor`] are registered only
-/// when `config.raw_log_dir` is `Some`.
-pub fn build_processor_registry(config: &GatewayConfig) -> ProcessorRegistry {
-    let mut registry = ProcessorRegistry::default();
-
-    // Inbound: RawLogProcessor (priority 10 — if raw_log_dir is configured)
-    if let Some(ref dir) = config.raw_log_dir {
-        let raw_log_config = RawLogConfig {
-            enabled: true,
-            dir: dir.clone(),
-            retention_days: 7,
-        };
-        match RawLogProcessor::new(raw_log_config) {
-            Ok(processor) => {
-                registry.register(Arc::new(processor));
-            }
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    "RawLogProcessor initialization failed — skipping inbound raw log processor"
-                );
-            }
-        }
-    }
-
-    // Inbound: SessionRouter (priority 20 — computes session_key)
-    registry.register(Arc::new(SessionRouter::new()));
-
-    // Inbound: ContentNormalizer (priority 30)
-    registry.register(Arc::new(ContentNormalizer::new()));
-
-    // Outbound: VerbosityFilter (priority 5)
-    registry.register(Arc::new(VerbosityFilter));
-
-    // Outbound: DslParser (priority 10)
-    registry.register(Arc::new(DslParser));
-
-    // Outbound: OutboundRawLogProcessor (priority 20 — if raw_log_dir is configured)
-    if let Some(ref dir) = config.raw_log_dir {
-        let raw_log_config = RawLogConfig {
-            enabled: true,
-            dir: dir.clone(),
-            retention_days: 7,
-        };
-        registry.register(Arc::new(OutboundRawLogProcessor::new(raw_log_config)));
-    }
-
-    registry
-}
+pub use processor_registry_builder::build_processor_registry;
 
 /// Register the built-in outbound middlewares on a [`Gateway`].
-///
-/// Every newly constructed Gateway receives:
-/// - [`AuditMiddleware`] — logs every outbound message for audit.
-/// - [`RateLimitMiddleware`] — session-level sliding-window throttling.
-fn register_default_middlewares(gw: &Gateway) {
-    gw.add_outbound_middleware(Arc::new(outbound_middleware::audit::AuditMiddleware));
-    gw.add_outbound_middleware(Arc::new(
-        outbound_middleware::rate_limit::RateLimitMiddleware::new(),
-    ));
-}
+use processor_registry_builder::register_default_middlewares;
 
 #[cfg(test)]
 pub mod compute_session_key_tests;

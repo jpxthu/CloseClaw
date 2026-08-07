@@ -280,7 +280,7 @@ async fn test_verbosity_filter_before_processor_chain() {
         },
     ];
 
-    gw.send_outbound("sess-verb-off", "mock", "raw output", blocks)
+    gw.send_outbound("sess-verb-off", "mock", "raw output", blocks, None, None)
         .await
         .unwrap();
 
@@ -320,7 +320,7 @@ async fn test_verbosity_normal_strips_thinking_before_chain() {
         },
     ];
 
-    gw.send_outbound("sess-verb-normal", "mock", "raw", blocks)
+    gw.send_outbound("sess-verb-normal", "mock", "raw", blocks, None, None)
         .await
         .unwrap();
 
@@ -353,7 +353,7 @@ async fn test_verbosity_full_all_blocks_before_chain() {
         },
     ];
 
-    gw.send_outbound("sess-verb-full", "mock", "raw", blocks)
+    gw.send_outbound("sess-verb-full", "mock", "raw", blocks, None, None)
         .await
         .unwrap();
 

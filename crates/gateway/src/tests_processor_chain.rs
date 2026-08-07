@@ -578,6 +578,7 @@ async fn test_content_normalizer_does_not_strip_platform_residue() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
+        ..Default::default()
     };
     let ctx = closeclaw_common::processor::MessageContext::from_normalized(msg);
     let result = processor.process(&ctx).await.unwrap().unwrap();

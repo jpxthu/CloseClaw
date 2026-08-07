@@ -194,7 +194,9 @@ async fn test_non_streaming_no_receiving() {
     let gw = crate::Gateway::new(streaming_config(), Arc::clone(&sm));
     gw.register_plugin(Arc::clone(&plugin)).await;
 
-    let result = gw.send_outbound(session_id, "mock", "hello", vec![]).await;
+    let result = gw
+        .send_outbound(session_id, "mock", "hello", vec![], None, None)
+        .await;
     assert!(result.is_ok(), "send_outbound should succeed");
 
     assert_eq!(

@@ -261,7 +261,7 @@ async fn test_checkpoint_persisted_before_send_then_marked_sent() {
     let gw_clone = Arc::clone(&gw_arc);
     let handle = tokio::spawn(async move {
         gw_clone
-            .send_outbound(&sid, "mock", "hello world", vec![])
+            .send_outbound(&sid, "mock", "hello world", vec![], None, None)
             .await
     });
 
@@ -336,7 +336,7 @@ async fn test_interactive_message_two_phase_persist() {
     let gw_clone = Arc::clone(&gw_arc);
     let handle = tokio::spawn(async move {
         gw_clone
-            .send_outbound(&sid, "mock", "hello interactive", vec![])
+            .send_outbound(&sid, "mock", "hello interactive", vec![], None, None)
             .await
     });
 
@@ -429,7 +429,7 @@ async fn test_checkpoint_persists_platform_dsl_result_content_blocks() {
     let sid_for_spawn = sid.clone();
     let handle = tokio::spawn(async move {
         gw_clone
-            .send_outbound(&sid_for_spawn, "mock", "test content", vec![])
+            .send_outbound(&sid_for_spawn, "mock", "test content", vec![], None, None)
             .await
     });
 

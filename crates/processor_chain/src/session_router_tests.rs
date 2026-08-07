@@ -24,6 +24,7 @@ async fn test_terminal_session_key_computed() {
         thread_id: None,
         account_id: String::new(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let after_ms = chrono::Utc::now().timestamp_millis();
     let ctx = make_ctx(msg);
@@ -64,6 +65,7 @@ async fn test_deterministic_key() {
         thread_id: None,
         account_id: String::new(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let ctx = make_ctx(msg);
     let r1 = router.process(&ctx).await.unwrap().unwrap();
@@ -100,6 +102,7 @@ async fn test_missing_peer_id_yields_empty_key() {
         thread_id: None,
         account_id: String::new(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let ctx = make_ctx(msg);
     let result = router.process(&ctx).await.unwrap().unwrap();
@@ -125,6 +128,7 @@ async fn test_metadata_preserves_upstream() {
         thread_id: None,
         account_id: String::new(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let mut ctx = make_ctx(msg);
     ctx.metadata
@@ -154,6 +158,7 @@ async fn test_fallback_when_no_initial_normalized() {
         thread_id: None,
         account_id: String::new(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let ctx = MessageContext::from_normalized(msg);
     let result = router.process(&ctx).await.unwrap().unwrap();
@@ -181,6 +186,7 @@ async fn test_system_time_used_for_session_key() {
         thread_id: None,
         account_id: String::new(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let after_ms = chrono::Utc::now().timestamp_millis();
     let ctx = make_ctx(msg);
@@ -228,6 +234,7 @@ async fn test_per_account_channel_peer_uses_system_time() {
         thread_id: None,
         account_id: String::new(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let after_ms = chrono::Utc::now().timestamp_millis();
     let ctx = make_ctx(msg);
@@ -277,6 +284,7 @@ async fn test_different_account_ids_produce_different_session_keys() {
         thread_id: None,
         account_id: "account_1".to_string(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let msg_b = NormalizedMessage {
         platform: "feishu".to_string(),
@@ -289,6 +297,7 @@ async fn test_different_account_ids_produce_different_session_keys() {
         thread_id: None,
         account_id: "account_2".to_string(),
         chat_name: String::new(),
+        ..Default::default()
     };
 
     let ctx_a = make_ctx(msg_a);
@@ -344,6 +353,7 @@ async fn test_account_id_none_vs_some_produce_different_keys() {
         thread_id: None,
         account_id: String::new(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let msg_some = NormalizedMessage {
         platform: "feishu".to_string(),
@@ -356,6 +366,7 @@ async fn test_account_id_none_vs_some_produce_different_keys() {
         thread_id: None,
         account_id: "tenant_x".to_string(),
         chat_name: String::new(),
+        ..Default::default()
     };
 
     let ctx_none = make_ctx(msg_none);
@@ -402,6 +413,7 @@ async fn test_account_id_read_from_raw_message() {
         thread_id: None,
         account_id: "tenant_42".to_string(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let mut ctx = make_ctx(msg);
     ctx.metadata
@@ -424,6 +436,7 @@ async fn test_account_id_read_from_raw_message() {
         thread_id: None,
         account_id: "metadata_account".to_string(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let ctx_meta = make_ctx(msg_meta);
     let result_meta = router.process(&ctx_meta).await.unwrap().unwrap();
@@ -511,6 +524,7 @@ async fn test_warn_log_when_from_empty() {
         thread_id: None,
         account_id: String::new(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let ctx = make_ctx(msg);
 
@@ -554,6 +568,7 @@ async fn test_warn_log_when_to_empty() {
         thread_id: None,
         account_id: String::new(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let ctx = make_ctx(msg);
 
@@ -597,6 +612,7 @@ async fn test_no_warn_log_when_both_present() {
         thread_id: None,
         account_id: String::new(),
         chat_name: String::new(),
+        ..Default::default()
     };
     let ctx = make_ctx(msg);
 

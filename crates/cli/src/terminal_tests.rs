@@ -49,6 +49,7 @@ mod tests {
             thread_id: None,
             account_id: String::new(),
             chat_name: String::new(),
+            ..Default::default()
         };
         assert_eq!(msg.platform, "terminal");
         assert_eq!(msg.peer_id, "cli");
@@ -68,6 +69,7 @@ mod tests {
             thread_id: None,
             account_id: String::new(),
             chat_name: String::new(),
+            ..Default::default()
         };
         assert!(msg.thread_id.is_none());
         assert!(msg.account_id.is_empty());
@@ -86,6 +88,7 @@ mod tests {
             thread_id: None,
             account_id: String::new(),
             chat_name: String::new(),
+            ..Default::default()
         };
         // Timestamp is a valid Unix timestamp (after 2023)
         assert!(msg.timestamp > 1_672_531_200_000);
@@ -104,6 +107,7 @@ mod tests {
             thread_id: None,
             account_id: String::new(),
             chat_name: String::new(),
+            ..Default::default()
         };
         let json = serde_json::to_string(&msg).unwrap();
         let deserialized: NormalizedMessage = serde_json::from_str(&json).unwrap();
@@ -124,6 +128,7 @@ mod tests {
             thread_id: None,
             account_id: String::new(),
             chat_name: String::new(),
+            ..Default::default()
         };
         assert!(msg.content.is_empty());
     }
@@ -141,6 +146,7 @@ mod tests {
             thread_id: None,
             account_id: String::new(),
             chat_name: String::new(),
+            ..Default::default()
         };
         let lines: Vec<&str> = msg.content.lines().collect();
         assert_eq!(lines.len(), 3);
