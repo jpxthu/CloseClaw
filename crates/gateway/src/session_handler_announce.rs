@@ -79,7 +79,7 @@ fn resolve_effective_reasoning_level(
 ) -> ReasoningLevel {
     for provider_id in knowledge.all_providers() {
         let models = knowledge.all_models(provider_id);
-        if models.iter().any(|m| *m == model) {
+        if models.contains(&model) {
             if let Some(params) = knowledge.find(provider_id, model) {
                 return match params.reasoning_levels {
                     closeclaw_llm::knowledge::ReasoningLevels::None => requested,
