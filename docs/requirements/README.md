@@ -17,6 +17,7 @@
 | [common](common.md) | 跨模块共享数据结构与接口契约（无独立功能） | ✅
 | [config](config.md) | 多文件配置结构、安全写入、热重载、凭据隔离 | ✅
 | [daemon](daemon.md) | 系统启动、优雅/强制关闭、后台任务生命周期 | ✅
+| [debug_log](debug_log.md) | 调试日志框架：链路追踪、分级过滤、存储轮转、隐私脱敏 | ✅
 | [gateway](gateway.md) | 多平台消息接入、斜杠指令分派、出站统一处理 | ✅
 | [im_adapter](im_adapter.md) | IM 平台插件化适配、消息归一化、流式渲染 | ✅
 | [im_adapter/feishu](im_adapter/feishu.md) | 飞书平台实现：入站接收、卡片渲染、交互按钮 | ✅

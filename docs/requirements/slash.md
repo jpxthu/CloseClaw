@@ -127,6 +127,15 @@ Owner 通过 `/approve-once`、`/approve-whitelist`、`/deny` 对 Agent 操作�
 
 > **交叉引用**：审批决策的完整语义（单次放行/加入白名单/拒绝）、ID 规则、超时参数详见 [permission §F5](permission.md)（审批工作流）。指令的 Immediate 标记和身份校验详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 
+### F14. 调试日志
+
+Slash 模块在以下环节记录调试日志：
+- 指令匹配与分派结果
+- 指令执行起止与耗时
+- 指令执行异常
+
+> **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)。
+
 ## 关联设计文档
 
 - [✓] slash/README.md
