@@ -799,13 +799,13 @@ impl Gateway {
                     .await
                 {
                     if let Err(e) = self
-                        .send_outbound_to_chat(&chat_id, channel, "正在恢复会话...")
+                        .send_outbound_simplified(&chat_id, channel, "正在恢复会话...")
                         .await
                     {
                         tracing::warn!(
                             session_id = %session_id,
                             error = %e,
-                            "failed to send restore notification via outbound chain"
+                            "failed to send restore notification via simplified outbound"
                         );
                     }
                 }
