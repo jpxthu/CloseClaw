@@ -2,10 +2,11 @@
 
 use std::sync::Arc;
 
+use crate::llm_session::session_chat::ChatSession;
 use crate::llm_session::{ConversationSession, InjectionPosition, MemoryInjection};
 use async_trait::async_trait;
 use closeclaw_common::llm_types::InternalRequest;
-use closeclaw_common::processor::UnifiedResponse;
+use closeclaw_common::processor::{ContentBlock, UnifiedResponse, UnifiedUsage};
 use closeclaw_common::{LLMError, LlmCaller};
 
 use super::tmp_path;
@@ -510,4 +511,143 @@ fn test_build_llm_request_default_reasoning_level_is_high() {
 
     let session = ConversationSession::new("s_rl4".into(), "m".into(), tmp_path());
     assert_eq!(session.reasoning_level(), ReasoningLevel::High);
+}
+
+// ── build_llm_messages_with_listing: history injection (Step 1.1) ────────
+
+/// Verify that `build_llm_messages_with_listing` includes conversation
+/// history from `self.messages` in the output.
+#[tokio::test]
+async fn test_build_llm_messages_includes_history() {
+    let mut session = ConversationSession::new("s_hist".into(), "gpt-4o".into(), tmp_path());
+    let fake = Arc::new(FakeLlmCaller::new(canned_response("ok")));
+    let fake_ref = fake.clone();
+    session.set_llm_caller(fake);
+
+    // Simulate a prior turn: user → assistant
+    session.append_response(UnifiedResponse {
+        content_blocks: vec![ContentBlock::Text("prior response".into())],
+        usage: UnifiedUsage {
+            prompt_tokens: 1,
+            completion_tokens: 1,
+            total_tokens: Some(2),
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+        retry_attempts: 0,
+    });
+
+    let result = session.invoke_llm("new question").await;
+    assert!(result.is_ok());
+
+    let req = fake_ref
+        .last_request()
+        .expect("request should have been captured");
+    // Should contain: history assistant message + current user message = at least 2
+    assert!(
+        req.messages.len() >= 2,
+        "expected at least 2 messages (history + current), got {}",
+        req.messages.len()
+    );
+    // The history assistant message should appear before the current user message
+    let assistant_idx = req
+        .messages
+        .iter()
+        .position(|m| m.role == "assistant")
+        .unwrap();
+    let user_idx = req.messages.iter().rposition(|m| m.role == "user").unwrap();
+    assert!(
+        assistant_idx < user_idx,
+        "history assistant message should come before current user message"
+    );
+}
+
+/// Verify that Thinking blocks in conversation history are cleaned
+/// before being sent in the LLM request.
+#[tokio::test]
+async fn test_build_llm_messages_cleans_thinking_from_history() {
+    let mut session = ConversationSession::new("s_think".into(), "gpt-4o".into(), tmp_path());
+    let fake = Arc::new(FakeLlmCaller::new(canned_response("ok")));
+    let fake_ref = fake.clone();
+    session.set_llm_caller(fake);
+
+    // Assistant message with trailing Thinking block
+    session.append_response(UnifiedResponse {
+        content_blocks: vec![
+            ContentBlock::Text("visible text".into()),
+            ContentBlock::Thinking {
+                thinking: "secret reasoning".into(),
+                signature: None,
+            },
+        ],
+        usage: UnifiedUsage {
+            prompt_tokens: 1,
+            completion_tokens: 1,
+            total_tokens: Some(2),
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+        retry_attempts: 0,
+    });
+
+    let result = session.invoke_llm("follow up").await;
+    assert!(result.is_ok());
+
+    let req = fake_ref
+        .last_request()
+        .expect("request should have been captured");
+    // The assistant message content should NOT contain the raw thinking text
+    for msg in &req.messages {
+        assert!(
+            !msg.content.contains("secret reasoning"),
+            "Thinking block content should be cleaned from sent messages"
+        );
+    }
+}
+
+/// Verify that cleaning Thinking blocks does not mutate `self.messages`.
+#[tokio::test]
+async fn test_build_llm_messages_thinking_clean_does_not_mutate_self() {
+    let mut session = ConversationSession::new("s_mut".into(), "gpt-4o".into(), tmp_path());
+    let fake = Arc::new(FakeLlmCaller::new(canned_response("ok")));
+    session.set_llm_caller(fake);
+
+    session.append_response(UnifiedResponse {
+        content_blocks: vec![
+            ContentBlock::Text("visible".into()),
+            ContentBlock::Thinking {
+                thinking: "thought".into(),
+                signature: None,
+            },
+        ],
+        usage: UnifiedUsage {
+            prompt_tokens: 1,
+            completion_tokens: 1,
+            total_tokens: Some(2),
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+        retry_attempts: 0,
+    });
+
+    // Record original state
+    let original_count = session.messages().len();
+    let original_blocks = session.messages()[0].content_blocks.len();
+
+    let _ = session.invoke_llm("test").await;
+
+    // self.messages should be unchanged
+    assert_eq!(session.messages().len(), original_count);
+    assert_eq!(session.messages()[0].content_blocks.len(), original_blocks);
+    // The Thinking block should still be present in self.messages
+    assert!(matches!(
+        &session.messages()[0].content_blocks[1],
+        ContentBlock::Thinking { thinking: t, .. } if t == "thought"
+    ));
 }
