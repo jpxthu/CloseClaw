@@ -944,6 +944,8 @@ pub mod session_handler_dynamic_tests;
 #[cfg(test)]
 pub mod session_handler_recovery_tests;
 #[cfg(test)]
+pub mod session_handler_streaming_tests;
+#[cfg(test)]
 pub mod session_handler_tests;
 #[cfg(test)]
 pub mod session_routing_tests;
