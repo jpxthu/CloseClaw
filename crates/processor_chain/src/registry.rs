@@ -140,6 +140,7 @@ fn synthetic_from_output(output: &ProcessedMessage) -> NormalizedMessage {
         thread_id: None,
         account_id: String::new(),
         chat_name: String::new(),
+        ..Default::default()
     }
 }
 
@@ -325,6 +326,7 @@ impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
                 thread_id: None,
                 account_id: String::new(),
                 chat_name: String::new(),
+                ..Default::default()
             },
         );
         ctx.metadata = msg.metadata.clone();

@@ -247,6 +247,7 @@ impl IMPlugin for EmptyTextBypassPlugin {
             thread_id: None,
             account_id: "u1".into(),
             chat_name: String::new(),
+            ..Default::default()
         }))
     }
 
@@ -296,6 +297,7 @@ impl IMPlugin for NonTextEmptyContentPlugin {
             thread_id: None,
             account_id: "u1".into(),
             chat_name: String::new(),
+            ..Default::default()
         }))
     }
 
@@ -383,6 +385,7 @@ impl IMPlugin for EmptyStringTextPlugin {
             thread_id: None,
             account_id: "u1".into(),
             chat_name: String::new(),
+            ..Default::default()
         }))
     }
 
@@ -431,6 +434,7 @@ impl IMPlugin for NormalTextPlugin {
             thread_id: None,
             account_id: "u1".into(),
             chat_name: String::new(),
+            ..Default::default()
         }))
     }
 
@@ -652,6 +656,7 @@ impl IMPlugin for SlowSendPlugin {
             thread_id: None,
             account_id: String::new(),
             chat_name: String::new(),
+            ..Default::default()
         }))
     }
 

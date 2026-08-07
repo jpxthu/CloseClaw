@@ -803,6 +803,7 @@ impl Gateway {
             thread_id: input.thread_id.clone(),
             account_id: input.account_id.clone().unwrap_or_default(),
             chat_name: String::new(),
+            ..Default::default()
         };
 
         match registry.process_inbound(normalized).await {

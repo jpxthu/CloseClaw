@@ -691,6 +691,13 @@ impl FeishuAdapter {
         // Fetch the chat name for the group chat.
         let chat_name = self.fetch_chat_name(&event.event.chat_id).await;
 
+        // Generate trace_id: {platform}-{timestamp_ms}-{uuid_v4}
+        let trace_id = format!(
+            "feishu-{}-{}",
+            chrono::Utc::now().timestamp_millis(),
+            uuid::Uuid::new_v4(),
+        );
+
         Ok(Some(NormalizedMessage {
             platform: "feishu".to_string(),
             sender_id: sender_open_id.clone(),
@@ -702,6 +709,7 @@ impl FeishuAdapter {
             thread_id,
             account_id: sender_open_id,
             chat_name: chat_name.unwrap_or_default(),
+            trace_id,
         }))
     }
 
