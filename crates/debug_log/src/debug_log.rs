@@ -1,5 +1,5 @@
 use tokio::sync::Mutex;
-use tracing::warn;
+use tracing::{error, warn};
 
 use crate::{
     DebugLogConfig, LevelFilter, LogLevel, LogRetention, LogWriter, LogWriterError, RedactionEngine,
@@ -76,7 +76,7 @@ impl DebugLog {
             let prev_date = writer.current_date();
 
             if let Err(e) = writer.write(&event).await {
-                warn!(error = %e, "failed to write debug log event");
+                error!(error = %e, "failed to write debug log event");
                 return;
             }
 
@@ -85,7 +85,15 @@ impl DebugLog {
             if prev_date != new_date && new_date.is_some() {
                 let retention = self.inner.retention.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = run_retention_cleanup(&retention) {
+                    if let Err(e) =
+                        tokio::task::spawn_blocking(move || run_retention_cleanup(retention))
+                            .await
+                            .unwrap_or_else(|e| {
+                                Err(crate::LogRetentionError::ReadDir(std::io::Error::other(
+                                    e.to_string(),
+                                )))
+                            })
+                    {
                         warn!(error = %e, "failed to cleanup expired log files");
                     }
                 });
@@ -99,12 +107,12 @@ impl DebugLog {
     }
 }
 
-/// Run the retention cleanup in a blocking context.
+/// Run the retention cleanup (blocking I/O).
 ///
-/// `LogRetention::cleanup_expired` uses synchronous I/O, so it must not
-/// run directly on the async runtime. Spawning it via `tokio::spawn` and
-/// wrapping in `spawn_blocking` keeps the runtime responsive.
-fn run_retention_cleanup(retention: &LogRetention) -> Result<usize, crate::LogRetentionError> {
+/// `LogRetention::cleanup_expired` uses synchronous filesystem I/O, so it
+/// must be called from `tokio::task::spawn_blocking` to avoid blocking the
+/// async runtime.
+fn run_retention_cleanup(retention: LogRetention) -> Result<usize, crate::LogRetentionError> {
     retention.cleanup_expired()
 }
 

@@ -607,7 +607,6 @@ name = "closeclaw-debug-log"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "closeclaw-common",
  "serde",
  "serde_json",
  "tempfile",
