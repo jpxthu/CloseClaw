@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::{LogLevel, TraceContext};
@@ -18,7 +18,7 @@ pub struct LogEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_key: Option<String>,
     /// Event timestamp in milliseconds (UTC).
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: i64,
     /// Event severity level.
     pub level: LogLevel,
     /// Source module that produced this event (e.g. "gateway", "session").
@@ -44,7 +44,7 @@ impl LogEvent {
             span_id: ctx.span_id.clone(),
             parent_span_id: ctx.parent_span_id.clone(),
             session_key,
-            timestamp: Utc::now(),
+            timestamp: Utc::now().timestamp_millis(),
             level,
             source_module: source_module.into(),
             event_type: event_type.into(),

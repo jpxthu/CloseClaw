@@ -114,3 +114,28 @@ fn test_payload_preserved_through_jsonl() {
     assert_eq!(restored.payload["nested"]["a"], json!([1, 2, 3]));
     assert_eq!(restored.payload["flag"], true);
 }
+
+#[test]
+fn test_timestamp_is_millisecond_i64() {
+    let event = make_event(None);
+    let jsonl = event.to_jsonl().unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&jsonl).unwrap();
+
+    // timestamp must be a number (i64), not a string
+    assert!(
+        parsed["timestamp"].is_number(),
+        "timestamp should be a JSON number, got: {:?}",
+        parsed["timestamp"]
+    );
+
+    // must be millisecond-level (> 1_000_000_000_000)
+    let ts = parsed["timestamp"].as_i64().unwrap();
+    assert!(
+        ts > 1_000_000_000_000,
+        "timestamp should be millisecond-level, got: {ts}"
+    );
+
+    // roundtrip preserves the i64 value
+    let restored: LogEvent = LogEvent::from_jsonl(&jsonl).unwrap();
+    assert_eq!(restored.timestamp, ts);
+}

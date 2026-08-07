@@ -1,5 +1,6 @@
 use super::*;
 use crate::{LogLevel, TraceContext};
+use chrono::DateTime;
 use serde_json::json;
 
 fn make_event(module: &str, event_type: &str) -> LogEvent {
@@ -21,7 +22,9 @@ async fn test_creates_file_with_correct_name() {
 
     let event = make_event("test", "test.event");
     // Force a specific date for deterministic file name.
-    let date = event.timestamp.date_naive();
+    let date = DateTime::from_timestamp_millis(event.timestamp)
+        .unwrap()
+        .date_naive();
     writer.write(&event).await.unwrap();
 
     let expected = writer.file_path(date);
@@ -57,7 +60,9 @@ async fn test_flush_after_write() {
     let mut writer = LogWriter::new(tmp.path().into()).await.unwrap();
 
     let event = make_event("test", "test.event");
-    let date = event.timestamp.date_naive();
+    let date = DateTime::from_timestamp_millis(event.timestamp)
+        .unwrap()
+        .date_naive();
     writer.write(&event).await.unwrap();
 
     // File should be readable immediately after write (flushed).

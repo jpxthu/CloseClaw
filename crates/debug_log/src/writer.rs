@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate};
 use tokio::fs::{File, OpenOptions};
 use tokio::io::AsyncWriteExt;
 
@@ -54,7 +54,9 @@ impl LogWriter {
     ///
     /// Redaction must be applied before calling this method.
     pub async fn write(&mut self, event: &LogEvent) -> Result<(), LogWriterError> {
-        let today = event.timestamp.date_naive();
+        let today = DateTime::from_timestamp_millis(event.timestamp)
+            .expect("invalid timestamp millis")
+            .date_naive();
         if self.current_date != Some(today) {
             self.rotate(today).await?;
         }
