@@ -534,7 +534,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
- "closeclaw-debug-log",
  "futures",
  "serde",
  "serde_json",
