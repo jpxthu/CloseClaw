@@ -2,6 +2,7 @@
 //!
 //! Extracted from `outbound.rs` to stay within the 1000-line file limit.
 
+use crate::Gateway;
 use crate::GatewayError;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::StreamingOutput;
@@ -64,29 +65,43 @@ impl StreamState {
     }
 }
 
-/// Log a middleware chain error and return `Ok(())` so the caller can
-/// discard the message without propagating the error.
-pub(crate) fn log_middleware_rejection(
+/// Log a middleware chain error and send a rejection notification to the
+/// user via the simplified path (skips VerbosityFilter/DslParser/middleware).
+/// Returns `Ok(())` so the caller can discard the message without
+/// propagating the error.
+pub(crate) async fn log_middleware_rejection(
+    gateway: &Gateway,
     e: closeclaw_common::MiddlewareError,
-    session_id: &str,
+    chat_id: &str,
+    channel: &str,
 ) -> Result<(), GatewayError> {
-    match e {
+    match &e {
         closeclaw_common::MiddlewareError::Rejected { name, reason } => {
             tracing::warn!(
                 middleware = %name,
                 reason = %reason,
-                session_id,
+                chat_id,
                 "middleware rejected outbound message, discarding"
             );
         }
         closeclaw_common::MiddlewareError::MiddlewareFailed { name, .. } => {
             tracing::warn!(
                 middleware = %name,
-                session_id,
+                chat_id,
                 "middleware failed, discarding outbound message"
             );
         }
     }
+    // Send a rejection notification to the user via simplified path
+    // (skips middleware to avoid re-rejection), consistent with the
+    // streaming outbound path.
+    let _ = gateway
+        .send_outbound_simplified(
+            chat_id,
+            channel,
+            "Your message was not sent due to an outbound policy restriction.",
+        )
+        .await;
     Ok(())
 }
 
