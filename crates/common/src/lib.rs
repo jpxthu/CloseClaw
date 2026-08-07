@@ -2,6 +2,7 @@ pub mod bootstrap;
 pub mod code_block;
 pub mod communication;
 pub mod compaction;
+pub mod debug_log_provider;
 pub mod fragment;
 pub mod hook_config;
 pub mod identity;
@@ -67,6 +68,7 @@ pub mod verbosity;
 
 pub use bootstrap::BootstrapMode;
 pub use compaction::CompactConfig;
+pub use debug_log_provider::DebugLogProvider;
 pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
 pub use hook_config::{HookConfig, HookParams, HookType};
 pub use identity::IdentityResolver;
