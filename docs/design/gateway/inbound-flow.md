@@ -32,8 +32,8 @@ webhook → webhook → webhook → ...（高并发）
                     → session_key 为空？
                       ├─ 是 → 记录 warning 日志，仍通过路由字段（platform, sender_id, peer_id, account_id）继续
                       └─ 否 → 正常流转
-                    → SessionManager 执行 resolve（传入 session_key 和消息路由字段；SessionManager 内部提取稳定路由键做查找）→ 获得 session_id  ← 日志：session 查找结果
-                    → content 以 / 开头？  ← 日志：路由决策结果
+                    → SessionManager 执行 session 查找/创建（传入 session_key 和消息路由字段；SessionManager 内部提取稳定路由键做查找）→ 获得 session_id  ← 日志：session 查找结果
+                    → content_blocks[0] 标准化文本 以 / 开头？  ← 日志：路由决策结果
                         ├─ 是 → 先拦截 /approve-once、/approve-whitelist、/deny（不进 SlashDispatcher，非 Owner 调用直接回复"权限不足"）
                         │       其余斜杠 → SlashDispatcher（不进入 LLM）
                         └─ 否 → Session → LLM
@@ -45,7 +45,7 @@ webhook → webhook → webhook → ...（高并发）
 
 - **斜杠指令在 Gateway 层统一拦截**，不进入 LLM 对话循环。拦截与路由逻辑见 [Gateway README](README.md#入站路径) 路由决策节。斜杠指令消息不追加到对话历史。
 - **SessionRouter 不区分私聊和群聊**。会话粒度由插件控制——插件决定什么构成一个 `peer_id`。
-- **SessionRouter 是纯变换**。只计算 session_key，不创建 session、不查数据库。session_key 算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session_key-算法)。Session 的创建和查找由 Gateway 调用 SessionManager 完成。
+- **SessionRouter 是纯变换**。只计算 session_key，不创建 session、不查 SessionManager。session_key 算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session_key-算法)。Session 的创建和查找由 Gateway 调用 SessionManager 完成。
 - **session_key 为追踪标识，不参与路由**。详见 [Gateway README](README.md#数据流) 入站路径 Session 解析节。
 - **Processor Chain 是纯变换**。每个处理器输入消息、输出消息，不做副作用（除了 RawLog 写日志）。链的设计遵循"变换和决策分离"原则——变换归链，决策归 Gateway。
 
@@ -57,7 +57,7 @@ webhook → webhook → webhook → ...（高并发）
 
 ### IM 插件解析
 
-IM 平台（飞书、Discord、Telegram 等）的 webhook 消息出队列后，由对应平台的插件处理。插件把平台原生格式转成统一结构 `NormalizedMessage`（完整字段定义见 [common 共享类型](../common/shared-types.md)）。插件屏蔽了平台差异，Gateway 和 Processor Chain 看到的是统一的 NormalizedMessage。入站链路中参与处理的关键字段为：platform、sender_id、peer_id、account_id、content、message_type、timestamp。`thread_id?` 为可选字段，入站仅透传、不参与路由计算。message_type 由 IM 插件从平台消息类型映射并写入 NormalizedMessage（链框架将其复制到 ProcessedMessage 的 metadata）。ContentNormalizer 对非文本消息跳过标准化，Gateway 用 message_type 做非文本拦截。media_refs 当前在入站链路无实际消费者，为多模态支持预留。
+IM 平台（飞书、Discord、Telegram 等）的 webhook 消息出队列后，由对应平台的插件处理。插件把平台原生格式转成统一结构 `NormalizedMessage`（完整字段定义见 [common 共享类型](../common/shared-types.md)）。插件屏蔽了平台差异，Gateway 和 Processor Chain 看到的是统一的 NormalizedMessage。入站链路中参与处理的关键字段为：platform、sender_id、peer_id、account_id、content、message_type。`thread_id?` 为可选字段，入站仅透传、不参与路由计算。message_type 由 IM 插件从平台消息类型映射并写入 NormalizedMessage（链调度环节将 message_type 复制到 ProcessedMessage 的 metadata）。ContentNormalizer 对非文本消息跳过标准化，Gateway 用 message_type 做非文本拦截。media_refs 在入站链路仅透传，消费方不在本链路。
 
 消息过滤：text 类型空 content 消息在解析阶段丢弃，不产 NormalizedMessage。非文本消息（image/file/audio）正常产 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空），由下游 Gateway 统一处理。
 
@@ -88,7 +88,7 @@ Gateway 检查 content 第一个字符：
 
 **以 `/` 开头 → 斜杠指令**：消息不进入 LLM，不追加到对话历史。先拦截 `/approve-once`、`/approve-whitelist`、`/deny`（拦截逻辑与权限校验见 [Gateway README](README.md#入站路径) 路由决策节）。其余斜杠指令分派给 SlashDispatcher，匹配指令 → 执行对应 Handler → 返回 [SlashResult](../common/shared-types.md#slashresult) → Gateway 执行副作用。
 
-**不以 `/` 开头 → 普通对话消息**：Gateway 通过 `session_id` 找到 Session（状态已在 `resolve()` 中处理完毕），消息追加到对话历史。Session 构建完整 LLM 请求（system prompt + 消息历史 + 工具列表 + skill 列表）。LLM 返回 `ContentBlock[]`，进入出站链路。
+**不以 `/` 开头 → 普通对话消息**：Gateway 通过 `session_id` 找到 Session。后续流程（忙碌队列、归档恢复、进入 LLM）详见 [Gateway README](README.md#入站路径) 路由决策节。
 
 ## 模块关系
 
