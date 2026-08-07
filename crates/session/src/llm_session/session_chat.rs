@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use super::session_llm::format_content_block;
 use super::{ConversationSession, SessionMessage};
 use closeclaw_common::SessionExecStatus;
 use closeclaw_common::StreamingSink;
@@ -185,19 +186,7 @@ impl ChatSession for ConversationSession {
             }
             let content = non_tool_blocks
                 .iter()
-                .flat_map(|b| match b {
-                    ContentBlock::Text(t) => vec![t.clone()],
-                    ContentBlock::Thinking { thinking: t, .. } => {
-                        vec![format!("<thinking>{}</thinking>", t)]
-                    }
-                    ContentBlock::ToolUse { name, input, .. } => {
-                        vec![format!("[tool:{}] {}", name, input)]
-                    }
-                    ContentBlock::Image { name, .. } => vec![format!("[image: {}]", name)],
-                    ContentBlock::Audio { name, .. } => vec![format!("[audio: {}]", name)],
-                    ContentBlock::File { name, .. } => vec![format!("[file: {}]", name)],
-                    _ => vec![],
-                })
+                .flat_map(|b| format_content_block(b))
                 .collect::<Vec<_>>()
                 .join("\n");
             msgs.push(InternalMessage {

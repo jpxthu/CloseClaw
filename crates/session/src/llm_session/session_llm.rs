@@ -12,7 +12,29 @@ use closeclaw_common::{
 };
 
 use super::streaming_assembly::SessionStream;
-use super::ConversationSession;
+use super::{ConversationSession, SessionMessage};
+
+/// Format a single [`ContentBlock`] into zero or more string fragments.
+///
+/// This is the shared formatting logic used by both the legacy
+/// `build_api_request` path and the production `build_llm_messages_with_listing`
+/// path. Tool results are excluded here (they are appended as
+/// independent `role="tool"` messages by the caller).
+pub(crate) fn format_content_block(b: &ContentBlock) -> Vec<String> {
+    match b {
+        ContentBlock::Text(t) => vec![t.clone()],
+        ContentBlock::Thinking { thinking: t, .. } => {
+            vec![format!("<thinking>{}</thinking>", t)]
+        }
+        ContentBlock::ToolUse { name, input, .. } => {
+            vec![format!("[tool:{}] {}", name, input)]
+        }
+        ContentBlock::Image { name, .. } => vec![format!("[image: {}]", name)],
+        ContentBlock::Audio { name, .. } => vec![format!("[audio: {}]", name)],
+        ContentBlock::File { name, .. } => vec![format!("[file: {}]", name)],
+        ContentBlock::ToolResult { .. } => vec![],
+    }
+}
 
 impl ConversationSession {
     /// Inject a [`DynamicPromptBuilder`] for per-request dynamic-layer injection.
@@ -195,73 +217,17 @@ impl ConversationSession {
         content: &str,
         skill_listing: Option<String>,
     ) -> Vec<InternalMessage> {
-        // ── 1. Build conversation history from self.messages ─────
         let cleaned = Self::clean_thinking_content(&self.messages);
-        let mut messages: Vec<InternalMessage> = cleaned
-            .iter()
-            .map(|msg| {
-                let mut tool_results: Vec<&ContentBlock> = Vec::new();
-                let mut non_tool_blocks = Vec::new();
-                for b in &msg.content_blocks {
-                    match b {
-                        ContentBlock::ToolResult { .. } => tool_results.push(b),
-                        _ => non_tool_blocks.push(b),
-                    }
-                }
-                let content = non_tool_blocks
-                    .iter()
-                    .flat_map(|b| match b {
-                        ContentBlock::Text(t) => vec![t.clone()],
-                        ContentBlock::Thinking { thinking: t, .. } => {
-                            vec![format!("<thinking>{}</thinking>", t)]
-                        }
-                        ContentBlock::ToolUse { name, input, .. } => {
-                            vec![format!("[tool:{}] {}", name, input)]
-                        }
-                        ContentBlock::Image { name, .. } => vec![format!("[image: {}]", name)],
-                        ContentBlock::Audio { name, .. } => vec![format!("[audio: {}]", name)],
-                        ContentBlock::File { name, .. } => vec![format!("[file: {}]", name)],
-                        _ => vec![],
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                InternalMessage {
-                    role: msg.role.clone(),
-                    content,
-                    tool_call_id: None,
-                }
-            })
-            .collect();
+        let mut messages = Self::convert_history_to_internal(&cleaned);
 
-        // Append tool results as independent role="tool" messages.
-        for msg in &cleaned {
-            for b in &msg.content_blocks {
-                if let ContentBlock::ToolResult {
-                    tool_call_id,
-                    content,
-                } = b
-                {
-                    messages.push(InternalMessage {
-                        role: "tool".into(),
-                        content: content.clone(),
-                        tool_call_id: Some(tool_call_id.clone()),
-                    });
-                }
-            }
-        }
-
-        // ── 2. Append current-turn user message ─────────────────
+        // ── Append current-turn user message ─────────────────────
         messages.push(InternalMessage {
             role: "user".to_string(),
             content: content.to_string(),
             tool_call_id: None,
         });
 
-        // ── 3. Skill listing attachment — at position 0 when non-empty ──
-        //    This is the code-level implementation of the design doc's
-        //    "instruction block" injection (tool-role message at
-        //    position 0 corresponds to the instruction block concept
-        //    in docs/design/skills/skill-listing-injection.md).
+        // ── Skill listing attachment — at position 0 when non-empty ──
         let skill_listing_inserted = if let Some(listing) = skill_listing {
             if !listing.is_empty() {
                 messages.insert(
@@ -280,7 +246,7 @@ impl ConversationSession {
             false
         };
 
-        // ── 4. Memory injection — positioned per InjectionPosition ────
+        // ── Memory injection — positioned per InjectionPosition ────
         if let Some(injection) = self.take_memory_injection() {
             let tool_msg = InternalMessage {
                 role: "tool".to_string(),
@@ -289,16 +255,9 @@ impl ConversationSession {
             };
             match injection.position_mode {
                 super::InjectionPosition::AfterCurrent => {
-                    // AfterCurrent means after the current (user)
-                    // message, so push to the end.
                     messages.push(tool_msg);
                 }
                 super::InjectionPosition::BeforeNext => {
-                    // Insert before user message. Skill listing
-                    // occupies position 0 (if present), user message
-                    // is at the end. Insert at position 1 (after skill
-                    // listing) or at 0 (before user message, no skill
-                    // listing).
                     let insert_pos = if skill_listing_inserted { 1 } else { 0 };
                     messages.insert(insert_pos, tool_msg);
                 }
@@ -306,6 +265,57 @@ impl ConversationSession {
         }
 
         messages
+    }
+
+    /// Convert a cleaned list of [`SessionMessage`]s into
+    /// [`InternalMessage`]s suitable for an LLM API request.
+    ///
+    /// Non-tool content blocks are formatted via [`format_content_block`]
+    /// and joined with newlines. Tool results are appended as independent
+    /// `role="tool"` messages at the end.
+    fn convert_history_to_internal(messages: &[SessionMessage]) -> Vec<InternalMessage> {
+        let mut result: Vec<InternalMessage> = messages
+            .iter()
+            .map(|msg| {
+                let mut tool_results: Vec<&ContentBlock> = Vec::new();
+                let mut non_tool_blocks = Vec::new();
+                for b in &msg.content_blocks {
+                    match b {
+                        ContentBlock::ToolResult { .. } => tool_results.push(b),
+                        _ => non_tool_blocks.push(b),
+                    }
+                }
+                let content = non_tool_blocks
+                    .iter()
+                    .flat_map(|b| format_content_block(b))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                InternalMessage {
+                    role: msg.role.clone(),
+                    content,
+                    tool_call_id: None,
+                }
+            })
+            .collect();
+
+        // Append tool results as independent role="tool" messages.
+        for msg in messages {
+            for b in &msg.content_blocks {
+                if let ContentBlock::ToolResult {
+                    tool_call_id,
+                    content,
+                } = b
+                {
+                    result.push(InternalMessage {
+                        role: "tool".into(),
+                        content: content.clone(),
+                        tool_call_id: Some(tool_call_id.clone()),
+                    });
+                }
+            }
+        }
+
+        result
     }
 
     /// Build an [`InternalRequest`] from a pre-built messages list.
