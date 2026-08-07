@@ -64,12 +64,10 @@ impl LogWriter {
         let mut line_with_newline = line;
         line_with_newline.push('\n');
 
-        let file = self.file.as_mut().ok_or_else(|| {
-            LogWriterError::Write(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "no active log file",
-            ))
-        })?;
+        let file = self
+            .file
+            .as_mut()
+            .ok_or_else(|| LogWriterError::Write(std::io::Error::other("no active log file")))?;
 
         file.write_all(line_with_newline.as_bytes())
             .await
