@@ -369,3 +369,186 @@ async fn test_approve_with_extra_args_parsed() {
         result,
     );
 }
+
+// ── New tests for /approve-once and /approve-whitelist (Step 1.4) ────
+
+#[tokio::test]
+async fn test_approve_once_with_request_id() {
+    let gw = make_gw();
+    install_approval_flow(&gw).await;
+
+    let result = gw
+        .try_handle_approval_command(
+            "session_1",
+            "/approve-once REQ_010",
+            Some("owner"),
+            "peer_1",
+            "mock",
+        )
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::ApprovalProcessed)),
+        "expected Some(ApprovalProcessed) for /approve-once, got {:?}",
+        result,
+    );
+}
+
+#[tokio::test]
+async fn test_approve_whitelist_with_request_id() {
+    let gw = make_gw();
+    install_approval_flow(&gw).await;
+
+    let result = gw
+        .try_handle_approval_command(
+            "session_1",
+            "/approve-whitelist REQ_011",
+            Some("owner"),
+            "peer_1",
+            "mock",
+        )
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::ApprovalProcessed)),
+        "expected Some(ApprovalProcessed) for /approve-whitelist, got {:?}",
+        result,
+    );
+}
+
+#[tokio::test]
+async fn test_approve_whitelist_agent_only() {
+    let gw = make_gw();
+    install_approval_flow(&gw).await;
+
+    let result = gw
+        .try_handle_approval_command(
+            "session_1",
+            "/approve-whitelist REQ_012 --agent-only",
+            Some("owner"),
+            "peer_1",
+            "mock",
+        )
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::ApprovalProcessed)),
+        "expected Some(ApprovalProcessed) for /approve-whitelist --agent-only, got {:?}",
+        result,
+    );
+}
+
+#[tokio::test]
+async fn test_approve_whitelist_user_and_agent() {
+    let gw = make_gw();
+    install_approval_flow(&gw).await;
+
+    let result = gw
+        .try_handle_approval_command(
+            "session_1",
+            "/approve-whitelist REQ_013 --user-and-agent",
+            Some("owner"),
+            "peer_1",
+            "mock",
+        )
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::ApprovalProcessed)),
+        "expected Some(ApprovalProcessed) for /approve-whitelist --user-and-agent, got {:?}",
+        result,
+    );
+}
+
+/// /approval does NOT match /approve prefix (different character after /approv).
+/// Also validates that /approve-once and /approve-whitelist are checked first.
+#[tokio::test]
+async fn test_approval_prefix_no_match() {
+    let gw = make_gw();
+    install_approval_flow(&gw).await;
+
+    let result = gw
+        .try_handle_approval_command(
+            "session_1",
+            "/approval REQ_014",
+            Some("owner"),
+            "peer_1",
+            "mock",
+        )
+        .await;
+
+    assert!(
+        result.is_none(),
+        "expected None for /approval (no prefix match), got {:?}",
+        result,
+    );
+}
+
+/// /deny-once is treated as /deny with request_id "-once".
+/// Documents current strip_prefix behavior — no word-boundary check.
+#[tokio::test]
+async fn test_deny_once_matches_deny_prefix() {
+    let gw = make_gw();
+    install_approval_flow(&gw).await;
+
+    let result = gw
+        .try_handle_approval_command(
+            "session_1",
+            "/deny-once REQ_015",
+            Some("owner"),
+            "peer_1",
+            "mock",
+        )
+        .await;
+
+    // Current behavior: matches as /deny with request_id "-once"
+    assert!(
+        matches!(result, Some(HandleResult::ApprovalProcessed)),
+        "current behavior: /deny-once matches /deny prefix, got {:?}",
+        result,
+    );
+}
+
+#[tokio::test]
+async fn test_non_owner_approve_once_rejected() {
+    let gw = make_gw();
+    install_approval_flow(&gw).await;
+
+    let result = gw
+        .try_handle_approval_command(
+            "session_1",
+            "/approve-once REQ_016",
+            Some("other_user"),
+            "peer_1",
+            "mock",
+        )
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::ApprovalProcessed)),
+        "expected Some(ApprovalProcessed) for non-owner /approve-once, got {:?}",
+        result,
+    );
+}
+
+#[tokio::test]
+async fn test_non_owner_approve_whitelist_rejected() {
+    let gw = make_gw();
+    install_approval_flow(&gw).await;
+
+    let result = gw
+        .try_handle_approval_command(
+            "session_1",
+            "/approve-whitelist REQ_017",
+            Some("other_user"),
+            "peer_1",
+            "mock",
+        )
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::ApprovalProcessed)),
+        "expected Some(ApprovalProcessed) for non-owner /approve-whitelist, got {:?}",
+        result,
+    );
+}
