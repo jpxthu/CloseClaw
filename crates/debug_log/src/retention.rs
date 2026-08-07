@@ -22,7 +22,7 @@ pub enum LogRetentionError {
 ///
 /// Only framework log files (`debug-*.jsonl`) are affected; other files
 /// in the log directory are never touched.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LogRetention {
     log_dir: PathBuf,
     retention_days: u32,

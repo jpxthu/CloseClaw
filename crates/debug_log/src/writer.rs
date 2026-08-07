@@ -4,7 +4,7 @@ use chrono::NaiveDate;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::AsyncWriteExt;
 
-use crate::{LogEvent, RedactionEngine};
+use crate::LogEvent;
 
 /// Errors that can occur during log writing.
 #[derive(Debug, thiserror::Error)]
@@ -22,25 +22,25 @@ pub enum LogWriterError {
 /// JSONL log writer that writes events to daily log files.
 ///
 /// File naming: `debug-{YYYY-MM-DD}.jsonl`.
-/// Each event is serialized, redacted, and flushed immediately.
+/// Each event is serialized and flushed immediately.
 /// Write failures are logged via tracing and never block the caller.
+///
+/// Redaction is handled by `DebugLog` before events reach the writer.
 #[derive(Debug)]
 pub struct LogWriter {
     log_dir: PathBuf,
-    redactor: RedactionEngine,
     current_date: Option<NaiveDate>,
     file: Option<File>,
 }
 
 impl LogWriter {
     /// Create a new writer. Log directory is created if it doesn't exist.
-    pub async fn new(log_dir: PathBuf, redactor: RedactionEngine) -> Result<Self, LogWriterError> {
+    pub async fn new(log_dir: PathBuf) -> Result<Self, LogWriterError> {
         tokio::fs::create_dir_all(&log_dir)
             .await
             .map_err(LogWriterError::Open)?;
         Ok(Self {
             log_dir,
-            redactor,
             current_date: None,
             file: None,
         })
@@ -48,17 +48,16 @@ impl LogWriter {
 
     /// Write a log event to the current day's JSONL file.
     ///
-    /// The event is serialized, redacted, and flushed immediately.
+    /// The event is serialized and flushed immediately.
     /// If any step fails, an error is reported via tracing and the
     /// method returns without panicking or blocking the caller.
-    pub async fn write(&mut self, event: &mut LogEvent) -> Result<(), LogWriterError> {
+    ///
+    /// Redaction must be applied before calling this method.
+    pub async fn write(&mut self, event: &LogEvent) -> Result<(), LogWriterError> {
         let today = event.timestamp.date_naive();
         if self.current_date != Some(today) {
             self.rotate(today).await?;
         }
-
-        // Redact sensitive fields before serialization.
-        self.redactor.redact(&mut event.payload);
 
         let line = event.to_jsonl().map_err(LogWriterError::Serialize)?;
         let mut line_with_newline = line;
@@ -129,14 +128,12 @@ mod tests {
     #[tokio::test]
     async fn test_creates_file_with_correct_name() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut writer = LogWriter::new(tmp.path().into(), RedactionEngine::empty())
-            .await
-            .unwrap();
+        let mut writer = LogWriter::new(tmp.path().into()).await.unwrap();
 
-        let mut event = make_event("test", "test.event");
+        let event = make_event("test", "test.event");
         // Force a specific date for deterministic file name.
         let date = event.timestamp.date_naive();
-        writer.write(&mut event).await.unwrap();
+        writer.write(&event).await.unwrap();
 
         let expected = writer.file_path(date);
         assert!(expected.exists(), "log file should exist");
@@ -150,13 +147,11 @@ mod tests {
     #[tokio::test]
     async fn test_multiple_events_same_file() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut writer = LogWriter::new(tmp.path().into(), RedactionEngine::empty())
-            .await
-            .unwrap();
+        let mut writer = LogWriter::new(tmp.path().into()).await.unwrap();
 
         for i in 0..5 {
-            let mut event = make_event("test", &format!("event.{i}"));
-            writer.write(&mut event).await.unwrap();
+            let event = make_event("test", &format!("event.{i}"));
+            writer.write(&event).await.unwrap();
         }
 
         let date = writer.current_date().unwrap();
@@ -168,45 +163,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_redaction_before_write() {
-        let tmp = tempfile::tempdir().unwrap();
-        let redactor = RedactionEngine::new(vec![crate::RedactionPattern {
-            field: "secret".into(),
-            match_type: crate::PatternMatch::Exact,
-            replacement: "[REDACTED]".into(),
-        }]);
-        let mut writer = LogWriter::new(tmp.path().into(), redactor).await.unwrap();
-
-        let ctx = TraceContext::new_root("trace-test-2".into());
-        let mut event = LogEvent::new(
-            &ctx,
-            None,
-            LogLevel::Info,
-            "test",
-            "test.event",
-            json!({"secret": "hunter2", "safe": "ok"}),
-        );
-        writer.write(&mut event).await.unwrap();
-
-        let date = writer.current_date().unwrap();
-        let content = tokio::fs::read_to_string(writer.file_path(date))
-            .await
-            .unwrap();
-        let parsed: LogEvent = serde_json::from_str(content.trim()).unwrap();
-        assert_eq!(parsed.payload["secret"], "[REDACTED]");
-        assert_eq!(parsed.payload["safe"], "ok");
-    }
-
-    #[tokio::test]
     async fn test_flush_after_write() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut writer = LogWriter::new(tmp.path().into(), RedactionEngine::empty())
-            .await
-            .unwrap();
+        let mut writer = LogWriter::new(tmp.path().into()).await.unwrap();
 
-        let mut event = make_event("test", "test.event");
+        let event = make_event("test", "test.event");
         let date = event.timestamp.date_naive();
-        writer.write(&mut event).await.unwrap();
+        writer.write(&event).await.unwrap();
 
         // File should be readable immediately after write (flushed).
         let content = tokio::fs::read_to_string(writer.file_path(date))
