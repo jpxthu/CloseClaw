@@ -144,6 +144,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/debug_log/README.md",
+    "commit": "baf040bd4e738a08979e2e34dca8fcfbe490dc81",
+    "commit_time": "2026-08-08T03:31:12+08:00",
+    "confirmed_time": "2026-08-08T04:10:44.090671+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/gateway/README.md",
     "commit": "7a5c737aa0c610ea0e3a710aa54d45c3ae10b7d9",
     "commit_time": "2026-08-07T05:07:08+08:00",
