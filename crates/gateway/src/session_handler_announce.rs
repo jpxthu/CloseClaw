@@ -590,13 +590,13 @@ impl SessionMessageHandler {
             return;
         };
         if let Err(e) = gw
-            .send_outbound_to_chat(&chat_id, &session.channel, &notif.message)
+            .send_outbound_simplified(&chat_id, &session.channel, &notif.message)
             .await
         {
             tracing::warn!(
                 session_id = %session_id,
                 error = %e,
-                "failed to send workflow blocked notification via Gateway"
+                "failed to send workflow blocked notification via simplified outbound"
             );
         }
     }

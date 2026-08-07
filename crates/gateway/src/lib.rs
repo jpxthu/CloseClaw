@@ -799,13 +799,13 @@ impl Gateway {
                     .await
                 {
                     if let Err(e) = self
-                        .send_outbound_to_chat(&chat_id, channel, "正在恢复会话...")
+                        .send_outbound_simplified(&chat_id, channel, "正在恢复会话...")
                         .await
                     {
                         tracing::warn!(
                             session_id = %session_id,
                             error = %e,
-                            "failed to send restore notification via outbound chain"
+                            "failed to send restore notification via simplified outbound"
                         );
                     }
                 }
@@ -924,6 +924,8 @@ use processor_registry_builder::register_default_middlewares;
 pub mod compute_session_key_tests;
 #[cfg(test)]
 pub mod construction_tests;
+#[cfg(test)]
+pub mod gateway_alignment_tests;
 #[cfg(test)]
 pub mod inbound_chain_tests;
 #[cfg(test)]

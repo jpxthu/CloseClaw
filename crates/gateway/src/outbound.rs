@@ -198,7 +198,7 @@ impl Gateway {
         if !middlewares.is_empty() {
             let mctx = Self::make_middleware_ctx(ctx.session_id, ctx.channel, &ctx.chat_id);
             if let Err(e) = run_middleware_chain(&middlewares, &mctx, ctx.rendered).await {
-                return log_middleware_rejection(e, ctx.session_id);
+                return log_middleware_rejection(self, e, &ctx.chat_id, ctx.channel).await;
             }
         }
         match ctx.rendered.msg_type.as_str() {
@@ -219,8 +219,6 @@ impl Gateway {
                     ctx.dsl_result.clone(),
                     ctx.content_blocks.clone(),
                 );
-                self.persist_outbound_checkpoint(ctx.session_id, &msg, false)
-                    .await;
                 ctx.plugin
                     .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
                     .await?;
@@ -238,8 +236,6 @@ impl Gateway {
                     ctx.dsl_result.clone(),
                     ctx.content_blocks.clone(),
                 );
-                self.persist_outbound_checkpoint(ctx.session_id, &msg, false)
-                    .await;
                 ctx.plugin
                     .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
                     .await?;
@@ -536,7 +532,7 @@ impl Gateway {
         if !middlewares.is_empty() {
             let mctx = Self::make_middleware_ctx("", channel, chat_id);
             if let Err(e) = run_middleware_chain(&middlewares, &mctx, &rendered).await {
-                return log_middleware_rejection(e, chat_id);
+                return log_middleware_rejection(self, e, chat_id, channel).await;
             }
         }
 
