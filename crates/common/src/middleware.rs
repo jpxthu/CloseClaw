@@ -90,6 +90,15 @@ pub struct MiddlewareContext {
 /// channel, chat ID) that middlewares can use for decisions such as
 /// rate limiting or audit logging.
 ///
+/// # Pre-flight checks
+///
+/// For streaming outbound, the middleware chain is replaced by a single
+/// [`pre_flight_check`](OutboundMiddleware::pre_flight_check) call before
+/// the stream loop starts. This avoids per-chunk middleware overhead and
+/// ensures the check runs exactly once. The default implementation
+/// returns `Ok(())` (no-op). Middlewares that need session-level gating
+/// (e.g. rate limiting) should override this method.
+///
 /// # Examples
 ///
 /// ```ignore
@@ -130,4 +139,17 @@ pub trait OutboundMiddleware: Send + Sync {
         ctx: &MiddlewareContext,
         rendered: &RenderedOutput,
     ) -> Result<(), MiddlewareError>;
+
+    /// Pre-flight check for streaming outbound.
+    ///
+    /// Called once before the stream loop starts, using only session-level
+    /// metadata from [`MiddlewareContext`]. This avoids per-chunk middleware
+    /// overhead and ensures the check runs exactly once.
+    ///
+    /// The default implementation returns `Ok(())` (no-op). Middlewares
+    /// that need session-level gating (e.g. rate limiting) should override
+    /// this method.
+    async fn pre_flight_check(&self, _ctx: &MiddlewareContext) -> Result<(), MiddlewareError> {
+        Ok(())
+    }
 }

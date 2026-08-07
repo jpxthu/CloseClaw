@@ -82,6 +82,17 @@ impl OutboundMiddleware for RateLimitMiddleware {
         ctx: &MiddlewareContext,
         _rendered: &RenderedOutput,
     ) -> Result<(), MiddlewareError> {
+        self.check_rate_limit(ctx).await
+    }
+
+    async fn pre_flight_check(&self, ctx: &MiddlewareContext) -> Result<(), MiddlewareError> {
+        self.check_rate_limit(ctx).await
+    }
+}
+
+impl RateLimitMiddleware {
+    /// Core rate-limit check shared by both `process` and `pre_flight_check`.
+    async fn check_rate_limit(&self, ctx: &MiddlewareContext) -> Result<(), MiddlewareError> {
         let mut windows = self.windows.write().await;
         let window = windows
             .entry(ctx.session_id.clone())
