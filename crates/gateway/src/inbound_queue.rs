@@ -92,6 +92,88 @@ pub struct InboundQueueFull {
 ///
 /// When the plugin is not registered or both parsers return `None`, the
 /// message is silently dropped.
+/// Process a parsed NormalizedMessage through the inbound chain and handle it.
+///
+/// Drops empty text messages defensively (per design doc: "text type empty
+/// content messages are discarded at parse stage, no NormalizedMessage produced").
+async fn handle_normalized_message(
+    gateway: &Gateway,
+    req: &InboundRequest,
+    normalized: closeclaw_common::NormalizedMessage,
+) {
+    if normalized.message_type == MessageType::Text && normalized.content.trim().is_empty() {
+        tracing::debug!(peer_id = %req.peer_id, "dropping empty text message");
+        return;
+    }
+    let sender_id = normalized.sender_id.clone();
+    let input = super::InboundChainInput {
+        platform: normalized.platform.clone(),
+        sender_id: normalized.sender_id.clone(),
+        peer_id: normalized.peer_id.clone(),
+        content: normalized.content.clone(),
+        message_id: String::new(),
+        timestamp_ms: normalized.timestamp,
+        account_id: Some(normalized.account_id.clone()),
+        thread_id: normalized.thread_id.clone(),
+        message_type: normalized.message_type.clone(),
+        media_refs: normalized.media_refs.clone(),
+    };
+    let processed = gateway.process_inbound_chain(&input).await;
+    gateway
+        .handle_inbound_message(processed, Some(&sender_id), &normalized.platform)
+        .await;
+}
+
+/// Process a single inbound request through plugin parsing and the inbound chain.
+///
+/// This is the core logic extracted from the consumer loop. It resolves the
+/// plugin, parses the raw payload, and routes NormalizedMessage / CardActionEvent
+/// appropriately.
+async fn process_single_request(
+    gateway: &Gateway,
+    req: &InboundRequest,
+    plugin: &Arc<dyn closeclaw_common::IMPlugin>,
+) {
+    match plugin.parse_inbound(&req.raw_payload).await {
+        Ok(Some(normalized)) => {
+            handle_normalized_message(gateway, req, normalized).await;
+        }
+        Ok(None) => match plugin.parse_card_action(&req.raw_payload).await {
+            Ok(Some(card_action)) => {
+                gateway.handle_card_action(card_action).await;
+            }
+            Ok(None) => {
+                tracing::debug!(
+                    platform = %req.platform,
+                    peer_id = %req.peer_id,
+                    "no match (message or card action) — dropping"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    platform = %req.platform,
+                    peer_id = %req.peer_id,
+                    error = %e,
+                    "parse_card_action failed — dropping"
+                );
+            }
+        },
+        Err(e) => {
+            tracing::warn!(
+                platform = %req.platform,
+                peer_id = %req.peer_id,
+                error = %e,
+                "parse_inbound failed — dropping"
+            );
+        }
+    }
+}
+
+/// Spawn a consumer task that drains the inbound queue and processes
+/// each message through the IM plugin parser, processor chain, and
+/// inbound handler.
+///
+/// The task runs until the receiver is closed (Gateway shutdown).
 pub(crate) fn start_inbound_consumer(
     mut rx: mpsc::Receiver<InboundRequest>,
     gateway: Arc<Gateway>,
@@ -100,7 +182,6 @@ pub(crate) fn start_inbound_consumer(
     tokio::spawn(async move {
         tracing::info!(capacity, "inbound queue consumer started");
         while let Some(req) = rx.recv().await {
-            // Debug log: message dequeued
             {
                 let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
                 super::debug_log_emitter::emit_debug_event(
@@ -116,7 +197,6 @@ pub(crate) fn start_inbound_consumer(
                     }),
                 );
             }
-            // ── 1. Resolve plugin ─────────────────────────────────────
             let Some(plugin) = gateway.get_plugin(&req.platform).await else {
                 tracing::warn!(
                     platform = %req.platform,
@@ -124,80 +204,7 @@ pub(crate) fn start_inbound_consumer(
                 );
                 continue;
             };
-
-            // ── 2. Try parsing as NormalizedMessage ───────────────────
-            match plugin.parse_inbound(&req.raw_payload).await {
-                Ok(Some(normalized)) => {
-                    // Defensive: drop empty text messages that slipped through
-                    // parse_inbound. Per design doc: "text type empty content
-                    // messages are discarded at parse stage, no NormalizedMessage
-                    // produced".
-                    if normalized.message_type == MessageType::Text
-                        && normalized.content.trim().is_empty()
-                    {
-                        tracing::debug!(
-                            peer_id = %req.peer_id,
-                            "consumer: dropping empty text message"
-                        );
-                        continue;
-                    }
-                    // ── 2a. Process through inbound chain ───────────────
-                    let sender_id = normalized.sender_id.clone();
-                    let input = super::InboundChainInput {
-                        platform: normalized.platform.clone(),
-                        sender_id: normalized.sender_id.clone(),
-                        peer_id: normalized.peer_id.clone(),
-                        content: normalized.content.clone(),
-                        message_id: String::new(),
-                        timestamp_ms: normalized.timestamp,
-                        account_id: Some(normalized.account_id.clone()),
-                        thread_id: normalized.thread_id.clone(),
-                        message_type: normalized.message_type.clone(),
-                        media_refs: normalized.media_refs.clone(),
-                    };
-                    let processed = gateway.process_inbound_chain(&input).await;
-
-                    // ── 2b. Handle inbound message ──────────────────────
-                    gateway
-                        .handle_inbound_message(processed, Some(&sender_id), &normalized.platform)
-                        .await;
-                    continue;
-                }
-                Ok(None) => { /* not a message — try card action below */ }
-                Err(e) => {
-                    tracing::warn!(
-                        platform = %req.platform,
-                        peer_id = %req.peer_id,
-                        error = %e,
-                        "inbound consumer: parse_inbound failed — dropping"
-                    );
-                    continue;
-                }
-            }
-
-            // ── 3. Try parsing as CardActionEvent ──────────────────────
-            match plugin.parse_card_action(&req.raw_payload).await {
-                Ok(Some(card_action)) => {
-                    // Card actions bypass the inbound Processor Chain and are
-                    // injected directly as tool-result payloads.
-                    gateway.handle_card_action(card_action).await;
-                }
-                Ok(None) => {
-                    tracing::debug!(
-                        platform = %req.platform,
-                        peer_id = %req.peer_id,
-                        "inbound consumer: no match (message or card action) — dropping"
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        platform = %req.platform,
-                        peer_id = %req.peer_id,
-                        error = %e,
-                        "inbound consumer: parse_card_action failed — dropping"
-                    );
-                }
-            }
+            process_single_request(gateway.as_ref(), &req, &plugin).await;
         }
         tracing::info!("inbound queue consumer stopped");
     });
@@ -215,8 +222,11 @@ const BUSY_REPLY_TEXT: &str =
 ///
 /// When the queue has not been started (fallback mode), the raw payload
 /// is parsed inline and processed immediately.
-pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundRequest) {
-    // Generate trace_id at webhook arrival for debug-log correlation.
+/// Ensure `request.trace_id` is non-empty for debug-log correlation.
+///
+/// If the caller did not provide a trace_id, a new one is generated from
+/// the platform name, current timestamp, and a random UUID.
+fn ensure_trace_id(request: &mut InboundRequest) {
     if request.trace_id.is_empty() {
         request.trace_id = format!(
             "{}-{}-{}",
@@ -225,6 +235,10 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundReque
             uuid::Uuid::new_v4(),
         );
     }
+}
+
+pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundRequest) {
+    ensure_trace_id(&mut request);
     let tx = match gateway
         .inbound_tx
         .lock()
