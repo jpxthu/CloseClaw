@@ -112,6 +112,38 @@ fn test_stream_error_sends_error_after_partial_content() {
     assert_eq!(errors[0], "Streaming error: timeout");
 }
 
+/// Mixed ContentBlocks (Text + Image) → only Text blocks sent, Image ignored.
+#[test]
+fn test_stream_error_only_text_blocks_sent_from_mixed_content() {
+    let sink = RecordingSink::new();
+    let error = GatewayError::StreamError {
+        message: "stream interrupted".to_string(),
+        partial_content: vec![
+            ContentBlock::Text("Hello, ".to_string()),
+            ContentBlock::Image {
+                name: "screenshot.png".to_string(),
+                url: "https://example.com/img.png".to_string(),
+            },
+            ContentBlock::Text("world!".to_string()),
+        ],
+    };
+
+    let result = simulate_stream_error(&sink, error);
+    assert!(matches!(result, LLMError::ApiError(_)));
+
+    let texts = sink.texts.lock().unwrap();
+    assert_eq!(
+        texts.len(),
+        2,
+        "should only send 2 text blocks, not the image block"
+    );
+    assert_eq!(texts[0], "Hello, ");
+    assert_eq!(texts[1], "world!");
+
+    let errors = sink.errors.lock().unwrap();
+    assert_eq!(errors.len(), 1);
+}
+
 /// Empty partial_content → no text blocks sent, only the error.
 #[test]
 fn test_stream_error_empty_partial_content_sends_no_text() {

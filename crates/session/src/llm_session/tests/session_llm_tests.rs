@@ -116,18 +116,20 @@ impl LlmCaller for ErrorLlmCaller {
     }
 }
 
+fn canned_usage() -> UnifiedUsage {
+    UnifiedUsage {
+        prompt_tokens: 1,
+        completion_tokens: 1,
+        total_tokens: Some(2),
+        ..Default::default()
+    }
+}
+
 fn canned_response(text: &str) -> UnifiedResponse {
-    use closeclaw_common::processor::{ContentBlock, UnifiedUsage};
+    use closeclaw_common::processor::ContentBlock;
     UnifiedResponse {
         content_blocks: vec![ContentBlock::Text(text.into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: canned_usage(),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     }
@@ -527,14 +529,7 @@ async fn test_build_llm_messages_includes_history() {
     // Simulate a prior turn: user → assistant
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("prior response".into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: canned_usage(),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });
@@ -582,14 +577,7 @@ async fn test_build_llm_messages_cleans_thinking_from_history() {
                 signature: None,
             },
         ],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: canned_usage(),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });
@@ -624,14 +612,7 @@ async fn test_build_llm_messages_thinking_clean_does_not_mutate_self() {
                 signature: None,
             },
         ],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: canned_usage(),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });
