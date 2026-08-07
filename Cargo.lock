@@ -603,6 +603,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "closeclaw-debug-log"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "closeclaw-execution"
 version = "0.1.0"
 dependencies = [
