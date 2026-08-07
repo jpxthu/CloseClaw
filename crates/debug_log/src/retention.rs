@@ -10,8 +10,6 @@ pub enum LogRetentionError {
     ReadDir(#[source] std::io::Error),
     #[error("failed to delete log file: {0}")]
     Delete(#[source] std::io::Error),
-    #[error("invalid date in filename: {0}")]
-    InvalidDate(String),
 }
 
 /// Log retention policy — manages daily log file lifecycle.

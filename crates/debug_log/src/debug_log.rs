@@ -85,16 +85,16 @@ impl DebugLog {
             if prev_date != new_date && new_date.is_some() {
                 let retention = self.inner.retention.clone();
                 tokio::spawn(async move {
-                    if let Err(e) =
-                        tokio::task::spawn_blocking(move || run_retention_cleanup(retention))
-                            .await
-                            .unwrap_or_else(|e| {
-                                Err(crate::LogRetentionError::ReadDir(std::io::Error::other(
-                                    e.to_string(),
-                                )))
-                            })
+                    match tokio::task::spawn_blocking(move || run_retention_cleanup(retention))
+                        .await
                     {
-                        warn!(error = %e, "failed to cleanup expired log files");
+                        Ok(Err(e)) => {
+                            warn!(error = %e, "failed to cleanup expired log files");
+                        }
+                        Ok(Ok(_)) => {}
+                        Err(e) => {
+                            warn!(error = %e, "retention cleanup task panicked");
+                        }
                     }
                 });
             }
