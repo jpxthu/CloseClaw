@@ -62,7 +62,7 @@ Agent 可以将子任务委托给子 Session，并行委托多个子 Session，�
   - 子 Session 运行时长达设定的超时上限时，系统向父 Session 注入超时通知。通知内容包含：设定的超时时间、实际运行时长、context window 使用情况及 token 用量
   - 若父 Agent 未终止该子 Session，系统在超时时间的 50% 间隔后再次注入通知，循环往复。间隔比例可配置
   - 父 Agent 收到通知后自行决定：终止子 Session、继续等待、或向用户汇报
-  - 子 Session 的超时时间来源，按优先级：创建子 Session 时指定 > 目标 Agent 的独立配置 > Agent 全局默认值
+  - 子 Session 的超时时间来源，按以下优先级确定。详见 [agent §F7](agent.md)（子 Agent 创建）
 - 暂停等待的解除条件：用户发送新消息、所有等待中的子 Session 正常完成、父 Agent 自行决定不再等待（不再等待时子 Session 继续运行，父 Agent 恢复推理）
 
 > **交叉引用**：子 Session 结果注入的排队规则详见 [F9](#f9-消息注入)（消息注入）。
