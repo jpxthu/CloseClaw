@@ -20,6 +20,25 @@ fn make_normalized() -> NormalizedMessage {
 }
 
 #[test]
+fn test_from_normalized_with_trace_id() {
+    let mut msg = make_normalized();
+    msg.trace_id = "feishu-1234567890-abc-def".to_string();
+    let ctx = MessageContext::from_normalized(msg);
+    assert_eq!(
+        ctx.metadata.get("trace_id").unwrap(),
+        "feishu-1234567890-abc-def"
+    );
+}
+
+#[test]
+fn test_from_normalized_with_empty_trace_id() {
+    let mut msg = make_normalized();
+    msg.trace_id = String::new();
+    let ctx = MessageContext::from_normalized(msg);
+    assert!(ctx.metadata.is_empty());
+}
+
+#[test]
 fn test_message_context_content_blocks_default_empty() {
     let msg = make_normalized();
     let ctx = MessageContext::from_normalized(msg);

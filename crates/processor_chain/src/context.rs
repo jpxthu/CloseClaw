@@ -48,10 +48,14 @@ impl MessageContext {
             logged_at,
             processor_name: None,
         };
+        let mut metadata = std::collections::HashMap::new();
+        if !msg.trace_id.is_empty() {
+            metadata.insert("trace_id".to_string(), msg.trace_id);
+        }
         Self {
             content: msg.content,
             raw_message_log: vec![raw_log],
-            metadata: std::collections::HashMap::new(),
+            metadata,
             skip: false,
             content_blocks: vec![],
         }
@@ -85,7 +89,7 @@ mod tests {
         let ctx = MessageContext::from_normalized(msg.clone());
         assert_eq!(ctx.content, "hello");
         assert!(!ctx.skip);
-        assert_eq!(ctx.metadata.len(), 0);
+        assert!(ctx.metadata.is_empty());
         assert_eq!(ctx.raw_message_log.len(), 1);
         let initial = ctx.initial_normalized().unwrap();
         assert_eq!(initial.platform, msg.platform);
