@@ -99,17 +99,27 @@ impl SessionMessageHandler {
 
         let stream_result = dispatch_result.map_err(|e| {
             let msg = e.to_string();
-            if let Some(ref s) = sink {
-                s.send_error(msg.clone());
-            }
             if let GatewayError::StreamError {
-                partial_content, ..
+                ref partial_content,
+                ..
             } = e
             {
+                // Send accumulated partial text blocks to the user before the
+                // error so they don't lose already-generated content.
+                if let Some(ref s) = sink {
+                    for block in partial_content {
+                        if let ContentBlock::Text(text) = block {
+                            s.send_text(text);
+                        }
+                    }
+                }
                 tracing::warn!(
                     partial_content_blocks = partial_content.len(),
                     "streaming error: partial content blocks preserved"
                 );
+            }
+            if let Some(ref s) = sink {
+                s.send_error(msg.clone());
             }
             LLMError::ApiError(msg)
         })?;
