@@ -1,3 +1,4 @@
+use chrono::NaiveDate;
 use tokio::sync::Mutex;
 use tracing::{error, warn};
 
@@ -105,6 +106,46 @@ impl DebugLog {
     pub fn min_level(&self) -> LogLevel {
         self.inner.level_filter.min_level()
     }
+
+    /// Delete all framework log files (`debug-*.jsonl`).
+    ///
+    /// Delegates to [`LogRetention::cleanup_all`] via `spawn_blocking`.
+    /// Returns the number of files deleted.
+    pub async fn cleanup_all_logs(&self) -> Result<usize, DebugLogError> {
+        self.run_cleanup(|r| r.cleanup_all()).await
+    }
+
+    /// Delete framework log files created before the given date (exclusive).
+    ///
+    /// Delegates to [`LogRetention::cleanup_before`] via `spawn_blocking`.
+    /// Returns the number of files deleted.
+    pub async fn cleanup_logs_before(&self, date: NaiveDate) -> Result<usize, DebugLogError> {
+        self.run_cleanup(move |r| r.cleanup_before(date)).await
+    }
+
+    /// Delete framework log files within the given date range (inclusive).
+    ///
+    /// Delegates to [`LogRetention::cleanup_range`] via `spawn_blocking`.
+    /// Returns the number of files deleted.
+    pub async fn cleanup_logs_range(
+        &self,
+        from: NaiveDate,
+        to: NaiveDate,
+    ) -> Result<usize, DebugLogError> {
+        self.run_cleanup(move |r| r.cleanup_range(from, to)).await
+    }
+
+    /// Run a cleanup operation on the shared [`LogRetention`] via `spawn_blocking`.
+    async fn run_cleanup<F>(&self, op: F) -> Result<usize, DebugLogError>
+    where
+        F: FnOnce(LogRetention) -> Result<usize, crate::LogRetentionError> + Send + 'static,
+    {
+        let retention = self.inner.retention.clone();
+        tokio::task::spawn_blocking(move || op(retention))
+            .await
+            .map_err(|e| DebugLogError::TaskJoin(e.to_string()))?
+            .map_err(DebugLogError::Retention)
+    }
 }
 
 /// Run the retention cleanup (blocking I/O).
@@ -121,6 +162,10 @@ fn run_retention_cleanup(retention: LogRetention) -> Result<usize, crate::LogRet
 pub enum DebugLogError {
     #[error("failed to initialize log writer: {0}")]
     WriterInit(#[source] LogWriterError),
+    #[error("log retention operation failed: {0}")]
+    Retention(#[source] crate::LogRetentionError),
+    #[error("task join failed: {0}")]
+    TaskJoin(String),
 }
 
 #[cfg(test)]

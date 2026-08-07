@@ -606,6 +606,7 @@ dependencies = [
 name = "closeclaw-debug-log"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "serde",
  "serde_json",

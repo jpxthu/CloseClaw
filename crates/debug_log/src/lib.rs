@@ -4,6 +4,7 @@
 //! level filtering, credential redaction, and daily log rotation.
 
 mod config;
+mod consumer;
 mod debug_log;
 mod event;
 mod level;
@@ -14,6 +15,7 @@ mod trace_context;
 mod writer;
 
 pub use config::{DebugLogConfig, DebugLogConfigError};
+pub use consumer::{ConsumerError, JsonlLogConsumer, LogConsumer, NormalizedEvent};
 pub use debug_log::{DebugLog, DebugLogError};
 pub use event::LogEvent;
 pub use level::LogLevel;

@@ -42,29 +42,40 @@ impl LogRetention {
         }
     }
 
+    /// Delete all framework log files.
+    ///
+    /// Returns the number of files deleted. Only files matching the
+    /// `debug-*.jsonl` pattern are considered; other files are left untouched.
+    pub fn cleanup_all(&self) -> Result<usize, LogRetentionError> {
+        let files = self.list_framework_files()?;
+        Ok(self.delete_files(files))
+    }
+
+    /// Delete framework log files within the given date range (inclusive).
+    ///
+    /// Returns the number of files deleted. Only files matching the
+    /// `debug-*.jsonl` pattern are considered; other files are left untouched.
+    pub fn cleanup_range(
+        &self,
+        from: NaiveDate,
+        to: NaiveDate,
+    ) -> Result<usize, LogRetentionError> {
+        let files = self.list_framework_files()?;
+        let filtered: Vec<FileDate> = files
+            .into_iter()
+            .filter(|f| f.date >= from && f.date <= to)
+            .collect();
+        Ok(self.delete_files(filtered))
+    }
+
     /// Cleanup log files older than the given date (exclusive).
     ///
     /// Returns the number of files deleted. Only files matching the
     /// `debug-*.jsonl` pattern are considered; other files are left untouched.
     pub fn cleanup_before(&self, date: NaiveDate) -> Result<usize, LogRetentionError> {
         let files = self.list_framework_files()?;
-        let mut deleted = 0;
-
-        for file_date in files {
-            if file_date.date < date {
-                if let Err(e) = std::fs::remove_file(&file_date.path) {
-                    warn!(
-                        path = %file_date.path.display(),
-                        error = %e,
-                        "failed to delete expired log file"
-                    );
-                } else {
-                    deleted += 1;
-                }
-            }
-        }
-
-        Ok(deleted)
+        let filtered: Vec<FileDate> = files.into_iter().filter(|f| f.date < date).collect();
+        Ok(self.delete_files(filtered))
     }
 
     /// Run the retention check against the current date.
@@ -75,6 +86,25 @@ impl LogRetention {
         let today = Utc::now().date_naive();
         let cutoff = today - chrono::Duration::days(self.retention_days as i64);
         self.cleanup_before(cutoff)
+    }
+
+    /// Delete a list of framework log files, logging warnings on failure.
+    ///
+    /// Returns the number of files successfully deleted.
+    fn delete_files(&self, files: Vec<FileDate>) -> usize {
+        let mut deleted = 0;
+        for file_date in files {
+            if let Err(e) = std::fs::remove_file(&file_date.path) {
+                warn!(
+                    path = %file_date.path.display(),
+                    error = %e,
+                    "failed to delete log file"
+                );
+            } else {
+                deleted += 1;
+            }
+        }
+        deleted
     }
 
     /// List all framework log files (`debug-*.jsonl`) with parsed dates.
