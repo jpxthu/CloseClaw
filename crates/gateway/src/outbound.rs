@@ -198,7 +198,7 @@ impl Gateway {
         if !middlewares.is_empty() {
             let mctx = Self::make_middleware_ctx(ctx.session_id, ctx.channel, &ctx.chat_id);
             if let Err(e) = run_middleware_chain(&middlewares, &mctx, ctx.rendered).await {
-                return log_middleware_rejection(e, ctx.session_id);
+                return log_middleware_rejection(self, e, &ctx.chat_id, ctx.channel).await;
             }
         }
         match ctx.rendered.msg_type.as_str() {
@@ -536,7 +536,7 @@ impl Gateway {
         if !middlewares.is_empty() {
             let mctx = Self::make_middleware_ctx("", channel, chat_id);
             if let Err(e) = run_middleware_chain(&middlewares, &mctx, &rendered).await {
-                return log_middleware_rejection(e, chat_id);
+                return log_middleware_rejection(self, e, chat_id, channel).await;
             }
         }
 
