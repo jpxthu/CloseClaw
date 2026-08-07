@@ -6,6 +6,8 @@ pub mod approval;
 pub mod approval_tests;
 pub mod card_action;
 mod debug_log_emitter;
+#[cfg(test)]
+pub mod debug_log_tests;
 pub(crate) mod health_check_builders;
 #[cfg(test)]
 mod health_check_builders_tests;
