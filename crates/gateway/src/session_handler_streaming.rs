@@ -19,6 +19,7 @@ use crate::session_manager::SessionManager;
 use crate::types::GatewayError;
 use crate::Gateway;
 use closeclaw_common::im_plugin::IMPlugin;
+use closeclaw_common::StreamingSink;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::streaming::StreamDone;
 use closeclaw_llm::types::ContentBlock;
@@ -98,30 +99,12 @@ impl SessionMessageHandler {
         }
 
         let stream_result = dispatch_result.map_err(|e| {
-            let msg = e.to_string();
-            if let GatewayError::StreamError {
-                ref partial_content,
-                ..
-            } = e
-            {
-                // Send accumulated partial text blocks to the user before the
-                // error so they don't lose already-generated content.
-                if let Some(ref s) = sink {
-                    for block in partial_content {
-                        if let ContentBlock::Text(text) = block {
-                            s.send_text(text);
-                        }
-                    }
-                }
-                tracing::warn!(
-                    partial_content_blocks = partial_content.len(),
-                    "streaming error: partial content blocks preserved"
-                );
-            }
             if let Some(ref s) = sink {
-                s.send_error(msg.clone());
+                handle_stream_error(e, s.as_ref())
+            } else {
+                let msg = e.to_string();
+                LLMError::ApiError(msg)
             }
-            LLMError::ApiError(msg)
         })?;
 
         // Best-effort: notify sink of stream completion with usage, so
@@ -146,4 +129,32 @@ impl SessionMessageHandler {
         }
         Ok(stream_result)
     }
+}
+
+/// Handle a streaming error by sending partial content to the user
+/// before the error message.
+///
+/// When a [`GatewayError::StreamError`] occurs mid-stream, any
+/// accumulated text blocks are sent to the sink first, then the
+/// error message is sent. This ensures the user does not lose
+/// already-generated content.
+pub(crate) fn handle_stream_error(e: GatewayError, sink: &dyn StreamingSink) -> LLMError {
+    let msg = e.to_string();
+    if let GatewayError::StreamError {
+        ref partial_content,
+        ..
+    } = e
+    {
+        for block in partial_content {
+            if let ContentBlock::Text(text) = block {
+                sink.send_text(text);
+            }
+        }
+        tracing::warn!(
+            partial_content_blocks = partial_content.len(),
+            "streaming error: partial content blocks preserved"
+        );
+    }
+    sink.send_error(msg.clone());
+    LLMError::ApiError(msg)
 }

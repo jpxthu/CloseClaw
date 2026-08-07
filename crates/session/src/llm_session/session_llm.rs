@@ -273,18 +273,15 @@ impl ConversationSession {
     /// Non-tool content blocks are formatted via [`format_content_block`]
     /// and joined with newlines. Tool results are appended as independent
     /// `role="tool"` messages at the end.
-    fn convert_history_to_internal(messages: &[SessionMessage]) -> Vec<InternalMessage> {
+    pub(crate) fn convert_history_to_internal(messages: &[SessionMessage]) -> Vec<InternalMessage> {
         let mut result: Vec<InternalMessage> = messages
             .iter()
             .map(|msg| {
-                let mut tool_results: Vec<&ContentBlock> = Vec::new();
-                let mut non_tool_blocks = Vec::new();
-                for b in &msg.content_blocks {
-                    match b {
-                        ContentBlock::ToolResult { .. } => tool_results.push(b),
-                        _ => non_tool_blocks.push(b),
-                    }
-                }
+                let non_tool_blocks: Vec<&ContentBlock> = msg
+                    .content_blocks
+                    .iter()
+                    .filter(|b| !matches!(b, ContentBlock::ToolResult { .. }))
+                    .collect();
                 let content = non_tool_blocks
                     .iter()
                     .flat_map(|b| format_content_block(b))

@@ -14,7 +14,6 @@
 
 use std::sync::Arc;
 
-use super::session_llm::format_content_block;
 use super::{ConversationSession, SessionMessage};
 use closeclaw_common::SessionExecStatus;
 use closeclaw_common::StreamingSink;
@@ -175,40 +174,7 @@ impl ChatSession for ConversationSession {
             });
         }
         let cleaned = Self::clean_thinking_content(&self.messages);
-        let mut tool_results: Vec<&ContentBlock> = Vec::new();
-        for msg in &cleaned {
-            let mut non_tool_blocks = Vec::new();
-            for b in &msg.content_blocks {
-                match b {
-                    ContentBlock::ToolResult { .. } => tool_results.push(b),
-                    _ => non_tool_blocks.push(b),
-                }
-            }
-            let content = non_tool_blocks
-                .iter()
-                .flat_map(|b| format_content_block(b))
-                .collect::<Vec<_>>()
-                .join("\n");
-            msgs.push(InternalMessage {
-                role: msg.role.clone(),
-                content,
-                ..Default::default()
-            });
-        }
-        // Append tool results as independent role="tool" messages.
-        for block in &tool_results {
-            if let ContentBlock::ToolResult {
-                tool_call_id,
-                content,
-            } = block
-            {
-                msgs.push(InternalMessage {
-                    role: "tool".into(),
-                    content: content.clone(),
-                    tool_call_id: Some(tool_call_id.clone()),
-                });
-            }
-        }
+        msgs.extend(Self::convert_history_to_internal(&cleaned));
         InternalRequest {
             model: self.model.clone(),
             messages: msgs,
