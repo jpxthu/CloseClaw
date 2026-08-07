@@ -640,6 +640,7 @@ dependencies = [
  "closeclaw-agent",
  "closeclaw-common",
  "closeclaw-config",
+ "closeclaw-debug-log",
  "closeclaw-im-adapter",
  "closeclaw-llm",
  "closeclaw-memory",

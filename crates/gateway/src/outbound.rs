@@ -13,6 +13,7 @@ use crate::outbound_helpers::StreamState;
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::MiddlewareContext;
+use closeclaw_debug_log::{LogEvent, LogLevel, TraceContext};
 use closeclaw_processor_chain::run_middleware_chain;
 use std::sync::Arc;
 
@@ -221,6 +222,9 @@ impl Gateway {
                 // Post-send checkpoint: mark as sent after successful delivery.
                 self.persist_outbound_checkpoint(ctx.session_id, &msg, true)
                     .await;
+                // Debug log: send.completed
+                self.emit_send_completed_log(ctx.session_id, ctx.channel, &ctx.chat_id)
+                    .await;
                 Ok(())
             }
             "interactive" => {
@@ -243,6 +247,9 @@ impl Gateway {
                     .await?;
                 // Post-send checkpoint: mark as sent after successful delivery.
                 self.persist_outbound_checkpoint(ctx.session_id, &msg, true)
+                    .await;
+                // Debug log: send.completed
+                self.emit_send_completed_log(ctx.session_id, ctx.channel, &ctx.chat_id)
                     .await;
                 Ok(())
             }
@@ -457,6 +464,40 @@ impl Gateway {
         if let Err(e) = cm.save(cp).await {
             tracing::warn!(session_id, "failed to save checkpoint: {}", e);
         }
+    }
+
+    /// Emit a `send.completed` debug log event after a successful outbound send.
+    async fn emit_send_completed_log(&self, session_id: &str, channel: &str, peer_id: &str) {
+        let guard = match self.debug_log.read() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        let Some(ref debug_log) = *guard else {
+            return;
+        };
+        // Generate a fresh trace_id for this outbound event; correlation
+        // with inbound trace_id requires deeper plumbing (future work).
+        let trace_id = format!(
+            "out-{}-{}",
+            session_id,
+            chrono::Utc::now().timestamp_millis()
+        );
+        let ctx = TraceContext::new_root(trace_id);
+        let event = LogEvent::new(
+            &ctx,
+            None,
+            LogLevel::Info,
+            "gateway",
+            "send.completed",
+            serde_json::json!({
+                "channel": channel,
+                "peer_id": peer_id,
+            }),
+        );
+        let debug_log = debug_log.clone();
+        tokio::spawn(async move {
+            debug_log.log(event).await;
+        });
     }
 
     /// Lightweight outbound to a specific chat (no session_id required).
