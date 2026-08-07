@@ -654,7 +654,51 @@ impl Gateway {
         } else {
             VerbosityLevel::default()
         };
+
+        // Pre-flight middleware check: execute once before the stream loop
+        // instead of per-chunk. This avoids middleware overhead on every
+        // incremental update and aligns with the design doc requirement
+        // that streaming pre-flight runs exactly once using session metadata.
         let middlewares = self.get_outbound_middlewares().await;
+        if !middlewares.is_empty() {
+            let mctx = Self::make_middleware_ctx(session_id, channel, &chat_id);
+            if let Err(e) =
+                closeclaw_processor_chain::run_pre_flight_check(&middlewares, &mctx).await
+            {
+                // Log the rejection reason at warning level.
+                match &e {
+                    closeclaw_common::MiddlewareError::Rejected { name, reason } => {
+                        tracing::warn!(
+                            middleware = %name,
+                            reason = %reason,
+                            session_id,
+                            "pre-flight middleware rejected streaming outbound"
+                        );
+                    }
+                    closeclaw_common::MiddlewareError::MiddlewareFailed { name, .. } => {
+                        tracing::warn!(
+                            middleware = %name,
+                            session_id,
+                            "pre-flight middleware failed during streaming outbound"
+                        );
+                    }
+                }
+                // Send a rejection notification to the user via simplified path
+                // (skips middleware to avoid re-rejection).
+                let _ = self
+                    .send_outbound_simplified(
+                        &chat_id,
+                        channel,
+                        "Your message was not sent due to an outbound policy restriction.",
+                    )
+                    .await;
+                return Err(GatewayError::OutboundError(format!(
+                    "pre-flight middleware rejected streaming: {}",
+                    e
+                )));
+            }
+        }
+
         let mut state = StreamState::new(verbosity_level);
         let mut first_event_received = false;
         let timeout_duration = std::time::Duration::from_millis(200);
@@ -664,7 +708,6 @@ impl Gateway {
             channel,
             chat_id: &chat_id,
             thread_id: thread_id.as_deref(),
-            middlewares: &middlewares,
         };
         loop {
             tokio::select! {

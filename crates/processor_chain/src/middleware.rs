@@ -26,3 +26,19 @@ pub async fn run_middleware_chain(
     }
     Ok(())
 }
+
+/// Run pre-flight checks across the middleware chain.
+///
+/// Calls [`OutboundMiddleware::pre_flight_check`] on each middleware
+/// using only session-level metadata. Used before streaming outbound
+/// to gate the session without per-chunk overhead. If any middleware
+/// rejects, the chain short-circuits immediately.
+pub async fn run_pre_flight_check(
+    middlewares: &[std::sync::Arc<dyn OutboundMiddleware>],
+    ctx: &MiddlewareContext,
+) -> Result<(), MiddlewareError> {
+    for mw in middlewares {
+        mw.pre_flight_check(ctx).await?;
+    }
+    Ok(())
+}

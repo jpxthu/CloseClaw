@@ -53,6 +53,8 @@ pub mod slash_permission;
 mod slash_permission_tests;
 #[cfg(test)]
 mod streaming_pipeline_tests;
+#[cfg(test)]
+mod streaming_preflight_tests;
 pub mod sweeper;
 mod sweeper_active_query_tests;
 #[cfg(test)]

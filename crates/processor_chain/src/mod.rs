@@ -48,7 +48,9 @@ pub use closeclaw_common::im_plugin::NormalizedMessage;
 pub use closeclaw_common::processor::{DslInstruction, DslParseResult, ProcessedMessage};
 pub use context::{MessageContext, RawMessageLog};
 pub use error::ProcessError;
-pub use middleware::{run_middleware_chain, MiddlewareError, OutboundMiddleware};
+pub use middleware::{
+    run_middleware_chain, run_pre_flight_check, MiddlewareError, OutboundMiddleware,
+};
 pub use processor::{MessageProcessor, ProcessPhase};
 
 // Re-export types used by test files via `use super::*;`

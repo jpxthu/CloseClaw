@@ -1,10 +1,11 @@
-//! Unit tests for outbound_helpers — streaming text middleware chain.
+//! Unit tests for outbound_helpers — streaming text dispatch.
 //!
-//! Covers the plan Step 1.3 test targets:
-//! - Normal path: middleware passes → text sent via plugin.send()
-//! - Middleware rejection: middleware rejects → text NOT sent, warning logged
-//! - Empty middleware: no middlewares registered → text sent directly
-//! - Multiple middlewares: all pass → text sent
+//! After Step 1.2, middleware is no longer applied per-chunk during
+//! streaming. `send_text` and `send_render_block` send directly via
+//! the plugin without middleware. Middleware gating is handled by
+//! pre-flight check in `send_outbound_streaming_inner`.
+//!
+//! These tests verify the updated send_text behavior (no middleware).
 
 use std::sync::Arc;
 
@@ -21,7 +22,6 @@ use crate::outbound_helpers::{send_text, StreamContext};
 // ---------------------------------------------------------------------------
 
 /// Mock plugin that records every `send()` call for assertion.
-/// Uses `Arc<AtomicBool>` so callers can share a cheap reference to check.
 struct SendTrackingPlugin {
     send_called: Arc<std::sync::atomic::AtomicBool>,
     last_text: Arc<std::sync::Mutex<Option<String>>>,
@@ -114,10 +114,11 @@ impl IMPlugin for SendTrackingPlugin {
 }
 
 // ---------------------------------------------------------------------------
-// Mock middlewares
+// Mock middleware (for reference / future use)
 // ---------------------------------------------------------------------------
 
 /// Middleware that always allows (returns Ok).
+#[allow(dead_code)]
 struct AllowMiddleware;
 
 #[async_trait]
@@ -135,34 +136,6 @@ impl OutboundMiddleware for AllowMiddleware {
     }
 }
 
-/// Middleware that always rejects.
-struct RejectMiddleware {
-    reason: String,
-}
-
-impl RejectMiddleware {
-    fn new(reason: &str) -> Self {
-        Self {
-            reason: reason.to_string(),
-        }
-    }
-}
-
-#[async_trait]
-impl OutboundMiddleware for RejectMiddleware {
-    fn name(&self) -> &str {
-        "reject"
-    }
-
-    async fn process(
-        &self,
-        _ctx: &MiddlewareContext,
-        _rendered: &RenderedOutput,
-    ) -> Result<(), MiddlewareError> {
-        Err(MiddlewareError::rejected("reject", &self.reason))
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -177,7 +150,6 @@ fn make_stream_ctx<'a>(
     session_id: &'a str,
     channel: &'a str,
     chat_id: &'a str,
-    middlewares: &'a [Arc<dyn OutboundMiddleware>],
 ) -> StreamContext<'a> {
     StreamContext {
         plugin,
@@ -185,7 +157,6 @@ fn make_stream_ctx<'a>(
         channel,
         chat_id,
         thread_id: None,
-        middlewares,
     }
 }
 
@@ -193,67 +164,37 @@ fn make_stream_ctx<'a>(
 // Tests
 // ===========================================================================
 
-/// Normal path: empty middlewares → text sent directly.
+/// send_text dispatches text directly via plugin.send (no middleware).
 #[tokio::test]
-async fn test_send_text_empty_middlewares_sends() {
+async fn test_send_text_dispatches_directly() {
     let (plugin, tracker) = make_plugin();
-    let ctx = make_stream_ctx(&plugin, "s1", "mock", "chat1", &[]);
+    let ctx = make_stream_ctx(&plugin, "s1", "mock", "chat1");
     send_text(&ctx, "hello world").await.unwrap();
     assert!(tracker.was_send_called());
     assert_eq!(tracker.last_sent_text().unwrap(), "hello world");
 }
 
-/// Normal path: middleware passes → text sent.
+/// send_text with empty text still dispatches.
 #[tokio::test]
-async fn test_send_text_middleware_passes_sends() {
+async fn test_send_text_empty_string() {
     let (plugin, tracker) = make_plugin();
-    let mws: Vec<Arc<dyn OutboundMiddleware>> = vec![Arc::new(AllowMiddleware)];
-    let ctx = make_stream_ctx(&plugin, "s2", "mock", "chat2", &mws);
-    send_text(&ctx, "allowed").await.unwrap();
+    let ctx = make_stream_ctx(&plugin, "s2", "mock", "chat2");
+    send_text(&ctx, "").await.unwrap();
     assert!(tracker.was_send_called());
-    assert_eq!(tracker.last_sent_text().unwrap(), "allowed");
+    assert_eq!(tracker.last_sent_text().unwrap(), "");
 }
 
-/// Middleware rejection: middleware rejects → text NOT sent, Ok(()) returned.
+/// send_text with special characters dispatches correctly.
 #[tokio::test]
-async fn test_send_text_middleware_rejects_skips_send() {
+async fn test_send_text_special_characters() {
     let (plugin, tracker) = make_plugin();
-    let mws: Vec<Arc<dyn OutboundMiddleware>> =
-        vec![Arc::new(RejectMiddleware::new("rate limited"))];
-    let ctx = make_stream_ctx(&plugin, "s3", "mock", "chat3", &mws);
-    let result = send_text(&ctx, "should not send").await;
-    assert!(result.is_ok(), "middleware rejection should return Ok(())");
-    assert!(
-        !tracker.was_send_called(),
-        "plugin.send() should not be called when middleware rejects"
-    );
-}
-
-/// Multiple middlewares: all pass → text sent.
-#[tokio::test]
-async fn test_send_text_multiple_middlewares_all_pass() {
-    let (plugin, tracker) = make_plugin();
-    let mws: Vec<Arc<dyn OutboundMiddleware>> =
-        vec![Arc::new(AllowMiddleware), Arc::new(AllowMiddleware)];
-    let ctx = make_stream_ctx(&plugin, "s4", "mock", "chat4", &mws);
-    send_text(&ctx, "multi-pass").await.unwrap();
+    let ctx = make_stream_ctx(&plugin, "s3", "mock", "chat3");
+    send_text(&ctx, "hello 🌍 <script>alert('xss')</script>")
+        .await
+        .unwrap();
     assert!(tracker.was_send_called());
-    assert_eq!(tracker.last_sent_text().unwrap(), "multi-pass");
-}
-
-/// Multiple middlewares: first passes, second rejects → text NOT sent.
-#[tokio::test]
-async fn test_send_text_second_middleware_rejects() {
-    let (plugin, tracker) = make_plugin();
-    let mws: Vec<Arc<dyn OutboundMiddleware>> = vec![
-        Arc::new(AllowMiddleware),
-        Arc::new(RejectMiddleware::new("blocked by second")),
-    ];
-    let ctx = make_stream_ctx(&plugin, "s5", "mock", "chat5", &mws);
-    let result = send_text(&ctx, "rejected by second").await;
-    assert!(result.is_ok());
-    assert!(
-        !tracker.was_send_called(),
-        "plugin.send() should not be called when second middleware rejects"
+    assert_eq!(
+        tracker.last_sent_text().unwrap(),
+        "hello 🌍 <script>alert('xss')</script>"
     );
 }
