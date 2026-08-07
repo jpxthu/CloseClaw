@@ -27,6 +27,8 @@ pub struct InboundRequest {
     pub raw_payload: Vec<u8>,
     /// Peer / chat ID — used for busy-reply when the queue is full.
     pub peer_id: String,
+    /// Trace ID for debug-log correlation, generated at webhook arrival.
+    pub trace_id: String,
 }
 
 /// Handle to the inbound queue producer side.
@@ -98,6 +100,22 @@ pub(crate) fn start_inbound_consumer(
     tokio::spawn(async move {
         tracing::info!(capacity, "inbound queue consumer started");
         while let Some(req) = rx.recv().await {
+            // Debug log: message dequeued
+            {
+                let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
+                super::debug_log_emitter::emit_debug_event(
+                    guard.as_ref(),
+                    &req.trace_id,
+                    None,
+                    closeclaw_debug_log::LogLevel::Info,
+                    "gateway",
+                    "queue.dequeued",
+                    serde_json::json!({
+                        "platform": req.platform,
+                        "peer_id": req.peer_id,
+                    }),
+                );
+            }
             // ── 1. Resolve plugin ─────────────────────────────────────
             let Some(plugin) = gateway.get_plugin(&req.platform).await else {
                 tracing::warn!(
@@ -197,7 +215,16 @@ const BUSY_REPLY_TEXT: &str =
 ///
 /// When the queue has not been started (fallback mode), the raw payload
 /// is parsed inline and processed immediately.
-pub(crate) async fn enqueue_inbound(gateway: &Gateway, request: InboundRequest) {
+pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundRequest) {
+    // Generate trace_id at webhook arrival for debug-log correlation.
+    if request.trace_id.is_empty() {
+        request.trace_id = format!(
+            "{}-{}-{}",
+            request.platform,
+            chrono::Utc::now().timestamp_millis(),
+            uuid::Uuid::new_v4(),
+        );
+    }
     let tx = match gateway
         .inbound_tx
         .lock()
@@ -218,6 +245,23 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, request: InboundRequest) 
                 tokio::sync::mpsc::error::TrySendError::Full(r)
                 | tokio::sync::mpsc::error::TrySendError::Closed(r) => r,
             };
+            // Debug log: queue-full rejection
+            {
+                let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
+                super::debug_log_emitter::emit_debug_event(
+                    guard.as_ref(),
+                    &req.trace_id,
+                    None,
+                    closeclaw_debug_log::LogLevel::Warn,
+                    "gateway",
+                    "queue.rejected",
+                    serde_json::json!({
+                        "platform": req.platform,
+                        "peer_id": req.peer_id,
+                        "reason": "queue_full",
+                    }),
+                );
+            }
             tracing::warn!(peer_id = %req.peer_id, "inbound queue full — sending busy reply");
             send_busy_reply(gateway, &req).await;
         }
@@ -347,10 +391,12 @@ mod tests {
             platform: "feishu".into(),
             raw_payload: b"{\"event\":{}}".to_vec(),
             peer_id: "p1".into(),
+            trace_id: "feishu-123-tr".into(),
         };
         assert_eq!(req.platform, "feishu");
         assert_eq!(req.raw_payload, b"{\"event\":{}}");
         assert_eq!(req.peer_id, "p1");
+        assert_eq!(req.trace_id, "feishu-123-tr");
     }
 
     #[test]
@@ -361,6 +407,7 @@ mod tests {
             platform: "feishu".into(),
             raw_payload: b"hello".to_vec(),
             peer_id: "p1".into(),
+            trace_id: "tr-1".into(),
         };
         assert!(handle.try_send(req).is_ok());
     }
@@ -373,11 +420,13 @@ mod tests {
             platform: "feishu".into(),
             raw_payload: b"a".to_vec(),
             peer_id: "p1".into(),
+            trace_id: "tr-1".into(),
         };
         let req2 = InboundRequest {
             platform: "feishu".into(),
             raw_payload: b"b".to_vec(),
             peer_id: "p2".into(),
+            trace_id: "tr-2".into(),
         };
         assert!(handle.try_send(req1).is_ok());
         let err = handle.try_send(req2);
