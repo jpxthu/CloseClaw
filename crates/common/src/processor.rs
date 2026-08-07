@@ -146,7 +146,7 @@ pub enum StreamEvent {
 }
 
 /// Unified token usage statistics.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct UnifiedUsage {
     pub prompt_tokens: u32,
