@@ -343,8 +343,9 @@ impl Gateway {
 
         // ── Debug log: message.arrived ──────────────────────────────
         if let Some(trace_id) = processed.metadata.get("trace_id") {
+            let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
             debug_log_emitter::emit_debug_event(
-                &self.debug_log,
+                guard.as_ref(),
                 trace_id,
                 processed.metadata.get("session_key").map(|s| s.as_str()),
                 LogLevel::Info,
@@ -775,8 +776,9 @@ impl Gateway {
                     .map_err(|e| GatewayError::AdapterError(e.to_string()))?;
                 // Debug log: route.decision (new path)
                 if let Some(trace_id) = message.metadata.get("trace_id") {
+                    let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
                     debug_log_emitter::emit_debug_event(
-                        &self.debug_log,
+                        guard.as_ref(),
                         trace_id,
                         Some(session_key),
                         LogLevel::Info,
@@ -814,8 +816,9 @@ impl Gateway {
             if !session_id.is_empty() {
                 // Debug log: route.decision (fallback path)
                 if let Some(trace_id) = message.metadata.get("trace_id") {
+                    let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
                     debug_log_emitter::emit_debug_event(
-                        &self.debug_log,
+                        guard.as_ref(),
                         trace_id,
                         None,
                         LogLevel::Info,

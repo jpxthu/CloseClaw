@@ -11,7 +11,7 @@ use closeclaw_debug_log::{DebugLog, LogEvent, LogLevel, TraceContext};
 /// [`LogEvent`], and spawns an async task to write it. If `trace_id`
 /// is empty or `debug_log` is `None`, the call is a no-op.
 pub fn emit_debug_event(
-    debug_log: &std::sync::RwLock<Option<DebugLog>>,
+    debug_log: Option<&DebugLog>,
     trace_id: &str,
     session_key: Option<&str>,
     level: LogLevel,
@@ -22,11 +22,7 @@ pub fn emit_debug_event(
     if trace_id.is_empty() {
         return;
     }
-    let guard = match debug_log.read() {
-        Ok(g) => g,
-        Err(_) => return,
-    };
-    let Some(ref debug_log) = *guard else {
+    let Some(debug_log) = debug_log else {
         return;
     };
     let ctx = TraceContext::new_root(trace_id.to_string());

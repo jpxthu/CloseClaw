@@ -1,10 +1,11 @@
-//! Unit tests for Gateway debug log emission (Step 1.6).
+//! Unit tests for Gateway debug log emission (Step 1.6 + 1.8).
 //!
 //! Covers:
 //! 1. message.arrived event emitted with correct trace_id/session_key/level
 //! 2. No DebugLog → message processes without panic
 //! 3. No trace_id → debug event skipped, no panic
 //! 4. emit_debug_event helper: empty trace_id is no-op, missing DebugLog is no-op
+//! 5. Step 1.8: send.completed event uses inbound trace_id (not fabricated)
 
 use crate::{GatewayConfig, SessionManager};
 use closeclaw_common::processor::ProcessedMessage;
@@ -82,10 +83,9 @@ fn make_processed_no_trace() -> ProcessedMessage {
 /// Empty trace_id must be a no-op (no panic, no write).
 #[test]
 fn test_emit_debug_event_empty_trace_id_no_op() {
-    let rl = std::sync::RwLock::new(None::<DebugLog>);
     // Should not panic or attempt to write.
     crate::debug_log_emitter::emit_debug_event(
-        &rl,
+        None,
         "",
         Some("sess-1"),
         LogLevel::Info,
@@ -98,9 +98,8 @@ fn test_emit_debug_event_empty_trace_id_no_op() {
 /// None DebugLog must be a no-op (no panic).
 #[test]
 fn test_emit_debug_event_none_debug_log_no_op() {
-    let rl = std::sync::RwLock::new(None::<DebugLog>);
     crate::debug_log_emitter::emit_debug_event(
-        &rl,
+        None,
         "feishu-123-uuid",
         Some("sess-1"),
         LogLevel::Info,
@@ -124,9 +123,8 @@ fn test_emit_debug_event_with_debug_log_no_panic() {
             redaction_patterns: vec![],
         };
         let debug_log = DebugLog::new(config).await.unwrap();
-        let rl = std::sync::RwLock::new(Some(debug_log));
         crate::debug_log_emitter::emit_debug_event(
-            &rl,
+            Some(&debug_log),
             "feishu-123-uuid",
             Some("sess-1"),
             LogLevel::Info,
