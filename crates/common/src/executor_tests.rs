@@ -34,7 +34,7 @@ enum ExecutorCall {
 
 struct MockSlashEffectExecutor {
     calls: Arc<Mutex<Vec<ExecutorCall>>>,
-    reply_rx: mpsc::Receiver<ReplyAction>,
+    reply_rx: Mutex<mpsc::Receiver<ReplyAction>>,
     reply_tx: mpsc::Sender<ReplyAction>,
 }
 
@@ -43,15 +43,15 @@ impl MockSlashEffectExecutor {
         let (tx, rx) = mpsc::channel(32);
         Self {
             calls: Arc::new(Mutex::new(Vec::new())),
-            reply_rx: rx,
+            reply_rx: Mutex::new(rx),
             reply_tx: tx,
         }
     }
 
     /// Drain all pending ReplyActions from the receiver.
-    async fn drain_replies(&mut self) -> Vec<ReplyAction> {
+    fn drain_replies(&self) -> Vec<ReplyAction> {
         let mut out = Vec::new();
-        while let Ok(action) = self.reply_rx.try_recv() {
+        while let Ok(action) = self.reply_rx.lock().unwrap().try_recv() {
             out.push(action);
         }
         out
@@ -196,7 +196,7 @@ impl SessionLookup for MockSessionLookup {
 // ── Helper to build SideEffectContext ─────────────────────────────────
 
 fn make_ctx(
-    executor: &MockSlashEffectExecutor,
+    executor: Arc<MockSlashEffectExecutor>,
     session_id: &str,
     channel: &str,
     session_manager: Arc<dyn SessionLookup>,
@@ -206,99 +206,7 @@ fn make_ctx(
         channel: channel.to_string(),
         session_manager,
         reply_tx: executor.reply_tx.clone(),
-        executor: Arc::new(MockSlashEffectExecutorRef {
-            calls: executor.calls.clone(),
-        }),
-    }
-}
-
-/// A thin wrapper that shares the same Arc<Mutex<Vec>> as the real mock
-/// so the executor recorded by SideEffectContext writes to the same log.
-struct MockSlashEffectExecutorRef {
-    calls: Arc<Mutex<Vec<ExecutorCall>>>,
-}
-
-#[async_trait]
-impl SlashEffectExecutor for MockSlashEffectExecutorRef {
-    async fn execute_stop(&self, session_id: &str, cascade: bool, force: bool) {
-        self.calls
-            .lock()
-            .unwrap()
-            .push(ExecutorCall::Stop(session_id.to_string(), cascade, force));
-    }
-
-    async fn execute_new_session(&self, session_id: &str, channel: &str) -> String {
-        self.calls.lock().unwrap().push(ExecutorCall::NewSession(
-            session_id.to_string(),
-            channel.to_string(),
-        ));
-        "new-session-id".to_string()
-    }
-
-    async fn execute_compact(
-        &self,
-        session_id: &str,
-        instruction: Option<String>,
-    ) -> Result<CompactionResult, CompactionError> {
-        self.calls.lock().unwrap().push(ExecutorCall::Compact(
-            session_id.to_string(),
-            instruction.clone(),
-        ));
-        Ok(CompactionResult {
-            performed: true,
-            original_tokens: 1000,
-            compacted_tokens: 500,
-            message: "Compacted".to_string(),
-            before_char_count: 10000,
-            after_char_count: 5000,
-            before_token_count: 1000,
-            after_token_count: 500,
-            boundary_message: String::new(),
-            is_auto: false,
-        })
-    }
-
-    async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction) -> usize {
-        self.calls.lock().unwrap().push(ExecutorCall::SystemAppend(
-            session_id.to_string(),
-            action.clone(),
-        ));
-        1
-    }
-
-    async fn execute_set_reasoning(&self, session_id: &str, level: ReasoningLevel) {
-        self.calls
-            .lock()
-            .unwrap()
-            .push(ExecutorCall::SetReasoning(session_id.to_string(), level));
-    }
-
-    async fn execute_set_verbosity(&self, session_id: &str, level: VerbosityLevel) {
-        self.calls
-            .lock()
-            .unwrap()
-            .push(ExecutorCall::SetVerbosity(session_id.to_string(), level));
-    }
-
-    async fn execute_set_mode(&self, session_id: &str, mode: &str) {
-        self.calls.lock().unwrap().push(ExecutorCall::SetMode(
-            session_id.to_string(),
-            mode.to_string(),
-        ));
-    }
-
-    async fn execute_exec(
-        &self,
-        session_id: &str,
-        agent_id: &str,
-        command: &str,
-    ) -> Vec<ContentBlock> {
-        self.calls.lock().unwrap().push(ExecutorCall::Exec(
-            session_id.to_string(),
-            agent_id.to_string(),
-            command.to_string(),
-        ));
-        vec![ContentBlock::Text(format!("output: {command}"))]
+        executor,
     }
 }
 
@@ -306,14 +214,13 @@ impl SlashEffectExecutor for MockSlashEffectExecutorRef {
 
 #[tokio::test]
 async fn test_reply_produces_reply_action_with_correct_text() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(&mock, "s1", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s1", "feishu", sm);
 
     SlashResult::Reply("hello world".into()).execute(&ctx).await;
 
-    let mut mock2 = mock;
-    let replies = mock2.drain_replies().await;
+    let replies = mock.drain_replies();
     assert_eq!(replies.len(), 1);
     match &replies[0] {
         ReplyAction::Reply(blocks) => {
@@ -322,16 +229,16 @@ async fn test_reply_produces_reply_action_with_correct_text() {
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
-    assert!(mock2.calls.lock().unwrap().is_empty());
+    assert!(mock.calls.lock().unwrap().is_empty());
 }
 
 // ── Test: Stop variant ────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_stop_calls_execute_stop_with_correct_params() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(&mock, "s2", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s2", "feishu", sm);
 
     SlashResult::Stop {
         cascade: true,
@@ -345,8 +252,7 @@ async fn test_stop_calls_execute_stop_with_correct_params() {
     assert_eq!(calls[0], ExecutorCall::Stop("s2".into(), true, false));
     drop(calls);
 
-    let mut mock2 = mock;
-    let replies = mock2.drain_replies().await;
+    let replies = mock.drain_replies();
     assert_eq!(replies.len(), 1);
     match &replies[0] {
         ReplyAction::Reply(blocks) => {
@@ -360,10 +266,10 @@ async fn test_stop_calls_execute_stop_with_correct_params() {
 
 #[tokio::test]
 async fn test_set_mode_with_initial_input_sets_mode_and_injects_pending() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let pending = Arc::new(Mutex::new(Vec::<PendingMessage>::new()));
     let sm: Arc<dyn SessionLookup> = Arc::new(MockSessionLookup::with_pending(pending.clone()));
-    let ctx = make_ctx(&mock, "s3", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s3", "feishu", sm);
 
     SlashResult::SetMode {
         mode: "plan".into(),
@@ -389,10 +295,10 @@ async fn test_set_mode_with_initial_input_sets_mode_and_injects_pending() {
 
 #[tokio::test]
 async fn test_set_mode_without_initial_input_no_pending_message() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let pending = Arc::new(Mutex::new(Vec::<PendingMessage>::new()));
     let sm: Arc<dyn SessionLookup> = Arc::new(MockSessionLookup::with_pending(pending.clone()));
-    let ctx = make_ctx(&mock, "s4", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s4", "feishu", sm);
 
     SlashResult::SetMode {
         mode: "auto".into(),
@@ -410,9 +316,9 @@ async fn test_set_mode_without_initial_input_no_pending_message() {
 
 #[tokio::test]
 async fn test_set_mode_custom_reply_message() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(&mock, "s5", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s5", "feishu", sm);
 
     SlashResult::SetMode {
         mode: "plan".into(),
@@ -423,8 +329,7 @@ async fn test_set_mode_custom_reply_message() {
     .execute(&ctx)
     .await;
 
-    let mut mock2 = mock;
-    let replies = mock2.drain_replies().await;
+    let replies = mock.drain_replies();
     assert_eq!(replies.len(), 1);
     match &replies[0] {
         ReplyAction::Reply(blocks) => {
@@ -438,9 +343,9 @@ async fn test_set_mode_custom_reply_message() {
 
 #[tokio::test]
 async fn test_new_session_creates_session_and_replies() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(&mock, "s6", "telegram", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s6", "telegram", sm);
 
     SlashResult::NewSession.execute(&ctx).await;
 
@@ -449,8 +354,7 @@ async fn test_new_session_creates_session_and_replies() {
         ExecutorCall::NewSession("s6".into(), "telegram".into())
     );
 
-    let mut mock2 = mock;
-    let replies = mock2.drain_replies().await;
+    let replies = mock.drain_replies();
     match &replies[0] {
         ReplyAction::Reply(blocks) => match &blocks[0] {
             ContentBlock::Text(t) => assert!(t.contains("new-session-id")),
@@ -464,9 +368,9 @@ async fn test_new_session_creates_session_and_replies() {
 
 #[tokio::test]
 async fn test_compact_success_replies_with_message() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(&mock, "s7", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s7", "feishu", sm);
 
     SlashResult::Compact {
         instruction: Some("summarize".into()),
@@ -479,8 +383,7 @@ async fn test_compact_success_replies_with_message() {
         ExecutorCall::Compact("s7".into(), Some("summarize".into()))
     );
 
-    let mut mock2 = mock;
-    let replies = mock2.drain_replies().await;
+    let replies = mock.drain_replies();
     match &replies[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks[0], ContentBlock::Text("Compacted".into()));
@@ -550,9 +453,9 @@ impl SlashEffectExecutor for MockSlashEffectExecutorError {
 
 #[tokio::test]
 async fn test_system_append_add_replies_with_index() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(&mock, "s9", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s9", "feishu", sm);
 
     SlashResult::SystemAppend {
         action: SystemAppendAction::Add("be helpful".into()),
@@ -565,8 +468,7 @@ async fn test_system_append_add_replies_with_index() {
         ExecutorCall::SystemAppend("s9".into(), SystemAppendAction::Add("be helpful".into()))
     );
 
-    let mut mock2 = mock;
-    let replies = mock2.drain_replies().await;
+    let replies = mock.drain_replies();
     match &replies[0] {
         ReplyAction::Reply(blocks) => match &blocks[0] {
             ContentBlock::Text(t) => assert!(t.contains("#1")),
@@ -580,9 +482,9 @@ async fn test_system_append_add_replies_with_index() {
 
 #[tokio::test]
 async fn test_system_append_clear_replies_with_count() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(&mock, "s10", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s10", "feishu", sm);
 
     SlashResult::SystemAppend {
         action: SystemAppendAction::Clear,
@@ -590,8 +492,7 @@ async fn test_system_append_clear_replies_with_count() {
     .execute(&ctx)
     .await;
 
-    let mut mock2 = mock;
-    let replies = mock2.drain_replies().await;
+    let replies = mock.drain_replies();
     match &replies[0] {
         ReplyAction::Reply(blocks) => match &blocks[0] {
             ContentBlock::Text(t) => assert!(t.contains("1")),
@@ -605,9 +506,9 @@ async fn test_system_append_clear_replies_with_count() {
 
 #[tokio::test]
 async fn test_exec_calls_execute_exec_and_replies() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(Some("agent-42".into())));
-    let ctx = make_ctx(&mock, "s11", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s11", "feishu", sm);
 
     SlashResult::Exec {
         command: "ls -la".into(),
@@ -621,8 +522,7 @@ async fn test_exec_calls_execute_exec_and_replies() {
         ExecutorCall::Exec("s11".into(), "agent-42".into(), "ls -la".into())
     );
 
-    let mut mock2 = mock;
-    let replies = mock2.drain_replies().await;
+    let replies = mock.drain_replies();
     match &replies[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks[0], ContentBlock::Text("output: ls -la".into()));
@@ -635,9 +535,9 @@ async fn test_exec_calls_execute_exec_and_replies() {
 
 #[tokio::test]
 async fn test_exec_falls_back_to_empty_agent_id() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(&mock, "s12", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s12", "feishu", sm);
 
     SlashResult::Exec {
         command: "pwd".into(),
@@ -656,9 +556,9 @@ async fn test_exec_falls_back_to_empty_agent_id() {
 
 #[tokio::test]
 async fn test_set_reasoning_calls_executor_and_replies() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(&mock, "s13", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s13", "feishu", sm);
 
     SlashResult::SetReasoning {
         level: ReasoningLevel::Max,
@@ -671,8 +571,7 @@ async fn test_set_reasoning_calls_executor_and_replies() {
         ExecutorCall::SetReasoning("s13".into(), ReasoningLevel::Max)
     );
 
-    let mut mock2 = mock;
-    let replies = mock2.drain_replies().await;
+    let replies = mock.drain_replies();
     match &replies[0] {
         ReplyAction::Reply(blocks) => match &blocks[0] {
             ContentBlock::Text(t) => assert!(t.contains("Max")),
@@ -686,9 +585,9 @@ async fn test_set_reasoning_calls_executor_and_replies() {
 
 #[tokio::test]
 async fn test_set_verbosity_calls_executor_and_replies() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(&mock, "s14", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s14", "feishu", sm);
 
     SlashResult::SetVerbosity {
         level: VerbosityLevel::Off,
@@ -701,8 +600,7 @@ async fn test_set_verbosity_calls_executor_and_replies() {
         ExecutorCall::SetVerbosity("s14".into(), VerbosityLevel::Off)
     );
 
-    let mut mock2 = mock;
-    let replies = mock2.drain_replies().await;
+    let replies = mock.drain_replies();
     match &replies[0] {
         ReplyAction::Reply(blocks) => match &blocks[0] {
             ContentBlock::Text(t) => assert!(t.contains("off")),
@@ -716,9 +614,9 @@ async fn test_set_verbosity_calls_executor_and_replies() {
 
 #[tokio::test]
 async fn test_inject_meta_appends_system_and_replies() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(&mock, "s15", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s15", "feishu", sm);
 
     SlashResult::InjectMeta {
         content: "skill body here".into(),
@@ -734,8 +632,7 @@ async fn test_inject_meta_appends_system_and_replies() {
         )
     );
 
-    let mut mock2 = mock;
-    let replies = mock2.drain_replies().await;
+    let replies = mock.drain_replies();
     match &replies[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks[0], ContentBlock::Text("技能已加载".into()));
@@ -748,16 +645,15 @@ async fn test_inject_meta_appends_system_and_replies() {
 
 #[tokio::test]
 async fn test_unknown_command_replies_with_error() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(&mock, "s16", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s16", "feishu", sm);
 
     SlashResult::Unknown("nonexistent".into())
         .execute(&ctx)
         .await;
 
-    let mut mock2 = mock;
-    let replies = mock2.drain_replies().await;
+    let replies = mock.drain_replies();
     assert_eq!(replies.len(), 1);
     match &replies[0] {
         ReplyAction::Reply(blocks) => match &blocks[0] {
@@ -766,7 +662,7 @@ async fn test_unknown_command_replies_with_error() {
         },
         other => panic!("expected Reply, got {other:?}"),
     }
-    assert!(mock2.calls.lock().unwrap().is_empty());
+    assert!(mock.calls.lock().unwrap().is_empty());
 }
 
 // ── Test: PermissionOp is no-op ──────────────────────────────────────
@@ -775,9 +671,9 @@ async fn test_unknown_command_replies_with_error() {
 async fn test_permission_op_is_noop() {
     use crate::permission_op::PermissionOperation;
 
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(&mock, "s17", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s17", "feishu", sm);
 
     SlashResult::PermissionOp {
         op: PermissionOperation::AddFileWhitelist {
@@ -789,18 +685,17 @@ async fn test_permission_op_is_noop() {
     .execute(&ctx)
     .await;
 
-    let mut mock2 = mock;
-    assert!(mock2.calls.lock().unwrap().is_empty());
-    assert!(mock2.drain_replies().await.is_empty());
+    assert!(mock.calls.lock().unwrap().is_empty());
+    assert!(mock.drain_replies().is_empty());
 }
 
 // ── Test: UserApprove is no-op ───────────────────────────────────────
 
 #[tokio::test]
 async fn test_user_approve_is_noop() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(&mock, "s18", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s18", "feishu", sm);
 
     SlashResult::UserApprove {
         request_id: "req-1".into(),
@@ -809,18 +704,17 @@ async fn test_user_approve_is_noop() {
     .execute(&ctx)
     .await;
 
-    let mut mock2 = mock;
-    assert!(mock2.calls.lock().unwrap().is_empty());
-    assert!(mock2.drain_replies().await.is_empty());
+    assert!(mock.calls.lock().unwrap().is_empty());
+    assert!(mock.drain_replies().is_empty());
 }
 
 // ── Test: UserReject is no-op ────────────────────────────────────────
 
 #[tokio::test]
 async fn test_user_reject_is_noop() {
-    let mock = MockSlashEffectExecutor::new();
+    let mock = Arc::new(MockSlashEffectExecutor::new());
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(&mock, "s19", "feishu", sm);
+    let ctx = make_ctx(Arc::clone(&mock), "s19", "feishu", sm);
 
     SlashResult::UserReject {
         request_id: "req-2".into(),
@@ -828,7 +722,6 @@ async fn test_user_reject_is_noop() {
     .execute(&ctx)
     .await;
 
-    let mut mock2 = mock;
-    assert!(mock2.calls.lock().unwrap().is_empty());
-    assert!(mock2.drain_replies().await.is_empty());
+    assert!(mock.calls.lock().unwrap().is_empty());
+    assert!(mock.drain_replies().is_empty());
 }
