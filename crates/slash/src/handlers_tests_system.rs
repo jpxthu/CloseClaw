@@ -85,7 +85,7 @@ async fn test_system_list_with_content() {
     seed_system_append(&sm, &sid, "请始终使用中文回复").await;
     seed_system_append(&sm, &sid, "不要使用 markdown").await;
 
-    let h = SystemHandler::new(Arc::clone(&sm));
+    let h = SystemHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = make_ctx(&sid);
     match h.handle("list", &ctx).await {
         SlashResult::Reply(text) => {
@@ -103,7 +103,7 @@ async fn test_system_list_empty() {
     let sm = make_sm();
     let sid = create_test_session(&sm).await;
 
-    let h = SystemHandler::new(Arc::clone(&sm));
+    let h = SystemHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = make_ctx(&sid);
     match h.handle("list", &ctx).await {
         SlashResult::Reply(text) => {
@@ -119,7 +119,7 @@ async fn test_system_no_args_empty() {
     let sm = make_sm();
     let sid = create_test_session(&sm).await;
 
-    let h = SystemHandler::new(Arc::clone(&sm));
+    let h = SystemHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = make_ctx(&sid);
     match h.handle("", &ctx).await {
         SlashResult::Reply(text) => {
@@ -140,7 +140,7 @@ async fn test_system_no_args_with_content() {
     seed_system_append(&sm, &sid, "第二条指令").await;
     seed_system_append(&sm, &sid, "第三条指令").await;
 
-    let h = SystemHandler::new(Arc::clone(&sm));
+    let h = SystemHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = make_ctx(&sid);
     match h.handle("", &ctx).await {
         SlashResult::Reply(text) => {
@@ -158,7 +158,7 @@ async fn test_system_no_args_with_content() {
 #[tokio::test]
 async fn test_system_add_exceeds_500_chars_rejected() {
     let sm = make_sm();
-    let h = SystemHandler::new(Arc::clone(&sm));
+    let h = SystemHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let content = "a".repeat(501);
     let args = format!("add {content}");
     match h.handle(&args, &dummy_ctx()).await {
@@ -176,7 +176,7 @@ async fn test_system_add_exceeds_500_chars_rejected() {
 #[tokio::test]
 async fn test_system_add_exactly_500_chars_accepted() {
     let sm = make_sm();
-    let h = SystemHandler::new(Arc::clone(&sm));
+    let h = SystemHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let content = "b".repeat(500);
     let args = format!("add {content}");
     match h.handle(&args, &dummy_ctx()).await {
@@ -193,7 +193,7 @@ async fn test_system_add_exactly_500_chars_accepted() {
 #[tokio::test]
 async fn test_system_plus_exceeds_500_chars_rejected() {
     let sm = make_sm();
-    let h = SystemHandler::new(Arc::clone(&sm));
+    let h = SystemHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let content = "c".repeat(501);
     let args = format!("+ {content}");
     match h.handle(&args, &dummy_ctx()).await {
@@ -211,7 +211,7 @@ async fn test_system_plus_exceeds_500_chars_rejected() {
 #[tokio::test]
 async fn test_system_add_error_message_format() {
     let sm = make_sm();
-    let h = SystemHandler::new(Arc::clone(&sm));
+    let h = SystemHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let content = "x".repeat(600);
     let args = format!("add {content}");
     match h.handle(&args, &dummy_ctx()).await {
@@ -237,7 +237,7 @@ use crate::handlers::WorkdirHandler;
 #[tokio::test]
 async fn test_cross_step_git_all_subcommands_with_args() {
     let sm = make_sm();
-    let h = WorkdirHandler::new(sm);
+    let h = WorkdirHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),
@@ -283,7 +283,7 @@ async fn test_cross_step_git_all_subcommands_with_args() {
 #[tokio::test]
 async fn test_cross_step_git_write_subcommand_routes_to_exec() {
     let sm = make_sm();
-    let h = WorkdirHandler::new(sm);
+    let h = WorkdirHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),

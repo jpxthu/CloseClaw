@@ -5,6 +5,11 @@
 //! through a [`SideEffectContext`]. The concrete [`SlashEffectExecutor`]
 //! implementation lives in the `gateway` crate, which owns the
 //! session and permission capabilities.
+//!
+//! Note: These types live in `closeclaw-common` (not `closeclaw-slash`)
+//! because the `closeclaw-gateway` crate cannot depend on `closeclaw-slash`
+//! (cycle: gateway → slash → tools → gateway). Both gateway and slash
+//! import from here.
 
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -15,7 +20,7 @@ use crate::session_lookup::{PendingMessage, SessionLookup};
 use crate::slash_router::{SlashResult, SystemAppendAction};
 use crate::{ReasoningLevel, VerbosityLevel};
 
-// ── Compaction types (moved from session for trait signature) ──────────
+// ── Compaction types ──────────────────────────────────────────────────
 
 /// Result of a compaction operation.
 #[derive(Debug, Clone)]

@@ -5,19 +5,19 @@ use std::sync::Arc;
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
 use closeclaw_common::slash_router::SlashResult;
-use closeclaw_gateway::SessionManager;
+use closeclaw_common::SlashSessionQuery;
 
 /// `/bg` — move the currently running foreground command to background.
 ///
 /// Calls [`SessionManager::trigger_manual_background`] to signal the session
 /// that the current command should be backgrounded.
 pub struct BackgroundHandler {
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SlashSessionQuery>,
 }
 
 impl BackgroundHandler {
     /// Create a new BackgroundHandler operating on the given session manager.
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
         Self { session_manager }
     }
 }

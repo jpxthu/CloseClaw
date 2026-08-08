@@ -5,6 +5,7 @@ pub mod compaction;
 pub mod executor;
 #[cfg(test)]
 pub mod executor_tests;
+
 pub mod fragment;
 pub mod hook_config;
 pub mod identity;
@@ -50,6 +51,7 @@ pub mod skill_registry;
 pub mod slash_router;
 #[cfg(test)]
 pub mod slash_router_tests;
+pub mod slash_session_query;
 pub mod storage_provider;
 pub mod streaming;
 #[cfg(test)]
@@ -113,12 +115,15 @@ pub use skill_registry::SkillRegistryQuery;
 pub use slash_router::{
     SlashContext, SlashDispatcherTrait, SlashHandler, SlashResult, SlashRouter, SystemAppendAction,
 };
+pub use slash_session_query::SlashSessionQuery;
 pub use streaming::{CodeBlockMode, DefaultStreamingRenderer, LineBuffer, StreamingRenderer};
 pub use turn::TurnCounter;
 
 pub use communication::{
     check_communication_allowed, CommunicationCheckResult, CommunicationConfig, CommunicationError,
 };
+// Executor types: defined here (not in slash) because gateway cannot
+// depend on slash (cycle: gateway -> slash -> tools -> gateway).
 pub use executor::{
     CompactionError, CompactionResult, ReplyAction, SideEffectContext, SlashEffectExecutor,
     SlashResultExecutor,

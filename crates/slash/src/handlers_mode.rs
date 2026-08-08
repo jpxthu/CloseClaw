@@ -9,8 +9,8 @@ use crate::handler::SlashHandler;
 use closeclaw_common::plan_state::PlanPath;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::slash_router::SlashResult;
+use closeclaw_common::SlashSessionQuery;
 use closeclaw_common::{PlanPhase, PlanState};
-use closeclaw_gateway::SessionManager;
 use closeclaw_session::plan_file;
 use tracing;
 
@@ -23,12 +23,12 @@ use tracing;
 /// - Without arguments (or `--path` without title): enters Plan Mode
 ///   without creating a plan file.
 pub struct PlanModeHandler {
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SlashSessionQuery>,
 }
 
 impl PlanModeHandler {
     /// Create a new PlanModeHandler with access to session state.
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
         Self { session_manager }
     }
 }
@@ -52,19 +52,8 @@ impl SlashHandler for PlanModeHandler {
         let (explicit_path, title) = parse_plan_path_arg(args.trim());
         let has_title = !title.trim().is_empty();
 
-        // Read conversation session once to get the workdir,
-        // avoiding a second async read lock acquisition.
-        let workdir = if let Some(conv) = self
-            .session_manager
-            .get_conversation_session(&ctx.session_id)
-            .await
-        {
-            let cs = conv.read().await;
-            let workdir = cs.workdir().to_path_buf();
-            Some(workdir)
-        } else {
-            None
-        };
+        // Read workdir via trait method.
+        let workdir = self.session_manager.get_workdir(&ctx.session_id).await;
 
         // Mode transition injection removed (design doc §6 — transition prompts
         // are no longer injected via System Prompt sections).
@@ -199,12 +188,12 @@ pub(crate) fn parse_step_selection_arg(args: &str) -> Option<Vec<usize>> {
 /// - If already in Auto Mode: replies with a notification.
 /// - If in Plan Mode: injects `ExitPlan` transition before switching.
 pub struct AutoModeHandler {
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SlashSessionQuery>,
 }
 
 impl AutoModeHandler {
     /// Create a new AutoModeHandler with access to session state.
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
         Self { session_manager }
     }
 }
@@ -224,21 +213,12 @@ impl SlashHandler for AutoModeHandler {
     }
 
     async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
-        let Some(conv) = self
-            .session_manager
-            .get_conversation_session(&ctx.session_id)
-            .await
-        else {
-            return SlashResult::Reply("当前会话未激活".to_owned());
+        let mode_str = match self.session_manager.get_session_mode(&ctx.session_id).await {
+            Some(m) => m,
+            None => return SlashResult::Reply("当前会话未激活".to_owned()),
         };
 
-        // Read current mode in a single lock acquisition.
-        let current_mode = {
-            let cs = conv.read().await;
-            cs.session_mode()
-        };
-
-        if current_mode == SessionMode::Auto {
+        if mode_str == "Auto" {
             return SlashResult::Reply("已在 Auto Mode".to_owned());
         }
 
@@ -257,12 +237,12 @@ impl SlashHandler for AutoModeHandler {
 ///
 /// Validates that a plan file exists, then switches to Auto Mode.
 pub struct ExecuteHandler {
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SlashSessionQuery>,
 }
 
 impl ExecuteHandler {
     /// Create a new ExecuteHandler with access to session state.
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
         Self { session_manager }
     }
 
@@ -329,17 +309,12 @@ impl SlashHandler for ExecuteHandler {
     async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
         let step_selection = parse_step_selection_arg(args.trim());
 
-        let Some(conv) = self
-            .session_manager
-            .get_conversation_session(&ctx.session_id)
-            .await
-        else {
-            return SlashResult::Reply("当前会话未激活".to_owned());
+        let mode_str = match self.session_manager.get_session_mode(&ctx.session_id).await {
+            Some(m) => m,
+            None => return SlashResult::Reply("当前会话未激活".to_owned()),
         };
 
-        let current_mode = conv.read().await.session_mode();
-
-        if current_mode != SessionMode::Plan {
+        if mode_str != "Plan" {
             return self.handle_non_plan_mode();
         }
 
@@ -353,12 +328,12 @@ impl SlashHandler for ExecuteHandler {
 ///
 /// Switches the session from Auto Mode back to Plan Mode.
 pub struct PauseHandler {
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SlashSessionQuery>,
 }
 
 impl PauseHandler {
     /// Create a new PauseHandler with access to session state.
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
         Self { session_manager }
     }
 }
@@ -379,20 +354,14 @@ impl SlashHandler for PauseHandler {
 
     async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
         // Step 1: Check session is in Auto Mode
-        let Some(conv) = self
-            .session_manager
-            .get_conversation_session(&ctx.session_id)
-            .await
-        else {
-            return SlashResult::Reply("当前会话未激活".to_owned());
+        let mode_str = match self.session_manager.get_session_mode(&ctx.session_id).await {
+            Some(m) => m,
+            None => return SlashResult::Reply("当前会话未激活".to_owned()),
         };
-        {
-            let cs = conv.read().await;
-            if cs.session_mode() != SessionMode::Auto {
-                return SlashResult::Reply(
-                    "/pause 需要在 Auto Mode 下使用。当前没有正在执行的 plan。".to_owned(),
-                );
-            }
+        if mode_str != "Auto" {
+            return SlashResult::Reply(
+                "/pause 需要在 Auto Mode 下使用。当前没有正在执行的 plan。".to_owned(),
+            );
         }
 
         // Step 2: Load plan state
@@ -431,14 +400,14 @@ impl SlashHandler for PauseHandler {
 /// - With an argument (`normal`, `plan`, `auto`): returns
 ///   `SlashResult::SetMode` to trigger the mode switch.
 pub struct ModeHandler {
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SlashSessionQuery>,
     plan_handler: Option<Arc<PlanModeHandler>>,
     auto_handler: Option<Arc<AutoModeHandler>>,
 }
 
 impl ModeHandler {
     /// Create a new ModeHandler operating on the given session manager.
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
         Self {
             session_manager,
             plan_handler: None,
@@ -451,7 +420,7 @@ impl ModeHandler {
     /// `/mode plan` and `/mode auto` are delegated to the corresponding
     /// handlers so they produce the same side effects as `/plan` and `/auto`.
     pub fn with_handlers(
-        session_manager: Arc<SessionManager>,
+        session_manager: Arc<dyn SlashSessionQuery>,
         plan_handler: Arc<PlanModeHandler>,
         auto_handler: Arc<AutoModeHandler>,
     ) -> Self {
@@ -482,18 +451,9 @@ impl SlashHandler for ModeHandler {
 
         // No arguments — return the current session mode.
         if arg.is_empty() {
-            let Some(conv) = self
-                .session_manager
-                .get_conversation_session(&ctx.session_id)
-                .await
-            else {
-                return SlashResult::Reply("当前会话未激活".to_owned());
-            };
-            let cs = conv.read().await;
-            let mode_str = match cs.session_mode() {
-                SessionMode::Normal => "Normal",
-                SessionMode::Plan => "Plan",
-                SessionMode::Auto => "Auto",
+            let mode_str = match self.session_manager.get_session_mode(&ctx.session_id).await {
+                Some(m) => m,
+                None => return SlashResult::Reply("当前会话未激活".to_owned()),
             };
             return SlashResult::Reply(format!("当前模式：{mode_str}"));
         }

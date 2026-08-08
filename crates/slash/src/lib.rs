@@ -1,5 +1,6 @@
 pub mod context;
 pub mod dispatcher;
+pub mod executor;
 pub mod handler;
 pub mod handlers;
 pub mod handlers_bg;
@@ -14,6 +15,7 @@ pub mod skill_handler;
 pub use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 pub use context::SlashContext;
 pub use dispatcher::{parse_slash, SlashDispatcher};
+pub use executor::{ReplyAction, SideEffectContext, SlashEffectExecutor, SlashResultExecutor};
 pub use handler::SlashHandler;
 pub use handlers::{ClearHandler, CompactHandler, ExecHandler, HelpHandler};
 pub use handlers_bg::BackgroundHandler;
@@ -54,3 +56,6 @@ mod pause_handler_tests;
 
 #[cfg(test)]
 pub mod handlers_user_tests;
+
+#[cfg(test)]
+pub mod executor_tests;
