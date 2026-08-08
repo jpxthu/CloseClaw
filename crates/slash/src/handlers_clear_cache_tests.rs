@@ -46,7 +46,7 @@ async fn test_clear_fires_cache_invalidator_callback() {
     }))
     .await;
 
-    let handler = ClearHandler::new(sm);
+    let handler = ClearHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = dummy_ctx();
     let result = handler.handle("", &ctx).await;
 
@@ -76,7 +76,7 @@ async fn test_clear_calls_invalidate_before_rebuild() {
     }))
     .await;
 
-    let handler = ClearHandler::new(sm);
+    let handler = ClearHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = dummy_ctx();
     let result = handler.handle("", &ctx).await;
 
@@ -94,7 +94,7 @@ async fn test_clear_without_cache_invalidator_no_panic() {
     let sm = make_sm();
     // Do NOT set cache_invalidator — should be a no-op.
 
-    let handler = ClearHandler::new(sm);
+    let handler = ClearHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = dummy_ctx();
     let result = handler.handle("", &ctx).await;
 

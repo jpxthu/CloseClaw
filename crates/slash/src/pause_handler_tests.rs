@@ -137,7 +137,7 @@ async fn create_session_with_plan_mode(sm: &SessionManager) -> String {
 #[test]
 fn test_pause_handler_commands_and_description() {
     let sm = make_session_manager();
-    let h = PauseHandler::new(sm);
+    let h = PauseHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     assert_eq!(h.commands(), &["pause"]);
     assert_eq!(h.description(), "暂停正在执行的 plan");
 }
@@ -145,14 +145,14 @@ fn test_pause_handler_commands_and_description() {
 #[test]
 fn test_pause_handler_not_immediate() {
     let sm = make_session_manager();
-    let h = PauseHandler::new(sm);
+    let h = PauseHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     assert!(!h.immediate("pause"));
 }
 
 #[tokio::test]
 async fn test_pause_handler_no_session() {
     let sm = make_session_manager();
-    let h = PauseHandler::new(sm);
+    let h = PauseHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: String::new(),
         sender_id: "u".to_owned(),
@@ -171,7 +171,7 @@ async fn test_pause_handler_no_session() {
 async fn test_pause_handler_not_auto_mode() {
     let sm = make_session_manager_with_storage();
     let sid = create_test_session(&sm).await;
-    let h = PauseHandler::new(Arc::clone(&sm));
+    let h = PauseHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
@@ -189,7 +189,7 @@ async fn test_pause_handler_not_auto_mode() {
 async fn test_pause_handler_plan_mode_rejected() {
     let sm = make_session_manager_with_storage();
     let sid = create_session_with_plan_mode(&sm).await;
-    let h = PauseHandler::new(Arc::clone(&sm));
+    let h = PauseHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
@@ -207,7 +207,7 @@ async fn test_pause_handler_plan_mode_rejected() {
 async fn test_pause_handler_auto_mode_no_plan() {
     let sm = make_session_manager_with_storage();
     let sid = create_session_with_auto_mode(&sm).await;
-    let h = PauseHandler::new(Arc::clone(&sm));
+    let h = PauseHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
@@ -235,7 +235,7 @@ async fn test_pause_handler_auto_mode_empty_plan_file_path() {
     )
     .await;
 
-    let h = PauseHandler::new(Arc::clone(&sm));
+    let h = PauseHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
@@ -273,7 +273,7 @@ async fn test_pause_handler_auto_mode_executing_plan_success() {
     )
     .await;
 
-    let h = PauseHandler::new(Arc::clone(&sm));
+    let h = PauseHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
@@ -308,7 +308,7 @@ async fn test_pause_handler_auto_mode_confirmed_plan_success() {
     )
     .await;
 
-    let h = PauseHandler::new(Arc::clone(&sm));
+    let h = PauseHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {

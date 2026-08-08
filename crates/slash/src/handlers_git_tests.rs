@@ -85,7 +85,7 @@ fn assert_exec_command(result: SlashResult, expected_prefix: &str) -> String {
 async fn test_git_status_in_non_git_repo() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),
@@ -119,7 +119,7 @@ async fn test_git_status_in_git_repo() {
     let sid = create_test_session(&sm).await;
     set_session_workdir(&sm, &sid, &repo_path).await;
 
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),
@@ -134,7 +134,7 @@ async fn test_git_status_in_git_repo() {
 async fn test_git_no_args_returns_usage() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),
@@ -151,7 +151,7 @@ async fn test_git_no_args_returns_usage() {
 async fn test_git_unknown_subcommand_routes_to_exec() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),
@@ -166,7 +166,7 @@ async fn test_git_unknown_subcommand_routes_to_exec() {
 async fn test_git_status_extra_args_ignored() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),
@@ -180,7 +180,7 @@ async fn test_git_status_extra_args_ignored() {
 #[tokio::test]
 async fn test_git_status_no_session() {
     let sm = make_workdir_session_manager();
-    let h = WorkdirHandler::new(sm);
+    let h = WorkdirHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),
@@ -214,7 +214,7 @@ async fn test_git_status_in_git_repo_with_uncommitted_changes() {
     let sid = create_test_session(&sm).await;
     set_session_workdir(&sm, &sid, &repo_path).await;
 
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),
@@ -231,7 +231,7 @@ async fn test_git_status_in_git_repo_with_uncommitted_changes() {
 async fn test_git_write_subcommands_route_to_exec() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),
@@ -253,7 +253,7 @@ async fn test_git_write_subcommands_route_to_exec() {
 async fn test_git_subcommands_route_to_exec() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),
@@ -273,7 +273,7 @@ async fn test_git_subcommands_route_to_exec() {
 #[tokio::test]
 async fn test_git_requires_permission() {
     let sm = make_workdir_session_manager();
-    let h = WorkdirHandler::new(sm);
+    let h = WorkdirHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     assert!(
         !h.requires_permission(),
         "WorkdirHandler should not require permission at handler level"
@@ -286,7 +286,7 @@ async fn test_git_requires_permission() {
 async fn test_git_read_write_requires_permission() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),

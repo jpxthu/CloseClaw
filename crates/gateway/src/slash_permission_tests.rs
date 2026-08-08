@@ -779,7 +779,7 @@ async fn test_unknown_command_routes_through_outbound_chain() {
 /// the new session ID.
 #[tokio::test]
 async fn test_new_session_executor_replies_with_session_id() {
-    use crate::slash_executor::{
+    use closeclaw_common::executor::{
         ReplyAction, SideEffectContext, SlashEffectExecutor, SlashResultExecutor,
     };
     use closeclaw_common::processor::ContentBlock;

@@ -112,7 +112,7 @@ pub enum SlashResult {
 }
 
 /// Action for the `SystemAppend` slash result.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SystemAppendAction {
     /// Append a new system prompt instruction.
     Add(String),

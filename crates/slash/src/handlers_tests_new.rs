@@ -157,18 +157,25 @@ async fn test_stop_handler_unknown_args_ignored() {
 
 #[test]
 fn test_status_handler_commands() {
-    let h = StatusHandler::new(make_workdir_session_manager());
+    let h = StatusHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    );
     assert_eq!(h.commands(), &["status"]);
 }
 
 #[test]
 fn test_status_handler_immediate() {
-    assert!(StatusHandler::new(make_workdir_session_manager()).immediate("status"));
+    assert!(StatusHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    )
+    .immediate("status"));
 }
 
 #[tokio::test]
 async fn test_status_handler_no_session() {
-    let h = StatusHandler::new(make_workdir_session_manager());
+    let h = StatusHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    );
     let ctx = SlashContext {
         command: "status".to_owned(),
         sender_id: "test_sender".to_owned(),
@@ -185,7 +192,7 @@ async fn test_status_handler_no_session() {
 async fn test_status_handler_with_session() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = StatusHandler::new(Arc::clone(&sm));
+    let h = StatusHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
@@ -222,7 +229,7 @@ async fn test_status_handler_shows_effective_reasoning_level() {
             .await
             .set_effective_reasoning_level(ReasoningLevel::Medium);
     }
-    let h = StatusHandler::new(Arc::clone(&sm));
+    let h = StatusHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
@@ -260,7 +267,7 @@ async fn test_status_handler_shows_cache_break_event() {
             current_hit_rate: 0.30,
         });
     }
-    let h = StatusHandler::new(Arc::clone(&sm));
+    let h = StatusHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
@@ -287,7 +294,7 @@ async fn test_status_handler_shows_cache_break_event() {
 async fn test_status_handler_no_cache_break_when_none() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = StatusHandler::new(Arc::clone(&sm));
+    let h = StatusHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
@@ -309,7 +316,9 @@ async fn test_help_includes_new_stop_status() {
     let registry = Arc::new(HandlerRegistry::new());
     registry.register(Arc::new(NewSessionHandler));
     registry.register(Arc::new(StopHandler));
-    registry.register(Arc::new(StatusHandler::new(make_workdir_session_manager())));
+    registry.register(Arc::new(StatusHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    )));
     let help = HelpHandler::new(Arc::clone(&registry));
     let ctx = dummy_ctx();
     match help.handle("", &ctx).await {
@@ -326,13 +335,17 @@ async fn test_help_includes_new_stop_status() {
 
 #[test]
 fn test_bg_handler_commands() {
-    let h = BackgroundHandler::new(make_workdir_session_manager());
+    let h = BackgroundHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    );
     assert_eq!(h.commands(), &["bg"]);
 }
 
 #[test]
 fn test_bg_handler_description() {
-    let h = BackgroundHandler::new(make_workdir_session_manager());
+    let h = BackgroundHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    );
     assert!(
         h.description().contains("后台"),
         "description should mention background"
@@ -341,7 +354,9 @@ fn test_bg_handler_description() {
 
 #[test]
 fn test_bg_handler_immediate() {
-    let h = BackgroundHandler::new(make_workdir_session_manager());
+    let h = BackgroundHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    );
     assert!(!h.immediate("bg"), "/bg should not be immediate");
 }
 
@@ -352,7 +367,7 @@ fn test_bg_handler_immediate() {
 async fn test_bg_handler_with_valid_session() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = BackgroundHandler::new(Arc::clone(&sm));
+    let h = BackgroundHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
@@ -370,7 +385,9 @@ async fn test_bg_handler_with_valid_session() {
 /// (session not found).
 #[tokio::test]
 async fn test_bg_handler_nonexistent_session() {
-    let h = BackgroundHandler::new(make_workdir_session_manager());
+    let h = BackgroundHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    );
     let ctx = SlashContext {
         command: "bg".to_owned(),
         sender_id: "test_sender".to_owned(),
@@ -394,7 +411,9 @@ async fn test_bg_handler_dispatch() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
     let registry = HandlerRegistry::new();
-    registry.register(Arc::new(BackgroundHandler::new(Arc::clone(&sm))));
+    registry.register(Arc::new(BackgroundHandler::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>
+    )));
     let dispatcher = crate::dispatcher::SlashDispatcher::new(registry);
     let ctx = SlashContext {
         command: String::new(),
@@ -419,7 +438,9 @@ async fn test_help_includes_all_new_commands() {
     let registry = Arc::new(HandlerRegistry::new());
     registry.register(Arc::new(NewSessionHandler));
     registry.register(Arc::new(StopHandler));
-    registry.register(Arc::new(StatusHandler::new(make_workdir_session_manager())));
+    registry.register(Arc::new(StatusHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    )));
     // Register additional handlers that should appear in /help.
     registry.register(Arc::new(crate::handlers_mode::ModeHandler::new(
         make_workdir_session_manager(),
@@ -485,7 +506,7 @@ async fn test_status_cache_hit_rate_format_with_tokens() {
         // total_prompt_tokens which are used for cache_hit_rate calculation.
         cs.add_system_append("test".to_owned());
     }
-    let h = StatusHandler::new(Arc::clone(&sm));
+    let h = StatusHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
@@ -515,7 +536,7 @@ async fn test_status_cache_hit_rate_format_with_tokens() {
 async fn test_status_cache_hit_rate_na_when_no_prompt_tokens() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = StatusHandler::new(Arc::clone(&sm));
+    let h = StatusHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
@@ -542,23 +563,29 @@ async fn test_cross_step_dispatcher_routes_all_commands() {
     let sm = make_workdir_session_manager();
     registry.register(Arc::new(NewSessionHandler));
     registry.register(Arc::new(StopHandler));
-    registry.register(Arc::new(StatusHandler::new(Arc::clone(&sm))));
-    registry.register(Arc::new(crate::handlers::CompactHandler));
-    registry.register(Arc::new(crate::handlers::ClearHandler::new(Arc::clone(
-        &sm,
-    ))));
-    registry.register(Arc::new(crate::handlers::ExecHandler));
-    registry.register(Arc::new(crate::handlers::SystemHandler::new(Arc::clone(
-        &sm,
-    ))));
-    registry.register(Arc::new(crate::handlers::WorkdirHandler::new(Arc::clone(
-        &sm,
-    ))));
-    registry.register(Arc::new(crate::handlers::ReasoningHandler::new(
-        Arc::clone(&sm),
+    registry.register(Arc::new(StatusHandler::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>
     )));
-    registry.register(Arc::new(crate::VerboseHandler::new(Arc::clone(&sm))));
-    registry.register(Arc::new(crate::BackgroundHandler::new(Arc::clone(&sm))));
+    registry.register(Arc::new(crate::handlers::CompactHandler));
+    registry.register(Arc::new(crate::handlers::ClearHandler::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
+    )));
+    registry.register(Arc::new(crate::handlers::ExecHandler));
+    registry.register(Arc::new(crate::handlers::SystemHandler::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
+    )));
+    registry.register(Arc::new(crate::handlers::WorkdirHandler::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
+    )));
+    registry.register(Arc::new(crate::handlers::ReasoningHandler::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
+    )));
+    registry.register(Arc::new(crate::VerboseHandler::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>
+    )));
+    registry.register(Arc::new(crate::BackgroundHandler::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>
+    )));
 
     let dispatcher = crate::dispatcher::SlashDispatcher::from_shared(Arc::clone(&registry));
     let ctx = SlashContext {

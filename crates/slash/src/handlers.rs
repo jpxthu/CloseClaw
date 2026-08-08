@@ -7,7 +7,7 @@ use crate::context::SlashContext;
 use crate::handler::SlashHandler;
 use crate::registry::HandlerRegistry;
 use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
-use closeclaw_gateway::SessionManager;
+use closeclaw_common::SlashSessionQuery;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_tools::build_git_status_for;
 
@@ -46,12 +46,12 @@ impl SlashHandler for CompactHandler {
 
 /// `/clear` — clear the system prompt static-layer cache and trigger rebuild.
 pub struct ClearHandler {
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SlashSessionQuery>,
 }
 
 impl ClearHandler {
     /// Create a new ClearHandler that operates on the given session manager.
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
         Self { session_manager }
     }
 }
@@ -133,12 +133,12 @@ impl SlashHandler for HelpHandler {
 ///
 /// The `off` alias maps to `Low` (the minimum reasoning depth).
 pub struct ReasoningHandler {
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SlashSessionQuery>,
 }
 
 impl ReasoningHandler {
     /// Create a new ReasoningHandler operating on the given session manager.
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
         Self { session_manager }
     }
 
@@ -173,16 +173,14 @@ impl SlashHandler for ReasoningHandler {
 
         // No arguments — return the effective reasoning level.
         if arg.is_empty() {
-            let Some(conv) = self
+            let Some(level_str) = self
                 .session_manager
-                .get_conversation_session(&ctx.session_id)
+                .get_reasoning_level(&ctx.session_id)
                 .await
             else {
                 return SlashResult::Reply("当前会话未激活".to_owned());
             };
-            let cs = conv.read().await;
-            let level = cs.effective_reasoning_level();
-            return SlashResult::Reply(format!("当前推理深度：{level}"));
+            return SlashResult::Reply(format!("当前推理深度：{level_str}"));
         }
 
         // With argument — parse and return SetReasoning.
@@ -190,15 +188,11 @@ impl SlashHandler for ReasoningHandler {
             Some(level) => SlashResult::SetReasoning { level },
             None => {
                 // Invalid input: echo current effective level + available values.
-                let current_level = if let Some(conv) = self
+                let current_level = self
                     .session_manager
-                    .get_conversation_session(&ctx.session_id)
+                    .get_reasoning_level(&ctx.session_id)
                     .await
-                {
-                    conv.read().await.effective_reasoning_level()
-                } else {
-                    ReasoningLevel::default()
-                };
+                    .unwrap_or_else(|| ReasoningLevel::default().to_string());
                 SlashResult::Reply(format!(
                     "无效的推理深度：{arg}。当前推理深度：{current_level}。可选值：low, medium, high, max, off"
                 ))
@@ -251,12 +245,12 @@ impl SlashHandler for ExecHandler {
 /// - `/system list` or `/system` (no args): list current appended instructions.
 /// - `/system clear`: clear all appended instructions.
 pub struct SystemHandler {
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SlashSessionQuery>,
 }
 
 impl SystemHandler {
     /// Create a new SystemHandler operating on the given session manager.
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
         Self { session_manager }
     }
 }
@@ -295,15 +289,19 @@ impl SlashHandler for SystemHandler {
                 }
             }
             "list" | "" => {
-                let Some(conv) = self
+                // Check if session exists before querying appends.
+                if self
                     .session_manager
-                    .get_conversation_session(&ctx.session_id)
+                    .get_session_mode(&ctx.session_id)
                     .await
-                else {
+                    .is_none()
+                {
                     return SlashResult::Reply("当前会话未激活".to_owned());
-                };
-                let cs = conv.read().await;
-                let appends = cs.system_appends();
+                }
+                let appends = self
+                    .session_manager
+                    .get_system_appends(&ctx.session_id)
+                    .await;
                 if appends.is_empty() {
                     SlashResult::Reply("无追加指令".to_owned())
                 } else {
@@ -350,12 +348,12 @@ impl SlashHandler for SystemHandler {
 const READ_ONLY_GIT_SUBCOMMANDS: &[&str] = &["status", "log", "diff", "branch", "show"];
 
 pub struct WorkdirHandler {
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SlashSessionQuery>,
 }
 
 impl WorkdirHandler {
     /// Create a new WorkdirHandler operating on the given session manager.
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
         Self { session_manager }
     }
 
@@ -372,20 +370,20 @@ impl WorkdirHandler {
             return SlashResult::Reply(format!("目录不存在：{path_str}"));
         }
 
-        // Inline: look up ConversationSession and mutate its workdir directly.
-        // (Previously this lived on SessionManager::set_session_workdir, which
-        // was a thin wrapper around the same two operations.)
-        let Some(conv) = self
+        // Check if session exists before setting workdir.
+        if self
             .session_manager
-            .get_conversation_session(&ctx.session_id)
+            .get_session_mode(&ctx.session_id)
             .await
-        else {
-            return SlashResult::Reply("当前会话未激活".to_owned());
-        };
+            .is_none()
         {
-            let mut cs = conv.write().await;
-            cs.set_workdir(path.clone());
+            return SlashResult::Reply("当前会话未激活".to_owned());
         }
+
+        // Set workdir via trait method.
+        self.session_manager
+            .set_workdir(&ctx.session_id, path.clone())
+            .await;
 
         let git_status = build_git_status_for(&path.to_string_lossy());
         let mut reply = format!("工作目录已变更为：{}", path.display());
@@ -398,15 +396,10 @@ impl WorkdirHandler {
 
     /// Handle `/pwd`: read the current session workdir and reply with the path.
     async fn handle_pwd(&self, ctx: &SlashContext) -> SlashResult {
-        let Some(conv) = self
-            .session_manager
-            .get_conversation_session(&ctx.session_id)
-            .await
-        else {
+        let Some(workdir) = self.session_manager.get_workdir(&ctx.session_id).await else {
             return SlashResult::Reply("当前会话未激活".to_owned());
         };
-        let cs = conv.read().await;
-        SlashResult::Reply(cs.workdir().display().to_string())
+        SlashResult::Reply(workdir.display().to_string())
     }
 
     /// Handle `/git <args>`: read-only subcommands execute without

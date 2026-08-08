@@ -101,7 +101,7 @@ async fn test_clear_handler_handle_returns_reply() {
         None, // workspace_dir
         ReasoningLevel::default(),
     ));
-    let handler = ClearHandler::new(sm);
+    let handler = ClearHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = dummy_ctx();
     let result = handler.handle("", &ctx).await;
     match result {
@@ -291,7 +291,7 @@ pub(crate) async fn create_test_session(sm: &SessionManager) -> String {
 #[test]
 fn test_workdir_handler_commands_and_description() {
     let sm = make_workdir_session_manager();
-    let h = WorkdirHandler::new(sm);
+    let h = WorkdirHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     assert_eq!(h.commands(), &["cd", "pwd", "git"]);
     assert_eq!(h.description(), "工作目录操作");
     assert!(!h.immediate("cd"));
@@ -301,7 +301,7 @@ fn test_workdir_handler_commands_and_description() {
 async fn test_workdir_handler_cd_valid_path() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     ctx.command = "cd".to_owned();
@@ -316,7 +316,7 @@ async fn test_workdir_handler_cd_valid_path() {
 async fn test_workdir_handler_cd_invalid_and_no_args() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     // invalid path
     let mut ctx = dummy_ctx();
     ctx.session_id = sid.clone();
@@ -339,7 +339,7 @@ async fn test_workdir_handler_cd_invalid_and_no_args() {
 async fn test_workdir_handler_pwd_and_git() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     // pwd
     let mut ctx = dummy_ctx();
     ctx.session_id = sid.clone();
@@ -369,7 +369,7 @@ async fn test_workdir_handler_pwd_and_git() {
 #[tokio::test]
 async fn test_workdir_handler_cd_no_session() {
     let sm = make_workdir_session_manager();
-    let h = WorkdirHandler::new(sm);
+    let h = WorkdirHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "cd".to_owned(),
         sender_id: "u".to_owned(),
@@ -385,7 +385,7 @@ async fn test_workdir_handler_cd_no_session() {
 #[tokio::test]
 async fn test_workdir_handler_pwd_no_session() {
     let sm = make_workdir_session_manager();
-    let h = WorkdirHandler::new(sm);
+    let h = WorkdirHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "pwd".to_owned(),
         sender_id: "u".to_owned(),
@@ -402,7 +402,7 @@ async fn test_workdir_handler_pwd_no_session() {
 async fn test_workdir_handler_cd_root_path() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     ctx.command = "cd".to_owned();
@@ -417,7 +417,7 @@ async fn test_workdir_handler_cd_root_path() {
 #[test]
 fn test_reasoning_handler_commands_and_description() {
     let sm = make_workdir_session_manager();
-    let h = ReasoningHandler::new(sm);
+    let h = ReasoningHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     assert_eq!(h.commands(), &["reasoning"]);
     assert_eq!(h.description(), "查询或设置推理深度");
     assert!(h.immediate("reasoning"));
@@ -427,7 +427,7 @@ fn test_reasoning_handler_commands_and_description() {
 async fn test_reasoning_handler_no_args_returns_current_level() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = ReasoningHandler::new(Arc::clone(&sm));
+    let h = ReasoningHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
@@ -445,7 +445,7 @@ async fn test_reasoning_handler_no_args_returns_effective_level() {
             .await
             .set_effective_reasoning_level(ReasoningLevel::Low);
     }
-    let h = ReasoningHandler::new(Arc::clone(&sm));
+    let h = ReasoningHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
@@ -467,7 +467,7 @@ async fn test_reasoning_handler_no_args_returns_effective_level() {
 async fn test_reasoning_handler_valid_levels() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = ReasoningHandler::new(Arc::clone(&sm));
+    let h = ReasoningHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let cases = &[
         ("low", ReasoningLevel::Low),
         ("medium", ReasoningLevel::Medium),
@@ -489,7 +489,7 @@ async fn test_reasoning_handler_valid_levels() {
 async fn test_reasoning_handler_invalid_level_shows_current_level() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = ReasoningHandler::new(Arc::clone(&sm));
+    let h = ReasoningHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("banana", &ctx).await {
@@ -521,7 +521,7 @@ async fn test_reasoning_handler_invalid_level_shows_effective_level() {
             .await
             .set_effective_reasoning_level(ReasoningLevel::Medium);
     }
-    let h = ReasoningHandler::new(Arc::clone(&sm));
+    let h = ReasoningHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("banana", &ctx).await {
@@ -543,7 +543,7 @@ async fn test_reasoning_handler_invalid_level_shows_effective_level() {
 #[tokio::test]
 async fn test_reasoning_handler_no_session_no_args() {
     let sm = make_workdir_session_manager();
-    let h = ReasoningHandler::new(sm);
+    let h = ReasoningHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: String::new(),
         sender_id: "u".to_owned(),
@@ -560,7 +560,7 @@ async fn test_reasoning_handler_no_session_no_args() {
 async fn test_reasoning_handler_with_whitespace_args() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = ReasoningHandler::new(Arc::clone(&sm));
+    let h = ReasoningHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("  high  ", &ctx).await {
@@ -575,7 +575,9 @@ async fn test_reasoning_handler_with_whitespace_args() {
 
 #[test]
 fn test_system_handler_commands_and_description() {
-    let h = SystemHandler::new(make_workdir_session_manager());
+    let h = SystemHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    );
     assert_eq!(h.commands(), &["system"]);
     assert_eq!(h.description(), "管理 system prompt 追加区");
     assert!(!h.immediate("system"));
@@ -583,7 +585,9 @@ fn test_system_handler_commands_and_description() {
 
 #[tokio::test]
 async fn test_system_add_returns_append() {
-    let h = SystemHandler::new(make_workdir_session_manager());
+    let h = SystemHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    );
     let ctx = dummy_ctx();
     match h.handle("add 你好", &ctx).await {
         SlashResult::SystemAppend {
@@ -595,7 +599,9 @@ async fn test_system_add_returns_append() {
 
 #[tokio::test]
 async fn test_system_add_empty_returns_usage() {
-    let h = SystemHandler::new(make_workdir_session_manager());
+    let h = SystemHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    );
     match h.handle("add", &dummy_ctx()).await {
         SlashResult::Reply(t) => assert!(t.contains("用法"), "got: {t}"),
         _ => panic!("expected Reply with usage"),
@@ -604,7 +610,9 @@ async fn test_system_add_empty_returns_usage() {
 
 #[tokio::test]
 async fn test_system_clear_returns_clear() {
-    let h = SystemHandler::new(make_workdir_session_manager());
+    let h = SystemHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    );
     match h.handle("clear", &dummy_ctx()).await {
         SlashResult::SystemAppend {
             action: SystemAppendAction::Clear,
@@ -615,7 +623,9 @@ async fn test_system_clear_returns_clear() {
 
 #[tokio::test]
 async fn test_system_unknown_subcommand() {
-    let h = SystemHandler::new(make_workdir_session_manager());
+    let h = SystemHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    );
     match h.handle("foo", &dummy_ctx()).await {
         SlashResult::Reply(t) => assert!(t.contains("未知子指令"), "got: {t}"),
         _ => panic!("expected Reply with unknown"),
@@ -624,7 +634,9 @@ async fn test_system_unknown_subcommand() {
 
 #[tokio::test]
 async fn test_system_plus_syntax_returns_append() {
-    let h = SystemHandler::new(make_workdir_session_manager());
+    let h = SystemHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    );
     let ctx = dummy_ctx();
     match h.handle("+ 追加指令", &ctx).await {
         SlashResult::SystemAppend {
@@ -636,7 +648,9 @@ async fn test_system_plus_syntax_returns_append() {
 
 #[tokio::test]
 async fn test_system_plus_empty_returns_usage() {
-    let h = SystemHandler::new(make_workdir_session_manager());
+    let h = SystemHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    );
     match h.handle("+", &dummy_ctx()).await {
         SlashResult::Reply(t) => assert!(t.contains("用法"), "got: {t}"),
         _ => panic!("expected Reply with usage for empty +"),
@@ -645,7 +659,9 @@ async fn test_system_plus_empty_returns_usage() {
 
 #[tokio::test]
 async fn test_system_list_no_session() {
-    let h = SystemHandler::new(make_workdir_session_manager());
+    let h = SystemHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    );
     let ctx = SlashContext {
         command: String::new(),
         sender_id: "u".to_owned(),
@@ -660,7 +676,9 @@ async fn test_system_list_no_session() {
 
 #[tokio::test]
 async fn test_system_no_args_no_session() {
-    let h = SystemHandler::new(make_workdir_session_manager());
+    let h = SystemHandler::new(
+        make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
+    );
     let ctx = SlashContext {
         command: String::new(),
         sender_id: "u".to_owned(),
@@ -700,7 +718,7 @@ fn test_system_append_action_match() {
 #[test]
 fn test_verbose_handler_commands_and_description() {
     let sm = make_workdir_session_manager();
-    let h = VerboseHandler::new(sm);
+    let h = VerboseHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     assert_eq!(h.commands(), &["verbose"]);
     assert_eq!(h.description(), "查询或设置输出详细度");
     assert!(h.immediate("verbose"));
@@ -710,7 +728,7 @@ fn test_verbose_handler_commands_and_description() {
 async fn test_verbose_query_no_args() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = VerboseHandler::new(Arc::clone(&sm));
+    let h = VerboseHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
@@ -726,7 +744,7 @@ async fn test_verbose_query_no_args() {
 async fn test_verbose_set_valid_levels() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = VerboseHandler::new(Arc::clone(&sm));
+    let h = VerboseHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let cases = &[
         ("full", VerbosityLevel::Full),
         ("normal", VerbosityLevel::Normal),
@@ -747,7 +765,7 @@ async fn test_verbose_set_valid_levels() {
 async fn test_verbose_set_invalid_arg() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = VerboseHandler::new(Arc::clone(&sm));
+    let h = VerboseHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("banana", &ctx).await {
@@ -764,7 +782,7 @@ async fn test_verbose_set_invalid_arg() {
 #[tokio::test]
 async fn test_verbose_handler_no_session_no_args() {
     let sm = make_workdir_session_manager();
-    let h = VerboseHandler::new(sm);
+    let h = VerboseHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: String::new(),
         sender_id: "u".to_owned(),
@@ -811,7 +829,7 @@ fn assert_exec_command(result: SlashResult, expected_prefix: &str) -> String {
 async fn test_git_status_in_non_git_repo() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     // Default workdir is /tmp which is not a git repo.
     let ctx = SlashContext {
         command: "git".to_owned(),
@@ -847,7 +865,7 @@ async fn test_git_status_in_git_repo() {
     let sid = create_test_session(&sm).await;
     set_session_workdir(&sm, &sid, &repo_path).await;
 
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),
@@ -862,7 +880,7 @@ async fn test_git_status_in_git_repo() {
 async fn test_git_no_args_returns_usage() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),
@@ -880,7 +898,7 @@ async fn test_git_no_args_returns_usage() {
 async fn test_git_unknown_subcommand_routes_to_exec() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),
@@ -896,7 +914,7 @@ async fn test_git_unknown_subcommand_routes_to_exec() {
 async fn test_git_status_extra_args_ignored() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),
@@ -912,7 +930,7 @@ async fn test_git_status_extra_args_ignored() {
 async fn test_git_subcommands_route_to_exec() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = WorkdirHandler::new(Arc::clone(&sm));
+    let h = WorkdirHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let ctx = SlashContext {
         command: "git".to_owned(),
         sender_id: "u".to_owned(),

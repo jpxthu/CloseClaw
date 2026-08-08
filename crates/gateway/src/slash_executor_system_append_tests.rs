@@ -8,13 +8,13 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-use crate::slash_executor::{ReplyAction, SideEffectContext, SlashEffectExecutor};
+use closeclaw_common::executor::{ReplyAction, SideEffectContext, SlashEffectExecutor};
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::session_lookup::PendingMessage;
 use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 use closeclaw_session::compaction::{CompactionError, CompactionResult};
 
-use crate::slash_executor::SlashResultExecutor;
+use closeclaw_common::executor::SlashResultExecutor;
 
 // ── Minimal mock (SessionLookup) ──────────────────────────────────────
 
