@@ -12,7 +12,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-use crate::slash_executor::{ReplyAction, SideEffectContext, SlashEffectExecutor};
+use closeclaw_common::executor::{ReplyAction, SideEffectContext, SlashEffectExecutor};
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::session_lookup::{PendingMessage, SessionLookup};
 use closeclaw_common::session_types::ReasoningLevel;
@@ -20,7 +20,7 @@ use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 use closeclaw_common::verbosity::VerbosityLevel;
 use closeclaw_session::compaction::{CompactionError, CompactionResult};
 
-use crate::slash_executor::SlashResultExecutor;
+use closeclaw_common::executor::SlashResultExecutor;
 
 /// Expected reply from the mock compact executor.
 const COMPACT_REPLY: &str = "压缩完成：100 → 50 字符";

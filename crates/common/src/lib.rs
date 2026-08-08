@@ -2,6 +2,7 @@ pub mod bootstrap;
 pub mod code_block;
 pub mod communication;
 pub mod compaction;
+pub mod executor;
 pub mod fragment;
 pub mod hook_config;
 pub mod identity;
@@ -115,6 +116,10 @@ pub use turn::TurnCounter;
 
 pub use communication::{
     check_communication_allowed, CommunicationCheckResult, CommunicationConfig, CommunicationError,
+};
+pub use executor::{
+    CompactionError, CompactionResult, ReplyAction, SideEffectContext, SlashEffectExecutor,
+    SlashResultExecutor,
 };
 pub use session_mode::SessionMode;
 pub use session_mode_query::SessionModeQuery;

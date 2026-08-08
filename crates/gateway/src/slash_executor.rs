@@ -1,289 +1,308 @@
-//! Extension trait for executing [`SlashResult`] side effects.
+//! Gateway-side implementation of [`SlashEffectExecutor`].
 //!
-//! Defines [`SlashResultExecutor`], an extension trait on
-//! [`SlashResult`] that performs the actual side-effect dispatch
-//! through a [`SideEffectContext`]. This keeps executable logic
-//! out of the `common` crate (which only defines data structures
-//! and trait signatures) and places it in the `gateway` crate,
-//! which owns the concrete session and permission implementations.
+//! Bridges the common trait to the Gateway's concrete
+//! `SessionManager` and `SessionMessageHandler` for performing
+//! slash command side effects. All trait and type definitions
+//! (`ReplyAction`, `SideEffectContext`, `SlashEffectExecutor`,
+//! `SlashResultExecutor`) are defined in `closeclaw_common::executor`.
+
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use std::sync::Arc;
-use tokio::sync::mpsc;
-
+use closeclaw_common::executor::{CompactionError, CompactionResult, SlashEffectExecutor};
 use closeclaw_common::processor::ContentBlock;
-use closeclaw_common::session_lookup::{PendingMessage, SessionLookup};
-use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
+use closeclaw_common::shutdown::ShutdownMode;
+use closeclaw_common::slash_router::SystemAppendAction;
 use closeclaw_common::{ReasoningLevel, VerbosityLevel};
-use closeclaw_session::compaction::{CompactionError, CompactionResult};
+use closeclaw_session::llm_session::ConversationSession;
+use tokio::sync::RwLock;
 
-// ── Migrated types (from common) ──────────────────────────────────────
+use super::session_manager::stop::GracefulStopOutcome;
+use super::{SessionManager, SessionMessageHandler};
 
-/// Action produced by execute_slash_result for the Gateway to dispatch.
-#[derive(Debug)]
-pub enum ReplyAction {
-    /// Send a content-block reply to the user (routed through outbound
-    /// Processor Chain: Verbosity filtering → DslParser → outbound logging
-    /// → IM Adapter rendering).
-    Reply(Vec<ContentBlock>),
-    /// Trigger manual compaction.
-    TriggerCompact { instruction: Option<String> },
-    /// No action needed.
-    Nothing,
-}
+// ── SlashEffectExecutor implementation ──────────────────────────────────
 
-/// Executor trait for slash command side effects.
+/// Gateway-side implementation of [`SlashEffectExecutor`].
 ///
-/// Implemented by the Gateway, which has access to the full
-/// `SessionManager` and `SessionMessageHandler`. This trait breaks
-/// the circular dependency: common defines the interface, gateway
-/// provides the implementation.
-#[async_trait]
-pub trait SlashEffectExecutor: Send + Sync {
-    /// Stop the current LLM turn for the session.
-    async fn execute_stop(&self, session_id: &str, cascade: bool, force: bool);
-
-    /// Create a new session for the given channel.
-    ///
-    /// Returns the new session_id.
-    async fn execute_new_session(&self, session_id: &str, channel: &str) -> String;
-
-    /// Trigger context compaction with an optional custom instruction.
-    async fn execute_compact(
-        &self,
-        session_id: &str,
-        instruction: Option<String>,
-    ) -> Result<CompactionResult, CompactionError>;
-
-    /// Apply a system prompt append/clear action.
-    ///
-    /// Returns the relevant count: for `Add`, the 1-based index of the
-    /// newly appended item; for `Clear`, the number of items cleared.
-    async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction) -> usize;
-
-    /// Set the reasoning level for the session.
-    async fn execute_set_reasoning(&self, session_id: &str, level: ReasoningLevel);
-
-    /// Set the verbosity level for the session.
-    async fn execute_set_verbosity(&self, session_id: &str, level: VerbosityLevel);
-
-    /// Set the session mode for the session.
-    async fn execute_set_mode(&self, session_id: &str, mode: &str);
-
-    /// Execute a shell command for the given agent.
-    ///
-    /// The implementation runs the command and returns output as
-    /// `ContentBlock::Text`. Permission is evaluated at the Gateway layer
-    /// (check_slash_permission) before the executor is invoked.
-    async fn execute_exec(
-        &self,
-        session_id: &str,
-        agent_id: &str,
-        command: &str,
-    ) -> Vec<ContentBlock>;
-}
-
-/// Context for slash command side-effect dispatch.
-///
-/// Carries session/channel identity, a reply channel, and an executor
-/// for the Gateway to dispatch side effects.
-pub struct SideEffectContext {
-    /// Session ID where the slash command was invoked.
-    pub session_id: String,
-    /// Channel identifier (e.g. "feishu", "telegram").
-    pub channel: String,
-    /// Session manager for state queries.
-    pub session_manager: Arc<dyn SessionLookup>,
-    /// Sender for [`ReplyAction`]s.
-    pub reply_tx: mpsc::Sender<ReplyAction>,
-    /// Executor for slash command side effects.
-    pub executor: Arc<dyn SlashEffectExecutor>,
-}
-
-/// Extension trait for executing [`SlashResult`] side effects.
-///
-/// Implemented for [`SlashResult`] in the gateway crate. The gateway
-/// calls `result.execute(&ctx).await` after constructing a
-/// [`SideEffectContext`] with the appropriate executor and reply
-/// channel.
-#[async_trait]
-pub trait SlashResultExecutor {
-    /// Execute this slash result, performing side effects through `ctx`.
-    ///
-    /// Each [`SlashResult`] variant dispatches to the corresponding
-    /// [`SideEffectContext`] method and sends reply actions on
-    /// `ctx.reply_tx`.
-    async fn execute(self, ctx: &SideEffectContext);
+/// Bridges the common trait to the Gateway's concrete
+/// `SessionManager` and `SessionMessageHandler` for performing
+/// slash command side effects.
+pub(crate) struct GatewaySlashExecutor {
+    session_manager: Arc<SessionManager>,
+    session_handler: Option<Arc<SessionMessageHandler>>,
 }
 
 #[async_trait]
-impl SlashResultExecutor for SlashResult {
-    #[allow(unused_variables)]
-    async fn execute(self, ctx: &SideEffectContext) {
-        let mut actions = Vec::new();
-        match self {
-            SlashResult::Reply(text) => {
-                actions.push(ReplyAction::Reply(vec![ContentBlock::Text(text)]));
+impl SlashEffectExecutor for GatewaySlashExecutor {
+    async fn execute_stop(&self, session_id: &str, cascade: bool, force: bool) {
+        let mode = if force {
+            ShutdownMode::Forceful
+        } else {
+            ShutdownMode::Graceful
+        };
+        let timeout = closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT;
+        let result = self
+            .session_manager
+            .stop_single_session(session_id, mode, cascade, timeout, None)
+            .await;
+
+        match result {
+            Ok(GracefulStopOutcome::Completed) => {
+                tracing::info!(
+                    session_id = %session_id,
+                    force = force,
+                    cascade = cascade,
+                    "session stopped successfully"
+                );
             }
-            SlashResult::SetMode {
-                mode,
-                plan_file_path: _,
-                initial_input,
-                reply_message,
-            } => {
-                ctx.executor.execute_set_mode(&ctx.session_id, &mode).await;
-                let reply = if let Some(msg) = reply_message {
-                    msg
-                } else {
-                    format!("Mode set to: {mode}")
-                };
-                let _ = ctx
-                    .reply_tx
-                    .send(ReplyAction::Reply(vec![ContentBlock::Text(reply)]))
+            Ok(GracefulStopOutcome::Interrupted) => {
+                tracing::info!(
+                    session_id = %session_id,
+                    force = force,
+                    cascade = cascade,
+                    "session interrupted and force-stopped"
+                );
+            }
+            Ok(GracefulStopOutcome::TimedOut { remaining, .. }) => {
+                // User /stop: escalate to forceful on timeout.
+                tracing::info!(
+                    session_id = %session_id,
+                    remaining = remaining,
+                    "graceful timeout, escalating to forceful"
+                );
+                let force_result = self
+                    .session_manager
+                    .stop_single_session(
+                        session_id,
+                        ShutdownMode::Forceful,
+                        cascade,
+                        std::time::Duration::ZERO,
+                        None,
+                    )
                     .await;
-                // Inject initial_input as a user-role pending message
-                if let Some(input) = initial_input {
-                    let pending_msg = PendingMessage::with_role(
-                        format!("slash-initial-{}", chrono::Utc::now().timestamp_millis()),
-                        input,
-                        "user".to_string(),
-                    );
-                    if let Err(e) = ctx
-                        .session_manager
-                        .push_pending_message(&ctx.session_id, pending_msg)
-                        .await
-                    {
+                match force_result {
+                    Ok(_) => {
+                        tracing::info!(
+                            session_id = %session_id,
+                            "session force-stopped after timeout"
+                        );
+                    }
+                    Err(e) => {
                         tracing::warn!(
-                            session_id = %ctx.session_id,
-                            error = %e,
-                            "failed to push initial_input pending message"
+                            session_id = %session_id,
+                            error = ?e,
+                            "force stop after timeout failed"
                         );
                     }
                 }
             }
-            SlashResult::NewSession => {
-                let new_id = ctx
-                    .executor
-                    .execute_new_session(&ctx.session_id, &ctx.channel)
-                    .await;
-                let _ = ctx
-                    .reply_tx
-                    .send(ReplyAction::Reply(vec![ContentBlock::Text(format!(
-                        "已创建新 session：{new_id}"
-                    ))]))
-                    .await;
+            Err(e) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = ?e,
+                    "stop failed"
+                );
             }
-            SlashResult::Stop { cascade, force } => {
-                ctx.executor
-                    .execute_stop(&ctx.session_id, cascade, force)
-                    .await;
-                let _ = ctx
-                    .reply_tx
-                    .send(ReplyAction::Reply(vec![ContentBlock::Text(
-                        "已停止当前任务".into(),
-                    )]))
-                    .await;
-            }
-            SlashResult::Compact { instruction } => {
-                let reply = match ctx
-                    .executor
-                    .execute_compact(&ctx.session_id, instruction)
-                    .await
-                {
-                    Ok(r) => r.message,
-                    Err(e) => format!("Compact failed: {e}"),
-                };
-                let _ = ctx
-                    .reply_tx
-                    .send(ReplyAction::Reply(vec![ContentBlock::Text(reply)]))
-                    .await;
-            }
-            SlashResult::SystemAppend { action } => {
-                let count = ctx
-                    .executor
-                    .execute_system_append(&ctx.session_id, &action)
-                    .await;
-                match action {
-                    SystemAppendAction::Add(_) => {
-                        let _ = ctx
-                            .reply_tx
-                            .send(ReplyAction::Reply(vec![ContentBlock::Text(format!(
-                                "已追加指令 #{count}"
-                            ))]))
-                            .await;
-                    }
-                    SystemAppendAction::Clear => {
-                        let _ = ctx
-                            .reply_tx
-                            .send(ReplyAction::Reply(vec![ContentBlock::Text(format!(
-                                "已清除 {count} 条追加指令"
-                            ))]))
-                            .await;
-                    }
-                }
-            }
-            SlashResult::Exec {
-                command,
-                requires_permission: _,
-            } => {
-                let agent_id = ctx
-                    .session_manager
-                    .get_chat_id(&ctx.session_id)
-                    .await
-                    .unwrap_or_default();
-                let blocks = ctx
-                    .executor
-                    .execute_exec(&ctx.session_id, &agent_id, &command)
-                    .await;
-                actions.push(ReplyAction::Reply(blocks));
-            }
-            SlashResult::SetReasoning { level } => {
-                ctx.executor
-                    .execute_set_reasoning(&ctx.session_id, level)
-                    .await;
-                let _ = ctx
-                    .reply_tx
-                    .send(ReplyAction::Reply(vec![ContentBlock::Text(format!(
-                        "推理深度已设为 {level}"
-                    ))]))
-                    .await;
-            }
-            SlashResult::SetVerbosity { level } => {
-                ctx.executor
-                    .execute_set_verbosity(&ctx.session_id, level)
-                    .await;
-                let _ = ctx
-                    .reply_tx
-                    .send(ReplyAction::Reply(vec![ContentBlock::Text(format!(
-                        "输出详细度已设置为 {level}"
-                    ))]))
-                    .await;
-            }
-            SlashResult::InjectMeta { content } => {
-                ctx.executor
-                    .execute_system_append(&ctx.session_id, &SystemAppendAction::Add(content))
-                    .await;
-                let _ = ctx
-                    .reply_tx
-                    .send(ReplyAction::Reply(vec![ContentBlock::Text(
-                        "技能已加载".into(),
-                    )]))
-                    .await;
-            }
-            SlashResult::Unknown(cmd) => {
-                actions.push(ReplyAction::Reply(vec![ContentBlock::Text(format!(
-                    "Unknown command: /{cmd}"
-                ))]));
-            }
-            // PermissionOp is intercepted in execute_and_route before execute()
-            // is called. This arm exists for exhaustive match compilation.
-            SlashResult::PermissionOp { .. } => {}
-            // UserApprove/UserReject are intercepted in execute_and_route before
-            // execute() is called.
-            SlashResult::UserApprove { .. } | SlashResult::UserReject { .. } => {}
         }
-        for action in actions {
-            let _ = ctx.reply_tx.send(action).await;
+    }
+
+    async fn execute_new_session(&self, _session_id: &str, channel: &str) -> String {
+        // force_new_for_channel creates a fresh session for the channel and
+        // updates the channel→session mapping so subsequent messages route to it.
+        let agent_id = self
+            .session_manager
+            .get_chat_id(_session_id)
+            .await
+            .unwrap_or_default();
+        self.session_manager
+            .force_new_for_channel(channel, &agent_id)
+            .await
+    }
+
+    async fn execute_compact(
+        &self,
+        session_id: &str,
+        instruction: Option<String>,
+    ) -> Result<CompactionResult, CompactionError> {
+        let Some(sh) = self.session_handler.as_ref() else {
+            return Err(CompactionError::HandlerNotAvailable(
+                "session handler not available".to_string(),
+            ));
+        };
+
+        // Build ChatFn: pure LLM forwarding layer.
+        let fc = Arc::clone(&sh.fallback_client);
+        let chat_fn = crate::session_handler_compact::build_chat_fn(fc);
+
+        // Lock CompactionService and call SessionManager::compact.
+        let mut svc = sh.compaction_service.lock().await;
+        self.session_manager
+            .compact(
+                session_id,
+                instruction.as_deref(),
+                false,
+                &mut svc,
+                &chat_fn,
+                None,
+            )
+            .await
+    }
+
+    async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction) -> usize {
+        let cs: Option<Arc<RwLock<ConversationSession>>> = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await;
+        let Some(cs) = cs else {
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply("session 不存在，无法执行系统指令".to_owned())
+                    .await;
+            }
+            return 0;
+        };
+        // Create a PartialRewrite snapshot before modifying the system prompt,
+        // per design doc: /system is a local rewrite that warrants a snapshot.
+        let snapshot_id = self
+            .session_manager
+            .create_partial_rewrite_snapshot(session_id)
+            .await;
+        let count = {
+            let mut cs = cs.write().await;
+            let n = match action {
+                SystemAppendAction::Add(text) => {
+                    // add_system_append returns 0-based index; reply uses 1-based.
+                    cs.add_system_append(text.clone()) + 1
+                }
+                SystemAppendAction::Clear => {
+                    let n = cs.clear_system_appends();
+                    // Invalidate static layer cache on clear, so the next
+                    // prompt build regenerates from current state.
+                    self.session_manager.invalidate_static_cache().await;
+                    n
+                }
+            };
+            // Mark snapshot as complete after successful modification.
+            if let Some(ref sid) = snapshot_id {
+                cs.mark_complete_snapshot(sid);
+            }
+            n
+        };
+        count
+    }
+
+    async fn execute_set_reasoning(&self, session_id: &str, level: ReasoningLevel) {
+        let cs: Option<Arc<RwLock<ConversationSession>>> = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await;
+        let Some(cs) = cs else {
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply("session 不存在，无法设置推理深度".to_owned())
+                    .await;
+            }
+            return;
+        };
+        cs.write().await.set_reasoning_level(level);
+    }
+
+    async fn execute_set_verbosity(&self, session_id: &str, level: VerbosityLevel) {
+        let cs: Option<Arc<RwLock<ConversationSession>>> = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await;
+        let Some(cs) = cs else {
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply("session 不存在，无法设置输出详细度".to_owned())
+                    .await;
+            }
+            return;
+        };
+        cs.write().await.set_verbosity_level(level);
+    }
+
+    async fn execute_set_mode(&self, session_id: &str, mode: &str) {
+        let cs: Option<Arc<RwLock<ConversationSession>>> = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await;
+        let Some(cs) = cs else {
+            if let Some(sh) = self.session_handler.as_ref() {
+                sh.send_reply("session 不存在，无法设置 mode".to_owned())
+                    .await;
+            }
+            return;
+        };
+        match closeclaw_common::SessionMode::from_str_opt(mode) {
+            Some(parsed) => {
+                cs.write().await.set_session_mode(parsed);
+            }
+            None => {
+                tracing::warn!(
+                    session_id,
+                    mode,
+                    "unknown session mode; keeping current mode"
+                );
+            }
+        }
+    }
+
+    async fn execute_exec(
+        &self,
+        _session_id: &str,
+        _agent_id: &str,
+        command: &str,
+    ) -> Vec<ContentBlock> {
+        let command = command.trim();
+        if command.is_empty() {
+            return vec![ContentBlock::Text("用法：/exec <command>".to_owned())];
+        }
+
+        let parts: Vec<String> = shlex::split(command).unwrap_or_else(|| vec![command.to_owned()]);
+        let cmd = parts.first().cloned().unwrap_or_default();
+        let args = parts[1..].to_vec();
+
+        // Permission is evaluated at the Gateway layer (check_slash_permission).
+        // The executor layer no longer performs redundant permission checks.
+        self.run_command(&cmd, &args).await
+    }
+}
+
+// ── GatewaySlashExecutor inherent methods ──────────────────────────────
+
+impl GatewaySlashExecutor {
+    /// Create a new executor for testing purposes.
+    #[allow(dead_code)]
+    pub(crate) fn new(
+        session_manager: Arc<SessionManager>,
+        session_handler: Option<Arc<SessionMessageHandler>>,
+    ) -> Self {
+        Self {
+            session_manager,
+            session_handler,
+        }
+    }
+
+    /// Execute a command and format stdout/stderr into ContentBlocks.
+    async fn run_command(&self, cmd: &str, args: &[String]) -> Vec<ContentBlock> {
+        let result = tokio::process::Command::new(cmd).args(args).output().await;
+        match result {
+            Ok(output) => {
+                let mut blocks = Vec::new();
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if !stdout.is_empty() {
+                    blocks.push(ContentBlock::Text(stdout.to_string()));
+                }
+                if !stderr.is_empty() {
+                    blocks.push(ContentBlock::Text(format!("[stderr] {stderr}")));
+                }
+                if blocks.is_empty() {
+                    let code = output.status.code().unwrap_or(-1);
+                    blocks.push(ContentBlock::Text(format!("命令执行完成，退出码：{code}")));
+                }
+                blocks
+            }
+            Err(e) => vec![ContentBlock::Text(format!("命令执行失败：{e}"))],
         }
     }
 }
