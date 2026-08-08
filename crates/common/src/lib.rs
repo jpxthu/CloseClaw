@@ -3,6 +3,8 @@ pub mod code_block;
 pub mod communication;
 pub mod compaction;
 pub mod executor;
+#[cfg(test)]
+pub mod executor_tests;
 pub mod fragment;
 pub mod hook_config;
 pub mod identity;
