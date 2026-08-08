@@ -309,7 +309,7 @@ async fn test_mode_handler_no_args_queries_current_mode() {
     match h.handle("", &ctx).await {
         SlashResult::Reply(text) => {
             assert_eq!(
-                text, "当前模式：Normal",
+                text, "当前模式：normal",
                 "should show current mode with doc format"
             );
         }
@@ -614,7 +614,7 @@ async fn test_mode_handler_no_args_shows_current_mode() {
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
-        SlashResult::Reply(text) => assert_eq!(text, "当前模式：Plan"),
+        SlashResult::Reply(text) => assert_eq!(text, "当前模式：plan"),
         other => panic!("expected Reply, got {other:?}"),
     }
     // Auto mode
@@ -622,7 +622,7 @@ async fn test_mode_handler_no_args_shows_current_mode() {
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
-        SlashResult::Reply(text) => assert_eq!(text, "当前模式：Auto"),
+        SlashResult::Reply(text) => assert_eq!(text, "当前模式：auto"),
         other => panic!("expected Reply, got {other:?}"),
     }
     // Normal mode
@@ -630,7 +630,7 @@ async fn test_mode_handler_no_args_shows_current_mode() {
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
-        SlashResult::Reply(text) => assert_eq!(text, "当前模式：Normal"),
+        SlashResult::Reply(text) => assert_eq!(text, "当前模式：normal"),
         other => panic!("expected Reply, got {other:?}"),
     }
 }

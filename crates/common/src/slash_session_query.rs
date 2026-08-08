@@ -75,8 +75,8 @@ pub trait SlashSessionQuery: Send + Sync {
     /// Get the verbosity level name for a session.
     async fn get_verbosity_level(&self, session_id: &str) -> Option<String>;
 
-    /// Get the session mode name for a session.
-    async fn get_session_mode(&self, session_id: &str) -> Option<String>;
+    /// Get the session mode for a session.
+    async fn get_session_mode(&self, session_id: &str) -> Option<crate::SessionMode>;
 
     /// Get the workdir for a session.
     async fn get_workdir(&self, session_id: &str) -> Option<PathBuf>;

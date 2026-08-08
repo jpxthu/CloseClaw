@@ -115,15 +115,10 @@ impl SlashSessionQuery for SessionManager {
         Some(guard.verbosity_level().to_string())
     }
 
-    async fn get_session_mode(&self, session_id: &str) -> Option<String> {
+    async fn get_session_mode(&self, session_id: &str) -> Option<closeclaw_common::SessionMode> {
         let cs = get_cs(self, session_id).await?;
         let guard = cs.read().await;
-        let mode = guard.session_mode();
-        Some(match mode {
-            closeclaw_common::SessionMode::Normal => "Normal".to_owned(),
-            closeclaw_common::SessionMode::Plan => "Plan".to_owned(),
-            closeclaw_common::SessionMode::Auto => "Auto".to_owned(),
-        })
+        Some(guard.session_mode())
     }
 
     async fn get_workdir(&self, session_id: &str) -> Option<std::path::PathBuf> {

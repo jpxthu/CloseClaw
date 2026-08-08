@@ -213,12 +213,12 @@ impl SlashHandler for AutoModeHandler {
     }
 
     async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
-        let mode_str = match self.session_manager.get_session_mode(&ctx.session_id).await {
+        let mode = match self.session_manager.get_session_mode(&ctx.session_id).await {
             Some(m) => m,
             None => return SlashResult::Reply("当前会话未激活".to_owned()),
         };
 
-        if mode_str == "Auto" {
+        if mode == SessionMode::Auto {
             return SlashResult::Reply("已在 Auto Mode".to_owned());
         }
 
@@ -309,12 +309,12 @@ impl SlashHandler for ExecuteHandler {
     async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
         let step_selection = parse_step_selection_arg(args.trim());
 
-        let mode_str = match self.session_manager.get_session_mode(&ctx.session_id).await {
+        let mode = match self.session_manager.get_session_mode(&ctx.session_id).await {
             Some(m) => m,
             None => return SlashResult::Reply("当前会话未激活".to_owned()),
         };
 
-        if mode_str != "Plan" {
+        if mode != SessionMode::Plan {
             return self.handle_non_plan_mode();
         }
 
@@ -354,11 +354,11 @@ impl SlashHandler for PauseHandler {
 
     async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
         // Step 1: Check session is in Auto Mode
-        let mode_str = match self.session_manager.get_session_mode(&ctx.session_id).await {
+        let mode = match self.session_manager.get_session_mode(&ctx.session_id).await {
             Some(m) => m,
             None => return SlashResult::Reply("当前会话未激活".to_owned()),
         };
-        if mode_str != "Auto" {
+        if mode != SessionMode::Auto {
             return SlashResult::Reply(
                 "/pause 需要在 Auto Mode 下使用。当前没有正在执行的 plan。".to_owned(),
             );
@@ -451,11 +451,11 @@ impl SlashHandler for ModeHandler {
 
         // No arguments — return the current session mode.
         if arg.is_empty() {
-            let mode_str = match self.session_manager.get_session_mode(&ctx.session_id).await {
+            let mode = match self.session_manager.get_session_mode(&ctx.session_id).await {
                 Some(m) => m,
                 None => return SlashResult::Reply("当前会话未激活".to_owned()),
             };
-            return SlashResult::Reply(format!("当前模式：{mode_str}"));
+            return SlashResult::Reply(format!("当前模式：{mode}"));
         }
 
         // Split mode name from remaining args: "plan 任务描述" → ("plan", "任务描述")
