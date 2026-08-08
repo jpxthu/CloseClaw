@@ -739,8 +739,35 @@ impl Gateway {
         }
         tracing::debug!(session_id, channel, "streaming outbound complete");
 
-        self.finish_streaming_pipeline(session_blocks, state, channel, session_id, verbosity_level)
-            .await
+        let result = self
+            .finish_streaming_pipeline(session_blocks, state, channel, session_id, verbosity_level)
+            .await?;
+
+        // Persist streaming outbound checkpoint — mirrors the batch path
+        // in `dispatch_and_persist`. Without this, a crash after streaming
+        // completes would lose the outbound history.
+        let text = result
+            .content_blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        let content_blocks_json = serde_json::to_string(&result.content_blocks).unwrap_or_default();
+        let msg = Self::make_outbound_msg(
+            channel,
+            chat_id,
+            text,
+            Some(channel.to_string()),
+            None,
+            Some(content_blocks_json),
+        );
+        self.persist_outbound_checkpoint(session_id, &msg, true)
+            .await;
+
+        Ok(result)
     }
 
     /// Post-stream pipeline: select content blocks, run processor chain
