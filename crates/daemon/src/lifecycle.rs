@@ -759,33 +759,32 @@ impl Daemon {
             StatusHandler, StopHandler, VerboseHandler,
         };
 
+        let sm_query: Arc<dyn closeclaw_common::SlashSessionQuery> = session_manager.clone();
         let slash_registry = Arc::new(HandlerRegistry::new());
         let registry_for_return = Arc::clone(&slash_registry);
         slash_registry.register(Arc::new(CompactHandler));
-        slash_registry.register(Arc::new(ClearHandler::new(Arc::clone(session_manager))));
+        slash_registry.register(Arc::new(ClearHandler::new(Arc::clone(&sm_query))));
         slash_registry.register(Arc::new(ExecHandler));
-        slash_registry.register(Arc::new(WorkdirHandler::new(Arc::clone(session_manager))));
+        slash_registry.register(Arc::new(WorkdirHandler::new(Arc::clone(&sm_query))));
         let help_handler = HelpHandler::new(Arc::clone(&slash_registry));
         slash_registry.register(Arc::new(help_handler));
-        slash_registry.register(Arc::new(ReasoningHandler::new(Arc::clone(session_manager))));
-        slash_registry.register(Arc::new(VerboseHandler::new(Arc::clone(session_manager))));
-        slash_registry.register(Arc::new(SystemHandler::new(Arc::clone(session_manager))));
+        slash_registry.register(Arc::new(ReasoningHandler::new(Arc::clone(&sm_query))));
+        slash_registry.register(Arc::new(VerboseHandler::new(Arc::clone(&sm_query))));
+        slash_registry.register(Arc::new(SystemHandler::new(Arc::clone(&sm_query))));
         slash_registry.register(Arc::new(NewSessionHandler));
         slash_registry.register(Arc::new(StopHandler));
-        slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(session_manager))));
-        let plan_handler = Arc::new(PlanModeHandler::new(Arc::clone(session_manager)));
-        let auto_handler = Arc::new(AutoModeHandler::new(Arc::clone(session_manager)));
+        slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(&sm_query))));
+        let plan_handler = Arc::new(PlanModeHandler::new(Arc::clone(&sm_query)));
+        let auto_handler = Arc::new(AutoModeHandler::new(Arc::clone(&sm_query)));
         slash_registry.register(plan_handler.clone() as Arc<dyn closeclaw_common::SlashHandler>);
         slash_registry.register(Arc::new(ModeHandler::with_handlers(
-            Arc::clone(session_manager),
+            Arc::clone(&sm_query),
             plan_handler,
             auto_handler,
         )));
-        slash_registry.register(Arc::new(ExecuteHandler::new(Arc::clone(session_manager))));
-        slash_registry.register(Arc::new(PauseHandler::new(Arc::clone(session_manager))));
-        slash_registry.register(Arc::new(BackgroundHandler::new(Arc::clone(
-            session_manager,
-        ))));
+        slash_registry.register(Arc::new(ExecuteHandler::new(Arc::clone(&sm_query))));
+        slash_registry.register(Arc::new(PauseHandler::new(Arc::clone(&sm_query))));
+        slash_registry.register(Arc::new(BackgroundHandler::new(Arc::clone(&sm_query))));
         slash_registry.register(Arc::new(PermissionSlashHandler));
         if let Some(config_dir) = gateway.get_config_dir().await {
             slash_registry.register(Arc::new(UserSlashHandler::new(config_dir)));

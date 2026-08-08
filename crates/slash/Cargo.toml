@@ -10,7 +10,6 @@ license = "MIT"
 closeclaw-common = { path = "../common" }
 closeclaw-permission = { path = "../permission" }
 closeclaw-tools = { path = "../tools" }
-closeclaw-gateway = { path = "../gateway" }
 closeclaw-llm = { path = "../llm" }
 closeclaw-session = { path = "../session" }
 closeclaw-skills = { path = "../skills" }
@@ -34,4 +33,5 @@ async-trait = "0.1"
 [dev-dependencies]
 tempfile = "3.10"
 closeclaw-config = { path = "../config" }
+closeclaw-gateway = { path = "../gateway" }
 serde_yaml = "0.9"

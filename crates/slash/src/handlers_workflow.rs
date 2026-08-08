@@ -11,7 +11,7 @@ use crate::context::SlashContext;
 use crate::handler::SlashHandler;
 use closeclaw_common::session_lookup::PendingMessage;
 use closeclaw_common::slash_router::SlashResult;
-use closeclaw_gateway::SessionManager;
+use closeclaw_common::SlashSessionQuery;
 use closeclaw_workflow::context_append::build_workflow_context_append;
 use closeclaw_workflow::definition::Workflow;
 use closeclaw_workflow::definition_loader::WorkflowDefinitionLoader;
@@ -28,7 +28,7 @@ use closeclaw_workflow::engine::WorkflowEngine;
 /// 6. Push Step 0 goal message as pending
 /// 7. Return confirmation
 pub struct WorkflowSlashHandler {
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SlashSessionQuery>,
     agent_workspace: Option<PathBuf>,
     dot_closeclaw: Option<PathBuf>,
 }
@@ -36,7 +36,7 @@ pub struct WorkflowSlashHandler {
 impl WorkflowSlashHandler {
     /// Create a new WorkflowHandler.
     pub fn new(
-        session_manager: Arc<SessionManager>,
+        session_manager: Arc<dyn SlashSessionQuery>,
         agent_workspace: Option<PathBuf>,
         dot_closeclaw: Option<PathBuf>,
     ) -> Self {
@@ -130,7 +130,7 @@ impl WorkflowSlashHandler {
     ) -> Result<(), SlashResult> {
         let run = WorkflowEngine::start(workflow);
         self.session_manager
-            .set_workflow_run(session_id, Some(run))
+            .set_workflow_run(session_id, Some(Box::new(run)))
             .await
             .map_err(|e| {
                 SlashResult::Reply(format!("工作流 \"{name}\" 启动失败（持久化错误）：{e}"))
@@ -140,14 +140,9 @@ impl WorkflowSlashHandler {
     /// Inject workflow context into system_appends.
     async fn inject_workflow_context(&self, workflow: &Workflow, session_id: &str) {
         let context = Self::build_workflow_context_append(workflow);
-        if let Some(cs) = self
-            .session_manager
-            .get_conversation_session(session_id)
-            .await
-        {
-            let mut cs = cs.write().await;
-            cs.add_system_append(context);
-        }
+        self.session_manager
+            .add_system_append(session_id, context)
+            .await;
     }
 
     /// Push Step 0 goal message as pending.

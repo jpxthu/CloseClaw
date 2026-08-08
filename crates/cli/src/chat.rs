@@ -170,13 +170,14 @@ async fn filter_valid_chain(
 async fn build_slash_dispatcher(
     session_manager: Arc<SessionManager>,
 ) -> Arc<crate::bridge::SlashDispatcherWrapper> {
+    let sm_query: Arc<dyn closeclaw_common::SlashSessionQuery> = session_manager.clone();
     let slash_registry = Arc::new(HandlerRegistry::new());
-    slash_registry.register(Arc::new(ClearHandler::new(Arc::clone(&session_manager))));
+    slash_registry.register(Arc::new(ClearHandler::new(Arc::clone(&sm_query))));
     let help_handler = HelpHandler::new(Arc::clone(&slash_registry));
     slash_registry.register(Arc::new(help_handler));
     slash_registry.register(Arc::new(NewSessionHandler));
     slash_registry.register(Arc::new(StopHandler));
-    slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(&session_manager))));
+    slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(&sm_query))));
 
     // Register WorkflowHandler for /workflow <name>.
     let dot_closeclaw = dirs::home_dir().map(|h| h.join(".closeclaw"));
@@ -185,7 +186,7 @@ async fn build_slash_dispatcher(
         .map(std::path::PathBuf::from)
         .or_else(|| std::env::current_dir().ok());
     slash_registry.register(Arc::new(closeclaw_slash::WorkflowSlashHandler::new(
-        Arc::clone(&session_manager),
+        Arc::clone(&sm_query),
         agent_workspace,
         dot_closeclaw,
     )));

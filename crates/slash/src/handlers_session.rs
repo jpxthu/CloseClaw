@@ -7,10 +7,8 @@ use std::sync::Arc;
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
 use closeclaw_common::slash_router::SlashResult;
-use closeclaw_common::SessionMode;
+use closeclaw_common::SlashSessionQuery;
 use closeclaw_common::VerbosityLevel;
-use closeclaw_gateway::SessionManager;
-use closeclaw_session::llm_session::{ChatSession, ConversationSession};
 
 // ── NewSessionHandler ────────────────────────────────────────────────────
 
@@ -85,12 +83,12 @@ impl SlashHandler for StopHandler {
 /// - With an argument (`full`, `normal`, `off`): update the session's verbosity
 ///   level via `SlashResult::SetVerbosity`.
 pub struct VerboseHandler {
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SlashSessionQuery>,
 }
 
 impl VerboseHandler {
     /// Create a new VerboseHandler operating on the given session manager.
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
         Self { session_manager }
     }
 
@@ -124,16 +122,14 @@ impl SlashHandler for VerboseHandler {
 
         // No arguments — return the current verbosity level.
         if arg.is_empty() {
-            let Some(conv) = self
+            let Some(level_str) = self
                 .session_manager
-                .get_conversation_session(&ctx.session_id)
+                .get_verbosity_level(&ctx.session_id)
                 .await
             else {
                 return SlashResult::Reply("当前会话未激活".to_owned());
             };
-            let cs = conv.read().await;
-            let level = cs.verbosity_level();
-            return SlashResult::Reply(format!("当前输出详细度：{level}"));
+            return SlashResult::Reply(format!("当前输出详细度：{level_str}"));
         }
 
         // With argument — parse and return SetVerbosity.
@@ -153,12 +149,12 @@ impl SlashHandler for VerboseHandler {
 /// Reads various fields from the [`ConversationSession`] and formats them
 /// into a human-readable status report.
 pub struct StatusHandler {
-    session_manager: Arc<SessionManager>,
+    session_manager: Arc<dyn SlashSessionQuery>,
 }
 
 impl StatusHandler {
     /// Create a new StatusHandler operating on the given session manager.
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
         Self { session_manager }
     }
 }
@@ -178,53 +174,36 @@ impl SlashHandler for StatusHandler {
     }
 
     async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
-        let Some(conv) = self
-            .session_manager
-            .get_conversation_session(&ctx.session_id)
-            .await
-        else {
-            return SlashResult::Reply("当前会话未激活".to_owned());
-        };
-        let cs = conv.read().await;
+        let sm = &self.session_manager;
+        let sid = &ctx.session_id;
 
-        let busy = cs.is_llm_busy();
+        // Check if session exists.
+        if sm.get_session_mode(sid).await.is_none() {
+            return SlashResult::Reply("当前会话未激活".to_owned());
+        }
+
+        let busy = sm.is_llm_busy(sid).await;
         let llm_status = if busy { "运行中" } else { "空闲" };
 
-        let model = cs.model();
-        let reasoning = cs.effective_reasoning_level();
-        let mode = cs.session_mode();
-        let mode_label = match mode {
-            SessionMode::Normal => "Normal",
-            SessionMode::Plan => "Plan",
-            SessionMode::Auto => "Auto",
-        };
-        let stats = cs.stats();
-        let total_tokens = stats.total_tokens;
-        let total_prompt_tokens = stats.total_prompt_tokens;
-        let cache_read_tokens = stats.total_cache_read_tokens;
-        let cache_write_tokens = stats.total_cache_write_tokens;
-        let cache_hit_rate = if total_prompt_tokens == 0 {
+        let model = sm.get_model(sid).await.unwrap_or_default();
+        let reasoning = sm.get_reasoning_level(sid).await.unwrap_or_default();
+        let mode_label = sm.get_session_mode(sid).await.unwrap_or_default();
+
+        let (total_tokens, prompt_tokens, cache_read, cache_write) =
+            sm.get_stats(sid).await.unwrap_or((0, 0, 0, 0));
+        let cache_hit_rate = if prompt_tokens == 0 {
             "N/A".to_owned()
         } else {
-            format!(
-                "{:.1}%",
-                cache_read_tokens as f64 / total_prompt_tokens as f64 * 100.0
-            )
+            format!("{:.1}%", cache_read as f64 / prompt_tokens as f64 * 100.0)
         };
 
-        // Count active child handles (Weak references that are still alive).
-        let child_handles = cs.child_handles.read().unwrap_or_else(|e| e.into_inner());
-        let active_children: usize = child_handles
-            .values()
-            .filter(
-                |w: &&std::sync::Weak<tokio::sync::RwLock<ConversationSession>>| {
-                    w.upgrade().is_some()
-                },
-            )
-            .count();
-
-        let workdir = cs.workdir().display();
-        let appends = cs.system_appends();
+        let active_children = sm.get_active_child_count(sid).await;
+        let workdir = sm.get_workdir(sid).await;
+        let workdir_str = workdir
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let appends = sm.get_system_appends(sid).await;
 
         let mut lines = vec![
             format!("LLM 状态：{llm_status}"),
@@ -233,10 +212,10 @@ impl SlashHandler for StatusHandler {
             format!("当前模式：{mode_label}"),
             format!("上下文用量：{total_tokens} tokens"),
             format!("缓存命中率：{cache_hit_rate}"),
-            format!("缓存读 token：{cache_read_tokens}"),
-            format!("缓存写 token：{cache_write_tokens}"),
+            format!("缓存读 token：{cache_read}"),
+            format!("缓存写 token：{cache_write}"),
             format!("活跃子 agent：{active_children}"),
-            format!("工作目录：{workdir}"),
+            format!("工作目录：{workdir_str}"),
         ];
 
         if appends.is_empty() {
@@ -249,8 +228,8 @@ impl SlashHandler for StatusHandler {
         }
 
         // Cache break event (most recent).
-        if let Some(cb) = cs.last_cache_break() {
-            lines.push(cb.format_notification());
+        if let Some(cb) = sm.get_last_cache_break(sid).await {
+            lines.push(cb);
         }
 
         SlashResult::Reply(lines.join("\n"))
