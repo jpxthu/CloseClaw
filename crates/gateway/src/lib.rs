@@ -43,7 +43,6 @@ mod session_handler_streaming;
 pub mod session_manager;
 mod shutdown_card;
 pub mod shutdown_handle;
-pub mod slash_executor;
 #[cfg(test)]
 mod slash_executor_system_append_tests;
 #[cfg(test)]
