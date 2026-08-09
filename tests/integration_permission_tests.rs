@@ -138,7 +138,7 @@ fn test_permission_engine_with_registered_agent() {
     let response = engine.evaluate(
         PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: agent_id.clone(),
-            path: "~/code/main.rs".to_string(),
+            path: "/home/admin/code/main.rs".to_string(),
             op: "read".to_string(),
         }),
         None,
@@ -284,7 +284,7 @@ async fn test_permission_user_and_agent_dual_key_matching() {
             },
             request: PermissionRequestBody::FileOp {
                 agent: "any-agent".to_string(),
-                path: "~/file.txt".to_string(),
+                path: "/home/admin/file.txt".to_string(),
                 op: "read".to_string(),
             },
         },
@@ -441,7 +441,7 @@ async fn test_permission_engine_template_resolution() {
     let response = engine.evaluate(
         PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "any-agent".to_string(),
-            path: "~/code/main.rs".to_string(),
+            path: "/home/admin/code/main.rs".to_string(),
             op: "read".to_string(),
         }),
         None,

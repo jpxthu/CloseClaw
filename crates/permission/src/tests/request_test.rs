@@ -29,7 +29,7 @@ fn test_with_caller_request() {
         },
         request: PermissionRequestBody::FileOp {
             agent: "dev-agent-01".to_string(),
-            path: "~/code/**".to_string(),
+            path: "/home/admin/code/**".to_string(),
             op: "read".to_string(),
         },
     };
