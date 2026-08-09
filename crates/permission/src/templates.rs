@@ -187,7 +187,7 @@ mod tests {
                 },
                 crate::engine::Action::File {
                     operation: "write".to_string(),
-                    paths: vec!["/home/admin/code/**".to_string()],
+                    paths: vec!["~/code/**".to_string()],
                 },
                 crate::engine::Action::Command {
                     command: "git".to_string(),

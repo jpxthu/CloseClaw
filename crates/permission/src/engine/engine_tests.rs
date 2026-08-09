@@ -36,14 +36,14 @@ fn test_glob_question() {
 #[test]
 fn test_glob_double_star() {
     assert!(glob_match(
-        "/home/admin/code/**",
-        "/home/admin/code/closeclaw/src/main.rs"
+        "~/code/**",
+        "~/code/closeclaw/src/main.rs"
     ));
     assert!(glob_match(
-        "/home/admin/code/**",
-        "/home/admin/code/closeclaw/src/permission/engine.rs"
+        "~/code/**",
+        "~/code/closeclaw/src/permission/engine.rs"
     ));
-    assert!(!glob_match("/home/admin/code/**", "/home/admin/other/path"));
+    assert!(!glob_match("~/code/**", "~/other/path"));
 }
 
 // -------------------------------------------------------------------------
