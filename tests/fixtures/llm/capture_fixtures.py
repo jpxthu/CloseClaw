@@ -1232,7 +1232,7 @@ def main() -> None:
     parser.add_argument("--api-key", default=os.environ.get("LLM_API_KEY", ""))
     parser.add_argument(
         "--output-base",
-        default="/home/admin/code/closeclaw-test/tests/fixtures/llm/v2",
+        default=os.path.expanduser("~/code/closeclaw-test/tests/fixtures/llm/v2"),
     )
     parser.add_argument(
         "--scenario-type",
