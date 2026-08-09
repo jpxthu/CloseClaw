@@ -35,10 +35,7 @@ fn test_glob_question() {
 
 #[test]
 fn test_glob_double_star() {
-    assert!(glob_match(
-        "~/code/**",
-        "~/code/closeclaw/src/main.rs"
-    ));
+    assert!(glob_match("~/code/**", "~/code/closeclaw/src/main.rs"));
     assert!(glob_match(
         "~/code/**",
         "~/code/closeclaw/src/permission/engine.rs"
