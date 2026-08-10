@@ -628,7 +628,7 @@ async fn test_streaming_checkpoint_save_failure_no_panic() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Test 4: Empty content_blocks — checkpoint still persisted
+// Test 5: Empty content_blocks — checkpoint still persisted
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// When streaming completes with no text content (empty content_blocks

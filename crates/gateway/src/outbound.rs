@@ -37,6 +37,8 @@ pub struct StreamResult {
     pub usage: UnifiedUsage,
     /// Number of retry attempts made before the LLM call succeeded.
     pub retry_attempts: u32,
+    /// DSL instruction result extracted from processor chain metadata.
+    pub dsl_result: Option<String>,
 }
 
 impl From<UnifiedResponse> for StreamResult {
@@ -51,6 +53,7 @@ impl From<UnifiedResponse> for StreamResult {
             content_blocks: response.content_blocks,
             usage: response.usage,
             retry_attempts: response.retry_attempts,
+            dsl_result: None,
         }
     }
 }
@@ -761,7 +764,7 @@ impl Gateway {
             chat_id,
             text,
             Some(channel.to_string()),
-            None,
+            result.dsl_result.clone(),
             Some(content_blocks_json),
         );
         self.persist_outbound_checkpoint(session_id, &msg, true)
@@ -796,11 +799,13 @@ impl Gateway {
             .await?;
 
         let filtered_blocks = filter_by_verbosity(processed.content_blocks, verbosity_level);
+        let dsl_result = processed.metadata.get("dsl_result").cloned();
 
         Ok(StreamResult {
             content_blocks: filtered_blocks,
             usage: usage_override.unwrap_or(state.usage),
             retry_attempts: 0,
+            dsl_result,
         })
     }
 

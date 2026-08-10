@@ -22,6 +22,7 @@ fn make_stream_result(blocks: Vec<ContentBlock>) -> StreamResult {
         content_blocks: blocks,
         usage: make_usage(),
         retry_attempts: 0,
+        dsl_result: None,
     }
 }
 
