@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningLevel {
+    /// 关闭推理（部分供应商无法真正关闭时退化到最低档位）
+    Off,
     /// 低推理深度（最小推理 token 消耗）
     Low,
     /// 中等推理深度
@@ -20,6 +22,7 @@ pub enum ReasoningLevel {
 impl std::fmt::Display for ReasoningLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ReasoningLevel::Off => write!(f, "Off"),
             ReasoningLevel::Low => write!(f, "Low"),
             ReasoningLevel::Medium => write!(f, "Medium"),
             ReasoningLevel::High => write!(f, "High"),
