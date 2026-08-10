@@ -404,10 +404,7 @@ impl Gateway {
                     debug_log_emitter::emit_debug_event(
                         guard.as_ref(),
                         tid,
-                        processed
-                            .metadata
-                            .get("session_key")
-                            .map(|s| s.as_str()),
+                        processed.metadata.get("session_key").map(|s| s.as_str()),
                         LogLevel::Info,
                         "gateway",
                         "session.resolved",
@@ -513,27 +510,24 @@ impl Gateway {
 
         // ── Routing decision ────────────────────────────────────────────
         // Log route.decision before dispatching slash or normal message path.
-        if content.starts_with('/') {
-            // ── Debug log: route.decision (slash) ─────────────────────────
-            if let Some(tid) = trace_id {
-                let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-                debug_log_emitter::emit_debug_event(
-                    guard.as_ref(),
-                    tid,
-                    processed
-                        .metadata
-                        .get("session_key")
-                        .map(|s| s.as_str()),
-                    LogLevel::Info,
-                    "gateway",
-                    "route.decision",
-                    serde_json::json!({
-                        "session_id": session_id,
-                        "decision": "slash",
-                        "content_prefix": &content[..content.len().min(16)],
-                    }),
-                );
-            }
+        let is_slash = content.starts_with('/');
+        if let Some(tid) = trace_id {
+            let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
+            debug_log_emitter::emit_debug_event(
+                guard.as_ref(),
+                tid,
+                processed.metadata.get("session_key").map(|s| s.as_str()),
+                LogLevel::Info,
+                "gateway",
+                "route.decision",
+                serde_json::json!({
+                    "session_id": session_id,
+                    "decision": if is_slash { "slash" } else { "normal" },
+                    "content_prefix": content.chars().take(16).collect::<String>(),
+                }),
+            );
+        }
+        if is_slash {
             // ── Slash command dispatch ─────────────────────────────────────
             // Slash commands are intercepted here and never appended to
             // conversation history (design doc requirement).
@@ -542,27 +536,6 @@ impl Gateway {
                 .await
             {
                 return Some(result);
-            }
-        } else {
-            // ── Debug log: route.decision (normal) ────────────────────────
-            if let Some(tid) = trace_id {
-                let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-                debug_log_emitter::emit_debug_event(
-                    guard.as_ref(),
-                    tid,
-                    processed
-                        .metadata
-                        .get("session_key")
-                        .map(|s| s.as_str()),
-                    LogLevel::Info,
-                    "gateway",
-                    "route.decision",
-                    serde_json::json!({
-                        "session_id": session_id,
-                        "decision": "normal",
-                        "content_prefix": &content[..content.len().min(16)],
-                    }),
-                );
             }
         }
 
