@@ -125,6 +125,7 @@ impl SessionMessageHandler {
                 content_blocks: vec![ContentBlock::Text(String::new())],
                 usage: stream_result.usage,
                 retry_attempts: stream_result.retry_attempts,
+                dsl_result: stream_result.dsl_result,
             });
         }
         Ok(stream_result)
