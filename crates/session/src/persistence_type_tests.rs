@@ -10,12 +10,14 @@ mod tests {
     #[test]
     fn test_reasoning_level_basics() {
         assert_eq!(ReasoningLevel::default(), ReasoningLevel::High);
+        assert_eq!(ReasoningLevel::Off.to_string(), "Off");
         assert_eq!(ReasoningLevel::Low.to_string(), "Low");
         assert_eq!(ReasoningLevel::Medium.to_string(), "Medium");
         assert_eq!(ReasoningLevel::High.to_string(), "High");
         assert_eq!(ReasoningLevel::Max.to_string(), "Max");
         // serde roundtrip
         for level in [
+            ReasoningLevel::Off,
             ReasoningLevel::Low,
             ReasoningLevel::Medium,
             ReasoningLevel::High,
@@ -26,6 +28,10 @@ mod tests {
             assert_eq!(level, parsed);
         }
         // deserialize from string
+        assert_eq!(
+            serde_json::from_str::<ReasoningLevel>("\"off\"").unwrap(),
+            ReasoningLevel::Off
+        );
         assert_eq!(
             serde_json::from_str::<ReasoningLevel>("\"low\"").unwrap(),
             ReasoningLevel::Low

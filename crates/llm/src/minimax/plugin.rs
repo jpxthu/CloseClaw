@@ -59,7 +59,7 @@ impl ModelPlugin for MiniMaxPlugin {
             downgrade_max_to_high_m3(request);
             let thinking_type = match request.reasoning_level {
                 ReasoningLevel::High => "enabled",
-                ReasoningLevel::Low | ReasoningLevel::Medium => "disabled",
+                ReasoningLevel::Off | ReasoningLevel::Low | ReasoningLevel::Medium => "disabled",
                 ReasoningLevel::Max => unreachable!("Max should have been downgraded to High"),
             };
             request

@@ -39,7 +39,7 @@ impl ModelPlugin for GlmPlugin {
         downgrade_max_to_high(request);
 
         let thinking_type = match request.reasoning_level {
-            ReasoningLevel::Low => "disabled",
+            ReasoningLevel::Off | ReasoningLevel::Low => "disabled",
             ReasoningLevel::Medium | ReasoningLevel::High => "enabled",
             ReasoningLevel::Max => unreachable!("Max should have been downgraded to High"),
         };

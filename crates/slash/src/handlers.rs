@@ -131,7 +131,8 @@ impl SlashHandler for HelpHandler {
 /// - With an argument (`low`, `medium`, `high`, `max`, `off`): update the
 ///   session's reasoning level via `SlashResult::SetReasoning`.
 ///
-/// The `off` alias maps to `Low` (the minimum reasoning depth).
+/// The `off` variant disables reasoning (some providers fall back to the
+/// minimum level when true disabling is unsupported).
 pub struct ReasoningHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
 }
@@ -145,7 +146,8 @@ impl ReasoningHandler {
     /// Parse a reasoning level string. Returns `None` for invalid values.
     fn parse_level(s: &str) -> Option<ReasoningLevel> {
         match s.to_lowercase().as_str() {
-            "low" | "off" => Some(ReasoningLevel::Low),
+            "off" => Some(ReasoningLevel::Off),
+            "low" => Some(ReasoningLevel::Low),
             "medium" => Some(ReasoningLevel::Medium),
             "high" => Some(ReasoningLevel::High),
             "max" => Some(ReasoningLevel::Max),

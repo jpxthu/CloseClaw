@@ -61,6 +61,8 @@ fn resolve_for_levels(
                 ReasoningLevel::Medium
             }
         }
+        ReasoningLevel::Off if off => ReasoningLevel::Off,
+        ReasoningLevel::Off => ReasoningLevel::Low,
         ReasoningLevel::Low if off => ReasoningLevel::Low,
         ReasoningLevel::Low => ReasoningLevel::Low,
     }

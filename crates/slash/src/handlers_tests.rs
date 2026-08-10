@@ -473,7 +473,7 @@ async fn test_reasoning_handler_valid_levels() {
         ("medium", ReasoningLevel::Medium),
         ("high", ReasoningLevel::High),
         ("max", ReasoningLevel::Max),
-        ("off", ReasoningLevel::Low),
+        ("off", ReasoningLevel::Off),
     ];
     for (arg, expected) in cases {
         let mut ctx = dummy_ctx();
