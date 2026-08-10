@@ -253,11 +253,7 @@ async fn setup_with_dsl_parser(
     // Build a minimal outbound chain with only DslParser.
     let mut registry = closeclaw_processor_chain::registry::ProcessorRegistry::new();
     registry.register(Arc::new(closeclaw_processor_chain::DslParser));
-    let gw = crate::Gateway::with_processor_registry(
-        config,
-        Arc::clone(&sm),
-        Arc::new(registry),
-    );
+    let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(registry));
     gw.register_plugin(plugin).await;
     let msg = Message {
         id: "test_msg".to_string(),
@@ -273,9 +269,7 @@ async fn setup_with_dsl_parser(
         content_blocks: None,
     };
     let sid = sm.find_or_create("mock", &msg, None).await.unwrap();
-    let cm = Arc::new(closeclaw_session::checkpoint_manager::CheckpointManager::new(
-        persistence,
-    ));
+    let cm = Arc::new(closeclaw_session::checkpoint_manager::CheckpointManager::new(persistence));
     let gw = gw.with_checkpoint_manager(cm);
     (gw, sm, sid)
 }
@@ -363,8 +357,7 @@ async fn test_streaming_checkpoint_persists_dsl_result() {
         "checkpoint pending message dsl_result should be Some"
     );
     // The dsl_result JSON should contain at least one instruction.
-    let dsl: DslParseResult =
-        serde_json::from_str(pending.dsl_result.as_ref().unwrap()).unwrap();
+    let dsl: DslParseResult = serde_json::from_str(pending.dsl_result.as_ref().unwrap()).unwrap();
     assert_eq!(dsl.instructions.len(), 1, "should have 1 DSL instruction");
     assert_eq!(dsl.instructions[0].instruction_type, "button");
     assert_eq!(dsl.instructions[0].params["label"], "Yes");
@@ -386,11 +379,8 @@ async fn test_streaming_checkpoint_dsl_result_none_when_no_dsl() {
         ReasoningLevel::default(),
     ));
     let empty_registry = closeclaw_processor_chain::registry::ProcessorRegistry::new();
-    let gw = crate::Gateway::with_processor_registry(
-        config,
-        Arc::clone(&sm),
-        Arc::new(empty_registry),
-    );
+    let gw =
+        crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(empty_registry));
     gw.register_plugin(plugin.clone()).await;
     let msg = Message {
         id: "test_msg".to_string(),
@@ -406,9 +396,11 @@ async fn test_streaming_checkpoint_dsl_result_none_when_no_dsl() {
         content_blocks: None,
     };
     let sid = sm.find_or_create("mock", &msg, None).await.unwrap();
-    let cm = Arc::new(closeclaw_session::checkpoint_manager::CheckpointManager::new(
-        persist.clone() as Arc<dyn PersistenceService>,
-    ));
+    let cm = Arc::new(
+        closeclaw_session::checkpoint_manager::CheckpointManager::new(
+            persist.clone() as Arc<dyn PersistenceService>
+        ),
+    );
     let gw = gw.with_checkpoint_manager(cm);
 
     // Stream plain text — no DSL instructions and no DslParser.
@@ -473,8 +465,7 @@ async fn test_streaming_checkpoint_dsl_result_none_when_processor_without_dsl() 
         sr.dsl_result.is_some(),
         "StreamResult.dsl_result should be Some when DslParser runs (even with no DSL)"
     );
-    let dsl: DslParseResult =
-        serde_json::from_str(sr.dsl_result.as_ref().unwrap()).unwrap();
+    let dsl: DslParseResult = serde_json::from_str(sr.dsl_result.as_ref().unwrap()).unwrap();
     assert!(
         dsl.instructions.is_empty(),
         "dsl_result instructions should be empty when no DSL in content"
