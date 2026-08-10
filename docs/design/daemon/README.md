@@ -20,23 +20,23 @@
 | 2 | SessionConfigProvider | ConfigManager |
 | 2 | AgentRegistry | ConfigManager |
 | 2 | Config Hot Reload | ConfigManager |
-| 2 | Skills Registry | ConfigManager（创建注册表骨架，加载 bundled skills） |
+| 2 | Skills Registry | ConfigManager |
 | 2 | Renderers / Plugins | ConfigManager |
+| 2 | Permission Engine | ConfigManager |
 | 3 | IM Adapters | Renderers, ConfigManager |
-| 3 | Permission Engine | AgentRegistry |
 | 3 | Tools Registry | Skills Registry |
 | 3 | ArchiveSweeper | Storage, SessionConfigProvider |
-| 3 | SpawnController | AgentRegistry |
 | 3 | DreamingScheduler | Storage, SessionConfigProvider |
-| 3 | System Prompt 构建器 | AgentRegistry, Skills Registry |
-| 4 | Session Manager | Storage, AgentRegistry, Skills Registry, Tools Registry |
-| 4 | ApprovalFlow | Permission Engine, AgentRegistry |
-| 5 | Gateway | Session Manager, IM Adapters, Permission Engine, ApprovalFlow |
+| 3 | ApprovalFlow | Permission Engine, AgentRegistry |
+| 4 | Session Manager | Storage, AgentRegistry, Skills Registry, Tools Registry, SessionConfigProvider |
+| 4 | SpawnController | AgentRegistry, Tools Registry |
+| 4 | System Prompt 构建器 | AgentRegistry, Skills Registry, Tools Registry |
+| 5 | Gateway | Session Manager, IM Adapters, Permission Engine, ApprovalFlow, Renderers / Plugins |
 | 6 | Admin RPC Server | Gateway |
 
 初始化完成后进入消息循环，由 Gateway 接管所有消息处理。
 
-Daemon 持有 AgentRegistry、Session Manager、Gateway 和 ApprovalFlow 的引用，管理其生命周期。
+Daemon 持有 AgentRegistry、Session Manager、Gateway、ApprovalFlow、SpawnController 和 System Prompt 构建器的引用，管理其生命周期。
 
 ### 子功能
 
@@ -62,23 +62,23 @@ Daemon 启动（依赖驱动，按拓扑序分层执行）
   │   ├── AgentRegistry（创建空注册表 → ConfigManager 加载 agent 配置 → populate 填充）
   │   ├── Config Hot Reload（spawn 后台任务，监听配置文件变更，触发增量/全量重载）
   │   ├── Skills Registry（创建注册表骨架，加载 bundled skills）
-  │   └── Renderers / Plugins（各平台 Renderer 封装为 Plugin 并注册）
+  │   ├── Renderers / Plugins（各平台 Renderer 封装为 Plugin 并注册）
+  │   └── Permission Engine（加载全局默认策略，Agent 维度规则延迟加载）
   │
   ├── 层 3（依赖层 2，并行初始化）
   │   ├── IM Adapters（各平台 Adapter 创建，注入对应 Renderer）
-  │   ├── Permission Engine（加载全局默认策略，Agent 维度规则延迟加载）
-  │   ├── Tools Registry（各模块注册工具定义，SpawnController 注入）
+  │   ├── Tools Registry（各模块注册工具定义）
   │   ├── ArchiveSweeper（spawn 后台任务，定时扫描 idle session 归档 + 过期 archive 清理，详见 [session-lifecycle.md](../session/session-lifecycle.md)）
-  │   ├── SpawnController（校验 Agent spawn 权限，注入 ToolRegistry）
   │   ├── DreamingScheduler（spawn 后台任务，定时扫描 archived 会话，触发记忆挖掘与升格）
-  │   └── System Prompt 构建器（SessionManager 内部调用构建函数，持有 Prompt 覆盖配置，初始为空）
+  │   ├── ApprovalFlow（注入 Permission Engine、AgentRegistry）
   │
   ├── 层 4（依赖层 3）
   │   ├── Session Manager（注入 storage、agent registry、tool/skill registry，初始化完成后执行启动恢复扫描）
-  │   └── ApprovalFlow（注入 Permission Engine、AgentRegistry）
+  │   ├── SpawnController（校验 Agent spawn 权限，持有 Tools Registry 引用）
+  │   └── System Prompt 构建器（SessionManager 触发构建，持有 AgentRegistry、SkillsRegistry、ToolsRegistry 引用，详见 [system_prompt/README.md](../system_prompt/README.md)）
   │
   ├── 层 5（依赖层 4）
-  │   └── Gateway（注入 adapters、processor registry、renderers、session manager、permission；安装 SlashDispatcher；注入 ApprovalFlow）
+  │   └── Gateway（注入 adapters、session manager、permission、renderers；安装 SlashDispatcher；注入 ApprovalFlow）
   │
   ├── 层 6（依赖层 5）
   │   └── Admin RPC Server（启动 Unix domain socket 管理服务，接收 CLI Admin 命令）
@@ -120,19 +120,19 @@ Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | ConfigManager | 启动时加载各配置文件，合并为各组件所需的数据结构 |
 | Storage | 启动时初始化持久化存储 |
 | SessionConfigProvider | 启动时加载 session_config.json，提供给 ArchiveSweeper 和 Session Manager |
-| Permission Engine | 启动时加载权限规则 |
+| Permission Engine | 启动时加载全局默认策略，Agent 维度规则延迟加载 |
 | AgentRegistry | 启动时创建 agent 注册表，从 ConfigManager 加载结果填充。Daemon 持有其所有权 |
 | Tools Registry | 启动时注册所有工具 |
 | Skills Registry | 启动时创建注册表骨架，加载 bundled skills |
 | Session Manager | 启动时创建并注入依赖，Daemon 持有其所有权 |
-| System Prompt 构建器 | SessionManager 内部调用系统 prompt 构建函数组装，持有 PromptOverrides（初始 None） |
+| System Prompt 构建器 | SessionManager 触发构建系统 prompt，持有 AgentRegistry、SkillsRegistry、ToolsRegistry 引用，详见 [system_prompt/README.md](../system_prompt/README.md) |
 | Renderers / Plugins | 启动时注册各平台 Renderer |
 | IM Adapters | 启动时创建各平台适配器 |
 | Gateway | 启动时创建并注入依赖，Daemon 持有其所有权 |
 | Admin RPC Server | 启动时创建 Unix domain socket 管理服务，接收 CLI Admin 命令 |
 | ArchiveSweeper | 启动时 spawn 后台任务（依赖 Storage + SessionConfigProvider，详见 [session-lifecycle.md](../session/session-lifecycle.md)） |
 | ApprovalFlow | 启动时创建并注入到 Gateway，Daemon 持有其所有权 |
-| SpawnController | 启动时创建并注入 ToolRegistry，校验 Agent spawn 权限 |
+| SpawnController | 启动时创建，校验 Agent spawn 权限，持有 Tools Registry 引用。由 Session Manager 在处理 spawn 请求时调用 |
 | Config Hot Reload | 启动时 spawn 后台任务，监听配置文件变更并触发重载 |
 | DreamingScheduler | 定时扫描 archived 会话触发记忆挖掘与升格（先 dreaming 后 mining） |
 
