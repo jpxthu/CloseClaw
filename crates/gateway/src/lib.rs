@@ -395,8 +395,35 @@ impl Gateway {
         }
 
         // ── Resolve session_key → session_id ────────────────────────
+        let trace_id = processed.metadata.get("trace_id").map(|s| s.as_str());
         let session_id = match self.resolve_session_from_message(&processed, channel).await {
-            Some(id) => id,
+            Some(id) => {
+                // ── Debug log: session.resolved ─────────────────────────
+                if let Some(tid) = trace_id {
+                    let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
+                    debug_log_emitter::emit_debug_event(
+                        guard.as_ref(),
+                        tid,
+                        processed
+                            .metadata
+                            .get("session_key")
+                            .map(|s| s.as_str()),
+                        LogLevel::Info,
+                        "gateway",
+                        "session.resolved",
+                        serde_json::json!({
+                            "session_id": id,
+                            "session_key": processed
+                                .metadata
+                                .get("session_key")
+                                .map(|s| s.as_str())
+                                .unwrap_or(""),
+                            "channel": channel,
+                        }),
+                    );
+                }
+                id
+            }
             None => {
                 tracing::warn!("session_key missing or resolve failed — message not processed");
                 if !peer_id.is_empty() {
