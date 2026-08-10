@@ -39,7 +39,7 @@ impl ModelPlugin for DeepSeekPlugin {
         downgrade_max_to_high(request);
 
         let effort = match request.reasoning_level {
-            ReasoningLevel::Low => Some("low"),
+            ReasoningLevel::Off | ReasoningLevel::Low => Some("low"),
             ReasoningLevel::Medium => Some("base"),
             ReasoningLevel::High | ReasoningLevel::Max => Some("high"),
         };
