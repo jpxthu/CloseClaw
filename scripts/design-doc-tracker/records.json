@@ -1,13 +1,5 @@
 [
   {
-    "path": "~/code/closeclaw/docs/design/mode/README.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-07-09T02:01:50.262071+08:00",
-    "comment": "",
-    "blocked_reason": "contradiction"
-  },
-  {
     "path": "docs/design/agent/README.md",
     "commit": "d1888c4c99c97bbfe6b119fd823a5d756d7d0e92",
     "commit_time": "2026-07-13T23:34:48+08:00",
@@ -153,9 +145,9 @@
   },
   {
     "path": "docs/design/gateway/README.md",
-    "commit": "7a5c737aa0c610ea0e3a710aa54d45c3ae10b7d9",
-    "commit_time": "2026-08-07T05:07:08+08:00",
-    "confirmed_time": "2026-08-07T05:21:21.703594+08:00",
+    "commit": "df5964a496bdb3082ed635086dfacf3b79d0e4c0",
+    "commit_time": "2026-08-10T20:23:15+08:00",
+    "confirmed_time": "2026-08-10T20:34:37.509917+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -718,5 +710,13 @@
     "confirmed_time": "2026-08-04T04:46:52.686977+08:00",
     "comment": "",
     "blocked_reason": ""
+  },
+  {
+    "path": "~/code/closeclaw/docs/design/mode/README.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-07-09T02:01:50.262071+08:00",
+    "comment": "",
+    "blocked_reason": "contradiction"
   }
 ]
