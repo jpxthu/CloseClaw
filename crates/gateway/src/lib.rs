@@ -410,11 +410,6 @@ impl Gateway {
                         "session.resolved",
                         serde_json::json!({
                             "session_id": id,
-                            "session_key": processed
-                                .metadata
-                                .get("session_key")
-                                .map(|s| s.as_str())
-                                .unwrap_or(""),
                             "channel": channel,
                         }),
                     );

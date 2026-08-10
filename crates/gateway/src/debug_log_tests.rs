@@ -184,6 +184,63 @@ async fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
     SessionMessageHandler::new_no_output(sm, fallback, fallback_llm_caller)
 }
 
+/// Setup gateway with workspace-backed SessionManager and DebugLog.
+/// Returns (gateway, sm, sender_id, peer_id).
+async fn setup_gw_with_debug(temp_dir: &TempDir) -> (crate::Gateway, Arc<SessionManager>, &'static str, &'static str) {
+    let config = make_config();
+    let ws = temp_dir.path().join("ws");
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        Some(ws),
+        ReasoningLevel::default(),
+    ));
+    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let debug_log = make_debug_log(temp_dir).await;
+    gw.set_debug_log(debug_log).await;
+    (gw, sm, "ou_sender", "oc_chat")
+}
+
+/// Pre-create a session and return (session_key, timestamp_secs).
+async fn create_session_and_timestamp(
+    sm: &SessionManager,
+    sender_id: &str,
+    peer_id: &str,
+    channel: &str,
+) -> (String, i64) {
+    let ts = chrono::Utc::now().timestamp();
+    let msg = crate::Message {
+        id: String::new(),
+        from: sender_id.to_string(),
+        to: peer_id.to_string(),
+        content: String::new(),
+        channel: channel.to_string(),
+        timestamp: ts,
+        metadata: std::collections::HashMap::new(),
+        thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
+    };
+    sm.find_or_create(channel, &msg, None)
+        .await
+        .expect("find_or_create failed");
+    let sk = compute_session_key(channel, sender_id, peer_id, None, ts * 1000);
+    (sk, ts)
+}
+
+/// Poll `read_events_from_dir` until events appear, up to 2s.
+async fn read_events_with_timeout(dir: &std::path::Path) -> Vec<closeclaw_debug_log::LogEvent> {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let events = read_events_from_dir(dir).await;
+        if !events.is_empty() || tokio::time::Instant::now() >= deadline {
+            return events;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
 /// Create a ProcessedMessage with trace_id, session_key, content, and
 /// message_type=Text. `session_key` is the raw key passed to metadata;
 /// use `compute_session_key` to generate a valid one.
@@ -285,103 +342,50 @@ async fn test_handle_inbound_no_trace_id_no_panic() {
 #[tokio::test]
 async fn test_session_resolved_event_emitted() {
     let temp_dir = TempDir::new().expect("TempDir::new failed");
-    let config = make_config();
-    // Use a writable workspace so SessionManager::resolve succeeds.
-    let ws = temp_dir.path().join("ws");
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        Some(ws),
-        ReasoningLevel::default(),
-    ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
-    let debug_log = make_debug_log(&temp_dir).await;
-    gw.set_debug_log(debug_log).await;
+    let (gw, sm, sender_id, peer_id) = setup_gw_with_debug(&temp_dir).await;
 
-    let sender_id = "ou_sender";
-    let peer_id = "oc_chat";
-    // Capture the timestamp used for session creation so we can match it later.
-    let msg_timestamp = chrono::Utc::now().timestamp();
-    let msg = crate::Message {
-        id: String::new(),
-        from: sender_id.to_string(),
-        to: peer_id.to_string(),
-        content: "hello".to_string(),
-        channel: "feishu".to_string(),
-        timestamp: msg_timestamp,
-        metadata: std::collections::HashMap::new(),
-        thread_id: None,
-        platform: None,
-        dsl_result: None,
-        content_blocks: None,
-    };
+    let (session_key, msg_timestamp) =
+        create_session_and_timestamp(&sm, sender_id, peer_id, "feishu").await;
+
+    let trace_id = "trace-session-resolved-001";
+    // compute_session_key uses ms; resolve uses channel:from:to:account_id only.
     let session_id = sm
-        .find_or_create("feishu", &msg, None)
+        .find_or_create(
+            "feishu",
+            &crate::Message {
+                id: String::new(),
+                from: sender_id.to_string(),
+                to: peer_id.to_string(),
+                content: "hello".to_string(),
+                channel: "feishu".to_string(),
+                timestamp: msg_timestamp,
+                metadata: std::collections::HashMap::new(),
+                thread_id: None,
+                platform: None,
+                dsl_result: None,
+                content_blocks: None,
+            },
+            None,
+        )
         .await
         .expect("find_or_create failed");
 
-    // Now use the same routing fields in the ProcessedMessage.
-    // Note: compute_session_key uses timestamp_ms, but resolve uses
-    // timestamp (seconds) internally. The routing key is computed from
-    // channel:from:to:account_id (no timestamp), so as long as these
-    // match, resolve will find the session.
-    let trace_id = "trace-session-resolved-001";
-    let session_key = compute_session_key(
-        "feishu",
-        sender_id,
-        peer_id,
-        None,
-        msg_timestamp * 1000, // compute_session_key takes ms
-    );
-    let mut metadata = HashMap::new();
-    metadata.insert("trace_id".to_string(), trace_id.to_string());
-    metadata.insert("session_key".to_string(), session_key.clone());
-    metadata.insert("peer_id".to_string(), peer_id.to_string());
-    metadata.insert("sender_id".to_string(), sender_id.to_string());
-    metadata.insert(
-        "message_type".to_string(),
-        serde_json::to_string(&closeclaw_common::MessageType::Text)
-            .unwrap_or_else(|_| "text".to_string()),
-    );
-    let processed = ProcessedMessage {
-        content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
-            "hello".to_string(),
-        )],
-        metadata,
-    };
-
+    let processed = make_processed(trace_id, &session_key, "hello");
     let _result = gw
         .handle_inbound_message(processed, Some(sender_id), "feishu")
         .await;
 
-    // Allow spawned debug log tasks to flush.
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-    let events = read_events_from_dir(temp_dir.path()).await;
+    let events = read_events_with_timeout(temp_dir.path()).await;
     let resolved: Vec<_> = events
         .iter()
         .filter(|e| e.event_type == "session.resolved")
         .collect();
-    assert_eq!(
-        resolved.len(),
-        1,
-        "expected exactly one session.resolved event, got {}",
-        resolved.len()
-    );
+    assert_eq!(resolved.len(), 1, "expected exactly one session.resolved event");
     let evt = resolved[0];
     assert_eq!(evt.trace_id, trace_id);
     assert_eq!(evt.source_module, "gateway");
     assert_eq!(evt.level, LogLevel::Info);
     assert_eq!(evt.session_key.as_deref(), Some(session_key.as_str()));
-    // Verify payload fields.
-    assert!(
-        evt.payload.get("session_id").is_some(),
-        "payload must contain session_id"
-    );
-    assert_eq!(
-        evt.payload["session_key"].as_str().unwrap(),
-        session_key.as_str()
-    );
     assert_eq!(evt.payload["session_id"].as_str().unwrap(), session_id);
     assert_eq!(evt.payload["channel"].as_str().unwrap(), "feishu");
 }
@@ -391,74 +395,29 @@ async fn test_session_resolved_event_emitted() {
 #[tokio::test]
 async fn test_route_decision_slash_event_emitted() {
     let temp_dir = TempDir::new().expect("TempDir::new failed");
-    let config = make_config();
-    let ws = temp_dir.path().join("ws");
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        Some(ws),
-        ReasoningLevel::default(),
-    ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
-    let debug_log = make_debug_log(&temp_dir).await;
-    gw.set_debug_log(debug_log).await;
-
-    // Install a SessionMessageHandler to avoid the early return.
+    let (gw, sm, sender_id, peer_id) = setup_gw_with_debug(&temp_dir).await;
     let handler = handler_with_sm(Arc::clone(&sm)).await;
     let gw = gw.with_session_handler(Arc::new(handler));
 
-    // Pre-create a session so resolve succeeds.
-    let sender_id = "ou_sender";
-    let peer_id = "oc_chat";
-    let msg_timestamp = chrono::Utc::now().timestamp();
-    let msg = crate::Message {
-        id: String::new(),
-        from: sender_id.to_string(),
-        to: peer_id.to_string(),
-        content: String::new(),
-        channel: "feishu".to_string(),
-        timestamp: msg_timestamp,
-        metadata: std::collections::HashMap::new(),
-        thread_id: None,
-        platform: None,
-        dsl_result: None,
-        content_blocks: None,
-    };
-    let _session_id = sm
-        .find_or_create("feishu", &msg, None)
-        .await
-        .expect("find_or_create failed");
+    let (session_key, _) =
+        create_session_and_timestamp(&sm, sender_id, peer_id, "feishu").await;
 
     let trace_id = "trace-route-slash-001";
-    let session_key = compute_session_key("feishu", sender_id, peer_id, None, msg_timestamp * 1000);
     let processed = make_processed(trace_id, &session_key, "/help");
-
     let _result = gw
         .handle_inbound_message(processed, Some(sender_id), "feishu")
         .await;
 
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-    let events = read_events_from_dir(temp_dir.path()).await;
-    let decisions: Vec<_> = events
+    let events = read_events_with_timeout(temp_dir.path()).await;
+    let gw_decision = events
         .iter()
-        .filter(|e| e.event_type == "route.decision")
-        .collect();
-    assert!(
-        !decisions.is_empty(),
-        "expected at least one route.decision event"
-    );
-    let gw_decision = decisions
-        .iter()
-        .find(|e| e.source_module == "gateway")
+        .filter(|e| e.event_type == "route.decision" && e.source_module == "gateway")
+        .next()
         .expect("no gateway route.decision event");
     assert_eq!(gw_decision.trace_id, trace_id);
     assert_eq!(gw_decision.payload["decision"].as_str().unwrap(), "slash");
     assert!(
-        gw_decision.payload["content_prefix"]
-            .as_str()
-            .unwrap()
-            .starts_with('/'),
+        gw_decision.payload["content_prefix"].as_str().unwrap().starts_with('/'),
         "content_prefix should start with '/' for slash command"
     );
 }
@@ -468,65 +427,24 @@ async fn test_route_decision_slash_event_emitted() {
 #[tokio::test]
 async fn test_route_decision_normal_event_emitted() {
     let temp_dir = TempDir::new().expect("TempDir::new failed");
-    let config = make_config();
-    let ws = temp_dir.path().join("ws");
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        Some(ws),
-        ReasoningLevel::default(),
-    ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
-    let debug_log = make_debug_log(&temp_dir).await;
-    gw.set_debug_log(debug_log).await;
-
+    let (gw, sm, sender_id, peer_id) = setup_gw_with_debug(&temp_dir).await;
     let handler = handler_with_sm(Arc::clone(&sm)).await;
     let gw = gw.with_session_handler(Arc::new(handler));
 
-    // Pre-create a session so resolve succeeds.
-    let sender_id = "ou_sender";
-    let peer_id = "oc_chat";
-    let msg_timestamp = chrono::Utc::now().timestamp();
-    let msg = crate::Message {
-        id: String::new(),
-        from: sender_id.to_string(),
-        to: peer_id.to_string(),
-        content: String::new(),
-        channel: "feishu".to_string(),
-        timestamp: msg_timestamp,
-        metadata: std::collections::HashMap::new(),
-        thread_id: None,
-        platform: None,
-        dsl_result: None,
-        content_blocks: None,
-    };
-    let _session_id = sm
-        .find_or_create("feishu", &msg, None)
-        .await
-        .expect("find_or_create failed");
+    let (session_key, _) =
+        create_session_and_timestamp(&sm, sender_id, peer_id, "feishu").await;
 
     let trace_id = "trace-route-normal-001";
-    let session_key = compute_session_key("feishu", sender_id, peer_id, None, msg_timestamp * 1000);
     let processed = make_processed(trace_id, &session_key, "hello world");
-
     let _result = gw
         .handle_inbound_message(processed, Some(sender_id), "feishu")
         .await;
 
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-    let events = read_events_from_dir(temp_dir.path()).await;
-    let decisions: Vec<_> = events
+    let events = read_events_with_timeout(temp_dir.path()).await;
+    let gw_decision = events
         .iter()
-        .filter(|e| e.event_type == "route.decision")
-        .collect();
-    assert!(
-        !decisions.is_empty(),
-        "expected at least one route.decision event"
-    );
-    let gw_decision = decisions
-        .iter()
-        .find(|e| e.source_module == "gateway")
+        .filter(|e| e.event_type == "route.decision" && e.source_module == "gateway")
+        .next()
         .expect("no gateway route.decision event");
     assert_eq!(gw_decision.trace_id, trace_id);
     assert_eq!(gw_decision.payload["decision"].as_str().unwrap(), "normal");
@@ -537,29 +455,16 @@ async fn test_route_decision_normal_event_emitted() {
 #[tokio::test]
 async fn test_no_trace_id_no_session_resolved_or_route_decision() {
     let temp_dir = TempDir::new().expect("TempDir::new failed");
-    let config = make_config();
-    let ws = temp_dir.path().join("ws");
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        Some(ws),
-        ReasoningLevel::default(),
-    ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
-    let debug_log = make_debug_log(&temp_dir).await;
-    gw.set_debug_log(debug_log).await;
-
+    let (gw, sm, sender_id, peer_id) = setup_gw_with_debug(&temp_dir).await;
     let handler = handler_with_sm(Arc::clone(&sm)).await;
     let gw = gw.with_session_handler(Arc::new(handler));
 
-    // No trace_id in metadata.
-    let sender_id = "ou_sender";
-    let peer_id = "oc_chat";
-    let timestamp = chrono::Utc::now().timestamp_millis();
-    let session_key = compute_session_key("feishu", sender_id, peer_id, None, timestamp);
+    // No trace_id in metadata — use make_processed but without trace_id.
+    let (session_key, _) =
+        create_session_and_timestamp(&sm, sender_id, peer_id, "feishu").await;
     let mut metadata = HashMap::new();
     metadata.insert("session_key".to_string(), session_key);
-    metadata.insert("peer_id".to_string(), "oc_chat".to_string());
+    metadata.insert("peer_id".to_string(), peer_id.to_string());
     metadata.insert(
         "message_type".to_string(),
         serde_json::to_string(&closeclaw_common::MessageType::Text)
@@ -573,28 +478,16 @@ async fn test_no_trace_id_no_session_resolved_or_route_decision() {
     };
 
     let _result = gw
-        .handle_inbound_message(processed, Some("ou_sender"), "feishu")
+        .handle_inbound_message(processed, Some(sender_id), "feishu")
         .await;
 
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-    let events = read_events_from_dir(temp_dir.path()).await;
-    let session_resolved: Vec<_> = events
-        .iter()
-        .filter(|e| e.event_type == "session.resolved")
-        .collect();
-    let route_decisions: Vec<_> = events
-        .iter()
-        .filter(|e| e.event_type == "route.decision")
-        .collect();
-    assert_eq!(
-        session_resolved.len(),
-        0,
+    let events = read_events_with_timeout(temp_dir.path()).await;
+    assert!(
+        events.iter().all(|e| e.event_type != "session.resolved"),
         "no session.resolved event expected when trace_id is empty"
     );
-    assert_eq!(
-        route_decisions.len(),
-        0,
+    assert!(
+        events.iter().all(|e| e.event_type != "route.decision"),
         "no route.decision event expected when trace_id is empty"
     );
 }
@@ -612,9 +505,8 @@ async fn test_no_debug_log_no_session_resolved_or_route_decision() {
         Some(ws),
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
     // No debug_log set — stays None.
-
+    let gw = crate::Gateway::new(config, Arc::clone(&sm));
     let handler = handler_with_sm(Arc::clone(&sm)).await;
     let gw = gw.with_session_handler(Arc::new(handler));
 
@@ -625,13 +517,10 @@ async fn test_no_debug_log_no_session_resolved_or_route_decision() {
     let processed = make_processed("trace-no-dl-001", &session_key, "hello");
 
     let _result = gw
-        .handle_inbound_message(processed, Some("ou_sender"), "feishu")
+        .handle_inbound_message(processed, Some(sender_id), "feishu")
         .await;
 
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
     // No DebugLog directory was created, so no events should exist.
-    // Verify the path doesn't even have jsonl files.
     let mut has_jsonl = false;
     if let Ok(mut entries) = tokio::fs::read_dir(temp_dir.path()).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
