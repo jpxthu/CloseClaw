@@ -186,7 +186,14 @@ async fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
 
 /// Setup gateway with workspace-backed SessionManager and DebugLog.
 /// Returns (gateway, sm, sender_id, peer_id).
-async fn setup_gw_with_debug(temp_dir: &TempDir) -> (crate::Gateway, Arc<SessionManager>, &'static str, &'static str) {
+async fn setup_gw_with_debug(
+    temp_dir: &TempDir,
+) -> (
+    crate::Gateway,
+    Arc<SessionManager>,
+    &'static str,
+    &'static str,
+) {
     let config = make_config();
     let ws = temp_dir.path().join("ws");
     let sm = Arc::new(SessionManager::new(
@@ -380,7 +387,11 @@ async fn test_session_resolved_event_emitted() {
         .iter()
         .filter(|e| e.event_type == "session.resolved")
         .collect();
-    assert_eq!(resolved.len(), 1, "expected exactly one session.resolved event");
+    assert_eq!(
+        resolved.len(),
+        1,
+        "expected exactly one session.resolved event"
+    );
     let evt = resolved[0];
     assert_eq!(evt.trace_id, trace_id);
     assert_eq!(evt.source_module, "gateway");
@@ -399,8 +410,7 @@ async fn test_route_decision_slash_event_emitted() {
     let handler = handler_with_sm(Arc::clone(&sm)).await;
     let gw = gw.with_session_handler(Arc::new(handler));
 
-    let (session_key, _) =
-        create_session_and_timestamp(&sm, sender_id, peer_id, "feishu").await;
+    let (session_key, _) = create_session_and_timestamp(&sm, sender_id, peer_id, "feishu").await;
 
     let trace_id = "trace-route-slash-001";
     let processed = make_processed(trace_id, &session_key, "/help");
@@ -417,7 +427,10 @@ async fn test_route_decision_slash_event_emitted() {
     assert_eq!(gw_decision.trace_id, trace_id);
     assert_eq!(gw_decision.payload["decision"].as_str().unwrap(), "slash");
     assert!(
-        gw_decision.payload["content_prefix"].as_str().unwrap().starts_with('/'),
+        gw_decision.payload["content_prefix"]
+            .as_str()
+            .unwrap()
+            .starts_with('/'),
         "content_prefix should start with '/' for slash command"
     );
 }
@@ -431,8 +444,7 @@ async fn test_route_decision_normal_event_emitted() {
     let handler = handler_with_sm(Arc::clone(&sm)).await;
     let gw = gw.with_session_handler(Arc::new(handler));
 
-    let (session_key, _) =
-        create_session_and_timestamp(&sm, sender_id, peer_id, "feishu").await;
+    let (session_key, _) = create_session_and_timestamp(&sm, sender_id, peer_id, "feishu").await;
 
     let trace_id = "trace-route-normal-001";
     let processed = make_processed(trace_id, &session_key, "hello world");
@@ -460,8 +472,7 @@ async fn test_no_trace_id_no_session_resolved_or_route_decision() {
     let gw = gw.with_session_handler(Arc::new(handler));
 
     // No trace_id in metadata — use make_processed but without trace_id.
-    let (session_key, _) =
-        create_session_and_timestamp(&sm, sender_id, peer_id, "feishu").await;
+    let (session_key, _) = create_session_and_timestamp(&sm, sender_id, peer_id, "feishu").await;
     let mut metadata = HashMap::new();
     metadata.insert("session_key".to_string(), session_key);
     metadata.insert("peer_id".to_string(), peer_id.to_string());
