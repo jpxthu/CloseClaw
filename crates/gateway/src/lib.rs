@@ -395,8 +395,27 @@ impl Gateway {
         }
 
         // ── Resolve session_key → session_id ────────────────────────
+        let trace_id = processed.metadata.get("trace_id").map(|s| s.as_str());
         let session_id = match self.resolve_session_from_message(&processed, channel).await {
-            Some(id) => id,
+            Some(id) => {
+                // ── Debug log: session.resolved ─────────────────────────
+                if let Some(tid) = trace_id {
+                    let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
+                    debug_log_emitter::emit_debug_event(
+                        guard.as_ref(),
+                        tid,
+                        processed.metadata.get("session_key").map(|s| s.as_str()),
+                        LogLevel::Info,
+                        "gateway",
+                        "session.resolved",
+                        serde_json::json!({
+                            "session_id": id,
+                            "channel": channel,
+                        }),
+                    );
+                }
+                id
+            }
             None => {
                 tracing::warn!("session_key missing or resolve failed — message not processed");
                 if !peer_id.is_empty() {
@@ -484,10 +503,29 @@ impl Gateway {
             return Some(result);
         }
 
-        // ── Slash command dispatch ─────────────────────────────────────
-        // Slash commands are intercepted here and never appended to
-        // conversation history (design doc requirement).
-        if content.starts_with('/') {
+        // ── Routing decision ────────────────────────────────────────────
+        // Log route.decision before dispatching slash or normal message path.
+        let is_slash = content.starts_with('/');
+        if let Some(tid) = trace_id {
+            let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
+            debug_log_emitter::emit_debug_event(
+                guard.as_ref(),
+                tid,
+                processed.metadata.get("session_key").map(|s| s.as_str()),
+                LogLevel::Info,
+                "gateway",
+                "route.decision",
+                serde_json::json!({
+                    "session_id": session_id,
+                    "decision": if is_slash { "slash" } else { "normal" },
+                    "content_prefix": content.chars().take(16).collect::<String>(),
+                }),
+            );
+        }
+        if is_slash {
+            // ── Slash command dispatch ─────────────────────────────────────
+            // Slash commands are intercepted here and never appended to
+            // conversation history (design doc requirement).
             if let Some(result) = self
                 .dispatch_slash(&session_id, &content, sender_id, channel)
                 .await
