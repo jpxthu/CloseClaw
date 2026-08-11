@@ -124,11 +124,7 @@ fn test_topo_sort_six_layers_match_design_doc() {
     );
 
     // Layer 4: SessionManager (depend on ToolsRegistry from Layer 3)
-    assert_eq!(
-        layers[3],
-        vec![SessionManager],
-        "Layer 4 mismatch"
-    );
+    assert_eq!(layers[3], vec![SessionManager], "Layer 4 mismatch");
 
     // Layer 5: Gateway
     assert_eq!(layers[4], vec![Gateway], "Layer 5 mismatch");
@@ -428,10 +424,7 @@ fn test_validate_layers_catches_wrong_admin_rpc_server_layer() {
             SystemPromptBuilder,
             ToolsRegistry,
         ],
-        vec![
-            SessionManager,
-            AdminRpcServer,
-        ], // Wrong: AdminRpcServer here
+        vec![SessionManager, AdminRpcServer], // Wrong: AdminRpcServer here
         vec![Gateway],
     ];
     let err = validate_startup_layers(&wrong_layers).unwrap_err();
