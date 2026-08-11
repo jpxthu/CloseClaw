@@ -160,11 +160,10 @@ impl Daemon {
                 DreamingScheduler,
                 IMAdapters,
                 SkillWatcher,
-                SpawnController,
                 SystemPromptBuilder,
                 ToolsRegistry,
             ],
-            vec![SessionManager],
+            vec![SessionManager, SpawnController],
             vec![Gateway],
             vec![AdminRpcServer],
         ]
