@@ -117,7 +117,7 @@ impl ComponentDeps for ComponentId {
             SkillsRegistry => &[ConfigManager],
             RenderersPlugins => &[ConfigManager],
             IMAdapters => &[RenderersPlugins, ConfigManager],
-            PermissionEngine => &[AgentRegistry],
+            PermissionEngine => &[ConfigManager],
             ToolsRegistry => &[SkillsRegistry],
             ArchiveSweeper => &[Storage, SessionConfigProvider],
             AnnounceSweeper => &[Storage, SessionConfigProvider],
@@ -291,13 +291,13 @@ pub enum StartupPhase {
     Foundation,
     /// AgentRegistry, SkillsRegistry, ToolsRegistry — depend on ConfigManager.
     Registries,
-    /// SessionManager, Gateway setup — depend on registries.
+    /// SpawnController, SystemPromptBuilder, IM plugins, shutdown coordinator — depend on registries.
     CoreServices,
-    /// SlashDispatcher, IM plugins, shutdown coordinator.
+    /// SessionManager — depend on CoreServices.
     Wiring,
-    /// ArchiveSweeper, DreamingScheduler, registry population, approval flow.
-    BackgroundAndFinal,
-    /// SpawnController, AdminRpcServer — depend on Gateway.
+    /// Gateway.
+    Gateway,
+    /// AdminRpcServer — depend on Gateway.
     PostGateway,
 }
 
@@ -310,23 +310,24 @@ impl StartupPhase {
             Self::Registries => &[
                 AgentRegistry,
                 ConfigHotReload,
+                PermissionEngine,
                 RenderersPlugins,
                 SessionConfigProvider,
                 SkillsRegistry,
             ],
             Self::CoreServices => &[
-                ArchiveSweeper,
+                ApprovalFlow,
                 AnnounceSweeper,
+                ArchiveSweeper,
                 DreamingScheduler,
                 IMAdapters,
-                PermissionEngine,
                 SkillWatcher,
                 SpawnController,
                 SystemPromptBuilder,
                 ToolsRegistry,
             ],
-            Self::Wiring => &[ApprovalFlow, SessionManager],
-            Self::BackgroundAndFinal => &[Gateway],
+            Self::Wiring => &[SessionManager],
+            Self::Gateway => &[Gateway],
             Self::PostGateway => &[AdminRpcServer],
         }
     }
@@ -338,7 +339,7 @@ const STARTUP_PHASE_ORDER: &[StartupPhase] = &[
     StartupPhase::Registries,
     StartupPhase::CoreServices,
     StartupPhase::Wiring,
-    StartupPhase::BackgroundAndFinal,
+    StartupPhase::Gateway,
     StartupPhase::PostGateway,
 ];
 
