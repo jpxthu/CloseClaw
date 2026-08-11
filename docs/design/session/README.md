@@ -28,23 +28,23 @@ Session 模块是 CloseClaw 的运行时载体，管理 session 的全生命周�
 Session 模块由持久化层和执行层两部分组成：
 
 ```
-Gateway / SessionManager  -- lifecycle coordinator
+Gateway / SessionManager  -- 生命周期协调者
   <- 日志：会话创建/查找/归档恢复
 
-  Persistent Layer
-    CheckpointManager  -- coordinates checkpoint read/write cache + persistence
-      SqliteStorage  -- SQLite metadata + JSONL transcript files
-    ArchiveSweeper  -- background timer: idle archive + expired cleanup
+  持久化层
+    CheckpointManager  -- 协调 checkpoint 读写缓存 + 持久化
+      -> PersistenceService -> SqliteStorage  -- SQLite 元数据 + JSONL transcript
+    ArchiveSweeper  -- 后台定时任务：idle 归档 + 过期清理
 
-  Execution Layer
-    ConversationSession  -- runtime state (system_prompt + messages)
+  执行层
+    ConversationSession  -- 运行时对话状态（system_prompt + messages）
       <- 日志：对话轮次追加/活跃维度变化
       <- 日志：健康检查与异常检测结果
       llm_state  -- Idle / Requesting / Receiving
-      tool_handles  -- foreground + background tool handles
-      child_handles  -- child Session handles (registered on spawn)
+      tool_handles  -- 前台 + 后台工具进程句柄
+      child_handles  -- 子 Session 句柄（spawn 时注册）
       <- 日志：子 Session 创建/完成
-    Message Queue  -- priority now > next > later
+    Message Queue  -- 优先级 now > next > later（后台结果注入，与 ConversationSession 并列）
       <- 日志：消息注入事件（后台结果 + 记忆注入）
 ```
 
@@ -64,8 +64,8 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
   - 运行时：SessionManager 收到会话解析请求，从消息路由字段中提取会话路由键，查映射表获取已有 session
     - 命中 → 校验 session status：
       - active → 返回已有 session
-      - migrating → 等待 Sweeper 归档完成后 status 变为 archived → 从映射表移除该条目 → 走未命中回退路径（SQLite 查得 archived → 恢复）。等待时通知用户「会话归档中，稍后恢复…」
-      - archived → 从映射表移除该条目 → 走未命中回退路径
+      - migrating → 等待 Sweeper 归档完成后 status 变为 archived → 从映射表移除该条目 → 查询 SQLite，取 last_message_at 最新的 archived session 恢复并注册。等待时通知用户「会话归档中，稍后恢复…」
+      - archived → 从映射表移除该条目 → 查询 SQLite，取 last_message_at 最新的 archived session 恢复并注册
     - 未命中 → 通过会话路由键查询 SQLite
       - 查到 active → 取 last_message_at 最大的直接注册到映射表（自愈：映射表因重启丢失但 SQLite 中保有 active 记录）
       - 查到 migrating → 等待归档完成后 status 变为 archived → 按 archived 路径恢复。等待时通知用户「会话归档中，稍后恢复…」
@@ -109,8 +109,8 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
    - **查映射表**
    - **命中**：校验 session status：
      - active → 返回已有 session
-     - migrating → 等待 Sweeper 归档完成后 status 变为 archived → 从映射表移除该条目，走未命中路径（SQLite 查得 archived → 恢复）。等待时通知用户「会话归档中，稍后恢复…」
-     - archived → 从映射表移除该条目，走未命中路径
+     - migrating → 等待 Sweeper 归档完成后 status 变为 archived → 从映射表移除该条目 → 查询 SQLite 取 last_message_at 最新的 archived session，按下方步骤 1-7 恢复。等待时通知用户「会话归档中，稍后恢复…」
+     - archived → 从映射表移除该条目 → 查询 SQLite 取 last_message_at 最新的 archived session，按下方步骤 1-7 恢复
    - **未命中**：通过会话路由键查询 SQLite
      - **查到 active**：直接注册到映射表（自愈：映射表因重启丢失但 SQLite 保有 active 记录）
      - **查到 migrating**：等待归档完成后 status 变为 archived → 按 archived 路径恢复。等待时通知用户「会话归档中，稍后恢复…」
@@ -134,17 +134,17 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
 
 **每次 API 调用**：
 
-0. 若存在未完成的子 Session，注入当前活跃子 Session 摘要至消息列表：正在执行的子 Session 数量及每个子 Session 的概要信息（Agent 标识、任务简述、已运行时长）。摘要插入位置在用户消息之前
-1. ConversationSession 组装请求（system_prompt + messages + reasoning level）
+1. 注入当前活跃子 Session 摘要（若有未完成的子 Session）：插入位置在用户消息之前
 2. 检查 memory_injection 槽位，按模式插入记忆摘要到消息列表
-3. LLM 状态设为 Requesting
-4. LLM provider 调用
+3. ConversationSession 将 system_prompt + messages + reasoning level 组装为 LLM 请求
+4. LLM 状态设为 Requesting
+5. LLM provider 调用
    - 流式模式：Session 层接收 LLM 流式 chunk，逐块组装 ContentBlock[] 并通过统一出站路径（Verbosity → Processor Chain → 出站日志）实时推送至 IM Adapter 渲染发送
    - 非流式：返回完整响应
 5. Thinking 内容作为独立 block 保留在消息历史中，展示层默认过滤（不输出给用户）
 6. 完整 ContentBlock[]（含 Thinking block）写入 message history
 7. 更新 token/cache 统计
-8. LLM 状态回到 Idle（若无其他 pending 操作）← 日志：对话轮次追加/活跃维度变化
+8. LLM 状态回到 Idle ← 日志：对话轮次追加/活跃维度变化
 
 **工具调用**：
 
