@@ -12,6 +12,8 @@ pub mod shutdown;
 pub mod skill_reload;
 pub mod startup;
 pub mod trait_adapters;
+mod daemon_struct;
+pub use daemon_struct::*;
 use crate::startup::{all_component_entries, topo_sort_layers, StartupError};
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
 use closeclaw_common::NoopMetricsEmitter;
@@ -77,51 +79,6 @@ mod llm_init;
 #[cfg(test)]
 pub mod test_helpers;
 
-/// Global daemon state
-pub struct Daemon {
-    pub gateway: Arc<Gateway>,
-    pub agent_registry: Arc<closeclaw_agent::registry::AgentRegistry>,
-    pub permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
-    pub shutdown: Arc<shutdown::ShutdownHandle>,
-    /// Session manager for session lifecycle management
-    pub session_manager: Arc<SessionManager>,
-    /// SQLite storage for session persistence
-    pub storage: Arc<SqliteStorage>,
-    /// Shutdown sender for ArchiveSweeper
-    pub sweeper_shutdown_tx: watch::Sender<()>,
-    /// Shutdown sender for AnnounceSweeper
-    pub announce_shutdown_tx: watch::Sender<()>,
-    /// Shutdown sender for DreamingScheduler
-    pub dreaming_scheduler_shutdown_tx: watch::Sender<()>,
-    /// Shutdown sender for PlanArchiveTask
-    pub plan_archive_shutdown_tx: watch::Sender<()>,
-    /// Shared skill registry, updated on hot reload
-    pub skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
-    /// Builtin skill registry — compiled-in skills, not subject to hot reload
-    pub builtin_skill_registry: Arc<BuiltinSkillRegistry>,
-    /// Slash command handler registry — shared with SlashDispatcher;
-    /// allows late registration of SkillSlashHandler after registries are ready.
-    pub slash_registry: Arc<closeclaw_slash::registry::HandlerRegistry>,
-    /// Skill file watcher handle (RAII: stops on drop)
-    _skill_watcher: Option<SkillWatcherHandle>,
-    /// Config file watcher handle (RAII: stops on drop)
-    _config_watcher: Option<config_watcher::ConfigWatcherHandle>,
-    /// Daemon-level approval orchestrator
-    pub approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
-    /// Admin RPC server task handle (drop cancels the task)
-    #[allow(dead_code)]
-    admin_handle: Option<tokio::task::JoinHandle<()>>,
-    /// Path to the admin RPC socket file (cleaned up on shutdown)
-    admin_socket_path: PathBuf,
-    /// Join handle for ArchiveSweeper background task
-    archive_sweeper_handle: Option<tokio::task::JoinHandle<()>>,
-    /// Join handle for AnnounceSweeper background task
-    announce_sweeper_handle: Option<tokio::task::JoinHandle<()>>,
-    /// Join handle for DreamingScheduler background task
-    dreaming_scheduler_handle: Option<tokio::task::JoinHandle<()>>,
-    /// Join handle for PlanArchiveTask background task
-    plan_archive_task_handle: Option<tokio::task::JoinHandle<()>>,
-}
 // --- Topological startup orchestration ---
 impl Daemon {
     /// Resolve the deterministic startup order from the component dependency
@@ -144,22 +101,21 @@ impl Daemon {
             vec![
                 AgentRegistry,
                 ConfigHotReload,
+                PermissionEngine,
                 RenderersPlugins,
                 SessionConfigProvider,
                 SkillsRegistry,
             ],
             vec![
                 AnnounceSweeper,
+                ApprovalFlow,
                 ArchiveSweeper,
                 DreamingScheduler,
                 IMAdapters,
-                PermissionEngine,
                 SkillWatcher,
-                SpawnController,
-                SystemPromptBuilder,
                 ToolsRegistry,
             ],
-            vec![ApprovalFlow, SessionManager],
+            vec![SessionManager, SpawnController, SystemPromptBuilder],
             vec![Gateway],
             vec![AdminRpcServer],
         ]
@@ -437,25 +393,6 @@ impl Daemon {
     }
 }
 
-/// Dependencies for Phase 5 background initialization.
-///
-/// Bundles external references that `init_phase_5_background` needs
-/// from earlier phases, keeping the function signature within the 6-parameter
-/// limit imposed by CONTRIBUTING.md.
-pub(crate) struct Phase5Deps<'a> {
-    pub config_manager: &'a Arc<ConfigManager>,
-    pub agent_registry: &'a Arc<closeclaw_agent::registry::AgentRegistry>,
-    pub skill_registry: &'a Arc<RwLock<Option<DiskSkillRegistry>>>,
-    pub builtin_skill_registry: &'a Arc<BuiltinSkillRegistry>,
-    pub tool_registry: &'a Arc<ToolRegistry>,
-    pub session_manager: &'a Arc<SessionManager>,
-    pub permission_engine: &'a Arc<tokio::sync::RwLock<PermissionEngine>>,
-    pub approval_flow: &'a Arc<tokio::sync::Mutex<ApprovalFlow>>,
-    pub gateway: &'a Arc<Gateway>,
-    pub slash_registry: &'a Arc<closeclaw_slash::registry::HandlerRegistry>,
-    pub shared_cache: &'a Arc<RwLock<SectionCache>>,
-}
-
 // --- Phase 4-5 initialization ---
 impl Daemon {
     /// Phase 4: Wiring — ApprovalFlow.
@@ -653,6 +590,8 @@ impl Daemon {
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
+        Arc<SpawnController>,
+        Arc<dyn closeclaw_common::SystemPromptBuilder>,
     )> {
         let Phase5Deps {
             config_manager,
@@ -736,7 +675,7 @@ impl Daemon {
             ),
         ) as Arc<dyn closeclaw_common::SystemPromptBuilder>;
         session_manager
-            .set_system_prompt_builder(prompt_builder_adapter)
+            .set_system_prompt_builder(Arc::clone(&prompt_builder_adapter))
             .await;
         info!("SystemPromptBuilder adapter injected into SessionManager");
 
@@ -821,6 +760,8 @@ impl Daemon {
             announce_sweeper_handle,
             dreaming_handle,
             plan_archive_handle,
+            spawn_controller,
+            prompt_builder_adapter,
         ))
     }
 

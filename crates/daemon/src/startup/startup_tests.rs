@@ -36,10 +36,10 @@ fn test_all_component_entries_deps_match_design_doc() {
     assert_eq!(dep_map[&AgentRegistry], vec![ConfigManager]);
     assert_eq!(dep_map[&SkillsRegistry], vec![ConfigManager]);
     assert_eq!(dep_map[&RenderersPlugins], vec![ConfigManager]);
+    assert_eq!(dep_map[&PermissionEngine], vec![ConfigManager]);
 
     // Layer 3
     assert_eq!(dep_map[&IMAdapters], vec![RenderersPlugins, ConfigManager]);
-    assert_eq!(dep_map[&PermissionEngine], vec![AgentRegistry]);
     assert_eq!(dep_map[&ToolsRegistry], vec![SkillsRegistry]);
     assert_eq!(
         dep_map[&ArchiveSweeper],
@@ -55,17 +55,17 @@ fn test_all_component_entries_deps_match_design_doc() {
         dep_map[&DreamingScheduler],
         vec![Storage, SessionConfigProvider]
     );
-    assert_eq!(dep_map[&SpawnController], vec![AgentRegistry]);
+    assert_eq!(dep_map[&SpawnController], vec![AgentRegistry, ToolsRegistry]);
 
     // Layer 3
     assert_eq!(
         dep_map[&SystemPromptBuilder],
-        vec![AgentRegistry, SkillsRegistry]
+        vec![AgentRegistry, SkillsRegistry, ToolsRegistry]
     );
     // Layer 4
     assert_eq!(
         dep_map[&SessionManager],
-        vec![Storage, AgentRegistry, SkillsRegistry, ToolsRegistry]
+        vec![Storage, AgentRegistry, SkillsRegistry, ToolsRegistry, SessionConfigProvider]
     );
     assert_eq!(
         dep_map[&ApprovalFlow],
@@ -75,7 +75,7 @@ fn test_all_component_entries_deps_match_design_doc() {
     // Layer 5
     assert_eq!(
         dep_map[&Gateway],
-        vec![SessionManager, IMAdapters, PermissionEngine, ApprovalFlow]
+        vec![SessionManager, IMAdapters, PermissionEngine, ApprovalFlow, RenderersPlugins]
     );
     assert_eq!(dep_map[&AdminRpcServer], vec![Gateway]);
 }
@@ -99,6 +99,7 @@ fn test_topo_sort_six_layers_match_design_doc() {
         vec![
             AgentRegistry,
             ConfigHotReload,
+            PermissionEngine,
             RenderersPlugins,
             SessionConfigProvider,
             SkillsRegistry,
@@ -106,29 +107,26 @@ fn test_topo_sort_six_layers_match_design_doc() {
         "Layer 2 mismatch"
     );
 
-    // Layer 3: ArchiveSweeper, AnnounceSweeper, DreamingScheduler, IMAdapters,
-    //          PermissionEngine, SkillWatcher, SpawnController, SystemPromptBuilder,
-    //          ToolsRegistry
+    // Layer 3: AnnounceSweeper, ApprovalFlow, ArchiveSweeper, DreamingScheduler,
+    //          IMAdapters, SkillWatcher, ToolsRegistry
     assert_eq!(
         layers[2],
         vec![
             AnnounceSweeper,
+            ApprovalFlow,
             ArchiveSweeper,
             DreamingScheduler,
             IMAdapters,
-            PermissionEngine,
             SkillWatcher,
-            SpawnController,
-            SystemPromptBuilder,
             ToolsRegistry,
         ],
         "Layer 3 mismatch"
     );
 
-    // Layer 4: ApprovalFlow, SessionManager
+    // Layer 4: SessionManager, SpawnController, SystemPromptBuilder
     assert_eq!(
         layers[3],
-        vec![ApprovalFlow, SessionManager],
+        vec![SessionManager, SpawnController, SystemPromptBuilder],
         "Layer 4 mismatch"
     );
 
@@ -312,8 +310,8 @@ fn test_spawn_controller_depends_on_agent_registry() {
 
     assert_eq!(
         dep_map[&SpawnController],
-        vec![AgentRegistry],
-        "SpawnController must depend on AgentRegistry per design doc Layer 3"
+        vec![AgentRegistry, ToolsRegistry],
+        "SpawnController must depend on AgentRegistry and ToolsRegistry per design doc Layer 4"
     );
 }
 
@@ -337,11 +335,11 @@ fn test_spawn_controller_in_core_services_layer() {
     let entries = all_component_entries();
     let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
 
-    // SpawnController is in Layer 3 (CoreServices phase)
-    // Layer index 2 = third layer
+    // SpawnController is in Layer 4 (Wiring phase)
+    // Layer index 3 = fourth layer
     assert!(
-        layers[2].contains(&SpawnController),
-        "SpawnController must be in Layer 3 (CoreServices), got layers: {:?}",
+        layers[3].contains(&SpawnController),
+        "SpawnController must be in Layer 4 (Wiring), got layers: {:?}",
         layers
             .iter()
             .enumerate()
@@ -537,16 +535,16 @@ fn test_all_parallel() {
 // Step 1.3 — SystemPromptBuilder layer and dependency tests
 // ======================================================================
 
-/// SystemPromptBuilder must reside in Layer 3 (CoreServices phase).
+/// SystemPromptBuilder must reside in Layer 4 (Wiring phase).
 #[test]
 fn test_system_prompt_builder_in_core_services_layer() {
     let entries = all_component_entries();
     let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
 
-    // Layer index 2 = third layer = CoreServices
+    // Layer index 3 = fourth layer = Wiring
     assert!(
-        layers[2].contains(&ComponentId::SystemPromptBuilder),
-        "SystemPromptBuilder must be in Layer 3 (CoreServices), got layers: {:?}",
+        layers[3].contains(&ComponentId::SystemPromptBuilder),
+        "SystemPromptBuilder must be in Layer 4 (Wiring), got layers: {:?}",
         layers
             .iter()
             .enumerate()
@@ -555,7 +553,7 @@ fn test_system_prompt_builder_in_core_services_layer() {
     );
 }
 
-/// SystemPromptBuilder dependencies must be exactly [AgentRegistry, SkillsRegistry].
+/// SystemPromptBuilder dependencies must be exactly [AgentRegistry, SkillsRegistry, ToolsRegistry].
 #[test]
 fn test_system_prompt_builder_deps_only_agent_and_skills() {
     let entries = all_component_entries();
@@ -565,12 +563,12 @@ fn test_system_prompt_builder_deps_only_agent_and_skills() {
     let deps = &dep_map[&ComponentId::SystemPromptBuilder];
     assert_eq!(
         deps,
-        &vec![ComponentId::AgentRegistry, ComponentId::SkillsRegistry],
-        "SystemPromptBuilder must depend only on [AgentRegistry, SkillsRegistry]"
+        &vec![ComponentId::AgentRegistry, ComponentId::SkillsRegistry, ComponentId::ToolsRegistry],
+        "SystemPromptBuilder must depend on [AgentRegistry, SkillsRegistry, ToolsRegistry]"
     );
 }
 
-/// SystemPromptBuilder must NOT depend on ToolsRegistry.
+/// SystemPromptBuilder MUST depend on ToolsRegistry (design doc Layer 4).
 #[test]
 fn test_system_prompt_builder_no_tools_registry_dep() {
     let entries = all_component_entries();
@@ -579,8 +577,8 @@ fn test_system_prompt_builder_no_tools_registry_dep() {
 
     let deps = &dep_map[&ComponentId::SystemPromptBuilder];
     assert!(
-        !deps.contains(&ComponentId::ToolsRegistry),
-        "SystemPromptBuilder must NOT depend on ToolsRegistry (design doc Layer 3)"
+        deps.contains(&ComponentId::ToolsRegistry),
+        "SystemPromptBuilder must depend on ToolsRegistry (design doc Layer 4)"
     );
 }
 
@@ -599,14 +597,14 @@ fn test_validate_phase_components_with_system_prompt_builder() {
     );
 
     let phases = result.unwrap();
-    // Phase 3 (index 2) = CoreServices
+    // Phase 4 (index 3) = Wiring must contain SystemPromptBuilder
     assert!(
-        phases[2].contains(&ComponentId::SystemPromptBuilder),
-        "Phase 3 (CoreServices) must contain SystemPromptBuilder"
+        phases[3].contains(&ComponentId::SystemPromptBuilder),
+        "Phase 4 (Wiring) must contain SystemPromptBuilder"
     );
-    // Phase 4 (index 3) = Wiring must NOT contain SystemPromptBuilder
+    // Phase 3 (index 2) = CoreServices must NOT contain SystemPromptBuilder
     assert!(
-        !phases[3].contains(&ComponentId::SystemPromptBuilder),
-        "Phase 4 (Wiring) must NOT contain SystemPromptBuilder"
+        !phases[2].contains(&ComponentId::SystemPromptBuilder),
+        "Phase 3 (CoreServices) must NOT contain SystemPromptBuilder"
     );
 }
