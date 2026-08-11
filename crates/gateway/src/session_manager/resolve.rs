@@ -10,7 +10,8 @@ use crate::Message;
 use closeclaw_common::processor::ProcessError;
 use closeclaw_session::bootstrap::loader::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
-use closeclaw_session::persistence::{SessionCheckpoint, SessionStatus};
+use closeclaw_session::checkpoint_manager::CheckpointManager;
+use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint, SessionStatus};
 use closeclaw_session::run_health::TranscriptOp;
 use closeclaw_session::workspace;
 use std::path::PathBuf;
@@ -469,6 +470,76 @@ impl SessionManager {
             return Ok(existing_id);
         }
 
+        // Migrating session check: if no active session found in SQLite,
+        // check for a migrating session and wait for archive completion
+        // before falling through to the archived check.
+        let migrating_check = {
+            let cm_guard = self.checkpoint_manager.read().await;
+            match cm_guard.as_ref() {
+                Some(cm) => cm
+                    .storage()
+                    .find_migrating_session_by_routing(
+                        account_id,
+                        channel,
+                        &message.from,
+                        &message.to,
+                    )
+                    .await
+                    .ok()
+                    .flatten(),
+                None => None,
+            }
+        };
+        if let Some(migrating_id) = migrating_check {
+            warn!(
+                session_key = %session_key,
+                session_id = %migrating_id,
+                routing_key = %routing_key,
+                "found migrating session in SQLite, waiting for archive"
+            );
+            // Inject archiving notification.
+            {
+                let mut pending =
+                    self.pending_restore_notifications.write().await;
+                pending.insert(
+                    migrating_id.clone(),
+                    (
+                        channel.to_string(),
+                        Some(
+                            "\u{23f3} \u{4f1a}\u{8bdd}\u{5f52}\u{6863}\u{4e2d}".to_string(),
+                        ),
+                    ),
+                );
+            }
+            // Bounded poll: wait for Sweeper to transition status.
+            let cm_arc = {
+                let guard = self.checkpoint_manager.read().await;
+                guard.as_ref().map(Arc::clone)
+            };
+            if let Some(ref cm) = cm_arc {
+                let archived =
+                    Self::wait_for_archive_completion(cm, &migrating_id)
+                        .await;
+                if archived {
+                    info!(
+                        session_key = %session_key,
+                        session_id = %migrating_id,
+                        routing_key = %routing_key,
+                        "migrating session finished archiving, falling through to archived restore"
+                    );
+                } else {
+                    warn!(
+                        session_key = %session_key,
+                        session_id = %migrating_id,
+                        routing_key = %routing_key,
+                        "migrating session archive timed out, creating new session"
+                    );
+                }
+            }
+            // Fall through to archived check; if archived, it will
+            // pick up the session.  If not, a new session is created.
+        }
+
         // Archived session check: if no active session found in SQLite,
         // check for an archived session that can be restored.
         let archived_check = {
@@ -802,6 +873,36 @@ impl SessionManager {
         );
 
         Ok(session_id)
+    }
+
+    /// Bounded poll: wait for a session's checkpoint status to become Archived.
+    ///
+    /// Polls `cm.load(session_id)` every 500 ms for up to 5 s.
+    /// Returns `true` if status reached `Archived`, `false` on timeout.
+    ///
+    /// Used by both registry-hit migrating handling (Step 1.1) and
+    /// registry-miss migrating handling (Step 1.4) to avoid code duplication.
+    async fn wait_for_archive_completion(
+        cm: &CheckpointManager<dyn PersistenceService>,
+        session_id: &str,
+    ) -> bool {
+        let deadline = tokio::time::Instant::now()
+            + std::time::Duration::from_secs(5);
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(500))
+                .await;
+            match cm.load(session_id).await {
+                Ok(Some(refreshed))
+                    if refreshed.status == SessionStatus::Archived =>
+                {
+                    return true;
+                }
+                _ if tokio::time::Instant::now() >= deadline => {
+                    return false;
+                }
+                _ => {}
+            }
+        }
     }
 
     /// Wire skill listing provider and agent-level skills whitelist
