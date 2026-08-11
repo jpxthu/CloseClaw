@@ -125,10 +125,10 @@ impl ComponentDeps for ComponentId {
             ConfigHotReload => &[ConfigManager],
             DreamingScheduler => &[Storage, SessionConfigProvider],
             SessionManager => &[Storage, AgentRegistry, SkillsRegistry, ToolsRegistry],
-            SystemPromptBuilder => &[AgentRegistry, SkillsRegistry],
+            SystemPromptBuilder => &[AgentRegistry, SkillsRegistry, ToolsRegistry],
             ApprovalFlow => &[PermissionEngine, AgentRegistry],
             Gateway => &[SessionManager, IMAdapters, PermissionEngine, ApprovalFlow],
-            SpawnController => &[AgentRegistry],
+            SpawnController => &[AgentRegistry, ToolsRegistry],
             AdminRpcServer => &[Gateway],
         }
     }
@@ -322,11 +322,9 @@ impl StartupPhase {
                 DreamingScheduler,
                 IMAdapters,
                 SkillWatcher,
-                SpawnController,
-                SystemPromptBuilder,
                 ToolsRegistry,
             ],
-            Self::Wiring => &[SessionManager],
+            Self::Wiring => &[SessionManager, SpawnController, SystemPromptBuilder],
             Self::Gateway => &[Gateway],
             Self::PostGateway => &[AdminRpcServer],
         }
