@@ -278,7 +278,10 @@ impl SessionManager {
     /// Returns `(chat_id, Option<custom_message>)` if a restore notification
     /// is pending. When `custom_message` is `None`, the caller uses the
     /// default "正在恢复会话..." text; otherwise the custom message is used.
-    pub async fn take_restore_notification(&self, session_id: &str) -> Option<(String, Option<String>)> {
+    pub async fn take_restore_notification(
+        &self,
+        session_id: &str,
+    ) -> Option<(String, Option<String>)> {
         let mut pending = self.pending_restore_notifications.write().await;
         pending.remove(session_id)
     }
@@ -837,11 +840,11 @@ mod resolve_archived_recovery_tests;
 #[cfg(test)]
 mod resolve_checkpoint_status_tests;
 #[cfg(test)]
-mod resolve_registry_tests;
+mod resolve_miss_migrating_tests;
 #[cfg(test)]
 mod resolve_registry_migrating_tests;
 #[cfg(test)]
-mod resolve_miss_migrating_tests;
+mod resolve_registry_tests;
 #[cfg(test)]
 mod resolve_tests;
 #[cfg(test)]

@@ -280,10 +280,7 @@ async fn test_resolve_migrating_registry_hit_timeout_creates_new() {
     );
 
     // The new session should exist
-    assert!(
-        mgr.has_session(&resolved).await,
-        "new session should exist"
-    );
+    assert!(mgr.has_session(&resolved).await, "new session should exist");
 }
 
 // ── Migrating session never directly restored ───────────────────────────────
@@ -420,5 +417,8 @@ async fn test_resolve_session_key_not_ignored() {
     let msg = test_message();
 
     let result = mgr.find_or_create("feishu", &msg, None).await;
-    assert!(result.is_ok(), "resolve should succeed with any session_key");
+    assert!(
+        result.is_ok(),
+        "resolve should succeed with any session_key"
+    );
 }
