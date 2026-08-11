@@ -127,7 +127,7 @@ impl ComponentDeps for ComponentId {
             SessionManager => &[Storage, AgentRegistry, SkillsRegistry, ToolsRegistry],
             SystemPromptBuilder => &[AgentRegistry, SkillsRegistry, ToolsRegistry],
             ApprovalFlow => &[PermissionEngine, AgentRegistry],
-            Gateway => &[SessionManager, IMAdapters, PermissionEngine, ApprovalFlow, RenderersPlugins],
+            Gateway => &[SessionManager, IMAdapters, PermissionEngine, ApprovalFlow],
             SpawnController => &[AgentRegistry, ToolsRegistry],
             AdminRpcServer => &[Gateway],
         }
