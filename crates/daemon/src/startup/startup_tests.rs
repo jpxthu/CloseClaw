@@ -78,7 +78,13 @@ fn test_all_component_entries_deps_match_design_doc() {
     // Layer 5
     assert_eq!(
         dep_map[&Gateway],
-        vec![SessionManager, IMAdapters, PermissionEngine, ApprovalFlow, RenderersPlugins]
+        vec![
+            SessionManager,
+            IMAdapters,
+            PermissionEngine,
+            ApprovalFlow,
+            RenderersPlugins
+        ]
     );
     assert_eq!(dep_map[&AdminRpcServer], vec![Gateway]);
 }
