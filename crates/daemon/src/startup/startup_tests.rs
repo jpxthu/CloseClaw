@@ -121,7 +121,8 @@ fn test_topo_sort_six_layers_match_design_doc() {
         "Layer 3 mismatch"
     );
 
-    // Layer 4: SpawnController, SystemPromptBuilder, SessionManager (depend on ToolsRegistry from Layer 3)
+    // Layer 4: SpawnController, SystemPromptBuilder, SessionManager
+    // (depend on ToolsRegistry from Layer 3)
     assert_eq!(
         layers[3],
         vec![SessionManager, SpawnController, SystemPromptBuilder],
@@ -329,7 +330,7 @@ fn test_admin_rpc_server_depends_on_gateway() {
 
 /// SpawnController must be in Layer 4 (Wiring phase).
 #[test]
-fn test_spawn_controller_in_core_services_layer() {
+fn test_spawn_controller_in_wiring_layer() {
     use ComponentId::*;
     let entries = all_component_entries();
     let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
@@ -608,7 +609,7 @@ fn test_all_parallel() {
 
 /// SystemPromptBuilder must reside in Layer 4 (Wiring phase).
 #[test]
-fn test_system_prompt_builder_in_core_services_layer() {
+fn test_system_prompt_builder_in_wiring_layer() {
     let entries = all_component_entries();
     let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
 
