@@ -121,6 +121,10 @@ pub struct Daemon {
     dreaming_scheduler_handle: Option<tokio::task::JoinHandle<()>>,
     /// Join handle for PlanArchiveTask background task
     plan_archive_task_handle: Option<tokio::task::JoinHandle<()>>,
+    /// SpawnController reference — manages sub-agent lifecycle
+    pub spawn_controller: Option<Arc<SpawnController>>,
+    /// SystemPromptBuilder reference — static-layer prompt construction
+    pub system_prompt_builder: Option<Arc<dyn closeclaw_common::SystemPromptBuilder>>,
 }
 // --- Topological startup orchestration ---
 impl Daemon {
@@ -652,6 +656,8 @@ impl Daemon {
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
+        Arc<SpawnController>,
+        Arc<dyn closeclaw_common::SystemPromptBuilder>,
     )> {
         let Phase5Deps {
             config_manager,
@@ -735,7 +741,7 @@ impl Daemon {
             ),
         ) as Arc<dyn closeclaw_common::SystemPromptBuilder>;
         session_manager
-            .set_system_prompt_builder(prompt_builder_adapter)
+            .set_system_prompt_builder(Arc::clone(&prompt_builder_adapter))
             .await;
         info!("SystemPromptBuilder adapter injected into SessionManager");
 
@@ -820,6 +826,8 @@ impl Daemon {
             announce_sweeper_handle,
             dreaming_handle,
             plan_archive_handle,
+            spawn_controller,
+            prompt_builder_adapter,
         ))
     }
 
