@@ -34,12 +34,12 @@ fn test_all_component_entries_deps_match_design_doc() {
     // Layer 2: depend on ConfigManager only
     assert_eq!(dep_map[&SessionConfigProvider], vec![ConfigManager]);
     assert_eq!(dep_map[&AgentRegistry], vec![ConfigManager]);
-    assert_eq!(dep_map[&PermissionEngine], vec![ConfigManager]);
     assert_eq!(dep_map[&SkillsRegistry], vec![ConfigManager]);
     assert_eq!(dep_map[&RenderersPlugins], vec![ConfigManager]);
 
     // Layer 3
     assert_eq!(dep_map[&IMAdapters], vec![RenderersPlugins, ConfigManager]);
+    assert_eq!(dep_map[&PermissionEngine], vec![AgentRegistry]);
     assert_eq!(dep_map[&ToolsRegistry], vec![SkillsRegistry]);
     assert_eq!(
         dep_map[&ArchiveSweeper],
@@ -55,15 +55,12 @@ fn test_all_component_entries_deps_match_design_doc() {
         dep_map[&DreamingScheduler],
         vec![Storage, SessionConfigProvider]
     );
-    assert_eq!(
-        dep_map[&SpawnController],
-        vec![AgentRegistry, ToolsRegistry]
-    );
+    assert_eq!(dep_map[&SpawnController], vec![AgentRegistry]);
 
-    // Layer 4
+    // Layer 3
     assert_eq!(
         dep_map[&SystemPromptBuilder],
-        vec![AgentRegistry, SkillsRegistry, ToolsRegistry]
+        vec![AgentRegistry, SkillsRegistry]
     );
     // Layer 4
     assert_eq!(
@@ -78,13 +75,7 @@ fn test_all_component_entries_deps_match_design_doc() {
     // Layer 5
     assert_eq!(
         dep_map[&Gateway],
-        vec![
-            SessionManager,
-            IMAdapters,
-            PermissionEngine,
-            ApprovalFlow,
-            RenderersPlugins
-        ]
+        vec![SessionManager, IMAdapters, PermissionEngine, ApprovalFlow]
     );
     assert_eq!(dep_map[&AdminRpcServer], vec![Gateway]);
 }
@@ -101,13 +92,13 @@ fn test_topo_sort_six_layers_match_design_doc() {
     // Layer 1: ConfigManager, Storage (alphabetical)
     assert_eq!(layers[0], vec![ConfigManager, Storage], "Layer 1 mismatch");
 
-    // Layer 2: depends only on ConfigManager (Layer 1)
+    // Layer 2: ConfigHotReload depends only on ConfigManager (Layer 1),
+    // so Kahn's algorithm places it here, not Layer 3.
     assert_eq!(
         layers[1],
         vec![
             AgentRegistry,
             ConfigHotReload,
-            PermissionEngine,
             RenderersPlugins,
             SessionConfigProvider,
             SkillsRegistry,
@@ -115,26 +106,29 @@ fn test_topo_sort_six_layers_match_design_doc() {
         "Layer 2 mismatch"
     );
 
-    // Layer 3: all deps satisfied by Layer 2 (alphabetical)
+    // Layer 3: ArchiveSweeper, AnnounceSweeper, DreamingScheduler, IMAdapters,
+    //          PermissionEngine, SkillWatcher, SpawnController, SystemPromptBuilder,
+    //          ToolsRegistry
     assert_eq!(
         layers[2],
         vec![
             AnnounceSweeper,
-            ApprovalFlow,
             ArchiveSweeper,
             DreamingScheduler,
             IMAdapters,
+            PermissionEngine,
             SkillWatcher,
+            SpawnController,
+            SystemPromptBuilder,
             ToolsRegistry,
         ],
         "Layer 3 mismatch"
     );
 
-    // Layer 4: SpawnController, SystemPromptBuilder, SessionManager
-    // (depend on ToolsRegistry from Layer 3)
+    // Layer 4: ApprovalFlow, SessionManager
     assert_eq!(
         layers[3],
-        vec![SessionManager, SpawnController, SystemPromptBuilder],
+        vec![ApprovalFlow, SessionManager],
         "Layer 4 mismatch"
     );
 
@@ -318,8 +312,8 @@ fn test_spawn_controller_depends_on_agent_registry() {
 
     assert_eq!(
         dep_map[&SpawnController],
-        vec![AgentRegistry, ToolsRegistry],
-        "SpawnController must depend on AgentRegistry and ToolsRegistry per design doc"
+        vec![AgentRegistry],
+        "SpawnController must depend on AgentRegistry per design doc Layer 3"
     );
 }
 
@@ -337,18 +331,17 @@ fn test_admin_rpc_server_depends_on_gateway() {
     );
 }
 
-/// SpawnController must be in Layer 4 (Wiring phase).
 #[test]
-fn test_spawn_controller_in_wiring_layer() {
+fn test_spawn_controller_in_core_services_layer() {
     use ComponentId::*;
     let entries = all_component_entries();
     let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
 
-    // SpawnController is in Layer 4 (Wiring phase)
-    // Layer index 3 = fourth layer
+    // SpawnController is in Layer 3 (CoreServices phase)
+    // Layer index 2 = third layer
     assert!(
-        layers[3].contains(&SpawnController),
-        "SpawnController must be in Layer 4 (Wiring), got layers: {:?}",
+        layers[2].contains(&SpawnController),
+        "SpawnController must be in Layer 3 (CoreServices), got layers: {:?}",
         layers
             .iter()
             .enumerate()
@@ -385,22 +378,20 @@ fn test_validate_layers_catches_wrong_spawn_controller_layer() {
         vec![
             AgentRegistry,
             ConfigHotReload,
-            PermissionEngine,
             RenderersPlugins,
             SessionConfigProvider,
             SkillsRegistry,
-            ToolsRegistry,
         ],
         vec![
             AnnounceSweeper,
-            ApprovalFlow,
             ArchiveSweeper,
             DreamingScheduler,
             IMAdapters,
+            PermissionEngine,
             SkillWatcher,
-            SystemPromptBuilder,
+            ToolsRegistry,
         ],
-        vec![SessionManager],
+        vec![ApprovalFlow, SessionManager, SystemPromptBuilder],
         vec![Gateway],
         vec![AdminRpcServer],
     ];
@@ -420,24 +411,28 @@ fn test_validate_layers_catches_wrong_admin_rpc_server_layer() {
         vec![
             AgentRegistry,
             ConfigHotReload,
-            PermissionEngine,
             RenderersPlugins,
             SessionConfigProvider,
             SkillsRegistry,
-            ToolsRegistry,
         ],
         vec![
             AnnounceSweeper,
-            ApprovalFlow,
             ArchiveSweeper,
             DreamingScheduler,
             IMAdapters,
+            PermissionEngine,
             SkillWatcher,
             SpawnController,
-            SystemPromptBuilder,
+            ToolsRegistry,
         ],
-        vec![SessionManager, AdminRpcServer], // Wrong: AdminRpcServer here
+        vec![
+            ApprovalFlow,
+            SessionManager,
+            SystemPromptBuilder,
+            AdminRpcServer,
+        ], // Wrong: AdminRpcServer here
         vec![Gateway],
+        vec![],
     ];
     let err = validate_startup_layers(&wrong_layers).unwrap_err();
     assert!(
@@ -476,80 +471,6 @@ fn test_validate_startup_layers_wrong_order() {
     swapped.swap(0, 1);
     let err = validate_startup_layers(&swapped).unwrap_err();
     assert!(matches!(err, StartupError::CircularDependency));
-}
-
-// ======================================================================
-// Step 1.3 — PermissionEngine dependency chain regression tests
-// ======================================================================
-
-/// PermissionEngine must depend only on ConfigManager (Layer 1), NOT
-/// on AgentRegistry. This is a regression guard against the pre-fix
-/// state where PermissionEngine incorrectly depended on AgentRegistry.
-#[test]
-fn test_permission_engine_depends_on_config_manager_not_agent_registry() {
-    use ComponentId::*;
-    let entries = all_component_entries();
-    let dep_map: std::collections::HashMap<ComponentId, Vec<ComponentId>> =
-        entries.iter().map(|e| (e.id, e.deps.clone())).collect();
-
-    assert_eq!(
-        dep_map[&PermissionEngine],
-        vec![ConfigManager],
-        "PermissionEngine must depend on ConfigManager (Layer 1), not AgentRegistry"
-    );
-}
-
-/// After topo_sort, PermissionEngine MUST appear in Layer 2 (index 1),
-/// alongside AgentRegistry, SkillsRegistry, etc. This is a regression
-/// guard against the pre-fix state where PermissionEngine was in Layer 3.
-#[test]
-fn test_permission_engine_in_layer_2_after_topo_sort() {
-    use ComponentId::*;
-    let entries = all_component_entries();
-    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
-
-    // Layer 1 (index 0) = Foundation: ConfigManager, Storage
-    assert!(
-        !layers[0].contains(&PermissionEngine),
-        "PermissionEngine must NOT be in Layer 1 (Foundation)"
-    );
-
-    // Layer 2 (index 1) = Registries: AgentRegistry, PermissionEngine, etc.
-    assert!(
-        layers[1].contains(&PermissionEngine),
-        "PermissionEngine must be in Layer 2 (Registries), got layers: {:?}",
-        layers
-            .iter()
-            .enumerate()
-            .map(|(i, l)| (i, l.iter().map(|c| c.name()).collect::<Vec<_>>()))
-            .collect::<Vec<_>>()
-    );
-}
-
-/// validate_phase_components must accept PermissionEngine in the
-/// Registries phase (Phase 2, index 1) without error.
-#[test]
-fn test_validate_phase_components_permission_engine_in_registries() {
-    let entries = all_component_entries();
-    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
-
-    let result = crate::Daemon::validate_phase_components(&layers);
-    assert!(
-        result.is_ok(),
-        "validate_phase_components should pass with PermissionEngine in Registries: {:?}",
-        result.err()
-    );
-    let phases = result.unwrap();
-    // Phase 2 (index 1) = Registries
-    assert!(
-        phases[1].contains(&ComponentId::PermissionEngine),
-        "Registries phase must contain PermissionEngine"
-    );
-    // Phase 3 (index 2) = CoreServices must NOT contain PermissionEngine
-    assert!(
-        !phases[2].contains(&ComponentId::PermissionEngine),
-        "CoreServices phase must NOT contain PermissionEngine"
-    );
 }
 
 // --------------------------------------------------------------------------
@@ -616,16 +537,16 @@ fn test_all_parallel() {
 // Step 1.3 — SystemPromptBuilder layer and dependency tests
 // ======================================================================
 
-/// SystemPromptBuilder must reside in Layer 4 (Wiring phase).
+/// SystemPromptBuilder must reside in Layer 3 (CoreServices phase).
 #[test]
-fn test_system_prompt_builder_in_wiring_layer() {
+fn test_system_prompt_builder_in_core_services_layer() {
     let entries = all_component_entries();
     let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
 
-    // Layer index 3 = fourth layer = Wiring
+    // Layer index 2 = third layer = CoreServices
     assert!(
-        layers[3].contains(&ComponentId::SystemPromptBuilder),
-        "SystemPromptBuilder must be in Layer 4 (Wiring), got layers: {:?}",
+        layers[2].contains(&ComponentId::SystemPromptBuilder),
+        "SystemPromptBuilder must be in Layer 3 (CoreServices), got layers: {:?}",
         layers
             .iter()
             .enumerate()
@@ -634,7 +555,7 @@ fn test_system_prompt_builder_in_wiring_layer() {
     );
 }
 
-/// SystemPromptBuilder dependencies must be exactly [AgentRegistry, SkillsRegistry, ToolsRegistry].
+/// SystemPromptBuilder dependencies must be exactly [AgentRegistry, SkillsRegistry].
 #[test]
 fn test_system_prompt_builder_deps_only_agent_and_skills() {
     let entries = all_component_entries();
@@ -644,16 +565,12 @@ fn test_system_prompt_builder_deps_only_agent_and_skills() {
     let deps = &dep_map[&ComponentId::SystemPromptBuilder];
     assert_eq!(
         deps,
-        &vec![
-            ComponentId::AgentRegistry,
-            ComponentId::SkillsRegistry,
-            ComponentId::ToolsRegistry
-        ],
-        "SystemPromptBuilder must depend on [AgentRegistry, SkillsRegistry, ToolsRegistry]"
+        &vec![ComponentId::AgentRegistry, ComponentId::SkillsRegistry],
+        "SystemPromptBuilder must depend only on [AgentRegistry, SkillsRegistry]"
     );
 }
 
-/// SystemPromptBuilder must depend on ToolsRegistry per design doc.
+/// SystemPromptBuilder must NOT depend on ToolsRegistry.
 #[test]
 fn test_system_prompt_builder_no_tools_registry_dep() {
     let entries = all_component_entries();
@@ -662,8 +579,8 @@ fn test_system_prompt_builder_no_tools_registry_dep() {
 
     let deps = &dep_map[&ComponentId::SystemPromptBuilder];
     assert!(
-        deps.contains(&ComponentId::ToolsRegistry),
-        "SystemPromptBuilder must depend on ToolsRegistry per design doc"
+        !deps.contains(&ComponentId::ToolsRegistry),
+        "SystemPromptBuilder must NOT depend on ToolsRegistry (design doc Layer 3)"
     );
 }
 
@@ -677,19 +594,19 @@ fn test_validate_phase_components_with_system_prompt_builder() {
     let result = crate::Daemon::validate_phase_components(&layers);
     assert!(
         result.is_ok(),
-        "validate_phase_components should succeed with SystemPromptBuilder in Wiring: {:?}",
+        "validate_phase_components should succeed with SystemPromptBuilder in CoreServices: {:?}",
         result.err()
     );
 
     let phases = result.unwrap();
-    // Phase 4 (index 3) = Wiring
+    // Phase 3 (index 2) = CoreServices
     assert!(
-        phases[3].contains(&ComponentId::SystemPromptBuilder),
-        "Phase 4 (Wiring) must contain SystemPromptBuilder"
+        phases[2].contains(&ComponentId::SystemPromptBuilder),
+        "Phase 3 (CoreServices) must contain SystemPromptBuilder"
     );
-    // Phase 3 (index 2) = CoreServices must NOT contain SystemPromptBuilder
+    // Phase 4 (index 3) = Wiring must NOT contain SystemPromptBuilder
     assert!(
-        !phases[2].contains(&ComponentId::SystemPromptBuilder),
-        "Phase 3 (CoreServices) must NOT contain SystemPromptBuilder"
+        !phases[3].contains(&ComponentId::SystemPromptBuilder),
+        "Phase 4 (Wiring) must NOT contain SystemPromptBuilder"
     );
 }
