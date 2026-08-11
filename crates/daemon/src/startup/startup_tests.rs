@@ -466,6 +466,80 @@ fn test_validate_startup_layers_wrong_order() {
     assert!(matches!(err, StartupError::CircularDependency));
 }
 
+// ======================================================================
+// Step 1.3 — PermissionEngine dependency chain regression tests
+// ======================================================================
+
+/// PermissionEngine must depend only on ConfigManager (Layer 1), NOT
+/// on AgentRegistry. This is a regression guard against the pre-fix
+/// state where PermissionEngine incorrectly depended on AgentRegistry.
+#[test]
+fn test_permission_engine_depends_on_config_manager_not_agent_registry() {
+    use ComponentId::*;
+    let entries = all_component_entries();
+    let dep_map: std::collections::HashMap<ComponentId, Vec<ComponentId>> =
+        entries.iter().map(|e| (e.id, e.deps.clone())).collect();
+
+    assert_eq!(
+        dep_map[&PermissionEngine],
+        vec![ConfigManager],
+        "PermissionEngine must depend on ConfigManager (Layer 1), not AgentRegistry"
+    );
+}
+
+/// After topo_sort, PermissionEngine MUST appear in Layer 2 (index 1),
+/// alongside AgentRegistry, SkillsRegistry, etc. This is a regression
+/// guard against the pre-fix state where PermissionEngine was in Layer 3.
+#[test]
+fn test_permission_engine_in_layer_2_after_topo_sort() {
+    use ComponentId::*;
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+
+    // Layer 1 (index 0) = Foundation: ConfigManager, Storage
+    assert!(
+        !layers[0].contains(&PermissionEngine),
+        "PermissionEngine must NOT be in Layer 1 (Foundation)"
+    );
+
+    // Layer 2 (index 1) = Registries: AgentRegistry, PermissionEngine, etc.
+    assert!(
+        layers[1].contains(&PermissionEngine),
+        "PermissionEngine must be in Layer 2 (Registries), got layers: {:?}",
+        layers
+            .iter()
+            .enumerate()
+            .map(|(i, l)| (i, l.iter().map(|c| c.name()).collect::<Vec<_>>()))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// validate_phase_components must accept PermissionEngine in the
+/// Registries phase (Phase 2, index 1) without error.
+#[test]
+fn test_validate_phase_components_permission_engine_in_registries() {
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+
+    let result = crate::Daemon::validate_phase_components(&layers);
+    assert!(
+        result.is_ok(),
+        "validate_phase_components should pass with PermissionEngine in Registries: {:?}",
+        result.err()
+    );
+    let phases = result.unwrap();
+    // Phase 2 (index 1) = Registries
+    assert!(
+        phases[1].contains(&ComponentId::PermissionEngine),
+        "Registries phase must contain PermissionEngine"
+    );
+    // Phase 3 (index 2) = CoreServices must NOT contain PermissionEngine
+    assert!(
+        !phases[2].contains(&ComponentId::PermissionEngine),
+        "CoreServices phase must NOT contain PermissionEngine"
+    );
+}
+
 // --------------------------------------------------------------------------
 // Layer-internal alphabetical ordering (full sort order)
 // --------------------------------------------------------------------------
