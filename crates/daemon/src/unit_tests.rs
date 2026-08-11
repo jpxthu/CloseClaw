@@ -467,62 +467,6 @@ fn test_miner_config_from_mining_config_custom_values() {
 }
 
 // ============================================================
-// Step 1.3 — Daemon struct field regression tests
-// ============================================================
-
-/// Compile-time + runtime check that Daemon struct contains
-/// `spawn_controller` field with the correct type (Arc<SpawnController>).
-/// This is a regression guard against the pre-fix state where the field
-/// was missing entirely.
-#[test]
-fn test_daemon_struct_has_spawn_controller_field() {
-    // This assertion will fail to compile if the field does not exist
-    // or has a different type, since `spawn_controller` is a public field.
-    fn _assert_type(_: &Arc<SpawnController>) {}
-    // Placeholder: the above _assert_type function accepts only Arc<SpawnController>.
-    // If Daemon::spawn_controller does not exist or has a wrong type,
-    // the line below will fail to compile.
-    //
-    // We cannot easily construct a Daemon in a unit test (requires full
-    // async startup), so we rely on the compile-time field access below.
-    // The existence of this test file compiling is the primary guard.
-    //
-    // Runtime check: ensure the type is consistent by referencing the
-    // field's type through a type alias.
-    type DaemonSpawnController = Arc<SpawnController>;
-    let _: fn(&DaemonSpawnController) = |_v| {};
-}
-
-/// Compile-time + runtime check that Daemon struct contains
-/// `system_prompt_builder` field with the correct type.
-/// This is a regression guard against the pre-fix state where the field
-/// was missing entirely.
-#[test]
-fn test_daemon_struct_has_system_prompt_builder_field() {
-    fn _assert_type(_: &Arc<dyn closeclaw_common::SystemPromptBuilder>) {}
-    type DaemonSystemPromptBuilder = Arc<dyn closeclaw_common::SystemPromptBuilder>;
-    let _: fn(&DaemonSystemPromptBuilder) = |_v| {};
-}
-
-/// Verify that both spawn_controller and system_prompt_builder fields
-/// are declared as public on the Daemon struct (accessibility check).
-/// This ensures consumers (e.g., lifecycle tests, integration tests)
-/// can read these fields as expected by the design doc.
-#[test]
-fn test_daemon_struct_fields_are_public() {
-    // Compile-time: if these fields were private, this code would not compile.
-    // We use a helper fn that takes references to the expected types.
-    fn _spawn_controller(v: &Arc<SpawnController>) {
-        let _ = v;
-    }
-    fn _system_prompt_builder(v: &Arc<dyn closeclaw_common::SystemPromptBuilder>) {
-        let _ = v;
-    }
-    // The actual field access is tested at compile time by the test
-    // compilation itself. No runtime assertions needed.
-}
-
-// ============================================================
 // Step 1.3: resolve_extra_dirs path expansion tests
 // ============================================================
 

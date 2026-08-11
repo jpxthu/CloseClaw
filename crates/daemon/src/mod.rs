@@ -106,10 +106,6 @@ pub struct Daemon {
     _skill_watcher: Option<SkillWatcherHandle>,
     /// Config file watcher handle (RAII: stops on drop)
     _config_watcher: Option<config_watcher::ConfigWatcherHandle>,
-    /// SpawnController: validates agent spawn permissions, holds Tools Registry ref.
-    pub spawn_controller: Arc<SpawnController>,
-    /// System prompt builder: constructs static-layer prompts for sessions.
-    pub system_prompt_builder: Arc<dyn closeclaw_common::SystemPromptBuilder>,
     /// Daemon-level approval orchestrator
     pub approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     /// Admin RPC server task handle (drop cancels the task)
@@ -148,23 +144,22 @@ impl Daemon {
             vec![
                 AgentRegistry,
                 ConfigHotReload,
-                PermissionEngine,
                 RenderersPlugins,
                 SessionConfigProvider,
                 SkillsRegistry,
             ],
             vec![
                 AnnounceSweeper,
-                ApprovalFlow,
                 ArchiveSweeper,
                 DreamingScheduler,
                 IMAdapters,
+                PermissionEngine,
                 SkillWatcher,
                 SpawnController,
                 SystemPromptBuilder,
                 ToolsRegistry,
             ],
-            vec![SessionManager],
+            vec![ApprovalFlow, SessionManager],
             vec![Gateway],
             vec![AdminRpcServer],
         ]
@@ -658,8 +653,6 @@ impl Daemon {
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
-        Arc<SpawnController>,
-        Arc<dyn closeclaw_common::SystemPromptBuilder>,
     )> {
         let Phase5Deps {
             config_manager,
@@ -743,7 +736,7 @@ impl Daemon {
             ),
         ) as Arc<dyn closeclaw_common::SystemPromptBuilder>;
         session_manager
-            .set_system_prompt_builder(prompt_builder_adapter.clone())
+            .set_system_prompt_builder(prompt_builder_adapter)
             .await;
         info!("SystemPromptBuilder adapter injected into SessionManager");
 
@@ -828,8 +821,6 @@ impl Daemon {
             announce_sweeper_handle,
             dreaming_handle,
             plan_archive_handle,
-            Arc::clone(&spawn_controller),
-            prompt_builder_adapter,
         ))
     }
 
