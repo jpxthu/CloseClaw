@@ -27,7 +27,7 @@ impl SessionManager {
     /// 3. key_registry miss → create new session → register → return session_id
     pub async fn resolve(
         &self,
-        _session_key: &str,
+        session_key: &str,
         channel: &str,
         message: &Message,
         account_id: Option<&str>,
@@ -83,6 +83,7 @@ impl SessionManager {
                                 // Per design doc: migrating session → wait for
                                 // archive completion → restore as archived.
                                 warn!(
+                                    session_key = %session_key,
                                     session_id = %session_id,
                                     routing_key = %routing_key,
                                     status = %cp.status,
@@ -98,7 +99,7 @@ impl SessionManager {
                                         (
                                             channel.to_string(),
                                             Some(
-                                                "\u{23f3} \u{4f1a}\u{8bdd}\u{5f52}\u{6863}\u{4e2d}".to_string(),
+                                                "⏳ \u{4f1a}\u{8bdd}\u{5f52}\u{6863}\u{4e2d}".to_string(),
                                             ),
                                         ),
                                     );
@@ -126,12 +127,14 @@ impl SessionManager {
                                 }
                                 if archived {
                                     info!(
+                                        session_key = %session_key,
                                         session_id = %session_id,
                                         routing_key = %routing_key,
                                         "migrating session finished archiving, restoring archived session"
                                     );
                                 } else {
                                     warn!(
+                                        session_key = %session_key,
                                         session_id = %session_id,
                                         routing_key = %routing_key,
                                         "migrating session archive timed out after 5 s, falling through to create new session"
@@ -149,6 +152,7 @@ impl SessionManager {
                             }
                             SessionStatus::Archived => {
                                 warn!(
+                                    session_key = %session_key,
                                     session_id = %session_id,
                                     routing_key = %routing_key,
                                     "session in registry is archived, removing stale entry"
@@ -170,7 +174,9 @@ impl SessionManager {
                         }
                         Err(e) => {
                             warn!(
+                                session_key = %session_key,
                                 session_id = %session_id,
+                                routing_key = %routing_key,
                                 error = %e,
                                 "failed to load checkpoint status, falling back to existing session"
                             );
@@ -321,7 +327,9 @@ impl SessionManager {
                                     cs.inject_tool_result(&tool_call_id, failure);
                                 }
                                 info!(
+                                    session_key = %session_key,
                                     session_id = %session_id,
+                                    routing_key = %routing_key,
                                     "injected recovery notification and {} tool failure(s)",
                                     cp.pending_tool_failures.len()
                                 );
@@ -348,7 +356,9 @@ impl SessionManager {
                         cp.thread_id = message.thread_id.clone();
                         if let Err(e) = cm.save_raw(&cp).await {
                             warn!(
+                                session_key = %session_key,
                                 session_id = %session_id,
+                                routing_key = %routing_key,
                                 error = %e,
                                 "failed to save checkpoint after restore"
                             );
@@ -391,6 +401,7 @@ impl SessionManager {
                 }
                 // Session not yet visible (concurrent creation in progress)
                 warn!(
+                    session_key = %session_key,
                     routing_key = %routing_key,
                     "session_key collision detected, sleeping 10ms and retrying"
                 );
@@ -450,6 +461,7 @@ impl SessionManager {
             self.update_checkpoint_thread_id(&existing_id, &message.thread_id)
                 .await;
             info!(
+                session_key = %session_key,
                 session_id = %existing_id,
                 routing_key = %routing_key,
                 "SQLite double-check: found existing active session, self-healed"
@@ -609,7 +621,9 @@ impl SessionManager {
                                     cs.inject_tool_result(&tool_call_id, failure);
                                 }
                                 info!(
+                                    session_key = %session_key,
                                     session_id = %archived_id,
+                                    routing_key = %routing_key,
                                     "injected recovery notification and {} tool failure(s)",
                                     cp.pending_tool_failures.len()
                                 );
@@ -636,7 +650,9 @@ impl SessionManager {
                         cp.thread_id = message.thread_id.clone();
                         if let Err(e) = cm.save_raw(&cp).await {
                             warn!(
+                                session_key = %session_key,
                                 session_id = %archived_id,
+                                routing_key = %routing_key,
                                 error = %e,
                                 "failed to save checkpoint after restore"
                             );
@@ -654,6 +670,7 @@ impl SessionManager {
                 self.update_checkpoint_thread_id(&archived_id, &message.thread_id)
                     .await;
                 info!(
+                    session_key = %session_key,
                     session_id = %archived_id,
                     routing_key = %routing_key,
                     "SQLite archived check: found and restored archived session"
@@ -768,12 +785,21 @@ impl SessionManager {
         if let Some(cm) = self.checkpoint_manager.read().await.as_ref() {
             if let Err(e) = cm.save_raw(&cp).await {
                 warn!(
+                    session_key = %session_key,
                     session_id = %session_id,
+                    routing_key = %routing_key,
                     error = %e,
                     "failed to save new session checkpoint"
                 );
             }
         }
+
+        info!(
+            session_key = %session_key,
+            session_id = %session_id,
+            routing_key = %routing_key,
+            "created new session"
+        );
 
         Ok(session_id)
     }
