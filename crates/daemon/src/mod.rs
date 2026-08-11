@@ -5,6 +5,7 @@
 pub mod bridge;
 pub mod config_reload;
 pub mod config_watcher;
+mod daemon_struct;
 pub mod dreaming_scheduler;
 pub mod lifecycle;
 pub mod registries;
@@ -12,13 +13,12 @@ pub mod shutdown;
 pub mod skill_reload;
 pub mod startup;
 pub mod trait_adapters;
-mod daemon_struct;
-pub use daemon_struct::*;
 use crate::startup::{all_component_entries, topo_sort_layers, StartupError};
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
 use closeclaw_common::NoopMetricsEmitter;
 use closeclaw_config::providers::{ConfigProvider, SystemConfigData};
 use closeclaw_config::{ConfigManager, ConfigSection};
+pub use daemon_struct::*;
 
 /// Resolved startup plan: topo-sort layers plus validated phase components.
 /// Each outer element is a layer/phase; each inner element is a [`ComponentId`].
