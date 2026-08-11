@@ -848,6 +848,23 @@ pub trait PersistenceService: Send + Sync {
         Ok(None)
     }
 
+    /// 查找与给定 routing fields 匹配的 migrating session。
+    ///
+    /// 用于 registry miss 路径：当 key_registry 未命中且活跃会话也不存在时，
+    /// 通过路由字段查询正在迁移中的会话，等待归档完成后恢复。
+    /// 当 `account_id` 为 `None` 时，匹配数据库中 `account_id IS NULL` 的记录。
+    ///
+    /// 返回匹配的 session_id，若无匹配返回 `Ok(None)`。
+    async fn find_migrating_session_by_routing(
+        &self,
+        _account_id: Option<&str>,
+        _channel: &str,
+        _sender_id: &str,
+        _peer_id: &str,
+    ) -> Result<Option<String>, PersistenceError> {
+        Ok(None)
+    }
+
     /// 查找与给定 routing fields 匹配的 archived session。
     ///
     /// 用于归档恢复路径：当 key_registry 未命中且活跃会话也不存在时，
