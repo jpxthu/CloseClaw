@@ -436,13 +436,15 @@ impl Gateway {
         // ── Restore notification for archived sessions ──────────────
         // Per design doc: when a session is restored from archived state,
         // send "正在恢复会话..." before processing continues.
-        if let Some(chat_id) = self
+        // When migrating, send the custom archiving notification instead.
+        if let Some((chat_id, custom_msg)) = self
             .session_manager
             .take_restore_notification(&session_id)
             .await
         {
+            let msg = custom_msg.as_deref().unwrap_or("正在恢复会话...");
             if let Err(e) = self
-                .send_outbound_simplified(&chat_id, channel, "正在恢复会话...")
+                .send_outbound_simplified(&chat_id, channel, msg)
                 .await
             {
                 tracing::warn!(
@@ -835,13 +837,14 @@ impl Gateway {
                     );
                 }
                 // Send restore notification through outbound chain (if any).
-                if let Some(chat_id) = self
+                if let Some((chat_id, custom_msg)) = self
                     .session_manager
                     .take_restore_notification(&session_id)
                     .await
                 {
+                    let msg = custom_msg.as_deref().unwrap_or("正在恢复会话...");
                     if let Err(e) = self
-                        .send_outbound_simplified(&chat_id, channel, "正在恢复会话...")
+                        .send_outbound_simplified(&chat_id, channel, msg)
                         .await
                     {
                         tracing::warn!(

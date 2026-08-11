@@ -104,10 +104,12 @@ pub struct SessionManager {
     config_snapshot: RwLock<Option<ConfigSnapshot>>,
     /// Shutdown handle for busy-count tracking during drain.
     shutdown_handle: RwLock<Option<Arc<ShutdownHandle>>>,
-    /// Pending restore notifications: session_id → chat_id.
-    /// Populated by `try_restore_archived_session_inner` when a session is restored,
-    /// consumed by `take_restore_notification` after Gateway sends it through the outbound chain.
-    pending_restore_notifications: RwLock<HashMap<String, String>>,
+    /// Pending restore notifications: session_id → (chat_id, Option<custom_message>).
+    /// Populated by `try_restore_archived_session_inner` (None → default message)
+    /// or by `resolve()` migrating path (Some("⏳ ...")) when a session needs
+    /// archiving notification before restore.
+    /// Consumed by `take_restore_notification` after Gateway sends the outbound message.
+    pending_restore_notifications: RwLock<HashMap<String, (String, Option<String>)>>,
     /// Pending workflow blocked notifications: session_id → notification message.
     /// Populated by `drain_workflow_notification` when a workflow enters blocked state,
     /// consumed by `take_workflow_notification` after Gateway sends it through the outbound chain.
@@ -267,14 +269,16 @@ impl SessionManager {
         // Store the notification chat_id for Gateway to send via outbound chain.
         if let Some(chat_id) = result.notification_chat_id {
             let mut pending = self.pending_restore_notifications.write().await;
-            pending.insert(session_id.to_string(), chat_id);
+            pending.insert(session_id.to_string(), (chat_id, None));
         }
         result.restored
     }
 
     /// Take the pending restore notification for a session.
-    /// Returns the chat_id if a restore notification is pending for this session.
-    pub async fn take_restore_notification(&self, session_id: &str) -> Option<String> {
+    /// Returns `(chat_id, Option<custom_message>)` if a restore notification
+    /// is pending. When `custom_message` is `None`, the caller uses the
+    /// default "正在恢复会话..." text; otherwise the custom message is used.
+    pub async fn take_restore_notification(&self, session_id: &str) -> Option<(String, Option<String>)> {
         let mut pending = self.pending_restore_notifications.write().await;
         pending.remove(session_id)
     }

@@ -70,25 +70,98 @@ impl SessionManager {
                 };
                 if let Some(ref cm) = cm_arc {
                     match cm.load(&session_id).await {
-                        Ok(Some(cp)) => {
-                            if cp.status == SessionStatus::Archived {
+                        Ok(Some(cp)) => match cp.status {
+                            SessionStatus::Active => {
+                                self.update_checkpoint_thread_id(
+                                    &session_id,
+                                    &message.thread_id,
+                                )
+                                .await;
+                                return Ok(session_id);
+                            }
+                            SessionStatus::Migrating => {
+                                // Per design doc: migrating session → wait for
+                                // archive completion → restore as archived.
+                                warn!(
+                                    session_id = %session_id,
+                                    routing_key = %routing_key,
+                                    status = %cp.status,
+                                    "session in registry is migrating, waiting for archive to complete"
+                                );
+                                // Inject archiving notification (consumed by Gateway
+                                // before this resolve returns).
+                                {
+                                    let mut pending =
+                                        self.pending_restore_notifications.write().await;
+                                    pending.insert(
+                                        session_id.clone(),
+                                        (
+                                            channel.to_string(),
+                                            Some(
+                                                "\u{23f3} \u{4f1a}\u{8bdd}\u{5f52}\u{6863}\u{4e2d}".to_string(),
+                                            ),
+                                        ),
+                                    );
+                                }
+                                // Bounded poll: wait up to 5 s for Sweeper to
+                                // transition status → Archived.
+                                let deadline = tokio::time::Instant::now()
+                                    + std::time::Duration::from_secs(5);
+                                let mut archived = false;
+                                loop {
+                                    tokio::time::sleep(std::time::Duration::from_millis(500))
+                                        .await;
+                                    match cm.load(&session_id).await {
+                                        Ok(Some(refreshed))
+                                            if refreshed.status == SessionStatus::Archived =>
+                                        {
+                                            archived = true;
+                                            break;
+                                        }
+                                        _ if tokio::time::Instant::now() >= deadline => {
+                                            break;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                if archived {
+                                    info!(
+                                        session_id = %session_id,
+                                        routing_key = %routing_key,
+                                        "migrating session finished archiving, restoring archived session"
+                                    );
+                                } else {
+                                    warn!(
+                                        session_id = %session_id,
+                                        routing_key = %routing_key,
+                                        "migrating session archive timed out after 5 s, falling through to create new session"
+                                    );
+                                }
+                                // Remove stale registry entry and in-memory session.
+                                {
+                                    let mut registry =
+                                        self.key_registry.write().await;
+                                    registry.remove(&routing_key);
+                                }
+                                self.remove_session(&session_id).await;
+                                // Fall through to Path 3.  If archived, the
+                                // archived check there will pick it up.
+                            }
+                            SessionStatus::Archived => {
                                 warn!(
                                     session_id = %session_id,
                                     routing_key = %routing_key,
                                     "session in registry is archived, removing stale entry"
                                 );
-                                let mut registry = self.key_registry.write().await;
+                                let mut registry =
+                                    self.key_registry.write().await;
                                 registry.remove(&routing_key);
                                 // Clean up sessions map and conversation_sessions map
                                 // to prevent stale entries from lingering.
                                 self.remove_session(&session_id).await;
                                 // Fall through to Path 3
-                            } else {
-                                self.update_checkpoint_thread_id(&session_id, &message.thread_id)
-                                    .await;
-                                return Ok(session_id);
                             }
-                        }
+                        },
                         Ok(None) => {
                             // No checkpoint on disk — treat as active (defensive)
                             self.update_checkpoint_thread_id(&session_id, &message.thread_id)
