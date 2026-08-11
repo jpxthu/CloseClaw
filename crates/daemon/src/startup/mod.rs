@@ -117,24 +117,24 @@ impl ComponentDeps for ComponentId {
             SkillsRegistry => &[ConfigManager],
             RenderersPlugins => &[ConfigManager],
             IMAdapters => &[RenderersPlugins, ConfigManager],
-            PermissionEngine => &[AgentRegistry],
+            PermissionEngine => &[ConfigManager],
             ToolsRegistry => &[SkillsRegistry],
             ArchiveSweeper => &[Storage, SessionConfigProvider],
             AnnounceSweeper => &[Storage, SessionConfigProvider],
             SkillWatcher => &[SkillsRegistry],
             ConfigHotReload => &[ConfigManager],
             DreamingScheduler => &[Storage, SessionConfigProvider],
-            SessionManager => &[Storage, AgentRegistry, SkillsRegistry, ToolsRegistry],
-            SystemPromptBuilder => &[AgentRegistry, SkillsRegistry],
+            SessionManager => &[Storage, AgentRegistry, SkillsRegistry, ToolsRegistry, SessionConfigProvider],
+            SystemPromptBuilder => &[AgentRegistry, SkillsRegistry, ToolsRegistry],
             ApprovalFlow => &[PermissionEngine, AgentRegistry],
-            Gateway => &[SessionManager, IMAdapters, PermissionEngine, ApprovalFlow],
-            SpawnController => &[AgentRegistry],
+            Gateway => &[SessionManager, IMAdapters, PermissionEngine, ApprovalFlow, RenderersPlugins],
+            SpawnController => &[AgentRegistry, ToolsRegistry],
             AdminRpcServer => &[Gateway],
         }
     }
 }
 
-/// Returns [`ComponentEntry`]s for all 19 daemon components.
+/// Returns [`ComponentEntry`]s for all 20 daemon components.
 ///
 /// Each entry bundles the component identity, its human-readable name,
 /// and the dependencies declared via [`ComponentDeps`].
