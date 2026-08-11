@@ -178,12 +178,7 @@ async fn test_resolve_miss_migrating_archive_completes() {
         &archived_id,
         1,
     ));
-    let mgr = SessionManager::new(
-        &test_config(),
-        Some(mock.clone()),
-        None,
-        Default::default(),
-    );
+    let mgr = SessionManager::new(&test_config(), Some(mock.clone()), None, Default::default());
 
     let msg = test_message();
     let routing_key = SessionManager::compute_routing_key("feishu", &msg, None);
@@ -233,12 +228,7 @@ async fn test_resolve_miss_migrating_timeout_creates_new() {
 
     // Never transitions to archived → poll times out.
     let mock = Arc::new(MigratingMissMock::new_timeout(&migrating_id));
-    let mgr = SessionManager::new(
-        &test_config(),
-        Some(mock.clone()),
-        None,
-        Default::default(),
-    );
+    let mgr = SessionManager::new(&test_config(), Some(mock.clone()), None, Default::default());
 
     let msg = test_message();
     let routing_key = SessionManager::compute_routing_key("feishu", &msg, None);
@@ -272,10 +262,7 @@ async fn test_resolve_miss_migrating_timeout_creates_new() {
     );
 
     // The new session should exist in memory
-    assert!(
-        mgr.has_session(&resolved).await,
-        "new session should exist"
-    );
+    assert!(mgr.has_session(&resolved).await, "new session should exist");
 }
 
 // ── Migrating/Archived query isolation ──────────────────────────────────────
@@ -283,21 +270,15 @@ async fn test_resolve_miss_migrating_timeout_creates_new() {
 /// Mock that stores separate migrating and archived sessions,
 /// enabling query isolation tests.
 struct QueryIsolationMock {
-    migrating_sessions:
-        std::sync::Mutex<std::collections::HashMap<String, SessionCheckpoint>>,
-    archived_sessions:
-        std::sync::Mutex<std::collections::HashMap<String, SessionCheckpoint>>,
+    migrating_sessions: std::sync::Mutex<std::collections::HashMap<String, SessionCheckpoint>>,
+    archived_sessions: std::sync::Mutex<std::collections::HashMap<String, SessionCheckpoint>>,
 }
 
 impl QueryIsolationMock {
     fn new() -> Self {
         Self {
-            migrating_sessions: std::sync::Mutex::new(
-                std::collections::HashMap::new(),
-            ),
-            archived_sessions: std::sync::Mutex::new(
-                std::collections::HashMap::new(),
-            ),
+            migrating_sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            archived_sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -420,11 +401,7 @@ async fn test_resolve_miss_migrating_query_only_returns_migrating() {
         .find_migrating_session_by_routing(None, "feishu", "user-a", "agent-b")
         .await
         .unwrap();
-    assert_eq!(
-        result,
-        Some(migrating_id),
-        "should find migrating session"
-    );
+    assert_eq!(result, Some(migrating_id), "should find migrating session");
 
     // find_archived_session_by_routing should NOT find the migrating session
     let result = mock
@@ -469,11 +446,7 @@ async fn test_resolve_miss_archived_query_only_returns_archived() {
         .find_archived_session_by_routing(None, "feishu", "user-a", "agent-b")
         .await
         .unwrap();
-    assert_eq!(
-        result,
-        Some(archived_id),
-        "should find archived session"
-    );
+    assert_eq!(result, Some(archived_id), "should find archived session");
 
     // find_migrating_session_by_routing should find only the migrating session
     let result = mock

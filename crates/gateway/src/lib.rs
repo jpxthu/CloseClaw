@@ -443,10 +443,7 @@ impl Gateway {
             .await
         {
             let msg = custom_msg.as_deref().unwrap_or("正在恢复会话...");
-            if let Err(e) = self
-                .send_outbound_simplified(&chat_id, channel, msg)
-                .await
-            {
+            if let Err(e) = self.send_outbound_simplified(&chat_id, channel, msg).await {
                 tracing::warn!(
                     session_id = %session_id,
                     chat_id = %chat_id,
@@ -843,10 +840,7 @@ impl Gateway {
                     .await
                 {
                     let msg = custom_msg.as_deref().unwrap_or("正在恢复会话...");
-                    if let Err(e) = self
-                        .send_outbound_simplified(&chat_id, channel, msg)
-                        .await
-                    {
+                    if let Err(e) = self.send_outbound_simplified(&chat_id, channel, msg).await {
                         tracing::warn!(
                             session_id = %session_id,
                             error = %e,
