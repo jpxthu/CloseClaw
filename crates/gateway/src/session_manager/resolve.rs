@@ -100,32 +100,16 @@ impl SessionManager {
                                         (
                                             channel.to_string(),
                                             Some(
-                                                "⏳ \u{4f1a}\u{8bdd}\u{5f52}\u{6863}\u{4e2d}".to_string(),
+                                                "⏳ \u{4f1a}\u{8bdd}\u{5f52}\u{6863}\u{4e2d}\u{2026}".to_string(),
                                             ),
                                         ),
                                     );
                                 }
-                                // Bounded poll: wait up to 5 s for Sweeper to
-                                // transition status → Archived.
-                                let deadline = tokio::time::Instant::now()
-                                    + std::time::Duration::from_secs(5);
-                                let mut archived = false;
-                                loop {
-                                    tokio::time::sleep(std::time::Duration::from_millis(500))
+                                // Wait for archive completion (bounded poll,
+                                // shared helper with registry miss path).
+                                let archived =
+                                    Self::wait_for_archive_completion(cm, &session_id)
                                         .await;
-                                    match cm.load(&session_id).await {
-                                        Ok(Some(refreshed))
-                                            if refreshed.status == SessionStatus::Archived =>
-                                        {
-                                            archived = true;
-                                            break;
-                                        }
-                                        _ if tokio::time::Instant::now() >= deadline => {
-                                            break;
-                                        }
-                                        _ => {}
-                                    }
-                                }
                                 if archived {
                                     info!(
                                         session_key = %session_key,
@@ -506,7 +490,7 @@ impl SessionManager {
                     (
                         channel.to_string(),
                         Some(
-                            "\u{23f3} \u{4f1a}\u{8bdd}\u{5f52}\u{6863}\u{4e2d}".to_string(),
+                            "\u{23f3} \u{4f1a}\u{8bdd}\u{5f52}\u{6863}\u{4e2d}\u{2026}".to_string(),
                         ),
                     ),
                 );
