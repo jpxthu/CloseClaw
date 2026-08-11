@@ -57,7 +57,7 @@ Agent 可以将子任务委托给子 Session，并行委托多个子 Session，�
 - Agent 可以终止子 Session，操作级联生效——被终止子 Session 的所有后代一并终止
 - 子 Session 完成后结果通过统一消息队列注入父 Session（带去重保护）。子 Session 完成通知与其他消息类型（用户消息、后台工具结果、系统通知）一视同仁，统一按 F10 的排队规则处理，Agent 不需要轮询
 - 当前 Session 及所有子 Session 可被终止，级联生效
-- 子 Session 超时后系统自动终止该子 Session（级联终止其所有后代），并向父 Session 注入超时通知。超时时间来源见 [agent §F7](agent.md)（子 Agent 创建）
+- 子 Session 运行时长超过设定的超时上限时，系统向父 Session 注入超时通知。通知内容包含：设定的超时时间、实际运行时长、token 用量。父 Agent 收到通知后自行决定：终止子 Session、继续等待、或向用户汇报。超时时间来源见 [agent §F7](agent.md)（子 Agent 创建）
 - 父 Session 每轮对话开始时，系统注入当前活跃子 Session 摘要：正在执行的子 Session 数量及每个子 Session 的概要信息（Agent 标识、任务简述、已运行时长）
 
 > **交叉引用**：子 Session 结果注入的排队规则详见 [F9](#f9-消息注入)（消息注入）。
