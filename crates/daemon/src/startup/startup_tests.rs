@@ -55,7 +55,7 @@ fn test_all_component_entries_deps_match_design_doc() {
         dep_map[&DreamingScheduler],
         vec![Storage, SessionConfigProvider]
     );
-    assert_eq!(dep_map[&SpawnController], vec![AgentRegistry, ToolsRegistry]);
+    assert_eq!(dep_map[&SpawnController], vec![AgentRegistry]);
 
     // Layer 3
     assert_eq!(
@@ -116,16 +116,17 @@ fn test_topo_sort_six_layers_match_design_doc() {
             DreamingScheduler,
             IMAdapters,
             SkillWatcher,
+            SpawnController,
             SystemPromptBuilder,
             ToolsRegistry,
         ],
         "Layer 3 mismatch"
     );
 
-    // Layer 4: SessionManager + SpawnController (depend on ToolsRegistry from Layer 3)
+    // Layer 4: SessionManager (depend on ToolsRegistry from Layer 3)
     assert_eq!(
         layers[3],
-        vec![SessionManager, SpawnController],
+        vec![SessionManager],
         "Layer 4 mismatch"
     );
 
@@ -309,8 +310,8 @@ fn test_spawn_controller_depends_on_agent_registry() {
 
     assert_eq!(
         dep_map[&SpawnController],
-        vec![AgentRegistry, ToolsRegistry],
-        "SpawnController must depend on AgentRegistry + ToolsRegistry per design doc Layer 4"
+        vec![AgentRegistry],
+        "SpawnController must depend on AgentRegistry per design doc"
     );
 }
 
@@ -328,18 +329,18 @@ fn test_admin_rpc_server_depends_on_gateway() {
     );
 }
 
-/// SpawnController must be in Layer 4 (Wiring phase), alongside SessionManager.
+/// SpawnController must be in Layer 3 (CoreServices phase).
 #[test]
-fn test_spawn_controller_in_wiring_layer() {
+fn test_spawn_controller_in_core_services_layer() {
     use ComponentId::*;
     let entries = all_component_entries();
     let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
 
-    // SpawnController is in Layer 4 (Wiring phase)
-    // Layer index 3 = fourth layer
+    // SpawnController is in Layer 3 (CoreServices phase)
+    // Layer index 2 = third layer
     assert!(
-        layers[3].contains(&SpawnController),
-        "SpawnController must be in Layer 4 (Wiring), got layers: {:?}",
+        layers[2].contains(&SpawnController),
+        "SpawnController must be in Layer 3 (CoreServices), got layers: {:?}",
         layers
             .iter()
             .enumerate()
@@ -423,12 +424,12 @@ fn test_validate_layers_catches_wrong_admin_rpc_server_layer() {
             DreamingScheduler,
             IMAdapters,
             SkillWatcher,
+            SpawnController,
             SystemPromptBuilder,
             ToolsRegistry,
         ],
         vec![
             SessionManager,
-            SpawnController,
             AdminRpcServer,
         ], // Wrong: AdminRpcServer here
         vec![Gateway],

@@ -128,7 +128,7 @@ impl ComponentDeps for ComponentId {
             SystemPromptBuilder => &[AgentRegistry, SkillsRegistry],
             ApprovalFlow => &[PermissionEngine, AgentRegistry],
             Gateway => &[SessionManager, IMAdapters, PermissionEngine, ApprovalFlow],
-            SpawnController => &[AgentRegistry, ToolsRegistry],
+            SpawnController => &[AgentRegistry],
             AdminRpcServer => &[Gateway],
         }
     }
@@ -291,13 +291,13 @@ pub enum StartupPhase {
     Foundation,
     /// AgentRegistry, SkillsRegistry, ToolsRegistry — depend on ConfigManager.
     Registries,
-    /// SessionManager, Gateway setup — depend on registries.
+    /// SpawnController, SystemPromptBuilder, IM plugins, shutdown coordinator — depend on registries.
     CoreServices,
-    /// SlashDispatcher, IM plugins, shutdown coordinator.
+    /// SessionManager — depend on CoreServices.
     Wiring,
     /// Gateway.
     Gateway,
-    /// SpawnController, AdminRpcServer — depend on Gateway.
+    /// AdminRpcServer — depend on Gateway.
     PostGateway,
 }
 
@@ -322,10 +322,11 @@ impl StartupPhase {
                 DreamingScheduler,
                 IMAdapters,
                 SkillWatcher,
+                SpawnController,
                 SystemPromptBuilder,
                 ToolsRegistry,
             ],
-            Self::Wiring => &[SessionManager, SpawnController],
+            Self::Wiring => &[SessionManager],
             Self::Gateway => &[Gateway],
             Self::PostGateway => &[AdminRpcServer],
         }
