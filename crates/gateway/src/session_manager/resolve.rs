@@ -100,7 +100,7 @@ impl SessionManager {
                                         (
                                             channel.to_string(),
                                             Some(
-                                                "⏳ \u{4f1a}\u{8bdd}\u{5f52}\u{6863}\u{4e2d}\u{2026}".to_string(),
+                                                "⏳ 会话归档中，稍后恢复…".to_string(),
                                             ),
                                         ),
                                     );
@@ -490,7 +490,7 @@ impl SessionManager {
                     (
                         channel.to_string(),
                         Some(
-                            "\u{23f3} \u{4f1a}\u{8bdd}\u{5f52}\u{6863}\u{4e2d}\u{2026}".to_string(),
+                            "⏳ 会话归档中，稍后恢复…".to_string(),
                         ),
                     ),
                 );
@@ -870,6 +870,13 @@ impl SessionManager {
         cm: &CheckpointManager<dyn PersistenceService>,
         session_id: &str,
     ) -> bool {
+        // Immediate check before first poll: if archive completed
+        // before we even start sleeping, return right away.
+        if let Ok(Some(cp)) = cm.load(session_id).await {
+            if cp.status == SessionStatus::Archived {
+                return true;
+            }
+        }
         let deadline = tokio::time::Instant::now()
             + std::time::Duration::from_secs(5);
         loop {
