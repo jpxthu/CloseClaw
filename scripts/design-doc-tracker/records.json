@@ -121,9 +121,9 @@
   },
   {
     "path": "docs/design/daemon/README.md",
-    "commit": "1eca8a5e7a19c494df8da908968e33f08f79ce66",
-    "commit_time": "2026-08-05T22:42:00+08:00",
-    "confirmed_time": "2026-08-05T22:57:22.364377+08:00",
+    "commit": "bbd45f4ecf893246fb895f22cc0fdc0bc265285d",
+    "commit_time": "2026-08-12T00:43:04+08:00",
+    "confirmed_time": "2026-08-12T00:57:32.640702+08:00",
     "comment": "",
     "blocked_reason": ""
   },
