@@ -170,6 +170,7 @@ session 空闲作为四维复合状态的典型代表，不在 session 模块集
 - 归档判定：由 F6 定义判定条件
 - Workflow 验收：由 [workflow §F3](workflow.md)（步骤引导执行）定义判定条件
 - 优雅关闭：由 [daemon §F2](daemon.md)（优雅关闭）定义判定条件
+- 斜杠指令路由：由 [gateway §F5](gateway.md)（斜杠指令拦截与分派）定义判定条件
 
 ## 关联设计文档
 
