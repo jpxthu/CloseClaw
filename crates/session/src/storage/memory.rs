@@ -183,6 +183,36 @@ impl PersistenceService for MemoryStorage {
         Ok(None)
     }
 
+    async fn find_migrating_session_by_routing(
+        &self,
+        account_id: Option<&str>,
+        channel: &str,
+        sender_id: &str,
+        peer_id: &str,
+    ) -> Result<Option<String>, PersistenceError> {
+        let migrating = self
+            .migrating
+            .read()
+            .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
+        for (id, cp) in migrating.iter() {
+            if cp.status != crate::persistence::SessionStatus::Migrating {
+                continue;
+            }
+            let cp_channel = cp.platform.as_deref().unwrap_or("");
+            let cp_sender = cp.sender_id.as_deref().unwrap_or("");
+            let cp_peer = cp.peer_id.as_deref().unwrap_or("");
+            let cp_account = cp.account_id.as_deref();
+            if cp_channel == channel
+                && cp_sender == sender_id
+                && cp_peer == peer_id
+                && cp_account == account_id
+            {
+                return Ok(Some(id.clone()));
+            }
+        }
+        Ok(None)
+    }
+
     async fn archive_checkpoint(
         &self,
         checkpoint: &SessionCheckpoint,

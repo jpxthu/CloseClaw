@@ -10,7 +10,8 @@ use crate::Message;
 use closeclaw_common::processor::ProcessError;
 use closeclaw_session::bootstrap::loader::BootstrapMode;
 use closeclaw_session::llm_session::ConversationSession;
-use closeclaw_session::persistence::{SessionCheckpoint, SessionStatus};
+use closeclaw_session::checkpoint_manager::CheckpointManager;
+use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint, SessionStatus};
 use closeclaw_session::run_health::TranscriptOp;
 use closeclaw_session::workspace;
 use std::path::PathBuf;
@@ -27,7 +28,7 @@ impl SessionManager {
     /// 3. key_registry miss → create new session → register → return session_id
     pub async fn resolve(
         &self,
-        _session_key: &str,
+        session_key: &str,
         channel: &str,
         message: &Message,
         account_id: Option<&str>,
@@ -70,25 +71,86 @@ impl SessionManager {
                 };
                 if let Some(ref cm) = cm_arc {
                     match cm.load(&session_id).await {
-                        Ok(Some(cp)) => {
-                            if cp.status == SessionStatus::Archived {
+                        Ok(Some(cp)) => match cp.status {
+                            SessionStatus::Active => {
+                                self.update_checkpoint_thread_id(
+                                    &session_id,
+                                    &message.thread_id,
+                                )
+                                .await;
+                                return Ok(session_id);
+                            }
+                            SessionStatus::Migrating => {
+                                // Per design doc: migrating session → wait for
+                                // archive completion → restore as archived.
                                 warn!(
+                                    session_key = %session_key,
+                                    session_id = %session_id,
+                                    routing_key = %routing_key,
+                                    status = %cp.status,
+                                    "session in registry is migrating, waiting for archive to complete"
+                                );
+                                // Inject archiving notification (consumed by Gateway
+                                // before this resolve returns).
+                                {
+                                    let mut pending =
+                                        self.pending_restore_notifications.write().await;
+                                    pending.insert(
+                                        session_id.clone(),
+                                        (
+                                            channel.to_string(),
+                                            Some(
+                                                "⏳ 会话归档中，稍后恢复…".to_string(),
+                                            ),
+                                        ),
+                                    );
+                                }
+                                // Wait for archive completion (bounded poll,
+                                // shared helper with registry miss path).
+                                let archived =
+                                    Self::wait_for_archive_completion(cm, &session_id)
+                                        .await;
+                                if archived {
+                                    info!(
+                                        session_key = %session_key,
+                                        session_id = %session_id,
+                                        routing_key = %routing_key,
+                                        "migrating session finished archiving, restoring archived session"
+                                    );
+                                } else {
+                                    warn!(
+                                        session_key = %session_key,
+                                        session_id = %session_id,
+                                        routing_key = %routing_key,
+                                        "migrating session archive timed out after 5 s, falling through to create new session"
+                                    );
+                                }
+                                // Remove stale registry entry and in-memory session.
+                                {
+                                    let mut registry =
+                                        self.key_registry.write().await;
+                                    registry.remove(&routing_key);
+                                }
+                                self.remove_session(&session_id).await;
+                                // Fall through to Path 3.  If archived, the
+                                // archived check there will pick it up.
+                            }
+                            SessionStatus::Archived => {
+                                warn!(
+                                    session_key = %session_key,
                                     session_id = %session_id,
                                     routing_key = %routing_key,
                                     "session in registry is archived, removing stale entry"
                                 );
-                                let mut registry = self.key_registry.write().await;
+                                let mut registry =
+                                    self.key_registry.write().await;
                                 registry.remove(&routing_key);
                                 // Clean up sessions map and conversation_sessions map
                                 // to prevent stale entries from lingering.
                                 self.remove_session(&session_id).await;
                                 // Fall through to Path 3
-                            } else {
-                                self.update_checkpoint_thread_id(&session_id, &message.thread_id)
-                                    .await;
-                                return Ok(session_id);
                             }
-                        }
+                        },
                         Ok(None) => {
                             // No checkpoint on disk — treat as active (defensive)
                             self.update_checkpoint_thread_id(&session_id, &message.thread_id)
@@ -97,7 +159,9 @@ impl SessionManager {
                         }
                         Err(e) => {
                             warn!(
+                                session_key = %session_key,
                                 session_id = %session_id,
+                                routing_key = %routing_key,
                                 error = %e,
                                 "failed to load checkpoint status, falling back to existing session"
                             );
@@ -248,7 +312,9 @@ impl SessionManager {
                                     cs.inject_tool_result(&tool_call_id, failure);
                                 }
                                 info!(
+                                    session_key = %session_key,
                                     session_id = %session_id,
+                                    routing_key = %routing_key,
                                     "injected recovery notification and {} tool failure(s)",
                                     cp.pending_tool_failures.len()
                                 );
@@ -275,7 +341,9 @@ impl SessionManager {
                         cp.thread_id = message.thread_id.clone();
                         if let Err(e) = cm.save_raw(&cp).await {
                             warn!(
+                                session_key = %session_key,
                                 session_id = %session_id,
+                                routing_key = %routing_key,
                                 error = %e,
                                 "failed to save checkpoint after restore"
                             );
@@ -318,6 +386,7 @@ impl SessionManager {
                 }
                 // Session not yet visible (concurrent creation in progress)
                 warn!(
+                    session_key = %session_key,
                     routing_key = %routing_key,
                     "session_key collision detected, sleeping 10ms and retrying"
                 );
@@ -377,11 +446,82 @@ impl SessionManager {
             self.update_checkpoint_thread_id(&existing_id, &message.thread_id)
                 .await;
             info!(
+                session_key = %session_key,
                 session_id = %existing_id,
                 routing_key = %routing_key,
                 "SQLite double-check: found existing active session, self-healed"
             );
             return Ok(existing_id);
+        }
+
+        // Migrating session check: if no active session found in SQLite,
+        // check for a migrating session and wait for archive completion
+        // before falling through to the archived check.
+        let migrating_check = {
+            let cm_guard = self.checkpoint_manager.read().await;
+            match cm_guard.as_ref() {
+                Some(cm) => cm
+                    .storage()
+                    .find_migrating_session_by_routing(
+                        account_id,
+                        channel,
+                        &message.from,
+                        &message.to,
+                    )
+                    .await
+                    .ok()
+                    .flatten(),
+                None => None,
+            }
+        };
+        if let Some(migrating_id) = migrating_check {
+            warn!(
+                session_key = %session_key,
+                session_id = %migrating_id,
+                routing_key = %routing_key,
+                "found migrating session in SQLite, waiting for archive"
+            );
+            // Inject archiving notification.
+            {
+                let mut pending =
+                    self.pending_restore_notifications.write().await;
+                pending.insert(
+                    migrating_id.clone(),
+                    (
+                        channel.to_string(),
+                        Some(
+                            "⏳ 会话归档中，稍后恢复…".to_string(),
+                        ),
+                    ),
+                );
+            }
+            // Bounded poll: wait for Sweeper to transition status.
+            let cm_arc = {
+                let guard = self.checkpoint_manager.read().await;
+                guard.as_ref().map(Arc::clone)
+            };
+            if let Some(ref cm) = cm_arc {
+                let archived =
+                    Self::wait_for_archive_completion(cm, &migrating_id)
+                        .await;
+                if archived {
+                    info!(
+                        session_key = %session_key,
+                        session_id = %migrating_id,
+                        routing_key = %routing_key,
+                        "migrating session finished archiving, falling through to archived restore"
+                    );
+                } else {
+                    warn!(
+                        session_key = %session_key,
+                        session_id = %migrating_id,
+                        routing_key = %routing_key,
+                        "migrating session archive timed out, creating new session"
+                    );
+                }
+            }
+            // Fall through to archived check; if archived, it will
+            // pick up the session.  If not, a new session is created.
         }
 
         // Archived session check: if no active session found in SQLite,
@@ -536,7 +676,9 @@ impl SessionManager {
                                     cs.inject_tool_result(&tool_call_id, failure);
                                 }
                                 info!(
+                                    session_key = %session_key,
                                     session_id = %archived_id,
+                                    routing_key = %routing_key,
                                     "injected recovery notification and {} tool failure(s)",
                                     cp.pending_tool_failures.len()
                                 );
@@ -563,7 +705,9 @@ impl SessionManager {
                         cp.thread_id = message.thread_id.clone();
                         if let Err(e) = cm.save_raw(&cp).await {
                             warn!(
+                                session_key = %session_key,
                                 session_id = %archived_id,
+                                routing_key = %routing_key,
                                 error = %e,
                                 "failed to save checkpoint after restore"
                             );
@@ -581,6 +725,7 @@ impl SessionManager {
                 self.update_checkpoint_thread_id(&archived_id, &message.thread_id)
                     .await;
                 info!(
+                    session_key = %session_key,
                     session_id = %archived_id,
                     routing_key = %routing_key,
                     "SQLite archived check: found and restored archived session"
@@ -695,14 +840,60 @@ impl SessionManager {
         if let Some(cm) = self.checkpoint_manager.read().await.as_ref() {
             if let Err(e) = cm.save_raw(&cp).await {
                 warn!(
+                    session_key = %session_key,
                     session_id = %session_id,
+                    routing_key = %routing_key,
                     error = %e,
                     "failed to save new session checkpoint"
                 );
             }
         }
 
+        info!(
+            session_key = %session_key,
+            session_id = %session_id,
+            routing_key = %routing_key,
+            "created new session"
+        );
+
         Ok(session_id)
+    }
+
+    /// Bounded poll: wait for a session's checkpoint status to become Archived.
+    ///
+    /// Polls `cm.load(session_id)` every 500 ms for up to 5 s.
+    /// Returns `true` if status reached `Archived`, `false` on timeout.
+    ///
+    /// Used by both registry-hit migrating handling (Step 1.1) and
+    /// registry-miss migrating handling (Step 1.4) to avoid code duplication.
+    async fn wait_for_archive_completion(
+        cm: &CheckpointManager<dyn PersistenceService>,
+        session_id: &str,
+    ) -> bool {
+        // Immediate check before first poll: if archive completed
+        // before we even start sleeping, return right away.
+        if let Ok(Some(cp)) = cm.load(session_id).await {
+            if cp.status == SessionStatus::Archived {
+                return true;
+            }
+        }
+        let deadline = tokio::time::Instant::now()
+            + std::time::Duration::from_secs(5);
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(500))
+                .await;
+            match cm.load(session_id).await {
+                Ok(Some(refreshed))
+                    if refreshed.status == SessionStatus::Archived =>
+                {
+                    return true;
+                }
+                _ if tokio::time::Instant::now() >= deadline => {
+                    return false;
+                }
+                _ => {}
+            }
+        }
     }
 
     /// Wire skill listing provider and agent-level skills whitelist
