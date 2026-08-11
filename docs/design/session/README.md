@@ -57,7 +57,8 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
   **session_key 与会话路由键**：
   - session_key = {timestamp_ms}-{hash}，算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session_key-算法)
   - session_key 是消息级标识，用于日志追踪。SessionManager 内部从消息路由字段中提取稳定的**会话路由键**（platform + sender_id + peer_id + account_id）用于 registry 查找——session_key 本身不直接参与路由
-  - 会话路由键是稳定的 lookup 键。同一会话路由键下可以有多个 session（`/new` 指令创建新 session 后覆盖映射）
+  - 会话路由键是稳定的 lookup 键。同一会话路由键下可以有多个 session（`/new` 指令创建新 session 后覆盖映射——仅映射表指针更新，旧 session 不删除，仍可通过 SQLite 查询到归档历史）。
+  - session_key 用于日志追踪，会话路由键用于 registry 查找，两者是不同概念、不同用途的键。
 
   **key registry 生命周期**：
   - 启动时：SessionManager 扫描所有 status=active 的 session，按会话路由键（platform + sender_id + peer_id + account_id）分组，取各会话路由键下 last_message_at 最大的 session_id 写入映射表。archived 和 migrating session 不加载。同时执行数据一致性校验（详见 [session-lifecycle.md](session-lifecycle.md) 数据一致性校验节）
@@ -109,12 +110,12 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
    - **查映射表**
    - **命中**：校验 session status：
      - active → 返回已有 session
-     - migrating → 等待 Sweeper 归档完成后 status 变为 archived → 从映射表移除该条目 → 查询 SQLite 取 last_message_at 最新的 archived session，按下方步骤 1-7 恢复。等待时通知用户「会话归档中，稍后恢复…」
-     - archived → 从映射表移除该条目 → 查询 SQLite 取 last_message_at 最新的 archived session，按下方步骤 1-7 恢复
+     - migrating → 等待 Sweeper 归档完成后 status 变为 archived → 从映射表移除该条目 → 查询 SQLite 取 last_message_at 最新的 archived session，按下方 recovery 步骤 1-7 恢复。等待时通知用户「会话归档中，稍后恢复…」
+     - archived → 从映射表移除该条目 → 查询 SQLite 取 last_message_at 最新的 archived session，按下方 recovery 步骤 1-7 恢复
    - **未命中**：通过会话路由键查询 SQLite
      - **查到 active**：直接注册到映射表（自愈：映射表因重启丢失但 SQLite 保有 active 记录）
      - **查到 migrating**：等待归档完成后 status 变为 archived → 按 archived 路径恢复。等待时通知用户「会话归档中，稍后恢复…」
-     - **查到 archived**：取 last_message_at 最新的一条，按以下步骤恢复（恢复流程细节见 [session-lifecycle.md](session-lifecycle.md) Archived → Active 恢复节）：
+     - **查到 archived**：取 last_message_at 最新的一条，按以下 recovery 步骤恢复：
        1. transcript 移回活跃区
        2. status 更新为 active
        3. 返回 SessionCheckpoint

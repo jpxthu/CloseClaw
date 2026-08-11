@@ -135,7 +135,7 @@ unhealthy
 
 ```
 1. 用户选择回滚（或系统自动触发）
-2. 创建 pre-rollback 快照：保留回滚前的现场（可 undo 回滚）
+2. 创建 pre-rollback 快照：保留回滚前的现场（回滚可撤销）
 3. 加载目标快照，用备份文件替换 transcript
 4. Transcript 恢复完成 -> session 回到 healthy
 ```
