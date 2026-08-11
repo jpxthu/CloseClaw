@@ -55,7 +55,10 @@ fn test_all_component_entries_deps_match_design_doc() {
         dep_map[&DreamingScheduler],
         vec![Storage, SessionConfigProvider]
     );
-    assert_eq!(dep_map[&SpawnController], vec![AgentRegistry, ToolsRegistry]);
+    assert_eq!(
+        dep_map[&SpawnController],
+        vec![AgentRegistry, ToolsRegistry]
+    );
 
     // Layer 4
     assert_eq!(
@@ -635,7 +638,11 @@ fn test_system_prompt_builder_deps_only_agent_and_skills() {
     let deps = &dep_map[&ComponentId::SystemPromptBuilder];
     assert_eq!(
         deps,
-        &vec![ComponentId::AgentRegistry, ComponentId::SkillsRegistry, ComponentId::ToolsRegistry],
+        &vec![
+            ComponentId::AgentRegistry,
+            ComponentId::SkillsRegistry,
+            ComponentId::ToolsRegistry
+        ],
         "SystemPromptBuilder must depend on [AgentRegistry, SkillsRegistry, ToolsRegistry]"
     );
 }
