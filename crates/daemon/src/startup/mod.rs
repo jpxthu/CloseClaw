@@ -117,24 +117,24 @@ impl ComponentDeps for ComponentId {
             SkillsRegistry => &[ConfigManager],
             RenderersPlugins => &[ConfigManager],
             IMAdapters => &[RenderersPlugins, ConfigManager],
-            PermissionEngine => &[AgentRegistry],
+            PermissionEngine => &[ConfigManager],
             ToolsRegistry => &[SkillsRegistry],
             ArchiveSweeper => &[Storage, SessionConfigProvider],
             AnnounceSweeper => &[Storage, SessionConfigProvider],
             SkillWatcher => &[SkillsRegistry],
             ConfigHotReload => &[ConfigManager],
             DreamingScheduler => &[Storage, SessionConfigProvider],
-            SessionManager => &[Storage, AgentRegistry, SkillsRegistry, ToolsRegistry],
-            SystemPromptBuilder => &[AgentRegistry, SkillsRegistry],
+            SessionManager => &[Storage, AgentRegistry, SkillsRegistry, ToolsRegistry, SessionConfigProvider],
+            SystemPromptBuilder => &[AgentRegistry, SkillsRegistry, ToolsRegistry],
             ApprovalFlow => &[PermissionEngine, AgentRegistry],
-            Gateway => &[SessionManager, IMAdapters, PermissionEngine, ApprovalFlow],
-            SpawnController => &[AgentRegistry],
+            Gateway => &[SessionManager, IMAdapters, PermissionEngine, ApprovalFlow, RenderersPlugins],
+            SpawnController => &[AgentRegistry, ToolsRegistry],
             AdminRpcServer => &[Gateway],
         }
     }
 }
 
-/// Returns [`ComponentEntry`]s for all 19 daemon components.
+/// Returns [`ComponentEntry`]s for all 20 daemon components.
 ///
 /// Each entry bundles the component identity, its human-readable name,
 /// and the dependencies declared via [`ComponentDeps`].
@@ -287,17 +287,20 @@ pub fn topo_sort_layers(entries: &[ComponentEntry]) -> Result<Vec<Vec<ComponentI
 /// ensures that all dependencies of a phase are satisfied by earlier phases.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StartupPhase {
-    /// ConfigManager, Storage — no dependencies.
+    /// ConfigManager, Storage — no dependencies (Layer 0).
     Foundation,
-    /// AgentRegistry, SkillsRegistry, ToolsRegistry — depend on ConfigManager.
+    /// AgentRegistry, ConfigHotReload, PermissionEngine, RenderersPlugins,
+    /// SessionConfigProvider, SkillsRegistry — depend on ConfigManager (Layer 1).
     Registries,
-    /// SessionManager, Gateway setup — depend on registries.
+    /// AnnounceSweeper, ApprovalFlow, ArchiveSweeper, DreamingScheduler,
+    /// IMAdapters, SkillWatcher, ToolsRegistry — depend on Layer 0-1 (Layer 2).
     CoreServices,
-    /// SlashDispatcher, IM plugins, shutdown coordinator.
+    /// SessionManager, SpawnController, SystemPromptBuilder — depend on
+    /// Layer 0-2 (Layer 3).
     Wiring,
-    /// ArchiveSweeper, DreamingScheduler, registry population, approval flow.
+    /// Gateway — depends on Layer 0-3 (Layer 4).
     BackgroundAndFinal,
-    /// SpawnController, AdminRpcServer — depend on Gateway.
+    /// AdminRpcServer — depends on Gateway (Layer 5).
     PostGateway,
 }
 
@@ -310,22 +313,21 @@ impl StartupPhase {
             Self::Registries => &[
                 AgentRegistry,
                 ConfigHotReload,
+                PermissionEngine,
                 RenderersPlugins,
                 SessionConfigProvider,
                 SkillsRegistry,
             ],
             Self::CoreServices => &[
-                ArchiveSweeper,
                 AnnounceSweeper,
+                ApprovalFlow,
+                ArchiveSweeper,
                 DreamingScheduler,
                 IMAdapters,
-                PermissionEngine,
                 SkillWatcher,
-                SpawnController,
-                SystemPromptBuilder,
                 ToolsRegistry,
             ],
-            Self::Wiring => &[ApprovalFlow, SessionManager],
+            Self::Wiring => &[SessionManager, SpawnController, SystemPromptBuilder],
             Self::BackgroundAndFinal => &[Gateway],
             Self::PostGateway => &[AdminRpcServer],
         }
