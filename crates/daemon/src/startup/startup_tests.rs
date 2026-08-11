@@ -34,12 +34,12 @@ fn test_all_component_entries_deps_match_design_doc() {
     // Layer 2: depend on ConfigManager only
     assert_eq!(dep_map[&SessionConfigProvider], vec![ConfigManager]);
     assert_eq!(dep_map[&AgentRegistry], vec![ConfigManager]);
+    assert_eq!(dep_map[&PermissionEngine], vec![ConfigManager]);
     assert_eq!(dep_map[&SkillsRegistry], vec![ConfigManager]);
     assert_eq!(dep_map[&RenderersPlugins], vec![ConfigManager]);
 
     // Layer 3
     assert_eq!(dep_map[&IMAdapters], vec![RenderersPlugins, ConfigManager]);
-    assert_eq!(dep_map[&PermissionEngine], vec![AgentRegistry]);
     assert_eq!(dep_map[&ToolsRegistry], vec![SkillsRegistry]);
     assert_eq!(
         dep_map[&ArchiveSweeper],
@@ -92,13 +92,13 @@ fn test_topo_sort_six_layers_match_design_doc() {
     // Layer 1: ConfigManager, Storage (alphabetical)
     assert_eq!(layers[0], vec![ConfigManager, Storage], "Layer 1 mismatch");
 
-    // Layer 2: ConfigHotReload depends only on ConfigManager (Layer 1),
-    // so Kahn's algorithm places it here, not Layer 3.
+    // Layer 2: depends only on ConfigManager (Layer 1)
     assert_eq!(
         layers[1],
         vec![
             AgentRegistry,
             ConfigHotReload,
+            PermissionEngine,
             RenderersPlugins,
             SessionConfigProvider,
             SkillsRegistry,
@@ -106,17 +106,15 @@ fn test_topo_sort_six_layers_match_design_doc() {
         "Layer 2 mismatch"
     );
 
-    // Layer 3: ArchiveSweeper, AnnounceSweeper, DreamingScheduler, IMAdapters,
-    //          PermissionEngine, SkillWatcher, SpawnController, SystemPromptBuilder,
-    //          ToolsRegistry
+    // Layer 3: all deps satisfied by Layer 2 (alphabetical)
     assert_eq!(
         layers[2],
         vec![
             AnnounceSweeper,
+            ApprovalFlow,
             ArchiveSweeper,
             DreamingScheduler,
             IMAdapters,
-            PermissionEngine,
             SkillWatcher,
             SpawnController,
             SystemPromptBuilder,
@@ -125,12 +123,8 @@ fn test_topo_sort_six_layers_match_design_doc() {
         "Layer 3 mismatch"
     );
 
-    // Layer 4: ApprovalFlow, SessionManager
-    assert_eq!(
-        layers[3],
-        vec![ApprovalFlow, SessionManager],
-        "Layer 4 mismatch"
-    );
+    // Layer 4: SessionManager (depends on ToolsRegistry from Layer 3)
+    assert_eq!(layers[3], vec![SessionManager], "Layer 4 mismatch");
 
     // Layer 5: Gateway
     assert_eq!(layers[4], vec![Gateway], "Layer 5 mismatch");
@@ -378,6 +372,7 @@ fn test_validate_layers_catches_wrong_spawn_controller_layer() {
         vec![
             AgentRegistry,
             ConfigHotReload,
+            PermissionEngine,
             RenderersPlugins,
             SessionConfigProvider,
             SkillsRegistry,
@@ -387,7 +382,6 @@ fn test_validate_layers_catches_wrong_spawn_controller_layer() {
             ArchiveSweeper,
             DreamingScheduler,
             IMAdapters,
-            PermissionEngine,
             SkillWatcher,
             ToolsRegistry,
         ],
@@ -411,6 +405,7 @@ fn test_validate_layers_catches_wrong_admin_rpc_server_layer() {
         vec![
             AgentRegistry,
             ConfigHotReload,
+            PermissionEngine,
             RenderersPlugins,
             SessionConfigProvider,
             SkillsRegistry,
@@ -420,7 +415,6 @@ fn test_validate_layers_catches_wrong_admin_rpc_server_layer() {
             ArchiveSweeper,
             DreamingScheduler,
             IMAdapters,
-            PermissionEngine,
             SkillWatcher,
             SpawnController,
             ToolsRegistry,
@@ -432,7 +426,6 @@ fn test_validate_layers_catches_wrong_admin_rpc_server_layer() {
             AdminRpcServer,
         ], // Wrong: AdminRpcServer here
         vec![Gateway],
-        vec![],
     ];
     let err = validate_startup_layers(&wrong_layers).unwrap_err();
     assert!(
@@ -604,9 +597,9 @@ fn test_validate_phase_components_with_system_prompt_builder() {
         phases[2].contains(&ComponentId::SystemPromptBuilder),
         "Phase 3 (CoreServices) must contain SystemPromptBuilder"
     );
-    // Phase 4 (index 3) = Wiring must NOT contain SystemPromptBuilder
+    // Phase 4 (index 3) = Gateway must NOT contain SystemPromptBuilder
     assert!(
         !phases[3].contains(&ComponentId::SystemPromptBuilder),
-        "Phase 4 (Wiring) must NOT contain SystemPromptBuilder"
+        "Phase 4 (Gateway) must NOT contain SystemPromptBuilder"
     );
 }

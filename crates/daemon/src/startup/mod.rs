@@ -117,7 +117,7 @@ impl ComponentDeps for ComponentId {
             SkillsRegistry => &[ConfigManager],
             RenderersPlugins => &[ConfigManager],
             IMAdapters => &[RenderersPlugins, ConfigManager],
-            PermissionEngine => &[AgentRegistry],
+            PermissionEngine => &[ConfigManager],
             ToolsRegistry => &[SkillsRegistry],
             ArchiveSweeper => &[Storage, SessionConfigProvider],
             AnnounceSweeper => &[Storage, SessionConfigProvider],
@@ -295,8 +295,8 @@ pub enum StartupPhase {
     CoreServices,
     /// SlashDispatcher, IM plugins, shutdown coordinator.
     Wiring,
-    /// ArchiveSweeper, DreamingScheduler, registry population, approval flow.
-    BackgroundAndFinal,
+    /// Gateway.
+    Gateway,
     /// SpawnController, AdminRpcServer — depend on Gateway.
     PostGateway,
 }
@@ -310,23 +310,24 @@ impl StartupPhase {
             Self::Registries => &[
                 AgentRegistry,
                 ConfigHotReload,
+                PermissionEngine,
                 RenderersPlugins,
                 SessionConfigProvider,
                 SkillsRegistry,
             ],
             Self::CoreServices => &[
-                ArchiveSweeper,
+                ApprovalFlow,
                 AnnounceSweeper,
+                ArchiveSweeper,
                 DreamingScheduler,
                 IMAdapters,
-                PermissionEngine,
                 SkillWatcher,
                 SpawnController,
                 SystemPromptBuilder,
                 ToolsRegistry,
             ],
-            Self::Wiring => &[ApprovalFlow, SessionManager],
-            Self::BackgroundAndFinal => &[Gateway],
+            Self::Wiring => &[SessionManager],
+            Self::Gateway => &[Gateway],
             Self::PostGateway => &[AdminRpcServer],
         }
     }
@@ -338,7 +339,7 @@ const STARTUP_PHASE_ORDER: &[StartupPhase] = &[
     StartupPhase::Registries,
     StartupPhase::CoreServices,
     StartupPhase::Wiring,
-    StartupPhase::BackgroundAndFinal,
+    StartupPhase::Gateway,
     StartupPhase::PostGateway,
 ];
 
