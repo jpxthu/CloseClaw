@@ -287,17 +287,20 @@ pub fn topo_sort_layers(entries: &[ComponentEntry]) -> Result<Vec<Vec<ComponentI
 /// ensures that all dependencies of a phase are satisfied by earlier phases.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StartupPhase {
-    /// ConfigManager, Storage — no dependencies.
+    /// ConfigManager, Storage — no dependencies (Layer 0).
     Foundation,
-    /// AgentRegistry, SkillsRegistry, ToolsRegistry — depend on ConfigManager.
+    /// AgentRegistry, ConfigHotReload, PermissionEngine, RenderersPlugins,
+    /// SessionConfigProvider, SkillsRegistry — depend on ConfigManager (Layer 1).
     Registries,
-    /// SessionManager, Gateway setup — depend on registries.
+    /// AnnounceSweeper, ApprovalFlow, ArchiveSweeper, DreamingScheduler,
+    /// IMAdapters, SkillWatcher, ToolsRegistry — depend on Layer 0-1 (Layer 2).
     CoreServices,
-    /// SlashDispatcher, IM plugins, shutdown coordinator.
+    /// SessionManager, SpawnController, SystemPromptBuilder — depend on
+    /// Layer 0-2 (Layer 3).
     Wiring,
-    /// ArchiveSweeper, DreamingScheduler, registry population, approval flow.
+    /// Gateway — depends on Layer 0-3 (Layer 4).
     BackgroundAndFinal,
-    /// SpawnController, AdminRpcServer — depend on Gateway.
+    /// AdminRpcServer — depends on Gateway (Layer 5).
     PostGateway,
 }
 
@@ -310,22 +313,21 @@ impl StartupPhase {
             Self::Registries => &[
                 AgentRegistry,
                 ConfigHotReload,
+                PermissionEngine,
                 RenderersPlugins,
                 SessionConfigProvider,
                 SkillsRegistry,
             ],
             Self::CoreServices => &[
-                ArchiveSweeper,
                 AnnounceSweeper,
+                ApprovalFlow,
+                ArchiveSweeper,
                 DreamingScheduler,
                 IMAdapters,
-                PermissionEngine,
                 SkillWatcher,
-                SpawnController,
-                SystemPromptBuilder,
                 ToolsRegistry,
             ],
-            Self::Wiring => &[ApprovalFlow, SessionManager],
+            Self::Wiring => &[SessionManager, SpawnController, SystemPromptBuilder],
             Self::BackgroundAndFinal => &[Gateway],
             Self::PostGateway => &[AdminRpcServer],
         }
