@@ -9,8 +9,8 @@ use super::SessionManager;
 use crate::Message;
 use closeclaw_common::processor::ProcessError;
 use closeclaw_session::bootstrap::loader::BootstrapMode;
-use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
+use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint, SessionStatus};
 use closeclaw_session::run_health::TranscriptOp;
 use closeclaw_session::workspace;
@@ -73,11 +73,8 @@ impl SessionManager {
                     match cm.load(&session_id).await {
                         Ok(Some(cp)) => match cp.status {
                             SessionStatus::Active => {
-                                self.update_checkpoint_thread_id(
-                                    &session_id,
-                                    &message.thread_id,
-                                )
-                                .await;
+                                self.update_checkpoint_thread_id(&session_id, &message.thread_id)
+                                    .await;
                                 return Ok(session_id);
                             }
                             SessionStatus::Migrating => {
@@ -99,17 +96,14 @@ impl SessionManager {
                                         session_id.clone(),
                                         (
                                             channel.to_string(),
-                                            Some(
-                                                "⏳ 会话归档中，稍后恢复…".to_string(),
-                                            ),
+                                            Some("⏳ 会话归档中，稍后恢复…".to_string()),
                                         ),
                                     );
                                 }
                                 // Wait for archive completion (bounded poll,
                                 // shared helper with registry miss path).
                                 let archived =
-                                    Self::wait_for_archive_completion(cm, &session_id)
-                                        .await;
+                                    Self::wait_for_archive_completion(cm, &session_id).await;
                                 if archived {
                                     info!(
                                         session_key = %session_key,
@@ -127,8 +121,7 @@ impl SessionManager {
                                 }
                                 // Remove stale registry entry and in-memory session.
                                 {
-                                    let mut registry =
-                                        self.key_registry.write().await;
+                                    let mut registry = self.key_registry.write().await;
                                     registry.remove(&routing_key);
                                 }
                                 self.remove_session(&session_id).await;
@@ -142,8 +135,7 @@ impl SessionManager {
                                     routing_key = %routing_key,
                                     "session in registry is archived, removing stale entry"
                                 );
-                                let mut registry =
-                                    self.key_registry.write().await;
+                                let mut registry = self.key_registry.write().await;
                                 registry.remove(&routing_key);
                                 // Clean up sessions map and conversation_sessions map
                                 // to prevent stale entries from lingering.
@@ -483,15 +475,12 @@ impl SessionManager {
             );
             // Inject archiving notification.
             {
-                let mut pending =
-                    self.pending_restore_notifications.write().await;
+                let mut pending = self.pending_restore_notifications.write().await;
                 pending.insert(
                     migrating_id.clone(),
                     (
                         channel.to_string(),
-                        Some(
-                            "⏳ 会话归档中，稍后恢复…".to_string(),
-                        ),
+                        Some("⏳ 会话归档中，稍后恢复…".to_string()),
                     ),
                 );
             }
@@ -501,9 +490,7 @@ impl SessionManager {
                 guard.as_ref().map(Arc::clone)
             };
             if let Some(ref cm) = cm_arc {
-                let archived =
-                    Self::wait_for_archive_completion(cm, &migrating_id)
-                        .await;
+                let archived = Self::wait_for_archive_completion(cm, &migrating_id).await;
                 if archived {
                     info!(
                         session_key = %session_key,
@@ -877,15 +864,11 @@ impl SessionManager {
                 return true;
             }
         }
-        let deadline = tokio::time::Instant::now()
-            + std::time::Duration::from_secs(5);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
-            tokio::time::sleep(std::time::Duration::from_millis(500))
-                .await;
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             match cm.load(session_id).await {
-                Ok(Some(refreshed))
-                    if refreshed.status == SessionStatus::Archived =>
-                {
+                Ok(Some(refreshed)) if refreshed.status == SessionStatus::Archived => {
                     return true;
                 }
                 _ if tokio::time::Instant::now() >= deadline => {
