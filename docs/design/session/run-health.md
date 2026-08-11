@@ -2,7 +2,7 @@
 
 ## 概述
 
-Run Health 和运行快照（Runtime Snapshot）构成 Session 执行层的运行时安全网——确保 session 的每一次 compact、LLM request、tool 调用、spawn 都不会静默失败。
+Run Health 和运行快照（Runtime Snapshot）构成 Session 执行层的运行时安全网——确保 session 的每一次 compact、LLM request、tool 调用、spawn 都不会静默失败。← 日志：健康检查与异常检测结果
 
 - **Run Health**：每次 turn 结束后，系统用硬规则和可选的质量门禁判定 session 当前是否健康。
 - **运行快照（Runtime Snapshot）**：对 transcript 的毁坏性操作前，创建可回滚的快照。检测到异常后，系统可回滚到上一个安全状态。与持久化层的 SessionCheckpoint（元数据 + transcript 持久化）是不同概念。
@@ -50,8 +50,7 @@ Session 层暴露一个携带操作类型声明的 transcript 修改通道，强
 
 ### 运行快照回滚方式
 
-- **增量场景**：transcript 为 append-only JSONL。快照记录当时的 leaf entry id。回滚时截断该 id 之后的全部行。
-- **改写场景**：compaction 或 `/system` 重写了 transcript 文件。快照保留改写前的完整文件副本。回滚时用副本覆盖当前文件。
+快照保留改写前的完整 transcript 文件副本。回滚时用副本覆盖当前文件。
 
 ### Hook 审查
 
@@ -72,13 +71,16 @@ Hook 是可选的轻量 LLM 质量门禁，按 agent 配置选择性启用：
 
 ### Spawn 静默失败防护
 
-子 agent spawn 场景有特殊的静默失败风险：子 agent 可能已完成但 announce 未成功投递、父 agent 可能未正确 yield 而继续空转。系统用三层防护应对：
+子 agent spawn 场景有特殊的静默失败风险：子 agent 可能已完成但完成通知未成功投递、可能长时间挂起无产出。系统用三层防护应对：
 
-**第一层：即时检测**。父 agent spawn 子 agent 后如果下一个 turn 没有调用 sessions_yield 而是继续做其他操作，系统注入提醒：「你有 N 个子 agent 仍在运行，建议 yield 等待结果」。这一层在 turn 边界触发，几乎零延迟。
+**第一层：即时检测**。父 agent spawn 子 agent 后，每轮对话开始时系统注入当前活跃子 Session 摘要（详见 [session/README.md](README.md) Session 运行时）。父 agent 可据此判断子 agent 是否仍在执行中，是否继续等待。
 
-**第二层：定时巡检**。Run Health 模块内置 AnnounceSweeper，每 60 秒扫描所有活跃子 agent session。扫描逻辑：检查子 agent session 是否已结束——session 结束的判定标准是三维执行状态全部归零（LLM 状态 Idle、无前台工具、无后台工具、子孙 session 全部完成），与 session-execution.md 的整体状态判定一致。
+**第二层：定时巡检**。Run Health 模块内置 AnnounceSweeper，定时扫描所有活跃子 agent session，执行两类检查：
 
-AnnounceSweeper 只负责投递，不判断任务质量：session 结束即产生 announce，Sweeper 确保它送达父 session。子 agent 任务是否满意、是否需要重试——由父 agent 收到 announce 后自主决策。这一层兜底第一层遗漏的投递失败。与 session-lifecycle 的 ArchiveSweeper（负责归档/清理，可配置间隔）是独立组件。
+- **补推**：子 agent 已结束（四维执行状态全部归零且已产出最终 assistant 消息）但完成通知未成功送达父 Session → 补推完成通知。若父 Session 已归档则跳过。
+- **僵死检测**：子 agent 未结束且超过五分钟无新产出（无新 assistant 消息、无工具执行结果变化）→ 判定为僵死，自动终止该子 agent（级联终止其所有后代），向父 Session 注入僵死通知。若父 Session 已归档则跳过。
+
+与 session-lifecycle 的 ArchiveSweeper（负责归档/清理，可配置间隔）是独立组件。
 
 **第三层：启动恢复**。系统重启后扫描 pending_operations 中未完成的操作（spawn、工具调用、出站消息）。出站消息自动重投递；其余操作注入恢复通知，由 Agent 自行决策处理。详细机制见 session-recovery.md。这一层兜底进程崩溃导致的状态丢失。
 
@@ -170,8 +172,7 @@ transcript 恢复完成 → session 回到 healthy
 |------|---------|
 | Session 执行循环 | 每次 turn 结束后触发 hard rule 检测和 hook 审查 |
 | Compaction 流程 | 压缩前触发运行快照创建；压缩异常触发 unhealthy |
-| Slash Command | `/system` 指令触发运行快照创建 |
-| Gateway | 外部用户中断（`/stop`）可能触发运行快照保存 |
+| Slash Command | `/system` 指令触发运行快照创建；`/stop` 指令可能触发运行快照保存 |
 
 ### 下游
 
