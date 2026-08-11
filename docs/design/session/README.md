@@ -28,33 +28,29 @@ Session 模块是 CloseClaw 的运行时载体，管理 session 的全生命周�
 Session 模块由持久化层和执行层两部分组成：
 
 ```
-Gateway / SessionManager  ← session 生命周期协调者
-    │                     ← 日志：会话创建/查找/归档恢复
-    ├── 会话路由键 → session_id 映射表  ← 路由到最近活跃 session
-    │
-    ├── 持久化层
-    │   ├── CheckpointManager  ← 持久化协调（内存缓存 + PersistenceService）
-    │   │       │
-    │   │       └── SqliteStorage  ← SQLite 元数据 + JSONL transcript 文件
-    │   │
-    │   └── ArchiveSweeper  ← 后台定时任务（idle 归档 + 过期清理）
-    │
-    └── 执行层
-        ├── ConversationSession  ← 运行时对话状态（system_prompt + messages）
-        │       │                ← 日志：对话轮次追加/活跃维度变化
-        │       │                ← 日志：健康检查与异常检测结果
-        │       ├── llm_state     ← 当前 LLM 交互状态（Idle / Requesting / Receiving）
-        │       ├── tool_handles  ← 活跃工具进程句柄（前台 + 后台）
-        │       ├── child_handles ← 子 Session 句柄（spawn 时注册）
-        │       │                  ← 日志：子 Session 创建/完成
-        │       └── 级联停止
-        │       ├── 停子 Session（递归）
-        │       ├── 杀工具进程
-        │       └── cancel LLM 请求
-        │
-        └── 消息队列 ← 后台结果注入（优先级 now / next / later）
-                      ← 日志：消息注入事件（后台结果 + 记忆注入）
+Gateway / SessionManager  -- lifecycle coordinator
+  <- 日志：会话创建/查找/归档恢复
+
+  Persistent Layer
+    CheckpointManager  -- coordinates checkpoint read/write cache + persistence
+      SqliteStorage  -- SQLite metadata + JSONL transcript files
+    ArchiveSweeper  -- background timer: idle archive + expired cleanup
+
+  Execution Layer
+    ConversationSession  -- runtime state (system_prompt + messages)
+      <- 日志：对话轮次追加/活跃维度变化
+      <- 日志：健康检查与异常检测结果
+      llm_state  -- Idle / Requesting / Receiving
+      tool_handles  -- foreground + background tool handles
+      child_handles  -- child Session handles (registered on spawn)
+      <- 日志：子 Session 创建/完成
+    Message Queue  -- priority now > next > later
+      <- 日志：消息注入事件（后台结果 + 记忆注入）
 ```
+
+SessionManager 维护会话路由键 -> session_id 映射表，路由到最近活跃 session。
+
+级联停止由 ConversationSession 触发：递归停止所有子 Session -> 杀死工具进程 -> cancel LLM 请求。
 
 - **SessionManager**：session 的生命周期协调者，位于持久化层和执行层之上。维护会话路由键 → session_id 映射表，协调各组件的 session 创建、查找、恢复。session_id 格式为 `{agent_id}_{timestamp}_{random_suffix}`，其中 timestamp 精确到秒（`YYYYMMDDhhmmss`），random_suffix 为 8 位小写 hex 随机字符串。
 
@@ -66,7 +62,7 @@ Gateway / SessionManager  ← session 生命周期协调者
   **key registry 生命周期**：
   - 启动时：SessionManager 扫描所有 status=active 的 session，按会话路由键（platform + sender_id + peer_id + account_id）分组，取各会话路由键下 last_message_at 最大的 session_id 写入映射表。archived 和 migrating session 不加载。同时执行数据一致性校验（详见 [session-lifecycle.md](session-lifecycle.md) 数据一致性校验节）
   - 运行时：SessionManager 收到会话解析请求，从消息路由字段中提取会话路由键，查映射表获取已有 session
-    - 命中 → 校验 session status 仍为 active
+    - 命中 → 校验 session status：
       - active → 返回已有 session
       - migrating → 等待 Sweeper 归档完成后 status 变为 archived → 从映射表移除该条目 → 走未命中回退路径（SQLite 查得 archived → 恢复）。等待时通知用户「会话归档中，稍后恢复…」
       - archived → 从映射表移除该条目 → 走未命中回退路径
@@ -111,7 +107,7 @@ Gateway / SessionManager  ← session 生命周期协调者
 2. Gateway 提取 metadata 中的会话路由字段（platform / sender_id / peer_id / account_id）传递给 SessionManager，由 SessionManager 内部提取稳定的会话路由键
 3. SessionManager 查找或创建 session（per agent_id 串行）← 日志：会话创建/查找/归档恢复
    - **查映射表**
-   - **命中**：校验 session status 仍为 active
+   - **命中**：校验 session status：
      - active → 返回已有 session
      - migrating → 等待 Sweeper 归档完成后 status 变为 archived → 从映射表移除该条目，走未命中路径（SQLite 查得 archived → 恢复）。等待时通知用户「会话归档中，稍后恢复…」
      - archived → 从映射表移除该条目，走未命中路径

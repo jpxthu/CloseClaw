@@ -11,21 +11,18 @@ Run Health 和运行快照（Runtime Snapshot）构成 Session 执行层的运�
 
 ## 架构
 
-Run Health 和运行快照（Runtime Snapshot）嵌入 session 执行循环，在 turn 边界工作：
+Session 执行循环嵌入 health check：
 
-```
-Session turn 执行
-  ↓
-[硬规则检测]  ← 超时、空响应、结构异常、重试耗尽
-  ↓
-[可选 Hook 审查]  ← 按 agent 配置挂载的轻量 LLM 质量门禁
-  ↓
-判决：healthy / unhealthy
-  ↓
-unhealthy → 按失败类别处理（退避重试 / 通知用户）
+1. Session turn 执行
+2. 硬规则检测（超时、空响应、结构异常、重试耗尽）
+   - 命中 -> unhealthy，按失败类别处理
+   - 通过 -> 继续步骤 3
+3. 可选 Hook 审查（按 agent 配置挂载 0-N 个轻量 LLM 质量门禁）
+   - 无 hook 配置 -> healthy
+   - 有 hook -> 并行调用 -> 任一标记异常 -> unhealthy，全部通过 -> healthy
+4. unhealthy 分流处理（退避重试、retry instruction、通知用户，详见失败类别与处理）
 
-重试成功后的「重新发起 LLM 调用」指回到当前 turn 的 LLM 请求阶段——复用同一上下文重新发送请求，不回到用户输入步骤。
-```
+重试成功后重新发起 LLM 调用：回到当前 turn 的 LLM 请求阶段，复用同一上下文重新发送，不回到用户输入步骤。
 
 核心组件：
 
@@ -99,69 +96,48 @@ unhealthy 不细分状态名，处理方式由失败类别决定：
 ### Turn 边界健康检测
 
 ```
-用户输入 → LLM 调用 → 解析响应 → 执行工具 → 更新 transcript
-                                                      ↓
-                                             [turn 结束]
-                                                      ↓
-                                          硬规则检测 ──→ 命中？ → unhealthy → 按类别处理
-                                              │
-                                              ↓ 通过
-                                          有 hook 配置？
-                                              │
-                                       ┌──────┴──────┐
-                                       │ 无           │ 有
-                                       ↓              ↓
-                                    healthy      [并行调用 hook]
-                                                    ↓
-                                         任一 hook flag？
-                                          │         │
-                                         是         否
-                                          ↓         ↓
-                                      unhealthy  healthy
+1. 用户输入 -> LLM 调用 -> 解析响应 -> 执行工具 -> 更新 transcript -> [turn 结束]
+2. 硬规则检测：超时、空响应、结构异常、重试耗尽
+   - 命中 -> unhealthy -> 按失败类别处理（见下）
+   - 通过 -> 继续步骤 3
+3. 检查 hook 配置
+   - 无 hook -> healthy
+   - 有 hook -> 并行调用各 hook
+     - 任一 hook 标记异常 -> unhealthy
+     - 全部通过 -> healthy
 ```
 
 不健康时的处理分流：
 
 ```
 unhealthy
-  ├─ 可重试 → 退避计数器递增 → 重试
-  │   ├─ 重试成功 → healthy → 重新发起 LLM 调用（重走硬规则+Hook 检测形成闭环）
-  │   └─ 耗尽 → 通知用户 → 停止
-  │
-  ├─ 响应无效 → retry instruction 注入 → 重试
-  │   ├─ 重试成功 → healthy → 重新发起 LLM 调用（重走硬规则+Hook 检测形成闭环）
-  │   └─ 耗尽 → 通知用户 → 停止
-  │
-  └─ 不可重试 → 通知用户（含原因）→ 停止
+  - 可重试 -> 退避计数器递增 -> 重试
+    - 重试成功 -> healthy -> 重新发起 LLM 调用（重走硬规则+Hook 检测形成闭环）
+    - 耗尽 -> 通知用户 -> 停止
+  - 响应无效 -> retry instruction 注入 -> 重试
+    - 重试成功 -> healthy -> 重新发起 LLM 调用（重走硬规则+Hook 检测形成闭环）
+    - 耗尽 -> 通知用户 -> 停止
+  - 不可重试 -> 通知用户（含原因）-> 停止
 ```
 
 ### 运行快照创建与回滚
 
 ```
-毁坏性操作触发（compact、/system、回滚本身）
-  ↓
-[创建快照]：copy transcript / 记录 leaf id → 标记触发原因和时间
-  ↓
-执行操作
-  ↓
-操作成功 → 快照标记为 complete
-操作失败 → 系统检测到 unhealthy → 可回滚到快照恢复 transcript
-  ↓
-可选操作：load 快照 → 原子性替换 transcript → 记录回滚 audit
+1. 毁坏性操作触发（compact、/system、回滚本身）
+2. 创建快照：保存 transcript 文件副本，标记触发原因和时间
+3. 执行操作
+   - 操作成功 -> 快照标记为 complete
+   - 操作失败 -> 系统检测到异常 -> 可回滚到快照恢复 transcript
+4. 可选操作：加载快照 -> 替换 transcript -> 记录回滚 audit
 ```
 
 ### 回滚流程
 
 ```
-用户选择回滚（或系统自动触发）
-  ↓
-[创建 pre-rollback 快照]：保留回滚前的现场（可 undo 回滚）
-  ↓
-加载目标快照
-  ├─ 增量快照 → 截断 transcript 到快照 leaf id
-  └─ 改写快照 → 用备份文件替换 transcript
-  ↓
-transcript 恢复完成 → session 回到 healthy
+1. 用户选择回滚（或系统自动触发）
+2. 创建 pre-rollback 快照：保留回滚前的现场（可 undo 回滚）
+3. 加载目标快照，用备份文件替换 transcript
+4. Transcript 恢复完成 -> session 回到 healthy
 ```
 
 ## 模块关系
