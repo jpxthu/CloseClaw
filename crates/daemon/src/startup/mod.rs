@@ -117,7 +117,7 @@ impl ComponentDeps for ComponentId {
             SkillsRegistry => &[ConfigManager],
             RenderersPlugins => &[ConfigManager],
             IMAdapters => &[RenderersPlugins, ConfigManager],
-            PermissionEngine => &[ConfigManager],
+            PermissionEngine => &[AgentRegistry],
             ToolsRegistry => &[SkillsRegistry],
             ArchiveSweeper => &[Storage, SessionConfigProvider],
             AnnounceSweeper => &[Storage, SessionConfigProvider],
@@ -125,16 +125,10 @@ impl ComponentDeps for ComponentId {
             ConfigHotReload => &[ConfigManager],
             DreamingScheduler => &[Storage, SessionConfigProvider],
             SessionManager => &[Storage, AgentRegistry, SkillsRegistry, ToolsRegistry],
-            SystemPromptBuilder => &[AgentRegistry, SkillsRegistry, ToolsRegistry],
+            SystemPromptBuilder => &[AgentRegistry, SkillsRegistry],
             ApprovalFlow => &[PermissionEngine, AgentRegistry],
-            Gateway => &[
-                SessionManager,
-                IMAdapters,
-                PermissionEngine,
-                ApprovalFlow,
-                RenderersPlugins,
-            ],
-            SpawnController => &[AgentRegistry, ToolsRegistry],
+            Gateway => &[SessionManager, IMAdapters, PermissionEngine, ApprovalFlow],
+            SpawnController => &[AgentRegistry],
             AdminRpcServer => &[Gateway],
         }
     }
@@ -297,13 +291,13 @@ pub enum StartupPhase {
     Foundation,
     /// AgentRegistry, SkillsRegistry, ToolsRegistry — depend on ConfigManager.
     Registries,
-    /// SpawnController, SystemPromptBuilder, IM plugins, shutdown coordinator — depend on registries.
+    /// SessionManager, Gateway setup — depend on registries.
     CoreServices,
-    /// SessionManager — depend on CoreServices.
+    /// SlashDispatcher, IM plugins, shutdown coordinator.
     Wiring,
-    /// Gateway.
-    Gateway,
-    /// AdminRpcServer — depend on Gateway.
+    /// ArchiveSweeper, DreamingScheduler, registry population, approval flow.
+    BackgroundAndFinal,
+    /// SpawnController, AdminRpcServer — depend on Gateway.
     PostGateway,
 }
 
@@ -316,22 +310,23 @@ impl StartupPhase {
             Self::Registries => &[
                 AgentRegistry,
                 ConfigHotReload,
-                PermissionEngine,
                 RenderersPlugins,
                 SessionConfigProvider,
                 SkillsRegistry,
             ],
             Self::CoreServices => &[
-                ApprovalFlow,
-                AnnounceSweeper,
                 ArchiveSweeper,
+                AnnounceSweeper,
                 DreamingScheduler,
                 IMAdapters,
+                PermissionEngine,
                 SkillWatcher,
+                SpawnController,
+                SystemPromptBuilder,
                 ToolsRegistry,
             ],
-            Self::Wiring => &[SessionManager, SpawnController, SystemPromptBuilder],
-            Self::Gateway => &[Gateway],
+            Self::Wiring => &[ApprovalFlow, SessionManager],
+            Self::BackgroundAndFinal => &[Gateway],
             Self::PostGateway => &[AdminRpcServer],
         }
     }
@@ -343,7 +338,7 @@ const STARTUP_PHASE_ORDER: &[StartupPhase] = &[
     StartupPhase::Registries,
     StartupPhase::CoreServices,
     StartupPhase::Wiring,
-    StartupPhase::Gateway,
+    StartupPhase::BackgroundAndFinal,
     StartupPhase::PostGateway,
 ];
 

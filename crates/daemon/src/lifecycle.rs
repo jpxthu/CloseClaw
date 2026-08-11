@@ -66,8 +66,6 @@ impl Daemon {
             announce_sweeper_handle,
             dreaming_handle,
             plan_archive_handle,
-            spawn_controller,
-            system_prompt_builder,
         ) = Self::init_phase_5_background(
             Phase5Deps {
                 config_manager: &config_manager,
@@ -123,8 +121,6 @@ impl Daemon {
             slash_registry,
             _skill_watcher: skill_watcher,
             _config_watcher: config_watcher,
-            spawn_controller,
-            system_prompt_builder,
             approval_flow,
             admin_handle: Some(admin_handle),
             admin_socket_path: admin_sock_path,
