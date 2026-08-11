@@ -839,6 +839,8 @@ mod resolve_checkpoint_status_tests;
 #[cfg(test)]
 mod resolve_registry_tests;
 #[cfg(test)]
+mod resolve_registry_migrating_tests;
+#[cfg(test)]
 mod resolve_tests;
 #[cfg(test)]
 mod self_heal_tests;
