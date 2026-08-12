@@ -67,9 +67,9 @@
     "path": "docs/design/cli/renderer.md",
     "commit": "9be8aa06cbdd8e228e75cf2351098bb08ad72ac9",
     "commit_time": "2026-07-29T22:01:59+08:00",
-    "confirmed_time": "2026-07-29T22:12:35.781927+08:00",
+    "confirmed_time": "2026-08-13T02:50:11.869138+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "文档'Text 块 — 普通文本'章节将'列表'列为应转 ANSI 样式的 markdown 标记类型之一，但冒号后的转换规则枚举中遗漏了列表的具体转换方式（未说明列表应转为哪种 ANSI 样式或格式）。文档内部描述不完整，构成内部矛盾。"
   },
   {
     "path": "docs/design/common/README.md",
