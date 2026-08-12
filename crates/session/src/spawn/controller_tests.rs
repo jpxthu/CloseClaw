@@ -307,7 +307,7 @@ async fn test_timeout_from_target_agent_config() {
     assert_eq!(result.spawn_timeout, Some(60));
 }
 
-/// Target agent has no timeout → falls back to global default (300s).
+/// Target agent has no timeout → falls back to global default (172800s = 48h).
 #[tokio::test]
 async fn test_timeout_global_default_when_target_has_no_config() {
     let parent_sub = SubagentsConfig {
@@ -332,7 +332,7 @@ async fn test_timeout_global_default_when_target_has_no_config() {
     let controller = make_controller(config_manager, context);
     let result = controller.validate("session-1", Some("child-agent")).await;
     let result = result.expect("validate should succeed");
-    assert_eq!(result.spawn_timeout, Some(300));
+    assert_eq!(result.spawn_timeout, Some(172800));
 }
 
 /// Target agent timeout=0 → passthrough as Some(0).
