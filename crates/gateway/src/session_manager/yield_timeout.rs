@@ -78,11 +78,16 @@ impl SessionManager {
         };
         if let Some(warning_secs) = effective_warning {
             self.spawn_cyclic_warning(
-                session_id, agent_id, overall_timeout_secs,
-                warning_secs, notify_interval_ratio,
-            ).await;
+                session_id,
+                agent_id,
+                overall_timeout_secs,
+                warning_secs,
+                notify_interval_ratio,
+            )
+            .await;
         } else {
-            self.spawn_legacy_warning(session_id, agent_id, overall_timeout_secs).await;
+            self.spawn_legacy_warning(session_id, agent_id, overall_timeout_secs)
+                .await;
         }
 
         // Spawn hard timeout timer (warning handles cleaned up by
@@ -182,12 +187,12 @@ impl SessionManager {
             let mut elapsed = warning_secs;
             loop {
                 sm.handle_yield_warning(
-                        &session_id_owned,
-                        &agent_id_owned,
-                        elapsed,
-                        overall_timeout_secs,
-                    )
-                    .await;
+                    &session_id_owned,
+                    &agent_id_owned,
+                    elapsed,
+                    overall_timeout_secs,
+                )
+                .await;
                 elapsed = elapsed.saturating_add(interval_secs);
                 if elapsed >= overall_timeout_secs {
                     break;
@@ -238,12 +243,12 @@ impl SessionManager {
         let handle = tokio::spawn(async move {
             tokio::time::sleep(warning_duration).await;
             sm.handle_yield_warning(
-                    &session_id_owned,
-                    &agent_id_owned,
-                    warning_secs,
-                    overall_timeout_secs,
-                )
-                .await;
+                &session_id_owned,
+                &agent_id_owned,
+                warning_secs,
+                overall_timeout_secs,
+            )
+            .await;
         });
         self.yield_warning_handles
             .write()
@@ -318,7 +323,9 @@ impl SessionManager {
             return;
         };
 
-        let child_summaries = self.build_child_summaries(session_id, &child_states_map).await;
+        let child_summaries = self
+            .build_child_summaries(session_id, &child_states_map)
+            .await;
 
         // 2. Push structured timeout notification.
         if let Some(cs) = &parent_cs {
