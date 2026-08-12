@@ -212,7 +212,7 @@ pub(crate) fn start_inbound_consumer(
 
 /// Reply text sent when the inbound queue is at capacity.
 const BUSY_REPLY_TEXT: &str =
-    "\u{274C} \u{670D}\u{52A1}\u{7E41}\u{5FD9}\u{FF0C}\u{8BF7}\u{7A0D}\u{540E}\u{91CD}\u{8BD5}";
+    "\u{670D}\u{52A1}\u{7E41}\u{5FD9}\u{FF0C}\u{8BF7}\u{7A0D}\u{540E}\u{91CD}\u{8BD5}";
 
 /// Try to enqueue an inbound request into the gateway's bounded queue.
 ///
