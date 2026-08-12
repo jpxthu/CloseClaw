@@ -38,7 +38,8 @@ fn test_compact_config_parsed_when_present() {
             "warningThresholdPct": 0.15,
             "maxConsecutiveFailures": 5
         }
-    }"#.to_string();
+    }"#
+    .to_string();
     let (_temp, path) = write_temp_json(&json);
 
     let provider = JsonSessionConfigProvider::new(&path).unwrap();
@@ -69,7 +70,8 @@ fn test_compact_config_backward_compat_old_buffer_tokens() {
             "autoCompactBufferTokens": 15000,
             "maxConsecutiveFailures": 5
         }
-    }"#.to_string();
+    }"#
+    .to_string();
     let (_temp, path) = write_temp_json(&json);
 
     let provider = JsonSessionConfigProvider::new(&path).unwrap();

@@ -111,8 +111,7 @@ impl CompactConfig {
             return Err(format!(
                 "auto_compact_threshold_pct ({}) must be <= \
                  warning_threshold_pct ({})",
-                self.auto_compact_threshold_pct,
-                self.warning_threshold_pct
+                self.auto_compact_threshold_pct, self.warning_threshold_pct
             ));
         }
         Ok(())
