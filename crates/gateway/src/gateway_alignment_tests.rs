@@ -6,7 +6,7 @@
 //! 3. Non-streaming middleware rejection sends user notification
 //! 4. Post-send checkpoint persistence works, no pre-send checkpoint
 
-use crate::{GatewayConfig, InboundRequest, SessionManager};
+use crate::{GatewayConfig, InboundRequest, QueuedInbound, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
 use closeclaw_common::processor::DslParseResult;
@@ -204,12 +204,16 @@ async fn test_queue_full_rejection_emits_debug_event() {
     let gw = Arc::new(gw);
     let handle = gw.start_inbound_queue();
     // Fill the queue (capacity=1).
+    let (ack_tx, _ack_rx) = tokio::sync::oneshot::channel();
     handle
-        .try_send(InboundRequest {
-            platform: "feishu".to_string(),
-            raw_payload: b"{}".to_vec(),
-            peer_id: "p_fill".to_string(),
-            trace_id: "trace-fill".to_string(),
+        .try_send(QueuedInbound {
+            request: InboundRequest {
+                platform: "feishu".to_string(),
+                raw_payload: b"{}".to_vec(),
+                peer_id: "p_fill".to_string(),
+                trace_id: "trace-fill".to_string(),
+            },
+            ack_tx,
         })
         .expect("first send should succeed");
 
