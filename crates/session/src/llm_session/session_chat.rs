@@ -205,7 +205,7 @@ impl ChatSession for ConversationSession {
     }
 
     fn is_llm_busy(&self) -> bool {
-        // Delegate to the three-dimensional execution state model.
+        // Delegate to the four-dimensional execution state model.
         // Preserves the legacy "LLM or foreground tool active" semantics.
         self.exec_status() == SessionExecStatus::Busy
     }

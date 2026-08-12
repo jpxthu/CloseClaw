@@ -1,7 +1,7 @@
 //! Handle / cancel-token / cascade-stop surface for `ConversationSession`.
 //!
 //! This module holds the cross-cutting "how to stop" surface that
-//! Step 1.1–1.3 of issue #858 layered on top of the three-dimensional
+//! Step 1.1–1.3 of issue #858 layered on top of the four-dimensional
 //! state model implemented in [`super::session_exec`]:
 //!
 //! - [`KillHandle`] — abstract tool-process kill adapter (the only

@@ -1,7 +1,7 @@
 //! Announce Sweeper — background task for spawn silent-failure protection.
 //!
 //! Periodically scans for run-mode child sessions that have completed
-//! (three-dimensional execution state all zeroed) but whose announce
+//! (four-dimensional execution state all zeroed) but whose announce
 //! has not yet been delivered to the parent. This is the second layer
 //! of the spawn silent-failure defense described in
 //! `docs/design/session/run-health.md` §Spawn 静默失败防护.
@@ -45,7 +45,7 @@ pub trait AnnounceSweepTarget: Send + Sync {
     /// spawn tree (i.e. announce was already delivered).
     async fn is_child_removed(&self, child_id: &str) -> bool;
 
-    /// Check whether a session's three-dimensional execution
+    /// Check whether a session's four-dimensional execution
     /// status is `Idle`.
     async fn is_session_idle(&self, session_id: &str) -> bool;
 
@@ -168,7 +168,7 @@ impl AnnounceSweeper {
             return;
         }
 
-        // Check three-dimensional execution status.
+        // Check four-dimensional execution status.
         if !self.target.is_session_idle(child_id).await {
             // Session still active — nothing to do.
             return;
