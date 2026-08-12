@@ -207,10 +207,7 @@ async fn test_archived_restore_needs_conv_false_rebuilds_system_prompt() {
 
     {
         let mut cs = mgr.conversation_sessions.write().await;
-        cs.insert(
-            session_id.clone(),
-            Arc::new(RwLock::new(conv)),
-        );
+        cs.insert(session_id.clone(), Arc::new(RwLock::new(conv)));
     }
 
     // 4. Call find_or_create — should take Path 2 → needs_conv = false →
@@ -218,7 +215,8 @@ async fn test_archived_restore_needs_conv_false_rebuilds_system_prompt() {
     let resolved = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     assert_eq!(resolved, session_id);
     assert!(
-        mock.restore_called.load(std::sync::atomic::Ordering::SeqCst),
+        mock.restore_called
+            .load(std::sync::atomic::Ordering::SeqCst),
         "restore_checkpoint should have been called"
     );
 
@@ -252,10 +250,7 @@ async fn test_archived_restore_system_appends_stacked_on_rebuilt_prompt() {
         .with_peer_id("agent-b".to_string())
         .with_agent_id("agent-b".to_string());
     cp.platform = Some("feishu".to_string());
-    cp.system_appends = vec![
-        "custom-append-1".to_string(),
-        "custom-append-2".to_string(),
-    ];
+    cp.system_appends = vec!["custom-append-1".to_string(), "custom-append-2".to_string()];
 
     let mock = Arc::new(RebuildMockPersist::new(cp));
     let mgr = SessionManager::new(

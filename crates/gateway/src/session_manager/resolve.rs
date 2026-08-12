@@ -257,9 +257,7 @@ impl SessionManager {
                                 cs.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
                             }
                         } else {
-                            self.rebuild_archived_session_prompt(
-                                    &session_id, &cp, message,
-                                )
+                            self.rebuild_archived_session_prompt(&session_id, &cp, message)
                                 .await;
                         }
 
@@ -628,9 +626,7 @@ impl SessionManager {
                                 cs.insert(archived_id.clone(), Arc::new(RwLock::new(conv_session)));
                             }
                         } else {
-                            self.rebuild_archived_session_prompt(
-                                    &archived_id, &cp, message,
-                                )
+                            self.rebuild_archived_session_prompt(&archived_id, &cp, message)
                                 .await;
                         }
 
@@ -907,10 +903,7 @@ impl SessionManager {
         cp: &SessionCheckpoint,
         message: &Message,
     ) {
-        let agent_id_for_rebuild = cp
-            .agent_id
-            .clone()
-            .unwrap_or_else(|| message.to.clone());
+        let agent_id_for_rebuild = cp.agent_id.clone().unwrap_or_else(|| message.to.clone());
         let bootstrap_mode = self
             .query_agent_bootstrap_mode(&agent_id_for_rebuild)
             .await
@@ -924,11 +917,7 @@ impl SessionManager {
             if let Some(builder) = self.get_system_prompt_builder().await {
                 cs.set_system_prompt_builder(builder);
             }
-            cs.rebuild_system_prompt(
-                    session_id,
-                    &agent_id_for_rebuild,
-                    Some(bootstrap_mode),
-                )
+            cs.rebuild_system_prompt(session_id, &agent_id_for_rebuild, Some(bootstrap_mode))
                 .await;
         }
     }
