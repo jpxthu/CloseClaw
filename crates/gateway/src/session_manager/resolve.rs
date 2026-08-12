@@ -256,10 +256,17 @@ impl SessionManager {
                                 let mut cs = self.conversation_sessions.write().await;
                                 cs.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
                             }
+                        } else {
+                            self.rebuild_archived_session_prompt(
+                                    &session_id, &cp, message,
+                                )
+                                .await;
                         }
 
                         // Restore pending messages, system_appends, verbosity_level,
                         // and communication_config from checkpoint.
+                        // NOTE: system_appends must be restored AFTER rebuild_system_prompt
+                        // so that user appends layer on top of the rebuilt prompt.
                         {
                             let cs = self.conversation_sessions.read().await;
                             if let Some(cs) = cs.get(&session_id) {
@@ -620,10 +627,17 @@ impl SessionManager {
                                 let mut cs = self.conversation_sessions.write().await;
                                 cs.insert(archived_id.clone(), Arc::new(RwLock::new(conv_session)));
                             }
+                        } else {
+                            self.rebuild_archived_session_prompt(
+                                    &archived_id, &cp, message,
+                                )
+                                .await;
                         }
 
                         // Restore pending messages, system_appends, verbosity_level,
                         // and communication_config from checkpoint.
+                        // NOTE: system_appends must be restored AFTER rebuild_system_prompt
+                        // so that user appends layer on top of the rebuilt prompt.
                         {
                             let cs = self.conversation_sessions.read().await;
                             if let Some(cs) = cs.get(&archived_id) {
@@ -876,6 +890,46 @@ impl SessionManager {
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// Rebuild system prompt for an archived session that already has a
+    /// [`ConversationSession`] in memory (`needs_conv = false`).
+    ///
+    /// Extracted from Path 2 and Path 3 of [`Self::resolve`] to avoid
+    /// duplicating the rebuild logic. Handles agent_id extraction,
+    /// bootstrap_mode query, builder injection, and the rebuild call.
+    /// Lock-range optimised: clones the `Arc` under a read lock then
+    /// releases it before acquiring the write lock on the inner session.
+    async fn rebuild_archived_session_prompt(
+        &self,
+        session_id: &str,
+        cp: &SessionCheckpoint,
+        message: &Message,
+    ) {
+        let agent_id_for_rebuild = cp
+            .agent_id
+            .clone()
+            .unwrap_or_else(|| message.to.clone());
+        let bootstrap_mode = self
+            .query_agent_bootstrap_mode(&agent_id_for_rebuild)
+            .await
+            .unwrap_or(BootstrapMode::Full);
+        let cs_arc = {
+            let cs = self.conversation_sessions.read().await;
+            cs.get(session_id).cloned()
+        };
+        if let Some(cs_arc) = cs_arc {
+            let mut cs = cs_arc.write().await;
+            if let Some(builder) = self.get_system_prompt_builder().await {
+                cs.set_system_prompt_builder(builder);
+            }
+            cs.rebuild_system_prompt(
+                    session_id,
+                    &agent_id_for_rebuild,
+                    Some(bootstrap_mode),
+                )
+                .await;
         }
     }
 

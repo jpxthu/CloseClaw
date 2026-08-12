@@ -1,4 +1,4 @@
-//! Three-dimensional execution state for `ConversationSession`.
+//! Four-dimensional execution state for `ConversationSession`.
 //!
 //! See `docs/design/session/session-execution.md` for the full state
 //! model and transition rules.

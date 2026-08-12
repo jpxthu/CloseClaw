@@ -15,13 +15,13 @@ pub(crate) fn clear_global_prompt_state() {}
 
 /// Mock SystemPromptBuilder that reads bootstrap files from a workspace directory.
 /// Used by tests that need to verify workspace file injection into system prompts.
-struct TestPromptBuilder {
+pub(crate) struct TestPromptBuilder {
     workspace_dir: Option<PathBuf>,
     bootstrap_mode: BootstrapMode,
 }
 
 impl TestPromptBuilder {
-    fn new(workspace_dir: Option<PathBuf>, bootstrap_mode: BootstrapMode) -> Self {
+    pub(crate) fn new(workspace_dir: Option<PathBuf>, bootstrap_mode: BootstrapMode) -> Self {
         Self {
             workspace_dir,
             bootstrap_mode,

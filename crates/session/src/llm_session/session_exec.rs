@@ -1,8 +1,8 @@
-//! Three-dimensional execution state methods for `ConversationSession`.
+//! Four-dimensional execution state methods for `ConversationSession`.
 //!
 //! Implements state transition and inspection for the LLM / tool / child
 //! session dimensions defined in `closeclaw_common::session_state`. The
-//! overall `exec_status()` combines the three dimensions according to the
+//! overall `exec_status()` combines the four dimensions according to the
 //! state table in `docs/design/session/session-execution.md`.
 
 use super::ConversationSession;
