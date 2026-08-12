@@ -221,44 +221,45 @@ mod tests {
     /// For mini-max model (1,000,000 tokens), test all three warning levels
     /// at their exact boundary values.
     ///
-    /// Default auto_compact_buffer_tokens = 13,000, so thresholds are:
-    ///   AutoCompactTriggered ≤ 13,000 (buffer_tokens)
-    ///   Warning ≤ 19,500 (buffer_tokens * 3 / 2)
+    /// Default warning_threshold_pct = 0.10 (100,000 tokens),
+    /// default auto_compact_threshold_pct = 0.05 (50,000 tokens):
+    ///   AutoCompactTriggered ≤ 50,000
+    ///   Warning ≤ 100,000
     #[test]
     fn test_token_warning_state_threshold_boundaries() {
         let svc = CompactionService::new(CompactConfig::default());
         let model = "mini-max";
         let context_window = 1_000_000;
 
-        // Normal: remaining > 19,500
+        // Normal: remaining > 100,000
         assert_eq!(
-            svc.token_warning_state(context_window - 19_501, model, None),
+            svc.token_warning_state(context_window - 100_001, model, None),
             TokenWarningState::Normal,
-            "remaining 19,501 should be Normal"
+            "remaining 100,001 should be Normal"
         );
 
-        // Warning: remaining <= 19,500 and > 13,000
+        // Warning: remaining <= 100,000 and > 50,000
         assert_eq!(
-            svc.token_warning_state(context_window - 19_500, model, None),
+            svc.token_warning_state(context_window - 100_000, model, None),
             TokenWarningState::Warning,
-            "remaining 19,500 should be Warning"
+            "remaining 100,000 should be Warning"
         );
         assert_eq!(
-            svc.token_warning_state(context_window - 13_001, model, None),
+            svc.token_warning_state(context_window - 50_001, model, None),
             TokenWarningState::Warning,
-            "remaining 13,001 should be Warning"
+            "remaining 50,001 should be Warning"
         );
 
-        // AutoCompactTriggered: remaining <= 13,000
+        // AutoCompactTriggered: remaining <= 50,000
         assert_eq!(
-            svc.token_warning_state(context_window - 13_000, model, None),
+            svc.token_warning_state(context_window - 50_000, model, None),
             TokenWarningState::AutoCompactTriggered,
-            "remaining 13,000 should be AutoCompactTriggered"
+            "remaining 50,000 should be AutoCompactTriggered"
         );
         assert_eq!(
-            svc.token_warning_state(context_window - 3_250, model, None),
+            svc.token_warning_state(context_window - 10_000, model, None),
             TokenWarningState::AutoCompactTriggered,
-            "remaining 3,250 should be AutoCompactTriggered"
+            "remaining 10,000 should be AutoCompactTriggered"
         );
         assert_eq!(
             svc.token_warning_state(context_window - 1, model, None),
@@ -274,54 +275,54 @@ mod tests {
         );
     }
 
-    /// Verify that changing auto_compact_buffer_tokens shifts all thresholds
-    /// proportionally, confirming the configuration field is effective.
+    /// Verify that custom percentage thresholds shift all thresholds
+    /// proportionally, confirming the configuration fields are effective.
+    ///
+    /// auto_compact_threshold_pct = 0.075 (75,000 tokens for 1M window),
+    /// warning_threshold_pct = 0.15 (150,000 tokens for 1M window).
     #[test]
-    fn test_token_warning_state_custom_buffer_tokens() {
+    fn test_token_warning_state_custom_threshold_pcts() {
         let mut config = CompactConfig::default();
-        config.auto_compact_buffer_tokens = 20_000;
+        config.auto_compact_threshold_pct = 0.075;
+        config.warning_threshold_pct = 0.15;
         let svc = CompactionService::new(config);
         let model = "mini-max";
         let context_window = 1_000_000;
 
-        // buffer_tokens = 20,000 =>
-        //   AutoCompactTriggered ≤ 20,000
-        //   Warning ≤ 30,000  (20,000 * 3 / 2)
-
-        // Normal: remaining > 30,000
+        // Normal: remaining > 150,000
         assert_eq!(
-            svc.token_warning_state(context_window - 30_001, model, None),
+            svc.token_warning_state(context_window - 150_001, model, None),
             TokenWarningState::Normal,
-            "remaining 30,001 should be Normal with buffer_tokens=20,000"
+            "remaining 150,001 should be Normal with custom pcts"
         );
 
-        // Warning: remaining <= 30,000 and > 20,000
+        // Warning: remaining <= 150,000 and > 75,000
         assert_eq!(
-            svc.token_warning_state(context_window - 30_000, model, None),
+            svc.token_warning_state(context_window - 150_000, model, None),
             TokenWarningState::Warning,
-            "remaining 30,000 should be Warning with buffer_tokens=20,000"
+            "remaining 150,000 should be Warning with custom pcts"
         );
         assert_eq!(
-            svc.token_warning_state(context_window - 20_001, model, None),
+            svc.token_warning_state(context_window - 75_001, model, None),
             TokenWarningState::Warning,
-            "remaining 20,001 should be Warning with buffer_tokens=20,000"
+            "remaining 75,001 should be Warning with custom pcts"
         );
 
-        // AutoCompactTriggered: remaining <= 20,000
+        // AutoCompactTriggered: remaining <= 75,000
         assert_eq!(
-            svc.token_warning_state(context_window - 20_000, model, None),
+            svc.token_warning_state(context_window - 75_000, model, None),
             TokenWarningState::AutoCompactTriggered,
-            "remaining 20,000 should be AutoCompactTriggered with buffer_tokens=20,000"
+            "remaining 75,000 should be AutoCompactTriggered with custom pcts"
         );
         assert_eq!(
             svc.token_warning_state(context_window - 5_000, model, None),
             TokenWarningState::AutoCompactTriggered,
-            "remaining 5,000 should be AutoCompactTriggered with buffer_tokens=20,000"
+            "remaining 5,000 should be AutoCompactTriggered with custom pcts"
         );
         assert_eq!(
             svc.token_warning_state(context_window - 1, model, None),
             TokenWarningState::AutoCompactTriggered,
-            "remaining 1 should be AutoCompactTriggered with buffer_tokens=20,000"
+            "remaining 1 should be AutoCompactTriggered with custom pcts"
         );
     }
 
@@ -334,8 +335,9 @@ mod tests {
         config.max_consecutive_failures = 3;
         let mut svc = CompactionService::new(config);
 
-        // Reach the AutoCompactTriggered range.
-        let msgs = vec![comp_msg(&"x".repeat(3_948_004))]; // ~987,001 tokens
+        // 3_948_004 chars × 0.25 = 987,001 tokens → remaining = 12,999
+        // → ≤ 50,000 → AutoCompactTriggered
+        let msgs = vec![comp_msg(&"x".repeat(3_948_004))];
         assert!(svc.should_auto_compact(&msgs, "mini-max", None, &RunningStats::new()));
 
         // Trip the circuit breaker.
@@ -358,7 +360,9 @@ mod tests {
     #[test]
     fn test_very_low_tokens_triggers_auto_compact() {
         let svc = CompactionService::new(CompactConfig::default());
-        let msgs = vec![comp_msg(&"x".repeat(3_996_004))]; // ~999,001 tokens
+        // 3_996_004 chars × 0.25 = 999,001 tokens → remaining = 999
+        // → ≤ 50,000 → AutoCompactTriggered
+        let msgs = vec![comp_msg(&"x".repeat(3_996_004))];
         let tokens = estimate_messages_tokens(&msgs, 0.25);
         assert_eq!(
             svc.token_warning_state(tokens, "mini-max", None),
@@ -373,8 +377,11 @@ mod tests {
     #[test]
     fn test_warning_state_no_compaction() {
         let svc = CompactionService::new(CompactConfig::default());
-        let msgs = vec![comp_msg(&"x".repeat(3_922_004))]; // ~980,501 tokens → remaining 19,499
+        // 3_780_000 chars × 0.25 = 945,000 tokens → remaining = 55,000
+        // → 50,000 < 55,000 ≤ 100,000 → Warning
+        let msgs = vec![comp_msg(&"x".repeat(3_780_000))];
         let tokens = estimate_messages_tokens(&msgs, 0.25);
+        assert_eq!(tokens, 945_000);
         assert_eq!(
             svc.token_warning_state(tokens, "mini-max", None),
             TokenWarningState::Warning
@@ -448,7 +455,9 @@ mod tests {
         let model = "glm-5";
 
         // 240 messages, each ~4000 chars → ~1000 tokens each → ~240,000 total.
-        // glm-5 context = 256,000 → remaining ~16,000 → Warning range.
+        // glm-5 context = 256,000.
+        // warning_threshold_pct = 0.10 → 25,600; auto_compact_threshold_pct = 0.05 → 12,800.
+        // remaining ~16,000 → 12,800 < 16,000 ≤ 25,600 → Warning range.
         let all_msgs: Vec<CompactionMessage> = (0..240)
             .map(|i| comp_msg(&format!("message-{i}: {}", "x".repeat(3990))))
             .collect();
@@ -522,11 +531,20 @@ mod tests {
         stats.request_count = 5;
         stats.total_tokens = 50_000;
 
-        let msgs = vec![comp_msg(&"a".repeat(1000)), comp_msg(&"b".repeat(2000))];
+        // 6 messages total: first 5 are skipped (already counted in stats),
+        // last 1 is estimated from chars.
+        let msgs = vec![
+            comp_msg(&"a".repeat(1000)),
+            comp_msg(&"b".repeat(2000)),
+            comp_msg(&"c".repeat(3000)),
+            comp_msg(&"d".repeat(4000)),
+            comp_msg(&"e".repeat(5000)),
+            comp_msg(&"f".repeat(4000)),
+        ];
         // chars_per_token = 0.25
-        // 50_000 + ceil(1000*0.25) + ceil(2000*0.25) = 50_000 + 250 + 500 = 50_750
+        // 50_000 + ceil(4000*0.25) = 50_000 + 1000 = 51_000
         let total = estimate_total_tokens(&stats, &msgs, 0.25);
-        assert_eq!(total, 50_750);
+        assert_eq!(total, 51_000);
     }
 
     /// When stats have no LLM calls (request_count == 0), fall back to
@@ -559,7 +577,7 @@ mod tests {
     #[test]
     fn test_auto_compact_threshold_shifts_with_chars_per_token() {
         // With default chars_per_token = 0.25, need ~3_948_004 chars for
-        // mini-max AutoCompactTriggered range.
+        // mini-max AutoCompactTriggered range (≤ 50,000 remaining).
         let msgs_025 = vec![comp_msg(&"x".repeat(3_948_004))];
         let mut config_025 = CompactConfig::default();
         config_025.chars_per_token = 0.25;
@@ -572,7 +590,7 @@ mod tests {
         let mut config_05 = CompactConfig::default();
         config_05.chars_per_token = 0.5;
         let svc_05 = CompactionService::new(config_05);
-        // 1_980_000 * 0.5 = 990_000 tokens → remaining = 10_000 → AutoCompactTriggered
+        // 1_980_000 * 0.5 = 990,000 tokens → remaining = 10,000 → AutoCompactTriggered
         assert!(svc_05.should_auto_compact(&msgs_05, "mini-max", None, &RunningStats::new()));
 
         // But with chars_per_token = 0.1, same chars produce fewer tokens →
@@ -581,7 +599,7 @@ mod tests {
         let mut config_01 = CompactConfig::default();
         config_01.chars_per_token = 0.1;
         let svc_01 = CompactionService::new(config_01);
-        // 3_948_004 * 0.1 = 394_800 tokens → Normal (960,200 remaining)
+        // 3_948_004 * 0.1 = 394,800 tokens → remaining = 605,200 → Normal
         assert!(!svc_01.should_auto_compact(&msgs_01, "mini-max", None, &RunningStats::new()));
     }
 
@@ -591,12 +609,12 @@ mod tests {
         let msgs = vec![comp_msg(&"x".repeat(3_948_004))];
         let svc = CompactionService::new(CompactConfig::default());
 
-        // Without knowledge: mini-max = 1_000_000 → AutoCompactTriggered
+        // Without knowledge: mini-max = 1_000_000 → 987,001 tokens
+        // → remaining 12,999 → AutoCompactTriggered
         assert!(svc.should_auto_compact(&msgs, "mini-max", None, &RunningStats::new()));
 
-        // With knowledge: 500,000 context → tokens are way over →
-        // remaining = 0 ≤ buffer_tokens → AutoCompactTriggered
-        // (formerly Blocking, now merged into AutoCompactTriggered).
+        // With knowledge: 500,000 context → 987,001 tokens way over →
+        // remaining = 0 ≤ 25,000 (500k × 0.05) → AutoCompactTriggered
         assert!(svc.should_auto_compact(&msgs, "mini-max", Some(500_000), &RunningStats::new()));
     }
 }

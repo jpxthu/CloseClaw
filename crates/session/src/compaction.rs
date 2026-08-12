@@ -119,21 +119,50 @@ pub fn estimate_messages_tokens(messages: &[CompactionMessage], chars_per_token:
         .sum()
 }
 
+/// Combine precise token count with character-based estimation for remaining messages.
+///
+/// When `precise_tokens` is `Some(count)` with `request_count > 0`, returns
+/// `Some(count + estimated_for_remaining)` where remaining messages beyond
+/// the counted set are estimated by character count. Returns `None` in all
+/// other cases, letting the caller fall back to pure character-based
+/// estimation.
+fn combine_precise_and_estimated(
+    precise_tokens: Option<usize>,
+    request_count: u64,
+    messages: &[CompactionMessage],
+    chars_per_token: f64,
+) -> Option<usize> {
+    let precise = precise_tokens?;
+    if request_count == 0 {
+        return None;
+    }
+    let start = (request_count as usize).min(messages.len());
+    let remaining_tokens: usize = messages[start..]
+        .iter()
+        .map(|m| estimate_tokens(&m.content, chars_per_token))
+        .sum();
+    Some(precise + remaining_tokens)
+}
+
 /// Estimate total tokens combining precise RunningStats and character-based estimation.
 ///
 /// When `stats.request_count > 0`, returns `stats.total_tokens` plus a character-based
-/// estimate for the given messages. When `request_count == 0` (no LLM calls yet),
-/// falls back to pure character-based estimation.
+/// estimate for messages beyond the counted set (skipping the first `request_count`
+/// messages whose tokens are already accounted for in `stats.total_tokens`).
+/// When `request_count == 0` (no LLM calls yet), falls back to pure
+/// character-based estimation.
 pub fn estimate_total_tokens(
     stats: &RunningStats,
     messages: &[CompactionMessage],
     chars_per_token: f64,
 ) -> usize {
-    if stats.request_count > 0 {
-        stats.total_tokens as usize + estimate_messages_tokens(messages, chars_per_token)
-    } else {
-        estimate_messages_tokens(messages, chars_per_token)
-    }
+    combine_precise_and_estimated(
+        Some(stats.total_tokens as usize),
+        stats.request_count,
+        messages,
+        chars_per_token,
+    )
+    .unwrap_or_else(|| estimate_messages_tokens(messages, chars_per_token))
 }
 
 /// Compute the token count before compaction using precise stats when available.
@@ -151,18 +180,16 @@ pub fn compute_before_tokens(
     stats: Option<&RunningStats>,
     chars_per_token: f64,
 ) -> usize {
-    match stats {
-        Some(s) if s.request_count > 0 => {
-            let precise = s.total_tokens as usize;
-            let start = (s.request_count as usize).min(messages.len());
-            let remaining_tokens: usize = messages[start..]
-                .iter()
-                .map(|m| estimate_tokens(&m.content, chars_per_token))
-                .sum();
-            precise + remaining_tokens
-        }
-        _ => estimate_messages_tokens(messages, chars_per_token),
-    }
+    stats
+        .and_then(|s| {
+            combine_precise_and_estimated(
+                Some(s.total_tokens as usize),
+                s.request_count,
+                messages,
+                chars_per_token,
+            )
+        })
+        .unwrap_or_else(|| estimate_messages_tokens(messages, chars_per_token))
 }
 
 /// Get the context window size for a model.
@@ -192,7 +219,12 @@ pub struct CompactionService {
 
 impl CompactionService {
     /// Create a new CompactionService with the given config.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `config.auto_compact_threshold_pct > config.warning_threshold_pct`.
     pub fn new(config: CompactConfig) -> Self {
+        config.validate().expect("CompactConfig validation failed");
         Self {
             config,
             consecutive_failures: 0,
@@ -208,14 +240,18 @@ impl CompactionService {
     ) -> TokenWarningState {
         let context_window = get_context_window(model, knowledge_context_window);
         let remaining = context_window.saturating_sub(used_tokens);
-        let buffer_tokens = self.config.auto_compact_buffer_tokens;
 
-        // Auto-compact triggered: ≤ buffer_tokens tokens left
-        if remaining <= buffer_tokens {
+        let compact_threshold =
+            (context_window as f64 * self.config.auto_compact_threshold_pct).ceil() as usize;
+        let warning_threshold =
+            (context_window as f64 * self.config.warning_threshold_pct).ceil() as usize;
+
+        // Auto-compact triggered: ≤ auto_compact_threshold_pct of context window left
+        if remaining <= compact_threshold {
             return TokenWarningState::AutoCompactTriggered;
         }
-        // Warning: ≤ buffer_tokens * 3 / 2 tokens left
-        if remaining <= buffer_tokens * 3 / 2 {
+        // Warning: ≤ warning_threshold_pct of context window left
+        if remaining <= warning_threshold {
             return TokenWarningState::Warning;
         }
         TokenWarningState::Normal

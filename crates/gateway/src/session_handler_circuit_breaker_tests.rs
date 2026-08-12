@@ -80,8 +80,8 @@ fn handler_with_channel(
 }
 
 /// Populate a session so `check_and_run_auto_compact` enters
-/// `AutoCompactTriggered` state (remaining ≤ buffer_tokens = 13K).
-/// Uses `prompt_tokens: 118_000` on 128K context → remaining = 10K ≤ 13K.
+/// `AutoCompactTriggered` state (remaining ≤ 5% of context = 6,400 tokens).
+/// Uses `prompt_tokens: 125_000` on 128K context → remaining = 3,000 ≤ 6,400.
 async fn populate_session_for_auto_compact(sm: &SessionManager, sid: &str) {
     let cs = sm.get_conversation_session(sid).await.expect("session");
     let mut cs_write = cs.write().await;
@@ -99,12 +99,12 @@ async fn populate_session_for_auto_compact(sm: &SessionManager, sid: &str) {
         });
     }
     cs_write.apply_transcript_op(TranscriptOp::Rewrite, msgs);
-    // 118K used on 128K context → remaining = 10K ≤ buffer (13K)
+    // 125K used on 128K context → remaining = 3,000 ≤ 6,400 (5% of 128K)
     // → AutoCompactTriggered.
     cs_write.accumulate_usage(&closeclaw_common::processor::UnifiedUsage {
-        prompt_tokens: 118_000,
+        prompt_tokens: 125_000,
         completion_tokens: 0,
-        total_tokens: Some(118_000),
+        total_tokens: Some(125_000),
         reasoning_tokens: None,
         cache_read_tokens: None,
         cache_write_tokens: None,

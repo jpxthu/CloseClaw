@@ -749,13 +749,13 @@ async fn populate_session_for_warning(sm: &SessionManager, sid: &str) {
         }
         cs_write.apply_transcript_op(TranscriptOp::Rewrite, msgs);
         // Set high token usage via accumulate_usage so token_warning_state
-        // returns Warning on the default model (128K context, buffer=13K).
-        // Warning threshold: remaining ≤ buffer * 3/2 = 19,500 tokens.
-        // With 109K used on 128K: remaining = 19K ≤ 19.5K → Warning.
+        // returns Warning on the default model (128K context).
+        // Warning threshold: remaining ≤ 10% of context (12,800 tokens).
+        // With 116K used on 128K: remaining = 12K ≤ 12,800 → Warning.
         cs_write.accumulate_usage(&closeclaw_common::processor::UnifiedUsage {
-            prompt_tokens: 109_000,
+            prompt_tokens: 116_000,
             completion_tokens: 0,
-            total_tokens: Some(109_000),
+            total_tokens: Some(116_000),
             reasoning_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,

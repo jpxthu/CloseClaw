@@ -23,14 +23,63 @@ fn write_temp_json(content: &str) -> (TempDir, std::path::PathBuf) {
 
 #[test]
 fn test_compact_config_parsed_when_present() {
-    let json = r#"{"defaults":{"mainAgent":{"idleMinutes":10,"purgeAfterMinutes":60}},"agents":{},"sweeperIntervalSeconds":300,"compact":{"charsPerToken":0.3,"autoCompactBufferTokens":15000,"maxConsecutiveFailures":5}}"#.to_string();
+    let json = r#"{
+        "defaults": {
+            "mainAgent": {
+                "idleMinutes": 10,
+                "purgeAfterMinutes": 60
+            }
+        },
+        "agents": {},
+        "sweeperIntervalSeconds": 300,
+        "compact": {
+            "charsPerToken": 0.3,
+            "autoCompactThresholdPct": 0.08,
+            "warningThresholdPct": 0.15,
+            "maxConsecutiveFailures": 5
+        }
+    }"#
+    .to_string();
     let (_temp, path) = write_temp_json(&json);
 
     let provider = JsonSessionConfigProvider::new(&path).unwrap();
     let compact = provider.compact_config();
 
     assert_eq!(compact.chars_per_token, 0.3);
-    assert_eq!(compact.auto_compact_buffer_tokens, 15000);
+    assert_eq!(compact.auto_compact_threshold_pct, 0.08);
+    assert_eq!(compact.warning_threshold_pct, 0.15);
+    assert_eq!(compact.max_consecutive_failures, 5);
+}
+
+#[test]
+fn test_compact_config_backward_compat_old_buffer_tokens() {
+    // Old config with autoCompactBufferTokens (removed field) should still
+    // deserialize via #[serde(default)] — the unknown field is ignored and
+    // new percentage fields get their defaults.
+    let json = r#"{
+        "defaults": {
+            "mainAgent": {
+                "idleMinutes": 10,
+                "purgeAfterMinutes": 60
+            }
+        },
+        "agents": {},
+        "sweeperIntervalSeconds": 300,
+        "compact": {
+            "charsPerToken": 0.3,
+            "autoCompactBufferTokens": 15000,
+            "maxConsecutiveFailures": 5
+        }
+    }"#
+    .to_string();
+    let (_temp, path) = write_temp_json(&json);
+
+    let provider = JsonSessionConfigProvider::new(&path).unwrap();
+    let compact = provider.compact_config();
+
+    assert_eq!(compact.chars_per_token, 0.3);
+    assert_eq!(compact.auto_compact_threshold_pct, 0.05);
+    assert_eq!(compact.warning_threshold_pct, 0.10);
     assert_eq!(compact.max_consecutive_failures, 5);
 }
 
@@ -49,8 +98,12 @@ fn test_compact_config_returns_default_when_absent() {
 
     assert_eq!(compact.chars_per_token, default_compact.chars_per_token);
     assert_eq!(
-        compact.auto_compact_buffer_tokens,
-        default_compact.auto_compact_buffer_tokens
+        compact.auto_compact_threshold_pct,
+        default_compact.auto_compact_threshold_pct
+    );
+    assert_eq!(
+        compact.warning_threshold_pct,
+        default_compact.warning_threshold_pct
     );
     assert_eq!(
         compact.max_consecutive_failures,
@@ -69,8 +122,12 @@ fn test_compact_config_fallback_when_no_config_file() {
 
     assert_eq!(compact.chars_per_token, default_compact.chars_per_token);
     assert_eq!(
-        compact.auto_compact_buffer_tokens,
-        default_compact.auto_compact_buffer_tokens
+        compact.auto_compact_threshold_pct,
+        default_compact.auto_compact_threshold_pct
+    );
+    assert_eq!(
+        compact.warning_threshold_pct,
+        default_compact.warning_threshold_pct
     );
     assert_eq!(
         compact.max_consecutive_failures,
