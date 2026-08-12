@@ -87,7 +87,7 @@
 |------|------|
 | 标识 | Plugin 的唯一平台名（如 `"feishu"`、`"terminal"`），用于 Gateway 的 Plugin Registry 路由 |
 | 入站 | 解析平台原生 webhook/事件 payload 为 [NormalizedMessage](shared-types.md#normalizedmessage)。text 类型空 content 消息在解析阶段丢弃，非文本消息（image/file/audio）正常产出 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空） |
-| 渲染 | 接收 [ContentBlock](shared-types.md#contentblock)[] 和 [DslParseResult](shared-types.md#dslparseresult-和-dslinstruction)，按平台能力选择输出格式（纯文本或富格式），产出 [RenderedOutput](shared-types.md#renderedoutput)。渲染是纯数据转换，无副作用 |
+| 渲染 | 接收 [ContentBlock](shared-types.md#contentblock)[] 和 [DslParseResult](shared-types.md#dslparseresult)，按平台能力选择输出格式（纯文本或富格式），产出 [RenderedOutput](shared-types.md#renderedoutput)。渲染是纯数据转换，无副作用 |
 | 发送 | 接收 [RenderedOutput](shared-types.md#renderedoutput)，以指定目标（peer_id + thread_id）调用平台发送 API |
 | 生命周期 | `init()`：启动时初始化（连接池、token 等），不需要的插件空实现；`shutdown()`：关闭时清理资源，不需要的插件空实现 |
 

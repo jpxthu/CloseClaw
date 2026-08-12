@@ -15,11 +15,11 @@ DslParser 在出站链中紧接 VerbosityFilter 之后执行（priority 10）：
   ↓
 逐行扫描 Text 块内容，匹配 DSL 指令模式
   ↓
-解析 DSL 语法，生成结构化指令（DslInstruction，定义见 [common DslInstruction](../common/shared-types.md#dslparseresult-和-dslinstruction)）
+解析 DSL 语法，生成结构化指令（DslInstruction，定义见 [common DslInstruction](../common/shared-types.md#dslparseresult)）
   ↓
 从 Text 块中移除 DSL 指令行
   ↓
-解析结果写入 [ProcessedMessage](../common/shared-types.md#processedmessage) 的 metadata["dsl_result"]（DslParseResult，定义见 [common DslParseResult](../common/shared-types.md#dslparseresult-和-dslinstruction)）
+解析结果写入 [ProcessedMessage](../common/shared-types.md#processedmessage) 的 metadata["dsl_result"]（DslParseResult，定义见 [common DslParseResult](../common/shared-types.md#dslparseresult)）
   ↓
 输出：[ProcessedMessage](../common/shared-types.md#processedmessage)（ContentBlock[] 中 Text 块已去 DSL 行，metadata 含解析结果）
 ```
@@ -40,7 +40,7 @@ ContentBlock[]（来自 LLM UnifiedResponse）
         └── ToolResult 块 → 透传
     → 输出：
         ├── content_blocks：更新后的 ContentBlock[]（Text 块已去 DSL 行）
-        └── metadata["dsl_result"]：DslParseResult（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult-和-dslinstruction)）
+        └── metadata["dsl_result"]：DslParseResult（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult)）
   ↓
 Renderer 消费 metadata 中的 DSL 指令，渲染平台交互元素
 ```

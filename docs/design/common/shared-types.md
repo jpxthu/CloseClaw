@@ -32,7 +32,7 @@ NormalizedMessage 是平台无关的统一入站消息结构，屏蔽各 IM 平�
 
 **身份映射**：`account_id` 由 IM Adapter 在解析入站消息时填入。与其他字段（platform、sender_id 等直接从消息 payload 提取）不同，account_id 需通过 sender_id 查询账户绑定表获取，非直接取值。映射规则：以 sender_id 为键查询账户绑定表，找到对应的 CloseClaw 账户 ID。一个账户可绑定多个平台的 sender_id。terminal 平台恒为 "owner"，无需查表。详见 [config 模块 accounts.json](../config/README.md)。
 
-**字段填充职责**：各字段由 IM Adapter 入站解析时填充。Processor Chain 不修改 NormalizedMessage 字段——ContentNormalizer 仅读取 content 做文本标准化，SessionRouter 读取 platform/sender_id/peer_id/account_id 计算 session_key。session_key 写入 ProcessedMessage 的 metadata，不写入 NormalizedMessage。
+**字段填充职责**：各字段由 IM Adapter 入站解析时填充。Processor Chain 不修改 NormalizedMessage 字段——ContentNormalizer 仅读取 content 做文本标准化，SessionRouter 读取 platform/sender_id/peer_id/account_id 计算 session_key。Processor Chain 各 Processor 通过共享的可变 ProcessedMessage 上下文传递数据：SessionRouter 计算 session_key 后直接写入 ProcessedMessage.metadata，ContentNormalizer 随后从同一 NormalizedMessage 读取 content 做标准化后写入 ProcessedMessage.content_blocks。session_key 不写入 NormalizedMessage。
 
 **message_type 与 media_refs**：message_type 由 ContentNormalizer 消费（非 text 跳过标准化）。media_refs 为多模态支持预留，入站链路不消费。
 
@@ -66,9 +66,9 @@ ContentBlock 共 7 种变体，按语义和渲染策略分为两类：
 |------|------|------|
 | ToolUse | 工具调用请求，含工具名和参数 | 渲染为工具调用信息展示（终端文本，IM 平台卡片）。参数以原始结构渲染 |
 | ToolResult | 工具执行结果 | 渲染为结果内容展示。终端按宽度截断，IM 平台富格式渲染 |
-| Image | 图片引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[image: name]`，IM 平台渲染为图片元素 |
-| Audio | 音频引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[audio: name]`，IM 平台渲染为音频元素 |
-| File | 文件引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[file: name]`，IM 平台渲染为文件元素 |
+| Image | 图片引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[image: key]`，IM 平台渲染为图片元素 |
+| Audio | 音频引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[audio: key]`，IM 平台渲染为音频元素 |
+| File | 文件引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[file: key]`，IM 平台渲染为文件元素 |
 
 **变体处理规则**：
 
@@ -76,8 +76,6 @@ ContentBlock 共 7 种变体，按语义和渲染策略分为两类：
 - **流式渲染差异化**：Text 块逐行缓冲输出（以句末标点或换行符为行边界）；Thinking/ToolUse/ToolResult 块等待全块就绪后一次交付渲染；Image/Audio/File 块不参与流式渲染，交由平台格式渲染器处理
 - **输出格式决策**：各平台 Renderer 按内容特征选择输出格式（纯文本 vs 富格式），完整规则见 [RenderedOutput §输出格式决策](#renderedoutput)
 - **Verbosity 过滤**以单个 ContentBlock 为粒度执行——每个 ContentBlock 到达时按当前 Session 的 verbosity 等级判断其可见性，流式模式下逐块实时过滤。Verbosity 等级定义见 [slash 模块 verbose 指令](../slash/verbose.md)
-
-### DslParseResult 和 DslInstruction
 
 DslParseResult 是 DslParser 解析 ContentBlock::Text 中 DSL 指令行的输出结果。存储在 [ProcessedMessage](#processedmessage) 的 metadata 中，供下游 Renderer 消费。DslInstruction 是单条 DSL 指令的结构化表示。
 
@@ -105,7 +103,7 @@ ProcessedMessage 是 Processor Chain 的输出结构，Gateway 的消费入口�
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `content_blocks` | ContentBlock[] | 处理后的内容块数组。入站方向为单个 ContentBlock::Text（ContentNormalizer 标准化后的文本），出站方向为经 DslParser 处理后的 ContentBlock[]（Text 块已剥离 DSL 行，其余块透传） |
-| `metadata` | map(string→string) | 方向相关的键值对。入站含 `session_key`（SessionRouter 计算的消息级标识）和 `message_type`（来自原始 NormalizedMessage，供 Gateway 做非文本路由判断），出站含 `dsl_result`（DslParser 产出的 DslParseResult，JSON 序列化） |
+| `metadata` | map(string→string) | 方向相关的键值对。入站含 `session_key`（SessionRouter 计算的消息级标识）和 `message_type`（来自原始 NormalizedMessage，由 Processor Chain 在构建 ProcessedMessage 时从 NormalizedMessage 复制，供 Gateway 做非文本路由判断），出站含 `dsl_result`（DslParser 产出的 DslParseResult，JSON 序列化） |
 
 入站和出站不区分类型——同一个 ProcessedMessage 结构，内容形态和 metadata 字段按方向不同而不同。
 
@@ -177,7 +175,7 @@ VerbosityLevel 是出站信息展示等级的枚举，控制 VerbosityFilter 对
 | normal | `"normal"` | 展示工具调用和结果作为进度提示，隐藏思考过程 |
 | off | `"off"` | 仅展示最终回复，隐藏所有中间过程 |
 
-**作用范围**：Verbosity 控制展示内容，不影响 LLM 推理深度和 Agent 行为模式。切换等级不影响当前正在输出的消息——仅对后续新消息生效。非文本媒体块（Image/Audio/File）属于最终回复的一部分，不受 VerbosityLevel 过滤——在所有等级下均展示。
+**作用范围**：Verbosity 控制展示内容，不影响 LLM 推理深度和 Agent 行为模式。仅有 `/verbose` 指令通过 VerboseHandler 写入 Session 的 Verbosity 字段，无其他写入者。切换等级不影响当前正在输出的消息——仅对后续新消息生效。非文本媒体块（Image/Audio/File）属于最终回复的一部分，不受 VerbosityLevel 过滤——在所有等级下均展示。
 
 ### PlanState
 
@@ -222,16 +220,18 @@ ContentBlock[] 进入出站处理链路
   ↓
 ProcessedMessage { content_blocks, metadata[dsl_result] }
   ↓
-[IM Adapter 渲染] — 按块类型选择渲染策略，输出平台原生格式
-  ├─ 批量模式：一次性渲染全部 ContentBlock[]
-  └─ 流式模式：增量渲染，Text 块逐行缓冲输出，非文本类块等全块就绪后一次渲染
+[Gateway 出站日志] — 记录完整 ProcessedMessage
+  ↓
+[IM Adapter 渲染] — 按块类型选择渲染策略，输出平台原生格式：
+    - 批量模式：一次性渲染全部 ContentBlock[]
+    - 流式模式：增量渲染，Text 块逐行缓冲输出，非文本类块等全块就绪后一次渲染
   ↓
 [中间件插入点] — Gateway 可在渲染完成后、发送前插入审计、频率限制等中间件。中间件为 Gateway 内部的拦截链，具体中间件类型和注册机制由 Gateway 管理，不在 shared-types 范围
   ↓
 IM Adapter 发送到目标平台
 ```
 
-ContentBlock[] 流式与非流式走同一条预处理管线——Verbosity 过滤和 DslParser 解析同时适用于批量和流式。DslParser 对流式增量文本零开销透传。两者的差异仅在渲染阶段：批量模式一次性渲染，流式模式增量渲染。
+ContentBlock[] 流式与非流式走同一条预处理管线——Verbosity 过滤和 DslParser 解析同时适用于批量和流式。DslParser 在流式增量阶段零开销透传（不解析 DSL），DSL 完整解析推迟到收尾阶段执行。非 DSL 内容不引入额外缓冲或拷贝。两者的差异在渲染阶段：批量模式一次性渲染，流式模式增量渲染；流式模式下 DSL 指令仅用于日志记录和出站历史写入，不产生渲染输出。
 
 各共享类型流动路径的详细描述见下文各类型的数据流节。
 
@@ -244,11 +244,10 @@ ContentBlock[]（来自 LLM UnifiedResponse / SlashResult）
   ↓
 [Processor Chain 出站: VerbosityFilter] — 按 Session Verbosity 等级逐块过滤
   ↓
-DslParser 遍历 Text 块，逐行扫描 DSL
-  ├── 匹配 DSL 行 → 解析为 DslInstruction → 加入 instructions 列表 → 从 Text 块中移除该行
-  └── 非 DSL 行 → 保留在 Text 块中
-  ↓
-DslParseResult { instructions } + 更新后的 ContentBlock[]
+DslParser 遍历 Text 块，逐行扫描 DSL 指令：
+  - 匹配 DSL 格式的行 → 解析为 DslInstruction，加入 instructions 列表，从 Text 块中移除该行
+  - 非 DSL 行 → 保留在 Text 块中
+  两种情况的输出汇合为 DslParseResult { instructions } + 更新后的 ContentBlock[]
   ↓
 [Processor Chain: OutboundRawLog] — 出站日志记录
   ↓
@@ -298,9 +297,9 @@ SlashResult 的执行流程：
 1. Gateway 将 / 开头的消息路由到 SlashDispatcher
 2. SlashDispatcher 解析指令名和参数，查找对应 Handler
 3. Handler 处理完成后返回 SlashResult 变体
-4. Gateway 构造 SideEffectContext，触发 SlashResult 执行
+4. Gateway 构造 SideEffectContext
 5. Exec 变体：Gateway 调用 Permission 模块校验命令权限（校验通过方继续执行，拒绝则返回权限错误）
-6. SlashResult 变体通过 SideEffectContext 完成副作用，分两条路径：
+6. 权限校验通过后，SlashResult 变体通过 SideEffectContext 触发执行，完成副作用，分两条路径：
    - 回复路径：产出 ContentBlock[] → 出站 Processor Chain → IM Adapter 渲染发送
    - 会话路径：执行 Session 操作（模式切换、创建、停止、压缩等）
 
@@ -386,7 +385,7 @@ Plan Mode 结束时销毁 PlanState
 
 - **生产者**：Session（LLM 对话产出 UnifiedResponse，含 ContentBlock[]）、SlashDispatcher（斜杠指令回复以 SlashResult 变体产出 ContentBlock[]）、Processor Chain 入站 ContentNormalizer（入站方向包装标准化文本为 ContentBlock::Text 放入 ProcessedMessage.content_blocks）
 - **消费者**：Processor Chain 出站（VerbosityFilter → DslParser → OutboundRawLog）→ IM Adapter（按块类型渲染为平台原生格式并发送）
-- **无关**：IM Adapter 入站链（入站方向产 NormalizedMessage，不涉及 ContentBlock[]）、Session 生命周期管理（不直接操作 ContentBlock[]，仅通过 Gateway 间接消费）、LLM Provider（LLM 调用产出 ContentBlock[]，但不参与 ContentBlock 的结构定义和处理流程）、[Gateway](../gateway/README.md)（Gateway 编排 Processor Chain 调度，不直接执行内容过滤/解析）
+- **无关**：IM Adapter 入站链（入站方向产 NormalizedMessage，不涉及 ContentBlock[]）、Session 生命周期管理（不直接操作 ContentBlock[]，仅通过 Gateway 间接消费）、LLM Provider（LLM 调用返回原始 ContentBlock[]，由 Session 统一封装为 UnifiedResponse 后进入共享类型流；LLM Provider 不参与跨模块 ContentBlock 结构定义和传递流程）、[Gateway](../gateway/README.md)（Gateway 编排 Processor Chain 调度，不直接执行内容过滤/解析）
 
 ### DslParseResult / DslInstruction
 
@@ -399,7 +398,7 @@ Plan Mode 结束时销毁 PlanState
 ### ProcessedMessage
 
 - **生产者**：Processor Chain 入站（ContentNormalizer 包装标准化文本为 ContentBlock::Text + SessionRouter 写 session_key 到 metadata）、Processor Chain 出站（DslParser 处理 ContentBlock[] + 写 dsl_result 到 metadata）
-- **消费者**：Gateway（入站：消费 content_blocks + metadata.session_key 做路由决策；出站：消费 content_blocks + metadata.dsl_result 做出站日志后传给 IM Adapter）、IM Adapter（消费 content_blocks + metadata.dsl_result 渲染为平台格式并发送）、CLI TerminalRenderer（同 IM Adapter，渲染为 ANSI 终端文本）
+- **消费者**：Gateway（入站：消费 content_blocks + metadata.session_key 做路由决策 + metadata.message_type 做非文本判断；出站：消费 content_blocks + metadata.dsl_result 做出站日志后传给 IM Adapter）、IM Adapter（消费 content_blocks + metadata.dsl_result 渲染为平台格式并发送）、CLI TerminalRenderer（同 IM Adapter，渲染为 ANSI 终端文本）
 - **无关**：NormalizedMessage（入站方向的上游产物，经 Processor Chain 处理后产出 ProcessedMessage，两者是不同的两个结构）、Session（Gateway 通过 ProcessedMessage 中的 session_key 找到 Session，但 Session 不直接操作 ProcessedMessage）、LLM Provider（不接触 ProcessedMessage，只产出 ContentBlock[]）
 
 ### SlashResult

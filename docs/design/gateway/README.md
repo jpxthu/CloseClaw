@@ -233,8 +233,8 @@ Gateway 在渲染完成后、发送前提供中间件拦截点。流式模式下
 - [ProcessedMessage](../common/shared-types.md#processedmessage)：Processor Chain 产出，Gateway 消费
 - [ContentBlock](../common/shared-types.md#contentblock)：LLM 响应 / SlashResult 变体产出，Processor Chain 出站消费
 - [SlashResult](../common/shared-types.md#slashresult)：SlashDispatcher 产出，Gateway 消费
-- [DslParseResult](../common/shared-types.md#dslparseresult-和-dslinstruction)：DslParser 产出，IM Adapter 消费（渲染）和 Gateway 消费（出站历史记录写入）
-- SideEffectContext：Gateway 构造的执行上下文，封装 Session 引用和回复通道。定义见 [common 共享类型](../common/shared-types.md#sideeffectcontext)。Gateway 构造后触发 [SlashResult](../common/shared-types.md#slashresult) 执行，各变体通过上下文完成副作用
+- [DslParseResult](../common/shared-types.md#dslparseresult)：DslParser 产出，IM Adapter 消费（渲染）和 Gateway 消费（出站历史记录写入）
+- SideEffectContext：Gateway 构造的执行上下文，封装 Session 引用和回复通道。定义见 [common SlashResult](../common/shared-types.md#slashresult)。Gateway 构造后触发 [SlashResult](../common/shared-types.md#slashresult) 执行，各变体通过上下文完成副作用
 - RenderedOutput：IM Adapter 渲染产出，不跨模块传递
 
 ### 无关
