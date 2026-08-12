@@ -821,7 +821,8 @@ async fn test_busy_reply_text_matches_design_doc() {
         handle.try_send(make_request(&format!("fill-{i}"))).unwrap();
     }
     // Overflow triggers busy reply.
-    gw.enqueue_inbound(make_request("overflow-text-check")).await;
+    gw.enqueue_inbound(make_request("overflow-text-check"))
+        .await;
 
     // Give the async busy reply time to execute.
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
