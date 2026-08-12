@@ -82,17 +82,37 @@ fn default_warning_threshold_pct() -> f64 {
 }
 
 impl CompactConfig {
-    /// Validate threshold ordering.
+    /// Validate configuration values.
     ///
-    /// `auto_compact_threshold_pct` must be <= `warning_threshold_pct`:
-    /// the auto-compact trigger fires at a lower remaining percentage than
-    /// the warning, so the compact threshold must not exceed the warning
-    /// threshold.
+    /// Checks:
+    /// - Both percentage thresholds are in [0, 1].
+    /// - `chars_per_token` is positive.
+    /// - `auto_compact_threshold_pct` <= `warning_threshold_pct`.
     pub fn validate(&self) -> Result<(), String> {
+        if self.chars_per_token <= 0.0 {
+            return Err(format!(
+                "chars_per_token ({}) must be positive",
+                self.chars_per_token
+            ));
+        }
+        if !(0.0..=1.0).contains(&self.auto_compact_threshold_pct) {
+            return Err(format!(
+                "auto_compact_threshold_pct ({}) must be in [0, 1]",
+                self.auto_compact_threshold_pct
+            ));
+        }
+        if !(0.0..=1.0).contains(&self.warning_threshold_pct) {
+            return Err(format!(
+                "warning_threshold_pct ({}) must be in [0, 1]",
+                self.warning_threshold_pct
+            ));
+        }
         if self.auto_compact_threshold_pct > self.warning_threshold_pct {
             return Err(format!(
-                "auto_compact_threshold_pct ({}) must be <= warning_threshold_pct ({})",
-                self.auto_compact_threshold_pct, self.warning_threshold_pct
+                "auto_compact_threshold_pct ({}) must be <= \
+                 warning_threshold_pct ({})",
+                self.auto_compact_threshold_pct,
+                self.warning_threshold_pct
             ));
         }
         Ok(())

@@ -244,9 +244,11 @@ impl CompactionService {
         let remaining = context_window.saturating_sub(used_tokens);
 
         let compact_threshold =
-            (context_window as f64 * self.config.auto_compact_threshold_pct) as usize;
+            (context_window as f64 * self.config.auto_compact_threshold_pct).ceil()
+                as usize;
         let warning_threshold =
-            (context_window as f64 * self.config.warning_threshold_pct) as usize;
+            (context_window as f64 * self.config.warning_threshold_pct).ceil()
+                as usize;
 
         // Auto-compact triggered: ≤ auto_compact_threshold_pct of context window left
         if remaining <= compact_threshold {

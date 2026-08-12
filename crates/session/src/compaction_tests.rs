@@ -623,13 +623,9 @@ mod tests {
         config.max_consecutive_failures = 3;
         let service = CompactionService::new(config);
 
-        // Simulate: manual compact failed 5 times.
-        // With the fix, consecutive_failures must remain 0.
-        for _ in 0..5 {
-            // In production, run_manual_compact's Err branch does NOT
-            // call record_failure(). We verify the contract here: even
-            // if we never call record_failure, the counter stays at 0.
-        }
+        // In production, run_manual_compact's Err branch does NOT
+        // call record_failure(). Verify the contract: even without
+        // calling record_failure, the counter stays at 0.
         assert_eq!(
             service.consecutive_failures(),
             0,
@@ -969,6 +965,136 @@ mod tests {
         // consecutive_failures should remain 2 — compact failure doesn't
         // call record_failure (it's the caller's responsibility).
         assert_eq!(svc.consecutive_failures(), 2);
+    }
+
+    // ===================================================================
+    // Step 1.9: CompactConfig::validate() tests
+    // ===================================================================
+
+    #[test]
+    fn test_validate_default_config_passes() {
+        let config = CompactConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_chars_per_token_negative() {
+        let config = CompactConfig {
+            chars_per_token: -0.5,
+            ..CompactConfig::default()
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("chars_per_token"));
+        assert!(err.contains("positive"));
+    }
+
+    #[test]
+    fn test_validate_chars_per_token_zero() {
+        let config = CompactConfig {
+            chars_per_token: 0.0,
+            ..CompactConfig::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_auto_threshold_below_zero() {
+        let config = CompactConfig {
+            auto_compact_threshold_pct: -0.1,
+            ..CompactConfig::default()
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("auto_compact_threshold_pct"));
+        assert!(err.contains("[0, 1]"));
+    }
+
+    #[test]
+    fn test_validate_auto_threshold_above_one() {
+        let config = CompactConfig {
+            auto_compact_threshold_pct: 1.5,
+            ..CompactConfig::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_warning_threshold_above_one() {
+        let config = CompactConfig {
+            warning_threshold_pct: 2.0,
+            ..CompactConfig::default()
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("warning_threshold_pct"));
+        assert!(err.contains("[0, 1]"));
+    }
+
+    #[test]
+    fn test_validate_auto_exceeds_warning() {
+        let config = CompactConfig {
+            auto_compact_threshold_pct: 0.15,
+            warning_threshold_pct: 0.10,
+            ..CompactConfig::default()
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("must be <="));
+    }
+
+    #[test]
+    fn test_validate_equal_thresholds_pass() {
+        let config = CompactConfig {
+            auto_compact_threshold_pct: 0.10,
+            warning_threshold_pct: 0.10,
+            ..CompactConfig::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_boundary_zero_passes() {
+        let config = CompactConfig {
+            auto_compact_threshold_pct: 0.0,
+            warning_threshold_pct: 0.0,
+            ..CompactConfig::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_boundary_one_passes() {
+        let config = CompactConfig {
+            auto_compact_threshold_pct: 1.0,
+            warning_threshold_pct: 1.0,
+            ..CompactConfig::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    // ===================================================================
+    // Step 1.9: token_warning_state .ceil() tests
+    // ===================================================================
+
+    #[test]
+    fn test_token_warning_state_ceil_rounding() {
+        // 128k window, auto=5%=6400, warning=10%=12800
+        // remaining=6399 -> ceil(6400)=6400 -> 6399<=6400 -> AutoCompact
+        let config = CompactConfig::default();
+        let service = CompactionService::new(config);
+        assert_eq!(
+            service.token_warning_state(121_601, "glm-3", None),
+            TokenWarningState::AutoCompactTriggered
+        );
+    }
+
+    #[test]
+    fn test_token_warning_state_ceil_just_above() {
+        // 128k window, remaining=6401 > ceil(6400)=6400
+        let config = CompactConfig::default();
+        let service = CompactionService::new(config);
+        // remaining = 128000 - 121599 = 6401
+        assert_eq!(
+            service.token_warning_state(121_599, "glm-3", None),
+            TokenWarningState::Warning
+        );
     }
 
     #[tokio::test]
