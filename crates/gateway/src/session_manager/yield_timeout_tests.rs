@@ -6,11 +6,25 @@
 use super::spawn::SpawnMode;
 use super::test_helpers::{setup_parent_with_conv, test_resolved_config};
 use super::tests::{clear_global_prompt_state, make_test_mgr};
+use closeclaw_agent::AgentConfigLookup;
 use closeclaw_common::Tool;
 use closeclaw_session::llm_session::ChatSession;
 use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
 use std::sync::Arc;
+
+// Mock AgentConfigLookup for tests
+struct MockAgentConfigLookup;
+
+#[async_trait::async_trait]
+impl AgentConfigLookup for MockAgentConfigLookup {
+    async fn lookup_agent_config(
+        &self,
+        _agent_id: &str,
+    ) -> Option<closeclaw_agent::AgentConfigInfo> {
+        None
+    }
+}
 
 // ── 1. start_yield_timeout registers a handle ──────────────────────────────
 
@@ -26,7 +40,7 @@ async fn test_yield_timeout_start_registers_handle() {
     let parent_id = setup_parent_with_conv(&mgr, "parent-to1").await;
 
     // Start a yield timeout with a long duration (won't fire in test).
-    mgr.start_yield_timeout(&parent_id, "agent-x", 600).await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 600, None, None).await;
 
     // Cancel should succeed (handle exists).
     mgr.cancel_yield_timeout(&parent_id).await;
@@ -54,7 +68,7 @@ async fn test_yield_timeout_cancel_prevents_fire() {
     }
 
     // Start a short timeout (2 seconds).
-    mgr.start_yield_timeout(&parent_id, "agent-x", 2).await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 2, None, None).await;
 
     // Cancel before it fires.
     mgr.cancel_yield_timeout(&parent_id).await;
@@ -85,10 +99,10 @@ async fn test_yield_timeout_start_replaces_existing() {
     let parent_id = setup_parent_with_conv(&mgr, "parent-to3").await;
 
     // Start first timeout.
-    mgr.start_yield_timeout(&parent_id, "agent-x", 600).await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 600, None, None).await;
 
     // Start second timeout (should abort the first).
-    mgr.start_yield_timeout(&parent_id, "agent-x", 600).await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 600, None, None).await;
 
     // Cancel should work without issue.
     mgr.cancel_yield_timeout(&parent_id).await;
@@ -140,7 +154,7 @@ async fn test_yield_timeout_fires_and_resumes() {
     assert!(mgr.is_session_yielding(&parent_id).await);
 
     // Start a 1-second timeout.
-    mgr.start_yield_timeout(&parent_id, "agent-x", 1).await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 1, None, None).await;
 
     // Wait for timeout to fire.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -207,7 +221,7 @@ async fn test_yield_timeout_default_value_in_notification() {
     }
 
     // Use a 1-second timeout for fast test.
-    mgr.start_yield_timeout(&parent_id, "agent-x", 1).await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 1, None, None).await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Check notification mentions the timeout value in the new format.
@@ -248,7 +262,7 @@ async fn test_yield_timeout_no_children_fires() {
     }
 
     // Start a 1-second timeout.
-    mgr.start_yield_timeout(&parent_id, "agent-x", 1).await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 1, None, None).await;
 
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
@@ -301,7 +315,7 @@ async fn test_yield_warning_timeout_injects_notification() {
     }
 
     // Start with overall=61s (warning at 1s). Warning fires first.
-    mgr.start_yield_timeout(&parent_id, "agent-x", 61).await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 61, None, None).await;
 
     // Wait for warning to fire (1s) but not hard timeout (61s).
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
@@ -378,7 +392,7 @@ async fn test_yield_two_stage_timeout_sequence() {
     }
 
     // Start with overall=3s (warning at 0 → skipped, hard at 3s).
-    mgr.start_yield_timeout(&parent_id, "agent-x", 3).await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 3, None, None).await;
 
     // Wait for hard timeout to fire (3s + buffer).
     tokio::time::sleep(std::time::Duration::from_secs(4)).await;
@@ -430,7 +444,7 @@ async fn test_yield_warning_disabled_only_hard_timeout_fires() {
     }
 
     // Start with a 1-second timeout (no warning since <= 60s).
-    mgr.start_yield_timeout(&parent_id, "agent-x", 1).await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 1, None, None).await;
 
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
@@ -457,6 +471,89 @@ async fn test_yield_warning_disabled_only_hard_timeout_fires() {
     });
     assert!(!has_warning, "warning notification should NOT be present");
     assert!(has_timeout, "timeout notification should be present");
+}
+
+// ── 9b. Legacy mode (None, None) fires exactly one warning ─────────────────
+
+/// When both `timeout_warning_secs` and `notify_interval_ratio` are
+/// None, the legacy path fires exactly one warning at
+/// `overall_timeout_secs - 60` seconds, then nothing until the
+/// hard timeout. This verifies single-warning semantics.
+#[tokio::test]
+#[serial]
+async fn test_yield_legacy_single_warning_only() {
+    clear_global_prompt_state();
+
+    let mgr = Arc::new(make_test_mgr(None));
+    let parent_id = setup_parent_with_conv(&mgr, "parent-lsw").await;
+
+    // Spawn a run-mode child that won't complete.
+    let _child_id = mgr
+        .create_child_session(
+            &test_resolved_config("worker-lsw", None),
+            &parent_id,
+            1,
+            "long task",
+            true,
+            None,
+            SpawnMode::Run,
+            false,
+            None,
+            None,
+            None,
+            3,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Enter Waiting.
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        cs.read().await.enter_waiting();
+    }
+
+    // overall=61s, (None, None) → legacy: warning at T=1 (61-60).
+    mgr.start_yield_timeout(&parent_id, "agent-x", 61, None, None).await;
+
+    // Wait for the single warning to fire (T=1) but not the hard timeout.
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+    // Collect warning entries from the queue.
+    let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+    let entries = {
+        let mut cs_write = cs.write().await;
+        cs_write.drain_queue()
+    };
+
+    // Exactly one warning should have been enqueued.
+    let warning_entries: Vec<_> = entries
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _)
+                    if text.contains("超时预警")
+            )
+        })
+        .collect();
+    assert_eq!(
+        warning_entries.len(),
+        1,
+        "legacy mode should enqueue exactly one warning, got {}",
+        warning_entries.len()
+    );
+
+    // Session should still be yielding (hard timeout hasn't fired).
+    assert!(
+        mgr.is_session_yielding(&parent_id).await,
+        "session should remain in Waiting after single warning"
+    );
+
+    // Cleanup.
+    mgr.cancel_yield_timeout(&parent_id).await;
 }
 
 // ── 10. Yield instant injection: is_session_busy returns false during yield ─
@@ -585,7 +682,7 @@ async fn test_yield_warning_is_system_notification_with_next_priority() {
     }
 
     // Start with overall=61s (warning at 1s). Warning fires first.
-    mgr.start_yield_timeout(&parent_id, "agent-x", 61).await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 61, None, None).await;
 
     // Wait for warning to fire.
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
@@ -666,7 +763,7 @@ async fn test_yield_timeout_notification_goes_through_queue() {
     }
 
     // Start a 1-second timeout.
-    mgr.start_yield_timeout(&parent_id, "agent-x", 1).await;
+    mgr.start_yield_timeout(&parent_id, "agent-x", 1, None, None).await;
 
     // Wait for timeout to fire and drain to complete.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -705,7 +802,11 @@ async fn test_sessions_yield_detail_not_queued() {
     clear_global_prompt_state();
 
     let mgr = Arc::new(make_test_mgr(None));
-    let tool = closeclaw_session::tools::sessions_yield::SessionsYieldTool::new(mgr);
+    let agent_config_lookup: Arc<dyn AgentConfigLookup> = Arc::new(MockAgentConfigLookup);
+    let tool = closeclaw_session::tools::sessions_yield::SessionsYieldTool::new(
+        mgr,
+        agent_config_lookup,
+    );
     let detail = tool.detail();
 
     assert!(
@@ -724,3 +825,5 @@ async fn test_sessions_yield_detail_not_queued() {
         detail
     );
 }
+
+
