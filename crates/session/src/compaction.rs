@@ -208,14 +208,18 @@ impl CompactionService {
     ) -> TokenWarningState {
         let context_window = get_context_window(model, knowledge_context_window);
         let remaining = context_window.saturating_sub(used_tokens);
-        let buffer_tokens = self.config.auto_compact_buffer_tokens;
 
-        // Auto-compact triggered: ≤ buffer_tokens tokens left
-        if remaining <= buffer_tokens {
+        let compact_threshold =
+            (context_window as f64 * self.config.auto_compact_threshold_pct) as usize;
+        let warning_threshold =
+            (context_window as f64 * self.config.warning_threshold_pct) as usize;
+
+        // Auto-compact triggered: ≤ auto_compact_threshold_pct of context window left
+        if remaining <= compact_threshold {
             return TokenWarningState::AutoCompactTriggered;
         }
-        // Warning: ≤ buffer_tokens * 3 / 2 tokens left
-        if remaining <= buffer_tokens * 3 / 2 {
+        // Warning: ≤ warning_threshold_pct of context window left
+        if remaining <= warning_threshold {
             return TokenWarningState::Warning;
         }
         TokenWarningState::Normal
