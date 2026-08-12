@@ -5,7 +5,7 @@
 //! Covers the 4 test categories specified in the plan:
 //!   1. AgentRegistry query path verification
 //!   2. validate() step ordering (requireAgentId before agentId resolution)
-//!   3. global_spawn_timeout default (Some(300))
+//!   3. global_spawn_timeout default (Some(172800))
 //!   4. Crate归属 test (closeclaw_daemon::SpawnController)
 //!
 //! Also covers boundary values: depth=0, maxChildren=0,
@@ -326,10 +326,10 @@ async fn test_step_order_require_agent_id_short_circuits_whitelist() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Target agent has no subagents.timeout configured.
-/// After Step 1.3, global_spawn_timeout() returns Some(300),
-/// so spawn_timeout must be Some(300), NOT None.
+/// global_spawn_timeout() returns Some(172800),
+/// so spawn_timeout must be Some(172800), NOT None.
 #[tokio::test]
-async fn test_global_spawn_timeout_fallback_to_300() {
+async fn test_global_spawn_timeout_fallback_to_172800() {
     let ar = Arc::new(AgentRegistry::new());
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
@@ -349,11 +349,11 @@ async fn test_global_spawn_timeout_fallback_to_300() {
         .await
         .expect("validate should succeed");
 
-    // Step 1.3: global_spawn_timeout() returns Some(300)
+    // global_spawn_timeout() returns Some(172800)
     assert_eq!(
         result.spawn_timeout,
-        Some(300),
-        "spawn_timeout should fall back to global default of 300s"
+        Some(172800),
+        "spawn_timeout should fall back to global default of 172800s (48h)"
     );
 }
 
@@ -381,7 +381,7 @@ async fn test_spawn_timeout_priority_target_over_global() {
         .await
         .expect("validate should succeed");
 
-    // Target config timeout (120) takes precedence over global default (300).
+    // Target config timeout (120) takes precedence over global default (172800).
     assert_eq!(result.spawn_timeout, Some(120));
 }
 
