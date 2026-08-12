@@ -73,6 +73,8 @@ SQLite 访问通过线程池包装为异步调用，保证不阻塞运行时。
 归档后 Sweeper 不与 SessionManager 通信——映射表同步由 SessionManager 在下次 lookup 时通过 status 校验被动完成（详见 [README.md](README.md) key_registry 自愈逻辑）。migrating session 由恢复扫描处理（详见 [session-recovery.md](session-recovery.md)），Sweeper 不操作 migrating 状态的 session。
 
 **SessionManager.is_active()**：SessionManager 向 Sweeper 暴露的只读查询接口。传入 session_id，存在 ConversationSession 实例则返回其四维活跃维度（llm_active / foreground_tool_active / background_tool_active / child_active），不存在则返回全 false——session 不在内存中意味着没有活跃操作。SessionManager 按 agent_id 串行化所有操作，Sweeper 查询时 session 的四维状态不会被并发修改。
+
+**child_active 保护**：child_active 为 true 时，父 Session 不被判定为 inactive，不触发归档。此规则在 F6 需求中定义，Sweeper 通过 is_active() 查询的 child_active 维度统一实施——即"任一维度为 true → 跳过"逻辑已覆盖此场景。若因系统错误导致有活跃子 Session 的父 Session 被归档，记录告警日志并丢弃该子 Session 的完成通知。
 2. **Purge**：扫描 status=archived 且 archived_at 超过 purgeAfterMinutes 的 session → 调用 purge，彻底删除。
 
 **调度策略**：启动后延迟一个完整 interval 再执行首次扫描；Unix 系统上将 Sweeper 进程优先级降低，减少对业务逻辑的 CPU 影响。
