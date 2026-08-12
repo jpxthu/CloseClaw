@@ -99,9 +99,9 @@
     "path": "docs/design/common/shared-types.md",
     "commit": "44baa07135816591498924f0f423e1a2415f1831",
     "commit_time": "2026-08-07T04:15:58+08:00",
-    "confirmed_time": "2026-08-13T05:11:13.510086+08:00",
+    "confirmed_time": "2026-08-13T05:35:37.072017+08:00",
     "comment": "",
-    "blocked_reason": "F2b 3轮深度对比后确认存在 doc_problem：(1) SlashResult 执行模型——文档声称'Gateway 无需改动'但代码中 Gateway 对 PermissionOp/UserApprove/UserReject 做特判拦截，文档数据流部分承认 Exec 特殊处理却遗漏其他3个同类变体，构成内部不一致；(2) PlanState 字段——文档仅列出3个字段（phase/pending_steps/plan_file_path），代码有7个字段并引入完整的执行步骤状态机，两份对比报告对这是 doc_problem 还是 code_extra 存在分歧无法一致。"
+    "blocked_reason": "F2b 3轮深度对比确认 doc_problem：ContentBlock 非文本变体（Image/Audio/File）渲染行为列使用 [image: key] 作为占位符，但代码字段名为 name。同一文档中 MediaRef 的 key 是正式字段名（有字段表），ContentBlock 的 key 是概念占位符（无字段表），同一术语两种用法未区分，构成文档内部歧义。另外存在6项 code_extra（NormalizedMessage chat_name/trace_id、MessageType Other、FragmentContext effective_spawn_budget、PlanState 4额外字段、SlashResult 4额外变体、StreamingOutput 类型）待文档确认是否需补充。"
   },
   {
     "path": "docs/design/config/README.md",
