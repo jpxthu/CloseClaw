@@ -732,3 +732,167 @@ async fn test_busy_reply_timeout_drops_after_2s() {
         elapsed
     );
 }
+
+// ---------------------------------------------------------------------------
+// Busy reply text alignment with design doc (Step 1.2)
+// ---------------------------------------------------------------------------
+
+/// A mock plugin that captures the text sent via `send()`.
+/// Used to verify that the busy reply text matches the design doc.
+struct CapturingPlugin {
+    last_sent_text: std::sync::Mutex<Option<String>>,
+}
+
+impl CapturingPlugin {
+    fn new() -> Self {
+        Self {
+            last_sent_text: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn last_sent_text(&self) -> Option<String> {
+        self.last_sent_text.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl IMPlugin for CapturingPlugin {
+    fn platform(&self) -> &str {
+        "feishu"
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(None)
+    }
+
+    fn render(
+        &self,
+        content_blocks: &[ContentBlock],
+        _dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        let text = content_blocks
+            .iter()
+            .filter_map(|b| match b {
+                closeclaw_common::ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::json!({"content": {"text": text}}),
+        }
+    }
+
+    async fn send(
+        &self,
+        output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        // Extract text from the rendered output payload.
+        let text = output
+            .payload
+            .get("content")
+            .and_then(|c| c.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string();
+        *self.last_sent_text.lock().unwrap() = Some(text);
+        Ok(())
+    }
+}
+
+/// Verify that when the queue is full, the busy reply text is exactly
+/// "服务繁忙，请稍后重试" (no emoji prefix), matching the design doc.
+#[tokio::test]
+async fn test_busy_reply_text_matches_design_doc() {
+    let gw = make_gateway();
+    let plugin = Arc::new(CapturingPlugin::new());
+    gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
+        .await;
+    let handle = gw.start_inbound_queue();
+
+    // Fill queue (capacity = 4).
+    for i in 0..4 {
+        handle.try_send(make_request(&format!("fill-{i}"))).unwrap();
+    }
+    // Overflow triggers busy reply.
+    gw.enqueue_inbound(make_request("overflow-text-check")).await;
+
+    // Give the async busy reply time to execute.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let sent = plugin.last_sent_text();
+    assert!(sent.is_some(), "plugin.send() should have been called");
+    assert_eq!(
+        sent.unwrap(),
+        "\u{670D}\u{52A1}\u{7E41}\u{5FD9}\u{FF0C}\u{8BF7}\u{7A0D}\u{540E}\u{91CD}\u{8BD5}",
+        "busy reply text must match design doc exactly (no emoji prefix)"
+    );
+}
+
+/// Verify the boundary case: with capacity=N, the (N+1)-th message
+/// triggers the busy reply text.
+#[tokio::test]
+async fn test_boundary_n_plus_one_triggers_busy_reply_text() {
+    // Use capacity=1 for a clear boundary.
+    let config = GatewayConfig {
+        name: "test-boundary".to_owned(),
+        rate_limit_per_minute: 0,
+        max_message_size: 0,
+        inbound_queue_capacity: 1,
+        ..Default::default()
+    };
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    let gw = Arc::new(Gateway::new(config, sm));
+    let plugin = Arc::new(CapturingPlugin::new());
+    gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
+        .await;
+    let handle = gw.start_inbound_queue();
+
+    // 1st message fills the queue (capacity=1).
+    handle.try_send(make_request("first")).unwrap();
+    // 2nd message (N+1) triggers busy reply.
+    gw.enqueue_inbound(make_request("second")).await;
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let sent = plugin.last_sent_text();
+    assert!(sent.is_some(), "N+1 message should trigger busy reply");
+    assert_eq!(
+        sent.unwrap(),
+        "\u{670D}\u{52A1}\u{7E41}\u{5FD9}\u{FF0C}\u{8BF7}\u{7A0D}\u{540E}\u{91CD}\u{8BD5}",
+        "boundary busy reply text must match design doc"
+    );
+}
+
+/// Verify that when the queue is NOT full, no busy reply is sent.
+#[tokio::test]
+async fn test_queue_not_full_no_busy_reply() {
+    let gw = make_gateway();
+    let plugin = Arc::new(CapturingPlugin::new());
+    gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
+        .await;
+    let handle = gw.start_inbound_queue();
+
+    // Send 2 messages — well within capacity (4).
+    handle.try_send(make_request("msg-1")).unwrap();
+    handle.try_send(make_request("msg-2")).unwrap();
+
+    // Give time for any spurious busy reply.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    assert!(
+        plugin.last_sent_text().is_none(),
+        "no busy reply should be sent when queue is not full"
+    );
+}
