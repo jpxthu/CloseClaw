@@ -11,6 +11,8 @@ pub mod terminal;
 #[cfg(test)]
 mod chat_tests;
 #[cfg(test)]
+mod renderer_cjk_tests;
+#[cfg(test)]
 mod renderer_tests;
 #[cfg(test)]
 mod terminal_tests;
