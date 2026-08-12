@@ -80,7 +80,7 @@ struct ResolvedTarget {
 /// Global default spawn timeout in seconds (5 minutes).
 /// This is the final fallback when neither spawn args nor target agent
 /// configuration specify a timeout.
-const DEFAULT_SPAWN_TIMEOUT_SECS: u64 = 300;
+const DEFAULT_SPAWN_TIMEOUT_SECS: u64 = 172800;
 
 impl SpawnController {
     pub fn new(
