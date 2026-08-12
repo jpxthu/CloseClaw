@@ -270,6 +270,11 @@ impl SessionManager {
                             let cs = self.conversation_sessions.read().await;
                             if let Some(cs_arc) = cs.get(&session_id) {
                                 let mut cs = cs_arc.write().await;
+                                // Ensure the system prompt builder is available so
+                                // rebuild_system_prompt can produce a fresh prompt.
+                                if let Some(builder) = self.get_system_prompt_builder().await {
+                                    cs.set_system_prompt_builder(builder);
+                                }
                                 cs.rebuild_system_prompt(
                                         &session_id,
                                         &agent_id_for_rebuild,
@@ -657,6 +662,11 @@ impl SessionManager {
                             let cs = self.conversation_sessions.read().await;
                             if let Some(cs_arc) = cs.get(&archived_id) {
                                 let mut cs = cs_arc.write().await;
+                                // Ensure the system prompt builder is available so
+                                // rebuild_system_prompt can produce a fresh prompt.
+                                if let Some(builder) = self.get_system_prompt_builder().await {
+                                    cs.set_system_prompt_builder(builder);
+                                }
                                 cs.rebuild_system_prompt(
                                         &archived_id,
                                         &agent_id_for_rebuild,
