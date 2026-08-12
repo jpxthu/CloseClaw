@@ -85,7 +85,17 @@ impl SessionManagerOps for SessionManager {
         session_id: &str,
         agent_id: &str,
         overall_timeout_secs: u64,
+        timeout_warning_secs: Option<u64>,
+        notify_interval_ratio: Option<f64>,
     ) {
-        SessionManager::start_yield_timeout(&self, session_id, agent_id, overall_timeout_secs).await
+        SessionManager::start_yield_timeout(
+            &self,
+            session_id,
+            agent_id,
+            overall_timeout_secs,
+            timeout_warning_secs,
+            notify_interval_ratio,
+        )
+        .await
     }
 }

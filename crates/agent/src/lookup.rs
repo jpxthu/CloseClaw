@@ -17,6 +17,14 @@ use std::path::PathBuf;
 pub struct AgentConfigInfo {
     /// Agent's configured subagents model override, if any.
     pub subagents_model: Option<ModelSpec>,
+    /// Sub-agent expected execution duration (seconds).
+    /// When reached, cyclic warning notifications begin.
+    /// `None` means fall back to the global default.
+    pub timeout_warning: Option<u64>,
+    /// Interval ratio for cyclic warning notifications
+    /// (relative to `timeout_warning`). Must be >=0.1 and <=2.0,
+    /// default 0.5. `None` means use the default.
+    pub timeout_notify_interval_ratio: Option<f64>,
 }
 
 /// Trait for looking up agent configuration.
