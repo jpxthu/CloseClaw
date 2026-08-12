@@ -4,8 +4,8 @@
 //! code blocks, ANSI helpers, and edge cases.
 
 use crate::renderer::{
-    check_line_pattern, get_terminal_width, resolve_terminal_width_from,
-    strip_ansi, TerminalRenderer, BOLD, CYAN, DIM, ITALIC,
+    check_line_pattern, get_terminal_width, resolve_terminal_width_from, strip_ansi,
+    TerminalRenderer, BOLD, CYAN, DIM, ITALIC,
 };
 use std::collections::HashMap;
 
@@ -988,5 +988,3 @@ fn test_tool_use_format_json_input() {
     assert!(result.contains(r#"{"a":1}"#));
     assert!(result.contains(r#"{"b":2}"#));
 }
-
-

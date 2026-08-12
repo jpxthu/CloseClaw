@@ -13,8 +13,14 @@ use closeclaw_llm::types::ContentBlock;
 fn test_link_ansi_no_bold() {
     let result = format_line("[example](https://example.com)", true);
     assert_eq!(result, "example (https://example.com)");
-    assert!(!result.contains(BOLD), "link text must not be wrapped in BOLD");
-    assert!(!result.contains(ITALIC), "link text must not be wrapped in ITALIC");
+    assert!(
+        !result.contains(BOLD),
+        "link text must not be wrapped in BOLD"
+    );
+    assert!(
+        !result.contains(ITALIC),
+        "link text must not be wrapped in ITALIC"
+    );
 }
 
 /// Link in non-ANSI mode: plain text output `text (url)`.
@@ -38,8 +44,14 @@ fn test_link_ansi_and_no_ansi_identical() {
 #[test]
 fn test_link_text_and_url_present() {
     let result = format_line("[click here](https://example.com/path?q=1)", true);
-    assert!(result.starts_with("click here"), "text must appear at start");
-    assert!(result.contains("https://example.com/path?q=1"), "URL must appear in output");
+    assert!(
+        result.starts_with("click here"),
+        "text must appear at start"
+    );
+    assert!(
+        result.contains("https://example.com/path?q=1"),
+        "URL must appear in output"
+    );
     assert!(
         result.contains("(https://example.com/path?q=1)"),
         "URL must be wrapped in parentheses"
@@ -73,10 +85,12 @@ fn test_link_multiple_on_line() {
 #[test]
 fn test_link_render_block_ansi_no_bold() {
     let renderer = TerminalRenderer::with_ansi(true);
-    let result = renderer.render_block(&ContentBlock::Text(
-        "[example](https://example.com)".into(),
-    ));
-    assert!(!result.contains(BOLD), "link text must not be BOLD in ANSI mode");
+    let result =
+        renderer.render_block(&ContentBlock::Text("[example](https://example.com)".into()));
+    assert!(
+        !result.contains(BOLD),
+        "link text must not be BOLD in ANSI mode"
+    );
     assert!(result.contains("example"));
     assert!(result.contains("https://example.com"));
 }
@@ -85,8 +99,7 @@ fn test_link_render_block_ansi_no_bold() {
 #[test]
 fn test_link_render_block_no_ansi() {
     let renderer = TerminalRenderer::with_ansi(false);
-    let result = renderer.render_block(&ContentBlock::Text(
-        "[example](https://example.com)".into(),
-    ));
+    let result =
+        renderer.render_block(&ContentBlock::Text("[example](https://example.com)".into()));
     assert!(result.contains("example (https://example.com)"));
 }
