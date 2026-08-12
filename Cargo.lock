@@ -525,6 +525,7 @@ dependencies = [
  "terminal_size",
  "tokio",
  "tracing",
+ "unicode-width",
 ]
 
 [[package]]

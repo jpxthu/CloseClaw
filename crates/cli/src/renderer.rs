@@ -9,6 +9,7 @@ use closeclaw_common::processor::DslParseResult;
 use closeclaw_common::RenderedOutput;
 use closeclaw_llm::types::ContentBlock;
 use tracing::warn;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 // ---------------------------------------------------------------------------
 // ANSI escape codes
@@ -653,15 +654,27 @@ impl TerminalRenderer {
         }
     }
 
-    /// Truncate `content` to terminal width and append `... (truncated)` if needed.
+    /// Truncate `content` to terminal display width and append `... (truncated)` if needed.
+    ///
+    /// Uses terminal column width (not character count) so CJK/fullwidth
+    /// characters, which occupy 2 columns, are accounted for correctly.
     fn truncate_to_width(&self, content: &str) -> String {
         let max_width = get_terminal_width();
-        if content.chars().count() > max_width {
-            let truncated: String = content.chars().take(max_width).collect();
-            format!("{}... (truncated)", truncated)
-        } else {
-            content.to_string()
+        let display_width = UnicodeWidthStr::width(content);
+        if display_width <= max_width {
+            return content.to_string();
         }
+        let mut width_so_far = 0;
+        let mut end = 0;
+        for ch in content.chars() {
+            let w = UnicodeWidthChar::width(ch).unwrap_or(0);
+            if width_so_far + w > max_width {
+                break;
+            }
+            width_so_far += w;
+            end += ch.len_utf8();
+        }
+        format!("{}... (truncated)", &content[..end])
     }
 
     /// Render a Thinking block with boundary markers.
