@@ -12,9 +12,11 @@ use closeclaw_common::im_plugin::{AdapterError, IMPlugin, RenderedOutput};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_common::{ContentBlock, MessageType, NormalizedMessage};
 use closeclaw_session::persistence::ReasoningLevel;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
-use super::inbound_queue::{start_inbound_consumer, InboundQueueFull, InboundQueueHandle};
+use super::inbound_queue::{
+    start_inbound_consumer, InboundQueueFull, InboundQueueHandle, QueuedInbound,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,6 +64,13 @@ fn make_request(content: &str) -> InboundRequest {
     }
 }
 
+/// Wrap an `InboundRequest` in a [`QueuedInbound`] with a dummy ack sender.
+/// For tests that only care about the request payload, not the ack signal.
+fn queued(request: InboundRequest) -> QueuedInbound {
+    let (ack_tx, _) = oneshot::channel();
+    QueuedInbound { request, ack_tx }
+}
+
 fn make_gateway() -> Arc<Gateway> {
     let config = GatewayConfig {
         name: "test".to_owned(),
@@ -85,19 +94,20 @@ fn make_gateway() -> Arc<Gateway> {
 
 #[tokio::test]
 async fn test_try_send_ok_and_capacity() {
-    let (tx, _rx) = mpsc::channel::<InboundRequest>(8);
+    let (tx, _rx) = mpsc::channel::<QueuedInbound>(8);
     let handle = InboundQueueHandle::new(tx);
     assert_eq!(handle.capacity(), 8);
-    assert!(handle.try_send(make_request("a")).is_ok());
-    assert!(handle.try_send(make_request("b")).is_ok());
+    assert!(handle.try_send(queued(make_request("a"))).is_ok());
+    assert!(handle.try_send(queued(make_request("b"))).is_ok());
 }
 
 #[tokio::test]
 async fn test_try_send_full_returns_original_request() {
-    let (tx, _rx) = mpsc::channel::<InboundRequest>(1);
+    let (tx, _rx) = mpsc::channel::<QueuedInbound>(1);
     let handle = InboundQueueHandle::new(tx);
-    assert!(handle.try_send(make_request("a")).is_ok());
-    let err: Result<(), InboundQueueFull> = handle.try_send(make_request("overflow"));
+    assert!(handle.try_send(queued(make_request("a"))).is_ok());
+    let err: Result<(), InboundQueueFull> =
+        handle.try_send(queued(make_request("overflow")));
     assert!(err.is_err());
     let full = err.unwrap_err();
     assert_eq!(full.request.peer_id, "p1");
@@ -105,10 +115,11 @@ async fn test_try_send_full_returns_original_request() {
 
 #[tokio::test]
 async fn test_try_send_closed_channel() {
-    let (tx, rx) = mpsc::channel::<InboundRequest>(4);
+    let (tx, rx) = mpsc::channel::<QueuedInbound>(4);
     let handle = InboundQueueHandle::new(tx);
     drop(rx); // close receiver
-    let err: Result<(), InboundQueueFull> = handle.try_send(make_request("x"));
+    let err: Result<(), InboundQueueFull> =
+        handle.try_send(queued(make_request("x")));
     assert!(err.is_err());
 }
 
@@ -122,18 +133,18 @@ async fn test_consumer_fires_parse_and_process() {
     // process_inbound_chain → handle_inbound_message.
     // Without a plugin registered, the consumer should not panic or hang.
     let gw = make_gateway();
-    let (tx, rx) = mpsc::channel::<InboundRequest>(8);
+    let (tx, rx) = mpsc::channel::<QueuedInbound>(8);
     let capacity = 8;
     start_inbound_consumer(rx, Arc::clone(&gw), capacity);
 
     // Send a message through the channel directly.
-    tx.send(make_request("hello")).await.unwrap();
-    tx.send(make_request("world")).await.unwrap();
+    tx.send(queued(make_request("hello"))).await.unwrap();
+    tx.send(queued(make_request("world"))).await.unwrap();
 
     // Give the consumer time to process.
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     // Channel should be drained (messages dropped because no plugin registered).
-    assert!(tx.try_send(make_request("z")).is_ok());
+    assert!(tx.try_send(queued(make_request("z"))).is_ok());
     // No panic = consumer ran and handled missing plugin gracefully.
 }
 
@@ -142,26 +153,28 @@ async fn test_consumer_fifo_order() {
     // Messages are processed in order; we verify by sending N messages
     // and ensuring none are dropped.
     let gw = make_gateway();
-    let (tx, rx) = mpsc::channel::<InboundRequest>(16);
+    let (tx, rx) = mpsc::channel::<QueuedInbound>(16);
     start_inbound_consumer(rx, Arc::clone(&gw), 16);
 
     for i in 0..10 {
-        tx.send(make_request(&format!("msg-{i}"))).await.unwrap();
+        tx.send(queued(make_request(&format!("msg-{i}"))))
+            .await
+            .unwrap();
     }
 
     // Wait for processing.
     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
     // All messages consumed — channel should be empty.
-    assert!(tx.try_send(make_request("extra")).is_ok());
+    assert!(tx.try_send(queued(make_request("extra"))).is_ok());
 }
 
 #[tokio::test]
 async fn test_consumer_stops_on_channel_close() {
     let gw = make_gateway();
-    let (tx, rx) = mpsc::channel::<InboundRequest>(4);
+    let (tx, rx) = mpsc::channel::<QueuedInbound>(4);
     start_inbound_consumer(rx, Arc::clone(&gw), 4);
 
-    tx.send(make_request("before")).await.unwrap();
+    tx.send(queued(make_request("before"))).await.unwrap();
     drop(tx); // close sender — consumer should exit its loop
 
     // Consumer task should terminate; we verify by waiting a bit.
@@ -190,7 +203,7 @@ async fn test_start_inbound_queue_returns_handle() {
     // Handle should have the configured capacity.
     assert_eq!(handle.capacity(), 4);
     // Enqueue via handle should succeed.
-    assert!(handle.try_send(make_request("ok")).is_ok());
+    assert!(handle.try_send(queued(make_request("ok"))).is_ok());
 }
 
 #[tokio::test]
@@ -202,7 +215,9 @@ async fn test_gateway_enqueue_inbound_full_triggers_busy_reply() {
 
     // Fill queue (capacity = 4).
     for i in 0..4 {
-        handle.try_send(make_request(&format!("fill-{i}"))).unwrap();
+        handle
+            .try_send(queued(make_request(&format!("fill-{i}"))))
+            .unwrap();
     }
     // Next enqueue should trigger busy reply path (no plugin → silently skipped).
     gw.enqueue_inbound(make_request("overflow")).await;
@@ -325,37 +340,28 @@ impl IMPlugin for NonTextEmptyContentPlugin {
 
 #[tokio::test]
 async fn test_process_inbound_direct_drops_empty_text() {
-    // Register a plugin that bypasses the adapter-level filter and returns
-    // an empty-text NormalizedMessage. The defensive filter in
-    // process_inbound_direct should drop it.
     let gw = make_gateway();
     gw.register_plugin(Arc::new(EmptyTextBypassPlugin)).await;
-    // No queue started → enqueue_inbound uses process_inbound_direct fallback.
     gw.enqueue_inbound(make_request("empty-text")).await;
-    // No panic = empty text was filtered without entering the chain.
 }
 
 #[tokio::test]
 async fn test_process_inbound_direct_passes_non_text_empty_content() {
-    // Non-text messages with empty content should NOT be filtered.
     let gw = make_gateway();
     gw.register_plugin(Arc::new(NonTextEmptyContentPlugin))
         .await;
     gw.enqueue_inbound(make_request("img-empty")).await;
-    // No panic = image message passed through (handler may produce unsupported reply).
 }
 
 #[tokio::test]
 async fn test_consumer_drops_empty_text_from_plugin() {
-    // Same defensive filter applies in the consumer path when a plugin
-    // returns an empty-text NormalizedMessage.
     let gw = make_gateway();
     gw.register_plugin(Arc::new(EmptyTextBypassPlugin)).await;
     let handle = gw.start_inbound_queue();
-    handle.try_send(make_request("empty-via-queue")).unwrap();
-    // Wait for consumer to process.
+    handle
+        .try_send(queued(make_request("empty-via-queue")))
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    // No panic = empty text filtered in consumer path too.
 }
 
 // ---------------------------------------------------------------------------
@@ -462,55 +468,50 @@ impl IMPlugin for NormalTextPlugin {
 
 #[tokio::test]
 async fn test_consumer_drops_empty_string_text() {
-    // Consumer path should drop text message with empty string content.
     let gw = make_gateway();
     gw.register_plugin(Arc::new(EmptyStringTextPlugin)).await;
     let handle = gw.start_inbound_queue();
-    handle.try_send(make_request("empty-str")).unwrap();
+    handle
+        .try_send(queued(make_request("empty-str")))
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    // No panic = empty string text filtered in consumer path.
 }
 
 #[tokio::test]
 async fn test_consumer_passes_non_text_empty_content() {
-    // Consumer path should NOT filter non-text messages with
-    // empty content (e.g. image with no alt text).
     let gw = make_gateway();
     gw.register_plugin(Arc::new(NonTextEmptyContentPlugin))
         .await;
     let handle = gw.start_inbound_queue();
-    handle.try_send(make_request("img-via-queue")).unwrap();
+    handle
+        .try_send(queued(make_request("img-via-queue")))
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    // No panic = image message passed through consumer path.
 }
 
 #[tokio::test]
 async fn test_consumer_passes_normal_text() {
-    // Consumer path should pass non-empty text messages.
     let gw = make_gateway();
     gw.register_plugin(Arc::new(NormalTextPlugin)).await;
     let handle = gw.start_inbound_queue();
-    handle.try_send(make_request("normal")).unwrap();
+    handle
+        .try_send(queued(make_request("normal")))
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    // No panic = normal text message passed through consumer path.
 }
 
 #[tokio::test]
 async fn test_fallback_drops_empty_string_text() {
-    // Fallback path should also drop text with empty string.
     let gw = make_gateway();
     gw.register_plugin(Arc::new(EmptyStringTextPlugin)).await;
     gw.enqueue_inbound(make_request("empty-str-fb")).await;
-    // No panic = empty string text filtered in fallback path.
 }
 
 #[tokio::test]
 async fn test_fallback_passes_normal_text() {
-    // Fallback path should pass non-empty text messages.
     let gw = make_gateway();
     gw.register_plugin(Arc::new(NormalTextPlugin)).await;
     gw.enqueue_inbound(make_request("normal-fb")).await;
-    // No panic = normal text passed through fallback path.
 }
 
 // ---------------------------------------------------------------------------
@@ -518,8 +519,6 @@ async fn test_fallback_passes_normal_text() {
 // ---------------------------------------------------------------------------
 
 /// A middleware that rejects every outbound message.
-/// Used to verify that busy reply bypasses the middleware chain
-/// (i.e. uses send_outbound_simplified, not send_outbound_to_chat).
 struct RejectAllMiddleware;
 
 #[async_trait]
@@ -593,35 +592,24 @@ impl IMPlugin for TrackingSendPlugin {
     }
 }
 
-/// Verify that busy reply goes through the simplified outbound path.
-///
-/// Strategy: register a rejecting middleware. If busy reply used
-/// `send_outbound_to_chat`, the middleware would reject the message
-/// and `plugin.send()` would never be called. Since it uses
-/// `send_outbound_simplified`, the middleware is skipped and the
-/// plugin receives the send call.
 #[tokio::test]
 async fn test_busy_reply_uses_simplified_outbound_path() {
     let gw = make_gateway();
     let plugin = Arc::new(TrackingSendPlugin::new());
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
-    // Register a middleware that rejects all messages.
     gw.add_outbound_middleware(Arc::new(RejectAllMiddleware));
 
     let handle = gw.start_inbound_queue();
-    // Fill queue (capacity = 4) to trigger busy reply.
     for i in 0..4 {
-        handle.try_send(make_request(&format!("fill-{i}"))).unwrap();
+        handle
+            .try_send(queued(make_request(&format!("fill-{i}"))))
+            .unwrap();
     }
 
-    // Overflow triggers busy reply via simplified path (no middleware).
     gw.enqueue_inbound(make_request("overflow-mw-test")).await;
-
-    // Give time for busy reply to execute.
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-    // Plugin.send should have been called — simplified path skips middleware.
     assert!(
         plugin.was_send_called(),
         "send_outbound_simplified should call plugin.send()"
@@ -632,8 +620,7 @@ async fn test_busy_reply_uses_simplified_outbound_path() {
 // Busy reply timeout test (Step 1.6)
 // ---------------------------------------------------------------------------
 
-/// A mock plugin whose `send()` blocks for longer than 2 seconds,
-/// forcing the busy-reply timeout path to fire.
+/// A mock plugin whose `send()` blocks for longer than 2 seconds.
 struct SlowSendPlugin;
 
 #[async_trait]
@@ -686,7 +673,6 @@ impl IMPlugin for SlowSendPlugin {
         _peer_id: &str,
         _thread_id: Option<&str>,
     ) -> Result<(), AdapterError> {
-        // Block for 3 seconds — exceeds the 2s busy-reply timeout.
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         Ok(())
     }
@@ -705,27 +691,22 @@ impl IMPlugin for SlowSendPlugin {
     }
 }
 
-/// Verify that when the outbound send exceeds the 2-second busy-reply
-/// timeout, the reply is dropped gracefully without blocking the Gateway.
 #[tokio::test]
 async fn test_busy_reply_timeout_drops_after_2s() {
     let gw = make_gateway();
     gw.register_plugin(Arc::new(SlowSendPlugin)).await;
     let handle = gw.start_inbound_queue();
 
-    // Fill the queue (capacity = 4) so the next enqueue triggers busy reply.
     for i in 0..4 {
-        handle.try_send(make_request(&format!("fill-{i}"))).unwrap();
+        handle
+            .try_send(queued(make_request(&format!("fill-{i}"))))
+            .unwrap();
     }
 
     let start = std::time::Instant::now();
-    // This should trigger send_busy_reply which will timeout after ~2s.
     gw.enqueue_inbound(make_request("overflow-slow")).await;
     let elapsed = start.elapsed();
 
-    // The enqueue should return quickly — the busy reply runs in the
-    // background consumer. We just verify no panic occurred and the
-    // overall test completes within a reasonable time (< 5s).
     assert!(
         elapsed < std::time::Duration::from_secs(5),
         "test should complete well within 5s, took {:?}",
@@ -738,7 +719,6 @@ async fn test_busy_reply_timeout_drops_after_2s() {
 // ---------------------------------------------------------------------------
 
 /// A mock plugin that captures the text sent via `send()`.
-/// Used to verify that the busy reply text matches the design doc.
 struct CapturingPlugin {
     last_sent_text: std::sync::Mutex<Option<String>>,
 }
@@ -793,7 +773,6 @@ impl IMPlugin for CapturingPlugin {
         _peer_id: &str,
         _thread_id: Option<&str>,
     ) -> Result<(), AdapterError> {
-        // Extract text from the rendered output payload.
         let text = output
             .payload
             .get("content")
@@ -806,8 +785,6 @@ impl IMPlugin for CapturingPlugin {
     }
 }
 
-/// Verify that when the queue is full, the busy reply text is exactly
-/// "服务繁忙，请稍后重试" (no emoji prefix), matching the design doc.
 #[tokio::test]
 async fn test_busy_reply_text_matches_design_doc() {
     let gw = make_gateway();
@@ -816,15 +793,14 @@ async fn test_busy_reply_text_matches_design_doc() {
         .await;
     let handle = gw.start_inbound_queue();
 
-    // Fill queue (capacity = 4).
     for i in 0..4 {
-        handle.try_send(make_request(&format!("fill-{i}"))).unwrap();
+        handle
+            .try_send(queued(make_request(&format!("fill-{i}"))))
+            .unwrap();
     }
-    // Overflow triggers busy reply.
     gw.enqueue_inbound(make_request("overflow-text-check"))
         .await;
 
-    // Give the async busy reply time to execute.
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
     let sent = plugin.last_sent_text();
@@ -836,11 +812,8 @@ async fn test_busy_reply_text_matches_design_doc() {
     );
 }
 
-/// Verify the boundary case: with capacity=N, the (N+1)-th message
-/// triggers the busy reply text.
 #[tokio::test]
 async fn test_boundary_n_plus_one_triggers_busy_reply_text() {
-    // Use capacity=1 for a clear boundary.
     let config = GatewayConfig {
         name: "test-boundary".to_owned(),
         rate_limit_per_minute: 0,
@@ -860,9 +833,9 @@ async fn test_boundary_n_plus_one_triggers_busy_reply_text() {
         .await;
     let handle = gw.start_inbound_queue();
 
-    // 1st message fills the queue (capacity=1).
-    handle.try_send(make_request("first")).unwrap();
-    // 2nd message (N+1) triggers busy reply.
+    handle
+        .try_send(queued(make_request("first")))
+        .unwrap();
     gw.enqueue_inbound(make_request("second")).await;
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -876,7 +849,6 @@ async fn test_boundary_n_plus_one_triggers_busy_reply_text() {
     );
 }
 
-/// Verify that when the queue is NOT full, no busy reply is sent.
 #[tokio::test]
 async fn test_queue_not_full_no_busy_reply() {
     let gw = make_gateway();
@@ -885,11 +857,13 @@ async fn test_queue_not_full_no_busy_reply() {
         .await;
     let handle = gw.start_inbound_queue();
 
-    // Send 2 messages — well within capacity (4).
-    handle.try_send(make_request("msg-1")).unwrap();
-    handle.try_send(make_request("msg-2")).unwrap();
+    handle
+        .try_send(queued(make_request("msg-1")))
+        .unwrap();
+    handle
+        .try_send(queued(make_request("msg-2")))
+        .unwrap();
 
-    // Give time for any spurious busy reply.
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
     assert!(

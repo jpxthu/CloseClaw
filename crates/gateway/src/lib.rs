@@ -90,7 +90,7 @@ use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
-pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
+pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest, QueuedInbound};
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::{SessionManager, SpawnController};
 pub use shutdown_handle::ShutdownHandle;
@@ -110,7 +110,7 @@ pub struct Gateway {
     /// Permission engine for slash command authorization.
     permission_engine: RwLock<Option<Arc<tokio::sync::RwLock<PermissionEngine>>>>,
     /// Bounded inbound queue sender. `None` until the queue is started.
-    inbound_tx: std::sync::Mutex<Option<mpsc::Sender<InboundRequest>>>,
+    inbound_tx: std::sync::Mutex<Option<mpsc::Sender<inbound_queue::QueuedInbound>>>,
     /// Self-reference for back-pointer to the owning `Arc<Gateway>`.
     /// `handle_inbound_message` is called with `&self`, but
     /// `SessionMessageHandler` needs an `Arc<Gateway>` to call
