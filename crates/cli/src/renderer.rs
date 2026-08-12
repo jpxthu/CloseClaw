@@ -150,11 +150,7 @@ pub(crate) fn apply_inline_styling(spans: &[InlineSpan], ansi: bool) -> String {
                 out.push_str(&apply_inline_styled_text(text, BOLD, ansi));
             }
             InlineSpan::Link { text, url } => {
-                if ansi {
-                    out.push_str(&format!("{}{}{} ({})", BOLD, text, RESET, url));
-                } else {
-                    out.push_str(&format!("{} ({})", text, url));
-                }
+                out.push_str(&format!("{} ({})", text, url));
             }
             InlineSpan::Text(text) => {
                 out.push_str(text);

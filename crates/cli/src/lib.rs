@@ -13,6 +13,8 @@ mod chat_tests;
 #[cfg(test)]
 mod renderer_cjk_tests;
 #[cfg(test)]
+mod renderer_link_tests;
+#[cfg(test)]
 mod renderer_tests;
 #[cfg(test)]
 mod terminal_tests;
