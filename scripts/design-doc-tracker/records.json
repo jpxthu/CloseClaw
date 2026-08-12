@@ -25,9 +25,9 @@
   },
   {
     "path": "docs/design/agent/agent-registry.md",
-    "commit": "ab60552d4d4ac0f636a6a21eab2065c1e845718f",
-    "commit_time": "2026-07-12T06:54:45+08:00",
-    "confirmed_time": "2026-07-12T07:01:13.401866+08:00",
+    "commit": "bd50a8b331e5f4ac2c05d85f74bd6198260ff45e",
+    "commit_time": "2026-08-12T22:16:32+08:00",
+    "confirmed_time": "2026-08-13T01:07:03.394343+08:00",
     "comment": "",
     "blocked_reason": ""
   },
