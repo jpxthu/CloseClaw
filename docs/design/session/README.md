@@ -21,7 +21,7 @@ Session 模块是 CloseClaw 的运行时载体，管理 session 的全生命周�
 | [working-directory.md](working-directory.md) | 工作目录的定义：字段、默认值、`/cd` 变更、`/pwd` 读取、system prompt 注入 |
 | [compact-process.md](compact-process.md) | 会话上下文压缩：触发机制、LLM summarization、system prompt 隔离保护 |
 | [llm-session-enhancements.md](llm-session-enhancements.md) | LLM 交互增强：流式输出、Reasoning Level 控制、用量统计、Thinking 内容管理 |
-| [session-tools.md](session-tools.md) | 对外工具：sessions_spawn / sessions_steer / sessions_kill / sessions_yield 的参数、行为、向 ToolRegistry 注册 |
+| [session-tools.md](session-tools.md) | 对外工具：sessions_spawn / sessions_steer / sessions_kill 的参数、行为、向 ToolRegistry 注册 |
 | [run-health.md](run-health.md) | 运行时安全网：turn 边界健康检测（硬规则 + Hook 审查）、运行快照创建与回滚 |
 | [session-recovery.md](session-recovery.md) | 重启恢复：dirty 检测、恢复通知注入、工具调用失败模拟、出站消息补投、树状恢复策略 |
 
@@ -229,7 +229,7 @@ Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=ac
 
 - **System Prompt Builder**：注入链路依赖此模块完成 bootstrap、工具列表的组装。
 - **LLM Client（UnifiedChatClient）**：ConversationSession 构建 API 请求发送给 LLM Client，经内部链路（CacheAdapter → Plugin → Protocol → Provider）完成调用；stop 时通过 cancel token 取消进行中的请求。
-- **ToolRegistry**：通过 [ToolRegistrar](../common/core-traits.md#toolregistrar) trait 向 ToolRegistry 注册 sessions 分组工具（sessions_spawn / sessions_steer / sessions_kill / sessions_yield）；注入时获取工具列表（ToolsSection）。技能清单的基础部分由 System Prompt 模块在组装时注入 SkillsSection，Session 仅在条件激活时负责 per-turn 增量消息注入（详见 [session-injection.md](session-injection.md)）。
+- **ToolRegistry**：通过 [ToolRegistrar](../common/core-traits.md#toolregistrar) trait 向 ToolRegistry 注册 sessions 分组工具（sessions_spawn / sessions_steer / sessions_kill）；注入时获取工具列表（ToolsSection）。技能清单的基础部分由 System Prompt 模块在组装时注入 SkillsSection，Session 仅在条件激活时负责 per-turn 增量消息注入（详见 [session-injection.md](session-injection.md)）。
 - **PersistenceService**：CheckpointManager 通过此 trait 调用具体存储后端。
 - **Permission 模块**：工具调用时，tools 模块解析操作上下文后调用 Permission 引擎完成权限检查（详见 session-tools.md）。
 - **Config 模块**：sweeper 和 compaction 读取 SessionConfigProvider 获取会话配置参数（idle 超时、compact 阈值等）。

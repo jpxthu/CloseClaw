@@ -41,7 +41,9 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 | `requireAgentId` | spawn 时是否必须显式指定 agentId | `false` |
 | `maxSpawnDepth` | 本 agent 允许的最大子孙层级数（1=仅子 agent，0=禁止 spawn） | `1` |
 | `maxChildren` | 最大并发活跃子 session 数 | `5` |
-| `timeout` | 子 agent 最大执行时长（秒），未指定时回退全局配置 | 无（用全局默认超时） |
+| `timeout` | 子 agent 最大执行时长（秒），硬超时后系统自动终止子 agent。未指定时回退全局默认 48 小时 | 无（用全局默认 48 小时） |
+| `timeout_warning` | 子 agent 预期执行时长（秒），达到后启动循环预警通知。未指定时回退全局默认值 | 无（用全局默认值） |
+| `timeoutNotifyIntervalRatio` | 超时预警后循环通知的间隔比例（相对于 timeout_warning），>=0.1 且 <=2.0 | 0.5（即 50%） |
 | `model` | 子 agent 的默认模型覆盖，优先级低于 sessions_spawn 调用时的显式 model 参数 | 无（用子 agent 自身配置） |
 
 `allowAgents` 为 `["*"]` 时不限制；为空数组 `[]` 时禁止 spawn 任何子 agent。

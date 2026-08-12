@@ -2,7 +2,7 @@
 
 ## 概述
 
-Session 模块实现 [ToolRegistrar](../common/core-traits.md#toolregistrar) trait，向 ToolRegistry 注册会话管理工具，供 agent 在其生命周期内管理子 session。这些工具统一归类到 `sessions` 分组。Daemon 启动时，ToolRegistry 初始化阶段统一调用各 ToolRegistrar 实现者（含 Session 模块）完成工具注册。sessions_yield 工具的定义见 [session-execution.md](session-execution.md) §sessions_yield 工具
+Session 模块实现 [ToolRegistrar](../common/core-traits.md#toolregistrar) trait，向 ToolRegistry 注册会话管理工具，供 agent 在其生命周期内管理子 session。这些工具统一归类到 `sessions` 分组。Daemon 启动时，ToolRegistry 初始化阶段统一调用各 ToolRegistrar 实现者（含 Session 模块）完成工具注册。子 Session 超时通知机制详见 [session-execution.md](session-execution.md) §子 Session 超时通知。
 
 ## 架构
 
@@ -13,9 +13,6 @@ Session 模块实现 [ToolRegistrar](../common/core-traits.md#toolregistrar) tra
 | sessions_spawn | 创建子 session 执行子任务 | 始终加载 |
 | sessions_steer | 向存活中的子 session 发送新任务 | 始终加载 |
 | sessions_kill | 终止子 session | 始终加载 |
-| sessions_yield | 主动结束当前 turn，等待子 session 完成 | 始终加载 |
-
-sessions_yield 的完整行为定义（Waiting 状态、用户消息排队、超时保护）见 [session-execution.md](session-execution.md) §sessions_yield 工具。
 
 工具注册到 ToolRegistry 的分组 `sessions` 下，由 Session 模块的 ToolRegistrar 实现完成，在 Daemon 启动的 ToolRegistry 初始化阶段执行——此阶段早于 SessionManager 创建（见 [daemon/README.md](../daemon/README.md) 启动层级）。
 
@@ -34,7 +31,8 @@ sessions_yield 的完整行为定义（Waiting 状态、用户消息排队、超
 > `mode` 描述子 session 的持久化策略，与 SessionCheckpoint 中的 `mode` 字段（对话模式：normal/plan/auto）含义不同——二者作用于不同数据结构。
 | `fork` | 是否 fork 父 agent 上下文 | 否 | `false` |
 | `model` | 覆盖目标 agent 的默认模型（解析优先级见下方） | 否 | 按优先级链自动解析 |
-| `timeout` | 子 agent 最大执行时长（秒），覆盖目标 agent 配置和全局默认值 | 否 | 目标 agent.subagents.timeout → 全局配置 |
+| `timeout` | 子 agent 硬超时（秒），达到后系统自动终止。覆盖目标 agent 配置和全局默认值 | 否 | 目标 agent.subagents.timeout → 全局默认（48h） |
+| `timeout_warning` | 子 agent 预期执行时长（秒），达到后启动循环预警通知。覆盖目标 agent 配置和全局默认值 | 否 | 目标 agent.subagents.timeout_warning → 全局默认值 |
 | `workspace` | 独立工作目录 | 否 | spawn 参数指定 → 目标 agent.workspace → 父 Agent 工作目录 |
 | `label` | 子 session 简短标签 | 否 | 自动生成 |
 | `lightContext` | 是否使用 minimal bootstrap | 否 | `false` |
@@ -96,7 +94,8 @@ sessions_spawn：
   → 全部通过 → 创建 child session → 注册到父 session 子 session 跟踪表
   → 子 session 启动执行
     → 正常完成 → announce 注入父 session 消息队列（带去重保护：同一子 session 只注入一次）
-    → 超时（超过 timeout 秒未完成）→ 系统终止该子 session（级联终止其所有后代），注入超时通知到父 session 消息队列
+    → 超过 timeout_warning 未完成 → 启动循环预警通知（详见 [session-execution.md](session-execution.md) §子 Session 超时通知）
+    → 超过 timeout 未完成 → 系统自动终止子 session（级联终止其所有后代），注入超时终止通知到父 session 消息队列
 
 sessions_steer / sessions_kill：
   → 校验子 session 归属（parent session 一致）
