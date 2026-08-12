@@ -1,6 +1,7 @@
 //! sessions_yield tool — signals the session to enter Waiting state.
 
 use super::SessionManagerOps;
+use closeclaw_agent::AgentConfigLookup;
 use closeclaw_common::tool_trait::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 use async_trait::async_trait;
@@ -17,12 +18,19 @@ const DEFAULT_YIELD_TIMEOUT_SECS: u64 = 600;
 /// Tool that signals the current session to enter active Waiting state.
 pub struct SessionsYieldTool {
     session_manager: Arc<dyn SessionManagerOps>,
+    agent_config_lookup: Arc<dyn AgentConfigLookup>,
 }
 
 impl SessionsYieldTool {
     /// Create a new `SessionsYieldTool`.
-    pub fn new(session_manager: Arc<dyn SessionManagerOps>) -> Self {
-        Self { session_manager }
+    pub fn new(
+        session_manager: Arc<dyn SessionManagerOps>,
+        agent_config_lookup: Arc<dyn AgentConfigLookup>,
+    ) -> Self {
+        Self {
+            session_manager,
+            agent_config_lookup,
+        }
     }
 }
 
@@ -79,9 +87,25 @@ impl Tool for SessionsYieldTool {
         let children = self.session_manager.list_children(session_id).await;
         let overall = compute_overall_timeout(&children);
 
+        // Look up agent config for timeout warning settings.
+        let (timeout_warning, notify_interval_ratio) = match self
+            .agent_config_lookup
+            .lookup_agent_config(&ctx.agent_id)
+            .await
+        {
+            Some(info) => (info.timeout_warning, info.timeout_notify_interval_ratio),
+            None => (None, None),
+        };
+
         self.session_manager
             .clone()
-            .start_yield_timeout(session_id, &ctx.agent_id, overall)
+            .start_yield_timeout(
+                session_id,
+                &ctx.agent_id,
+                overall,
+                timeout_warning,
+                notify_interval_ratio,
+            )
             .await;
 
         tracing::info!(

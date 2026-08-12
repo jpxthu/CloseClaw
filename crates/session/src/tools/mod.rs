@@ -92,9 +92,11 @@ pub trait SessionManagerOps: Send + Sync {
 
     /// Start a yield timeout for the given session.
     ///
-    /// Spawns two timers: a warning timer that injects a notification
-    /// 60 seconds before the hard timeout, and the hard timeout itself
-    /// that injects a structured notification and resumes the parent.
+    /// Spawns a hard timeout timer and, depending on `timeout_warning_secs`:
+    /// - `Some(ws)` with `ws < overall_timeout_secs`: cyclic warning
+    ///   notifications starting after `ws` seconds of execution,
+    ///   repeating every `ws * ratio` seconds until the hard timeout fires.
+    /// - `None`: legacy single warning 60s before hard timeout.
     ///
     /// Takes an `Arc<Self>` so the implementation can spawn a background task
     /// that holds a strong reference.
@@ -103,6 +105,8 @@ pub trait SessionManagerOps: Send + Sync {
         session_id: &str,
         agent_id: &str,
         overall_timeout_secs: u64,
+        timeout_warning_secs: Option<u64>,
+        notify_interval_ratio: Option<f64>,
     );
 }
 

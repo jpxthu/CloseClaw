@@ -161,6 +161,8 @@ impl crate::lookup::AgentConfigLookup for AgentRegistry {
         self.get(agent_id)
             .map(|cfg| crate::lookup::AgentConfigInfo {
                 subagents_model: cfg.subagents.model.clone(),
+                timeout_warning: cfg.subagents.timeout_warning,
+                timeout_notify_interval_ratio: cfg.subagents.timeout_notify_interval_ratio,
             })
     }
 }

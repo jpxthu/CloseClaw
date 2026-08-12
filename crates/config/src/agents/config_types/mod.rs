@@ -91,6 +91,24 @@ pub struct SubagentsConfig {
     /// Falls back to global config when unspecified.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
+    /// Sub-agent expected execution duration (seconds).
+    /// When the sub-agent has been running for this many seconds,
+    /// cyclic warning notifications begin. Falls back to global
+    /// default (legacy single warning) when unspecified.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "timeoutWarning"
+    )]
+    pub timeout_warning: Option<u64>,
+    /// Interval ratio for cyclic warning notifications (relative to timeout_warning).
+    /// Must be >=0.1 and <=2.0, default 0.5 (50% of timeout_warning).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "timeoutNotifyIntervalRatio"
+    )]
+    pub timeout_notify_interval_ratio: Option<f64>,
     /// Default child agent ID (used when spawn omits agentId).
     ///
     /// **Deprecated**: This field is no longer used in agentId resolution.
@@ -114,6 +132,8 @@ impl Default for SubagentsConfig {
             max_spawn_depth: None,
             max_children: None,
             timeout: None,
+            timeout_warning: None,
+            timeout_notify_interval_ratio: None,
             default_child_agent: None,
             model: None,
         }

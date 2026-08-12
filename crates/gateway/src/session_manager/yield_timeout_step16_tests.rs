@@ -83,7 +83,7 @@ async fn test_yield_timeout_structured_notification_content() {
         let cs = m.get_conversation_session(&parent_id).await.unwrap();
         cs.read().await.enter_waiting();
     }
-    m.start_yield_timeout(&parent_id, "agent-x", 1).await;
+    m.start_yield_timeout(&parent_id, "agent-x", 1, None, None).await;
 
     // Wait for timeout to fire.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -206,7 +206,7 @@ async fn test_yield_timeout_no_force_terminate_children() {
         let cs = m.get_conversation_session(&parent_id).await.unwrap();
         cs.read().await.enter_waiting();
     }
-    m.start_yield_timeout(&parent_id, "agent-x", 1).await;
+    m.start_yield_timeout(&parent_id, "agent-x", 1, None, None).await;
 
     // Wait for overall timeout to fire.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -270,7 +270,7 @@ async fn test_yield_per_child_spawn_timeout_independent() {
         let cs = m.get_conversation_session(&parent_id).await.unwrap();
         cs.read().await.enter_waiting();
     }
-    m.start_yield_timeout(&parent_id, "agent-x", 30).await;
+    m.start_yield_timeout(&parent_id, "agent-x", 30, None, None).await;
 
     // Wait for per-child timeout to fire (1s + buffer).
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -491,7 +491,7 @@ async fn test_yield_timeout_with_multiple_children() {
         let cs = m.get_conversation_session(&parent_id).await.unwrap();
         cs.read().await.enter_waiting();
     }
-    m.start_yield_timeout(&parent_id, "agent-x", 1).await;
+    m.start_yield_timeout(&parent_id, "agent-x", 1, None, None).await;
 
     // Wait for timeout to fire.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -535,7 +535,7 @@ async fn test_yield_timeout_no_children_structured_notification() {
         cs.read().await.enter_waiting();
     }
 
-    m.start_yield_timeout(&parent_id, "agent-x", 1).await;
+    m.start_yield_timeout(&parent_id, "agent-x", 1, None, None).await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Session should have resumed.

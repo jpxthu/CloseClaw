@@ -311,6 +311,10 @@ fn merge_subagents(project: SubagentsConfig, user: SubagentsConfig) -> Subagents
         max_spawn_depth: project.max_spawn_depth.or(user.max_spawn_depth),
         max_children: project.max_children.or(user.max_children),
         timeout: project.timeout.or(user.timeout),
+        timeout_warning: project.timeout_warning.or(user.timeout_warning),
+        timeout_notify_interval_ratio: project
+            .timeout_notify_interval_ratio
+            .or(user.timeout_notify_interval_ratio),
         default_child_agent: project.default_child_agent.or(user.default_child_agent),
         model: project.model.or(user.model),
     };
