@@ -23,7 +23,22 @@ fn write_temp_json(content: &str) -> (TempDir, std::path::PathBuf) {
 
 #[test]
 fn test_compact_config_parsed_when_present() {
-    let json = r#"{"defaults":{"mainAgent":{"idleMinutes":10,"purgeAfterMinutes":60}},"agents":{},"sweeperIntervalSeconds":300,"compact":{"charsPerToken":0.3,"autoCompactThresholdPct":0.08,"warningThresholdPct":0.15,"maxConsecutiveFailures":5}}"#.to_string();
+    let json = r#"{
+        "defaults": {
+            "mainAgent": {
+                "idleMinutes": 10,
+                "purgeAfterMinutes": 60
+            }
+        },
+        "agents": {},
+        "sweeperIntervalSeconds": 300,
+        "compact": {
+            "charsPerToken": 0.3,
+            "autoCompactThresholdPct": 0.08,
+            "warningThresholdPct": 0.15,
+            "maxConsecutiveFailures": 5
+        }
+    }"#.to_string();
     let (_temp, path) = write_temp_json(&json);
 
     let provider = JsonSessionConfigProvider::new(&path).unwrap();
@@ -40,7 +55,21 @@ fn test_compact_config_backward_compat_old_buffer_tokens() {
     // Old config with autoCompactBufferTokens (removed field) should still
     // deserialize via #[serde(default)] — the unknown field is ignored and
     // new percentage fields get their defaults.
-    let json = r#"{"defaults":{"mainAgent":{"idleMinutes":10,"purgeAfterMinutes":60}},"agents":{},"sweeperIntervalSeconds":300,"compact":{"charsPerToken":0.3,"autoCompactBufferTokens":15000,"maxConsecutiveFailures":5}}"#.to_string();
+    let json = r#"{
+        "defaults": {
+            "mainAgent": {
+                "idleMinutes": 10,
+                "purgeAfterMinutes": 60
+            }
+        },
+        "agents": {},
+        "sweeperIntervalSeconds": 300,
+        "compact": {
+            "charsPerToken": 0.3,
+            "autoCompactBufferTokens": 15000,
+            "maxConsecutiveFailures": 5
+        }
+    }"#.to_string();
     let (_temp, path) = write_temp_json(&json);
 
     let provider = JsonSessionConfigProvider::new(&path).unwrap();
