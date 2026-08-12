@@ -105,7 +105,7 @@ Processor Chain 出站（DslParser）
 Gateway 记录出站日志
   ↓
 [IMPlugin 渲染]
-  Renderer.render(content_blocks, dsl_result)（DslParseResult，定义见 [common DslParseResult](../common/shared-types.md#dslparseresult-和-dslinstruction)）
+  Renderer.render(content_blocks, dsl_result)（DslParseResult，定义见 [common DslParseResult](../common/shared-types.md#dslparseresult)）
   ↓
   RenderedOutput { msg_type, payload }
   ↓

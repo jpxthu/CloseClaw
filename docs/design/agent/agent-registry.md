@@ -14,7 +14,7 @@ AgentRegistry 是轻量级内存查找表，不管理 agent 生命周期、不�
 
 - 启动时由 Daemon 从 Config 加载结果一次性填充注册表
 - 运行时各消费模块通过 agent_id 查询获取只读配置，命中的返回完整配置，未命中由调用方自行处理
-- 提供遍历所有已注册 agent 配置的能力，用于启动时全量初始化等批量操作场景（消费方见下游表）。AgentSkillsQuery 和 AgentToolsConfigQuery 为两套独立查询接口，skills/tools 白名单为通配或空时返回不限制，黑名单为空时同样不限制
+- 提供遍历所有已注册 agent 配置的能力，用于启动时全量初始化等批量操作场景（消费方见下游表）。AgentSkillsQuery 和 AgentToolsConfigQuery 为两套独立查询接口。skills/tools 白名单为 `["*"]` 或空时返回不限制，黑名单为空时同样不限制。当白名单和黑名单同时非空且有交集时，黑名单优先——黑名单中列出的工具即使在白名单中也不可用（显式拒绝优先于显式允许）。
 
 **热重载策略**：Config Hot Reload 检测到 agent 配置变更 → 重新加载 → 通知 Daemon → Daemon 触发全量替换。已运行的 session 是否感知变更由各消费模块自行决定——AgentRegistry 只负责提供最新数据，不推送变更通知。
 
