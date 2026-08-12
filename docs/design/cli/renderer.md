@@ -9,7 +9,7 @@ TerminalRenderer 是 terminal 渠道的出站渲染组件。它接收 ContentBlo
 TerminalRenderer 按 ContentBlock 类型分派渲染策略。流式渲染由 IM Adapter 模块的流式渲染组件驱动——TerminalRenderer 引用流式渲染器，TerminalPlugin 在流式模式中通过该渲染器逐行产生增量输出，不经过 TerminalRenderer 自身的批量渲染。
 
 ```
-ContentBlock[] + DslParseResult（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult-和-dslinstruction)）
+ContentBlock[] + DslParseResult（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult)）
   ↓
 TerminalRenderer
   ├── 终端检测：检查 TERM 环境变量 / ANSI 支持，同时获取终端可用宽度
@@ -75,7 +75,7 @@ Image、Audio、File 等终端不支持的块类型，渲染为带文件名的�
 终端检测和 DSL 预处理在遍历内容块之前统一完成，然后逐块渲染。渲染是纯数据转换，不执行 I/O：
 
 ```
-ContentBlock[] + DslParseResult（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult-和-dslinstruction)）
+ContentBlock[] + DslParseResult（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult)）
   ↓
 终端能力检测 → 确定渲染模式（ANSI / 纯文本）+ 获取终端可用宽度
   ↓
