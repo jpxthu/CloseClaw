@@ -110,55 +110,50 @@ Session 的整体状态由四维组合判定：
 
 通知内容为结构化格式，包含任务标识、完成状态、结果或输出路径。带去重保护——同一任务只注入一次。
 
-### Yield 机制
+### 子 Session 超时通知
 
-当 agent 通过 sessions_spawn 创建子 session 后，继续工作没有意义——它需要等待子 agent 的结果才能做下一步决策。Yield 机制让 agent 主动结束当前 turn，将执行权交还给系统，等待子 agent 完成通知。
+子 Session 的超时分为两阶段：**超时预警**（timeout_warning）和**硬超时**（timeout）。预警阶段通过循环通知提醒父 Agent；硬超时阶段系统自动终止子 Session。
 
-#### sessions_yield 工具
+#### 超时预警（timeout_warning）
 
-sessions_yield 是 agent 明确表达「我 spawn 完了，等结果」的工具调用。调用后：
+子 Session 运行时长达到 timeout_warning 秒后，系统不自动终止，而是通过循环通知机制提醒父 Agent。父 Agent 自行决定是否终止子 Session、继续等待、或向用户汇报。
 
-1. 当前 turn 立即结束，不再发起新的 LLM 请求
-2. session 执行状态为 llm_active = false, child_active = true（有未完成的子 session）
-3. 系统监控所有活跃子 session，全部完成后 child_active 变为 false
+**通知时机**：
+- 子 Session 运行时长首次达到 timeout_warning 秒 → 向父 Session 消息队列注入超时预警通知（next 优先级）
+- 若父 Agent 未终止该子 Session，且子 Session 仍在运行：等待 timeout_warning × intervalRatio 秒后再次注入通知
+- 之后每次等待相同间隔，循环往复，直到父 Agent 主动终止子 Session 或子 Session 自然完成
 
-#### Waiting 状态行为
+**通知内容**：
+- 设定的预期执行时长（timeout_warning）
+- 实际运行时长（从子 Session 创建到通知生成的那一刻）
+- 硬超时时间（timeout）及剩余时间
+- context window 使用情况（已用 token / 总容量）
+- 当前 token 用量（prompt tokens + completion tokens）
 
-Waiting 有两种进入方式，行为不同。两者的共性是子 agent 完成自动触发通知；差异在于 agent turn 的结束方式。
+**间隔比例**：intervalRatio 默认为 0.5（即 50%），由父 Agent 配置中的 `subagents.timeoutNotifyIntervalRatio` 字段控制。
 
-- **被动 Waiting**：agent spawn 子 session 后未 yield，系统自动判定 child_active = true。agent 的当前 turn 自然结束后，session 回到 idle（child_active 不影响 idle 判定），后续用户消息和子 agent 完成通知均立即注入下一 turn
-- **主动 Waiting（yield）**：agent 调用 sessions_yield 后当前 turn 主动结束。child_active = true。下一条消息（用户消息或子 agent 完成通知）到达时自动开启新 turn
+**超时来源**：timeout_warning 按以下优先级确定：sessions_spawn 显式参数 → 目标 Agent 配置（`subagents.timeout_warning`）→ 全局默认值。
 
-**消息处理**：
+```
+子 Session 创建（timeout_warning=120s, intervalRatio=0.5）
+  │
+  ├─ t=120s ──→ 首次预警通知
+  ├─ t=180s ──→ 第二次通知（120 + 60）
+  ├─ t=240s ──→ 第三次通知（180 + 60）
+  └─ ...     循环往复，直到父 Agent 终止子 Session 或子 Session 完成
+```
 
-yield 后 llm_active 和 foreground_tool_active 均为 false → session 为 idle → 用户消息和子 agent 完成通知均立即注入，不排队。child_active 不影响 idle 判定（idle 仅取决于 llm_active 和 foreground_tool_active）。
+#### 硬超时（timeout）
 
-yield 不是硬阻塞——任何消息（用户消息、子 session 完成通知、超时预警通知）都解除等待、恢复父 session 的 turn。
+子 Session 运行时长达到 timeout 秒后，系统自动终止子 Session（级联终止其所有后代），并向父 Session 消息队列注入超时终止通知（now 优先级）。
 
-**超时保护**：子 agent 超过 timeout_warning 时长未完成 → 向父 session 注入超时预警通知（next 优先级），子 agent 继续执行。子 agent 超过 timeout 时长未完成 → 终止该子 agent（级联终止其所有后代），注入超时通知。
-
-父 session 侧有整体等待上限：最长等待时间 = max(所有等待中子 Session 的 timeout) + 1 分钟缓冲。超过此时间后，系统解除等待，向父 session 注入通知——列出已完成和仍在运行中的子 Session 及其已执行时长。父 Session 可自行决定继续等待或处理已收到的结果。解除等待后，仍在运行的子 Session 继续执行，完成后结果按正常路径注入。
+- timeout 是系统级兜底保护，默认值 48 小时——一般情况下不会触发，仅防止子 Session 无限期运行
+- 终止通知内容包含：设定硬超时时间、实际运行时长、终止原因
+- timeout 按以下优先级确定：sessions_spawn 显式参数 → 目标 Agent 配置（`subagents.timeout`）→ 全局默认值（48 小时）
 
 #### 禁止轮询
 
-Yield 机制的配套约束：agent 在 spawn 子 session 后不应主动查询子 session 状态。子 session 的完成通知是 push-based——系统保证自动推送，agent 不需要也禁止调用 session 查询工具去轮询。这个约束在子 session 的系统提示词中明确注入。
-
-#### Yield 循环
-
-典型的 spawn→yield→resume 流程：
-
-```
-父 agent turn:
-  → sessions_spawn(子A) + sessions_spawn(子B)
-  → sessions_yield
-  ↓
-yield 后 llm_active = false, child_active = true
-  ↓
-子A 完成 → announce 立即注入父 session 消息队列
-  → 开启新 turn，agent 看到子A 结果
-子B 完成 → announce 立即注入父 session 消息队列
-  → 开启新 turn，agent 看到子B 结果
-```
+Agent 在 spawn 子 Session 后不应主动查询子 Session 状态。子 Session 的完成通知和超时通知是 push-based——系统保证自动推送，Agent 不需要也禁止调用 session 查询工具去轮询。此约束在子 Session 的 system prompt 中明确注入。
 
 ## 数据流
 
