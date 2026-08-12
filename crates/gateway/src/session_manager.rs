@@ -888,8 +888,8 @@ pub(crate) mod tests;
 #[cfg(test)]
 mod yield_recovery_tests;
 #[cfg(test)]
-mod yield_timeout_step16_tests;
-#[cfg(test)]
 mod yield_timeout_cyclic_tests;
+#[cfg(test)]
+mod yield_timeout_step16_tests;
 #[cfg(test)]
 mod yield_timeout_tests;
