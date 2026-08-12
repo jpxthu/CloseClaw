@@ -1,4 +1,4 @@
-//! Tests for the three-dimensional execution state model.
+//! Tests for the four-dimensional execution state model.
 //!
 //! Covers LlmState, ToolExecState, ChildSessionState, exec_status(),
 //! and is_llm_busy() delegation.
