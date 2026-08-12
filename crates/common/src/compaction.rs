@@ -59,8 +59,12 @@ pub enum CompactionError {
 pub struct CompactConfig {
     /// Characters per token (linear estimation coefficient).
     pub chars_per_token: f64,
-    /// Buffer tokens reserved below context window before triggering auto-compact.
-    pub auto_compact_buffer_tokens: usize,
+    /// Auto-compact trigger threshold as a fraction of context window (e.g. 0.05 = 5%).
+    #[serde(default = "default_auto_compact_threshold_pct")]
+    pub auto_compact_threshold_pct: f64,
+    /// Warning threshold as a fraction of context window (e.g. 0.10 = 10%).
+    #[serde(default = "default_warning_threshold_pct")]
+    pub warning_threshold_pct: f64,
     /// Maximum consecutive compaction failures before circuit breaker trips.
     pub max_consecutive_failures: usize,
     /// Maximum number of history messages to keep before compaction.
@@ -69,11 +73,57 @@ pub struct CompactConfig {
     pub max_history_messages: Option<usize>,
 }
 
+fn default_auto_compact_threshold_pct() -> f64 {
+    0.05
+}
+
+fn default_warning_threshold_pct() -> f64 {
+    0.10
+}
+
+impl CompactConfig {
+    /// Validate configuration values.
+    ///
+    /// Checks:
+    /// - Both percentage thresholds are in [0, 1].
+    /// - `chars_per_token` is positive.
+    /// - `auto_compact_threshold_pct` <= `warning_threshold_pct`.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.chars_per_token <= 0.0 {
+            return Err(format!(
+                "chars_per_token ({}) must be positive",
+                self.chars_per_token
+            ));
+        }
+        if !(0.0..=1.0).contains(&self.auto_compact_threshold_pct) {
+            return Err(format!(
+                "auto_compact_threshold_pct ({}) must be in [0, 1]",
+                self.auto_compact_threshold_pct
+            ));
+        }
+        if !(0.0..=1.0).contains(&self.warning_threshold_pct) {
+            return Err(format!(
+                "warning_threshold_pct ({}) must be in [0, 1]",
+                self.warning_threshold_pct
+            ));
+        }
+        if self.auto_compact_threshold_pct > self.warning_threshold_pct {
+            return Err(format!(
+                "auto_compact_threshold_pct ({}) must be <= \
+                 warning_threshold_pct ({})",
+                self.auto_compact_threshold_pct, self.warning_threshold_pct
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl Default for CompactConfig {
     fn default() -> Self {
         Self {
             chars_per_token: 0.25,
-            auto_compact_buffer_tokens: 13_000,
+            auto_compact_threshold_pct: 0.05,
+            warning_threshold_pct: 0.10,
             max_consecutive_failures: 3,
             max_history_messages: None,
         }
