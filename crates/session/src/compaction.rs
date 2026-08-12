@@ -121,27 +121,27 @@ pub fn estimate_messages_tokens(messages: &[CompactionMessage], chars_per_token:
 
 /// Combine precise token count with character-based estimation for remaining messages.
 ///
-/// When `precise_tokens` is `Some(count)` with `request_count > 0`, returns `count`
-/// plus a character-based estimate for messages beyond the counted set (skipping the
-/// first `request_count` messages whose tokens are already accounted for). Otherwise
-/// falls back to pure character-based estimation.
+/// When `precise_tokens` is `Some(count)` with `request_count > 0`, returns
+/// `Some(count + estimated_for_remaining)` where remaining messages beyond
+/// the counted set are estimated by character count. Returns `None` in all
+/// other cases, letting the caller fall back to pure character-based
+/// estimation.
 fn combine_precise_and_estimated(
     precise_tokens: Option<usize>,
     request_count: u64,
     messages: &[CompactionMessage],
     chars_per_token: f64,
-) -> usize {
-    if let Some(precise) = precise_tokens {
-        if request_count > 0 {
-            let start = (request_count as usize).min(messages.len());
-            let remaining_tokens: usize = messages[start..]
-                .iter()
-                .map(|m| estimate_tokens(&m.content, chars_per_token))
-                .sum();
-            return precise + remaining_tokens;
-        }
+) -> Option<usize> {
+    let precise = precise_tokens?;
+    if request_count == 0 {
+        return None;
     }
-    estimate_messages_tokens(messages, chars_per_token)
+    let start = (request_count as usize).min(messages.len());
+    let remaining_tokens: usize = messages[start..]
+        .iter()
+        .map(|m| estimate_tokens(&m.content, chars_per_token))
+        .sum();
+    Some(precise + remaining_tokens)
 }
 
 /// Estimate total tokens combining precise RunningStats and character-based estimation.
@@ -162,6 +162,7 @@ pub fn estimate_total_tokens(
         messages,
         chars_per_token,
     )
+    .unwrap_or_else(|| estimate_messages_tokens(messages, chars_per_token))
 }
 
 /// Compute the token count before compaction using precise stats when available.
@@ -179,15 +180,16 @@ pub fn compute_before_tokens(
     stats: Option<&RunningStats>,
     chars_per_token: f64,
 ) -> usize {
-    match stats {
-        Some(s) => combine_precise_and_estimated(
-            Some(s.total_tokens as usize),
-            s.request_count,
-            messages,
-            chars_per_token,
-        ),
-        None => estimate_messages_tokens(messages, chars_per_token),
-    }
+    stats
+        .and_then(|s| {
+            combine_precise_and_estimated(
+                Some(s.total_tokens as usize),
+                s.request_count,
+                messages,
+                chars_per_token,
+            )
+        })
+        .unwrap_or_else(|| estimate_messages_tokens(messages, chars_per_token))
 }
 
 /// Get the context window size for a model.
@@ -217,7 +219,14 @@ pub struct CompactionService {
 
 impl CompactionService {
     /// Create a new CompactionService with the given config.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `config.auto_compact_threshold_pct > config.warning_threshold_pct`.
     pub fn new(config: CompactConfig) -> Self {
+        config
+            .validate()
+            .expect("CompactConfig validation failed");
         Self {
             config,
             consecutive_failures: 0,

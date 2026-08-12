@@ -81,6 +81,24 @@ fn default_warning_threshold_pct() -> f64 {
     0.10
 }
 
+impl CompactConfig {
+    /// Validate threshold ordering.
+    ///
+    /// `auto_compact_threshold_pct` must be <= `warning_threshold_pct`:
+    /// the auto-compact trigger fires at a lower remaining percentage than
+    /// the warning, so the compact threshold must not exceed the warning
+    /// threshold.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.auto_compact_threshold_pct > self.warning_threshold_pct {
+            return Err(format!(
+                "auto_compact_threshold_pct ({}) must be <= warning_threshold_pct ({})",
+                self.auto_compact_threshold_pct, self.warning_threshold_pct
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl Default for CompactConfig {
     fn default() -> Self {
         Self {
