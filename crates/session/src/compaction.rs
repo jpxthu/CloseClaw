@@ -122,15 +122,24 @@ pub fn estimate_messages_tokens(messages: &[CompactionMessage], chars_per_token:
 /// Estimate total tokens combining precise RunningStats and character-based estimation.
 ///
 /// When `stats.request_count > 0`, returns `stats.total_tokens` plus a character-based
-/// estimate for the given messages. When `request_count == 0` (no LLM calls yet),
-/// falls back to pure character-based estimation.
+/// estimate for messages beyond the counted set (skipping the first `request_count`
+/// messages whose tokens are already accounted for in `stats.total_tokens`).
+/// When `request_count == 0` (no LLM calls yet), falls back to pure
+/// character-based estimation.
+///
+/// This logic mirrors [`compute_before_tokens`].
 pub fn estimate_total_tokens(
     stats: &RunningStats,
     messages: &[CompactionMessage],
     chars_per_token: f64,
 ) -> usize {
     if stats.request_count > 0 {
-        stats.total_tokens as usize + estimate_messages_tokens(messages, chars_per_token)
+        let start = (stats.request_count as usize).min(messages.len());
+        let remaining_tokens: usize = messages[start..]
+            .iter()
+            .map(|m| estimate_tokens(&m.content, chars_per_token))
+            .sum();
+        stats.total_tokens as usize + remaining_tokens
     } else {
         estimate_messages_tokens(messages, chars_per_token)
     }
