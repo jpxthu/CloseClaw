@@ -256,10 +256,33 @@ impl SessionManager {
                                 let mut cs = self.conversation_sessions.write().await;
                                 cs.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
                             }
+                        } else {
+                            // ConversationSession already in memory — rebuild system
+                            // prompt to ensure prompt content is up-to-date before
+                            // restoring system_appends on top (per design doc: "archived
+                            // → active 恢复时重新走注入流程，保证 prompt 内容最新").
+                            let agent_id_for_rebuild =
+                                cp.agent_id.clone().unwrap_or_else(|| message.to.clone());
+                            let bootstrap_mode = self
+                                .query_agent_bootstrap_mode(&agent_id_for_rebuild)
+                                .await
+                                .unwrap_or(BootstrapMode::Full);
+                            let cs = self.conversation_sessions.read().await;
+                            if let Some(cs_arc) = cs.get(&session_id) {
+                                let mut cs = cs_arc.write().await;
+                                cs.rebuild_system_prompt(
+                                        &session_id,
+                                        &agent_id_for_rebuild,
+                                        Some(bootstrap_mode),
+                                    )
+                                    .await;
+                            }
                         }
 
                         // Restore pending messages, system_appends, verbosity_level,
                         // and communication_config from checkpoint.
+                        // NOTE: system_appends must be restored AFTER rebuild_system_prompt
+                        // so that user appends layer on top of the rebuilt prompt.
                         {
                             let cs = self.conversation_sessions.read().await;
                             if let Some(cs) = cs.get(&session_id) {
@@ -620,10 +643,33 @@ impl SessionManager {
                                 let mut cs = self.conversation_sessions.write().await;
                                 cs.insert(archived_id.clone(), Arc::new(RwLock::new(conv_session)));
                             }
+                        } else {
+                            // ConversationSession already in memory — rebuild system
+                            // prompt to ensure prompt content is up-to-date before
+                            // restoring system_appends on top (per design doc: "archived
+                            // → active 恢复时重新走注入流程，保证 prompt 内容最新").
+                            let agent_id_for_rebuild =
+                                cp.agent_id.clone().unwrap_or_else(|| message.to.clone());
+                            let bootstrap_mode = self
+                                .query_agent_bootstrap_mode(&agent_id_for_rebuild)
+                                .await
+                                .unwrap_or(BootstrapMode::Full);
+                            let cs = self.conversation_sessions.read().await;
+                            if let Some(cs_arc) = cs.get(&archived_id) {
+                                let mut cs = cs_arc.write().await;
+                                cs.rebuild_system_prompt(
+                                        &archived_id,
+                                        &agent_id_for_rebuild,
+                                        Some(bootstrap_mode),
+                                    )
+                                    .await;
+                            }
                         }
 
                         // Restore pending messages, system_appends, verbosity_level,
                         // and communication_config from checkpoint.
+                        // NOTE: system_appends must be restored AFTER rebuild_system_prompt
+                        // so that user appends layer on top of the rebuilt prompt.
                         {
                             let cs = self.conversation_sessions.read().await;
                             if let Some(cs) = cs.get(&archived_id) {
