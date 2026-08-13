@@ -65,9 +65,9 @@
   },
   {
     "path": "docs/design/cli/renderer.md",
-    "commit": "113d933f044cdffac968b9b1602a3190587b2374",
-    "commit_time": "2026-08-13T03:29:09+08:00",
-    "confirmed_time": "2026-08-13T03:44:49.741178+08:00",
+    "commit": "5d09d59a42f3b557dec622b92d968646d5000f2e",
+    "commit_time": "2026-08-13T13:55:36+08:00",
+    "confirmed_time": "2026-08-13T15:10:36.692547+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -161,11 +161,11 @@
   },
   {
     "path": "docs/design/im_adapter/README.md",
-    "commit": "0892dee8fb53427dba2588e711083e8cae512918",
-    "commit_time": "2026-07-06T01:31:06+08:00",
-    "confirmed_time": "2026-08-13T13:54:43.056009+08:00",
+    "commit": "5d09d59a42f3b557dec622b92d968646d5000f2e",
+    "commit_time": "2026-08-13T13:55:36+08:00",
+    "confirmed_time": "2026-08-13T14:49:54.309412+08:00",
     "comment": "",
-    "blocked_reason": "飞书插件文档(feishu.md)与共享类型文档(shared-types.md)对非文本消息处理描述矛盾：feishu.md要求'静默丢弃'，shared-types.md要求'正常产出NormalizedMessage'。代码与shared-types一致。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/im_adapter/code-render.md",
