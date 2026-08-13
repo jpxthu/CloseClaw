@@ -245,6 +245,19 @@ struct FeishuGetMessageResponse {
     items: Option<Vec<FeishuMsgItem>>,
 }
 
+#[derive(Serialize)]
+struct SendRequest<'a> {
+    receive_id: &'a str,
+    msg_type: &'a str,
+    content: &'a str,
+}
+
+#[derive(Deserialize)]
+struct SendResponse {
+    code: i32,
+    msg: String,
+}
+
 // ---------------------------------------------------------------------------
 // FeishuAdapter
 // ---------------------------------------------------------------------------
@@ -537,6 +550,72 @@ impl FeishuAdapter {
         }
     }
 
+    /// Build the URL for fetching a media resource, percent-encoding path params.
+    fn build_media_resource_url(
+        &self,
+        message_id: &str,
+        file_key: &str,
+        resource_type: &str,
+    ) -> String {
+        let enc_msg: String =
+            url::form_urlencoded::byte_serialize(message_id.as_bytes()).collect();
+        let enc_key: String =
+            url::form_urlencoded::byte_serialize(file_key.as_bytes()).collect();
+        format!(
+            "{}/im/v1/messages/{}/resources/{}?type={}",
+            self.base_url, enc_msg, enc_key, resource_type
+        )
+    }
+
+    /// Fetch a temporary download URL for a media resource (image, file, audio).
+    pub(crate) async fn fetch_media_download_url(
+        &self,
+        message_id: &str,
+        file_key: &str,
+        resource_type: &str,
+    ) -> Result<String, AdapterError> {
+        let token = self.get_tenant_token().await?;
+        #[derive(Deserialize)]
+        struct ResourceResp {
+            code: i32,
+            msg: String,
+            data: Option<serde_json::Value>,
+        }
+        let resp: ResourceResp = self
+            .http_client
+            .get(self.build_media_resource_url(
+                message_id,
+                file_key,
+                resource_type,
+            ))
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
+            .json()
+            .await
+            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+        if resp.code != 0 {
+            tracing::warn!(
+                code = resp.code, msg = %resp.msg,
+                message_id = %message_id, file_key = %file_key,
+                "Failed to fetch media download URL"
+            );
+            return Err(AdapterError::SendFailed(format!(
+                "Feishu media resource error {}: {}", resp.code, resp.msg
+            )));
+        }
+        let url = resp.data
+            .and_then(|d| d.get("url").and_then(|u| u.as_str()).map(String::from))
+            .filter(|u| !u.is_empty())
+            .ok_or_else(|| {
+                tracing::warn!(message_id = %message_id, file_key = %file_key,
+                    "No download URL in media resource response");
+                AdapterError::SendFailed("No download URL in media resource response".to_string())
+            })?;
+        Ok(url)
+    }
+
     /// Fetch and prepend a markdown blockquote for the quoted message.
     async fn prepend_quote_blockquote(&self, parent_id: Option<&str>, text: &str) -> String {
         let pid = match parent_id {
@@ -622,10 +701,7 @@ impl FeishuAdapter {
         match action_value {
             Some(action) => {
                 let mut metadata = HashMap::from([
-                    (
-                        "account_id".to_string(),
-                        card_event.operator.open_id.clone(),
-                    ),
+                    ("account_id".to_string(), card_event.operator.open_id.clone()),
                     ("card_action".to_string(), "true".to_string()),
                 ]);
                 if let Some(chat_id) = card_event
@@ -651,9 +727,7 @@ impl FeishuAdapter {
     }
 
     /// Parse a regular message event into a NormalizedMessage.
-    ///
-    /// For `image`, `file`, and `audio` message types, logs and discards
-    /// (media understanding is not yet designed).
+    /// For non-text messages, produces a message with `media_refs` populated.
     pub(crate) async fn parse_message_event(
         &self,
         event: FeishuEvent,
@@ -662,11 +736,7 @@ impl FeishuAdapter {
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
         let original_parent_id = event.event.parent_id.clone();
-        let thread_id = event
-            .event
-            .thread_id
-            .or(event.event.root_id)
-            .or(event.event.parent_id);
+        let thread_id = event.event.thread_id.or(event.event.root_id).or(event.event.parent_id);
         let sender_open_id = event.event.sender.sender_id.open_id.clone();
 
         let (text, media_refs) =
@@ -675,7 +745,18 @@ impl FeishuAdapter {
                 Err(_) => return Ok(None),
             };
 
-        // Discard empty text content.
+        // Populate media download URLs (non-text messages).
+        let mut media_refs = media_refs;
+        for r in &mut media_refs {
+            let msg_id = event.event.message_id.as_deref().unwrap_or("");
+            r.url = self
+                .fetch_media_download_url(msg_id, &r.key, &event.event.message_type)
+                .await
+                .unwrap_or_default();
+        }
+
+        // Discard empty text content (only for text/post;
+        // non-text messages have empty content by design).
         if matches!(event.event.message_type.as_str(), "text" | "post") && text.trim().is_empty() {
             tracing::debug!(
                 message_type = %event.event.message_type,
@@ -713,8 +794,21 @@ impl FeishuAdapter {
         }))
     }
 
+    /// Build a `MediaRef` from content JSON using the given key field.
+    fn make_media_ref(content: &serde_json::Value, key_field: &str) -> MediaRef {
+        let key = content
+            .get(key_field)
+            .and_then(|k| k.as_str())
+            .unwrap_or("")
+            .to_string();
+        MediaRef {
+            key,
+            url: String::new(),
+        }
+    }
+
     /// Extract text and media refs from a message event's content.
-    fn extract_message_content(
+    pub(crate) fn extract_message_content(
         message_type: &str,
         content: &serde_json::Value,
     ) -> Result<(String, Vec<MediaRef>), AdapterError> {
@@ -728,15 +822,14 @@ impl FeishuAdapter {
                 vec![],
             )),
             "post" => Ok((expand_post_content(content), vec![])),
-            "image" | "file" | "audio" => {
-                tracing::debug!(
-                    message_type = %message_type,
-                    "Discarding non-text message (media understanding not yet designed)"
-                );
-                Err(AdapterError::InvalidPayload(
-                    "media message not supported".to_string(),
-                ))
-            }
+            "image" => Ok((
+                String::new(),
+                vec![Self::make_media_ref(content, "image_key")],
+            )),
+            "file" | "audio" => Ok((
+                String::new(),
+                vec![Self::make_media_ref(content, "file_key")],
+            )),
             other => {
                 tracing::debug!(message_type = other, "Discarding unsupported message type");
                 Err(AdapterError::InvalidPayload(
@@ -808,19 +901,6 @@ impl IMAdapter for FeishuAdapter {
     ) -> Result<(), AdapterError> {
         let token = self.get_tenant_token().await?;
 
-        #[derive(Serialize)]
-        struct SendRequest<'a> {
-            receive_id: &'a str,
-            msg_type: &'a str,
-            content: &'a str,
-        }
-
-        #[derive(Deserialize)]
-        struct SendResponse {
-            code: i32,
-            msg: String,
-        }
-
         let payload = SendRequest {
             receive_id: &message.to,
             msg_type: "text",
@@ -864,20 +944,7 @@ impl IMAdapter for FeishuAdapter {
     ) -> Result<(), AdapterError> {
         let token = self.get_tenant_token().await?;
 
-        #[derive(Serialize)]
-        struct CardRequest<'a> {
-            receive_id: &'a str,
-            msg_type: &'a str,
-            content: &'a str,
-        }
-
-        #[derive(Deserialize)]
-        struct CardResponse {
-            code: i32,
-            msg: String,
-        }
-
-        let payload = CardRequest {
+        let payload = SendRequest {
             receive_id: chat_id,
             msg_type: "interactive",
             content: card_json,
@@ -890,7 +957,7 @@ impl IMAdapter for FeishuAdapter {
             url = format!("{}&root_id={}", url, encoded_rid);
         }
 
-        let resp: CardResponse = self
+        let resp: SendResponse = self
             .http_client
             .post(&url)
             .header("Authorization", format!("Bearer {}", token))
