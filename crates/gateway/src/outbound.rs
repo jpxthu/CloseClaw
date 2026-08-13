@@ -7,17 +7,17 @@ use super::{Gateway, GatewayError, Message};
 use crate::outbound_helpers::dispatch_text;
 use crate::outbound_helpers::filter_by_verbosity;
 use crate::outbound_helpers::log_middleware_rejection;
+use crate::outbound_helpers::merge_dsl_results;
 use crate::outbound_helpers::send_render_block;
 use crate::outbound_helpers::StreamContext;
 use crate::outbound_helpers::StreamState;
-use closeclaw_common::im_plugin::IMPlugin;
-use closeclaw_common::im_plugin::RenderedOutput;
+use closeclaw_common::im_plugin::{IMPlugin, RenderedOutput};
 use closeclaw_common::MiddlewareContext;
 use closeclaw_processor_chain::run_middleware_chain;
+use closeclaw_processor_chain::DslParser;
 use std::sync::Arc;
 
 use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
-use closeclaw_processor_chain::DslParser;
 use closeclaw_common::LlmState;
 use closeclaw_common::VerbosityLevel;
 use closeclaw_llm::types::{
@@ -801,29 +801,11 @@ impl Gateway {
 
         let filtered_blocks = filter_by_verbosity(processed.content_blocks, verbosity_level);
 
-        // Merge incremental DslParser results with batch results.
-        // The incremental phase accumulates instructions per Text block;
-        // the batch phase may re-discover the same instructions. Merge
-        // and deduplicate to avoid duplicates in the final result.
         let batch_dsl_result = processed
             .metadata
             .get("dsl_result")
             .and_then(|s| serde_json::from_str::<DslParseResult>(s).ok());
-        let dsl_result = if !state.dsl_instructions.is_empty() {
-            let mut instructions = state.dsl_instructions.clone();
-            if let Some(batch) = batch_dsl_result {
-                instructions.extend(batch.instructions);
-            }
-            // Deduplicate: same instruction_type + same params = duplicate.
-            instructions.dedup_by(|a, b| {
-                a.instruction_type == b.instruction_type && a.params == b.params
-            });
-            let merged = DslParseResult { instructions };
-            serde_json::to_string(&merged).ok()
-        } else {
-            batch_dsl_result
-                .and_then(|r| serde_json::to_string(&r).ok())
-        };
+        let dsl_result = merge_dsl_results(state.dsl_instructions, batch_dsl_result);
 
         Ok(StreamResult {
             content_blocks: filtered_blocks,

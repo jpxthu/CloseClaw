@@ -6,6 +6,7 @@ use crate::Gateway;
 use crate::GatewayError;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::StreamingOutput;
+use closeclaw_common::processor::DslParseResult;
 use closeclaw_common::VerbosityLevel;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::types::ContentBlockType;
@@ -165,6 +166,32 @@ pub(crate) async fn send_render_block(
         .send(&rendered, ctx.chat_id, ctx.thread_id)
         .await?;
     Ok(())
+}
+
+/// Merge incremental and batch DslParseResults.
+///
+/// The incremental phase accumulates instructions per Text block;
+/// the batch phase may re-discover the same instructions. Merge
+/// and deduplicate to avoid duplicates in the final result.
+pub(crate) fn merge_dsl_results(
+    incremental_instructions: Vec<closeclaw_common::processor::DslInstruction>,
+    batch_dsl_result: Option<DslParseResult>,
+) -> Option<String> {
+    if !incremental_instructions.is_empty() {
+        let mut instructions = incremental_instructions;
+        if let Some(batch) = batch_dsl_result {
+            instructions.extend(batch.instructions);
+        }
+        // Deduplicate: same instruction_type + same params = duplicate.
+        instructions.dedup_by(|a, b| {
+            a.instruction_type == b.instruction_type && a.params == b.params
+        });
+        let merged = DslParseResult { instructions };
+        serde_json::to_string(&merged).ok()
+    } else {
+        batch_dsl_result
+            .and_then(|r| serde_json::to_string(&r).ok())
+    }
 }
 
 // ---------------------------------------------------------------------------
