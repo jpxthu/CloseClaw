@@ -179,9 +179,9 @@
     "path": "docs/design/im_adapter/platforms/feishu.md",
     "commit": "7fcf40e45e41c65c99a40e184de464dbff772614",
     "commit_time": "2026-07-05T20:52:01+08:00",
-    "confirmed_time": "2026-07-05T21:08:54.118071+08:00",
+    "confirmed_time": "2026-08-13T11:52:28.147817+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "feishu.md line 18 矛盾：声称非文本消息'记录日志后静默丢弃，不产NormalizedMessage'，但权威文档 shared-types.md line 31 明确要求'非文本消息正常产出NormalizedMessage（message_type标记类型，media_refs存储引用，content可为空），由下游Gateway统一处理'。feishu.md为过期描述，需同步更新。"
   },
   {
     "path": "docs/design/im_adapter/streaming-render.md",
