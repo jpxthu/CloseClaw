@@ -108,6 +108,35 @@ pub fn progress_summary(state: &ExecutionState) -> String {
     lines.join("\n")
 }
 
+/// Check whether a transition from `current` to `new_status` is valid.
+///
+/// Returns `true` if the status change is allowed by the state machine.
+fn is_valid_transition_status(
+    current: &ExecutionStepStatus,
+    new_status: &ExecutionStepStatus,
+) -> bool {
+    match new_status {
+        ExecutionStepStatus::InProgress => {
+            matches!(
+                current,
+                ExecutionStepStatus::Pending
+                    | ExecutionStepStatus::Failed
+                    | ExecutionStepStatus::Skipped
+            )
+        }
+        ExecutionStepStatus::Completed => {
+            matches!(current, ExecutionStepStatus::InProgress)
+        }
+        ExecutionStepStatus::Failed => {
+            matches!(current, ExecutionStepStatus::InProgress)
+        }
+        ExecutionStepStatus::Skipped => {
+            matches!(current, ExecutionStepStatus::Pending)
+        }
+        ExecutionStepStatus::Pending => false,
+    }
+}
+
 /// 校验步骤状态转换是否合法
 pub fn validate_transition(
     state: &ExecutionState,
@@ -145,28 +174,8 @@ pub fn validate_transition(
             got: step_index,
         });
     }
-    let valid = match new_status {
-        ExecutionStepStatus::InProgress => {
-            matches!(
-                current,
-                ExecutionStepStatus::Pending
-                    | ExecutionStepStatus::Failed
-                    | ExecutionStepStatus::Skipped
-            )
-        }
-        ExecutionStepStatus::Completed => {
-            matches!(current, ExecutionStepStatus::InProgress)
-        }
-        ExecutionStepStatus::Failed => {
-            matches!(current, ExecutionStepStatus::InProgress)
-        }
-        ExecutionStepStatus::Skipped => {
-            matches!(current, ExecutionStepStatus::Pending)
-        }
-        ExecutionStepStatus::Pending => false,
-    };
 
-    if valid {
+    if is_valid_transition_status(current, new_status) {
         Ok(())
     } else {
         Err(TransitionError::InvalidTransition {

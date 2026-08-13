@@ -80,41 +80,13 @@ impl Gateway {
                 | closeclaw_common::PermissionOperation::AddCommandWhitelist { .. }
         );
         let (agent, body, name) = match op {
-            closeclaw_common::PermissionOperation::AddFileWhitelist { agent, op, paths }
-            | closeclaw_common::PermissionOperation::AddFileDeny { agent, op, paths } => {
-                let prefix = if whitelist { "allow" } else { "deny" };
-                (
-                    agent.clone(),
-                    PermissionRequestBody::FileOp {
-                        agent: agent.clone(),
-                        path: paths.join(","),
-                        op: op.clone(),
-                    },
-                    format!("perm-{prefix}-file-{agent}"),
-                )
+            closeclaw_common::PermissionOperation::AddFileWhitelist { .. }
+            | closeclaw_common::PermissionOperation::AddFileDeny { .. } => {
+                Self::build_file_op_body(op, whitelist)
             }
-            closeclaw_common::PermissionOperation::AddCommandWhitelist {
-                agent,
-                command,
-                args,
-                ..
-            }
-            | closeclaw_common::PermissionOperation::AddCommandDeny {
-                agent,
-                command,
-                args,
-                ..
-            } => {
-                let prefix = if whitelist { "allow" } else { "deny" };
-                (
-                    agent.clone(),
-                    PermissionRequestBody::CommandExec {
-                        agent: agent.clone(),
-                        cmd: command.clone(),
-                        args: args.clone(),
-                    },
-                    format!("perm-{prefix}-cmd-{agent}"),
-                )
+            closeclaw_common::PermissionOperation::AddCommandWhitelist { .. }
+            | closeclaw_common::PermissionOperation::AddCommandDeny { .. } => {
+                Self::build_command_op_body(op, whitelist)
             }
             // CreateUser goes through the ApprovalFlow, not through
             // the whitelist/deny rule path.
@@ -133,6 +105,60 @@ impl Gateway {
             closeclaw_permission::whitelist::build_deny_rule
         };
         rule_fn(&caller, &body, &name, WhitelistTarget::Auto).map(|r| (r, agent))
+    }
+
+    /// Build `(agent, PermissionRequestBody, name)` for file operations.
+    fn build_file_op_body(
+        op: &closeclaw_common::PermissionOperation,
+        whitelist: bool,
+    ) -> (String, PermissionRequestBody, String) {
+        let (agent, file_op, paths) = match op {
+            closeclaw_common::PermissionOperation::AddFileWhitelist {
+                agent, op, paths,
+            }
+            | closeclaw_common::PermissionOperation::AddFileDeny {
+                agent, op, paths,
+            } => (agent.clone(), op.clone(), paths.clone()),
+            _ => unreachable!("called with non-file operation"),
+        };
+        let prefix = if whitelist { "allow" } else { "deny" };
+        let name = format!("perm-{prefix}-file-{agent}");
+        (
+            agent.clone(),
+            PermissionRequestBody::FileOp {
+                agent,
+                path: paths.join(","),
+                op: file_op,
+            },
+            name,
+        )
+    }
+
+    /// Build `(agent, PermissionRequestBody, name)` for command operations.
+    fn build_command_op_body(
+        op: &closeclaw_common::PermissionOperation,
+        whitelist: bool,
+    ) -> (String, PermissionRequestBody, String) {
+        let (agent, command, args) = match op {
+            closeclaw_common::PermissionOperation::AddCommandWhitelist {
+                agent, command, args, ..
+            }
+            | closeclaw_common::PermissionOperation::AddCommandDeny {
+                agent, command, args, ..
+            } => (agent.clone(), command.clone(), args.clone()),
+            _ => unreachable!("called with non-command operation"),
+        };
+        let prefix = if whitelist { "allow" } else { "deny" };
+        let name = format!("perm-{prefix}-cmd-{agent}");
+        (
+            agent.clone(),
+            PermissionRequestBody::CommandExec {
+                agent,
+                cmd: command,
+                args,
+            },
+            name,
+        )
     }
 
     pub(crate) async fn hot_reload_engine(
@@ -404,6 +430,15 @@ impl Gateway {
         }
 
         // New user → submit creation request.
+        self.submit_new_user_creation(sender_id, channel).await
+    }
+
+    /// Submit a user creation request and notify the sender of the result.
+    async fn submit_new_user_creation(
+        &self,
+        sender_id: &str,
+        channel: &str,
+    ) -> Option<HandleResult> {
         let flow_guard = self.approval_flow.read().await;
         let Some(flow_arc) = flow_guard.as_ref() else {
             tracing::debug!(

@@ -360,61 +360,45 @@ impl Gateway {
     /// Constructs a [`SideEffectContext`] with a [`GatewaySlashExecutor`]
     /// and calls [`SlashResult::execute`], then dispatches the produced
     /// [`ReplyAction`]s through the session handler.
-    async fn execute_and_route(
+    /// Permission check for `execute_and_route`: dispatches to the
+    /// appropriate engine/handler check based on the [`SlashResult`] variant.
+    ///
+    /// Returns `true` when the command is allowed, `false` when denied
+    /// (reply already sent).
+    async fn check_permission_for_execute(
         &self,
-        handler: &dyn SlashHandler,
+        result: &SlashResult,
         cmd_name: &str,
-        args: &str,
-        session_id: &str,
         sender_id: Option<&str>,
-        channel: &str,
-    ) -> Option<HandleResult> {
-        let slash_ctx = SlashContext {
-            command: cmd_name.to_owned(),
-            sender_id: sender_id.unwrap_or("").to_owned(),
-            session_id: session_id.to_owned(),
-            channel: channel.to_owned(),
-        };
-        let result = handler.handle(args, &slash_ctx).await;
-
-        // Permission check AFTER handler returns SlashResult but BEFORE execute.
-        //
-        // For Exec results, the handler's requires_permission field controls
-        // whether the permission engine is invoked:
-        //   - false → bypass entirely (read-only, no engine check needed)
-        //   - true  → call check_engine_permission directly (skip handler-level
-        //             requires_permission() check, go straight to the engine)
-        // For all other result types, use the full check_slash_permission path.
-        match &result {
+        session_id: &str,
+    ) -> bool {
+        match result {
             SlashResult::Exec {
                 requires_permission: false,
                 ..
-            } => {
-                // No permission check needed — skip directly to execution.
-            }
+            } => true,
             SlashResult::Exec {
                 requires_permission: true,
                 ..
             } => {
-                // Exec with write intent: go through the permission engine,
-                // bypassing the handler-level requires_permission() check.
-                if !self
-                    .check_engine_permission(cmd_name, sender_id, session_id)
+                self.check_engine_permission(cmd_name, sender_id, session_id)
                     .await
-                {
-                    return Some(HandleResult::SlashHandled);
-                }
             }
             _ => {
-                if !self
-                    .check_slash_permission(cmd_name, sender_id, session_id)
+                self.check_slash_permission(cmd_name, sender_id, session_id)
                     .await
-                {
-                    return Some(HandleResult::SlashHandled);
-                }
             }
         }
+    }
 
+    /// Execute a [`SlashResult`]'s side effects and route replies back
+    /// through the outbound processor chain.
+    async fn execute_side_effects(
+        &self,
+        result: SlashResult,
+        session_id: &str,
+        channel: &str,
+    ) {
         let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel(8);
         let session_mgr: Arc<dyn closeclaw_common::SessionLookup> =
             self.session_manager.clone() as Arc<dyn closeclaw_common::SessionLookup>;
@@ -444,7 +428,34 @@ impl Gateway {
                 ReplyAction::Nothing => {}
             }
         }
+    }
 
+    async fn execute_and_route(
+        &self,
+        handler: &dyn SlashHandler,
+        cmd_name: &str,
+        args: &str,
+        session_id: &str,
+        sender_id: Option<&str>,
+        channel: &str,
+    ) -> Option<HandleResult> {
+        let slash_ctx = SlashContext {
+            command: cmd_name.to_owned(),
+            sender_id: sender_id.unwrap_or("").to_owned(),
+            session_id: session_id.to_owned(),
+            channel: channel.to_owned(),
+        };
+        let result = handler.handle(args, &slash_ctx).await;
+
+        // Permission check AFTER handler returns SlashResult but BEFORE execute.
+        if !self
+            .check_permission_for_execute(&result, cmd_name, sender_id, session_id)
+            .await
+        {
+            return Some(HandleResult::SlashHandled);
+        }
+
+        self.execute_side_effects(result, session_id, channel).await;
         Some(HandleResult::SlashHandled)
     }
 }
