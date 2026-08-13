@@ -50,10 +50,7 @@ impl LazyTool {
     ///
     /// - `factory` — called at most once, on the first `call()`.
     /// - `meta` — static metadata returned by the `Tool` trait methods.
-    pub fn new(
-        factory: Box<dyn Fn() -> Box<dyn Tool> + Send + Sync>,
-        meta: ToolMeta,
-    ) -> Self {
+    pub fn new(factory: Box<dyn Fn() -> Box<dyn Tool> + Send + Sync>, meta: ToolMeta) -> Self {
         Self {
             meta,
             factory,

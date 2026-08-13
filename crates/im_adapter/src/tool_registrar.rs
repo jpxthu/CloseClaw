@@ -5,9 +5,9 @@
 
 use async_trait::async_trait;
 
+use closeclaw_common::tool_trait::{Tool, ToolFlags};
 use closeclaw_common::LazyTool;
 use closeclaw_common::ToolMeta;
-use closeclaw_common::tool_trait::{Tool, ToolFlags};
 use closeclaw_tools::{ToolRegistrar, ToolRegistrarError};
 
 use crate::platforms::feishu::tools::{
@@ -47,10 +47,7 @@ fn feishu_flags() -> ToolFlags {
 /// created during registration, preserving the deferred-init contract.
 macro_rules! lazy_feishu_tool {
     ($tool_type:ty, $meta:expr) => {{
-        LazyTool::new(
-            Box::new(|| Box::new(<$tool_type>::new())),
-            $meta,
-        )
+        LazyTool::new(Box::new(|| Box::new(<$tool_type>::new())), $meta)
     }};
 }
 
@@ -72,20 +69,21 @@ impl ToolRegistrar for ImAdapterToolsRegistrar {
         let r = self.name();
         let flags = feishu_flags();
 
-        let feishu_im = lazy_feishu_tool!(FeishuImTool, ToolMeta {
-            name: "FeishuIm".to_string(),
-            group: "feishu_im".to_string(),
-            summary: "Feishu IM message operations".to_string(),
-            detail: "Send, recall, edit, and react to Feishu messages. \
+        let feishu_im = lazy_feishu_tool!(
+            FeishuImTool,
+            ToolMeta {
+                name: "FeishuIm".to_string(),
+                group: "feishu_im".to_string(),
+                summary: "Feishu IM message operations".to_string(),
+                detail: "Send, recall, edit, and react to Feishu messages. \
                      Supports text and card message formats, thread replies, \
                      and message deletion."
-                .to_string(),
-            input_schema: serde_json::json!({}),
-            flags,
-        });
-        closeclaw_tools::try_register!(
-            registry, registered, feishu_im, r
+                    .to_string(),
+                input_schema: serde_json::json!({}),
+                flags,
+            }
         );
+        closeclaw_tools::try_register!(registry, registered, feishu_im, r);
 
         let feishu_calendar = lazy_feishu_tool!(
             FeishuCalendarTool,
@@ -101,9 +99,7 @@ impl ToolRegistrar for ImAdapterToolsRegistrar {
                 flags,
             }
         );
-        closeclaw_tools::try_register!(
-            registry, registered, feishu_calendar, r
-        );
+        closeclaw_tools::try_register!(registry, registered, feishu_calendar, r);
 
         let feishu_task = lazy_feishu_tool!(
             FeishuTaskTool,
@@ -119,9 +115,7 @@ impl ToolRegistrar for ImAdapterToolsRegistrar {
                 flags,
             }
         );
-        closeclaw_tools::try_register!(
-            registry, registered, feishu_task, r
-        );
+        closeclaw_tools::try_register!(registry, registered, feishu_task, r);
 
         let feishu_bitable = lazy_feishu_tool!(
             FeishuBitableTool,
@@ -137,9 +131,7 @@ impl ToolRegistrar for ImAdapterToolsRegistrar {
                 flags,
             }
         );
-        closeclaw_tools::try_register!(
-            registry, registered, feishu_bitable, r
-        );
+        closeclaw_tools::try_register!(registry, registered, feishu_bitable, r);
 
         let feishu_doc = lazy_feishu_tool!(
             FeishuDocTool,
@@ -155,9 +147,7 @@ impl ToolRegistrar for ImAdapterToolsRegistrar {
                 flags,
             }
         );
-        closeclaw_tools::try_register!(
-            registry, registered, feishu_doc, r
-        );
+        closeclaw_tools::try_register!(registry, registered, feishu_doc, r);
 
         let feishu_drive = lazy_feishu_tool!(
             FeishuDriveTool,
@@ -173,9 +163,7 @@ impl ToolRegistrar for ImAdapterToolsRegistrar {
                 flags,
             }
         );
-        closeclaw_tools::try_register!(
-            registry, registered, feishu_drive, r
-        );
+        closeclaw_tools::try_register!(registry, registered, feishu_drive, r);
 
         let feishu_sheet = lazy_feishu_tool!(
             FeishuSheetTool,
@@ -191,9 +179,7 @@ impl ToolRegistrar for ImAdapterToolsRegistrar {
                 flags,
             }
         );
-        closeclaw_tools::try_register!(
-            registry, registered, feishu_sheet, r
-        );
+        closeclaw_tools::try_register!(registry, registered, feishu_sheet, r);
 
         if registered == 0 {
             return Err(ToolRegistrarError::Internal(
