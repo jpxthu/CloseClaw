@@ -7,8 +7,8 @@ use crate::GatewayError;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::StreamingOutput;
 use closeclaw_common::VerbosityLevel;
-use closeclaw_llm::types::{ContentBlock, ContentBlockType};
 use closeclaw_llm::types::UnifiedUsage;
+use closeclaw_llm::types::{ContentBlock, ContentBlockType};
 
 /// Bundles the streaming outbound context passed to `process_stream_event` and
 /// its sub-handlers. Keeps parameter counts ≤6 (CONTRIBUTING.md limit).
@@ -161,5 +161,3 @@ pub(crate) async fn send_render_block(
         .await?;
     Ok(())
 }
-
-
