@@ -191,7 +191,6 @@ impl IMPlugin for EmptyTextBypassPlugin {
             media_refs: vec![],
             thread_id: None,
             account_id: "u1".into(),
-            chat_name: String::new(),
             ..Default::default()
         }))
     }
@@ -241,7 +240,6 @@ impl IMPlugin for NonTextEmptyContentPlugin {
             media_refs: vec![],
             thread_id: None,
             account_id: "u1".into(),
-            chat_name: String::new(),
             ..Default::default()
         }))
     }
@@ -320,7 +318,6 @@ impl IMPlugin for EmptyStringTextPlugin {
             media_refs: vec![],
             thread_id: None,
             account_id: "u1".into(),
-            chat_name: String::new(),
             ..Default::default()
         }))
     }
@@ -369,7 +366,6 @@ impl IMPlugin for NormalTextPlugin {
             media_refs: vec![],
             thread_id: None,
             account_id: "u1".into(),
-            chat_name: String::new(),
             ..Default::default()
         }))
     }
@@ -567,7 +563,6 @@ impl IMPlugin for SlowSendPlugin {
             media_refs: vec![],
             thread_id: None,
             account_id: String::new(),
-            chat_name: String::new(),
             ..Default::default()
         }))
     }

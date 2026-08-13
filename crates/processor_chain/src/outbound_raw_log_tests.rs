@@ -15,7 +15,6 @@ fn make_ctx(content: &str, channel: &str) -> MessageContext {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let mut ctx = MessageContext::from_normalized(msg);
@@ -116,7 +115,6 @@ async fn test_outbound_and_independent_from_inbound() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let inbound_ctx = MessageContext::from_normalized(msg);

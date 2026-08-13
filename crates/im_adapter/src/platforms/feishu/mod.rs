@@ -287,6 +287,16 @@ impl IMPlugin for FeishuPlugin {
         Ok(msg)
     }
 
+    fn last_parsed_metadata(&self) -> std::collections::HashMap<String, String> {
+        // Delegate to the inner adapter's last_metadata (blocking lock).
+        // This is safe because last_parsed_metadata is called synchronously
+        // after parse_inbound in the gateway's inbound queue consumer.
+        match self.adapter.last_metadata.try_lock() {
+            Ok(guard) => guard.clone(),
+            Err(_) => std::collections::HashMap::new(),
+        }
+    }
+
     async fn parse_card_action(
         &self,
         payload: &[u8],

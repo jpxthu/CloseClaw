@@ -420,6 +420,8 @@ async fn test_process_inbound_chain_no_registry() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
+        chat_name: None,
+        trace_id: None,
         })
         .await;
     assert_eq!(result.text_content(), Some("hello world"));
@@ -458,6 +460,8 @@ async fn test_process_inbound_chain_with_normalizer() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
+        chat_name: None,
+        trace_id: None,
         })
         .await;
     // ANSI stripped, control char stripped, plain text remains.
@@ -491,6 +495,8 @@ async fn test_process_inbound_chain_with_session_router() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
+        chat_name: None,
+        trace_id: None,
         })
         .await;
     assert_eq!(result.text_content(), Some("hi"));
@@ -534,6 +540,8 @@ async fn test_process_inbound_chain_uses_system_time() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
+        chat_name: None,
+        trace_id: None,
         })
         .await;
     let after_ms = chrono::Utc::now().timestamp_millis();
@@ -642,6 +650,8 @@ async fn test_process_inbound_chain_processor_error() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
+        chat_name: None,
+        trace_id: None,
         })
         .await;
     // Fallback to original content.
@@ -677,6 +687,8 @@ async fn test_e2e_inbound_full_stack_strips_ansi_and_injects_session_key() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
+        chat_name: None,
+        trace_id: None,
         })
         .await;
 
@@ -719,6 +731,8 @@ async fn test_e2e_processed_content_feeds_into_handle_inbound() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
+        chat_name: None,
+        trace_id: None,
         })
         .await;
 
@@ -758,6 +772,8 @@ async fn test_e2e_suppress_flag_propagates_through_chain() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
+        chat_name: None,
+        trace_id: None,
         })
         .await;
     assert!(

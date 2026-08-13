@@ -277,6 +277,8 @@ async fn test_process_inbound_chain_cleans_control_characters() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
+        chat_name: None,
+        trace_id: None,
         })
         .await;
 
@@ -302,6 +304,8 @@ async fn test_process_inbound_chain_suppress_message() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
+        chat_name: None,
+        trace_id: None,
         })
         .await;
 
@@ -330,6 +334,8 @@ async fn test_process_inbound_chain_quit_exit_not_affected() {
                 thread_id: None,
                 message_type: Default::default(),
                 media_refs: Vec::new(),
+        chat_name: None,
+        trace_id: None,
             })
             .await;
         assert_eq!(processed.text_content().unwrap_or(""), *cmd);
@@ -526,6 +532,8 @@ async fn test_process_inbound_chain_peer_id_is_cli() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
+        chat_name: None,
+        trace_id: None,
         })
         .await;
 
@@ -557,6 +565,8 @@ fn normalized_to_inbound(msg: &NormalizedMessage) -> InboundChainInput {
         thread_id: msg.thread_id.clone(),
         message_type: msg.message_type.clone(),
         media_refs: msg.media_refs.clone(),
+        chat_name: None,
+        trace_id: None,
     }
 }
 
@@ -573,7 +583,6 @@ fn test_normalized_to_inbound_platform() {
         media_refs: vec![],
         thread_id: None,
         account_id: "owner".to_string(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let input = normalized_to_inbound(&msg);
@@ -593,7 +602,6 @@ fn test_normalized_to_inbound_peer_id() {
         media_refs: vec![],
         thread_id: None,
         account_id: "owner".to_string(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let input = normalized_to_inbound(&msg);
@@ -613,7 +621,6 @@ fn test_normalized_to_inbound_sender_id() {
         media_refs: vec![],
         thread_id: None,
         account_id: "owner".to_string(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let input = normalized_to_inbound(&msg);
@@ -634,7 +641,6 @@ fn test_normalized_to_inbound_timestamp() {
         media_refs: vec![],
         thread_id: None,
         account_id: "owner".to_string(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let input = normalized_to_inbound(&msg);
@@ -654,7 +660,6 @@ fn test_normalized_to_inbound_account_id_present() {
         media_refs: vec![],
         thread_id: None,
         account_id: "owner".to_string(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let input = normalized_to_inbound(&msg);
@@ -674,7 +679,6 @@ fn test_normalized_to_inbound_account_id_empty() {
         media_refs: vec![],
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let input = normalized_to_inbound(&msg);
@@ -694,7 +698,6 @@ fn test_normalized_to_inbound_content_preserved() {
         media_refs: vec![],
         thread_id: None,
         account_id: "owner".to_string(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let input = normalized_to_inbound(&msg);
@@ -714,7 +717,6 @@ fn test_normalized_to_inbound_message_id_format() {
         media_refs: vec![],
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let input = normalized_to_inbound(&msg);

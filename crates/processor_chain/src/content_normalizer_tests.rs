@@ -89,7 +89,6 @@ fn make_normalized(content: &str) -> NormalizedMessage {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     }
 }
@@ -145,7 +144,6 @@ fn make_normalized_with_type(content: &str, message_type: MessageType) -> Normal
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     }
 }

@@ -48,10 +48,7 @@ impl MessageContext {
             logged_at,
             processor_name: None,
         };
-        let mut metadata = std::collections::HashMap::new();
-        if !msg.trace_id.is_empty() {
-            metadata.insert("trace_id".to_string(), msg.trace_id);
-        }
+        let metadata = std::collections::HashMap::new();
         Self {
             content: msg.content,
             raw_message_log: vec![raw_log],
@@ -83,7 +80,6 @@ mod tests {
             media_refs: Vec::new(),
             thread_id: None,
             account_id: String::new(),
-            chat_name: String::new(),
             ..Default::default()
         };
         let ctx = MessageContext::from_normalized(msg.clone());

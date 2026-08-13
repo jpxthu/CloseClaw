@@ -23,7 +23,6 @@ async fn test_terminal_session_key_computed() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let after_ms = chrono::Utc::now().timestamp_millis();
@@ -64,7 +63,6 @@ async fn test_deterministic_key() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let ctx = make_ctx(msg);
@@ -101,7 +99,6 @@ async fn test_missing_peer_id_yields_empty_key() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let ctx = make_ctx(msg);
@@ -127,7 +124,6 @@ async fn test_metadata_preserves_upstream() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let mut ctx = make_ctx(msg);
@@ -157,7 +153,6 @@ async fn test_fallback_when_no_initial_normalized() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let ctx = MessageContext::from_normalized(msg);
@@ -185,7 +180,6 @@ async fn test_system_time_used_for_session_key() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let after_ms = chrono::Utc::now().timestamp_millis();
@@ -233,7 +227,6 @@ async fn test_per_account_channel_peer_uses_system_time() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let after_ms = chrono::Utc::now().timestamp_millis();
@@ -283,7 +276,6 @@ async fn test_different_account_ids_produce_different_session_keys() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: "account_1".to_string(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let msg_b = NormalizedMessage {
@@ -296,7 +288,6 @@ async fn test_different_account_ids_produce_different_session_keys() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: "account_2".to_string(),
-        chat_name: String::new(),
         ..Default::default()
     };
 
@@ -352,7 +343,6 @@ async fn test_account_id_none_vs_some_produce_different_keys() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let msg_some = NormalizedMessage {
@@ -365,7 +355,6 @@ async fn test_account_id_none_vs_some_produce_different_keys() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: "tenant_x".to_string(),
-        chat_name: String::new(),
         ..Default::default()
     };
 
@@ -412,7 +401,6 @@ async fn test_account_id_read_from_raw_message() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: "tenant_42".to_string(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let mut ctx = make_ctx(msg);
@@ -435,7 +423,6 @@ async fn test_account_id_read_from_raw_message() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: "metadata_account".to_string(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let ctx_meta = make_ctx(msg_meta);
@@ -523,7 +510,6 @@ async fn test_warn_log_when_from_empty() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let ctx = make_ctx(msg);
@@ -567,7 +553,6 @@ async fn test_warn_log_when_to_empty() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let ctx = make_ctx(msg);
@@ -611,7 +596,6 @@ async fn test_no_warn_log_when_both_present() {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     };
     let ctx = make_ctx(msg);

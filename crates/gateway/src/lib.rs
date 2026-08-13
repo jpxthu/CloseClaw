@@ -914,8 +914,6 @@ impl Gateway {
             media_refs: input.media_refs.clone(),
             thread_id: input.thread_id.clone(),
             account_id: input.account_id.clone().unwrap_or_default(),
-            chat_name: String::new(),
-            ..Default::default()
         };
 
         match registry.process_inbound(normalized).await {
@@ -955,6 +953,12 @@ fn build_extra_metadata(input: &InboundChainInput) -> std::collections::HashMap<
     );
     if let Some(ref account_id) = input.account_id {
         meta.insert("account_id".to_string(), account_id.clone());
+    }
+    if let Some(ref chat_name) = input.chat_name {
+        meta.insert("chat_name".to_string(), chat_name.clone());
+    }
+    if let Some(ref trace_id) = input.trace_id {
+        meta.insert("trace_id".to_string(), trace_id.clone());
     }
     meta
 }
