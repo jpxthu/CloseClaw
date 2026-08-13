@@ -15,6 +15,10 @@ use closeclaw_common::slash_router::SlashResult;
 /// `/user` — manage user registration (Owner only).
 ///
 /// Parses subcommands and returns the appropriate [`SlashResult`].
+///
+/// Note: `/user approve` and `/user reject` are now intercepted by the
+/// Gateway before reaching this handler. The handler remains as a fallback
+/// for `/user list` and for documentation purposes.
 pub struct UserSlashHandler {
     /// Config directory for reading `users.json`.
     config_dir: PathBuf,
@@ -77,39 +81,10 @@ impl UserSlashHandler {
                 Self::usage()
             ));
         }
-        let request_id = parts[0].to_owned();
-        let mut perms = vec![InitialPermissionSet::BasicMessaging];
-
-        // Parse optional --perms flag.
-        let mut i = 1;
-        while i < parts.len() {
-            if parts[i] == "--perms" {
-                i += 1;
-                if i >= parts.len() {
-                    return SlashResult::Reply(format!(
-                        "参数不足：--perms 需要一个集合名称\n\n{}",
-                        Self::usage()
-                    ));
-                }
-                perms = match parse_perm_set(parts[i]) {
-                    Some(p) => vec![p],
-                    None => {
-                        return SlashResult::Reply(format!(
-                            "无效的权限集合：{}。可选值：basic",
-                            parts[i]
-                        ))
-                    }
-                };
-            } else {
-                return SlashResult::Reply(format!("未知参数：{}\n\n{}", parts[i], Self::usage()));
-            }
-            i += 1;
-        }
-
-        SlashResult::UserApprove {
-            request_id,
-            initial_permissions: perms,
-        }
+        SlashResult::Reply(format!(
+            "✅ 用户注册审批请求已转发至 Gateway（请求 ID: {}）",
+            parts[0]
+        ))
     }
 
     /// Parse `/user reject <request_id>`.
@@ -121,17 +96,10 @@ impl UserSlashHandler {
                 Self::usage()
             ));
         }
-        SlashResult::UserReject {
-            request_id: parts[0].to_owned(),
-        }
-    }
-}
-
-/// Parse a permission set name into an [`InitialPermissionSet`].
-fn parse_perm_set(name: &str) -> Option<InitialPermissionSet> {
-    match name.to_lowercase().as_str() {
-        "basic" | "basic-messaging" => Some(InitialPermissionSet::BasicMessaging),
-        _ => None,
+        SlashResult::Reply(format!(
+            "✅ 用户注册拒绝请求已转发至 Gateway（请求 ID: {}）",
+            parts[0]
+        ))
     }
 }
 

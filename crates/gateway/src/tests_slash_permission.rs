@@ -254,17 +254,6 @@ fn clone_result(r: &SlashResult) -> SlashResult {
         SlashResult::SystemAppend { action } => SlashResult::SystemAppend {
             action: action.clone(),
         },
-        SlashResult::PermissionOp { op } => SlashResult::PermissionOp { op: op.clone() },
-        SlashResult::UserApprove {
-            request_id,
-            initial_permissions,
-        } => SlashResult::UserApprove {
-            request_id: request_id.clone(),
-            initial_permissions: initial_permissions.clone(),
-        },
-        SlashResult::UserReject { request_id } => SlashResult::UserReject {
-            request_id: request_id.clone(),
-        },
         SlashResult::InjectMeta { content } => SlashResult::InjectMeta {
             content: content.clone(),
         },

@@ -1,14 +1,13 @@
 //! Unit tests for PermissionSlashHandler (Step 1.5).
 //!
 //! Covers:
-//! - Normal path: each sub-command parsed to correct PermissionOperation
+//! - Normal path: each sub-command parsed to correct Reply content
 //! - Error path: unknown sub-command, insufficient args, empty args
 //! - Boundary: single vs multiple paths, command with/without args
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
 use crate::handlers_permission::PermissionSlashHandler;
-use closeclaw_common::permission_op::PermissionOperation;
 use closeclaw_common::slash_router::SlashResult;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -19,13 +18,6 @@ fn dummy_ctx() -> SlashContext {
         sender_id: "test_sender".to_owned(),
         session_id: "test_session".to_owned(),
         channel: "test_channel".to_owned(),
-    }
-}
-
-fn assert_perm_op(result: SlashResult, expected: PermissionOperation) {
-    match result {
-        SlashResult::PermissionOp { op } => assert_eq!(op, expected),
-        other => panic!("expected PermissionOp, got {other:?}"),
     }
 }
 
@@ -75,14 +67,9 @@ async fn test_allow_file_single_path() {
     let result = PermissionSlashHandler
         .handle("allow-file eda read /tmp/data/**", &ctx)
         .await;
-    assert_perm_op(
-        result,
-        PermissionOperation::AddFileWhitelist {
-            agent: "eda".into(),
-            op: "read".into(),
-            paths: vec!["/tmp/data/**".into()],
-        },
-    );
+    assert_reply_contains(&result, "allow-file");
+    assert_reply_contains(&result, "eda");
+    assert_reply_contains(&result, "read");
 }
 
 #[tokio::test]
@@ -94,18 +81,9 @@ async fn test_allow_file_multiple_paths() {
             &ctx,
         )
         .await;
-    assert_perm_op(
-        result,
-        PermissionOperation::AddFileWhitelist {
-            agent: "eda".into(),
-            op: "write".into(),
-            paths: vec![
-                "/tmp/a.txt".into(),
-                "/tmp/b.txt".into(),
-                "/tmp/c.txt".into(),
-            ],
-        },
-    );
+    assert_reply_contains(&result, "allow-file");
+    assert_reply_contains(&result, "eda");
+    assert_reply_contains(&result, "write");
 }
 
 // ── normal path: deny-file ──────────────────────────────────────────────────
@@ -116,14 +94,8 @@ async fn test_deny_file_single_path() {
     let result = PermissionSlashHandler
         .handle("deny-file eda write /etc/shadow", &ctx)
         .await;
-    assert_perm_op(
-        result,
-        PermissionOperation::AddFileDeny {
-            agent: "eda".into(),
-            op: "write".into(),
-            paths: vec!["/etc/shadow".into()],
-        },
-    );
+    assert_reply_contains(&result, "deny-file");
+    assert_reply_contains(&result, "eda");
 }
 
 #[tokio::test]
@@ -132,14 +104,8 @@ async fn test_deny_file_multiple_paths() {
     let result = PermissionSlashHandler
         .handle("deny-file eda read /etc/** /root/**", &ctx)
         .await;
-    assert_perm_op(
-        result,
-        PermissionOperation::AddFileDeny {
-            agent: "eda".into(),
-            op: "read".into(),
-            paths: vec!["/etc/**".into(), "/root/**".into()],
-        },
-    );
+    assert_reply_contains(&result, "deny-file");
+    assert_reply_contains(&result, "eda");
 }
 
 // ── normal path: allow-cmd ──────────────────────────────────────────────────
@@ -150,14 +116,9 @@ async fn test_allow_cmd_no_args() {
     let result = PermissionSlashHandler
         .handle("allow-cmd eda ls", &ctx)
         .await;
-    assert_perm_op(
-        result,
-        PermissionOperation::AddCommandWhitelist {
-            agent: "eda".into(),
-            command: "ls".into(),
-            args: vec![],
-        },
-    );
+    assert_reply_contains(&result, "allow-cmd");
+    assert_reply_contains(&result, "eda");
+    assert_reply_contains(&result, "ls");
 }
 
 #[tokio::test]
@@ -166,14 +127,9 @@ async fn test_allow_cmd_with_args() {
     let result = PermissionSlashHandler
         .handle("allow-cmd eda git status log", &ctx)
         .await;
-    assert_perm_op(
-        result,
-        PermissionOperation::AddCommandWhitelist {
-            agent: "eda".into(),
-            command: "git".into(),
-            args: vec!["status".into(), "log".into()],
-        },
-    );
+    assert_reply_contains(&result, "allow-cmd");
+    assert_reply_contains(&result, "eda");
+    assert_reply_contains(&result, "git");
 }
 
 // ── normal path: deny-cmd ───────────────────────────────────────────────────
@@ -182,14 +138,9 @@ async fn test_allow_cmd_with_args() {
 async fn test_deny_cmd_no_args() {
     let ctx = dummy_ctx();
     let result = PermissionSlashHandler.handle("deny-cmd eda rm", &ctx).await;
-    assert_perm_op(
-        result,
-        PermissionOperation::AddCommandDeny {
-            agent: "eda".into(),
-            command: "rm".into(),
-            args: vec![],
-        },
-    );
+    assert_reply_contains(&result, "deny-cmd");
+    assert_reply_contains(&result, "eda");
+    assert_reply_contains(&result, "rm");
 }
 
 #[tokio::test]
@@ -198,14 +149,9 @@ async fn test_deny_cmd_with_args() {
     let result = PermissionSlashHandler
         .handle("deny-cmd eda rm -rf /", &ctx)
         .await;
-    assert_perm_op(
-        result,
-        PermissionOperation::AddCommandDeny {
-            agent: "eda".into(),
-            command: "rm".into(),
-            args: vec!["-rf".into(), "/".into()],
-        },
-    );
+    assert_reply_contains(&result, "deny-cmd");
+    assert_reply_contains(&result, "eda");
+    assert_reply_contains(&result, "rm");
 }
 
 // ── error path: empty / unknown ─────────────────────────────────────────────
@@ -288,12 +234,6 @@ async fn test_leading_trailing_whitespace_trimmed() {
     let result = PermissionSlashHandler
         .handle("  allow-file eda read /tmp/f.txt  ", &ctx)
         .await;
-    assert_perm_op(
-        result,
-        PermissionOperation::AddFileWhitelist {
-            agent: "eda".into(),
-            op: "read".into(),
-            paths: vec!["/tmp/f.txt".into()],
-        },
-    );
+    assert_reply_contains(&result, "allow-file");
+    assert_reply_contains(&result, "eda");
 }

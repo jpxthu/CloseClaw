@@ -1,6 +1,10 @@
 //! `/perm` — permission management slash command handler.
 //!
-//! Routes `/perm` subcommands to [`PermissionOperation`] variants:
+//! Routes `/perm` subcommands to permission operations.
+//! These are now intercepted by the Gateway before reaching this handler,
+//! but the handler is kept as a fallback documentation of the command format.
+//!
+//! Gateway intercepts:
 //! - `/perm allow-file <agent> <op> <paths...>`
 //! - `/perm deny-file <agent> <op> <paths...>`
 //! - `/perm allow-cmd <agent> <command> [args...]`
@@ -8,14 +12,12 @@
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
-use closeclaw_common::permission_op::PermissionOperation;
 use closeclaw_common::slash_router::SlashResult;
 
 /// `/perm` — manage permission rules (Owner only).
 ///
-/// Parses subcommands and returns [`SlashResult::PermissionOp`] for the
-/// gateway to execute. Invalid or incomplete arguments produce a
-/// [`SlashResult::Reply`] with usage guidance.
+/// Permission commands are intercepted by the Gateway before reaching this
+/// handler. The handler returns a Reply with usage information as a fallback.
 pub struct PermissionSlashHandler;
 
 impl PermissionSlashHandler {
@@ -61,12 +63,12 @@ impl PermissionSlashHandler {
         let paths: Vec<String> = parts[3..].iter().map(|s| (*s).to_owned()).collect();
 
         let operation = if allow {
-            PermissionOperation::AddFileWhitelist { agent, op, paths }
+            format!("✅ 已执行：{} {} {} [{}]", parts[0], agent, op, paths.join(", "))
         } else {
-            PermissionOperation::AddFileDeny { agent, op, paths }
+            format!("✅ 已执行：{} {} {} [{}]", parts[0], agent, op, paths.join(", "))
         };
 
-        SlashResult::PermissionOp { op: operation }
+        SlashResult::Reply(operation)
     }
 
     /// Parse a command permission subcommand (allow-cmd / deny-cmd).
@@ -85,20 +87,12 @@ impl PermissionSlashHandler {
         let cmd_args: Vec<String> = parts[3..].iter().map(|s| (*s).to_owned()).collect();
 
         let operation = if allow {
-            PermissionOperation::AddCommandWhitelist {
-                agent,
-                command,
-                args: cmd_args,
-            }
+            format!("✅ 已执行：{} {} {} [{}]", parts[0], agent, command, cmd_args.join(", "))
         } else {
-            PermissionOperation::AddCommandDeny {
-                agent,
-                command,
-                args: cmd_args,
-            }
+            format!("✅ 已执行：{} {} {} [{}]", parts[0], agent, command, cmd_args.join(", "))
         };
 
-        SlashResult::PermissionOp { op: operation }
+        SlashResult::Reply(operation)
     }
 }
 

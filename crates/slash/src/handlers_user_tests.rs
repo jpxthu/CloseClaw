@@ -10,7 +10,6 @@ use tempfile::TempDir;
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
 use crate::handlers_user::UserSlashHandler;
-use closeclaw_common::permission_op::InitialPermissionSet;
 use closeclaw_common::slash_router::SlashResult;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -117,19 +116,8 @@ async fn test_approve_basic_request_id() {
     let (h, _dir) = handler_with_empty_config();
     let ctx = dummy_ctx();
     let result = h.handle("approve req-001", &ctx).await;
-    match &result {
-        SlashResult::UserApprove {
-            request_id,
-            initial_permissions,
-        } => {
-            assert_eq!(request_id, "req-001");
-            assert_eq!(
-                initial_permissions,
-                &vec![InitialPermissionSet::BasicMessaging]
-            );
-        }
-        other => panic!("expected UserApprove, got {other:?}"),
-    }
+    assert_reply_contains(&result, "req-001");
+    assert_reply_contains(&result, "转发至 Gateway");
 }
 
 #[tokio::test]
@@ -137,19 +125,8 @@ async fn test_approve_with_perms_basic() {
     let (h, _dir) = handler_with_empty_config();
     let ctx = dummy_ctx();
     let result = h.handle("approve req-002 --perms basic", &ctx).await;
-    match &result {
-        SlashResult::UserApprove {
-            request_id,
-            initial_permissions,
-        } => {
-            assert_eq!(request_id, "req-002");
-            assert_eq!(
-                initial_permissions,
-                &vec![InitialPermissionSet::BasicMessaging]
-            );
-        }
-        other => panic!("expected UserApprove, got {other:?}"),
-    }
+    assert_reply_contains(&result, "req-002");
+    assert_reply_contains(&result, "转发至 Gateway");
 }
 
 #[tokio::test]
@@ -159,19 +136,8 @@ async fn test_approve_with_perms_basic_messaging() {
     let result = h
         .handle("approve req-003 --perms basic-messaging", &ctx)
         .await;
-    match &result {
-        SlashResult::UserApprove {
-            request_id,
-            initial_permissions,
-        } => {
-            assert_eq!(request_id, "req-003");
-            assert_eq!(
-                initial_permissions,
-                &vec![InitialPermissionSet::BasicMessaging]
-            );
-        }
-        other => panic!("expected UserApprove, got {other:?}"),
-    }
+    assert_reply_contains(&result, "req-003");
+    assert_reply_contains(&result, "转发至 Gateway");
 }
 
 // ── normal path: /user reject ───────────────────────────────────────────────
@@ -181,12 +147,8 @@ async fn test_reject_request_id() {
     let (h, _dir) = handler_with_empty_config();
     let ctx = dummy_ctx();
     let result = h.handle("reject req-100", &ctx).await;
-    match &result {
-        SlashResult::UserReject { request_id } => {
-            assert_eq!(request_id, "req-100");
-        }
-        other => panic!("expected UserReject, got {other:?}"),
-    }
+    assert_reply_contains(&result, "req-100");
+    assert_reply_contains(&result, "转发至 Gateway");
 }
 
 // ── error path: empty / unknown ─────────────────────────────────────────────
@@ -235,32 +197,15 @@ async fn test_reject_missing_request_id() {
 }
 
 #[tokio::test]
-async fn test_approve_perms_missing_value() {
+async fn test_approve_with_args_returns_forwarded() {
     let (h, _dir) = handler_with_empty_config();
     let ctx = dummy_ctx();
     let result = h.handle("approve req-001 --perms", &ctx).await;
-    assert_reply_contains(&result, "参数不足");
+    assert_reply_contains(&result, "req-001");
+    assert_reply_contains(&result, "转发至 Gateway");
 }
 
-// ── error path: invalid params ──────────────────────────────────────────────
 
-#[tokio::test]
-async fn test_approve_invalid_perm_set() {
-    let (h, _dir) = handler_with_empty_config();
-    let ctx = dummy_ctx();
-    let result = h.handle("approve req-001 --perms nonexistent", &ctx).await;
-    assert_reply_contains(&result, "无效的权限集合");
-    assert_reply_contains(&result, "nonexistent");
-}
-
-#[tokio::test]
-async fn test_approve_unknown_flag() {
-    let (h, _dir) = handler_with_empty_config();
-    let ctx = dummy_ctx();
-    let result = h.handle("approve req-001 --bogus", &ctx).await;
-    assert_reply_contains(&result, "未知参数");
-    assert_reply_contains(&result, "--bogus");
-}
 
 // ── boundary: whitespace trimming ────────────────────────────────────────────
 
@@ -269,12 +214,8 @@ async fn test_approve_leading_trailing_whitespace() {
     let (h, _dir) = handler_with_empty_config();
     let ctx = dummy_ctx();
     let result = h.handle("  approve req-001  ", &ctx).await;
-    match &result {
-        SlashResult::UserApprove { request_id, .. } => {
-            assert_eq!(request_id, "req-001");
-        }
-        other => panic!("expected UserApprove, got {other:?}"),
-    }
+    assert_reply_contains(&result, "req-001");
+    assert_reply_contains(&result, "转发至 Gateway");
 }
 
 #[tokio::test]
@@ -282,12 +223,8 @@ async fn test_reject_leading_trailing_whitespace() {
     let (h, _dir) = handler_with_empty_config();
     let ctx = dummy_ctx();
     let result = h.handle("  reject req-200  ", &ctx).await;
-    match &result {
-        SlashResult::UserReject { request_id } => {
-            assert_eq!(request_id, "req-200");
-        }
-        other => panic!("expected UserReject, got {other:?}"),
-    }
+    assert_reply_contains(&result, "req-200");
+    assert_reply_contains(&result, "转发至 Gateway");
 }
 
 #[tokio::test]

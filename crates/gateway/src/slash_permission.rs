@@ -88,6 +88,45 @@ impl Gateway {
             Some(parsed) => parsed,
             None => return None,
         };
+
+        // Gateway-level interception: permission commands are handled
+        // directly before reaching the SlashDispatcher, consistent with
+        // the design doc that permission operations belong to the Gateway
+        // layer and do not go through SlashDispatcher.
+        match cmd {
+            "perm" => {
+                let reply = self.handle_perm_cmd(args, sender_id).await;
+                self.route_slash_reply(session_id, channel, vec![ContentBlock::Text(reply)])
+                    .await;
+                return Some(HandleResult::SlashHandled);
+            }
+            "user" => {
+                let parts: Vec<&str> = args.split_whitespace().collect();
+                match parts.first().map(|s| *s) {
+                    Some("approve") => {
+                        let reply = self
+                            .handle_user_approve_cmd(&parts[1..], sender_id)
+                            .await;
+                        self.route_slash_reply(session_id, channel, vec![ContentBlock::Text(reply)])
+                            .await;
+                        return Some(HandleResult::SlashHandled);
+                    }
+                    Some("reject") => {
+                        let reply = self
+                            .handle_user_reject_cmd(&parts[1..], sender_id)
+                            .await;
+                        self.route_slash_reply(session_id, channel, vec![ContentBlock::Text(reply)])
+                            .await;
+                        return Some(HandleResult::SlashHandled);
+                    }
+                    _ => {
+                        // /user list or other subcommands fall through to the handler.
+                    }
+                }
+            }
+            _ => {}
+        }
+
         let Some(handler) = dispatcher.get_handler(cmd) else {
             let reply = format!("未知指令：/{cmd}。输入 /help 查看所有可用指令。");
             self.route_slash_reply(session_id, channel, vec![ContentBlock::Text(reply)])
@@ -309,39 +348,6 @@ impl Gateway {
         };
         let result = handler.handle(args, &slash_ctx).await;
 
-        // PermissionOp is intercepted here — handled directly in the daemon,
-        // never enters the normal execute() path.
-        if let SlashResult::PermissionOp { op } = &result {
-            let reply = self.handle_permission_op(op, sender_id).await;
-            if let Some(sh) = self.session_handler.as_ref() {
-                sh.send_reply(reply).await;
-            }
-            return Some(HandleResult::SlashHandled);
-        }
-
-        // UserApprove/UserReject are intercepted here — they go through
-        // the ApprovalFlow for user registration management.
-        if let SlashResult::UserApprove {
-            request_id,
-            initial_permissions,
-        } = &result
-        {
-            let reply = self
-                .handle_user_approve(request_id, initial_permissions, sender_id)
-                .await;
-            if let Some(sh) = self.session_handler.as_ref() {
-                sh.send_reply(reply).await;
-            }
-            return Some(HandleResult::SlashHandled);
-        }
-        if let SlashResult::UserReject { request_id } = &result {
-            let reply = self.handle_user_reject(request_id, sender_id).await;
-            if let Some(sh) = self.session_handler.as_ref() {
-                sh.send_reply(reply).await;
-            }
-            return Some(HandleResult::SlashHandled);
-        }
-
         // Permission check AFTER handler returns SlashResult but BEFORE execute.
         //
         // For Exec results, the handler's requires_permission field controls
@@ -413,7 +419,7 @@ impl Gateway {
         Some(HandleResult::SlashHandled)
     }
 
-    /// Handle a [`PermissionOp`] — owner-only permission rule management.
+    /// Handle a permission operation — owner-only permission rule management.
     async fn handle_permission_op(
         &self,
         op: &closeclaw_common::PermissionOperation,
@@ -604,6 +610,157 @@ impl Gateway {
             "用户注册已拒绝".to_owned()
         } else {
             "拒绝失败：请求不存在或已处理".to_owned()
+        }
+    }
+
+    // ── Gateway-level permission command interception ─────────────────
+    // Permission commands are intercepted here before reaching the
+    // SlashDispatcher, consistent with the design doc that permission
+    // operations belong to the Gateway layer.
+
+    /// Handle `/perm` command directly in the Gateway.
+    async fn handle_perm_cmd(&self, args: &str, sender_id: Option<&str>) -> String {
+        let parts: Vec<&str> = args.split_whitespace().collect();
+        if parts.is_empty() {
+            return Self::perm_usage();
+        }
+        match parts[0] {
+            "allow-file" => self.handle_perm_file_op(&parts, true, sender_id).await,
+            "deny-file" => self.handle_perm_file_op(&parts, false, sender_id).await,
+            "allow-cmd" => self.handle_perm_cmd_op(&parts, true, sender_id).await,
+            "deny-cmd" => self.handle_perm_cmd_op(&parts, false, sender_id).await,
+            other => format!("未知子命令：{other}\n\n{}", Self::perm_usage()),
+        }
+    }
+
+    fn perm_usage() -> String {
+        "用法：\n\
+         /perm allow-file <agent> <op> <paths...>\n\
+         /perm deny-file <agent> <op> <paths...>\n\
+         /perm allow-cmd <agent> <command> [args...]\n\
+         /perm deny-cmd <agent> <command> [args...]"
+            .to_owned()
+    }
+
+    async fn handle_perm_file_op(
+        &self,
+        parts: &[&str],
+        allow: bool,
+        sender_id: Option<&str>,
+    ) -> String {
+        if parts.len() < 4 {
+            return format!(
+                "参数不足：{} 需要 <agent> <op> <paths...>\n\n{}",
+                parts[0],
+                Self::perm_usage()
+            );
+        }
+        let agent = parts[1].to_owned();
+        let op = parts[2].to_owned();
+        let paths: Vec<String> = parts[3..].iter().map(|s| (*s).to_owned()).collect();
+        let operation = if allow {
+            closeclaw_common::PermissionOperation::AddFileWhitelist { agent, op, paths }
+        } else {
+            closeclaw_common::PermissionOperation::AddFileDeny { agent, op, paths }
+        };
+        let reply = self.handle_permission_op(&operation, sender_id).await;
+        reply
+    }
+
+    async fn handle_perm_cmd_op(
+        &self,
+        parts: &[&str],
+        allow: bool,
+        sender_id: Option<&str>,
+    ) -> String {
+        if parts.len() < 3 {
+            return format!(
+                "参数不足：{} 需要 <agent> <command> [args...]\n\n{}",
+                parts[0],
+                Self::perm_usage()
+            );
+        }
+        let agent = parts[1].to_owned();
+        let command = parts[2].to_owned();
+        let cmd_args: Vec<String> = parts[3..].iter().map(|s| (*s).to_owned()).collect();
+        let operation = if allow {
+            closeclaw_common::PermissionOperation::AddCommandWhitelist {
+                agent,
+                command,
+                args: cmd_args,
+            }
+        } else {
+            closeclaw_common::PermissionOperation::AddCommandDeny {
+                agent,
+                command,
+                args: cmd_args,
+            }
+        };
+        self.handle_permission_op(&operation, sender_id).await
+    }
+
+    /// Handle `/user approve` directly in the Gateway.
+    async fn handle_user_approve_cmd(&self, parts: &[&str], sender_id: Option<&str>) -> String {
+        if parts.is_empty() {
+            return format!(
+                "参数不足：approve 需要 <request_id>\n\n{}",
+                Self::user_usage()
+            );
+        }
+        let request_id = parts[0].to_owned();
+        let mut perms = vec![closeclaw_common::InitialPermissionSet::BasicMessaging];
+        let mut i = 1;
+        while i < parts.len() {
+            if parts[i] == "--perms" {
+                i += 1;
+                if i >= parts.len() {
+                    return format!(
+                        "参数不足：--perms 需要一个集合名称\n\n{}",
+                        Self::user_usage()
+                    );
+                }
+                match Self::parse_perm_set(parts[i]) {
+                    Some(p) => perms = vec![p],
+                    None => {
+                        return format!(
+                            "无效的权限集合：{}。可选值：basic",
+                            parts[i]
+                        )
+                    }
+                }
+            } else {
+                return format!("未知参数：{}\n\n{}", parts[i], Self::user_usage());
+            }
+            i += 1;
+        }
+        self.handle_user_approve(&request_id, &perms, sender_id).await
+    }
+
+    /// Handle `/user reject` directly in the Gateway.
+    async fn handle_user_reject_cmd(&self, parts: &[&str], sender_id: Option<&str>) -> String {
+        if parts.is_empty() {
+            return format!(
+                "参数不足：reject 需要 <request_id>\n\n{}",
+                Self::user_usage()
+            );
+        }
+        self.handle_user_reject(&parts[0], sender_id).await
+    }
+
+    fn user_usage() -> String {
+        "用法：\n\
+         /user list\n\
+         /user approve <request_id> [--perms <set>]\n\
+         /user reject <request_id>"
+            .to_owned()
+    }
+
+    fn parse_perm_set(name: &str) -> Option<closeclaw_common::InitialPermissionSet> {
+        match name.to_lowercase().as_str() {
+            "basic" | "basic-messaging" => {
+                Some(closeclaw_common::InitialPermissionSet::BasicMessaging)
+            }
+            _ => None,
         }
     }
 
