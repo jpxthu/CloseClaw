@@ -209,7 +209,11 @@ fn test_filter_off_mixed_content_keeps_final_reply_and_media() {
         },
     ];
     let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
-    assert_eq!(result.len(), 5, "Off mode should keep Text + Image + Audio + File");
+    assert_eq!(
+        result.len(),
+        5,
+        "Off mode should keep Text + Image + Audio + File"
+    );
     assert!(matches!(&result[0], ContentBlock::Text(t) if t == "hello"));
     assert!(matches!(&result[1], ContentBlock::Text(t) if t == "world"));
     assert!(matches!(&result[2], ContentBlock::Image { .. }));
