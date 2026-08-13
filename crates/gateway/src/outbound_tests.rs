@@ -5,88 +5,14 @@ use closeclaw_llm::types::{ContentBlock, ContentBlockType};
 
 use std::sync::Arc;
 
-use super::outbound_helpers::filter_by_verbosity;
 
-#[test]
-fn test_filter_by_verbosity_full() {
-    let blocks = vec![
-        ContentBlock::Text("hello".into()),
-        ContentBlock::Thinking {
-            thinking: "reasoning".into(),
-            signature: None,
-        },
-        ContentBlock::ToolUse {
-            id: "t1".into(),
-            name: "tool_a".into(),
-            input: "{}".into(),
-        },
-    ];
-    let result = filter_by_verbosity(blocks.clone(), VerbosityLevel::Full);
-    assert_eq!(result.len(), 3);
-    assert!(matches!(result[0], ContentBlock::Text(_)));
-    assert!(matches!(result[1], ContentBlock::Thinking { .. }));
-    assert!(matches!(result[2], ContentBlock::ToolUse { .. }));
-}
-
-#[test]
-fn test_filter_by_verbosity_normal() {
-    let blocks = vec![
-        ContentBlock::Text("hello".into()),
-        ContentBlock::Thinking {
-            thinking: "reasoning".into(),
-            signature: None,
-        },
-        ContentBlock::ToolUse {
-            id: "t1".into(),
-            name: "tool_a".into(),
-            input: "{}".into(),
-        },
-    ];
-    let result = filter_by_verbosity(blocks, VerbosityLevel::Normal);
-    assert_eq!(result.len(), 2);
-    assert!(matches!(result[0], ContentBlock::Text(_)));
-    assert!(matches!(result[1], ContentBlock::ToolUse { .. }));
-}
-
-#[test]
-fn test_filter_by_verbosity_off() {
-    let blocks = vec![
-        ContentBlock::Text("hello".into()),
-        ContentBlock::Thinking {
-            thinking: "reasoning".into(),
-            signature: None,
-        },
-        ContentBlock::ToolUse {
-            id: "t1".into(),
-            name: "tool_a".into(),
-            input: "{}".into(),
-        },
-    ];
-    let result = filter_by_verbosity(blocks, VerbosityLevel::Off);
-    assert_eq!(result.len(), 1);
-    assert!(matches!(&result[0], ContentBlock::Text(t) if t == "hello"));
-}
-
-#[test]
-fn test_filter_empty_blocks() {
-    let blocks = vec![];
-    let result = filter_by_verbosity(blocks, VerbosityLevel::Full);
-    assert!(result.is_empty());
-
-    let result = filter_by_verbosity(vec![], VerbosityLevel::Normal);
-    assert!(result.is_empty());
-
-    let result = filter_by_verbosity(vec![], VerbosityLevel::Off);
-    assert!(result.is_empty());
-}
 
 // ---------------------------------------------------------------------------
 // Streaming per-block verbosity filtering
 // ---------------------------------------------------------------------------
 // These tests verify that the per-block filtering logic used in
 // `process_stream_event` (streaming path) produces the same results
-// as `filter_by_verbosity` (batch path) for individual blocks.
-// The streaming path checks each BlockEnd individually.
+// for individual blocks.
 
 /// Simulate the per-block streaming filter logic from `process_stream_event`.
 /// Returns `true` if the block should be filtered (hidden).
@@ -195,67 +121,7 @@ fn test_streaming_nothing_filtered_at_full() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Batch vs streaming consistency
-// ---------------------------------------------------------------------------
 
-#[test]
-fn test_batch_normal_matches_streaming_for_thinking() {
-    // Batch: Thinking blocks removed at Normal level.
-    let blocks = vec![ContentBlock::Text("hi".into())];
-    let batch_result = filter_by_verbosity(blocks, VerbosityLevel::Normal);
-    assert_eq!(batch_result.len(), 1);
-    // Streaming: Thinking block filtered at Normal level.
-    assert!(streaming_should_filter(
-        &ContentBlockType::Thinking,
-        VerbosityLevel::Normal
-    ));
-}
-
-#[test]
-fn test_batch_normal_preserves_tool_result() {
-    let blocks = vec![
-        ContentBlock::Text("text".into()),
-        ContentBlock::ToolResult {
-            tool_call_id: "tc_1".into(),
-            content: "result".into(),
-        },
-    ];
-    let result = filter_by_verbosity(blocks, VerbosityLevel::Normal);
-    assert_eq!(
-        result.len(),
-        2,
-        "ToolResult should not be filtered at Normal"
-    );
-    // Streaming: ToolResult not filtered at Normal.
-    assert!(!streaming_should_filter(
-        &ContentBlockType::ToolResult,
-        VerbosityLevel::Normal
-    ));
-}
-
-#[test]
-fn test_batch_off_keeps_only_text() {
-    let blocks = vec![
-        ContentBlock::Text("keep".into()),
-        ContentBlock::Thinking {
-            thinking: "rm".into(),
-            signature: None,
-        },
-        ContentBlock::ToolUse {
-            id: "1".into(),
-            name: "t".into(),
-            input: "{}".into(),
-        },
-        ContentBlock::Image {
-            name: "img".into(),
-            url: "https://example.com/img.png".into(),
-        },
-    ];
-    let result = filter_by_verbosity(blocks, VerbosityLevel::Off);
-    assert_eq!(result.len(), 1);
-    assert!(matches!(&result[0], ContentBlock::Text(t) if t == "keep"));
-}
 
 // ===========================================================================
 // Gateway-level three-step outbound flow tests

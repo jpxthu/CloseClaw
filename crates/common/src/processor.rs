@@ -342,18 +342,4 @@ pub trait ProcessorChain: Send + Sync {
     ) -> Result<ProcessedMessage, ProcessError> {
         self.process_outbound(msg).await
     }
-
-    /// Process the outbound chain, skipping the VerbosityFilter processor.
-    ///
-    /// Runs DslParser → OutboundRawLog without VerbosityFilter, used by
-    /// the streaming pipeline finish phase where verbosity filtering is
-    /// handled inline during the stream (not in the post-stream chain).
-    ///
-    /// Default implementation falls back to the full outbound chain.
-    async fn process_outbound_skip_verbosity(
-        &self,
-        msg: ProcessedMessage,
-    ) -> Result<ProcessedMessage, ProcessError> {
-        self.process_outbound(msg).await
-    }
 }

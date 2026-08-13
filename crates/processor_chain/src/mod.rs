@@ -34,6 +34,8 @@ pub mod raw_log_processor;
 pub mod registry;
 #[cfg(test)]
 mod registry_tests;
+#[cfg(test)]
+mod streaming_incremental_tests;
 pub mod session_router;
 pub mod verbosity_filter;
 #[cfg(test)]
