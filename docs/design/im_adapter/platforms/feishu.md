@@ -15,9 +15,9 @@
 - text 类型消息：提取 `content.text` 字段作为消息正文
 - post 类型消息：展开 title 和 content blocks 为文本（含有序/无序列表、文本样式、图片占位符等）
 - 话题消息：提取 `thread_id`、`parent_id`、`root_id`，按 `thread_id > root_id > parent_id` 优先级合并为一个 `thread_id` 值。该值不参与 session 路由，仅用于出站时作为飞书 API 的 `root_id` 参数定向回复到原话题
-- 非文本消息（图片、文件、语音等）：记录日志后静默丢弃，不产 NormalizedMessage。图片/文件/语音的语义理解暂未设计
+- 非文本消息（图片、文件、语音等）：产出 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空），交由下游 Gateway 统一处理。图片/文件/语音的语义理解暂未设计
 
-**消息发送**：接收 RenderedOutput，按 msg_type 选择发送路径——text 类型走飞书文本消息接口，interactive 类型走飞书卡片消息接口。发送目标由 Gateway 传入的 (peer_id, thread_id) 确定。
+**消息发送**：接收 RenderedOutput，按 msg_type 选择发送路径——text 类型走飞书文本消息接口，interactive 类型走飞书卡片消息接口。发送目标由 Gateway 传入的 (peer_id, thread_id?) 确定。
 
 ### Renderer
 
@@ -37,20 +37,15 @@
 **卡片组装**：
 
 ```
-ContentBlock[] + DSL 指令
-  ↓
-header 提取 — 首行 # 标题作为卡片标题（蓝色模板）
-  ↓
-body 渲染
-  ├── Text 块 → markdown 元素（飞书原生 markdown 渲染）
-  ├── Thinking 块 → 平台支持时渲染为折叠推理区块
-  ├── ToolUse 块 → 工具调用描述卡片
-  └── ToolResult 块 → 工具结果内容块
-  ↓
-interactive 元素注入
-  └── DSL 指令 → 飞书 button 等交互组件
-  ↓
-飞书卡片 JSON
+ContentBlock[] + DSL 指令 → 卡片组装：
+1. header 提取 — 首行 # 标题作为卡片标题（蓝色模板）
+2. body 渲染（并行处理各块类型）：
+   - Text 块 → markdown 元素（飞书原生 markdown 渲染）
+   - Thinking 块 → 平台支持时渲染为折叠推理区块
+   - ToolUse 块 → 工具调用描述卡片
+   - ToolResult 块 → 工具结果内容块
+3. interactive 元素注入 — DSL 指令 → 飞书 button 等交互组件
+4. 产出飞书卡片 JSON
 ```
 
 ### Markdown 元素映射
@@ -78,7 +73,7 @@ interactive 元素注入
 ```
 飞书 webhook
   ↓
-[Adapter] 解析 FeishuEvent → NormalizedMessage { platform: "feishu", sender_id, peer_id, content, thread_id? }
+[Adapter] 解析 FeishuEvent → NormalizedMessage { platform: "feishu", sender_id, peer_id, content, thread_id?, message_type, media_refs, ... }
   ↓
 Processor Chain 入站处理
 ```
