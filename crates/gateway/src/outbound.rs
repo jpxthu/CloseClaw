@@ -955,9 +955,7 @@ impl Gateway {
                 }
                 match parser.parse(text) {
                     (result, _clean_text) if !result.instructions.is_empty() => {
-                        state
-                            .dsl_instructions
-                            .extend(result.instructions);
+                        state.dsl_instructions.extend(result.instructions);
                     }
                     _ => {}
                 }
