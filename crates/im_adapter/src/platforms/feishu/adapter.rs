@@ -537,6 +537,23 @@ impl FeishuAdapter {
         }
     }
 
+    /// Build the URL for fetching a media resource, percent-encoding path params.
+    fn build_media_resource_url(
+        &self,
+        message_id: &str,
+        file_key: &str,
+        resource_type: &str,
+    ) -> String {
+        let enc_msg: String =
+            url::form_urlencoded::byte_serialize(message_id.as_bytes()).collect();
+        let enc_key: String =
+            url::form_urlencoded::byte_serialize(file_key.as_bytes()).collect();
+        format!(
+            "{}/im/v1/messages/{}/resources/{}?type={}",
+            self.base_url, enc_msg, enc_key, resource_type
+        )
+    }
+
     /// Fetch a temporary download URL for a media resource (image, file, audio).
     pub(crate) async fn fetch_media_download_url(
         &self,
@@ -553,9 +570,10 @@ impl FeishuAdapter {
         }
         let resp: ResourceResp = self
             .http_client
-            .get(format!(
-                "{}/im/v1/messages/{}/resources/{}?type={}",
-                self.base_url, message_id, file_key, resource_type
+            .get(self.build_media_resource_url(
+                message_id,
+                file_key,
+                resource_type,
             ))
             .header("Authorization", format!("Bearer {}", token))
             .send()
@@ -670,10 +688,7 @@ impl FeishuAdapter {
         match action_value {
             Some(action) => {
                 let mut metadata = HashMap::from([
-                    (
-                        "account_id".to_string(),
-                        card_event.operator.open_id.clone(),
-                    ),
+                    ("account_id".to_string(), card_event.operator.open_id.clone()),
                     ("card_action".to_string(), "true".to_string()),
                 ]);
                 if let Some(chat_id) = card_event
@@ -720,10 +735,15 @@ impl FeishuAdapter {
         // Populate media download URLs (non-text messages).
         let mut media_refs = media_refs;
         for r in &mut media_refs {
-            r.url = self.fetch_media_download_url(event.event.message_id.as_deref().unwrap_or(""), &r.key, &event.event.message_type).await.unwrap_or_default();
+            let msg_id = event.event.message_id.as_deref().unwrap_or("");
+            r.url = self
+                .fetch_media_download_url(msg_id, &r.key, &event.event.message_type)
+                .await
+                .unwrap_or_default();
         }
 
-        // Discard empty text content (only for text/post; non-text messages have empty content by design).
+        // Discard empty text content (only for text/post;
+        // non-text messages have empty content by design).
         if matches!(event.event.message_type.as_str(), "text" | "post") && text.trim().is_empty() {
             tracing::debug!(
                 message_type = %event.event.message_type,
@@ -761,6 +781,19 @@ impl FeishuAdapter {
         }))
     }
 
+    /// Build a `MediaRef` from content JSON using the given key field.
+    fn make_media_ref(content: &serde_json::Value, key_field: &str) -> MediaRef {
+        let key = content
+            .get(key_field)
+            .and_then(|k| k.as_str())
+            .unwrap_or("")
+            .to_string();
+        MediaRef {
+            key,
+            url: String::new(),
+        }
+    }
+
     /// Extract text and media refs from a message event's content.
     pub(crate) fn extract_message_content(
         message_type: &str,
@@ -776,42 +809,14 @@ impl FeishuAdapter {
                 vec![],
             )),
             "post" => Ok((expand_post_content(content), vec![])),
-            "image" => {
-                let key = content
-                    .get("image_key")
-                    .and_then(|k| k.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let media_ref = MediaRef {
-                    key,
-                    url: String::new(),
-                };
-                Ok((String::new(), vec![media_ref]))
-            }
-            "file" => {
-                let key = content
-                    .get("file_key")
-                    .and_then(|k| k.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let media_ref = MediaRef {
-                    key,
-                    url: String::new(),
-                };
-                Ok((String::new(), vec![media_ref]))
-            }
-            "audio" => {
-                let key = content
-                    .get("file_key")
-                    .and_then(|k| k.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let media_ref = MediaRef {
-                    key,
-                    url: String::new(),
-                };
-                Ok((String::new(), vec![media_ref]))
-            }
+            "image" => Ok((
+                String::new(),
+                vec![Self::make_media_ref(content, "image_key")],
+            )),
+            "file" | "audio" => Ok((
+                String::new(),
+                vec![Self::make_media_ref(content, "file_key")],
+            )),
             other => {
                 tracing::debug!(message_type = other, "Discarding unsupported message type");
                 Err(AdapterError::InvalidPayload(
