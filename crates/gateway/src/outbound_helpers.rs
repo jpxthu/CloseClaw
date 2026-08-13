@@ -34,7 +34,8 @@ pub(crate) struct StreamState {
     pub media_name: Option<String>,
     pub media_url: Option<String>,
     /// Accumulated DSL instructions parsed from incremental text blocks.
-    /// Used by the finish phase to build the final DslParseResult.
+    /// TODO(Step 1.6): remove field — no longer populated.
+    #[allow(dead_code)]
     pub dsl_instructions: Vec<closeclaw_common::processor::DslInstruction>,
 }
 
@@ -173,6 +174,9 @@ pub(crate) async fn send_render_block(
 /// The incremental phase accumulates instructions per Text block;
 /// the batch phase may re-discover the same instructions. Merge
 /// and deduplicate to avoid duplicates in the final result.
+///
+/// TODO(Step 1.6): remove — no longer called from lib code.
+#[allow(dead_code)]
 pub(crate) fn merge_dsl_results(
     incremental_instructions: Vec<closeclaw_common::processor::DslInstruction>,
     batch_dsl_result: Option<DslParseResult>,
@@ -201,6 +205,9 @@ pub(crate) fn merge_dsl_results(
 /// - [`VerbosityLevel::Full`]: no filtering, all blocks are kept.
 /// - [`VerbosityLevel::Normal`]: remove [`ContentBlock::Thinking`] blocks.
 /// - [`VerbosityLevel::Off`]: only keep [`ContentBlock::Text`] blocks.
+///
+/// TODO(Step 1.6): remove — no longer called from lib code.
+#[allow(dead_code)]
 pub(crate) fn filter_by_verbosity(
     blocks: Vec<ContentBlock>,
     level: VerbosityLevel,

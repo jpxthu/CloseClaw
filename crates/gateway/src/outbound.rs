@@ -5,9 +5,7 @@
 
 use super::{Gateway, GatewayError, Message};
 use crate::outbound_helpers::dispatch_text;
-use crate::outbound_helpers::filter_by_verbosity;
 use crate::outbound_helpers::log_middleware_rejection;
-use crate::outbound_helpers::merge_dsl_results;
 use crate::outbound_helpers::send_render_block;
 use crate::outbound_helpers::StreamContext;
 use crate::outbound_helpers::StreamState;
@@ -320,6 +318,9 @@ impl Gateway {
     ///
     /// Used by the streaming pipeline finish phase where verbosity filtering
     /// is handled inline during the stream (not in the post-stream chain).
+    ///
+    /// TODO(Step 1.6): remove — no longer called.
+    #[allow(dead_code)]
     async fn process_outbound_skip_verbosity(
         &self,
         raw_output: &str,
@@ -789,25 +790,42 @@ impl Gateway {
             None => (std::mem::take(&mut state.content_blocks), None),
         };
 
-        // Skip VerbosityFilter in the processor chain — the design doc
-        // requires: "收尾阶段不重跑 VerbosityFilter". VerbosityFilter is
-        // applied inline during BlockEnd streaming events. However, the
-        // final content_blocks must still be filtered for downstream
-        // consumers, so we apply VerbosityFilter directly here.
-        let processed = self
-            .process_outbound_skip_verbosity("", content_blocks_for_pipeline, channel, session_id)
-            .await?;
+        // Run the full outbound Processor Chain (VerbosityFilter →
+        // DslParser → OutboundRawLog). VerbosityFilter executes within
+        // the chain by priority, matching the design doc requirement
+        // that the finish phase runs the complete chain.
+        let meta = Self::make_outbound_meta(&[
+            ("channel", channel),
+            ("session_id", session_id),
+            ("verbosity_level", &verbosity_level.to_string()),
+        ]);
+        let Some(registry) = self.processor_registry.read().unwrap().clone() else {
+            return Ok(StreamResult {
+                content_blocks: content_blocks_for_pipeline,
+                usage: usage_override.unwrap_or(state.usage),
+                retry_attempts: 0,
+                dsl_result: None,
+            });
+        };
+        let input = self.make_outbound_input("", content_blocks_for_pipeline, meta);
+        let processed = registry
+            .process_outbound(input)
+            .await
+            .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
 
-        let filtered_blocks = filter_by_verbosity(processed.content_blocks, verbosity_level);
-
-        let batch_dsl_result = processed
+        // DSL result: the full chain runs DslParser, so the chain's
+        // dsl_result is the sole source. Incremental-phase
+        // dsl_instructions are empty (Step 1.3 removed DslParser from
+        // the incremental phase), so no merge is needed.
+        let dsl_result = processed
             .metadata
             .get("dsl_result")
-            .and_then(|s| serde_json::from_str::<DslParseResult>(s).ok());
-        let dsl_result = merge_dsl_results(state.dsl_instructions, batch_dsl_result);
+            .and_then(|s| serde_json::from_str::<DslParseResult>(s).ok())
+            .map(|r| serde_json::to_string(&r).ok())
+            .flatten();
 
         Ok(StreamResult {
-            content_blocks: filtered_blocks,
+            content_blocks: processed.content_blocks,
             usage: usage_override.unwrap_or(state.usage),
             retry_attempts: 0,
             dsl_result,
