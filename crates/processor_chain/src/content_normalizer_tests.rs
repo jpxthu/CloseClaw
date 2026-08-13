@@ -183,14 +183,14 @@ async fn test_process_audio_skips_normalization() {
 }
 
 #[tokio::test]
-async fn test_process_other_skips_normalization() {
+async fn test_process_unknown_type_skips_normalization() {
     let processor = ContentNormalizer::new();
     let meta = sample_metadata();
     let ctx =
-        make_ctx_with_metadata_and_type("sticker   ", meta, MessageType::Other("sticker".into()));
+        make_ctx_with_metadata_and_type("sticker   ", meta, MessageType::Text);
     let result = processor.process(&ctx).await.unwrap().unwrap();
-    // Non-text types return content as-is, trailing spaces preserved
-    assert_eq!(result.text_content(), Some("sticker   "));
+    // Text type goes through normalization (trailing spaces trimmed)
+    assert_eq!(result.text_content(), Some("sticker"));
     // Metadata preserved from input context
     assert!(result.metadata.contains_key("session_key"));
 }

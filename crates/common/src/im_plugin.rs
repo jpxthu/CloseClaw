@@ -26,8 +26,6 @@ pub enum MessageType {
     File,
     /// Audio message.
     Audio,
-    /// Catch-all for platform-specific types not in the normalized set.
-    Other(String),
 }
 
 impl Serialize for MessageType {
@@ -40,7 +38,6 @@ impl Serialize for MessageType {
             MessageType::Image => serializer.serialize_str("image"),
             MessageType::File => serializer.serialize_str("file"),
             MessageType::Audio => serializer.serialize_str("audio"),
-            MessageType::Other(s) => serializer.serialize_str(s),
         }
     }
 }
@@ -62,7 +59,7 @@ impl From<&str> for MessageType {
             "image" => MessageType::Image,
             "file" => MessageType::File,
             "audio" => MessageType::Audio,
-            other => MessageType::Other(other.to_string()),
+            _ => MessageType::Text,
         }
     }
 }

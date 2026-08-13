@@ -14,7 +14,6 @@ fn make_normalized(account_id: &str) -> NormalizedMessage {
         media_refs: vec![],
         thread_id: None,
         account_id: account_id.into(),
-        chat_name: String::new(),
         ..Default::default()
     }
 }
@@ -100,15 +99,11 @@ fn test_message_type_audio_roundtrip() {
     assert_mt_roundtrip(&MessageType::Audio, r#""audio""#);
 }
 
-#[test]
-fn test_message_type_other_roundtrip() {
-    assert_mt_roundtrip(&MessageType::Other("video".into()), r#""video""#);
-}
-
+/// Unknown string deserializes to Text (no Other variant).
 #[test]
 fn test_message_type_deserialize_unknown_string() {
     let mt: MessageType = serde_json::from_str(r#""unknown_type""#).unwrap();
-    assert_eq!(mt, MessageType::Other("unknown_type".into()));
+    assert_eq!(mt, MessageType::Text);
 }
 
 #[test]
