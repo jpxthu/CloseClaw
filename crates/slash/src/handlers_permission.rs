@@ -32,6 +32,11 @@ impl PermissionSlashHandler {
     }
 
     /// Parse `/perm <subcmd> <args>` and return the appropriate result.
+    ///
+    /// # Panics
+    /// All permission subcommands are intercepted by the Gateway before
+    /// reaching this handler. This method exists only for test invocations
+    /// and should never be reached in production.
     fn dispatch(args: &str) -> SlashResult {
         let parts: Vec<&str> = args.split_whitespace().collect();
         if parts.is_empty() {
@@ -39,84 +44,20 @@ impl PermissionSlashHandler {
         }
 
         match parts[0] {
-            "allow-file" => Self::parse_file_op(&parts, true),
-            "deny-file" => Self::parse_file_op(&parts, false),
-            "allow-cmd" => Self::parse_cmd_op(&parts, true),
-            "deny-cmd" => Self::parse_cmd_op(&parts, false),
+            "allow-file" => {
+                unreachable!("/perm allow-file is intercepted by Gateway")
+            }
+            "deny-file" => {
+                unreachable!("/perm deny-file is intercepted by Gateway")
+            }
+            "allow-cmd" => {
+                unreachable!("/perm allow-cmd is intercepted by Gateway")
+            }
+            "deny-cmd" => {
+                unreachable!("/perm deny-cmd is intercepted by Gateway")
+            }
             other => SlashResult::Reply(format!("未知子命令：{other}\n\n{}", Self::usage())),
         }
-    }
-
-    /// Parse a file permission subcommand (allow-file / deny-file).
-    ///
-    /// Expected: `<subcmd> <agent> <op> <paths...>`
-    fn parse_file_op(parts: &[&str], allow: bool) -> SlashResult {
-        if parts.len() < 4 {
-            return SlashResult::Reply(format!(
-                "参数不足：{} 需要 <agent> <op> <paths...>\n\n{}",
-                parts[0],
-                Self::usage()
-            ));
-        }
-        let agent = parts[1].to_owned();
-        let op = parts[2].to_owned();
-        let paths: Vec<String> = parts[3..].iter().map(|s| (*s).to_owned()).collect();
-
-        let operation = if allow {
-            format!(
-                "✅ 已执行：{} {} {} [{}]",
-                parts[0],
-                agent,
-                op,
-                paths.join(", ")
-            )
-        } else {
-            format!(
-                "✅ 已执行：{} {} {} [{}]",
-                parts[0],
-                agent,
-                op,
-                paths.join(", ")
-            )
-        };
-
-        SlashResult::Reply(operation)
-    }
-
-    /// Parse a command permission subcommand (allow-cmd / deny-cmd).
-    ///
-    /// Expected: `<subcmd> <agent> <command> [args...]`
-    fn parse_cmd_op(parts: &[&str], allow: bool) -> SlashResult {
-        if parts.len() < 3 {
-            return SlashResult::Reply(format!(
-                "参数不足：{} 需要 <agent> <command> [args...]\n\n{}",
-                parts[0],
-                Self::usage()
-            ));
-        }
-        let agent = parts[1].to_owned();
-        let command = parts[2].to_owned();
-        let cmd_args: Vec<String> = parts[3..].iter().map(|s| (*s).to_owned()).collect();
-
-        let operation = if allow {
-            format!(
-                "✅ 已执行：{} {} {} [{}]",
-                parts[0],
-                agent,
-                command,
-                cmd_args.join(", ")
-            )
-        } else {
-            format!(
-                "✅ 已执行：{} {} {} [{}]",
-                parts[0],
-                agent,
-                command,
-                cmd_args.join(", ")
-            )
-        };
-
-        SlashResult::Reply(operation)
     }
 }
 
@@ -140,7 +81,7 @@ impl SlashHandler for PermissionSlashHandler {
 
     async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
         // In production, Gateway intercepts /perm before reaching this handler.
-        // The dispatch() path is kept for test-only invocations.
+        // Subcommands are unreachable; only bare `/perm` returns usage.
         Self::dispatch(args.trim())
     }
 }

@@ -5,8 +5,8 @@ use crate::hook::{
 };
 use crate::spawn::SpawnAdapter;
 use crate::types::{SubAgentResult, VerifyTrigger};
-use async_trait::async_trait;
 use crate::ExecutionStepStatus;
+use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 

@@ -664,5 +664,3 @@ async fn test_unknown_command_replies_with_error() {
     }
     assert!(mock.calls.lock().unwrap().is_empty());
 }
-
-

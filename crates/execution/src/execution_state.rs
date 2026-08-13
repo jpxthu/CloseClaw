@@ -39,15 +39,6 @@ impl ExecutionState {
         Self::default()
     }
 
-    /// Get specified step status.
-    pub fn get_step_status(&self, step_index: usize) -> Option<&ExecutionStepStatus> {
-        self.execution_steps.get(step_index).map(|s| &s.status)
-    }
-
-    /// Get current step index.
-    pub fn current_step_index(&self) -> Option<usize> {
-        self.current_step
-    }
 }
 
 /// 根据步骤描述列表初始化执行步骤（全部 pending），
@@ -137,9 +128,7 @@ pub fn validate_transition(
     // Skipped → InProgress: skip the step-order check so that a
     // previously-skipped step can be resumed even when current_step
     // has already advanced past it.
-    if *current == ExecutionStepStatus::Skipped
-        && new_status == &ExecutionStepStatus::InProgress
-    {
+    if *current == ExecutionStepStatus::Skipped && new_status == &ExecutionStepStatus::InProgress {
         return Ok(());
     }
 

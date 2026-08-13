@@ -175,7 +175,10 @@ fn test_transition_error_display_invalid_transition() {
 
 #[test]
 fn test_transition_error_display_skipped_step() {
-    let err = TransitionError::SkippedStep { expected: 0, got: 2 };
+    let err = TransitionError::SkippedStep {
+        expected: 0,
+        got: 2,
+    };
     assert!(err.to_string().contains("0"));
     assert!(err.to_string().contains("2"));
 }

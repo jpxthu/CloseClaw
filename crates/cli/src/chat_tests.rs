@@ -277,8 +277,8 @@ async fn test_process_inbound_chain_cleans_control_characters() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
-        chat_name: None,
-        trace_id: None,
+            chat_name: None,
+            trace_id: None,
         })
         .await;
 
@@ -304,8 +304,8 @@ async fn test_process_inbound_chain_suppress_message() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
-        chat_name: None,
-        trace_id: None,
+            chat_name: None,
+            trace_id: None,
         })
         .await;
 
@@ -334,8 +334,8 @@ async fn test_process_inbound_chain_quit_exit_not_affected() {
                 thread_id: None,
                 message_type: Default::default(),
                 media_refs: Vec::new(),
-        chat_name: None,
-        trace_id: None,
+                chat_name: None,
+                trace_id: None,
             })
             .await;
         assert_eq!(processed.text_content().unwrap_or(""), *cmd);
@@ -532,8 +532,8 @@ async fn test_process_inbound_chain_peer_id_is_cli() {
             thread_id: None,
             message_type: Default::default(),
             media_refs: Vec::new(),
-        chat_name: None,
-        trace_id: None,
+            chat_name: None,
+            trace_id: None,
         })
         .await;
 

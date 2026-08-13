@@ -56,8 +56,6 @@ impl Default for ExecutionConfig {
     }
 }
 
-
-
 /// Sub-agent result — structured output returned after a sub-agent
 /// completes a step.
 ///

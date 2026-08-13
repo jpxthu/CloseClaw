@@ -3,14 +3,14 @@
 
 use std::sync::{Arc, Mutex};
 
-use closeclaw_common::{ExecutionPermissionCheck, PlanStateNotifier};
-use crate::execution_types::ExecutionStepStatus;
 use crate::execution_state::ExecutionState;
+use crate::execution_types::ExecutionStepStatus;
+use closeclaw_common::{ExecutionPermissionCheck, PlanStateNotifier};
 
 use crate::error::ExecutionError;
 use crate::event::ExecutionEvent;
-use crate::hook::HookRunner;
 use crate::execution_state::{apply_transition, init_execution_steps, progress_summary};
+use crate::hook::HookRunner;
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult};
 
@@ -119,7 +119,10 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         let filtered = self.filter_steps(steps)?;
 
         {
-            let mut state = self.execution_state.lock().expect("execution state lock poisoned");
+            let mut state = self
+                .execution_state
+                .lock()
+                .expect("execution state lock poisoned");
             init_execution_steps(&mut state, filtered.clone());
         }
 
@@ -749,7 +752,10 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         status: ExecutionStepStatus,
     ) -> Result<(), ExecutionError> {
         let summary = {
-            let mut state = self.execution_state.lock().expect("execution state lock poisoned");
+            let mut state = self
+                .execution_state
+                .lock()
+                .expect("execution state lock poisoned");
 
             if matches!(status, ExecutionStepStatus::InProgress) {
                 state.current_step = Some(step_index);

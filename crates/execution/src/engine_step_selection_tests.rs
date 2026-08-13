@@ -7,9 +7,9 @@ use crate::engine::ExecutionEngine;
 use crate::error::ExecutionError;
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
+use crate::{ExecutionState, ExecutionStepStatus};
 use async_trait::async_trait;
 use closeclaw_common::NoopNotifier;
-use crate::{ExecutionState, ExecutionStepStatus};
 use std::sync::{Arc, Mutex};
 
 // ── Mock adapter ───────────────────────────────────────────────────────────

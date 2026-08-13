@@ -110,13 +110,25 @@ fn test_message_type_deserialize_unknown_string() {
 #[test]
 fn test_message_type_from_str_unknown_maps_to_text() {
     let mt: MessageType = "video".into();
-    assert_eq!(mt, MessageType::Text, "unknown type 'video' should map to Text");
+    assert_eq!(
+        mt,
+        MessageType::Text,
+        "unknown type 'video' should map to Text"
+    );
 
     let mt2: MessageType = "sticker".into();
-    assert_eq!(mt2, MessageType::Text, "unknown type 'sticker' should map to Text");
+    assert_eq!(
+        mt2,
+        MessageType::Text,
+        "unknown type 'sticker' should map to Text"
+    );
 
     let mt3: MessageType = "post".into();
-    assert_eq!(mt3, MessageType::Text, "'post' (Feishu rich text) should map to Text");
+    assert_eq!(
+        mt3,
+        MessageType::Text,
+        "'post' (Feishu rich text) should map to Text"
+    );
 }
 
 /// Known strings map to their respective variants.

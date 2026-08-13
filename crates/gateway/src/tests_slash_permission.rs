@@ -1005,7 +1005,12 @@ async fn test_perm_cmd_intercepted_at_gateway_level() {
 
     // /perm allow-cmd git commit "允许提交代码"
     let result = gw
-        .dispatch_slash("sess_perm", "/perm allow-cmd git commit 允许提交代码", Some("owner"), "feishu")
+        .dispatch_slash(
+            "sess_perm",
+            "/perm allow-cmd git commit 允许提交代码",
+            Some("owner"),
+            "feishu",
+        )
         .await;
 
     assert!(
@@ -1022,7 +1027,12 @@ async fn test_user_approve_cmd_intercepted_at_gateway_level() {
     gw.set_slash_dispatcher(dispatcher).await;
 
     let result = gw
-        .dispatch_slash("sess_user", "/user approve req-123", Some("owner"), "feishu")
+        .dispatch_slash(
+            "sess_user",
+            "/user approve req-123",
+            Some("owner"),
+            "feishu",
+        )
         .await;
 
     assert!(

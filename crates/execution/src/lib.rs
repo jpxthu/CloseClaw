@@ -18,17 +18,17 @@ pub use engine::{ExecutionEngine, ExecutionReport, StepResult};
 
 pub use error::ExecutionError;
 pub use event::ExecutionEvent;
+pub use execution_state::{
+    apply_transition, current_step_index, get_step_status, init_execution_steps, progress_summary,
+    step_status_to_marker, validate_transition, DefaultPlanStateWriter, ExecutionState,
+    PlanStateWriter,
+};
+pub use execution_types::{ExecutionStep, ExecutionStepStatus, TransitionError};
 pub use hook::{
     CustomHook, HookError, HookResult, HookRunner, NotifyHook, StepHook, VerificationHook,
 };
 pub use mode::{ExecutionStrategy, InlineMode, SpawnAllStepsMode, SpawnPerStepMode};
 pub use notification::{parse_subagent_result, ParseError};
-pub use execution_state::{
-    apply_transition, current_step_index, get_step_status, init_execution_steps,
-    progress_summary, validate_transition, DefaultPlanStateWriter, ExecutionState,
-    PlanStateWriter, step_status_to_marker,
-};
-pub use execution_types::{ExecutionStep, ExecutionStepStatus, TransitionError};
 pub use spawn::SpawnAdapter;
 pub use types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 

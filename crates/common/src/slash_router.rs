@@ -6,8 +6,6 @@
 use async_trait::async_trait;
 use std::path::PathBuf;
 
-
-
 /// Execution context for a slash command invocation.
 #[derive(Debug, Clone)]
 pub struct SlashContext {
