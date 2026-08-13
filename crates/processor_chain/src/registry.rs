@@ -186,12 +186,23 @@ impl ProcessorRegistry {
                     break;
                 }
                 Err(e) => {
-                    tracing::warn!(
-                        processor = %processor.name(),
-                        error = %e,
-                        "processor failed, continuing chain"
-                    );
+                    if processor.name() == "raw_log" {
+                        tracing::error!(
+                            processor = %processor.name(),
+                            error = %e,
+                            "processor failed, continuing chain"
+                        );
+                    } else {
+                        tracing::warn!(
+                            processor = %processor.name(),
+                            error = %e,
+                            "processor failed, continuing chain"
+                        );
+                    }
                     // Do not update ctx — skip this processor's result.
+                    // VerbosityFilter fail: keep previous content_blocks (Full behavior)
+                    // DslParser fail: keep original Text blocks with DSL lines (passthrough)
+                    // RawLog fail: skip log entry, continue sending
                 }
             }
         }
