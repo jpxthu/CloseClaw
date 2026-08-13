@@ -5,12 +5,8 @@
 //! and filters `content_blocks` accordingly:
 //! - [`VerbosityLevel::Full`]: no filtering
 //! - [`VerbosityLevel::Normal`]: remove [`ContentBlock::Thinking`] blocks
-//! - [`VerbosityLevel::Off`]: only keep final reply blocks
-//!   ([`ContentBlock::Text`], [`ContentBlock::Image`],
-//!   [`ContentBlock::Audio`], [`ContentBlock::File`]);
-//!   filter intermediate blocks
-//!   ([`ContentBlock::Thinking`], [`ContentBlock::ToolUse`],
-//!   [`ContentBlock::ToolResult`])
+//! - [`VerbosityLevel::Off`]: only keep [`ContentBlock::Text`] blocks;
+//!   all other block types are filtered out
 //!
 //! Priority 5 — runs before [`DslParser`] (priority 10).
 
@@ -38,14 +34,7 @@ impl VerbosityFilter {
                 .collect(),
             VerbosityLevel::Off => blocks
                 .into_iter()
-                .filter(|b| {
-                    !matches!(
-                        b,
-                        ContentBlock::Thinking { .. }
-                            | ContentBlock::ToolUse { .. }
-                            | ContentBlock::ToolResult { .. }
-                    )
-                })
+                .filter(|b| matches!(b, ContentBlock::Text(_)))
                 .collect(),
         }
     }
@@ -95,3 +84,5 @@ impl MessageProcessor for VerbosityFilter {
         }))
     }
 }
+
+

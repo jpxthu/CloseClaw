@@ -37,6 +37,8 @@ pub mod outbound_middleware;
 #[cfg(test)]
 mod outbound_streaming_checkpoint_tests;
 #[cfg(test)]
+mod outbound_dsl_passthrough_tests;
+#[cfg(test)]
 mod outbound_streaming_dsl_checkpoint_tests;
 #[cfg(test)]
 mod outbound_tests;

@@ -7,13 +7,14 @@ use super::{Gateway, GatewayError, Message};
 use crate::outbound_helpers::dispatch_text;
 use crate::outbound_helpers::filter_by_verbosity;
 use crate::outbound_helpers::log_middleware_rejection;
+use crate::outbound_helpers::merge_dsl_results;
 use crate::outbound_helpers::send_render_block;
 use crate::outbound_helpers::StreamContext;
 use crate::outbound_helpers::StreamState;
-use closeclaw_common::im_plugin::IMPlugin;
-use closeclaw_common::im_plugin::RenderedOutput;
+use closeclaw_common::im_plugin::{IMPlugin, RenderedOutput};
 use closeclaw_common::MiddlewareContext;
 use closeclaw_processor_chain::run_middleware_chain;
+use closeclaw_processor_chain::DslParser;
 use std::sync::Arc;
 
 use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
@@ -799,7 +800,12 @@ impl Gateway {
             .await?;
 
         let filtered_blocks = filter_by_verbosity(processed.content_blocks, verbosity_level);
-        let dsl_result = processed.metadata.get("dsl_result").cloned();
+
+        let batch_dsl_result = processed
+            .metadata
+            .get("dsl_result")
+            .and_then(|s| serde_json::from_str::<DslParseResult>(s).ok());
+        let dsl_result = merge_dsl_results(state.dsl_instructions, batch_dsl_result);
 
         Ok(StreamResult {
             content_blocks: filtered_blocks,
@@ -935,6 +941,29 @@ impl Gateway {
                 state.content_blocks.extend(render_blocks);
             }
         }
+
+        // DslParser pass-through in incremental phase: parse DSL
+        // instructions from completed Text blocks. Zero-overhead when
+        // no DSL is present (parse returns clean_text == input).
+        // On failure, fall back to original text (design doc: "DslParser
+        // 透传失败原样透传").
+        if block_type == ContentBlockType::Text && !out.text_messages.is_empty() {
+            let parser = DslParser;
+            for text in &out.text_messages {
+                if text.is_empty() {
+                    continue;
+                }
+                match parser.parse(text) {
+                    (result, _clean_text) if !result.instructions.is_empty() => {
+                        state
+                            .dsl_instructions
+                            .extend(result.instructions);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         dispatch_text(ctx, out, state).await
     }
 
