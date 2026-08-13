@@ -17,6 +17,7 @@ use closeclaw_processor_chain::run_middleware_chain;
 use std::sync::Arc;
 
 use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
+use closeclaw_processor_chain::DslParser;
 use closeclaw_common::LlmState;
 use closeclaw_common::VerbosityLevel;
 use closeclaw_llm::types::{
@@ -799,7 +800,30 @@ impl Gateway {
             .await?;
 
         let filtered_blocks = filter_by_verbosity(processed.content_blocks, verbosity_level);
-        let dsl_result = processed.metadata.get("dsl_result").cloned();
+
+        // Merge incremental DslParser results with batch results.
+        // The incremental phase accumulates instructions per Text block;
+        // the batch phase may re-discover the same instructions. Merge
+        // and deduplicate to avoid duplicates in the final result.
+        let batch_dsl_result = processed
+            .metadata
+            .get("dsl_result")
+            .and_then(|s| serde_json::from_str::<DslParseResult>(s).ok());
+        let dsl_result = if !state.dsl_instructions.is_empty() {
+            let mut instructions = state.dsl_instructions.clone();
+            if let Some(batch) = batch_dsl_result {
+                instructions.extend(batch.instructions);
+            }
+            // Deduplicate: same instruction_type + same params = duplicate.
+            instructions.dedup_by(|a, b| {
+                a.instruction_type == b.instruction_type && a.params == b.params
+            });
+            let merged = DslParseResult { instructions };
+            serde_json::to_string(&merged).ok()
+        } else {
+            batch_dsl_result
+                .and_then(|r| serde_json::to_string(&r).ok())
+        };
 
         Ok(StreamResult {
             content_blocks: filtered_blocks,
@@ -935,6 +959,29 @@ impl Gateway {
                 state.content_blocks.extend(render_blocks);
             }
         }
+
+        // DslParser pass-through in incremental phase: parse DSL
+        // instructions from completed Text blocks. Zero-overhead when
+        // no DSL is present (parse returns clean_text == input).
+        // On failure, fall back to original text (design doc: "DslParser
+        // 透传失败原样透传").
+        if block_type == ContentBlockType::Text && !out.text_messages.is_empty() {
+            let parser = DslParser;
+            for text in &out.text_messages {
+                if text.is_empty() {
+                    continue;
+                }
+                match parser.parse(text) {
+                    (result, _clean_text) if !result.instructions.is_empty() => {
+                        state
+                            .dsl_instructions
+                            .extend(result.instructions);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         dispatch_text(ctx, out, state).await
     }
 

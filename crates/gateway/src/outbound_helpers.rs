@@ -32,6 +32,9 @@ pub(crate) struct StreamState {
     pub verbosity_level: VerbosityLevel,
     pub media_name: Option<String>,
     pub media_url: Option<String>,
+    /// Accumulated DSL instructions parsed from incremental text blocks.
+    /// Used by the finish phase to build the final DslParseResult.
+    pub dsl_instructions: Vec<closeclaw_common::processor::DslInstruction>,
 }
 
 impl StreamState {
@@ -49,6 +52,7 @@ impl StreamState {
             verbosity_level,
             media_name: None,
             media_url: None,
+            dsl_instructions: Vec::new(),
         }
     }
 
