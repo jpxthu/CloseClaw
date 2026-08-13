@@ -6,10 +6,8 @@ use crate::Gateway;
 use crate::GatewayError;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::StreamingOutput;
-use closeclaw_common::processor::DslParseResult;
 use closeclaw_common::VerbosityLevel;
-use closeclaw_llm::types::ContentBlock;
-use closeclaw_llm::types::ContentBlockType;
+use closeclaw_llm::types::{ContentBlock, ContentBlockType};
 use closeclaw_llm::types::UnifiedUsage;
 
 /// Bundles the streaming outbound context passed to `process_stream_event` and
@@ -17,7 +15,7 @@ use closeclaw_llm::types::UnifiedUsage;
 ///
 /// `session_id` and `channel` are retained as session metadata for potential
 /// future use by stream handlers or logging.
-#[allow(dead_code)]
+#[allow(dead_code)] // read cross-module in outbound.rs
 pub(crate) struct StreamContext<'a> {
     pub plugin: &'a std::sync::Arc<dyn closeclaw_common::im_plugin::IMPlugin>,
     pub session_id: &'a str,
@@ -33,10 +31,6 @@ pub(crate) struct StreamState {
     pub verbosity_level: VerbosityLevel,
     pub media_name: Option<String>,
     pub media_url: Option<String>,
-    /// Accumulated DSL instructions parsed from incremental text blocks.
-    /// TODO(Step 1.6): remove field — no longer populated.
-    #[allow(dead_code)]
-    pub dsl_instructions: Vec<closeclaw_common::processor::DslInstruction>,
 }
 
 impl StreamState {
@@ -54,7 +48,6 @@ impl StreamState {
             verbosity_level,
             media_name: None,
             media_url: None,
-            dsl_instructions: Vec::new(),
         }
     }
 
@@ -169,58 +162,4 @@ pub(crate) async fn send_render_block(
     Ok(())
 }
 
-/// Merge incremental and batch DslParseResults.
-///
-/// The incremental phase accumulates instructions per Text block;
-/// the batch phase may re-discover the same instructions. Merge
-/// and deduplicate to avoid duplicates in the final result.
-///
-/// TODO(Step 1.6): remove — no longer called from lib code.
-#[allow(dead_code)]
-pub(crate) fn merge_dsl_results(
-    incremental_instructions: Vec<closeclaw_common::processor::DslInstruction>,
-    batch_dsl_result: Option<DslParseResult>,
-) -> Option<String> {
-    if !incremental_instructions.is_empty() {
-        let mut instructions = incremental_instructions;
-        if let Some(batch) = batch_dsl_result {
-            instructions.extend(batch.instructions);
-        }
-        // Deduplicate: same instruction_type + same params = duplicate.
-        instructions
-            .dedup_by(|a, b| a.instruction_type == b.instruction_type && a.params == b.params);
-        let merged = DslParseResult { instructions };
-        serde_json::to_string(&merged).ok()
-    } else {
-        batch_dsl_result.and_then(|r| serde_json::to_string(&r).ok())
-    }
-}
 
-// ---------------------------------------------------------------------------
-// Verbosity filtering
-// ---------------------------------------------------------------------------
-
-/// Filter content blocks based on the session's verbosity level.
-///
-/// - [`VerbosityLevel::Full`]: no filtering, all blocks are kept.
-/// - [`VerbosityLevel::Normal`]: remove [`ContentBlock::Thinking`] blocks.
-/// - [`VerbosityLevel::Off`]: only keep [`ContentBlock::Text`] blocks.
-///
-/// TODO(Step 1.6): remove — no longer called from lib code.
-#[allow(dead_code)]
-pub(crate) fn filter_by_verbosity(
-    blocks: Vec<ContentBlock>,
-    level: VerbosityLevel,
-) -> Vec<ContentBlock> {
-    match level {
-        VerbosityLevel::Full => blocks,
-        VerbosityLevel::Normal => blocks
-            .into_iter()
-            .filter(|b| !matches!(b, ContentBlock::Thinking { .. }))
-            .collect(),
-        VerbosityLevel::Off => blocks
-            .into_iter()
-            .filter(|b| matches!(b, ContentBlock::Text(_)))
-            .collect(),
-    }
-}

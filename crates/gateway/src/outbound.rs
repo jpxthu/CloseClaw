@@ -749,9 +749,9 @@ impl Gateway {
         Ok(result)
     }
 
-    /// Post-stream pipeline: select content blocks, run processor chain
-    /// (skipping VerbosityFilter — handled inline during the stream),
-    /// merge DSL results, and build the final [`StreamResult`].
+    /// Post-stream pipeline: select content blocks, run the full
+    /// Processor Chain (VerbosityFilter → DslParser → OutboundRawLog),
+    /// and build the final [`StreamResult`].
     async fn finish_streaming_pipeline(
         &self,
         session_blocks: Option<(Vec<ContentBlock>, Option<UnifiedUsage>)>,
