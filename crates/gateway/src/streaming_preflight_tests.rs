@@ -347,7 +347,7 @@ async fn test_no_middleware_streaming_works() {
 // ===========================================================================
 
 /// When raw_log_dir is configured, finish_streaming_pipeline runs
-/// OutboundRawLog (via process_outbound_skip_verbosity → DslParser + OutboundRawLog).
+/// OutboundRawLog (via full outbound Processor Chain).
 #[tokio::test]
 async fn test_raw_log_dir_configured_pipeline_runs() {
     let tmp_dir = tempfile::tempdir().unwrap();

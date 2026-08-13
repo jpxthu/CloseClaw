@@ -314,31 +314,6 @@ impl Gateway {
             .map_err(|e| GatewayError::OutboundError(e.to_string()))
     }
 
-    /// Run the outbound chain with VerbosityFilter skipped.
-    ///
-    /// Used by the streaming pipeline finish phase where verbosity filtering
-    /// is handled inline during the stream (not in the post-stream chain).
-    ///
-    /// TODO(Step 1.6): remove — no longer called.
-    #[allow(dead_code)]
-    async fn process_outbound_skip_verbosity(
-        &self,
-        raw_output: &str,
-        content_blocks: Vec<ContentBlock>,
-        channel: &str,
-        session_id: &str,
-    ) -> Result<ProcessedMessage, GatewayError> {
-        let meta = Self::make_outbound_meta(&[("channel", channel), ("session_id", session_id)]);
-        let input = self.make_outbound_input(raw_output, content_blocks, meta);
-        let Some(registry) = self.processor_registry.read().unwrap().clone() else {
-            return Ok(input);
-        };
-        registry
-            .process_outbound_skip_verbosity(input)
-            .await
-            .map_err(|e| GatewayError::OutboundError(e.to_string()))
-    }
-
     /// Run the outbound processor chain if configured, otherwise bypass.
     async fn process_or_bypass(
         &self,
@@ -821,8 +796,7 @@ impl Gateway {
             .metadata
             .get("dsl_result")
             .and_then(|s| serde_json::from_str::<DslParseResult>(s).ok())
-            .map(|r| serde_json::to_string(&r).ok())
-            .flatten();
+            .and_then(|r| serde_json::to_string(&r).ok());
 
         Ok(StreamResult {
             content_blocks: processed.content_blocks,
