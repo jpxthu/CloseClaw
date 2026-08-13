@@ -48,7 +48,7 @@ RenderedOutput { msg_type: "text", payload: ANSI 文本 }
 
 **Text 块 — 普通文本**
 
-纯文本直接输出。包含 markdown 格式标记（标题、粗体、斜体、列表、引用、链接、分割线）时，转为 ANSI 样式：标题用 bold，粗体用 bold，斜体用 italic，引用用 dim 前缀 `│ `，链接渲染为 `文本 (url)`，分割线渲染为 `───`。
+纯文本直接输出。包含 markdown 格式标记（标题、粗体、斜体、引用、链接、分割线）时，转为 ANSI 样式：标题用 bold，粗体用 bold，斜体用 italic，引用用 dim 前缀 `│ `，链接渲染为 `文本 (url)`，分割线渲染为 `───`。列表（`- `/`* ` 无序、`1. ` 有序）无对应 ANSI 样式，保留原始 markdown 标记原样输出。
 
 **Text 块 — 代码块**
 
