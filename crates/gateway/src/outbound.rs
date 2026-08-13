@@ -5,16 +5,13 @@
 
 use super::{Gateway, GatewayError, Message};
 use crate::outbound_helpers::dispatch_text;
-use crate::outbound_helpers::filter_by_verbosity;
 use crate::outbound_helpers::log_middleware_rejection;
-use crate::outbound_helpers::merge_dsl_results;
 use crate::outbound_helpers::send_render_block;
 use crate::outbound_helpers::StreamContext;
 use crate::outbound_helpers::StreamState;
 use closeclaw_common::im_plugin::{IMPlugin, RenderedOutput};
 use closeclaw_common::MiddlewareContext;
 use closeclaw_processor_chain::run_middleware_chain;
-use closeclaw_processor_chain::DslParser;
 use std::sync::Arc;
 
 use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
@@ -313,28 +310,6 @@ impl Gateway {
         };
         registry
             .process_outbound_raw_log_only(input)
-            .await
-            .map_err(|e| GatewayError::OutboundError(e.to_string()))
-    }
-
-    /// Run the outbound chain with VerbosityFilter skipped.
-    ///
-    /// Used by the streaming pipeline finish phase where verbosity filtering
-    /// is handled inline during the stream (not in the post-stream chain).
-    async fn process_outbound_skip_verbosity(
-        &self,
-        raw_output: &str,
-        content_blocks: Vec<ContentBlock>,
-        channel: &str,
-        session_id: &str,
-    ) -> Result<ProcessedMessage, GatewayError> {
-        let meta = Self::make_outbound_meta(&[("channel", channel), ("session_id", session_id)]);
-        let input = self.make_outbound_input(raw_output, content_blocks, meta);
-        let Some(registry) = self.processor_registry.read().unwrap().clone() else {
-            return Ok(input);
-        };
-        registry
-            .process_outbound_skip_verbosity(input)
             .await
             .map_err(|e| GatewayError::OutboundError(e.to_string()))
     }
@@ -774,9 +749,9 @@ impl Gateway {
         Ok(result)
     }
 
-    /// Post-stream pipeline: select content blocks, run processor chain
-    /// (skipping VerbosityFilter — handled inline during the stream),
-    /// merge DSL results, and build the final [`StreamResult`].
+    /// Post-stream pipeline: select content blocks, run the full
+    /// Processor Chain (VerbosityFilter → DslParser → OutboundRawLog),
+    /// and build the final [`StreamResult`].
     async fn finish_streaming_pipeline(
         &self,
         session_blocks: Option<(Vec<ContentBlock>, Option<UnifiedUsage>)>,
@@ -790,25 +765,41 @@ impl Gateway {
             None => (std::mem::take(&mut state.content_blocks), None),
         };
 
-        // Skip VerbosityFilter in the processor chain — the design doc
-        // requires: "收尾阶段不重跑 VerbosityFilter". VerbosityFilter is
-        // applied inline during BlockEnd streaming events. However, the
-        // final content_blocks must still be filtered for downstream
-        // consumers, so we apply VerbosityFilter directly here.
-        let processed = self
-            .process_outbound_skip_verbosity("", content_blocks_for_pipeline, channel, session_id)
-            .await?;
+        // Run the full outbound Processor Chain (VerbosityFilter →
+        // DslParser → OutboundRawLog). VerbosityFilter executes within
+        // the chain by priority, matching the design doc requirement
+        // that the finish phase runs the complete chain.
+        let meta = Self::make_outbound_meta(&[
+            ("channel", channel),
+            ("session_id", session_id),
+            ("verbosity_level", &verbosity_level.to_string()),
+        ]);
+        let Some(registry) = self.processor_registry.read().unwrap().clone() else {
+            return Ok(StreamResult {
+                content_blocks: content_blocks_for_pipeline,
+                usage: usage_override.unwrap_or(state.usage),
+                retry_attempts: 0,
+                dsl_result: None,
+            });
+        };
+        let input = self.make_outbound_input("", content_blocks_for_pipeline, meta);
+        let processed = registry
+            .process_outbound(input)
+            .await
+            .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
 
-        let filtered_blocks = filter_by_verbosity(processed.content_blocks, verbosity_level);
-
-        let batch_dsl_result = processed
+        // DSL result: the full chain runs DslParser, so the chain's
+        // dsl_result is the sole source. Incremental-phase
+        // dsl_instructions are empty (Step 1.3 removed DslParser from
+        // the incremental phase), so no merge is needed.
+        let dsl_result = processed
             .metadata
             .get("dsl_result")
-            .and_then(|s| serde_json::from_str::<DslParseResult>(s).ok());
-        let dsl_result = merge_dsl_results(state.dsl_instructions, batch_dsl_result);
+            .and_then(|s| serde_json::from_str::<DslParseResult>(s).ok())
+            .and_then(|r| serde_json::to_string(&r).ok());
 
         Ok(StreamResult {
-            content_blocks: filtered_blocks,
+            content_blocks: processed.content_blocks,
             usage: usage_override.unwrap_or(state.usage),
             retry_attempts: 0,
             dsl_result,
@@ -928,37 +919,15 @@ impl Gateway {
                 state.content_blocks.push(block);
             } else {
                 let render_blocks = std::mem::take(&mut out.render_blocks);
-                // Filter non-Text blocks through VerbosityFilter for
-                // real-time send. VerbosityLevel::Off suppresses all
-                // non-Text output; VerbosityLevel::Normal suppresses
-                // Thinking blocks; VerbosityLevel::Full passes all.
-                let filtered = filter_by_verbosity(render_blocks.clone(), state.verbosity_level);
-                for block in &filtered {
+                // Non-Text blocks are sent directly in the incremental
+                // phase. Verbosity filtering is delegated to the
+                // post-stream Processor Chain in finish_streaming_pipeline.
+                for block in &render_blocks {
                     send_render_block(ctx, block).await?;
                 }
-                // Push ALL original blocks to content_blocks so the
+                // Push ALL blocks to content_blocks so the
                 // post-stream Processor Chain has the full data set.
                 state.content_blocks.extend(render_blocks);
-            }
-        }
-
-        // DslParser pass-through in incremental phase: parse DSL
-        // instructions from completed Text blocks. Zero-overhead when
-        // no DSL is present (parse returns clean_text == input).
-        // On failure, fall back to original text (design doc: "DslParser
-        // 透传失败原样透传").
-        if block_type == ContentBlockType::Text && !out.text_messages.is_empty() {
-            let parser = DslParser;
-            for text in &out.text_messages {
-                if text.is_empty() {
-                    continue;
-                }
-                match parser.parse(text) {
-                    (result, _clean_text) if !result.instructions.is_empty() => {
-                        state.dsl_instructions.extend(result.instructions);
-                    }
-                    _ => {}
-                }
             }
         }
 

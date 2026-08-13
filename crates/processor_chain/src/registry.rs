@@ -186,12 +186,23 @@ impl ProcessorRegistry {
                     break;
                 }
                 Err(e) => {
-                    tracing::warn!(
-                        processor = %processor.name(),
-                        error = %e,
-                        "processor failed, continuing chain"
-                    );
+                    if processor.name() == "raw_log" {
+                        tracing::error!(
+                            processor = %processor.name(),
+                            error = %e,
+                            "processor failed, continuing chain"
+                        );
+                    } else {
+                        tracing::warn!(
+                            processor = %processor.name(),
+                            error = %e,
+                            "processor failed, continuing chain"
+                        );
+                    }
                     // Do not update ctx — skip this processor's result.
+                    // VerbosityFilter fail: keep previous content_blocks (Full behavior)
+                    // DslParser fail: keep original Text blocks with DSL lines (passthrough)
+                    // RawLog fail: skip log entry, continue sending
                 }
             }
         }
@@ -220,18 +231,6 @@ impl ProcessorRegistry {
         self.process_outbound_filtered(llm_output, None).await
     }
 
-    /// Process the outbound chain, skipping the VerbosityFilter processor.
-    ///
-    /// Runs DslParser → OutboundRawLog without VerbosityFilter. Used by the
-    /// streaming pipeline finish phase where verbosity filtering is handled
-    /// inline during the stream (not in the post-stream chain).
-    pub async fn process_outbound_skip_verbosity(
-        &self,
-        llm_output: ProcessedMessage,
-    ) -> Result<ProcessedMessage, ProcessError> {
-        self.process_outbound_filtered(llm_output, Some("verbosity_filter"))
-            .await
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -336,23 +335,6 @@ impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
             Ok(None) => Ok(msg),
             Err(e) => Err(convert_process_error(e)),
         }
-    }
-
-    async fn process_outbound_skip_verbosity(
-        &self,
-        msg: closeclaw_common::processor::ProcessedMessage,
-    ) -> Result<
-        closeclaw_common::processor::ProcessedMessage,
-        closeclaw_common::processor::ProcessError,
-    > {
-        let main_msg = ProcessedMessage {
-            content_blocks: msg.content_blocks,
-            metadata: msg.metadata,
-        };
-        self.process_outbound_skip_verbosity(main_msg)
-            .await
-            .map(convert_processed_message)
-            .map_err(convert_process_error)
     }
 
     fn parse_line_for_dsl(
