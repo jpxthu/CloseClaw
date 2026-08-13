@@ -15,6 +15,10 @@ mod health_check_builders_tests;
 mod im_adapter;
 pub mod inbound_queue;
 #[cfg(test)]
+mod inbound_queue_ack_tests;
+#[cfg(test)]
+mod inbound_queue_test_utils;
+#[cfg(test)]
 mod inbound_queue_tests;
 pub mod llm_caller_impl;
 mod memory;
@@ -110,7 +114,7 @@ pub struct Gateway {
     /// Permission engine for slash command authorization.
     permission_engine: RwLock<Option<Arc<tokio::sync::RwLock<PermissionEngine>>>>,
     /// Bounded inbound queue sender. `None` until the queue is started.
-    inbound_tx: std::sync::Mutex<Option<mpsc::Sender<InboundRequest>>>,
+    inbound_tx: std::sync::Mutex<Option<mpsc::Sender<inbound_queue::QueuedInbound>>>,
     /// Self-reference for back-pointer to the owning `Arc<Gateway>`.
     /// `handle_inbound_message` is called with `&self`, but
     /// `SessionMessageHandler` needs an `Arc<Gateway>` to call
