@@ -139,7 +139,6 @@ fn make_webhook_payload(message_type: &str, content_json: &str) -> Vec<u8> {
     });
     serde_json::to_vec(&payload).unwrap()
 }
-
 // ===========================================================================
 // expand_post_content tests
 // ===========================================================================
@@ -288,7 +287,6 @@ fn test_expand_post_title_with_mixed_elements() {
         "Mixed Post\nHello @Bob\n[图片]\nCaption\n[文件]\n[视频]\nlink"
     );
 }
-
 // ===========================================================================
 // parse_message_event tests
 // ===========================================================================
@@ -316,37 +314,46 @@ async fn test_parse_message_event_post_type() {
     assert!(msg.media_refs.is_empty());
 }
 #[tokio::test]
-async fn test_parse_message_event_image_discarded() {
+async fn test_parse_message_event_image_type() {
     let adapter = make_test_adapter();
     let event = make_message_event_with_id(
         "image",
         &serde_json::json!({"image_key": "img_xxx"}).to_string(),
         Some("om_msg_001"),
     );
-    let result = adapter.parse_message_event(event).await.unwrap();
-    assert!(result.is_none(), "image message should be discarded");
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, MessageType::Image);
+    assert_eq!(msg.media_refs.len(), 1);
+    assert_eq!(msg.media_refs[0].key, "img_xxx");
+    assert!(msg.content.is_empty());
 }
 #[tokio::test]
-async fn test_parse_message_event_file_discarded() {
+async fn test_parse_message_event_file_type() {
     let adapter = make_test_adapter();
     let event = make_message_event_with_id(
         "file",
         &serde_json::json!({"file_key": "file_xxx", "file_name": "report.pdf"}).to_string(),
         Some("om_msg_002"),
     );
-    let result = adapter.parse_message_event(event).await.unwrap();
-    assert!(result.is_none(), "file message should be discarded");
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, MessageType::File);
+    assert_eq!(msg.media_refs.len(), 1);
+    assert_eq!(msg.media_refs[0].key, "file_xxx");
+    assert!(msg.content.is_empty());
 }
 #[tokio::test]
-async fn test_parse_message_event_audio_discarded() {
+async fn test_parse_message_event_audio_type() {
     let adapter = make_test_adapter();
     let event = make_message_event_with_id(
         "audio",
         &serde_json::json!({"file_key": "audio_xxx"}).to_string(),
         Some("om_msg_003"),
     );
-    let result = adapter.parse_message_event(event).await.unwrap();
-    assert!(result.is_none(), "audio message should be discarded");
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, MessageType::Audio);
+    assert_eq!(msg.media_refs.len(), 1);
+    assert_eq!(msg.media_refs[0].key, "audio_xxx");
+    assert!(msg.content.is_empty());
 }
 #[tokio::test]
 async fn test_parse_message_event_metadata_account_id() {
@@ -363,7 +370,6 @@ async fn test_parse_message_event_thread_id_from_root_id() {
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.thread_id.as_deref(), Some("om_root123"));
 }
-
 // ===========================================================================
 // Empty text content filtering tests (Step 1.2)
 // ===========================================================================
@@ -406,17 +412,18 @@ async fn test_parse_text_whitespace_only_returns_none() {
     );
 }
 #[tokio::test]
-async fn test_parse_image_discarded() {
+async fn test_parse_image_empty_key() {
     let adapter = make_test_adapter();
     let event = make_message_event_with_id(
         "image",
         &serde_json::json!({}).to_string(),
         Some("om_img_empty"),
     );
-    let result = adapter.parse_message_event(event).await.unwrap();
-    assert!(result.is_none(), "image message should be discarded");
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, MessageType::Image);
+    assert_eq!(msg.media_refs.len(), 1);
+    assert!(msg.media_refs[0].key.is_empty(), "image with no image_key should have empty key");
 }
-
 // ===========================================================================
 // send_message / send_card_json receive_id_type tests
 // ===========================================================================
@@ -491,7 +498,6 @@ async fn test_send_message_and_card_use_consistent_receive_id_type() {
         .unwrap();
     assert_eq!(received.lock().await.as_deref(), Some("chat_id"));
 }
-
 // ===========================================================================
 // handle_webhook card action tests
 // ===========================================================================
@@ -589,7 +595,6 @@ async fn test_parse_card_action_no_value_returns_none() {
         "card action with null value should return None"
     );
 }
-
 // ===========================================================================
 // parse_inbound tests (message_type propagation)
 // ===========================================================================
@@ -639,17 +644,19 @@ async fn test_parse_inbound_post_type() {
     assert_eq!(msg.content, "Post\nbody");
 }
 #[tokio::test]
-async fn test_parse_inbound_image_discarded() {
+async fn test_parse_inbound_image_type() {
     let adapter = Arc::new(make_test_adapter());
     let plugin = FeishuPlugin::new(adapter);
     let payload = make_webhook_payload(
         "image",
         &serde_json::json!({"image_key": "img_xxx"}).to_string(),
     );
-    let result = plugin.parse_inbound(&payload).await.unwrap();
-    assert!(result.is_none(), "image message should be discarded");
+    let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
+    assert_eq!(msg.message_type, MessageType::Image);
+    assert_eq!(msg.media_refs.len(), 1);
+    assert_eq!(msg.media_refs[0].key, "img_xxx");
+    assert!(msg.content.is_empty());
 }
-
 // ===========================================================================
 // Identity mapping tests
 // ===========================================================================
@@ -692,7 +699,6 @@ async fn test_parse_inbound_no_resolver_fallback() {
     // No resolver at all → fallback to sender_open_id
     assert_eq!(msg.account_id, "ou_sender");
 }
-
 // ===========================================================================
 // Quote/reference (parent_id) tests
 // ===========================================================================
@@ -739,7 +745,6 @@ async fn start_quote_mock_server(
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     format!("http://{}", addr)
 }
-
 /// Build a FeishuEvent with a parent_id for quote testing.
 fn make_message_event_with_parent(
     message_type: &str,
@@ -982,4 +987,14 @@ fn test_truncate_to_500_mixed_text() {
 #[test]
 fn test_truncate_to_500_empty_string() {
     assert_eq!(truncate_to_500(""), "");
+}
+#[test]
+fn test_extract_unknown_type_err() {
+    assert!(FeishuAdapter::extract_message_content("sticker", &serde_json::json!({})).is_err());
+}
+#[tokio::test]
+async fn test_parse_unknown_type_none() {
+    let a = make_test_adapter();
+    let e = make_message_event("sticker", &serde_json::json!({}).to_string());
+    assert!(a.parse_message_event(e).await.unwrap().is_none());
 }
