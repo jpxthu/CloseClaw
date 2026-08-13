@@ -114,9 +114,15 @@ async fn test_finish_phase_full_preserves_all_blocks() {
     let result = registry.process_outbound(output).await.unwrap();
 
     assert_eq!(result.content_blocks.len(), 3);
-    assert!(matches!(&result.content_blocks[0], ContentBlock::Thinking { .. }));
+    assert!(matches!(
+        &result.content_blocks[0],
+        ContentBlock::Thinking { .. }
+    ));
     assert!(matches!(&result.content_blocks[1], ContentBlock::Text(s) if s == "Hello"));
-    assert!(matches!(&result.content_blocks[2], ContentBlock::Image { .. }));
+    assert!(matches!(
+        &result.content_blocks[2],
+        ContentBlock::Image { .. }
+    ));
 }
 
 /// Streaming finish phase: Off verbosity with media blocks.
@@ -140,9 +146,18 @@ async fn test_finish_phase_off_keeps_media_blocks() {
     // Off: keep Text + Image + Audio + File, filter Thinking
     assert_eq!(result.content_blocks.len(), 4);
     assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "response"));
-    assert!(matches!(&result.content_blocks[1], ContentBlock::Image { .. }));
-    assert!(matches!(&result.content_blocks[2], ContentBlock::Audio { .. }));
-    assert!(matches!(&result.content_blocks[3], ContentBlock::File { .. }));
+    assert!(matches!(
+        &result.content_blocks[1],
+        ContentBlock::Image { .. }
+    ));
+    assert!(matches!(
+        &result.content_blocks[2],
+        ContentBlock::Audio { .. }
+    ));
+    assert!(matches!(
+        &result.content_blocks[3],
+        ContentBlock::File { .. }
+    ));
 }
 
 /// Streaming finish phase: Normal verbosity filters Thinking, preserves ToolUse.
@@ -171,8 +186,14 @@ async fn test_finish_phase_normal_filters_thinking_preserves_tools() {
     // Normal: Thinking filtered, 3 blocks remain
     assert_eq!(result.content_blocks.len(), 3);
     assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "result"));
-    assert!(matches!(&result.content_blocks[1], ContentBlock::ToolUse { .. }));
-    assert!(matches!(&result.content_blocks[2], ContentBlock::ToolResult { .. }));
+    assert!(matches!(
+        &result.content_blocks[1],
+        ContentBlock::ToolUse { .. }
+    ));
+    assert!(matches!(
+        &result.content_blocks[2],
+        ContentBlock::ToolResult { .. }
+    ));
 }
 
 /// Streaming finish phase: empty blocks → VerbosityFilter wraps content as Text.

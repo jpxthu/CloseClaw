@@ -807,10 +807,19 @@ struct PassThroughProc {
 
 #[async_trait]
 impl MessageProcessor for PassThroughProc {
-    fn name(&self) -> &str { &self.name }
-    fn phase(&self) -> ProcessPhase { self.phase }
-    fn priority(&self) -> u8 { self.priority }
-    async fn process(&self, ctx: &MessageContext) -> Result<Option<ProcessedMessage>, ProcessError> {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn phase(&self) -> ProcessPhase {
+        self.phase
+    }
+    fn priority(&self) -> u8 {
+        self.priority
+    }
+    async fn process(
+        &self,
+        ctx: &MessageContext,
+    ) -> Result<Option<ProcessedMessage>, ProcessError> {
         self.call_counter.fetch_add(1, Ordering::SeqCst);
         Ok(Some(ProcessedMessage {
             content_blocks: ctx.content_blocks.clone(),
@@ -853,9 +862,16 @@ async fn test_outbound_verbosity_filter_fail_keeps_original_blocks() {
 
     // fail_vf failed → ctx unchanged → trace sees original 2 blocks (Full behavior)
     assert_eq!(trace_counter.load(Ordering::SeqCst), 1);
-    assert_eq!(result.content_blocks.len(), 2, "should keep all blocks (Full)");
+    assert_eq!(
+        result.content_blocks.len(),
+        2,
+        "should keep all blocks (Full)"
+    );
     assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "hello"));
-    assert!(matches!(&result.content_blocks[1], ContentBlock::Thinking { .. }));
+    assert!(matches!(
+        &result.content_blocks[1],
+        ContentBlock::Thinking { .. }
+    ));
 }
 
 /// DslParser failure on outbound: ctx is not updated, so original Text
@@ -920,7 +936,11 @@ async fn test_outbound_raw_log_fail_continues_chain() {
         .unwrap();
 
     assert_eq!(trace_counter.load(Ordering::SeqCst), 1);
-    assert_eq!(result.text_content(), Some("test"), "original content preserved through fail-open");
+    assert_eq!(
+        result.text_content(),
+        Some("test"),
+        "original content preserved through fail-open"
+    );
 }
 
 // ── Empty content_blocks fallback (Step 1.7) ────────────────────────────────

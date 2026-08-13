@@ -5,8 +5,6 @@ use closeclaw_llm::types::{ContentBlock, ContentBlockType};
 
 use std::sync::Arc;
 
-
-
 // ---------------------------------------------------------------------------
 // Streaming per-block verbosity filtering
 // ---------------------------------------------------------------------------
@@ -120,8 +118,6 @@ fn test_streaming_nothing_filtered_at_full() {
         assert!(!streaming_should_filter(&bt, VerbosityLevel::Full));
     }
 }
-
-
 
 // ===========================================================================
 // Gateway-level three-step outbound flow tests

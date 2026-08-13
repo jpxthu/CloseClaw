@@ -230,7 +230,6 @@ impl ProcessorRegistry {
     ) -> Result<ProcessedMessage, ProcessError> {
         self.process_outbound_filtered(llm_output, None).await
     }
-
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
