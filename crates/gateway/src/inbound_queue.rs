@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use super::Gateway;
 use closeclaw_common::MessageType;
@@ -31,19 +31,31 @@ pub struct InboundRequest {
     pub trace_id: String,
 }
 
+/// An inbound request paired with a oneshot ack sender.
+///
+/// The consumer sends `()` through the oneshot after dequeuing the
+/// request, allowing the producer (webhook handler) to ack the HTTP
+/// response only after the message leaves the channel buffer.
+pub(crate) struct QueuedInbound {
+    /// The inbound request to enqueue.
+    pub(crate) request: InboundRequest,
+    /// Oneshot sender — consumer signals after dequeue.
+    pub(crate) ack_tx: oneshot::Sender<()>,
+}
+
 /// Handle to the inbound queue producer side.
 ///
 /// Wraps the [`mpsc::Sender`] so callers only need to call
 /// [`try_send`](InboundQueueHandle::try_send) without knowing the
 /// channel internals.
 pub struct InboundQueueHandle {
-    tx: mpsc::Sender<InboundRequest>,
+    tx: mpsc::Sender<QueuedInbound>,
 }
 
 impl InboundQueueHandle {
     /// Create a new handle from a channel sender.
     #[allow(dead_code)]
-    pub(crate) fn new(tx: mpsc::Sender<InboundRequest>) -> Self {
+    pub(crate) fn new(tx: mpsc::Sender<QueuedInbound>) -> Self {
         Self { tx }
     }
 
@@ -51,13 +63,13 @@ impl InboundQueueHandle {
     ///
     /// Returns `Ok(())` on success, or `Err(full)` when the queue is at
     /// capacity. The caller should reply with a busy message on `Err`.
-    #[allow(clippy::result_large_err)]
-    pub fn try_send(&self, request: InboundRequest) -> Result<(), InboundQueueFull> {
-        match self.tx.try_send(request) {
+    #[allow(clippy::result_large_err, dead_code)]
+    pub(crate) fn try_send(&self, queued: QueuedInbound) -> Result<(), InboundQueueFull> {
+        match self.tx.try_send(queued) {
             Ok(()) => Ok(()),
-            Err(tokio::sync::mpsc::error::TrySendError::Full(req))
-            | Err(tokio::sync::mpsc::error::TrySendError::Closed(req)) => {
-                Err(InboundQueueFull { request: req })
+            Err(tokio::sync::mpsc::error::TrySendError::Full(q))
+            | Err(tokio::sync::mpsc::error::TrySendError::Closed(q)) => {
+                Err(InboundQueueFull { request: q.request })
             }
         }
     }
@@ -175,13 +187,16 @@ async fn process_single_request(
 ///
 /// The task runs until the receiver is closed (Gateway shutdown).
 pub(crate) fn start_inbound_consumer(
-    mut rx: mpsc::Receiver<InboundRequest>,
+    mut rx: mpsc::Receiver<QueuedInbound>,
     gateway: Arc<Gateway>,
     capacity: usize,
 ) {
     tokio::spawn(async move {
         tracing::info!(capacity, "inbound queue consumer started");
-        while let Some(req) = rx.recv().await {
+        while let Some(queued) = rx.recv().await {
+            let req = queued.request;
+            // Signal ack to producer — message has left the channel buffer.
+            let _ = queued.ack_tx.send(());
             {
                 let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
                 super::debug_log_emitter::emit_debug_event(
@@ -237,6 +252,24 @@ fn ensure_trace_id(request: &mut InboundRequest) {
     }
 }
 
+/// Emit a debug event for queue-full rejections.
+fn emit_queue_rejected_log(gateway: &Gateway, req: &InboundRequest) {
+    let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
+    super::debug_log_emitter::emit_debug_event(
+        guard.as_ref(),
+        &req.trace_id,
+        None,
+        closeclaw_debug_log::LogLevel::Warn,
+        "gateway",
+        "queue.rejected",
+        serde_json::json!({
+            "platform": req.platform,
+            "peer_id": req.peer_id,
+            "reason": "queue_full",
+        }),
+    );
+}
+
 pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundRequest) {
     ensure_trace_id(&mut request);
     let tx = match gateway
@@ -252,30 +285,21 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundReque
         }
     };
 
-    match tx.try_send(request.clone()) {
-        Ok(()) => {}
+    // Create oneshot channel for dequeue ack.
+    let (ack_tx, ack_rx) = oneshot::channel::<()>();
+    let queued = QueuedInbound { request, ack_tx };
+
+    match tx.try_send(queued) {
+        Ok(()) => {
+            // Wait for consumer to dequeue before acking webhook.
+            let _ = ack_rx.await;
+        }
         Err(e) => {
             let req = match e {
-                tokio::sync::mpsc::error::TrySendError::Full(r)
-                | tokio::sync::mpsc::error::TrySendError::Closed(r) => r,
+                tokio::sync::mpsc::error::TrySendError::Full(q)
+                | tokio::sync::mpsc::error::TrySendError::Closed(q) => q.request,
             };
-            // Debug log: queue-full rejection
-            {
-                let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
-                super::debug_log_emitter::emit_debug_event(
-                    guard.as_ref(),
-                    &req.trace_id,
-                    None,
-                    closeclaw_debug_log::LogLevel::Warn,
-                    "gateway",
-                    "queue.rejected",
-                    serde_json::json!({
-                        "platform": req.platform,
-                        "peer_id": req.peer_id,
-                        "reason": "queue_full",
-                    }),
-                );
-            }
+            emit_queue_rejected_log(gateway, &req);
             tracing::warn!(peer_id = %req.peer_id, "inbound queue full — sending busy reply");
             send_busy_reply(gateway, &req).await;
         }
@@ -415,42 +439,54 @@ mod tests {
 
     #[test]
     fn inbound_queue_handle_try_send_ok() {
-        let (tx, _rx) = mpsc::channel::<InboundRequest>(2);
+        let (tx, _rx) = mpsc::channel::<QueuedInbound>(2);
         let handle = InboundQueueHandle::new(tx);
-        let req = InboundRequest {
-            platform: "feishu".into(),
-            raw_payload: b"hello".to_vec(),
-            peer_id: "p1".into(),
-            trace_id: "tr-1".into(),
+        let (ack_tx, _ack_rx) = oneshot::channel();
+        let queued = QueuedInbound {
+            request: InboundRequest {
+                platform: "feishu".into(),
+                raw_payload: b"hello".to_vec(),
+                peer_id: "p1".into(),
+                trace_id: "tr-1".into(),
+            },
+            ack_tx,
         };
-        assert!(handle.try_send(req).is_ok());
+        assert!(handle.try_send(queued).is_ok());
     }
 
     #[test]
     fn inbound_queue_handle_try_send_full() {
-        let (tx, _rx) = mpsc::channel::<InboundRequest>(1);
+        let (tx, _rx) = mpsc::channel::<QueuedInbound>(1);
         let handle = InboundQueueHandle::new(tx);
-        let req1 = InboundRequest {
-            platform: "feishu".into(),
-            raw_payload: b"a".to_vec(),
-            peer_id: "p1".into(),
-            trace_id: "tr-1".into(),
+        let (ack_tx1, _ack_rx1) = oneshot::channel();
+        let queued1 = QueuedInbound {
+            request: InboundRequest {
+                platform: "feishu".into(),
+                raw_payload: b"a".to_vec(),
+                peer_id: "p1".into(),
+                trace_id: "tr-1".into(),
+            },
+            ack_tx: ack_tx1,
         };
-        let req2 = InboundRequest {
-            platform: "feishu".into(),
-            raw_payload: b"b".to_vec(),
-            peer_id: "p2".into(),
-            trace_id: "tr-2".into(),
+        let (ack_tx2, _ack_rx2) = oneshot::channel();
+        let queued2 = QueuedInbound {
+            request: InboundRequest {
+                platform: "feishu".into(),
+                raw_payload: b"b".to_vec(),
+                peer_id: "p2".into(),
+                trace_id: "tr-2".into(),
+            },
+            ack_tx: ack_tx2,
         };
-        assert!(handle.try_send(req1).is_ok());
-        let err = handle.try_send(req2);
+        assert!(handle.try_send(queued1).is_ok());
+        let err = handle.try_send(queued2);
         assert!(err.is_err());
         assert_eq!(err.unwrap_err().request.peer_id, "p2");
     }
 
     #[test]
     fn inbound_queue_handle_capacity() {
-        let (tx, _rx) = mpsc::channel::<InboundRequest>(32);
+        let (tx, _rx) = mpsc::channel::<QueuedInbound>(32);
         let handle = InboundQueueHandle::new(tx);
         assert_eq!(handle.capacity(), 32);
     }
