@@ -3,13 +3,14 @@
 use super::progress::ProgressTool;
 use crate::{Tool, ToolCallError};
 use closeclaw_common::{ExecutionStepStatus, PlanState};
+use closeclaw_execution::plan_state as ps_ops;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 
 /// Helper: create a ProgressTool with an initialized 3-step PlanState.
 fn make_tool() -> (ProgressTool, Arc<Mutex<PlanState>>) {
     let mut ps = PlanState::new();
-    ps.init_execution_steps(vec!["Step 1".into(), "Step 2".into(), "Step 3".into()]);
+    ps_ops::init_execution_steps(&mut ps, vec!["Step 1".into(), "Step 2".into(), "Step 3".into()]);
     let ps = Arc::new(Mutex::new(ps));
     let tool = ProgressTool::new(Arc::clone(&ps));
     (tool, ps)
@@ -51,7 +52,7 @@ async fn test_progress_tool_valid_transition_in_progress() {
         .await;
     assert!(result.is_ok());
     assert_eq!(
-        *ps.lock().unwrap().get_step_status(0).unwrap(),
+        *ps_ops::get_step_status(&ps.lock().unwrap(), 0).unwrap(),
         ExecutionStepStatus::InProgress
     );
 }
@@ -72,7 +73,7 @@ async fn test_progress_tool_valid_transition_completed() {
         .await;
     assert!(result.is_ok());
     assert_eq!(
-        *ps.lock().unwrap().get_step_status(0).unwrap(),
+        *ps_ops::get_step_status(&ps.lock().unwrap(), 0).unwrap(),
         ExecutionStepStatus::Completed
     );
 }
@@ -91,7 +92,7 @@ async fn test_progress_tool_valid_transition_failed() {
         .await;
     assert!(result.is_ok());
     assert_eq!(
-        *ps.lock().unwrap().get_step_status(0).unwrap(),
+        *ps_ops::get_step_status(&ps.lock().unwrap(), 0).unwrap(),
         ExecutionStepStatus::Failed
     );
 }
@@ -119,7 +120,7 @@ async fn test_progress_tool_retry_after_failure() {
         .await;
     assert!(result.is_ok());
     assert_eq!(
-        *ps.lock().unwrap().get_step_status(0).unwrap(),
+        *ps_ops::get_step_status(&ps.lock().unwrap(), 0).unwrap(),
         ExecutionStepStatus::InProgress
     );
 }
@@ -233,7 +234,7 @@ async fn test_progress_tool_skip_from_pending() {
         .await;
     assert!(result.is_ok());
     assert_eq!(
-        *ps.lock().unwrap().get_step_status(0).unwrap(),
+        *ps_ops::get_step_status(&ps.lock().unwrap(), 0).unwrap(),
         ExecutionStepStatus::Skipped
     );
 }
@@ -281,15 +282,15 @@ async fn test_progress_tool_full_flow() {
 
     let ps = ps.lock().unwrap();
     assert_eq!(
-        *ps.get_step_status(0).unwrap(),
+        *ps_ops::get_step_status(&ps, 0).unwrap(),
         ExecutionStepStatus::Completed
     );
     assert_eq!(
-        *ps.get_step_status(1).unwrap(),
+        *ps_ops::get_step_status(&ps, 1).unwrap(),
         ExecutionStepStatus::Completed
     );
     assert_eq!(
-        *ps.get_step_status(2).unwrap(),
+        *ps_ops::get_step_status(&ps, 2).unwrap(),
         ExecutionStepStatus::Completed
     );
 }
@@ -343,13 +344,13 @@ async fn test_progress_tool_detail_contains_rules() {
 // Plan file synchronization tests
 // ---------------------------------------------------------------------------
 
-use closeclaw_common::{DefaultPlanStateWriter, PlanStateWriter};
+use closeclaw_execution::{DefaultPlanStateWriter, PlanStateWriter};
 
 /// Helper: create a ProgressTool with writer and a PlanState whose
 /// `plan_file_path` points to the given temp file.
 fn make_tool_with_writer(plan_file_path: &str) -> (ProgressTool, Arc<Mutex<PlanState>>) {
     let mut ps = PlanState::new();
-    ps.init_execution_steps(vec!["Step 1".into(), "Step 2".into()]);
+    ps_ops::init_execution_steps(&mut ps, vec!["Step 1".into(), "Step 2".into()]);
     ps.plan_file_path = plan_file_path.to_string();
     let ps = Arc::new(Mutex::new(ps));
     let writer: Arc<dyn PlanStateWriter> = Arc::new(DefaultPlanStateWriter::new());
@@ -447,7 +448,7 @@ async fn test_progress_tool_without_writer_no_sync() {
         .await;
     assert!(result.is_ok());
     assert_eq!(
-        *ps.lock().unwrap().get_step_status(0).unwrap(),
+        *ps_ops::get_step_status(&ps.lock().unwrap(), 0).unwrap(),
         ExecutionStepStatus::InProgress
     );
 }
@@ -455,7 +456,7 @@ async fn test_progress_tool_without_writer_no_sync() {
 #[tokio::test]
 async fn test_progress_tool_with_writer_empty_plan_path() {
     let mut ps = PlanState::new();
-    ps.init_execution_steps(vec!["Step 1".into()]);
+    ps_ops::init_execution_steps(&mut ps, vec!["Step 1".into()]);
     // plan_file_path is empty by default
     let ps = Arc::new(Mutex::new(ps));
     let writer: Arc<dyn PlanStateWriter> = Arc::new(DefaultPlanStateWriter::new());

@@ -6,7 +6,8 @@
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 
-use closeclaw_common::{PlanState, PlanStateWriter};
+use closeclaw_common::PlanState;
+use closeclaw_execution::PlanStateWriter;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 

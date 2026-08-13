@@ -882,7 +882,7 @@ pub fn rebuild_plan_state_from_calls(
         }
 
         // Try the transition; skip if invalid (e.g., skipping steps)
-        if plan_state.validate_transition(idx, &record.status).is_err() {
+        if closeclaw_execution::plan_state::validate_transition(&plan_state, idx, &record.status).is_err() {
             continue;
         }
 
@@ -926,7 +926,7 @@ pub fn rebuild_progress_summary_from_calls(calls: &[ProgressToolCallRecord]) -> 
     }
 
     let plan_state = rebuild_plan_state_from_calls(calls);
-    plan_state.progress_summary()
+    closeclaw_execution::plan_state::progress_summary(&plan_state)
 }
 
 // ---------------------------------------------------------------------------

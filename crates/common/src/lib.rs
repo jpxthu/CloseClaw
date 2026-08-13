@@ -97,10 +97,7 @@ pub use permission_check::{
 pub use permission_op::{
     InitialPermissionSet, PermissionOperation, UserCreationRequest, UserRegistration,
 };
-pub use plan_state::{
-    DefaultPlanStateWriter, ExecutionStep, ExecutionStepStatus, PlanPath, PlanPhase, PlanState,
-    PlanStateWriter, TransitionError,
-};
+pub use plan_state::{ExecutionStep, ExecutionStepStatus, PlanPath, PlanPhase, PlanState, TransitionError};
 pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
     ProcessedMessage, ProcessorChain, StreamEvent, UnifiedResponse, UnifiedUsage,

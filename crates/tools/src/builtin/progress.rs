@@ -8,7 +8,8 @@ use crate::{Tool, ToolCallError, ToolFlags, ToolResult};
 
 use async_trait::async_trait;
 
-use closeclaw_common::{ExecutionStepStatus, PlanState, PlanStateWriter, TransitionError};
+use closeclaw_common::{ExecutionStepStatus, PlanState, TransitionError};
+use closeclaw_execution::PlanStateWriter;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 
@@ -77,7 +78,7 @@ impl ProgressTool {
             .lock()
             .map_err(|e| ToolCallError::ExecutionFailed(e.to_string()))?;
 
-        ps.apply_transition(step_index, status)
+        closeclaw_execution::plan_state::apply_transition(&mut ps, step_index, status)
             .map_err(Self::transition_to_tool_error)?;
 
         // Attach summary / error_message if provided

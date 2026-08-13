@@ -10,6 +10,7 @@ use closeclaw_common::{
 use crate::error::ExecutionError;
 use crate::event::ExecutionEvent;
 use crate::hook::HookRunner;
+use crate::plan_state::{apply_transition, init_execution_steps, progress_summary};
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult};
 
@@ -119,7 +120,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
 
         {
             let mut state = self.plan_state.lock().expect("plan state lock poisoned");
-            state.init_execution_steps(filtered.clone());
+            init_execution_steps(&mut state, filtered.clone());
         }
 
         match self.config.mode {
@@ -754,13 +755,13 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
                 state.current_step = Some(step_index);
             }
 
-            state.apply_transition(step_index, status).map_err(|e| {
+            apply_transition(&mut state, step_index, status).map_err(|e| {
                 ExecutionError::InvalidResult {
                     message: format!("state transition failed: {e}"),
                 }
             })?;
 
-            state.progress_summary()
+            progress_summary(&state)
         };
 
         self.notifier.on_progress_changed(&summary).await;
