@@ -8,8 +8,9 @@ use crate::{Tool, ToolCallError, ToolFlags, ToolResult};
 
 use async_trait::async_trait;
 
-use closeclaw_common::{ExecutionStepStatus, PlanState, TransitionError};
-use closeclaw_execution::PlanStateWriter;
+use closeclaw_common::PlanState;
+use closeclaw_execution::TransitionError;
+use closeclaw_execution::{ExecutionState, ExecutionStepStatus, PlanStateWriter};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 
@@ -40,14 +41,19 @@ use std::sync::{Arc, Mutex};
 /// - Step skipping is forbidden: target step_index must equal
 ///   `current_step` (or 0 if no step started yet)
 pub struct ProgressTool {
+    execution_state: Arc<Mutex<ExecutionState>>,
     plan_state: Arc<Mutex<PlanState>>,
     writer: Option<Arc<dyn PlanStateWriter>>,
 }
 
 impl ProgressTool {
     /// Create a new `ProgressTool` backed by the given `PlanState`.
-    pub fn new(plan_state: Arc<Mutex<PlanState>>) -> Self {
+    pub fn new(
+        execution_state: Arc<Mutex<ExecutionState>>,
+        plan_state: Arc<Mutex<PlanState>>,
+    ) -> Self {
         Self {
+            execution_state,
             plan_state,
             writer: None,
         }
@@ -56,10 +62,12 @@ impl ProgressTool {
     /// Create a new `ProgressTool` with a [`PlanStateWriter`] for plan file
     /// synchronization.
     pub fn with_writer(
+        execution_state: Arc<Mutex<ExecutionState>>,
         plan_state: Arc<Mutex<PlanState>>,
         writer: Arc<dyn PlanStateWriter>,
     ) -> Self {
         Self {
+            execution_state,
             plan_state,
             writer: Some(writer),
         }
@@ -73,28 +81,32 @@ impl ProgressTool {
         summary: Option<String>,
         error_message: Option<String>,
     ) -> Result<(), ToolCallError> {
-        let mut ps = self
-            .plan_state
+        let mut es = self
+            .execution_state
             .lock()
             .map_err(|e| ToolCallError::ExecutionFailed(e.to_string()))?;
 
-        closeclaw_execution::plan_state::apply_transition(&mut ps, step_index, status)
+        closeclaw_execution::apply_transition(&mut es, step_index, status)
             .map_err(Self::transition_to_tool_error)?;
 
         // Attach summary / error_message if provided
         if let Some(s) = summary {
-            ps.execution_steps[step_index].summary = s;
+            es.execution_steps[step_index].summary = s;
         }
         if let Some(e) = error_message {
-            ps.execution_steps[step_index].error_message = Some(e);
+            es.execution_steps[step_index].error_message = Some(e);
         }
 
         // Sync progress to plan file if writer is available.
         // Failure is logged as a warning and does not block the main flow.
         if let Some(writer) = &self.writer {
+            let ps = self
+                .plan_state
+                .lock()
+                .map_err(|e| ToolCallError::ExecutionFailed(e.to_string()))?;
             if !ps.plan_file_path.is_empty() {
                 let plan_file_path = ps.plan_file_path.clone();
-                if let Err(e) = writer.write_progress_to_plan_file(&plan_file_path, &ps) {
+                if let Err(e) = writer.write_progress_to_plan_file(&plan_file_path, &es) {
                     tracing::warn!(
                         "failed to sync progress to plan file \
                          {plan_file_path}: {e}"

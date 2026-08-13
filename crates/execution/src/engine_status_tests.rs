@@ -4,7 +4,8 @@ use crate::engine::ExecutionEngine;
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 use async_trait::async_trait;
-use closeclaw_common::{ExecutionStepStatus, NoopNotifier, PlanState};
+use closeclaw_common::NoopNotifier;
+use crate::{ExecutionState, ExecutionStepStatus};
 use std::sync::{Arc, Mutex};
 
 use crate::error::ExecutionError;
@@ -50,8 +51,8 @@ fn default_config() -> ExecutionConfig {
 /// Create an engine with a default plan state.
 fn engine_with_default(
     adapter: MockAdapter,
-) -> (ExecutionEngine<MockAdapter>, Arc<Mutex<PlanState>>) {
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+) -> (ExecutionEngine<MockAdapter>, Arc<Mutex<ExecutionState>>) {
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(
         plan_state.clone(),
         default_config(),

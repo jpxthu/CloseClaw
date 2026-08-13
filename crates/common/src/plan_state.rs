@@ -1,11 +1,10 @@
 //! Plan Mode state types — shared across session and mode modules.
 //!
 //! `PlanState` is the minimal state structure for plan mode.
-//! Execution step state machine methods have been migrated to
-//! `closeclaw_execution::plan_state` as free functions.
+//! Execution-specific types (`ExecutionStep`, `ExecutionStepStatus`,
+//! `TransitionError`) have been migrated to `closeclaw_execution::execution_types`.
 
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 /// Plan Path — plan 双路径选择
 ///
@@ -50,48 +49,6 @@ pub enum PlanPhase {
     Interview,
 }
 
-/// 执行步骤状态枚举
-///
-/// 状态机：pending → in_progress → completed | failed，
-/// completed 不可回退，failed → in_progress 允许重试。
-///
-/// 已迁移到 `closeclaw_execution::plan_state`。此处保留以维持
-/// serde 向后兼容性（PlanState 字段类型引用）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ExecutionStepStatus {
-    /// 待执行
-    #[default]
-    Pending,
-    /// 执行中
-    InProgress,
-    /// 已完成
-    Completed,
-    /// 执行失败
-    Failed,
-    /// 已跳过
-    Skipped,
-}
-
-/// 执行步骤 — 描述单个步骤的当前状态
-///
-/// 已迁移到 `closeclaw_execution::plan_state`。此处保留以维持
-/// serde 向后兼容性（PlanState 字段类型引用）。
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ExecutionStep {
-    /// 步骤索引（从 0 开始）
-    pub step_index: usize,
-    /// 当前状态
-    #[serde(default)]
-    pub status: ExecutionStepStatus,
-    /// 步骤描述或摘要
-    #[serde(default)]
-    pub summary: String,
-    /// 失败时的错误信息
-    #[serde(default)]
-    pub error_message: Option<String>,
-}
-
 /// Plan Mode 状态 — 管理规划阶段、待办步骤和 plan 文件路径
 ///
 /// 由 mode 模块创建，Session 持久化，Compaction 隔离保护，
@@ -111,12 +68,6 @@ pub struct PlanState {
     /// plan 文件路径 — Agent 写入和读取的唯一可写目标
     #[serde(default)]
     pub plan_file_path: String,
-    /// 执行步骤列表（内部字段，供执行引擎使用）
-    #[serde(default)]
-    pub execution_steps: Vec<ExecutionStep>,
-    /// 当前正在执行的步骤索引（内部字段，供执行引擎使用）
-    #[serde(default)]
-    pub current_step: Option<usize>,
     /// 显式指定的 plan 路径（None 表示由系统自动判断）
     #[serde(default)]
     pub explicit_path: Option<PlanPath>,
@@ -134,24 +85,4 @@ impl PlanState {
     }
 }
 
-/// 步骤状态转换错误类型
-///
-/// 已迁移到 `closeclaw_execution::plan_state`。此处保留以维持
-/// 跨 crate 引用兼容性。
-#[derive(Debug, Clone, Error, PartialEq, Eq)]
-pub enum TransitionError {
-    /// 步骤索引不存在
-    #[error("step not found: index {index} out of range (len {len})")]
-    OutOfBounds { index: usize, len: usize },
 
-    /// 非法步骤状态转换
-    #[error("invalid transition: {from:?} -> {to:?}")]
-    InvalidTransition {
-        from: ExecutionStepStatus,
-        to: ExecutionStepStatus,
-    },
-
-    /// 跳步：目标步骤索引必须是 current_step 或 0（首次）
-    #[error("skipped step: expected {expected}, got {got}")]
-    SkippedStep { expected: usize, got: usize },
-}

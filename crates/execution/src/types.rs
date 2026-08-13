@@ -1,6 +1,6 @@
 //! Core types for the execution engine.
 
-use closeclaw_common::{ExecutionStepStatus, PlanState};
+use crate::execution_types::ExecutionStepStatus;
 use serde::{Deserialize, Serialize};
 
 /// Execution mode — determines how steps are dispatched.
@@ -56,16 +56,7 @@ impl Default for ExecutionConfig {
     }
 }
 
-impl From<&PlanState> for ExecutionConfig {
-    /// Create an `ExecutionConfig` from a [`PlanState`], transferring
-    /// `step_selection` so partial execution works end-to-end.
-    fn from(plan: &PlanState) -> Self {
-        Self {
-            step_selection: plan.step_selection.clone(),
-            ..Self::default()
-        }
-    }
-}
+
 
 /// Sub-agent result — structured output returned after a sub-agent
 /// completes a step.

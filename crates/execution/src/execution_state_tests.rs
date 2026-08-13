@@ -1,18 +1,21 @@
-//! Tests for plan_state migration: state machine, PlanStateWriter, step_status_to_marker.
+//! Tests for execution_state: state machine, PlanStateWriter, step_status_to_marker.
 
-use closeclaw_common::{ExecutionStep, ExecutionStepStatus, PlanState};
-use crate::plan_state::{
-    apply_transition, get_step_status, init_execution_steps,
-    progress_summary, validate_transition, step_status_to_marker, DefaultPlanStateWriter,
+use crate::execution_state::{
+    apply_transition, get_step_status, init_execution_steps, progress_summary,
+    step_status_to_marker, validate_transition, DefaultPlanStateWriter, ExecutionState,
     PlanStateWriter,
 };
+use crate::{ExecutionStep, ExecutionStepStatus, TransitionError};
 
 // --- init_execution_steps ---
 
 #[test]
 fn test_init_execution_steps() {
-    let mut state = PlanState::new();
-    init_execution_steps(&mut state, vec!["step1".into(), "step2".into(), "step3".into()]);
+    let mut state = ExecutionState::new();
+    init_execution_steps(
+        &mut state,
+        vec!["step1".into(), "step2".into(), "step3".into()],
+    );
     assert_eq!(state.execution_steps.len(), 3);
     assert!(state.current_step.is_none());
     for (i, step) in state.execution_steps.iter().enumerate() {
@@ -35,16 +38,19 @@ fn test_init_execution_steps() {
 
 #[test]
 fn test_transition_pending_to_in_progress() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     assert!(validate_transition(&state, 0, &ExecutionStepStatus::InProgress).is_ok());
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
-    assert_eq!(get_step_status(&state, 0), Some(&ExecutionStepStatus::InProgress));
+    assert_eq!(
+        get_step_status(&state, 0),
+        Some(&ExecutionStepStatus::InProgress)
+    );
 }
 
 #[test]
 fn test_pending_to_in_progress_preserves_current_step() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
@@ -53,98 +59,119 @@ fn test_pending_to_in_progress_preserves_current_step() {
 
 #[test]
 fn test_transition_in_progress_to_completed() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into(), "step2".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
     apply_transition(&mut state, 0, ExecutionStepStatus::Completed).unwrap();
-    assert_eq!(get_step_status(&state, 0), Some(&ExecutionStepStatus::Completed));
+    assert_eq!(
+        get_step_status(&state, 0),
+        Some(&ExecutionStepStatus::Completed)
+    );
     assert_eq!(state.current_step, Some(1));
 }
 
 #[test]
 fn test_transition_in_progress_to_failed() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
     apply_transition(&mut state, 0, ExecutionStepStatus::Failed).unwrap();
-    assert_eq!(get_step_status(&state, 0), Some(&ExecutionStepStatus::Failed));
+    assert_eq!(
+        get_step_status(&state, 0),
+        Some(&ExecutionStepStatus::Failed)
+    );
     assert_eq!(state.current_step, Some(0));
 }
 
 #[test]
 fn test_transition_failed_to_in_progress() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
     apply_transition(&mut state, 0, ExecutionStepStatus::Failed).unwrap();
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
-    assert_eq!(get_step_status(&state, 0), Some(&ExecutionStepStatus::InProgress));
+    assert_eq!(
+        get_step_status(&state, 0),
+        Some(&ExecutionStepStatus::InProgress)
+    );
 }
 
 #[test]
 fn test_transition_completed_cannot_go_back() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
     apply_transition(&mut state, 0, ExecutionStepStatus::Completed).unwrap();
     let err = validate_transition(&state, 0, &ExecutionStepStatus::InProgress);
     assert!(err.is_err());
-    assert!(matches!(err.unwrap_err(), closeclaw_common::TransitionError::InvalidTransition { .. }));
+    assert!(matches!(
+        err.unwrap_err(),
+        TransitionError::InvalidTransition { .. }
+    ));
 }
 
 #[test]
 fn test_transition_skip_step_rejected() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into(), "step2".into()]);
     let err = validate_transition(&state, 1, &ExecutionStepStatus::InProgress);
     assert!(err.is_err());
     assert!(matches!(
         err.unwrap_err(),
-        closeclaw_common::TransitionError::SkippedStep { expected: 0, got: 1 }
+        TransitionError::SkippedStep {
+            expected: 0,
+            got: 1
+        }
     ));
 }
 
 #[test]
 fn test_transition_out_of_bounds() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     let err = validate_transition(&state, 5, &ExecutionStepStatus::InProgress);
     assert!(err.is_err());
     assert!(matches!(
         err.unwrap_err(),
-        closeclaw_common::TransitionError::OutOfBounds { index: 5, len: 1 }
+        TransitionError::OutOfBounds { index: 5, len: 1 }
     ));
 }
 
 #[test]
 fn test_transition_skipped_from_pending() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     assert!(validate_transition(&state, 0, &ExecutionStepStatus::Skipped).is_ok());
     apply_transition(&mut state, 0, ExecutionStepStatus::Skipped).unwrap();
-    assert_eq!(get_step_status(&state, 0), Some(&ExecutionStepStatus::Skipped));
+    assert_eq!(
+        get_step_status(&state, 0),
+        Some(&ExecutionStepStatus::Skipped)
+    );
 }
 
 #[test]
 fn test_transition_skipped_to_in_progress() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into(), "step2".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::Skipped).unwrap();
     assert_eq!(state.current_step, Some(1));
     assert!(validate_transition(&state, 0, &ExecutionStepStatus::InProgress).is_ok());
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
-    assert_eq!(get_step_status(&state, 0), Some(&ExecutionStepStatus::InProgress));
+    assert_eq!(
+        get_step_status(&state, 0),
+        Some(&ExecutionStepStatus::InProgress)
+    );
     assert_eq!(state.current_step, Some(0));
 }
 
 #[test]
 fn test_skipped_to_in_progress_current_step_points_to_step() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["a".into(), "b".into(), "c".into()]);
     state.current_step = Some(1);
     apply_transition(&mut state, 1, ExecutionStepStatus::Skipped).unwrap();
@@ -155,7 +182,7 @@ fn test_skipped_to_in_progress_current_step_points_to_step() {
 
 #[test]
 fn test_skipped_to_in_progress_no_preset_current_step() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["a".into(), "b".into(), "c".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::Skipped).unwrap();
@@ -163,12 +190,15 @@ fn test_skipped_to_in_progress_no_preset_current_step() {
     assert!(validate_transition(&state, 0, &ExecutionStepStatus::InProgress).is_ok());
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
     assert_eq!(state.current_step, Some(0));
-    assert_eq!(get_step_status(&state, 0), Some(&ExecutionStepStatus::InProgress));
+    assert_eq!(
+        get_step_status(&state, 0),
+        Some(&ExecutionStepStatus::InProgress)
+    );
 }
 
 #[test]
 fn test_skipped_to_completed_not_allowed() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::Skipped).unwrap();
@@ -179,7 +209,7 @@ fn test_skipped_to_completed_not_allowed() {
 
 #[test]
 fn test_completed_to_in_progress_not_allowed() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
@@ -190,7 +220,7 @@ fn test_completed_to_in_progress_not_allowed() {
 
 #[test]
 fn test_skipped_to_skipped_not_allowed() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::Skipped).unwrap();
@@ -201,8 +231,11 @@ fn test_skipped_to_skipped_not_allowed() {
 
 #[test]
 fn test_init_then_full_flow() {
-    let mut state = PlanState::new();
-    init_execution_steps(&mut state, vec!["step1".into(), "step2".into(), "step3".into()]);
+    let mut state = ExecutionState::new();
+    init_execution_steps(
+        &mut state,
+        vec!["step1".into(), "step2".into(), "step3".into()],
+    );
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
     apply_transition(&mut state, 0, ExecutionStepStatus::Completed).unwrap();
@@ -213,14 +246,19 @@ fn test_init_then_full_flow() {
     apply_transition(&mut state, 2, ExecutionStepStatus::InProgress).unwrap();
     apply_transition(&mut state, 2, ExecutionStepStatus::Completed).unwrap();
     for (i, step) in state.execution_steps.iter().enumerate() {
-        assert_eq!(step.status, ExecutionStepStatus::Completed, "step {} should be Completed", i);
+        assert_eq!(
+            step.status,
+            ExecutionStepStatus::Completed,
+            "step {} should be Completed",
+            i
+        );
     }
     assert_eq!(state.current_step, Some(2));
 }
 
 #[test]
 fn test_pending_to_completed_direct_invalid() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     state.current_step = Some(0);
     let err = apply_transition(&mut state, 0, ExecutionStepStatus::Completed);
@@ -229,7 +267,7 @@ fn test_pending_to_completed_direct_invalid() {
 
 #[test]
 fn test_pending_to_failed_direct_invalid() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     state.current_step = Some(0);
     let err = apply_transition(&mut state, 0, ExecutionStepStatus::Failed);
@@ -238,24 +276,30 @@ fn test_pending_to_failed_direct_invalid() {
 
 #[test]
 fn test_apply_transition_returns_ok_for_valid_chain() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["s1".into(), "s2".into()]);
     state.current_step = Some(0);
     assert!(apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).is_ok());
     assert!(apply_transition(&mut state, 0, ExecutionStepStatus::Completed).is_ok());
     assert_eq!(state.current_step, Some(1));
-    assert_eq!(get_step_status(&state, 0), Some(&ExecutionStepStatus::Completed));
+    assert_eq!(
+        get_step_status(&state, 0),
+        Some(&ExecutionStepStatus::Completed)
+    );
 }
 
 #[test]
 fn test_out_of_bounds_apply_transition_fails() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["s1".into()]);
     let err = apply_transition(&mut state, 99, ExecutionStepStatus::InProgress);
     assert!(err.is_err());
     assert!(matches!(
         err.unwrap_err(),
-        closeclaw_common::TransitionError::OutOfBounds { index: 99, len: 1 }
+        TransitionError::OutOfBounds {
+            index: 99,
+            len: 1
+        }
     ));
 }
 
@@ -263,13 +307,13 @@ fn test_out_of_bounds_apply_transition_fails() {
 
 #[test]
 fn test_progress_summary_empty_steps() {
-    let state = PlanState::new();
+    let state = ExecutionState::new();
     assert_eq!(progress_summary(&state), "");
 }
 
 #[test]
 fn test_progress_summary_single_pending() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     let summary = progress_summary(&state);
     assert!(summary.contains("## Execution Progress"));
@@ -278,7 +322,7 @@ fn test_progress_summary_single_pending() {
 
 #[test]
 fn test_progress_summary_single_completed() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["do stuff".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
@@ -289,7 +333,7 @@ fn test_progress_summary_single_completed() {
 
 #[test]
 fn test_progress_summary_completed_no_summary() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
@@ -300,8 +344,11 @@ fn test_progress_summary_completed_no_summary() {
 
 #[test]
 fn test_progress_summary_multi_mixed() {
-    let mut state = PlanState::new();
-    init_execution_steps(&mut state, vec!["step1".into(), "step2".into(), "step3".into()]);
+    let mut state = ExecutionState::new();
+    init_execution_steps(
+        &mut state,
+        vec!["step1".into(), "step2".into(), "step3".into()],
+    );
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
     apply_transition(&mut state, 0, ExecutionStepStatus::Completed).unwrap();
     apply_transition(&mut state, 1, ExecutionStepStatus::InProgress).unwrap();
@@ -317,7 +364,7 @@ fn test_progress_summary_multi_mixed() {
 
 #[test]
 fn test_progress_summary_failed_with_error() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
@@ -329,7 +376,7 @@ fn test_progress_summary_failed_with_error() {
 
 #[test]
 fn test_progress_summary_failed_no_error() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
@@ -340,7 +387,7 @@ fn test_progress_summary_failed_no_error() {
 
 #[test]
 fn test_progress_summary_skipped() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into()]);
     apply_transition(&mut state, 0, ExecutionStepStatus::Skipped).unwrap();
     let summary = progress_summary(&state);
@@ -349,7 +396,7 @@ fn test_progress_summary_skipped() {
 
 #[test]
 fn test_progress_summary_no_current_step() {
-    let mut state = PlanState::new();
+    let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into(), "step2".into()]);
     let summary = progress_summary(&state);
     let lines: Vec<&str> = summary.lines().collect();
@@ -361,11 +408,20 @@ fn test_progress_summary_no_current_step() {
 
 #[test]
 fn test_step_status_to_marker_checkbox_format() {
-    assert_eq!(step_status_to_marker(&ExecutionStepStatus::Completed), "[x]");
-    assert_eq!(step_status_to_marker(&ExecutionStepStatus::InProgress), "[-]");
+    assert_eq!(
+        step_status_to_marker(&ExecutionStepStatus::Completed),
+        "[x]"
+    );
+    assert_eq!(
+        step_status_to_marker(&ExecutionStepStatus::InProgress),
+        "[-]"
+    );
     assert_eq!(step_status_to_marker(&ExecutionStepStatus::Failed), "[!]");
     assert_eq!(step_status_to_marker(&ExecutionStepStatus::Pending), "[ ]");
-    assert_eq!(step_status_to_marker(&ExecutionStepStatus::Skipped), "[~]");
+    assert_eq!(
+        step_status_to_marker(&ExecutionStepStatus::Skipped),
+        "[~]"
+    );
 }
 
 // --- DefaultPlanStateWriter ---
@@ -389,15 +445,16 @@ fn test_writer_updates_in_progress_marker() {
     std::fs::create_dir_all(&dir).unwrap();
     let plan_path = make_plan_file(&dir, &["1.1", "2.1"]);
     let writer = DefaultPlanStateWriter::new();
-    let mut ps = PlanState::new();
-    ps.plan_file_path = plan_path.clone();
-    ps.execution_steps.push(ExecutionStep {
+    let mut es = ExecutionState::new();
+    es.execution_steps.push(ExecutionStep {
         step_index: 0,
         status: ExecutionStepStatus::InProgress,
         summary: "Step 1".into(),
         error_message: None,
     });
-    writer.write_progress_to_plan_file(&plan_path, &ps).unwrap();
+    writer
+        .write_progress_to_plan_file(&plan_path, &es)
+        .unwrap();
     let content = std::fs::read_to_string(&plan_path).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
     assert!(content.contains("[-]"), "expected [-] marker: {content}");
@@ -410,15 +467,16 @@ fn test_writer_updates_completed_marker() {
     std::fs::create_dir_all(&dir).unwrap();
     let plan_path = make_plan_file(&dir, &["1.1"]);
     let writer = DefaultPlanStateWriter::new();
-    let mut ps = PlanState::new();
-    ps.plan_file_path = plan_path.clone();
-    ps.execution_steps.push(ExecutionStep {
+    let mut es = ExecutionState::new();
+    es.execution_steps.push(ExecutionStep {
         step_index: 0,
         status: ExecutionStepStatus::Completed,
         summary: "Step 1".into(),
         error_message: None,
     });
-    writer.write_progress_to_plan_file(&plan_path, &ps).unwrap();
+    writer
+        .write_progress_to_plan_file(&plan_path, &es)
+        .unwrap();
     let content = std::fs::read_to_string(&plan_path).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
     assert!(content.contains("[x]"), "expected [x] marker: {content}");
@@ -431,15 +489,16 @@ fn test_writer_updates_failed_marker() {
     std::fs::create_dir_all(&dir).unwrap();
     let plan_path = make_plan_file(&dir, &["1.1"]);
     let writer = DefaultPlanStateWriter::new();
-    let mut ps = PlanState::new();
-    ps.plan_file_path = plan_path.clone();
-    ps.execution_steps.push(ExecutionStep {
+    let mut es = ExecutionState::new();
+    es.execution_steps.push(ExecutionStep {
         step_index: 0,
         status: ExecutionStepStatus::Failed,
         summary: "Step 1".into(),
         error_message: None,
     });
-    writer.write_progress_to_plan_file(&plan_path, &ps).unwrap();
+    writer
+        .write_progress_to_plan_file(&plan_path, &es)
+        .unwrap();
     let content = std::fs::read_to_string(&plan_path).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
     assert!(content.contains("[!]"), "expected [!] marker: {content}");
@@ -448,8 +507,8 @@ fn test_writer_updates_failed_marker() {
 #[test]
 fn test_writer_file_not_found() {
     let writer = DefaultPlanStateWriter::new();
-    let ps = PlanState::new();
-    let result = writer.write_progress_to_plan_file("/nonexistent/path.md", &ps);
+    let es = ExecutionState::new();
+    let result = writer.write_progress_to_plan_file("/nonexistent/path.md", &es);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("not found"));
 }
@@ -476,15 +535,16 @@ fn test_writer_preserves_non_step_content() {
     std::fs::write(&path, content).unwrap();
     let plan_path = path.to_str().unwrap().to_string();
     let writer = DefaultPlanStateWriter::new();
-    let mut ps = PlanState::new();
-    ps.plan_file_path = plan_path.clone();
-    ps.execution_steps.push(ExecutionStep {
+    let mut es = ExecutionState::new();
+    es.execution_steps.push(ExecutionStep {
         step_index: 0,
         status: ExecutionStepStatus::Completed,
         summary: "Step 1".into(),
         error_message: None,
     });
-    writer.write_progress_to_plan_file(&plan_path, &ps).unwrap();
+    writer
+        .write_progress_to_plan_file(&plan_path, &es)
+        .unwrap();
     let result = std::fs::read_to_string(&plan_path).unwrap();
     assert!(result.contains("# Plan"));
     assert!(result.contains("Keep this."));
@@ -519,9 +579,8 @@ fn test_writer_updates_tasks_section_marker() {
     std::fs::write(&path, content).unwrap();
     let plan_path = path.to_str().unwrap().to_string();
     let writer = DefaultPlanStateWriter::new();
-    let mut ps = PlanState::new();
-    ps.plan_file_path = plan_path.clone();
-    ps.execution_steps = vec![
+    let mut es = ExecutionState::new();
+    es.execution_steps = vec![
         ExecutionStep {
             step_index: 0,
             status: ExecutionStepStatus::Completed,
@@ -541,11 +600,22 @@ fn test_writer_updates_tasks_section_marker() {
             error_message: None,
         },
     ];
-    writer.write_progress_to_plan_file(&plan_path, &ps).unwrap();
+    writer
+        .write_progress_to_plan_file(&plan_path, &es)
+        .unwrap();
     let result = std::fs::read_to_string(&plan_path).unwrap();
-    assert!(result.contains("|[x]| 1.1 |"), "step 1.1 should be [x]: {result}");
-    assert!(result.contains("|[-]| 2.1 |"), "step 2.1 should be [-]: {result}");
-    assert!(result.contains("|[ ]| 3.1 |"), "step 3.1 should be [ ]: {result}");
+    assert!(
+        result.contains("|[x]| 1.1 |"),
+        "step 1.1 should be [x]: {result}"
+    );
+    assert!(
+        result.contains("|[-]| 2.1 |"),
+        "step 2.1 should be [-]: {result}"
+    );
+    assert!(
+        result.contains("|[ ]| 3.1 |"),
+        "step 3.1 should be [ ]: {result}"
+    );
     assert!(result.contains("## Context"));
     assert!(result.contains("Background info."));
     assert!(result.contains("## Tasks"));

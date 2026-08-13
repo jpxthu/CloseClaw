@@ -24,7 +24,7 @@ pub struct ProgressToolCallRecord {
     /// Step index (0-based).
     pub step_index: usize,
     /// New status applied by the ProgressTool call.
-    pub status: closeclaw_common::ExecutionStepStatus,
+    pub status: closeclaw_execution::ExecutionStepStatus,
     /// Optional summary attached to the call.
     #[serde(default)]
     pub summary: Option<String>,

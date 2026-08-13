@@ -1,20 +1,58 @@
-//! Plan execution state types — migrated from common crate.
+//! Execution state — runtime state for the plan execution engine.
 //!
-//! Contains the execution step state machine free functions, plan state
-//! writer trait, and related types.
-//!
-//! These types are execution-specific and consumed by the execution engine,
+//! Contains the execution step state machine fields that were previously
+//! part of `PlanState`. These are consumed by the execution engine,
 //! tools (ProgressTool), and session (recovery).
 
-use closeclaw_common::{ExecutionStep, ExecutionStepStatus, PlanState, TransitionError};
+use serde::{Deserialize, Serialize};
 
-// ---------------------------------------------------------------------------
-// PlanState execution step free functions
-// ---------------------------------------------------------------------------
+use crate::execution_types::{ExecutionStep, ExecutionStepStatus, TransitionError};
+use closeclaw_common::PlanPath;
+
+/// Execution state — runtime state for plan step execution.
+///
+/// Holds the execution step list, current step pointer, step selection,
+/// and explicit plan path. This state is separate from [`PlanState`]
+/// (which only carries plan-level metadata) and is managed by the
+/// execution engine and ProgressTool.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ExecutionState {
+    /// 执行步骤列表
+    #[serde(default)]
+    pub execution_steps: Vec<ExecutionStep>,
+    /// 当前正在执行的步骤索引
+    #[serde(default)]
+    pub current_step: Option<usize>,
+    /// 显式指定的 plan 路径（None 表示由系统自动判断）
+    #[serde(default)]
+    pub explicit_path: Option<PlanPath>,
+    /// Optional step selection (0-based indices) for partial execution.
+    /// `None` means execute all steps; `Some(indices)` means execute
+    /// only the specified steps.
+    #[serde(default)]
+    pub step_selection: Option<Vec<usize>>,
+}
+
+impl ExecutionState {
+    /// Create a new empty ExecutionState.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Get specified step status.
+    pub fn get_step_status(&self, step_index: usize) -> Option<&ExecutionStepStatus> {
+        self.execution_steps.get(step_index).map(|s| &s.status)
+    }
+
+    /// Get current step index.
+    pub fn current_step_index(&self) -> Option<usize> {
+        self.current_step
+    }
+}
 
 /// 根据步骤描述列表初始化执行步骤（全部 pending），
 /// 重置 current_step = None
-pub fn init_execution_steps(state: &mut PlanState, steps: Vec<String>) {
+pub fn init_execution_steps(state: &mut ExecutionState, steps: Vec<String>) {
     state.execution_steps = steps
         .into_iter()
         .enumerate()
@@ -29,12 +67,12 @@ pub fn init_execution_steps(state: &mut PlanState, steps: Vec<String>) {
 }
 
 /// 获取指定步骤的状态
-pub fn get_step_status(state: &PlanState, step_index: usize) -> Option<&ExecutionStepStatus> {
+pub fn get_step_status(state: &ExecutionState, step_index: usize) -> Option<&ExecutionStepStatus> {
     state.execution_steps.get(step_index).map(|s| &s.status)
 }
 
 /// 获取当前步骤索引
-pub fn current_step_index(state: &PlanState) -> Option<usize> {
+pub fn current_step_index(state: &ExecutionState) -> Option<usize> {
     state.current_step
 }
 
@@ -48,7 +86,7 @@ pub fn current_step_index(state: &PlanState) -> Option<usize> {
 /// → Step 2/3: in_progress
 /// Step 3/3: pending
 /// ```
-pub fn progress_summary(state: &PlanState) -> String {
+pub fn progress_summary(state: &ExecutionState) -> String {
     if state.execution_steps.is_empty() {
         return String::new();
     }
@@ -82,7 +120,7 @@ pub fn progress_summary(state: &PlanState) -> String {
 
 /// 校验步骤状态转换是否合法
 pub fn validate_transition(
-    state: &PlanState,
+    state: &ExecutionState,
     step_index: usize,
     new_status: &ExecutionStepStatus,
 ) -> Result<(), TransitionError> {
@@ -152,7 +190,7 @@ pub fn validate_transition(
 
 /// 执行步骤状态转换：校验后更新状态和 current_step
 pub fn apply_transition(
-    state: &mut PlanState,
+    state: &mut ExecutionState,
     step_index: usize,
     new_status: ExecutionStepStatus,
 ) -> Result<(), TransitionError> {
@@ -186,10 +224,10 @@ pub fn apply_transition(
 
 /// Writes plan execution progress back to a plan markdown file.
 ///
-/// Implemented by consumers who need to synchronize in-memory [`PlanState`]
+/// Implemented by consumers who need to synchronize in-memory [`ExecutionState`]
 /// changes to the on-disk plan file (e.g., updating status markers).
 pub trait PlanStateWriter: Send + Sync {
-    /// Write the current progress markers from `plan_state` into the plan
+    /// Write the current progress markers from `execution_state` into the plan
     /// markdown file at `plan_file_path`.
     ///
     /// # Errors
@@ -197,7 +235,7 @@ pub trait PlanStateWriter: Send + Sync {
     fn write_progress_to_plan_file(
         &self,
         plan_file_path: &str,
-        plan_state: &PlanState,
+        execution_state: &ExecutionState,
     ) -> Result<(), Box<dyn std::error::Error>>;
 }
 
@@ -223,7 +261,7 @@ impl PlanStateWriter for DefaultPlanStateWriter {
     fn write_progress_to_plan_file(
         &self,
         plan_file_path: &str,
-        plan_state: &PlanState,
+        execution_state: &ExecutionState,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use std::fs;
         use std::path::Path;
@@ -244,7 +282,7 @@ impl PlanStateWriter for DefaultPlanStateWriter {
             }
 
             if in_tasks_section && line.contains('|') {
-                if let Some(updated) = self.update_step_row(line, plan_state) {
+                if let Some(updated) = self.update_step_row(line, execution_state) {
                     result.push(updated);
                     continue;
                 }
@@ -261,7 +299,7 @@ impl PlanStateWriter for DefaultPlanStateWriter {
 
 impl DefaultPlanStateWriter {
     /// Update a single table row with the matching step's status marker.
-    fn update_step_row(&self, line: &str, plan_state: &PlanState) -> Option<String> {
+    fn update_step_row(&self, line: &str, execution_state: &ExecutionState) -> Option<String> {
         // Match table rows like: | [-] | 1.1 | ... | or | [ ] | 1.1 | ... |
         let parts: Vec<&str> = line.split('|').collect();
         if parts.len() < 3 {
@@ -280,7 +318,7 @@ impl DefaultPlanStateWriter {
         // Find matching execution step.
         // Plan table uses 1-based step numbers (1.1, 2.1, ...),
         // while step_index is 0-based.
-        let matching_step = plan_state.execution_steps.iter().find(|s| {
+        let matching_step = execution_state.execution_steps.iter().find(|s| {
             let prefix = format!("{}.", s.step_index + 1);
             step_name.starts_with(&prefix)
         });

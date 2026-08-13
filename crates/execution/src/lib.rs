@@ -6,10 +6,11 @@
 pub mod engine;
 pub mod error;
 pub mod event;
+pub mod execution_state;
+pub mod execution_types;
 pub mod hook;
 pub mod mode;
 pub mod notification;
-pub mod plan_state;
 pub mod spawn;
 pub mod types;
 
@@ -22,11 +23,12 @@ pub use hook::{
 };
 pub use mode::{ExecutionStrategy, InlineMode, SpawnAllStepsMode, SpawnPerStepMode};
 pub use notification::{parse_subagent_result, ParseError};
-pub use plan_state::{
+pub use execution_state::{
     apply_transition, current_step_index, get_step_status, init_execution_steps,
-    progress_summary, validate_transition, DefaultPlanStateWriter, PlanStateWriter,
-    step_status_to_marker,
+    progress_summary, validate_transition, DefaultPlanStateWriter, ExecutionState,
+    PlanStateWriter, step_status_to_marker,
 };
+pub use execution_types::{ExecutionStep, ExecutionStepStatus, TransitionError};
 pub use spawn::SpawnAdapter;
 pub use types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 
@@ -52,4 +54,4 @@ mod permission_tests;
 mod engine_step_selection_tests;
 
 #[cfg(test)]
-mod plan_state_tests;
+mod execution_state_tests;

@@ -4,7 +4,8 @@ use crate::hook::{HookResult, HookRunner, StepHook};
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 use async_trait::async_trait;
-use closeclaw_common::{ExecutionStepStatus, NoopNotifier, PlanState};
+use closeclaw_common::NoopNotifier;
+use crate::{ExecutionState, ExecutionStepStatus};
 use std::sync::{Arc, Mutex};
 
 /// Mock spawn adapter that returns a configurable sequence of results.
@@ -45,7 +46,7 @@ fn default_config() -> ExecutionConfig {
 }
 
 fn new_engine(adapter: MockSpawnAdapter) -> ExecutionEngine<MockSpawnAdapter> {
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     ExecutionEngine::new(
         plan_state,
         default_config(),
@@ -122,7 +123,7 @@ async fn test_failure_stops_subsequent_steps() {
             message: "step1 fail".into(),
         }),
     ]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(
         plan_state,
         default_config(),
@@ -213,7 +214,7 @@ fn engine_with_hooks(
     for hook in hooks {
         runner.register(hook);
     }
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     ExecutionEngine::with_hook_runner(
         plan_state,
         default_config(),
@@ -322,7 +323,7 @@ async fn test_plan_state_updated_after_execution() {
         changed_files: vec![],
         error_message: None,
     })]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(
         plan_state.clone(),
         default_config(),
@@ -345,7 +346,7 @@ async fn test_plan_state_updated_after_execution() {
 #[tokio::test]
 async fn test_new_engine_uses_config_verify_trigger() {
     let adapter = MockSpawnAdapter::new(vec![]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(
         plan_state,
         default_config(),
@@ -392,7 +393,7 @@ async fn test_new_engine_verify_trigger_always() {
         ..default_config()
     };
     let adapter = MockSpawnAdapter::new(vec![]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None);
 
     let hook_runner = engine
@@ -419,7 +420,7 @@ async fn test_new_engine_verify_trigger_never() {
         ..default_config()
     };
     let adapter = MockSpawnAdapter::new(vec![]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None);
 
     let hook_runner = engine
@@ -446,7 +447,7 @@ async fn test_with_hook_runner_overrides_config_trigger() {
         ..default_config()
     };
     let adapter = MockSpawnAdapter::new(vec![]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
 
     // Build a hook runner with Always trigger (overrides config's Never)
     let custom_runner = HookRunner::new(VerifyTrigger::Always);
@@ -601,7 +602,7 @@ fn spawn_all_engine_with_hooks(
         mode: ExecutionMode::SpawnAllSteps,
         ..default_config()
     };
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     ExecutionEngine::with_hook_runner(
         plan_state,
         config,
