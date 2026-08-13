@@ -95,7 +95,7 @@ Gateway.handle_inbound()
 
 ## 模块关系
 
-- **上游**：Gateway（入站消息处理）。Gateway 在消息路由前检查 `/` 前缀并分派。`/approve`、`/deny` 由 Gateway 层硬拦截（走审批流程验证），不进入 SlashDispatcher。
+- **上游**：Gateway（入站消息处理）。Gateway 在消息路由前检查 `/` 前缀并分派。`/approve-once`、`/approve-whitelist`、`/deny` 由 Gateway 层硬拦截（走审批流程验证），不进入 SlashDispatcher。
 - **下游**：
   - Session 模块 — 模式切换、会话创建/停止（含级联终止子 session）、推理深度控制、上下文压缩、system prompt 追加区管理、工作目录设置
 - **间接下游**（通过 Gateway 调用）：
