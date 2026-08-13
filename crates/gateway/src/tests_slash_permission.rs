@@ -987,3 +987,81 @@ async fn test_git_commit_owner_bypasses_permission_engine() {
         "/git commit for owner should bypass permission engine"
     );
 }
+
+// ============================================================================
+// Gateway-level permission interception tests (Step 1.5)
+//
+// These verify that permission commands (/perm, /user approve, /user reject)
+// are intercepted at the Gateway level BEFORE reaching SlashDispatcher,
+// consistent with the design doc.
+// ============================================================================
+
+/// /perm command is intercepted at Gateway level and never reaches SlashDispatcher.
+#[tokio::test]
+async fn test_perm_cmd_intercepted_at_gateway_level() {
+    let gw = make_gateway();
+    let dispatcher = Arc::new(DefaultTestRouter);
+    gw.set_slash_dispatcher(dispatcher).await;
+
+    // /perm allow-cmd git commit "允许提交代码"
+    let result = gw
+        .dispatch_slash("sess_perm", "/perm allow-cmd git commit 允许提交代码", Some("owner"), "feishu")
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::SlashHandled)),
+        "/perm should be intercepted at Gateway level"
+    );
+}
+
+/// /user approve command is intercepted at Gateway level.
+#[tokio::test]
+async fn test_user_approve_cmd_intercepted_at_gateway_level() {
+    let gw = make_gateway();
+    let dispatcher = Arc::new(DefaultTestRouter);
+    gw.set_slash_dispatcher(dispatcher).await;
+
+    let result = gw
+        .dispatch_slash("sess_user", "/user approve req-123", Some("owner"), "feishu")
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::SlashHandled)),
+        "/user approve should be intercepted at Gateway level"
+    );
+}
+
+/// /user reject command is intercepted at Gateway level.
+#[tokio::test]
+async fn test_user_reject_cmd_intercepted_at_gateway_level() {
+    let gw = make_gateway();
+    let dispatcher = Arc::new(DefaultTestRouter);
+    gw.set_slash_dispatcher(dispatcher).await;
+
+    let result = gw
+        .dispatch_slash("sess_user", "/user reject req-456", Some("owner"), "feishu")
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::SlashHandled)),
+        "/user reject should be intercepted at Gateway level"
+    );
+}
+
+/// /user list is NOT intercepted (falls through to SlashDispatcher).
+#[tokio::test]
+async fn test_user_list_not_intercepted() {
+    let gw = make_gateway();
+    let dispatcher = Arc::new(DefaultTestRouter);
+    gw.set_slash_dispatcher(dispatcher).await;
+
+    let result = gw
+        .dispatch_slash("sess_user", "/user list", Some("owner"), "feishu")
+        .await;
+
+    // /user list falls through to the dispatcher, which returns None for unknown commands.
+    assert!(
+        result.is_none(),
+        "/user list should fall through to SlashDispatcher"
+    );
+}

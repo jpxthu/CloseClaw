@@ -45,7 +45,11 @@ fn full_chain_input() -> InboundChainInput {
         thread_id: Some("ot_thread_abc".into()),
         message_type: MessageType::Text,
         media_refs: vec![MediaRef {
+            key: "img_key_1".into(),
+            url: "https://example.com/img1.png".into(),
         }],
+        chat_name: None,
+        trace_id: None,
     }
 }
 
@@ -80,7 +84,11 @@ fn image_chain_input() -> InboundChainInput {
         thread_id: Some("ot_thread_img".into()),
         message_type: MessageType::Image,
         media_refs: vec![MediaRef {
+            key: "img_k_99".into(),
+            url: "https://example.com/img99.png".into(),
         }],
+        chat_name: None,
+        trace_id: None,
     }
 }
 
@@ -97,7 +105,11 @@ fn file_chain_input() -> InboundChainInput {
         thread_id: None,
         message_type: MessageType::File,
         media_refs: vec![MediaRef {
+            key: "file_k_10".into(),
+            url: "https://example.com/file10.pdf".into(),
         }],
+        chat_name: None,
+        trace_id: None,
     }
 }
 
@@ -114,7 +126,11 @@ fn audio_chain_input() -> InboundChainInput {
         thread_id: Some("ot_audio_thread".into()),
         message_type: MessageType::Audio,
         media_refs: vec![MediaRef {
+            key: "audio_k_5".into(),
+            url: "https://example.com/voice.m4a".into(),
         }],
+        chat_name: None,
+        trace_id: None,
     }
 }
 

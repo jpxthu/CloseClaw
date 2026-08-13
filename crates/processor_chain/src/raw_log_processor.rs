@@ -186,7 +186,6 @@ mod tests {
             media_refs: Vec::new(),
             thread_id: None,
             account_id: String::new(),
-            chat_name: String::new(),
             ..Default::default()
         }
     }
@@ -255,7 +254,6 @@ mod tests {
             media_refs: Vec::new(),
             thread_id: None,
             account_id: String::new(),
-            chat_name: String::new(),
             ..Default::default()
         };
         let ctx = make_ctx(msg);

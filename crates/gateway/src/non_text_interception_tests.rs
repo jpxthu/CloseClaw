@@ -401,8 +401,9 @@ async fn test_unknown_type_string_maps_to_text_not_intercepted() {
         .handle_inbound_message(processed, Some("ou_sender"), "mock")
         .await;
 
-    // Text message goes through normal routing, not intercepted
-    assert!(result.is_some(), "Text message should not be intercepted");
+    // Text message goes through normal routing (not intercepted).
+    // Returns None only because no handler is configured — same as test_text_message_not_intercepted.
+    assert!(result.is_none(), "no handler configured -> None");
     assert_eq!(plugin.send_count(), 0, "no error reply for text");
 }
 

@@ -26,6 +26,7 @@ fn make_test_adapter() -> FeishuAdapter {
         http_client,
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: FEISHU_API_BASE.to_string(),
+        last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     }
 }
 
@@ -39,6 +40,7 @@ fn make_adapter_with_base(base_url: &str) -> FeishuAdapter {
         http_client,
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: base_url.to_string(),
+        last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     }
 }
 
