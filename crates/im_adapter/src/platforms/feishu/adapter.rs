@@ -728,14 +728,41 @@ impl FeishuAdapter {
                 vec![],
             )),
             "post" => Ok((expand_post_content(content), vec![])),
-            "image" | "file" | "audio" => {
-                tracing::debug!(
-                    message_type = %message_type,
-                    "Discarding non-text message (media understanding not yet designed)"
-                );
-                Err(AdapterError::InvalidPayload(
-                    "media message not supported".to_string(),
-                ))
+            "image" => {
+                let key = content
+                    .get("image_key")
+                    .and_then(|k| k.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let media_ref = MediaRef {
+                    key,
+                    url: String::new(),
+                };
+                Ok((String::new(), vec![media_ref]))
+            }
+            "file" => {
+                let key = content
+                    .get("file_key")
+                    .and_then(|k| k.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let media_ref = MediaRef {
+                    key,
+                    url: String::new(),
+                };
+                Ok((String::new(), vec![media_ref]))
+            }
+            "audio" => {
+                let key = content
+                    .get("file_key")
+                    .and_then(|k| k.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let media_ref = MediaRef {
+                    key,
+                    url: String::new(),
+                };
+                Ok((String::new(), vec![media_ref]))
             }
             other => {
                 tracing::debug!(message_type = other, "Discarding unsupported message type");
