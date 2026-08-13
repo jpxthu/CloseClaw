@@ -119,7 +119,7 @@ Daemon/Gateway 将整个消息流程分为外部层（IM Adapter，负责消息�
                 ┌─ Daemon 内部模块（启动、关闭等，不经过权限）→ 直接执行
                 │
                 ├─ 斜杠指令 → Gateway 硬拦截（不进 Agent session）
-                │     ├─ /approve、/deny → Gateway 直接处理（走 Permission 审批流程验证，不进入 SlashDispatcher）
+                │     ├─ /approve-once、/approve-whitelist、/deny → Gateway 直接处理（走 Permission 审批流程验证，不进入 SlashDispatcher）
                 │     └─ 其他斜杠 → SlashDispatcher → Handler → SlashResult
                 │           ├─ Owner → 跳过权限，直接 execute()
                 │           ├─ Non-owner 高危指令（/exec、/git 写操作等）→ 权限引擎 evaluate() → 默认 Deny
@@ -158,7 +158,7 @@ User 消息 / CLI 指令
 Gateway 入站路由
   │
   ├─ 斜杠指令 → Gateway 硬拦截（不进 Agent session）
-  │     ├─ /approve、/deny → Gateway 直接处理（走 Permission 审批流程验证，不进入 SlashDispatcher）
+  │     ├─ /approve-once、/approve-whitelist、/deny → Gateway 直接处理（走 Permission 审批流程验证，不进入 SlashDispatcher）
   │     └─ 其他斜杠 → SlashDispatcher → Handler → SlashResult
   │           ├─ Owner → 跳过权限，直接 execute()
   │           ├─ Non-owner 高危指令（/exec、/git 写操作等）→ 权限引擎 evaluate() → 默认 Deny

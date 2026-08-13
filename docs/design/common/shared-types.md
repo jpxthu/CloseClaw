@@ -19,7 +19,7 @@ NormalizedMessage 是平台无关的统一入站消息结构，屏蔽各 IM 平�
 | `platform` | string | 平台标识，如 `"feishu"`、`"terminal"` |
 | `sender_id` | string | 发送者的平台内 ID |
 | `peer_id` | string | 会话对端（群聊 chat_id 或私聊对方 ID） |
-| `thread_id` | string? | 话题 ID，可选。不参与 session key 计算，仅用于出站定向回复 |
+| `thread_id` | string? | 话题 ID，可选。不参与 session key 计算，仅用于出站定向回复。出站传递机制：入站填入后经 Session 上下文存储，出站时由 Gateway 取出传给 IMPlugin 发送，见 [session-lifecycle 出站定向字段](../session/session-lifecycle.md) |
 | `account_id` | string | CloseClaw 本地账号标识，由 sender_id 通过身份映射得到。参与 session 路由 |
 | `content` | string | 消息文本内容。非文本消息时可为空 |
 | `message_type` | enum | 消息类型：text / image / file / audio |
@@ -66,9 +66,16 @@ ContentBlock 共 7 种变体，按语义和渲染策略分为两类：
 |------|------|------|
 | ToolUse | 工具调用请求，含工具名和参数 | 渲染为工具调用信息展示（终端文本，IM 平台卡片）。参数以原始结构渲染 |
 | ToolResult | 工具执行结果 | 渲染为结果内容展示。终端按宽度截断，IM 平台富格式渲染 |
-| Image | 图片引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[image: key]`，IM 平台渲染为图片元素 |
-| Audio | 音频引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[audio: key]`，IM 平台渲染为音频元素 |
-| File | 文件引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[file: key]`，IM 平台渲染为文件元素 |
+| Image | 图片引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[image: name]`，IM 平台渲染为图片元素 |
+| Audio | 音频引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[audio: name]`，IM 平台渲染为音频元素 |
+| File | 文件引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[file: name]`，IM 平台渲染为文件元素 |
+
+Image/Audio/File 三个变体结构相同，字段定义：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `name` | string | 资源标识，终端占位符 `[image: name]` 等引用此字段 |
+| `url` | string | 资源访问地址，IM 平台渲染时使用 |
 
 **变体处理规则**：
 
@@ -126,7 +133,9 @@ SlashResult 共 10 种变体：
 | Exec | 执行系统命令（高危操作，执行前经 Permission 模块校验） | ContentBlock[]（命令输出经出站 Processor Chain） |
 | Unknown | 未知指令回退 | ContentBlock::Text（提示信息） |
 
-**执行模型**：Handler 返回 SlashResult 后，Gateway 统一调用执行方法，由各变体自行完成副作用（含权限校验）。新增指令只需新增 SlashResult 变体及其执行实现，Gateway 无需改动。
+**执行模型**：Handler 返回 SlashResult 后，Gateway 统一调用执行方法，由各变体自行完成副作用。高危指令（Exec、Git 写操作）的权限校验由 Gateway 在触发执行前经 Permission 引擎完成（校验通过方继续，拒绝则返回权限错误），不属于变体自身副作用。新增指令只需新增 SlashResult 变体及其执行实现，Gateway 无需改动。
+
+**边界**：SlashResult 仅由 SlashDispatcher 分派的斜杠指令 Handler 产出。审批指令（`/approve-once`、`/approve-whitelist`、`/deny`）由 Gateway 层硬拦截、走权限审批流验证，不进 SlashDispatcher，其审批结果不属于 SlashResult（详见 [permission 审批工作流](../permission/approval-workflow.md)）。
 
 **SideEffectContext**：Gateway 在收到 SlashResult 后构造的执行上下文。携带当前 Session 的操作能力（用于模式切换、会话创建/停止、压缩等操作）和回复通道（用于产出回复内容）。SideEffectContext 由 Gateway 管理，SlashResult 不持有其引用。
 
@@ -179,7 +188,7 @@ VerbosityLevel 是出站信息展示等级的枚举，控制 VerbosityFilter 对
 
 ### PlanState
 
-PlanState 是 Plan Mode 下的规划状态枚举，由 mode 模块管理，Session 持久化。Compaction 对此状态做隔离保护（不压缩 plan 相关消息），Session 恢复时重建 PlanState。
+PlanState 是 Plan Mode 下的规划状态结构，由 mode 模块管理，Session 持久化。Compaction 对此状态做隔离保护（不压缩 plan 相关消息），Session 恢复时重建 PlanState。
 
 PlanState 描述当前规划的阶段和未完成步骤列表：
 
@@ -188,6 +197,8 @@ PlanState 描述当前规划的阶段和未完成步骤列表：
 | `phase` | enum | 当前阶段：Research / Design / Review / FinalPlan / Interview |
 | `pending_steps` | list(string) | 未完成的规划步骤标识列表，用于 compaction 保护和恢复后继续 |
 | `plan_file_path` | string | plan 文件的路径，Agent 写入和读取的唯一可写目标 |
+
+**边界**：PlanState 仅承载会话恢复和 compaction 隔离保护所需的最小状态。执行步骤的完成状态（未开始/进行中/已完成/失败/已跳过）由 Agent 写在 plan 文件中管理，系统不介入进度判断——PlanState 不包含执行步骤状态机（执行步骤状态定义见 [mode 执行引擎](../mode/execution.md)）。
 
 ## 数据流
 
@@ -298,7 +309,7 @@ SlashResult 的执行流程：
 2. SlashDispatcher 解析指令名和参数，查找对应 Handler
 3. Handler 处理完成后返回 SlashResult 变体
 4. Gateway 构造 SideEffectContext
-5. Exec 变体：Gateway 调用 Permission 模块校验命令权限（校验通过方继续执行，拒绝则返回权限错误）
+5. 高危指令（Exec、Git 写操作）：Gateway 调用 Permission 引擎校验权限（校验通过方继续执行，拒绝则返回权限错误）
 6. 权限校验通过后，SlashResult 变体通过 SideEffectContext 触发执行，完成副作用，分两条路径：
    - 回复路径：产出 ContentBlock[] → 出站 Processor Chain → IM Adapter 渲染发送
    - 会话路径：执行 Session 操作（模式切换、创建、停止、压缩等）
