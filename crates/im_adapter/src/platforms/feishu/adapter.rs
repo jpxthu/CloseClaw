@@ -538,7 +538,6 @@ impl FeishuAdapter {
     }
 
     /// Fetch a temporary download URL for a media resource (image, file, audio).
-    #[allow(dead_code)]
     pub(crate) async fn fetch_media_download_url(
         &self,
         message_id: &str,
@@ -700,9 +699,7 @@ impl FeishuAdapter {
     }
 
     /// Parse a regular message event into a NormalizedMessage.
-    ///
-    /// For `image`, `file`, and `audio` message types, logs and discards
-    /// (media understanding is not yet designed).
+    /// For non-text messages, produces a message with `media_refs` populated.
     pub(crate) async fn parse_message_event(
         &self,
         event: FeishuEvent,
@@ -711,11 +708,7 @@ impl FeishuAdapter {
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
         let original_parent_id = event.event.parent_id.clone();
-        let thread_id = event
-            .event
-            .thread_id
-            .or(event.event.root_id)
-            .or(event.event.parent_id);
+        let thread_id = event.event.thread_id.or(event.event.root_id).or(event.event.parent_id);
         let sender_open_id = event.event.sender.sender_id.open_id.clone();
 
         let (text, media_refs) =
@@ -724,7 +717,13 @@ impl FeishuAdapter {
                 Err(_) => return Ok(None),
             };
 
-        // Discard empty text content.
+        // Populate media download URLs (non-text messages).
+        let mut media_refs = media_refs;
+        for r in &mut media_refs {
+            r.url = self.fetch_media_download_url(event.event.message_id.as_deref().unwrap_or(""), &r.key, &event.event.message_type).await.unwrap_or_default();
+        }
+
+        // Discard empty text content (only for text/post; non-text messages have empty content by design).
         if matches!(event.event.message_type.as_str(), "text" | "post") && text.trim().is_empty() {
             tracing::debug!(
                 message_type = %event.event.message_type,
