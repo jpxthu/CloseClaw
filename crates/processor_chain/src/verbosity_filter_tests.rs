@@ -206,11 +206,7 @@ fn test_filter_off_mixed_content_keeps_final_reply() {
         },
     ];
     let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
-    assert_eq!(
-        result.len(),
-        2,
-        "Off mode should keep only Text blocks"
-    );
+    assert_eq!(result.len(), 2, "Off mode should keep only Text blocks");
     assert!(matches!(&result[0], ContentBlock::Text(t) if t == "hello"));
     assert!(matches!(&result[1], ContentBlock::Text(t) if t == "world"));
 }
