@@ -174,9 +174,7 @@ fn make_plugin() -> Arc<dyn IMPlugin> {
     Arc::new(CapturingPlugin::new())
 }
 
-async fn setup_gateway(
-    plugin: Arc<dyn IMPlugin>,
-) -> (crate::Gateway, Arc<SessionManager>, String) {
+async fn setup_gateway(plugin: Arc<dyn IMPlugin>) -> (crate::Gateway, Arc<SessionManager>, String) {
     let config = test_config();
     let persist: Arc<dyn PersistenceService> = Arc::new(PassthroughMockPersist);
     let sm = Arc::new(SessionManager::new(
@@ -378,7 +376,10 @@ async fn test_malformed_dsl_fallback_to_original_text() {
     let sr = result.expect("streaming should succeed");
 
     // No instructions parsed → dsl_result should be Some with empty instructions.
-    assert!(sr.dsl_result.is_some(), "dsl_result should be Some for malformed DSL");
+    assert!(
+        sr.dsl_result.is_some(),
+        "dsl_result should be Some for malformed DSL"
+    );
     let dsl: DslParseResult = serde_json::from_str(sr.dsl_result.as_ref().unwrap()).unwrap();
     assert!(
         dsl.instructions.is_empty(),

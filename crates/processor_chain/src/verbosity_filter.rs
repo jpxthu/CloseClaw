@@ -84,5 +84,3 @@ impl MessageProcessor for VerbosityFilter {
         }))
     }
 }
-
-

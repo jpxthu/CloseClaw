@@ -183,14 +183,12 @@ pub(crate) fn merge_dsl_results(
             instructions.extend(batch.instructions);
         }
         // Deduplicate: same instruction_type + same params = duplicate.
-        instructions.dedup_by(|a, b| {
-            a.instruction_type == b.instruction_type && a.params == b.params
-        });
+        instructions
+            .dedup_by(|a, b| a.instruction_type == b.instruction_type && a.params == b.params);
         let merged = DslParseResult { instructions };
         serde_json::to_string(&merged).ok()
     } else {
-        batch_dsl_result
-            .and_then(|r| serde_json::to_string(&r).ok())
+        batch_dsl_result.and_then(|r| serde_json::to_string(&r).ok())
     }
 }
 

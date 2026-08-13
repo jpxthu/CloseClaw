@@ -29,6 +29,8 @@ mod outbound_checkpoint_last_message_at_tests;
 #[cfg(test)]
 mod outbound_checkpoint_timing_tests;
 #[cfg(test)]
+mod outbound_dsl_passthrough_tests;
+#[cfg(test)]
 mod outbound_fallback_tests;
 mod outbound_helpers;
 #[cfg(test)]
@@ -36,8 +38,6 @@ mod outbound_helpers_tests;
 pub mod outbound_middleware;
 #[cfg(test)]
 mod outbound_streaming_checkpoint_tests;
-#[cfg(test)]
-mod outbound_dsl_passthrough_tests;
 #[cfg(test)]
 mod outbound_streaming_dsl_checkpoint_tests;
 #[cfg(test)]
