@@ -84,3 +84,95 @@ impl MessageProcessor for VerbosityFilter {
         }))
     }
 }
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_off_keeps_only_text_blocks() {
+        let blocks = vec![
+            ContentBlock::Text("hello".into()),
+            ContentBlock::Image {
+                name: "img.png".into(),
+                url: "http://example.com/img.png".into(),
+            },
+            ContentBlock::Audio {
+                name: "audio.wav".into(),
+                url: "http://example.com/audio.wav".into(),
+            },
+            ContentBlock::File {
+                name: "doc.pdf".into(),
+                url: "http://example.com/doc.pdf".into(),
+            },
+            ContentBlock::Thinking {
+                thinking: "reasoning".into(),
+                signature: None,
+            },
+            ContentBlock::ToolUse {
+                id: "t1".into(),
+                name: "tool_a".into(),
+                input: "{}".into(),
+            },
+            ContentBlock::ToolResult {
+                tool_call_id: "t1".into(),
+                content: "result".into(),
+            },
+        ];
+        let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
+        assert_eq!(result.len(), 1);
+        assert!(matches!(&result[0], ContentBlock::Text(t) if t == "hello"));
+    }
+
+    #[test]
+    fn test_off_empty_input_returns_empty() {
+        let result = VerbosityFilter::filter(vec![], VerbosityLevel::Off);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_normal_filters_thinking_only() {
+        let blocks = vec![
+            ContentBlock::Text("hello".into()),
+            ContentBlock::Thinking {
+                thinking: "reasoning".into(),
+                signature: None,
+            },
+            ContentBlock::ToolUse {
+                id: "t1".into(),
+                name: "tool_a".into(),
+                input: "{}".into(),
+            },
+        ];
+        let result = VerbosityFilter::filter(blocks, VerbosityLevel::Normal);
+        assert_eq!(result.len(), 2);
+        assert!(matches!(&result[0], ContentBlock::Text(_)));
+        assert!(matches!(&result[1], ContentBlock::ToolUse { .. }));
+    }
+
+    #[test]
+    fn test_full_preserves_all_blocks() {
+        let blocks = vec![
+            ContentBlock::Text("hello".into()),
+            ContentBlock::Thinking {
+                thinking: "reasoning".into(),
+                signature: None,
+            },
+            ContentBlock::ToolUse {
+                id: "t1".into(),
+                name: "tool_a".into(),
+                input: "{}".into(),
+            },
+            ContentBlock::ToolResult {
+                tool_call_id: "t1".into(),
+                content: "result".into(),
+            },
+        ];
+        let result = VerbosityFilter::filter(blocks, VerbosityLevel::Full);
+        assert_eq!(result.len(), 4);
+    }
+}
