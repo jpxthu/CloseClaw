@@ -463,13 +463,14 @@ async fn test_streaming_verbosity_off_filters_thinking_sends_text() {
         .await
         .unwrap();
 
-    // Step 1.1: In Off mode, Thinking blocks are not sent via
-    // send_render_block during streaming. Only Text block is sent.
+    // Step 1.2: In Off mode, non-Text blocks are sent directly during
+    // streaming (no inline VerbosityFilter). Both Thinking and Text
+    // blocks are sent.
     let sent = plugin.drain_sent();
     assert_eq!(
         sent.len(),
-        1,
-        "only Text should be sent during streaming in Off mode"
+        2,
+        "both Thinking and Text should be sent during streaming in Off mode"
     );
 
     // Post-stream pipeline: VerbosityFilter filters Thinking from final result.
@@ -504,13 +505,14 @@ async fn test_streaming_verbosity_normal_filters_thinking_post_stream() {
         .await
         .unwrap();
 
-    // Step 1.1: In Normal mode, Thinking blocks are not sent via
-    // send_render_block during streaming. Only Text block is sent.
+    // Step 1.2: In Normal mode, non-Text blocks are sent directly during
+    // streaming (no inline VerbosityFilter). Both Thinking and Text
+    // blocks are sent.
     let sent = plugin.drain_sent();
     assert_eq!(
         sent.len(),
-        1,
-        "only Text should be sent during streaming in Normal mode"
+        2,
+        "both Thinking and Text should be sent during streaming in Normal mode"
     );
 
     // Post-stream pipeline: VerbosityFilter removes Thinking at Normal level.

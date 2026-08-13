@@ -928,15 +928,13 @@ impl Gateway {
                 state.content_blocks.push(block);
             } else {
                 let render_blocks = std::mem::take(&mut out.render_blocks);
-                // Filter non-Text blocks through VerbosityFilter for
-                // real-time send. VerbosityLevel::Off suppresses all
-                // non-Text output; VerbosityLevel::Normal suppresses
-                // Thinking blocks; VerbosityLevel::Full passes all.
-                let filtered = filter_by_verbosity(render_blocks.clone(), state.verbosity_level);
-                for block in &filtered {
+                // Non-Text blocks are sent directly in the incremental
+                // phase. Verbosity filtering is delegated to the
+                // post-stream Processor Chain in finish_streaming_pipeline.
+                for block in &render_blocks {
                     send_render_block(ctx, block).await?;
                 }
-                // Push ALL original blocks to content_blocks so the
+                // Push ALL blocks to content_blocks so the
                 // post-stream Processor Chain has the full data set.
                 state.content_blocks.extend(render_blocks);
             }
