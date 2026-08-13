@@ -245,6 +245,19 @@ struct FeishuGetMessageResponse {
     items: Option<Vec<FeishuMsgItem>>,
 }
 
+#[derive(Serialize)]
+struct SendRequest<'a> {
+    receive_id: &'a str,
+    msg_type: &'a str,
+    content: &'a str,
+}
+
+#[derive(Deserialize)]
+struct SendResponse {
+    code: i32,
+    msg: String,
+}
+
 // ---------------------------------------------------------------------------
 // FeishuAdapter
 // ---------------------------------------------------------------------------
@@ -888,19 +901,6 @@ impl IMAdapter for FeishuAdapter {
     ) -> Result<(), AdapterError> {
         let token = self.get_tenant_token().await?;
 
-        #[derive(Serialize)]
-        struct SendRequest<'a> {
-            receive_id: &'a str,
-            msg_type: &'a str,
-            content: &'a str,
-        }
-
-        #[derive(Deserialize)]
-        struct SendResponse {
-            code: i32,
-            msg: String,
-        }
-
         let payload = SendRequest {
             receive_id: &message.to,
             msg_type: "text",
@@ -944,20 +944,7 @@ impl IMAdapter for FeishuAdapter {
     ) -> Result<(), AdapterError> {
         let token = self.get_tenant_token().await?;
 
-        #[derive(Serialize)]
-        struct CardRequest<'a> {
-            receive_id: &'a str,
-            msg_type: &'a str,
-            content: &'a str,
-        }
-
-        #[derive(Deserialize)]
-        struct CardResponse {
-            code: i32,
-            msg: String,
-        }
-
-        let payload = CardRequest {
+        let payload = SendRequest {
             receive_id: chat_id,
             msg_type: "interactive",
             content: card_json,
@@ -970,7 +957,7 @@ impl IMAdapter for FeishuAdapter {
             url = format!("{}&root_id={}", url, encoded_rid);
         }
 
-        let resp: CardResponse = self
+        let resp: SendResponse = self
             .http_client
             .post(&url)
             .header("Authorization", format!("Bearer {}", token))
