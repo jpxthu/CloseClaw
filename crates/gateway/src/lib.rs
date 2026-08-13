@@ -94,7 +94,7 @@ use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
-pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest, QueuedInbound};
+pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::{SessionManager, SpawnController};
 pub use shutdown_handle::ShutdownHandle;

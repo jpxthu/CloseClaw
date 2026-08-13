@@ -36,11 +36,11 @@ pub struct InboundRequest {
 /// The consumer sends `()` through the oneshot after dequeuing the
 /// request, allowing the producer (webhook handler) to ack the HTTP
 /// response only after the message leaves the channel buffer.
-pub struct QueuedInbound {
+pub(crate) struct QueuedInbound {
     /// The inbound request to enqueue.
-    pub request: InboundRequest,
+    pub(crate) request: InboundRequest,
     /// Oneshot sender — consumer signals after dequeue.
-    pub ack_tx: oneshot::Sender<()>,
+    pub(crate) ack_tx: oneshot::Sender<()>,
 }
 
 /// Handle to the inbound queue producer side.
@@ -63,8 +63,8 @@ impl InboundQueueHandle {
     ///
     /// Returns `Ok(())` on success, or `Err(full)` when the queue is at
     /// capacity. The caller should reply with a busy message on `Err`.
-    #[allow(clippy::result_large_err)]
-    pub fn try_send(&self, queued: QueuedInbound) -> Result<(), InboundQueueFull> {
+    #[allow(clippy::result_large_err, dead_code)]
+    pub(crate) fn try_send(&self, queued: QueuedInbound) -> Result<(), InboundQueueFull> {
         match self.tx.try_send(queued) {
             Ok(()) => Ok(()),
             Err(tokio::sync::mpsc::error::TrySendError::Full(q))
@@ -252,6 +252,24 @@ fn ensure_trace_id(request: &mut InboundRequest) {
     }
 }
 
+/// Emit a debug event for queue-full rejections.
+fn emit_queue_rejected_log(gateway: &Gateway, req: &InboundRequest) {
+    let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
+    super::debug_log_emitter::emit_debug_event(
+        guard.as_ref(),
+        &req.trace_id,
+        None,
+        closeclaw_debug_log::LogLevel::Warn,
+        "gateway",
+        "queue.rejected",
+        serde_json::json!({
+            "platform": req.platform,
+            "peer_id": req.peer_id,
+            "reason": "queue_full",
+        }),
+    );
+}
+
 pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundRequest) {
     ensure_trace_id(&mut request);
     let tx = match gateway
@@ -281,23 +299,7 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundReque
                 tokio::sync::mpsc::error::TrySendError::Full(q)
                 | tokio::sync::mpsc::error::TrySendError::Closed(q) => q.request,
             };
-            // Debug log: queue-full rejection
-            {
-                let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
-                super::debug_log_emitter::emit_debug_event(
-                    guard.as_ref(),
-                    &req.trace_id,
-                    None,
-                    closeclaw_debug_log::LogLevel::Warn,
-                    "gateway",
-                    "queue.rejected",
-                    serde_json::json!({
-                        "platform": req.platform,
-                        "peer_id": req.peer_id,
-                        "reason": "queue_full",
-                    }),
-                );
-            }
+            emit_queue_rejected_log(gateway, &req);
             tracing::warn!(peer_id = %req.peer_id, "inbound queue full — sending busy reply");
             send_busy_reply(gateway, &req).await;
         }

@@ -6,7 +6,8 @@
 //! 3. Non-streaming middleware rejection sends user notification
 //! 4. Post-send checkpoint persistence works, no pre-send checkpoint
 
-use crate::{GatewayConfig, InboundRequest, QueuedInbound, SessionManager};
+use crate::inbound_queue::QueuedInbound;
+use crate::{GatewayConfig, InboundRequest, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
 use closeclaw_common::processor::DslParseResult;
