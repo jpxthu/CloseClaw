@@ -762,7 +762,7 @@ impl FeishuAdapter {
     }
 
     /// Extract text and media refs from a message event's content.
-    fn extract_message_content(
+    pub(crate) fn extract_message_content(
         message_type: &str,
         content: &serde_json::Value,
     ) -> Result<(String, Vec<MediaRef>), AdapterError> {
