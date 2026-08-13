@@ -109,47 +109,10 @@ async fn test_list_with_users() {
     }
 }
 
-// ── normal path: /user approve ──────────────────────────────────────────────
-
-#[tokio::test]
-async fn test_approve_basic_request_id() {
-    let (h, _dir) = handler_with_empty_config();
-    let ctx = dummy_ctx();
-    let result = h.handle("approve req-001", &ctx).await;
-    assert_reply_contains(&result, "req-001");
-    assert_reply_contains(&result, "转发至 Gateway");
-}
-
-#[tokio::test]
-async fn test_approve_with_perms_basic() {
-    let (h, _dir) = handler_with_empty_config();
-    let ctx = dummy_ctx();
-    let result = h.handle("approve req-002 --perms basic", &ctx).await;
-    assert_reply_contains(&result, "req-002");
-    assert_reply_contains(&result, "转发至 Gateway");
-}
-
-#[tokio::test]
-async fn test_approve_with_perms_basic_messaging() {
-    let (h, _dir) = handler_with_empty_config();
-    let ctx = dummy_ctx();
-    let result = h
-        .handle("approve req-003 --perms basic-messaging", &ctx)
-        .await;
-    assert_reply_contains(&result, "req-003");
-    assert_reply_contains(&result, "转发至 Gateway");
-}
-
-// ── normal path: /user reject ───────────────────────────────────────────────
-
-#[tokio::test]
-async fn test_reject_request_id() {
-    let (h, _dir) = handler_with_empty_config();
-    let ctx = dummy_ctx();
-    let result = h.handle("reject req-100", &ctx).await;
-    assert_reply_contains(&result, "req-100");
-    assert_reply_contains(&result, "转发至 Gateway");
-}
+// ── /user approve and /user reject ────────────────────────────────────────
+// These subcommands are intercepted by the Gateway before reaching
+// UserSlashHandler. The handler marks them as unreachable!. Tests for
+// approve/reject routing are in gateway/src/tests_slash_permission.rs.
 
 // ── error path: empty / unknown ─────────────────────────────────────────────
 
@@ -178,54 +141,7 @@ async fn test_unknown_subcommand() {
     assert_reply_contains(&result, "bogus");
 }
 
-// ── error path: insufficient args ───────────────────────────────────────────
-
-#[tokio::test]
-async fn test_approve_missing_request_id() {
-    let (h, _dir) = handler_with_empty_config();
-    let ctx = dummy_ctx();
-    let result = h.handle("approve", &ctx).await;
-    assert_reply_contains(&result, "参数不足");
-}
-
-#[tokio::test]
-async fn test_reject_missing_request_id() {
-    let (h, _dir) = handler_with_empty_config();
-    let ctx = dummy_ctx();
-    let result = h.handle("reject", &ctx).await;
-    assert_reply_contains(&result, "参数不足");
-}
-
-#[tokio::test]
-async fn test_approve_with_args_returns_forwarded() {
-    let (h, _dir) = handler_with_empty_config();
-    let ctx = dummy_ctx();
-    let result = h.handle("approve req-001 --perms", &ctx).await;
-    assert_reply_contains(&result, "req-001");
-    assert_reply_contains(&result, "转发至 Gateway");
-}
-
-
-
 // ── boundary: whitespace trimming ────────────────────────────────────────────
-
-#[tokio::test]
-async fn test_approve_leading_trailing_whitespace() {
-    let (h, _dir) = handler_with_empty_config();
-    let ctx = dummy_ctx();
-    let result = h.handle("  approve req-001  ", &ctx).await;
-    assert_reply_contains(&result, "req-001");
-    assert_reply_contains(&result, "转发至 Gateway");
-}
-
-#[tokio::test]
-async fn test_reject_leading_trailing_whitespace() {
-    let (h, _dir) = handler_with_empty_config();
-    let ctx = dummy_ctx();
-    let result = h.handle("  reject req-200  ", &ctx).await;
-    assert_reply_contains(&result, "req-200");
-    assert_reply_contains(&result, "转发至 Gateway");
-}
 
 #[tokio::test]
 async fn test_list_leading_trailing_whitespace() {

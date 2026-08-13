@@ -296,10 +296,7 @@ fn test_out_of_bounds_apply_transition_fails() {
     assert!(err.is_err());
     assert!(matches!(
         err.unwrap_err(),
-        TransitionError::OutOfBounds {
-            index: 99,
-            len: 1
-        }
+        TransitionError::OutOfBounds { index: 99, len: 1 }
     ));
 }
 
@@ -418,10 +415,7 @@ fn test_step_status_to_marker_checkbox_format() {
     );
     assert_eq!(step_status_to_marker(&ExecutionStepStatus::Failed), "[!]");
     assert_eq!(step_status_to_marker(&ExecutionStepStatus::Pending), "[ ]");
-    assert_eq!(
-        step_status_to_marker(&ExecutionStepStatus::Skipped),
-        "[~]"
-    );
+    assert_eq!(step_status_to_marker(&ExecutionStepStatus::Skipped), "[~]");
 }
 
 // --- DefaultPlanStateWriter ---
@@ -452,9 +446,7 @@ fn test_writer_updates_in_progress_marker() {
         summary: "Step 1".into(),
         error_message: None,
     });
-    writer
-        .write_progress_to_plan_file(&plan_path, &es)
-        .unwrap();
+    writer.write_progress_to_plan_file(&plan_path, &es).unwrap();
     let content = std::fs::read_to_string(&plan_path).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
     assert!(content.contains("[-]"), "expected [-] marker: {content}");
@@ -474,9 +466,7 @@ fn test_writer_updates_completed_marker() {
         summary: "Step 1".into(),
         error_message: None,
     });
-    writer
-        .write_progress_to_plan_file(&plan_path, &es)
-        .unwrap();
+    writer.write_progress_to_plan_file(&plan_path, &es).unwrap();
     let content = std::fs::read_to_string(&plan_path).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
     assert!(content.contains("[x]"), "expected [x] marker: {content}");
@@ -496,9 +486,7 @@ fn test_writer_updates_failed_marker() {
         summary: "Step 1".into(),
         error_message: None,
     });
-    writer
-        .write_progress_to_plan_file(&plan_path, &es)
-        .unwrap();
+    writer.write_progress_to_plan_file(&plan_path, &es).unwrap();
     let content = std::fs::read_to_string(&plan_path).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
     assert!(content.contains("[!]"), "expected [!] marker: {content}");
@@ -542,9 +530,7 @@ fn test_writer_preserves_non_step_content() {
         summary: "Step 1".into(),
         error_message: None,
     });
-    writer
-        .write_progress_to_plan_file(&plan_path, &es)
-        .unwrap();
+    writer.write_progress_to_plan_file(&plan_path, &es).unwrap();
     let result = std::fs::read_to_string(&plan_path).unwrap();
     assert!(result.contains("# Plan"));
     assert!(result.contains("Keep this."));
@@ -600,9 +586,7 @@ fn test_writer_updates_tasks_section_marker() {
             error_message: None,
         },
     ];
-    writer
-        .write_progress_to_plan_file(&plan_path, &es)
-        .unwrap();
+    writer.write_progress_to_plan_file(&plan_path, &es).unwrap();
     let result = std::fs::read_to_string(&plan_path).unwrap();
     assert!(
         result.contains("|[x]| 1.1 |"),
@@ -621,4 +605,100 @@ fn test_writer_updates_tasks_section_marker() {
     assert!(result.contains("## Tasks"));
     assert!(result.contains("## Verification"));
     assert!(result.contains("Run tests."));
+}
+
+// --- ExecutionState serde backward compat ---
+
+/// Deserializing an old checkpoint with extra fields (e.g. old `execution_steps`
+/// embedded in PlanState) should not fail — `#[serde(default)]` handles them.
+#[test]
+fn test_execution_state_deserialize_with_extra_fields() {
+    let json = r#"{
+        "execution_steps": [
+            {"step_index": 0, "status": "completed", "summary": "done", "error_message": null}
+        ],
+        "current_step": 1,
+        "explicit_path": "standard",
+        "step_selection": null,
+        "unknown_future_field": "ignored"
+    }"#;
+    let state: ExecutionState = serde_json::from_str(json).unwrap();
+    assert_eq!(state.execution_steps.len(), 1);
+    assert_eq!(
+        state.execution_steps[0].status,
+        ExecutionStepStatus::Completed
+    );
+    assert_eq!(state.current_step, Some(1));
+    assert_eq!(
+        state.explicit_path,
+        Some(closeclaw_common::PlanPath::Standard)
+    );
+}
+
+/// Deserializing an empty JSON object should produce a default ExecutionState.
+#[test]
+fn test_execution_state_deserialize_empty_object() {
+    let json = r#"{}"#;
+    let state: ExecutionState = serde_json::from_str(json).unwrap();
+    assert!(state.execution_steps.is_empty());
+    assert!(state.current_step.is_none());
+    assert!(state.explicit_path.is_none());
+    assert!(state.step_selection.is_none());
+}
+
+/// Roundtrip: serialize then deserialize should preserve all fields.
+#[test]
+fn test_execution_state_serde_roundtrip() {
+    let mut state = ExecutionState::new();
+    init_execution_steps(&mut state, vec!["a".into(), "b".into()]);
+    state.current_step = Some(1);
+    state.step_selection = Some(vec![0, 1]);
+
+    let json = serde_json::to_string(&state).unwrap();
+    let restored: ExecutionState = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored.execution_steps.len(), 2);
+    assert_eq!(restored.current_step, Some(1));
+    assert_eq!(restored.step_selection, Some(vec![0, 1]));
+}
+
+/// ExecutionStep serde roundtrip with all fields.
+#[test]
+fn test_execution_step_serde_roundtrip() {
+    let step = ExecutionStep {
+        step_index: 2,
+        status: ExecutionStepStatus::Failed,
+        summary: "test summary".into(),
+        error_message: Some("boom".into()),
+    };
+    let json = serde_json::to_string(&step).unwrap();
+    let restored: ExecutionStep = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored.step_index, 2);
+    assert_eq!(restored.status, ExecutionStepStatus::Failed);
+    assert_eq!(restored.summary, "test summary");
+    assert_eq!(restored.error_message, Some("boom".into()));
+}
+
+/// ExecutionStepStatus serde uses snake_case.
+#[test]
+fn test_execution_step_status_serde_snake_case() {
+    assert_eq!(
+        serde_json::to_string(&ExecutionStepStatus::InProgress).unwrap(),
+        "\"in_progress\""
+    );
+    assert_eq!(
+        serde_json::to_string(&ExecutionStepStatus::Completed).unwrap(),
+        "\"completed\""
+    );
+    assert_eq!(
+        serde_json::to_string(&ExecutionStepStatus::Failed).unwrap(),
+        "\"failed\""
+    );
+    assert_eq!(
+        serde_json::to_string(&ExecutionStepStatus::Skipped).unwrap(),
+        "\"skipped\""
+    );
+    assert_eq!(
+        serde_json::to_string(&ExecutionStepStatus::Pending).unwrap(),
+        "\"pending\""
+    );
 }

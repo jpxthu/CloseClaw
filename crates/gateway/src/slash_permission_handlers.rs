@@ -446,3 +446,100 @@ impl Gateway {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- is_path_dangerous ---
+
+    #[test]
+    fn test_path_dangerous_relative_traversal_unix() {
+        assert!(Gateway::is_path_dangerous("../etc/passwd"));
+    }
+
+    #[test]
+    fn test_path_dangerous_relative_traversal_windows() {
+        assert!(Gateway::is_path_dangerous("..\\windows\\system32"));
+    }
+
+    #[test]
+    fn test_path_dangerous_absolute_path() {
+        assert!(Gateway::is_path_dangerous("/etc/passwd"));
+    }
+
+    #[test]
+    fn test_path_dangerous_windows_drive() {
+        assert!(Gateway::is_path_dangerous("C:\\Windows"));
+    }
+
+    #[test]
+    fn test_path_dangerous_null_byte() {
+        assert!(Gateway::is_path_dangerous("file\0etc/passwd"));
+    }
+
+    #[test]
+    fn test_path_safe_relative() {
+        assert!(!Gateway::is_path_dangerous("data/file.txt"));
+    }
+
+    #[test]
+    fn test_path_safe_simple() {
+        assert!(!Gateway::is_path_dangerous("file.txt"));
+    }
+
+    // --- parse_perm_set ---
+
+    #[test]
+    fn test_parse_perm_set_basic() {
+        assert_eq!(
+            Gateway::parse_perm_set("basic"),
+            Some(closeclaw_common::InitialPermissionSet::BasicMessaging)
+        );
+    }
+
+    #[test]
+    fn test_parse_perm_set_basic_messaging() {
+        assert_eq!(
+            Gateway::parse_perm_set("basic-messaging"),
+            Some(closeclaw_common::InitialPermissionSet::BasicMessaging)
+        );
+    }
+
+    #[test]
+    fn test_parse_perm_set_case_insensitive() {
+        assert_eq!(
+            Gateway::parse_perm_set("BASIC"),
+            Some(closeclaw_common::InitialPermissionSet::BasicMessaging)
+        );
+    }
+
+    #[test]
+    fn test_parse_perm_set_unknown() {
+        assert_eq!(Gateway::parse_perm_set("admin"), None);
+    }
+
+    #[test]
+    fn test_parse_perm_set_empty() {
+        assert_eq!(Gateway::parse_perm_set(""), None);
+    }
+
+    // --- perm_usage / user_usage ---
+
+    #[test]
+    fn test_perm_usage_contains_required_subcommands() {
+        let usage = Gateway::perm_usage();
+        assert!(usage.contains("allow-file"));
+        assert!(usage.contains("deny-file"));
+        assert!(usage.contains("allow-cmd"));
+        assert!(usage.contains("deny-cmd"));
+    }
+
+    #[test]
+    fn test_user_usage_contains_required_subcommands() {
+        let usage = Gateway::user_usage();
+        assert!(usage.contains("list"));
+        assert!(usage.contains("approve"));
+        assert!(usage.contains("reject"));
+    }
+}
