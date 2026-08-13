@@ -12,6 +12,9 @@ pub mod identity;
 pub mod im_plugin;
 #[cfg(test)]
 pub mod im_plugin_tests;
+pub mod lazy_tool;
+#[cfg(test)]
+pub mod lazy_tool_tests;
 pub mod llm_caller;
 pub mod llm_error;
 pub mod llm_stats;
@@ -136,6 +139,7 @@ pub use system_prompt::{
     SystemPromptBuilder,
 };
 // TaskManager, TaskState, BackgroundTask, BackgroundTaskError migrated to closeclaw-tasks
+pub use lazy_tool::{LazyTool, ToolMeta};
 pub use tool_registry::{
     RegistryError, ToolBox, ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry,
     ToolRegistryQuery,
