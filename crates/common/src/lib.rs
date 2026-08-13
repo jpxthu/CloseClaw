@@ -9,6 +9,9 @@ pub mod executor_tests;
 pub mod fragment;
 pub mod hook_config;
 pub mod identity;
+pub mod lazy_tool;
+#[cfg(test)]
+pub mod lazy_tool_tests;
 pub mod im_plugin;
 #[cfg(test)]
 pub mod im_plugin_tests;
@@ -146,4 +149,5 @@ pub use tool_trait::{
     PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolMessage, ToolResult,
     WorkdirContext,
 };
+pub use lazy_tool::{LazyTool, ToolMeta};
 pub use verbosity::VerbosityLevel;
