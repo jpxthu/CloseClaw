@@ -537,6 +537,55 @@ impl FeishuAdapter {
         }
     }
 
+    /// Fetch a temporary download URL for a media resource (image, file, audio).
+    #[allow(dead_code)]
+    pub(crate) async fn fetch_media_download_url(
+        &self,
+        message_id: &str,
+        file_key: &str,
+        resource_type: &str,
+    ) -> Result<String, AdapterError> {
+        let token = self.get_tenant_token().await?;
+        #[derive(Deserialize)]
+        struct ResourceResp {
+            code: i32,
+            msg: String,
+            data: Option<serde_json::Value>,
+        }
+        let resp: ResourceResp = self
+            .http_client
+            .get(format!(
+                "{}/im/v1/messages/{}/resources/{}?type={}",
+                self.base_url, message_id, file_key, resource_type
+            ))
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
+            .json()
+            .await
+            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+        if resp.code != 0 {
+            tracing::warn!(
+                code = resp.code, msg = %resp.msg,
+                message_id = %message_id, file_key = %file_key,
+                "Failed to fetch media download URL"
+            );
+            return Err(AdapterError::SendFailed(format!(
+                "Feishu media resource error {}: {}", resp.code, resp.msg
+            )));
+        }
+        let url = resp.data
+            .and_then(|d| d.get("url").and_then(|u| u.as_str()).map(String::from))
+            .filter(|u| !u.is_empty())
+            .ok_or_else(|| {
+                tracing::warn!(message_id = %message_id, file_key = %file_key,
+                    "No download URL in media resource response");
+                AdapterError::SendFailed("No download URL in media resource response".to_string())
+            })?;
+        Ok(url)
+    }
+
     /// Fetch and prepend a markdown blockquote for the quoted message.
     async fn prepend_quote_blockquote(&self, parent_id: Option<&str>, text: &str) -> String {
         let pid = match parent_id {
