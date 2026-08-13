@@ -55,6 +55,87 @@ impl Gateway {
         *slot = Some(engine);
     }
 
+    /// Reply with an "unknown command" message.
+    async fn reply_unknown_cmd(&self, cmd: &str, session_id: &str, channel: &str) {
+        let reply = format!("未知指令：/{cmd}。输入 /help 查看所有可用指令。");
+        self.route_slash_reply(session_id, channel, vec![ContentBlock::Text(reply)])
+            .await;
+    }
+
+    /// Enqueue a non-immediate slash command when the session is busy.
+    async fn enqueue_pending_slash(&self, session_id: &str, content: &str) {
+        let msg = PendingMessage::with_role(
+            format!("pending-{}", chrono::Utc::now().timestamp_millis()),
+            content.to_owned(),
+            "user".to_string(),
+        );
+        if let Err(e) = self
+            .session_manager
+            .push_pending_message(session_id, msg)
+            .await
+        {
+            tracing::warn!(
+                session_id,
+                error = %e,
+                "failed to enqueue pending slash command"
+            );
+        }
+        if let Some(sh) = self.session_handler.as_ref() {
+            sh.send_reply("⏳ 正在排队...".to_owned()).await;
+        }
+    }
+
+    /// Gateway-level interception for permission commands.
+    ///
+    /// Handles `/perm` and `/user approve|reject` commands directly,
+    /// bypassing the SlashDispatcher. Returns `Some(HandleResult::SlashHandled)`
+    /// when a permission command was intercepted, or `None` to fall through
+    /// to the normal slash dispatch path.
+    async fn intercept_permission_cmd(
+        &self,
+        cmd: &str,
+        args: &str,
+        session_id: &str,
+        sender_id: Option<&str>,
+        channel: &str,
+    ) -> Option<HandleResult> {
+        match cmd {
+            "perm" => {
+                let reply = self.handle_perm_cmd(args, sender_id).await;
+                self.route_slash_reply(session_id, channel, vec![ContentBlock::Text(reply)])
+                    .await;
+                Some(HandleResult::SlashHandled)
+            }
+            "user" => {
+                let parts: Vec<&str> = args.split_whitespace().collect();
+                match parts.first().map(|s| *s) {
+                    Some("approve") => {
+                        let reply = self.handle_user_approve_cmd(&parts[1..], sender_id).await;
+                        self.route_slash_reply(
+                            session_id,
+                            channel,
+                            vec![ContentBlock::Text(reply)],
+                        )
+                        .await;
+                        Some(HandleResult::SlashHandled)
+                    }
+                    Some("reject") => {
+                        let reply = self.handle_user_reject_cmd(&parts[1..], sender_id).await;
+                        self.route_slash_reply(
+                            session_id,
+                            channel,
+                            vec![ContentBlock::Text(reply)],
+                        )
+                        .await;
+                        Some(HandleResult::SlashHandled)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Dispatch a slash command with permission checks.
     ///
     /// Returns `Some(HandleResult::SlashHandled)` when the message is consumed
@@ -87,75 +168,22 @@ impl Gateway {
         };
 
         // Gateway-level interception: permission commands are handled
-        // directly before reaching the SlashDispatcher, consistent with
-        // the design doc that permission operations belong to the Gateway
-        // layer and do not go through SlashDispatcher.
-        match cmd {
-            "perm" => {
-                let reply = self.handle_perm_cmd(args, sender_id).await;
-                self.route_slash_reply(session_id, channel, vec![ContentBlock::Text(reply)])
-                    .await;
-                return Some(HandleResult::SlashHandled);
-            }
-            "user" => {
-                let parts: Vec<&str> = args.split_whitespace().collect();
-                match parts.first().map(|s| *s) {
-                    Some("approve") => {
-                        let reply = self.handle_user_approve_cmd(&parts[1..], sender_id).await;
-                        self.route_slash_reply(
-                            session_id,
-                            channel,
-                            vec![ContentBlock::Text(reply)],
-                        )
-                        .await;
-                        return Some(HandleResult::SlashHandled);
-                    }
-                    Some("reject") => {
-                        let reply = self.handle_user_reject_cmd(&parts[1..], sender_id).await;
-                        self.route_slash_reply(
-                            session_id,
-                            channel,
-                            vec![ContentBlock::Text(reply)],
-                        )
-                        .await;
-                        return Some(HandleResult::SlashHandled);
-                    }
-                    _ => {
-                        // /user list or other subcommands fall through to the handler.
-                    }
-                }
-            }
-            _ => {}
+        // directly before reaching the SlashDispatcher.
+        if let Some(result) = self
+            .intercept_permission_cmd(cmd, args, session_id, sender_id, channel)
+            .await
+        {
+            return Some(result);
         }
 
         let Some(handler) = dispatcher.get_handler(cmd) else {
-            let reply = format!("未知指令：/{cmd}。输入 /help 查看所有可用指令。");
-            self.route_slash_reply(session_id, channel, vec![ContentBlock::Text(reply)])
-                .await;
+            self.reply_unknown_cmd(cmd, session_id, channel).await;
             return Some(HandleResult::SlashHandled);
         };
 
         // Non-immediate commands: if session is busy, enqueue for later.
         if !dispatcher.is_immediate(cmd) && self.session_manager.is_session_busy(session_id).await {
-            let msg = PendingMessage::with_role(
-                format!("pending-{}", chrono::Utc::now().timestamp_millis()),
-                content.to_owned(),
-                "user".to_string(),
-            );
-            if let Err(e) = self
-                .session_manager
-                .push_pending_message(session_id, msg)
-                .await
-            {
-                tracing::warn!(
-                    session_id,
-                    error = %e,
-                    "failed to enqueue pending slash command"
-                );
-            }
-            if let Some(sh) = self.session_handler.as_ref() {
-                sh.send_reply("⏳ 正在排队...".to_owned()).await;
-            }
+            self.enqueue_pending_slash(session_id, content).await;
             return Some(HandleResult::SlashHandled);
         }
 

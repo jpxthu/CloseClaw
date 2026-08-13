@@ -8,7 +8,6 @@ license = "MIT"
 [dependencies]
 # Internal crates
 closeclaw-common = { path = "../common" }
-closeclaw-execution = { path = "../execution" }
 closeclaw-config = { path = "../config" }
 closeclaw-tasks = { path = "../tasks" }
 closeclaw-agent = { path = "../agent" }
@@ -51,6 +50,7 @@ redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 
 [dev-dependencies]
+closeclaw-execution = { path = "../execution" }
 tempfile = "3.10"
 serial_test = "3.4"
 filetime = "0.2"

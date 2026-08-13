@@ -2,6 +2,7 @@ pub mod bootstrap;
 pub mod code_block;
 pub mod communication;
 pub mod compaction;
+pub mod execution_types;
 pub mod executor;
 #[cfg(test)]
 pub mod executor_tests;
@@ -75,6 +76,7 @@ pub mod verbosity;
 
 pub use bootstrap::BootstrapMode;
 pub use compaction::CompactConfig;
+pub use execution_types::{ExecutionStep, ExecutionStepStatus, TransitionError};
 pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
 pub use hook_config::{HookConfig, HookParams, HookType};
 pub use identity::IdentityResolver;

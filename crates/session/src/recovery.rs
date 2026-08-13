@@ -822,7 +822,7 @@ pub fn scan_progress_tool_calls(
 ///
 /// Returns `None` if the input is not valid JSON or missing required fields.
 pub(crate) fn parse_progress_call_record(input: &str) -> Option<ProgressToolCallRecord> {
-    use closeclaw_execution::ExecutionStepStatus;
+    use closeclaw_common::ExecutionStepStatus;
     use serde_json::Value;
     let v: Value = serde_json::from_str(input).ok()?;
     let step_index = v.get("step_index")?.as_u64()? as usize;
@@ -853,6 +853,7 @@ pub(crate) fn parse_progress_call_record(input: &str) -> Option<ProgressToolCall
 /// Applies each record in order, skipping records that would violate the
 /// step state machine. Returns the reconstructed `ExecutionState` with
 /// `execution_steps` populated.
+#[cfg(test)]
 pub fn rebuild_execution_state_from_calls(
     calls: &[ProgressToolCallRecord],
 ) -> closeclaw_execution::ExecutionState {
@@ -916,6 +917,7 @@ pub fn rebuild_execution_state_from_calls(
 /// Scans calls in reverse to find the latest status for each step,
 /// then formats a summary suitable for injection into `system_appends`.
 /// Returns an empty string when `calls` is empty.
+#[cfg(test)]
 pub fn rebuild_progress_summary_from_calls(calls: &[ProgressToolCallRecord]) -> String {
     if calls.is_empty() {
         return String::new();
