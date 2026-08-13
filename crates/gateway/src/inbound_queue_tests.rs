@@ -3,7 +3,6 @@
 //! Covers: enqueue success, full-queue rejection with busy reply,
 //! FIFO ordering, consumer task dispatch, and bypass mode.
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::session_manager::SessionManager;
@@ -107,8 +106,7 @@ async fn test_try_send_full_returns_original_request() {
     let (tx, _rx) = mpsc::channel::<QueuedInbound>(1);
     let handle = InboundQueueHandle::new(tx);
     assert!(handle.try_send(queued(make_request("a"))).is_ok());
-    let err: Result<(), InboundQueueFull> =
-        handle.try_send(queued(make_request("overflow")));
+    let err: Result<(), InboundQueueFull> = handle.try_send(queued(make_request("overflow")));
     assert!(err.is_err());
     let full = err.unwrap_err();
     assert_eq!(full.request.peer_id, "p1");
@@ -119,8 +117,7 @@ async fn test_try_send_closed_channel() {
     let (tx, rx) = mpsc::channel::<QueuedInbound>(4);
     let handle = InboundQueueHandle::new(tx);
     drop(rx); // close receiver
-    let err: Result<(), InboundQueueFull> =
-        handle.try_send(queued(make_request("x")));
+    let err: Result<(), InboundQueueFull> = handle.try_send(queued(make_request("x")));
     assert!(err.is_err());
 }
 
@@ -472,9 +469,7 @@ async fn test_consumer_drops_empty_string_text() {
     let gw = make_gateway();
     gw.register_plugin(Arc::new(EmptyStringTextPlugin)).await;
     let handle = gw.start_inbound_queue();
-    handle
-        .try_send(queued(make_request("empty-str")))
-        .unwrap();
+    handle.try_send(queued(make_request("empty-str"))).unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 }
 
@@ -495,9 +490,7 @@ async fn test_consumer_passes_normal_text() {
     let gw = make_gateway();
     gw.register_plugin(Arc::new(NormalTextPlugin)).await;
     let handle = gw.start_inbound_queue();
-    handle
-        .try_send(queued(make_request("normal")))
-        .unwrap();
+    handle.try_send(queued(make_request("normal"))).unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 }
 
@@ -514,303 +507,6 @@ async fn test_fallback_passes_normal_text() {
     gw.register_plugin(Arc::new(NormalTextPlugin)).await;
     gw.enqueue_inbound(make_request("normal-fb")).await;
 }
-
-// ---------------------------------------------------------------------------
-// Step 1.3 — Webhook ack timing behavioral tests
-// ---------------------------------------------------------------------------
-
-/// A mock plugin that records the processing order of messages via
-/// an AtomicUsize slice. Each message's sequence number is stored when
-/// parse_inbound is called, and an AtomicBool signals completion.
-struct AckOrderPlugin {
-    /// Stores the sequence index for each processed message.
-    processing_order: Arc<Vec<AtomicUsize>>,
-    /// Counter: next sequence number to assign.
-    next_seq: AtomicUsize,
-    /// Per-message completion signal.
-    done_flags: Arc<Vec<AtomicBool>>,
-}
-
-impl AckOrderPlugin {
-    fn new(num_messages: usize) -> Self {
-        let mut order = Vec::with_capacity(num_messages);
-        let mut done_flags = Vec::with_capacity(num_messages);
-        for _ in 0..num_messages {
-            order.push(AtomicUsize::new(0));
-            done_flags.push(AtomicBool::new(false));
-        }
-        Self {
-            processing_order: Arc::new(order),
-            next_seq: AtomicUsize::new(0),
-            done_flags: Arc::new(done_flags),
-        }
-    }
-
-    async fn wait_done(&self, index: usize) {
-        // Yield to the consumer task between polls.
-        loop {
-            if self.done_flags[index].load(Ordering::SeqCst) {
-                return;
-            }
-            tokio::task::yield_now().await;
-        }
-    }
-}
-
-#[async_trait]
-impl IMPlugin for AckOrderPlugin {
-    fn platform(&self) -> &str {
-        "feishu"
-    }
-
-    async fn parse_inbound(
-        &self,
-        _payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, AdapterError> {
-        let seq = self.next_seq.fetch_add(1, Ordering::SeqCst);
-        if seq < self.processing_order.len() {
-            self.processing_order[seq].store(seq, Ordering::SeqCst);
-            self.done_flags[seq].store(true, Ordering::SeqCst);
-        }
-        Ok(None) // skip full processing chain
-    }
-
-    fn render(
-        &self,
-        _content_blocks: &[ContentBlock],
-        _dsl_result: Option<&DslParseResult>,
-    ) -> RenderedOutput {
-        RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({}),
-        }
-    }
-
-    async fn send(
-        &self,
-        _output: &RenderedOutput,
-        _peer_id: &str,
-        _thread_id: Option<&str>,
-    ) -> Result<(), AdapterError> {
-        Ok(()
-        )
-    }
-}
-
-/// A slow mock plugin for the concurrent test. Adds a small delay between
-/// messages to ensure the consumer processes them sequentially while
-/// producers are waiting on ack.
-struct SlowAckPlugin {
-    done_flags: Arc<Vec<AtomicBool>>,
-    next_seq: AtomicUsize,
-    num_messages: usize,
-}
-
-impl SlowAckPlugin {
-    fn new(num_messages: usize) -> Self {
-        let mut done_flags = Vec::with_capacity(num_messages);
-        for _ in 0..num_messages {
-            done_flags.push(AtomicBool::new(false));
-        }
-        Self {
-            done_flags: Arc::new(done_flags),
-            next_seq: AtomicUsize::new(0),
-            num_messages,
-        }
-    }
-
-
-}
-
-#[async_trait]
-impl IMPlugin for SlowAckPlugin {
-    fn platform(&self) -> &str {
-        "feishu"
-    }
-
-    async fn parse_inbound(
-        &self,
-        _payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, AdapterError> {
-        let idx = self.next_seq.fetch_add(1, Ordering::SeqCst);
-        // Small yield to simulate processing; consumer still sends ack before this.
-        tokio::task::yield_now().await;
-        if idx < self.num_messages {
-            self.done_flags[idx].store(true, Ordering::SeqCst);
-        }
-        Ok(None)
-    }
-
-    fn render(
-        &self,
-        _content_blocks: &[ContentBlock],
-        _dsl_result: Option<&DslParseResult>,
-    ) -> RenderedOutput {
-        RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({}),
-        }
-    }
-
-    async fn send(
-        &self,
-        _output: &RenderedOutput,
-        _peer_id: &str,
-        _thread_id: Option<&str>,
-    ) -> Result<(), AdapterError> {
-        Ok(())
-    }
-}
-
-/// Dimension 1: Normal path — enqueue_inbound blocks until consumer dequeues
-/// and sends the ack signal, then returns.
-#[tokio::test]
-async fn test_ack_normal_path_enqueue_waits_for_dequeue() {
-    let gw = make_gateway();
-    let (tx, rx) = mpsc::channel::<QueuedInbound>(4);
-    let (ack_tx, mut ack_rx) = oneshot::channel::<()>();
-    let capacity = 4;
-    start_inbound_consumer(rx, Arc::clone(&gw), capacity);
-
-    let req = make_request("ack-test");
-    let queued = QueuedInbound {
-        request: req,
-        ack_tx,
-    };
-
-    // Enqueue directly into channel (bypass Gateway's inbound_tx) so we
-    // can separately await ack_rx.
-    tx.send(queued).await.unwrap();
-
-    // ack_rx should NOT have fired yet — consumer hasn't dequeued.
-    assert!(ack_rx.try_recv().is_err());
-
-    // Wait for the consumer to process (which triggers ack).
-    // The consumer sends ack via oneshot, so ack_rx should resolve.
-    let result = tokio::time::timeout(std::time::Duration::from_secs(2), ack_rx).await;
-    assert!(result.is_ok(), "ack should have been sent by consumer");
-}
-
-/// Dimension 2: Queue full — try_send fails immediately, no ack wait.
-#[tokio::test]
-async fn test_ack_queue_full_no_wait() {
-    let (tx, _rx) = mpsc::channel::<QueuedInbound>(1);
-    let handle = InboundQueueHandle::new(tx);
-    let (ack_tx, _ack_rx) = oneshot::channel();
-
-    // Fill queue to capacity (1).
-    handle
-        .try_send(queued(make_request("fill-0")))
-        .unwrap();
-
-    // Next try_send should fail — ack_tx is dropped (no ack sent).
-    let err = handle.try_send(QueuedInbound {
-        request: make_request("overflow-ack"),
-        ack_tx,
-    });
-    assert!(err.is_err());
-    // _ack_rx was never resolved — ack was never sent.
-}
-
-/// Dimension 3: Queue closed — try_send returns Closed error immediately.
-#[tokio::test]
-async fn test_ack_queue_closed_no_wait() {
-    let (tx, rx) = mpsc::channel::<QueuedInbound>(4);
-    let handle = InboundQueueHandle::new(tx);
-    let (ack_tx, _ack_rx) = oneshot::channel();
-
-    // Close the consumer side.
-    drop(rx);
-
-    let err = handle.try_send(QueuedInbound {
-        request: make_request("closed-ack"),
-        ack_tx,
-    });
-    assert!(err.is_err());
-    // _ack_rx was never resolved.
-}
-
-/// Dimension 4: Concurrent scenario — multiple messages each wait for their
-/// own ack signal independently.
-#[tokio::test]
-async fn test_ack_concurrent_independent_acks() {
-    let config = GatewayConfig {
-        name: "test-concurrent".to_owned(),
-        rate_limit_per_minute: 0,
-        max_message_size: 0,
-        inbound_queue_capacity: 8,
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        ReasoningLevel::default(),
-    ));
-    let gw = Arc::new(Gateway::new(config, sm));
-    gw.register_plugin(Arc::new(SlowAckPlugin::new(3)) as Arc<dyn IMPlugin>)
-        .await;
-    let _handle = gw.start_inbound_queue();
-
-    // Enqueue 3 messages concurrently via tokio::spawn.
-    let gw_clone = Arc::clone(&gw);
-    let mut handles = Vec::new();
-    for i in 0..3 {
-        let gw_c = Arc::clone(&gw_clone);
-        let req = make_request(&format!("concurrent-{i}"));
-        handles.push(tokio::spawn(async move {
-            gw_c.enqueue_inbound(req).await;
-        }));
-    }
-
-    // All tasks should complete (each returns after its own ack).
-    for h in handles {
-        h.await.unwrap();
-    }
-}
-
-/// Dimension 5: FIFO ordering — ack signals are sent in the same order as
-/// messages are enqueued. First enqueued = first dequeued = first acked.
-#[tokio::test]
-async fn test_ack_fifo_order() {
-    let config = GatewayConfig {
-        name: "test-fifo".to_owned(),
-        rate_limit_per_minute: 0,
-        max_message_size: 0,
-        inbound_queue_capacity: 8,
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        ReasoningLevel::default(),
-    ));
-    let gw = Arc::new(Gateway::new(config, sm));
-    let plugin = Arc::new(AckOrderPlugin::new(5));
-    gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
-        .await;
-    let handle = gw.start_inbound_queue();
-
-    // Enqueue 5 messages through the queue directly.
-    for i in 0..5 {
-        handle
-            .try_send(queued(make_request(&format!("order-{i}"))))
-            .unwrap();
-    }
-
-    // Wait for all messages to be processed in order.
-    for i in 0..5 {
-        plugin.wait_done(i).await;
-    }
-
-    // Verify: the processing_order[i] == i (sequential FIFO).
-    for i in 0..5 {
-        let seq = plugin.processing_order[i].load(Ordering::SeqCst);
-        assert_eq!(seq, i, "message {i} should have been processed at position {i}");
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Busy reply uses simplified outbound path (Step 1.3)
 // ---------------------------------------------------------------------------
@@ -1130,9 +826,7 @@ async fn test_boundary_n_plus_one_triggers_busy_reply_text() {
         .await;
     let handle = gw.start_inbound_queue();
 
-    handle
-        .try_send(queued(make_request("first")))
-        .unwrap();
+    handle.try_send(queued(make_request("first"))).unwrap();
     gw.enqueue_inbound(make_request("second")).await;
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -1154,12 +848,8 @@ async fn test_queue_not_full_no_busy_reply() {
         .await;
     let handle = gw.start_inbound_queue();
 
-    handle
-        .try_send(queued(make_request("msg-1")))
-        .unwrap();
-    handle
-        .try_send(queued(make_request("msg-2")))
-        .unwrap();
+    handle.try_send(queued(make_request("msg-1"))).unwrap();
+    handle.try_send(queued(make_request("msg-2"))).unwrap();
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 

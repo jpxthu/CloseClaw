@@ -69,9 +69,7 @@ impl InboundQueueHandle {
             Ok(()) => Ok(()),
             Err(tokio::sync::mpsc::error::TrySendError::Full(q))
             | Err(tokio::sync::mpsc::error::TrySendError::Closed(q)) => {
-                Err(InboundQueueFull {
-                    request: q.request,
-                })
+                Err(InboundQueueFull { request: q.request })
             }
         }
     }
@@ -271,10 +269,7 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundReque
 
     // Create oneshot channel for dequeue ack.
     let (ack_tx, ack_rx) = oneshot::channel::<()>();
-    let queued = QueuedInbound {
-        request,
-        ack_tx,
-    };
+    let queued = QueuedInbound { request, ack_tx };
 
     match tx.try_send(queued) {
         Ok(()) => {

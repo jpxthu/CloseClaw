@@ -15,6 +15,8 @@ mod health_check_builders_tests;
 mod im_adapter;
 pub mod inbound_queue;
 #[cfg(test)]
+mod inbound_queue_ack_tests;
+#[cfg(test)]
 mod inbound_queue_tests;
 pub mod llm_caller_impl;
 mod memory;
