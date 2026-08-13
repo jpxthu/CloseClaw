@@ -63,9 +63,21 @@ impl PermissionSlashHandler {
         let paths: Vec<String> = parts[3..].iter().map(|s| (*s).to_owned()).collect();
 
         let operation = if allow {
-            format!("✅ 已执行：{} {} {} [{}]", parts[0], agent, op, paths.join(", "))
+            format!(
+                "✅ 已执行：{} {} {} [{}]",
+                parts[0],
+                agent,
+                op,
+                paths.join(", ")
+            )
         } else {
-            format!("✅ 已执行：{} {} {} [{}]", parts[0], agent, op, paths.join(", "))
+            format!(
+                "✅ 已执行：{} {} {} [{}]",
+                parts[0],
+                agent,
+                op,
+                paths.join(", ")
+            )
         };
 
         SlashResult::Reply(operation)
@@ -87,9 +99,21 @@ impl PermissionSlashHandler {
         let cmd_args: Vec<String> = parts[3..].iter().map(|s| (*s).to_owned()).collect();
 
         let operation = if allow {
-            format!("✅ 已执行：{} {} {} [{}]", parts[0], agent, command, cmd_args.join(", "))
+            format!(
+                "✅ 已执行：{} {} {} [{}]",
+                parts[0],
+                agent,
+                command,
+                cmd_args.join(", ")
+            )
         } else {
-            format!("✅ 已执行：{} {} {} [{}]", parts[0], agent, command, cmd_args.join(", "))
+            format!(
+                "✅ 已执行：{} {} {} [{}]",
+                parts[0],
+                agent,
+                command,
+                cmd_args.join(", ")
+            )
         };
 
         SlashResult::Reply(operation)
@@ -115,6 +139,8 @@ impl SlashHandler for PermissionSlashHandler {
     }
 
     async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
+        // In production, Gateway intercepts /perm before reaching this handler.
+        // The dispatch() path is kept for test-only invocations.
         Self::dispatch(args.trim())
     }
 }

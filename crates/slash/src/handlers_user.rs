@@ -71,36 +71,6 @@ impl UserSlashHandler {
         }
         SlashResult::Reply(lines.join("\n"))
     }
-
-    /// Parse `/user approve <request_id> [--perms <set>]`.
-    fn handle_approve(args: &str) -> SlashResult {
-        let parts: Vec<&str> = args.split_whitespace().collect();
-        if parts.is_empty() {
-            return SlashResult::Reply(format!(
-                "参数不足：approve 需要 <request_id>\n\n{}",
-                Self::usage()
-            ));
-        }
-        SlashResult::Reply(format!(
-            "✅ 用户注册审批请求已转发至 Gateway（请求 ID: {}）",
-            parts[0]
-        ))
-    }
-
-    /// Parse `/user reject <request_id>`.
-    fn handle_reject(args: &str) -> SlashResult {
-        let parts: Vec<&str> = args.split_whitespace().collect();
-        if parts.is_empty() {
-            return SlashResult::Reply(format!(
-                "参数不足：reject 需要 <request_id>\n\n{}",
-                Self::usage()
-            ));
-        }
-        SlashResult::Reply(format!(
-            "✅ 用户注册拒绝请求已转发至 Gateway（请求 ID: {}）",
-            parts[0]
-        ))
-    }
 }
 
 #[async_trait::async_trait]
@@ -129,8 +99,10 @@ impl SlashHandler for UserSlashHandler {
         }
         match parts[0] {
             "list" => self.handle_list().await,
-            "approve" => Self::handle_approve(args.trim_start_matches("approve").trim()),
-            "reject" => Self::handle_reject(args.trim_start_matches("reject").trim()),
+            // Gateway intercepts /user approve and /user reject before
+            // reaching this handler; these arms are unreachable in practice.
+            "approve" => unreachable!("/user approve is intercepted by Gateway"),
+            "reject" => unreachable!("/user reject is intercepted by Gateway"),
             other => SlashResult::Reply(format!("未知子命令：{other}\n\n{}", Self::usage())),
         }
     }

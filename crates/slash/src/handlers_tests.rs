@@ -1,5 +1,6 @@
 //! Unit tests for built-in handlers (Step 1.6) and registry/dispatcher helpers.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -276,7 +277,7 @@ pub(crate) async fn create_test_session(sm: &SessionManager) -> String {
         content: "hello".to_string(),
         channel: "feishu".to_string(),
         timestamp: 0,
-        metadata: std::collections::HashMap::new(),
+        metadata: HashMap::new(),
         thread_id: None,
         platform: None,
         dsl_result: None,

@@ -4,6 +4,7 @@
 //! from a cleaned transcript via LLM. Miner 2 assigns entities to each
 //! event from the entity/type catalog. Results are written to SQLite.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
@@ -161,7 +162,7 @@ struct DbReadData {
     /// Entity/type catalog text for Miner 2.
     catalog: String,
     /// Entity type → similarity_threshold mapping.
-    type_thresholds: std::collections::HashMap<String, f64>,
+    type_thresholds: HashMap<String, f64>,
 }
 
 /// Memory miner — extracts structured entries from session transcripts.
@@ -631,8 +632,7 @@ pub(crate) fn load_entity_catalog(
         .collect();
 
     // Group entities by type.
-    let mut entities_by_type: std::collections::HashMap<String, Vec<(String, String)>> =
-        std::collections::HashMap::new();
+    let mut entities_by_type: HashMap<String, Vec<(String, String)>> = HashMap::new();
     let mut extra_types: std::collections::HashSet<String> = std::collections::HashSet::new();
     for (typ, name, desc) in entities {
         entities_by_type
@@ -677,7 +677,7 @@ pub(crate) fn load_entity_catalog(
 /// "subject") and values are the similarity_threshold thresholds.
 pub(crate) fn load_entity_type_thresholds(
     conn: &rusqlite::Connection,
-) -> Result<std::collections::HashMap<String, f64>, MinerError> {
+) -> Result<HashMap<String, f64>, MinerError> {
     let sql = "SELECT type, similarity_threshold FROM entity_types WHERE is_active = 1";
     let mut stmt = conn
         .prepare(sql)
@@ -687,7 +687,7 @@ pub(crate) fn load_entity_type_thresholds(
             Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
         })
         .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-    let mut map = std::collections::HashMap::new();
+    let mut map = HashMap::new();
     for row in rows {
         let (typ, threshold) = row.map_err(|e| MinerError::Sqlite(e.to_string()))?;
         map.insert(typ, threshold);

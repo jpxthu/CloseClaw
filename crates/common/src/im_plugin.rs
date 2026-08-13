@@ -264,8 +264,8 @@ pub trait IMPlugin: Send + Sync {
     /// the gateway metadata layer) should override this method.
     ///
     /// The default implementation returns an empty map.
-    fn last_parsed_metadata(&self) -> std::collections::HashMap<String, String> {
-        std::collections::HashMap::new()
+    fn last_parsed_metadata(&self) -> HashMap<String, String> {
+        HashMap::new()
     }
 
     /// Parse an inbound webhook payload into a [`CardActionEvent`].

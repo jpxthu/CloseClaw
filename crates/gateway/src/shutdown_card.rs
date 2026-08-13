@@ -7,6 +7,7 @@ use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_llm::session_state::LlmState;
 use serde_json::json;
+use std::collections::HashMap;
 
 use super::Gateway;
 
@@ -119,8 +120,7 @@ impl Gateway {
         if sessions.is_empty() {
             return;
         }
-        let mut chats: std::collections::HashMap<String, Vec<String>> =
-            std::collections::HashMap::new();
+        let mut chats: HashMap<String, Vec<String>> = HashMap::new();
         for session in &sessions {
             if let Some(chat_id) = self.session_manager.get_chat_id(&session.id).await {
                 chats.entry(chat_id).or_default().push(session.id.clone());
@@ -161,8 +161,7 @@ impl Gateway {
         }
 
         // First pass: group sessions by chat_id, drop read lock before second pass.
-        let mut chats: std::collections::HashMap<String, Vec<String>> =
-            std::collections::HashMap::new();
+        let mut chats: HashMap<String, Vec<String>> = HashMap::new();
         for session in &sessions {
             if let Some(chat_id) = self.session_manager.get_chat_id(&session.id).await {
                 chats.entry(chat_id).or_default().push(session.id.clone());
@@ -325,8 +324,7 @@ impl Gateway {
             return;
         }
 
-        let mut chats: std::collections::HashMap<String, Vec<String>> =
-            std::collections::HashMap::new();
+        let mut chats: HashMap<String, Vec<String>> = HashMap::new();
         for session in &sessions {
             if let Some(chat_id) = self.session_manager.get_chat_id(&session.id).await {
                 chats.entry(chat_id).or_default().push(session.id.clone());
@@ -416,8 +414,7 @@ impl Gateway {
             return;
         }
 
-        let mut chats: std::collections::HashMap<String, Vec<String>> =
-            std::collections::HashMap::new();
+        let mut chats: HashMap<String, Vec<String>> = HashMap::new();
         for session in &sessions {
             if let Some(chat_id) = self.session_manager.get_chat_id(&session.id).await {
                 chats.entry(chat_id).or_default().push(session.id.clone());
