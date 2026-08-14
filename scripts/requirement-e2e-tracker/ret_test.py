@@ -43,7 +43,6 @@ with mock.patch("subprocess.check_output", side_effect=_patched_check_output):
 ret.REPO_ROOT = Path(_FAKE_REPO)
 ret.RECORDS_FILE = Path(_FAKE_REPO) / "records.json"
 ret.REQUIREMENTS_DIR = Path(_FAKE_REPO) / "docs" / "requirements"
-ret.DESIGN_DOC_DIR = Path(_FAKE_REPO) / "docs" / "design"
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +117,7 @@ class TestLoadSaveRecords(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Tests – _discover_modules / _module_docs
+# Tests – _discover_modules / _requirement_doc
 # ---------------------------------------------------------------------------
 
 
@@ -126,18 +125,15 @@ class TestModuleDiscovery(unittest.TestCase):
     def setUp(self):
         self._orig_repo = ret.REPO_ROOT
         self._orig_req = ret.REQUIREMENTS_DIR
-        self._orig_design = ret.DESIGN_DOC_DIR
         self._tmpdir = tempfile.mkdtemp(prefix="ret_discover_")
         self._fake_repo = Path(self._tmpdir) / "repo"
         self._fake_repo.mkdir()
         ret.REPO_ROOT = self._fake_repo
         ret.REQUIREMENTS_DIR = self._fake_repo / "docs" / "requirements"
-        ret.DESIGN_DOC_DIR = self._fake_repo / "docs" / "design"
 
     def tearDown(self):
         ret.REPO_ROOT = self._orig_repo
         ret.REQUIREMENTS_DIR = self._orig_req
-        ret.DESIGN_DOC_DIR = self._orig_design
         shutil.rmtree(self._tmpdir)
 
     def test_discover_modules_excludes_meta(self):
@@ -160,30 +156,15 @@ class TestModuleDiscovery(unittest.TestCase):
         modules = ret._discover_modules()
         self.assertEqual(modules, [])
 
-    def test_module_docs_requirement_only(self):
+    def test_requirement_doc(self):
         ret.REQUIREMENTS_DIR.mkdir(parents=True)
         (ret.REQUIREMENTS_DIR / "agent.md").write_text("# agent")
-        docs = [str(d) for d in ret._module_docs("agent")]
-        self.assertEqual(docs, ["docs/requirements/agent.md"])
+        doc = ret._requirement_doc("agent")
+        self.assertEqual(str(doc), "docs/requirements/agent.md")
 
-    def test_module_docs_with_design_dir(self):
+    def test_requirement_doc_missing(self):
         ret.REQUIREMENTS_DIR.mkdir(parents=True)
-        (ret.REQUIREMENTS_DIR / "agent.md").write_text("# agent")
-        design = ret.DESIGN_DOC_DIR / "agent"
-        design.mkdir(parents=True)
-        (design / "config.md").write_text("# config")
-        sub = design / "sub"
-        sub.mkdir()
-        (sub / "nested.md").write_text("# nested")
-
-        docs = sorted(str(d) for d in ret._module_docs("agent"))
-        self.assertIn("docs/requirements/agent.md", docs)
-        self.assertIn("docs/design/agent/config.md", docs)
-        self.assertIn("docs/design/agent/sub/nested.md", docs)
-        self.assertEqual(len(docs), 3)
-
-    def test_module_docs_unknown_module_empty(self):
-        self.assertEqual(ret._module_docs("nope"), [])
+        self.assertIsNone(ret._requirement_doc("nope"))
 
 
 # ---------------------------------------------------------------------------
@@ -196,29 +177,22 @@ class TestCmdFinished(unittest.TestCase):
         self._orig_repo = ret.REPO_ROOT
         self._orig_records = ret.RECORDS_FILE
         self._orig_req = ret.REQUIREMENTS_DIR
-        self._orig_design = ret.DESIGN_DOC_DIR
         self._tmpdir = tempfile.mkdtemp(prefix="ret_finished_")
         self._fake_repo = Path(self._tmpdir) / "repo"
         self._fake_repo.mkdir()
         ret.REPO_ROOT = self._fake_repo
         ret.RECORDS_FILE = self._fake_repo / "records.json"
         ret.REQUIREMENTS_DIR = self._fake_repo / "docs" / "requirements"
-        ret.DESIGN_DOC_DIR = self._fake_repo / "docs" / "design"
 
     def tearDown(self):
         ret.REPO_ROOT = self._orig_repo
         ret.RECORDS_FILE = self._orig_records
         ret.REQUIREMENTS_DIR = self._orig_req
-        ret.DESIGN_DOC_DIR = self._orig_design
         shutil.rmtree(self._tmpdir)
 
-    def _create_module(self, module: str, with_design: bool = False):
+    def _create_module(self, module: str):
         ret.REQUIREMENTS_DIR.mkdir(parents=True, exist_ok=True)
         (ret.REQUIREMENTS_DIR / f"{module}.md").write_text(f"# {module}")
-        if with_design:
-            design = ret.DESIGN_DOC_DIR / module
-            design.mkdir(parents=True)
-            (design / "config.md").write_text("# config")
 
     def test_finished_unknown_module_errors(self):
         args = _make_args(module="nope")
@@ -247,7 +221,7 @@ class TestCmdFinished(unittest.TestCase):
         self.assertIn("merge-base", buf.getvalue())
 
     def test_finished_happy_path(self):
-        self._create_module("agent", with_design=True)
+        self._create_module("agent")
         args = _make_args(module="agent")
         import io, sys
         old_stdout = sys.stdout
@@ -397,29 +371,22 @@ class TestCmdCheck(unittest.TestCase):
         self._orig_repo = ret.REPO_ROOT
         self._orig_records = ret.RECORDS_FILE
         self._orig_req = ret.REQUIREMENTS_DIR
-        self._orig_design = ret.DESIGN_DOC_DIR
         self._tmpdir = tempfile.mkdtemp(prefix="ret_check_")
         self._fake_repo = Path(self._tmpdir) / "repo"
         self._fake_repo.mkdir()
         ret.REPO_ROOT = self._fake_repo
         ret.RECORDS_FILE = self._fake_repo / "records.json"
         ret.REQUIREMENTS_DIR = self._fake_repo / "docs" / "requirements"
-        ret.DESIGN_DOC_DIR = self._fake_repo / "docs" / "design"
 
     def tearDown(self):
         ret.REPO_ROOT = self._orig_repo
         ret.RECORDS_FILE = self._orig_records
         ret.REQUIREMENTS_DIR = self._orig_req
-        ret.DESIGN_DOC_DIR = self._orig_design
         shutil.rmtree(self._tmpdir)
 
-    def _create_module(self, module: str, with_design: bool = False):
+    def _create_module(self, module: str):
         ret.REQUIREMENTS_DIR.mkdir(parents=True, exist_ok=True)
         (ret.REQUIREMENTS_DIR / f"{module}.md").write_text(f"# {module}")
-        if with_design:
-            design = ret.DESIGN_DOC_DIR / module
-            design.mkdir(parents=True)
-            (design / "config.md").write_text("# config")
 
     def _write_records(self, records):
         _write_json(ret.RECORDS_FILE, records)
@@ -512,8 +479,8 @@ class TestCmdCheck(unittest.TestCase):
         mock_run.assert_not_called()
         self.assertIn("agent", out)
 
-    def test_diff_command_includes_requirement_and_design(self):
-        self._create_module("agent", with_design=True)
+    def test_diff_command_tracks_requirement_only(self):
+        self._create_module("agent")
         self._write_records([{"module": "agent", "commit": "aaa111"}])
         args = _make_args()
         seen = {}
@@ -529,7 +496,7 @@ class TestCmdCheck(unittest.TestCase):
         self.assertEqual(rc, 0)
         cmd_str = " ".join(seen["cmd"])
         self.assertIn("docs/requirements/agent.md", cmd_str)
-        self.assertIn("docs/design/agent/config.md", cmd_str)
+        self.assertNotIn("docs/design", cmd_str)
 
     def test_blocked_unchanged_not_reported(self):
         self._create_module("agent")

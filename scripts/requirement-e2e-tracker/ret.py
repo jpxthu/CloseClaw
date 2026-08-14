@@ -4,8 +4,14 @@ Requirement E2E Tracker (ret) – track test-case discovery status per module.
 
 A *module* is the unit of tracking.  A module is defined by its requirement
 doc ``docs/requirements/<module>.md`` (``README.md`` / ``STANDARDS.md`` are
-not modules), plus every ``.md`` file under ``docs/design/<module>/``.
-When any of those docs change, the module's test cases must be rediscovered.
+not modules).  When that requirement doc changes, the module's test cases
+must be rediscovered.
+
+Design docs are intentionally NOT tracked: e2e test cases verify the
+user-observable behavior defined by requirement docs, while design docs are
+internal architecture that a black-box e2e test cannot observe.  A requirement
+change implies a behavior change (cases need rediscovery); a design change
+with an unchanged requirement does not.
 
 Commands
 --------
@@ -25,10 +31,10 @@ Commands
 
 - ``check``
     Scan every module (derived from ``docs/requirements/*.md``) and report
-    any whose requirement/design docs changed since their last confirmation,
-    or that have never been tracked.  Blocked modules that have NOT been
-    updated are silently skipped; blocked modules that HAVE been updated are
-    auto-unblocked and reported as normal changes.
+    any whose requirement doc changed since their last confirmation, or that
+    have never been tracked.  Blocked modules that have NOT been updated are
+    silently skipped; blocked modules that HAVE been updated are auto-unblocked
+    and reported as normal changes.
 
 records.json lives alongside this script.  Each record has the fields:
 ``module``, ``commit``, ``commit_time``, ``confirmed_time``, ``comment``,
@@ -50,7 +56,6 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from _tracker_core import (  # noqa: E402
-    collect_md_files,
     commit_committer_date,
     diff_quiet_changed,
     load_records,
@@ -71,7 +76,6 @@ REPO_ROOT = Path(
 )
 RECORDS_FILE = SCRIPT_DIR / "records.json"
 REQUIREMENTS_DIR = REPO_ROOT / "docs" / "requirements"
-DESIGN_DOC_DIR = REPO_ROOT / "docs" / "design"
 
 # Requirement files that are not modules.
 EXCLUDED_REQUIREMENTS = frozenset({"README.md", "STANDARDS.md"})
@@ -132,25 +136,23 @@ def _discover_modules() -> List[str]:
     return modules
 
 
-def _module_docs(module: str) -> List[Path]:
-    """Return the repo-relative ``.md`` paths tracked for *module*.
+def _requirement_doc(module: str) -> Path | None:
+    """Return the repo-relative path of ``docs/requirements/<module>.md``.
 
-    The tracked set is ``docs/requirements/<module>.md`` plus every ``.md``
-    file under ``docs/design/<module>/`` (recursively).
+    Returns ``None`` when the requirement doc does not exist.
     """
-    docs: List[Path] = []
     req = REQUIREMENTS_DIR / f"{module}.md"
     if req.is_file():
-        docs.append(Path(str(req.relative_to(REPO_ROOT))))
-    design_dir = DESIGN_DOC_DIR / module
-    if design_dir.is_dir():
-        docs.extend(collect_md_files(REPO_ROOT, design_dir))
-    return docs
+        return Path(str(req.relative_to(REPO_ROOT)))
+    return None
 
 
-def _module_changed(commit: str, docs: List[Path]) -> bool:
-    """Return True when any tracked doc changed between *commit* and HEAD."""
-    return diff_quiet_changed(_run, commit, [str(d) for d in docs])
+def _module_changed(commit: str, module: str) -> bool:
+    """Return True when the module's requirement doc changed since *commit*."""
+    doc = _requirement_doc(module)
+    if doc is None:
+        return False
+    return diff_quiet_changed(_run, commit, [str(doc)])
 
 
 # ── sub-commands ─────────────────────────────────────────────────────────
@@ -159,10 +161,9 @@ def _module_changed(commit: str, docs: List[Path]) -> bool:
 def cmd_finished(args: SimpleNamespace) -> int:
     module = args.module
 
-    docs = _module_docs(module)
-    if not docs:
+    if _requirement_doc(module) is None:
         print(
-            f"Error: no requirement/design docs found for module '{module}'",
+            f"Error: no requirement doc found for module '{module}'",
             file=sys.stderr,
         )
         return 1
@@ -190,7 +191,7 @@ def cmd_finished(args: SimpleNamespace) -> int:
     )
 
     _save_records(records)
-    print(f"Recorded test-case discovery for module '{module}' ({len(docs)} doc(s))")
+    print(f"Recorded test-case discovery for module '{module}'")
     return 0
 
 
@@ -243,9 +244,6 @@ def cmd_check(args: SimpleNamespace) -> int:
     changed: List[str] = []
 
     for module in _discover_modules():
-        docs = _module_docs(module)
-        if not docs:
-            continue
         rec = record_map.get(module)
         if rec is None:
             # no record → untracked
@@ -261,8 +259,8 @@ def cmd_check(args: SimpleNamespace) -> int:
                 record_map = {r["module"]: r for r in records}
             changed.append(module)
             continue
-        if _module_changed(rec["commit"], docs):
-            # requirement/design docs changed since last confirmation
+        if _module_changed(rec["commit"], module):
+            # requirement doc changed since last confirmation
             blocked = rec.get("blocked_reason", "")
             if blocked:
                 # blocked module updated → auto-unblock
@@ -328,7 +326,7 @@ def blocked_cmd(module: str, reason: str) -> int:
 
 @main.command(name="check")
 def check_cmd() -> int:
-    """扫描所有模块，报告需求/设计文档变更或未跟踪的模块。"""
+    """扫描所有模块，报告需求文档变更或未跟踪的模块。"""
     return cmd_check(SimpleNamespace())
 
 
