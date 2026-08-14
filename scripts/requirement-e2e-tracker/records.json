@@ -1,1 +1,10 @@
-[]
+[
+  {
+    "module": "cli",
+    "commit": "fc4b22f05bd43fe4035f9a029a4c235d22257aaa",
+    "commit_time": "2026-08-14T15:05:02+08:00",
+    "confirmed_time": "2026-08-14T15:42:56.647014+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  }
+]
