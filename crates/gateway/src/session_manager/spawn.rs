@@ -438,7 +438,9 @@ impl SessionManager {
     async fn terminate_and_persist_session(&self, session_id: &str) {
         if let Some(cs) = self.get_conversation_session(session_id).await {
             // Snapshot transcript state before stop clears exec state.
-            cs.write().await.snapshot_current_state(TranscriptOp::Rewrite, "kill");
+            cs.write()
+                .await
+                .snapshot_current_state(TranscriptOp::Rewrite, "kill");
             // Stop: cascade + force_kill + cancel + clear_exec_state.
             cs.read()
                 .await
@@ -446,7 +448,10 @@ impl SessionManager {
                 .await;
         }
         // Persist checkpoint after stop but before memory removal.
-        if let Err(e) = self.persist_checkpoint_with_pending(session_id, Vec::new()).await {
+        if let Err(e) = self
+            .persist_checkpoint_with_pending(session_id, Vec::new())
+            .await
+        {
             warn!(
                 session_id = %session_id,
                 error = %e,
