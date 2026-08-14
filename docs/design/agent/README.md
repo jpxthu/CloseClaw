@@ -57,7 +57,7 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 |------|------|
 | `agent-config.md` | Agent JSON 配置档案：字段定义、存储位置、加载优先级、字段级合并 |
 | `agent-registry.md` | AgentRegistry 运行时配置查询入口：populate / get / reload 接口、数据流 |
-| `agent-spawn.md` | Spawn 机制、Fork 模式、Steer/Kill、Announce 回传、Depth 追踪、Spawn 树形拓扑（存储/查询/级联 Kill/重启恢复） |
+| `agent-spawn.md` | Spawn 机制、Fork 模式、Steer/Kill、Announce 回传、Depth 追踪、通信配置（spawn_tree 运行时拓扑见 session/spawn-tree.md） |
 | `agent-permissions.md` | 权限沿 spawn 链路继承、workspace 路径授权 |
 
 ## 数据流
@@ -104,6 +104,7 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 |------|---------|
 | Config | 扫描 agent 配置目录，加载并合并所有 agent 配置档案，产出 ResolvedAgentConfig 供 Daemon 填充注册表 |
 | Gateway/Daemon | 查询注册表获取目标 agent 的完整配置，以 agent 配置为输入触发 session 创建 |
+| Session | 驱动 spawn 编排：注册 sessions_spawn 工具、触发 SpawnValidator 前置检查、经 SpawnController 创建子 session（详见 agent-spawn.md） |
 
 ### 下游（消费 Agent 配置档案产出数据）
 

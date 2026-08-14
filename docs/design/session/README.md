@@ -22,6 +22,7 @@ Session 模块是 CloseClaw 的运行时载体，管理 session 的全生命周�
 | [compact-process.md](compact-process.md) | 会话上下文压缩：触发机制、LLM summarization、system prompt 隔离保护 |
 | [llm-session-enhancements.md](llm-session-enhancements.md) | LLM 交互增强：流式输出、Reasoning Level 控制、用量统计、Thinking 内容管理 |
 | [session-tools.md](session-tools.md) | 对外工具：sessions_spawn / sessions_steer / sessions_kill 的参数、行为、向 ToolRegistry 注册 |
+| [spawn-tree.md](spawn-tree.md) | 父子 session 运行时关系（spawn_tree）：存储结构、查询接口、节点回收与 GC 兜底、级联 Kill、生命周期联动、重启恢复 |
 | [run-health.md](run-health.md) | 运行时安全网：turn 边界健康检测（硬规则 + Hook 审查）、运行快照创建与回滚 |
 | [session-recovery.md](session-recovery.md) | 重启恢复：dirty 检测、恢复通知注入、工具调用失败模拟、出站消息补投、树状恢复策略 |
 
