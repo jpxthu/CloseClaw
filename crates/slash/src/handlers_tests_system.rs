@@ -1,5 +1,6 @@
 //! Tests for `/system list` and `/system` (no args) branches.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::context::SlashContext;
@@ -37,7 +38,7 @@ async fn create_test_session(sm: &SessionManager) -> String {
         content: "hello".to_string(),
         channel: "feishu".to_string(),
         timestamp: 0,
-        metadata: std::collections::HashMap::new(),
+        metadata: HashMap::new(),
         thread_id: None,
         platform: None,
         dsl_result: None,

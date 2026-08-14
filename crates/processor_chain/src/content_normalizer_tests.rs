@@ -89,17 +89,13 @@ fn make_normalized(content: &str) -> NormalizedMessage {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     }
 }
 
 /// Helper: create a MessageContext with pre-populated metadata
 /// (simulating upstream SessionRouter output).
-fn make_ctx_with_metadata(
-    content: &str,
-    metadata: std::collections::HashMap<String, String>,
-) -> MessageContext {
+fn make_ctx_with_metadata(content: &str, metadata: HashMap<String, String>) -> MessageContext {
     let msg = make_normalized(content);
     let mut ctx = MessageContext::from_normalized(msg);
     ctx.metadata = metadata;
@@ -110,7 +106,7 @@ fn make_ctx_with_metadata(
 /// and a specific message type.
 fn make_ctx_with_metadata_and_type(
     content: &str,
-    metadata: std::collections::HashMap<String, String>,
+    metadata: HashMap<String, String>,
     message_type: MessageType,
 ) -> MessageContext {
     let msg = make_normalized_with_type(content, message_type);
@@ -145,7 +141,6 @@ fn make_normalized_with_type(content: &str, message_type: MessageType) -> Normal
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
         ..Default::default()
     }
 }
@@ -185,14 +180,13 @@ async fn test_process_audio_skips_normalization() {
 }
 
 #[tokio::test]
-async fn test_process_other_skips_normalization() {
+async fn test_process_unknown_type_skips_normalization() {
     let processor = ContentNormalizer::new();
     let meta = sample_metadata();
-    let ctx =
-        make_ctx_with_metadata_and_type("sticker   ", meta, MessageType::Other("sticker".into()));
+    let ctx = make_ctx_with_metadata_and_type("sticker   ", meta, MessageType::Text);
     let result = processor.process(&ctx).await.unwrap().unwrap();
-    // Non-text types return content as-is, trailing spaces preserved
-    assert_eq!(result.text_content(), Some("sticker   "));
+    // Text type goes through normalization (trailing spaces trimmed)
+    assert_eq!(result.text_content(), Some("sticker"));
     // Metadata preserved from input context
     assert!(result.metadata.contains_key("session_key"));
 }
@@ -460,8 +454,8 @@ fn test_strip_platform_residue_nested_xml_like_surrounding() {
 // Metadata preservation (per design doc: "ContentNormalizer 保留 metadata 不变")
 // -------------------------------------------------------------------------
 
-fn sample_metadata() -> std::collections::HashMap<String, String> {
-    let mut m = std::collections::HashMap::new();
+fn sample_metadata() -> HashMap<String, String> {
+    let mut m = HashMap::new();
     m.insert("session_key".into(), "12345-feishu".into());
     m.insert("platform".into(), "feishu".into());
     m.insert("sender_id".into(), "ou_abc".into());

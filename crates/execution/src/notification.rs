@@ -5,7 +5,7 @@
 //! - **JSON**: Full structured payload.
 //! - **Tag format**: `[STEP:0][STATUS:completed][SUMMARY:...]` markers.
 
-use closeclaw_common::ExecutionStepStatus;
+use crate::ExecutionStepStatus;
 use serde::Deserialize;
 
 use crate::types::SubAgentResult;

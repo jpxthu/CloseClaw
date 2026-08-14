@@ -6,12 +6,14 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use closeclaw_common::{ExecutionStepStatus, NoopNotifier, PlanState};
+use closeclaw_common::NoopNotifier;
 use closeclaw_execution::error::ExecutionError;
 use closeclaw_execution::event::ExecutionEvent;
 use closeclaw_execution::spawn::SpawnAdapter;
 use closeclaw_execution::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 use closeclaw_execution::ExecutionEngine;
+use closeclaw_execution::ExecutionState;
+use closeclaw_execution::ExecutionStepStatus;
 
 // ---------------------------------------------------------------------------
 // Mock adapters
@@ -125,7 +127,7 @@ fn new_engine_with_config(
     adapter: impl SpawnAdapter + 'static,
     config: ExecutionConfig,
 ) -> ExecutionEngine<impl SpawnAdapter> {
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None)
 }
 
@@ -202,7 +204,7 @@ async fn test_failure_stops_subsequent_steps() {
 async fn test_spawn_all_steps_single_spawn() {
     let adapter = CallRecordingMock::new(success_result(0, "all done"));
     let calls = adapter.calls.clone();
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(
         plan_state,
         spawn_all_config(),
@@ -366,7 +368,7 @@ async fn test_plan_state_updated_after_full_execution() {
         Ok(success_result(0, "done")),
         Ok(success_result(1, "done")),
     ]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(
         plan_state.clone(),
         spawn_per_step_config(),

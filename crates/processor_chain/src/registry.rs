@@ -139,8 +139,6 @@ fn synthetic_from_output(output: &ProcessedMessage) -> NormalizedMessage {
         media_refs: Vec::new(),
         thread_id: None,
         account_id: String::new(),
-        chat_name: String::new(),
-        ..Default::default()
     }
 }
 
@@ -323,8 +321,6 @@ impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
                 media_refs: Vec::new(),
                 thread_id: None,
                 account_id: String::new(),
-                chat_name: String::new(),
-                ..Default::default()
             },
         );
         ctx.metadata = msg.metadata.clone();

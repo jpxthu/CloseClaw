@@ -384,21 +384,27 @@ async fn test_audio_message_intercepted() {
     assert_eq!(plugin.send_count(), 1, "error reply should be sent");
 }
 
-/// Unknown type `Other("video")` is also intercepted.
-/// No session registration needed — interception before session resolution.
+/// Unknown type string (e.g. "video") now maps to Text via `From<&str>`,
+/// so it is NOT intercepted — same as any text message.
 #[tokio::test]
-async fn test_other_message_type_intercepted() {
+async fn test_unknown_type_string_maps_to_text_not_intercepted() {
     let (gw, plugin) = make_gw("mock").await;
-    let msg = make_message("agent-1", "");
+    let msg = make_message("agent-1", "hello");
+    register_session(gw.session_manager(), "mock", &msg).await;
 
-    let other_type = MessageType::Other("video".to_string());
-    let processed = make_processed(&msg, "mock", "", Some(&other_type));
+    // "video" via From<&str> maps to MessageType::Text
+    let text_type: MessageType = "video".into();
+    assert_eq!(text_type, MessageType::Text);
+
+    let processed = make_processed(&msg, "mock", "hello", Some(&text_type));
     let result: Option<HandleResult> = gw
         .handle_inbound_message(processed, Some("ou_sender"), "mock")
         .await;
 
-    assert!(result.is_none(), "Other(video) should return None");
-    assert_eq!(plugin.send_count(), 1, "error reply should be sent");
+    // Text message goes through normal routing (not intercepted).
+    // Returns None only because no handler is configured — same as test_text_message_not_intercepted.
+    assert!(result.is_none(), "no handler configured -> None");
+    assert_eq!(plugin.send_count(), 0, "no error reply for text");
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

@@ -2,20 +2,28 @@
 
 use super::progress::ProgressTool;
 use crate::{Tool, ToolCallError};
-use closeclaw_common::{ExecutionStepStatus, PlanState};
+use closeclaw_common::PlanState;
+use closeclaw_execution::{
+    get_step_status, init_execution_steps, DefaultPlanStateWriter, ExecutionState,
+    ExecutionStepStatus, PlanStateWriter,
+};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 
-/// Helper: create a ProgressTool with an initialized 3-step PlanState.
-fn make_tool() -> (ProgressTool, Arc<Mutex<PlanState>>) {
-    let mut ps = PlanState::new();
-    ps.init_execution_steps(vec!["Step 1".into(), "Step 2".into(), "Step 3".into()]);
-    let ps = Arc::new(Mutex::new(ps));
-    let tool = ProgressTool::new(Arc::clone(&ps));
-    (tool, ps)
-}
-
 use super::test_helpers::test_ctx;
+
+/// Helper: create a ProgressTool with an initialized 3-step ExecutionState.
+fn make_tool() -> (ProgressTool, Arc<Mutex<ExecutionState>>) {
+    let mut es = ExecutionState::new();
+    init_execution_steps(
+        &mut es,
+        vec!["Step 1".into(), "Step 2".into(), "Step 3".into()],
+    );
+    let es = Arc::new(Mutex::new(es));
+    let ps = Arc::new(Mutex::new(PlanState::new()));
+    let tool = ProgressTool::new(Arc::clone(&es), ps);
+    (tool, es)
+}
 
 #[tokio::test]
 async fn test_progress_tool_name_group() {
@@ -42,7 +50,7 @@ async fn test_progress_tool_flags() {
 
 #[tokio::test]
 async fn test_progress_tool_valid_transition_in_progress() {
-    let (tool, ps) = make_tool();
+    let (tool, es) = make_tool();
     let result = tool
         .call(
             json!({"step_index": 0, "status": "in_progress"}),
@@ -51,14 +59,14 @@ async fn test_progress_tool_valid_transition_in_progress() {
         .await;
     assert!(result.is_ok());
     assert_eq!(
-        *ps.lock().unwrap().get_step_status(0).unwrap(),
+        *get_step_status(&es.lock().unwrap(), 0).unwrap(),
         ExecutionStepStatus::InProgress
     );
 }
 
 #[tokio::test]
 async fn test_progress_tool_valid_transition_completed() {
-    let (tool, ps) = make_tool();
+    let (tool, es) = make_tool();
     // pending → in_progress
     tool.call(
         json!({"step_index": 0, "status": "in_progress"}),
@@ -72,14 +80,14 @@ async fn test_progress_tool_valid_transition_completed() {
         .await;
     assert!(result.is_ok());
     assert_eq!(
-        *ps.lock().unwrap().get_step_status(0).unwrap(),
+        *get_step_status(&es.lock().unwrap(), 0).unwrap(),
         ExecutionStepStatus::Completed
     );
 }
 
 #[tokio::test]
 async fn test_progress_tool_valid_transition_failed() {
-    let (tool, ps) = make_tool();
+    let (tool, es) = make_tool();
     tool.call(
         json!({"step_index": 0, "status": "in_progress"}),
         &test_ctx(),
@@ -91,14 +99,14 @@ async fn test_progress_tool_valid_transition_failed() {
         .await;
     assert!(result.is_ok());
     assert_eq!(
-        *ps.lock().unwrap().get_step_status(0).unwrap(),
+        *get_step_status(&es.lock().unwrap(), 0).unwrap(),
         ExecutionStepStatus::Failed
     );
 }
 
 #[tokio::test]
 async fn test_progress_tool_retry_after_failure() {
-    let (tool, ps) = make_tool();
+    let (tool, es) = make_tool();
     // pending → in_progress
     tool.call(
         json!({"step_index": 0, "status": "in_progress"}),
@@ -119,14 +127,14 @@ async fn test_progress_tool_retry_after_failure() {
         .await;
     assert!(result.is_ok());
     assert_eq!(
-        *ps.lock().unwrap().get_step_status(0).unwrap(),
+        *get_step_status(&es.lock().unwrap(), 0).unwrap(),
         ExecutionStepStatus::InProgress
     );
 }
 
 #[tokio::test]
 async fn test_progress_tool_completed_cannot_go_back() {
-    let (tool, _ps) = make_tool();
+    let (tool, _es) = make_tool();
     tool.call(
         json!({"step_index": 0, "status": "in_progress"}),
         &test_ctx(),
@@ -181,7 +189,7 @@ async fn test_progress_tool_skip_step_rejected() {
 
 #[tokio::test]
 async fn test_progress_tool_out_of_bounds() {
-    let (tool, _ps) = make_tool();
+    let (tool, _es) = make_tool();
     let result = tool
         .call(
             json!({"step_index": 10, "status": "in_progress"}),
@@ -227,20 +235,20 @@ async fn test_progress_tool_unknown_status() {
 
 #[tokio::test]
 async fn test_progress_tool_skip_from_pending() {
-    let (tool, ps) = make_tool();
+    let (tool, es) = make_tool();
     let result = tool
         .call(json!({"step_index": 0, "status": "skipped"}), &test_ctx())
         .await;
     assert!(result.is_ok());
     assert_eq!(
-        *ps.lock().unwrap().get_step_status(0).unwrap(),
+        *get_step_status(&es.lock().unwrap(), 0).unwrap(),
         ExecutionStepStatus::Skipped
     );
 }
 
 #[tokio::test]
 async fn test_progress_tool_full_flow() {
-    let (tool, ps) = make_tool();
+    let (tool, es) = make_tool();
     let ctx = test_ctx();
 
     // Step 0: in_progress → completed
@@ -271,7 +279,7 @@ async fn test_progress_tool_full_flow() {
         .await
         .unwrap();
 
-    // Step 2: in_progress → skipped
+    // Step 2: in_progress → completed
     tool.call(json!({"step_index": 2, "status": "in_progress"}), &ctx)
         .await
         .unwrap();
@@ -279,24 +287,24 @@ async fn test_progress_tool_full_flow() {
         .await
         .unwrap();
 
-    let ps = ps.lock().unwrap();
+    let es = es.lock().unwrap();
     assert_eq!(
-        *ps.get_step_status(0).unwrap(),
+        *get_step_status(&es, 0).unwrap(),
         ExecutionStepStatus::Completed
     );
     assert_eq!(
-        *ps.get_step_status(1).unwrap(),
+        *get_step_status(&es, 1).unwrap(),
         ExecutionStepStatus::Completed
     );
     assert_eq!(
-        *ps.get_step_status(2).unwrap(),
+        *get_step_status(&es, 2).unwrap(),
         ExecutionStepStatus::Completed
     );
 }
 
 #[tokio::test]
 async fn test_progress_tool_summary_and_error_message_applied() {
-    let (tool, ps) = make_tool();
+    let (tool, es) = make_tool();
     let ctx = test_ctx();
 
     tool.call(json!({"step_index": 0, "status": "in_progress"}), &ctx)
@@ -309,8 +317,8 @@ async fn test_progress_tool_summary_and_error_message_applied() {
     .await
     .unwrap();
 
-    let ps = ps.lock().unwrap();
-    let step = &ps.execution_steps[0];
+    let es = es.lock().unwrap();
+    let step = &es.execution_steps[0];
     assert_eq!(step.error_message.as_deref(), Some("runtime error"));
     assert_eq!(step.summary, "partial work");
 }
@@ -343,18 +351,18 @@ async fn test_progress_tool_detail_contains_rules() {
 // Plan file synchronization tests
 // ---------------------------------------------------------------------------
 
-use closeclaw_common::{DefaultPlanStateWriter, PlanStateWriter};
-
 /// Helper: create a ProgressTool with writer and a PlanState whose
 /// `plan_file_path` points to the given temp file.
-fn make_tool_with_writer(plan_file_path: &str) -> (ProgressTool, Arc<Mutex<PlanState>>) {
+fn make_tool_with_writer(plan_file_path: &str) -> (ProgressTool, Arc<Mutex<ExecutionState>>) {
+    let mut es = ExecutionState::new();
+    init_execution_steps(&mut es, vec!["Step 1".into(), "Step 2".into()]);
+    let es = Arc::new(Mutex::new(es));
     let mut ps = PlanState::new();
-    ps.init_execution_steps(vec!["Step 1".into(), "Step 2".into()]);
     ps.plan_file_path = plan_file_path.to_string();
     let ps = Arc::new(Mutex::new(ps));
     let writer: Arc<dyn PlanStateWriter> = Arc::new(DefaultPlanStateWriter::new());
-    let tool = ProgressTool::with_writer(Arc::clone(&ps), writer);
-    (tool, ps)
+    let tool = ProgressTool::with_writer(Arc::clone(&es), ps, writer);
+    (tool, es)
 }
 
 /// Helper: create a sample plan markdown file with a progress table.
@@ -385,7 +393,7 @@ async fn test_progress_tool_with_writer_syncs_plan_file() {
     let plan_path = dir.path().join("plan.md");
     create_sample_plan(plan_path.to_str().unwrap());
 
-    let (tool, _ps) = make_tool_with_writer(plan_path.to_str().unwrap());
+    let (tool, _es) = make_tool_with_writer(plan_path.to_str().unwrap());
     let ctx = test_ctx();
 
     // Start step 0 → in_progress
@@ -423,7 +431,7 @@ async fn test_progress_tool_with_writer_file_not_found() {
     let dir = tempfile::tempdir().unwrap();
     let fake_path = dir.path().join("nonexistent_plan.md");
 
-    let (tool, _ps) = make_tool_with_writer(fake_path.to_str().unwrap());
+    let (tool, _es) = make_tool_with_writer(fake_path.to_str().unwrap());
     let ctx = test_ctx();
 
     // Should succeed even though file doesn't exist
@@ -438,7 +446,7 @@ async fn test_progress_tool_with_writer_file_not_found() {
 
 #[tokio::test]
 async fn test_progress_tool_without_writer_no_sync() {
-    let (tool, ps) = make_tool();
+    let (tool, es) = make_tool();
     let ctx = test_ctx();
 
     // Without writer, should still work normally
@@ -447,19 +455,20 @@ async fn test_progress_tool_without_writer_no_sync() {
         .await;
     assert!(result.is_ok());
     assert_eq!(
-        *ps.lock().unwrap().get_step_status(0).unwrap(),
+        *get_step_status(&es.lock().unwrap(), 0).unwrap(),
         ExecutionStepStatus::InProgress
     );
 }
 
 #[tokio::test]
 async fn test_progress_tool_with_writer_empty_plan_path() {
-    let mut ps = PlanState::new();
-    ps.init_execution_steps(vec!["Step 1".into()]);
+    let mut es = ExecutionState::new();
+    init_execution_steps(&mut es, vec!["Step 1".into()]);
+    let es = Arc::new(Mutex::new(es));
     // plan_file_path is empty by default
-    let ps = Arc::new(Mutex::new(ps));
+    let ps = Arc::new(Mutex::new(PlanState::new()));
     let writer: Arc<dyn PlanStateWriter> = Arc::new(DefaultPlanStateWriter::new());
-    let tool = ProgressTool::with_writer(Arc::clone(&ps), writer);
+    let tool = ProgressTool::with_writer(Arc::clone(&es), ps, writer);
     let ctx = test_ctx();
 
     // Should succeed without attempting to write
@@ -487,17 +496,16 @@ fn test_default_plan_state_writer_marker_mapping() {
     );
     std::fs::write(&plan_path, content).unwrap();
 
-    // Test InProgress -> \u{1f504}
-    let mut ps = PlanState::new();
-    ps.plan_file_path = plan_path.to_str().unwrap().to_string();
-    ps.execution_steps.push(closeclaw_common::ExecutionStep {
+    // Test InProgress marker
+    let mut es = ExecutionState::new();
+    es.execution_steps.push(closeclaw_execution::ExecutionStep {
         step_index: 0,
         status: ExecutionStepStatus::InProgress,
         summary: "Step 1".into(),
         error_message: None,
     });
     writer
-        .write_progress_to_plan_file(plan_path.to_str().unwrap(), &ps)
+        .write_progress_to_plan_file(plan_path.to_str().unwrap(), &es)
         .unwrap();
     let content = std::fs::read_to_string(&plan_path).unwrap();
     assert!(content.contains("[-]"));
@@ -520,16 +528,15 @@ fn test_default_plan_state_writer_completed_marker() {
     );
     std::fs::write(&plan_path, content).unwrap();
 
-    let mut ps = PlanState::new();
-    ps.plan_file_path = plan_path.to_str().unwrap().to_string();
-    ps.execution_steps.push(closeclaw_common::ExecutionStep {
+    let mut es = ExecutionState::new();
+    es.execution_steps.push(closeclaw_execution::ExecutionStep {
         step_index: 0,
         status: ExecutionStepStatus::Completed,
         summary: "Step 1".into(),
         error_message: None,
     });
     writer
-        .write_progress_to_plan_file(plan_path.to_str().unwrap(), &ps)
+        .write_progress_to_plan_file(plan_path.to_str().unwrap(), &es)
         .unwrap();
     let content = std::fs::read_to_string(&plan_path).unwrap();
     assert!(content.contains("[x]"));
@@ -552,16 +559,15 @@ fn test_default_plan_state_writer_failed_marker() {
     );
     std::fs::write(&plan_path, content).unwrap();
 
-    let mut ps = PlanState::new();
-    ps.plan_file_path = plan_path.to_str().unwrap().to_string();
-    ps.execution_steps.push(closeclaw_common::ExecutionStep {
+    let mut es = ExecutionState::new();
+    es.execution_steps.push(closeclaw_execution::ExecutionStep {
         step_index: 0,
         status: ExecutionStepStatus::Failed,
         summary: "Step 1".into(),
         error_message: Some("error".into()),
     });
     writer
-        .write_progress_to_plan_file(plan_path.to_str().unwrap(), &ps)
+        .write_progress_to_plan_file(plan_path.to_str().unwrap(), &es)
         .unwrap();
     let content = std::fs::read_to_string(&plan_path).unwrap();
     assert!(content.contains("[!]"));
@@ -570,8 +576,8 @@ fn test_default_plan_state_writer_failed_marker() {
 #[test]
 fn test_default_plan_state_writer_file_not_found() {
     let writer = DefaultPlanStateWriter::new();
-    let ps = PlanState::new();
-    let result = writer.write_progress_to_plan_file("/nonexistent/path/plan.md", &ps);
+    let es = ExecutionState::new();
+    let result = writer.write_progress_to_plan_file("/nonexistent/path/plan.md", &es);
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
     assert!(err_msg.contains("plan file not found"));
@@ -606,22 +612,21 @@ fn test_default_plan_state_writer_preserves_other_content() {
     );
     std::fs::write(&plan_path, content).unwrap();
 
-    let mut ps = PlanState::new();
-    ps.plan_file_path = plan_path.to_str().unwrap().to_string();
-    ps.execution_steps.push(closeclaw_common::ExecutionStep {
+    let mut es = ExecutionState::new();
+    es.execution_steps.push(closeclaw_execution::ExecutionStep {
         step_index: 0,
         status: ExecutionStepStatus::Completed,
         summary: "Step 1".into(),
         error_message: None,
     });
-    ps.execution_steps.push(closeclaw_common::ExecutionStep {
+    es.execution_steps.push(closeclaw_execution::ExecutionStep {
         step_index: 1,
         status: ExecutionStepStatus::InProgress,
         summary: "Step 2".into(),
         error_message: None,
     });
     writer
-        .write_progress_to_plan_file(plan_path.to_str().unwrap(), &ps)
+        .write_progress_to_plan_file(plan_path.to_str().unwrap(), &es)
         .unwrap();
 
     let result = std::fs::read_to_string(&plan_path).unwrap();

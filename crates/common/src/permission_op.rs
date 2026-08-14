@@ -1,7 +1,8 @@
 //! Permission management operations for slash commands.
 //!
 //! Defines [`PermissionOperation`] variants used by the `/perm` slash
-//! command handler. The gateway intercepts [`crate::SlashResult::PermissionOp`]
+//! command handler. The gateway intercepts permission commands at the Gateway
+//! level (see `dispatch_slash` in `closeclaw-gateway`).
 //! and executes these operations directly in the daemon process without
 //! entering an Agent Session.
 

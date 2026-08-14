@@ -271,6 +271,10 @@ pub struct FeishuAdapter {
     pub(crate) http_client: Client,
     pub(crate) cached_token: Arc<Mutex<Option<CachedToken>>>,
     pub(crate) base_url: String,
+    /// Metadata produced by the last successful `parse_inbound` call.
+    /// Used by `last_parsed_metadata()` to surface platform-specific
+    /// fields (e.g. `chat_name`) that were removed from NormalizedMessage.
+    pub(crate) last_metadata: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl FeishuAdapter {
@@ -286,6 +290,7 @@ impl FeishuAdapter {
             http_client,
             cached_token: Arc::new(Mutex::new(None)),
             base_url: FEISHU_API_BASE.to_string(),
+            last_metadata: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -772,12 +777,15 @@ impl FeishuAdapter {
         // Fetch the chat name for the group chat.
         let chat_name = self.fetch_chat_name(&event.event.chat_id).await;
 
-        // Generate trace_id: {platform}-{timestamp_ms}-{uuid_v4}
-        let trace_id = format!(
-            "feishu-{}-{}",
-            chrono::Utc::now().timestamp_millis(),
-            uuid::Uuid::new_v4(),
-        );
+        // Store chat_name in last_metadata for gateway to retrieve.
+        {
+            let mut meta = self.last_metadata.lock().await;
+            meta.clear();
+            let name = chat_name.unwrap_or_default();
+            if !name.is_empty() {
+                meta.insert("chat_name".to_string(), name);
+            }
+        }
 
         Ok(Some(NormalizedMessage {
             platform: "feishu".to_string(),
@@ -789,8 +797,6 @@ impl FeishuAdapter {
             media_refs,
             thread_id,
             account_id: sender_open_id,
-            chat_name: chat_name.unwrap_or_default(),
-            trace_id,
         }))
     }
 

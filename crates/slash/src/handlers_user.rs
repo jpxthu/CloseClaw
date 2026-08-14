@@ -15,6 +15,10 @@ use closeclaw_common::slash_router::SlashResult;
 /// `/user` — manage user registration (Owner only).
 ///
 /// Parses subcommands and returns the appropriate [`SlashResult`].
+///
+/// Note: `/user approve` and `/user reject` are now intercepted by the
+/// Gateway before reaching this handler. The handler remains as a fallback
+/// for `/user list` and for documentation purposes.
 pub struct UserSlashHandler {
     /// Config directory for reading `users.json`.
     config_dir: PathBuf,
@@ -67,72 +71,6 @@ impl UserSlashHandler {
         }
         SlashResult::Reply(lines.join("\n"))
     }
-
-    /// Parse `/user approve <request_id> [--perms <set>]`.
-    fn handle_approve(args: &str) -> SlashResult {
-        let parts: Vec<&str> = args.split_whitespace().collect();
-        if parts.is_empty() {
-            return SlashResult::Reply(format!(
-                "参数不足：approve 需要 <request_id>\n\n{}",
-                Self::usage()
-            ));
-        }
-        let request_id = parts[0].to_owned();
-        let mut perms = vec![InitialPermissionSet::BasicMessaging];
-
-        // Parse optional --perms flag.
-        let mut i = 1;
-        while i < parts.len() {
-            if parts[i] == "--perms" {
-                i += 1;
-                if i >= parts.len() {
-                    return SlashResult::Reply(format!(
-                        "参数不足：--perms 需要一个集合名称\n\n{}",
-                        Self::usage()
-                    ));
-                }
-                perms = match parse_perm_set(parts[i]) {
-                    Some(p) => vec![p],
-                    None => {
-                        return SlashResult::Reply(format!(
-                            "无效的权限集合：{}。可选值：basic",
-                            parts[i]
-                        ))
-                    }
-                };
-            } else {
-                return SlashResult::Reply(format!("未知参数：{}\n\n{}", parts[i], Self::usage()));
-            }
-            i += 1;
-        }
-
-        SlashResult::UserApprove {
-            request_id,
-            initial_permissions: perms,
-        }
-    }
-
-    /// Parse `/user reject <request_id>`.
-    fn handle_reject(args: &str) -> SlashResult {
-        let parts: Vec<&str> = args.split_whitespace().collect();
-        if parts.is_empty() {
-            return SlashResult::Reply(format!(
-                "参数不足：reject 需要 <request_id>\n\n{}",
-                Self::usage()
-            ));
-        }
-        SlashResult::UserReject {
-            request_id: parts[0].to_owned(),
-        }
-    }
-}
-
-/// Parse a permission set name into an [`InitialPermissionSet`].
-fn parse_perm_set(name: &str) -> Option<InitialPermissionSet> {
-    match name.to_lowercase().as_str() {
-        "basic" | "basic-messaging" => Some(InitialPermissionSet::BasicMessaging),
-        _ => None,
-    }
 }
 
 #[async_trait::async_trait]
@@ -161,8 +99,10 @@ impl SlashHandler for UserSlashHandler {
         }
         match parts[0] {
             "list" => self.handle_list().await,
-            "approve" => Self::handle_approve(args.trim_start_matches("approve").trim()),
-            "reject" => Self::handle_reject(args.trim_start_matches("reject").trim()),
+            // Gateway intercepts /user approve and /user reject before
+            // reaching this handler; these arms are unreachable in practice.
+            "approve" => unreachable!("/user approve is intercepted by Gateway"),
+            "reject" => unreachable!("/user reject is intercepted by Gateway"),
             other => SlashResult::Reply(format!("未知子命令：{other}\n\n{}", Self::usage())),
         }
     }

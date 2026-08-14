@@ -1,5 +1,7 @@
 //! Message context, processed message, and raw message types.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use closeclaw_common::im_plugin::NormalizedMessage;
@@ -30,7 +32,7 @@ pub struct MessageContext {
     /// Per-processor result log, newest last.
     pub raw_message_log: Vec<RawMessageLog>,
     /// Arbitrary key-value metadata injected by processors.
-    pub metadata: std::collections::HashMap<String, String>,
+    pub metadata: HashMap<String, String>,
     /// Whether the message has been flagged to skip further processing.
     pub skip: bool,
     /// Structured content blocks (e.g., Text, Thinking, ToolUse, ToolResult).
@@ -48,10 +50,7 @@ impl MessageContext {
             logged_at,
             processor_name: None,
         };
-        let mut metadata = std::collections::HashMap::new();
-        if !msg.trace_id.is_empty() {
-            metadata.insert("trace_id".to_string(), msg.trace_id);
-        }
+        let metadata = HashMap::new();
         Self {
             content: msg.content,
             raw_message_log: vec![raw_log],
@@ -83,7 +82,6 @@ mod tests {
             media_refs: Vec::new(),
             thread_id: None,
             account_id: String::new(),
-            chat_name: String::new(),
             ..Default::default()
         };
         let ctx = MessageContext::from_normalized(msg.clone());

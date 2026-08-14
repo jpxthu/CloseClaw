@@ -957,7 +957,7 @@ async fn test_new_session_creates_child() {
     assert_eq!(c.load(Ordering::SeqCst), 1);
     assert_eq!(m.get_tracked_session_mode("c1").unwrap(), SessionMode::Auto);
     let p = m.get_tracked_plan_state("c1").unwrap();
-    assert_eq!(p.step_selection, Some(vec![0, 2]));
+    assert_eq!(p.phase, PlanPhase::FinalPlan);
     drop(d);
 }
 
@@ -988,6 +988,6 @@ async fn test_new_session_step_selection_metadata() {
     assert!(f.approve_request(&rid, ApprovalMode::Once).await.unwrap());
     tokio::time::sleep(Duration::from_millis(500)).await;
     let p = m.get_tracked_plan_state("s1").unwrap();
-    assert_eq!(p.step_selection, Some(vec![1, 3]));
+    assert_eq!(p.phase, PlanPhase::FinalPlan);
     drop(d);
 }

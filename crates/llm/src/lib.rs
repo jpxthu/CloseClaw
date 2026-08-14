@@ -80,6 +80,7 @@ pub use types::{InternalRequest, ProtocolId};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Model discovery — query provider for available model list.
@@ -146,7 +147,7 @@ pub use closeclaw_common::{ErrorKind, LLMError};
 
 /// LLM Registry - manages multiple providers
 pub struct LLMRegistry {
-    providers: tokio::sync::RwLock<std::collections::HashMap<String, Arc<dyn Provider>>>,
+    providers: tokio::sync::RwLock<HashMap<String, Arc<dyn Provider>>>,
 }
 
 impl Default for LLMRegistry {
@@ -158,7 +159,7 @@ impl Default for LLMRegistry {
 impl LLMRegistry {
     pub fn new() -> Self {
         Self {
-            providers: tokio::sync::RwLock::new(std::collections::HashMap::new()),
+            providers: tokio::sync::RwLock::new(HashMap::new()),
         }
     }
 

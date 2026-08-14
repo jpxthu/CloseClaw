@@ -112,12 +112,16 @@ async fn handle_normalized_message(
     gateway: &Gateway,
     req: &InboundRequest,
     normalized: closeclaw_common::NormalizedMessage,
+    plugin: &Arc<dyn closeclaw_common::IMPlugin>,
 ) {
     if normalized.message_type == MessageType::Text && normalized.content.trim().is_empty() {
         tracing::debug!(peer_id = %req.peer_id, "dropping empty text message");
         return;
     }
     let sender_id = normalized.sender_id.clone();
+    // Retrieve platform-specific metadata from the adapter (e.g. chat_name).
+    let adapter_meta = plugin.last_parsed_metadata();
+    let chat_name = adapter_meta.get("chat_name").cloned();
     let input = super::InboundChainInput {
         platform: normalized.platform.clone(),
         sender_id: normalized.sender_id.clone(),
@@ -129,6 +133,8 @@ async fn handle_normalized_message(
         thread_id: normalized.thread_id.clone(),
         message_type: normalized.message_type.clone(),
         media_refs: normalized.media_refs.clone(),
+        chat_name,
+        trace_id: Some(req.trace_id.clone()),
     };
     let processed = gateway.process_inbound_chain(&input).await;
     gateway
@@ -148,7 +154,7 @@ async fn process_single_request(
 ) {
     match plugin.parse_inbound(&req.raw_payload).await {
         Ok(Some(normalized)) => {
-            handle_normalized_message(gateway, req, normalized).await;
+            handle_normalized_message(gateway, req, normalized, plugin).await;
         }
         Ok(None) => match plugin.parse_card_action(&req.raw_payload).await {
             Ok(Some(card_action)) => {
@@ -334,6 +340,9 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
                 return;
             }
             let sender_id = normalized.sender_id.clone();
+            // Retrieve platform-specific metadata from the adapter (e.g. chat_name).
+            let adapter_meta = plugin.last_parsed_metadata();
+            let chat_name = adapter_meta.get("chat_name").cloned();
             let input = super::InboundChainInput {
                 platform: normalized.platform.clone(),
                 sender_id: normalized.sender_id.clone(),
@@ -345,6 +354,8 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
                 thread_id: normalized.thread_id.clone(),
                 message_type: normalized.message_type.clone(),
                 media_refs: normalized.media_refs.clone(),
+                chat_name,
+                trace_id: Some(request.trace_id.clone()),
             };
             let processed = gateway.process_inbound_chain(&input).await;
             gateway

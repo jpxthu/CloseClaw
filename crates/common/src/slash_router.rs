@@ -6,8 +6,6 @@
 use async_trait::async_trait;
 use std::path::PathBuf;
 
-use crate::permission_op::{InitialPermissionSet, PermissionOperation};
-
 /// Execution context for a slash command invocation.
 #[derive(Debug, Clone)]
 pub struct SlashContext {
@@ -71,33 +69,6 @@ pub enum SlashResult {
     /// Set the verbosity level for the current session.
     SetVerbosity {
         level: crate::verbosity::VerbosityLevel,
-    },
-    /// Permission management operation (Owner only).
-    ///
-    /// The gateway intercepts this result and executes it directly in the
-    /// daemon process, bypassing the Agent Session.
-    PermissionOp {
-        /// The permission operation to perform.
-        op: PermissionOperation,
-    },
-    /// Approve a pending user registration request (Owner only).
-    ///
-    /// The gateway intercepts this result and calls
-    /// [`ApprovalFlow::approve_request`] to register the user and
-    /// persist initial permission rules.
-    UserApprove {
-        /// The request ID from the approval queue.
-        request_id: String,
-        /// Initial permission sets to grant the user.
-        initial_permissions: Vec<InitialPermissionSet>,
-    },
-    /// Reject a pending user registration request (Owner only).
-    ///
-    /// The gateway intercepts this result and calls
-    /// [`ApprovalFlow::deny_request`] to remove the request.
-    UserReject {
-        /// The request ID from the approval queue.
-        request_id: String,
     },
     /// Inject a meta message into the agent conversation context.
     ///

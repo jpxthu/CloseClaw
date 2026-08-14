@@ -14,7 +14,6 @@ use closeclaw_common::slash_router::{
     SlashContext, SlashHandler, SlashResult, SlashRouter, SystemAppendAction,
 };
 use closeclaw_config::agents::{AgentPermissionProvider, LazyAgentPermissions};
-use closeclaw_permission::approval::WhitelistTarget;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
@@ -22,8 +21,6 @@ use closeclaw_permission::engine::engine_types::{
 use closeclaw_session::persistence::PendingMessage;
 
 use super::{Gateway, HandleResult, SessionManager, SessionMessageHandler};
-use closeclaw_permission::UserRegistry;
-use tokio::sync::RwLock;
 
 /// Parse a slash command from raw content.
 ///
@@ -58,6 +55,87 @@ impl Gateway {
         *slot = Some(engine);
     }
 
+    /// Reply with an "unknown command" message.
+    async fn reply_unknown_cmd(&self, cmd: &str, session_id: &str, channel: &str) {
+        let reply = format!("未知指令：/{cmd}。输入 /help 查看所有可用指令。");
+        self.route_slash_reply(session_id, channel, vec![ContentBlock::Text(reply)])
+            .await;
+    }
+
+    /// Enqueue a non-immediate slash command when the session is busy.
+    async fn enqueue_pending_slash(&self, session_id: &str, content: &str) {
+        let msg = PendingMessage::with_role(
+            format!("pending-{}", chrono::Utc::now().timestamp_millis()),
+            content.to_owned(),
+            "user".to_string(),
+        );
+        if let Err(e) = self
+            .session_manager
+            .push_pending_message(session_id, msg)
+            .await
+        {
+            tracing::warn!(
+                session_id,
+                error = %e,
+                "failed to enqueue pending slash command"
+            );
+        }
+        if let Some(sh) = self.session_handler.as_ref() {
+            sh.send_reply("⏳ 正在排队...".to_owned()).await;
+        }
+    }
+
+    /// Gateway-level interception for permission commands.
+    ///
+    /// Handles `/perm` and `/user approve|reject` commands directly,
+    /// bypassing the SlashDispatcher. Returns `Some(HandleResult::SlashHandled)`
+    /// when a permission command was intercepted, or `None` to fall through
+    /// to the normal slash dispatch path.
+    async fn intercept_permission_cmd(
+        &self,
+        cmd: &str,
+        args: &str,
+        session_id: &str,
+        sender_id: Option<&str>,
+        channel: &str,
+    ) -> Option<HandleResult> {
+        match cmd {
+            "perm" => {
+                let reply = self.handle_perm_cmd(args, sender_id).await;
+                self.route_slash_reply(session_id, channel, vec![ContentBlock::Text(reply)])
+                    .await;
+                Some(HandleResult::SlashHandled)
+            }
+            "user" => {
+                let parts: Vec<&str> = args.split_whitespace().collect();
+                match parts.first().map(|s| *s) {
+                    Some("approve") => {
+                        let reply = self.handle_user_approve_cmd(&parts[1..], sender_id).await;
+                        self.route_slash_reply(
+                            session_id,
+                            channel,
+                            vec![ContentBlock::Text(reply)],
+                        )
+                        .await;
+                        Some(HandleResult::SlashHandled)
+                    }
+                    Some("reject") => {
+                        let reply = self.handle_user_reject_cmd(&parts[1..], sender_id).await;
+                        self.route_slash_reply(
+                            session_id,
+                            channel,
+                            vec![ContentBlock::Text(reply)],
+                        )
+                        .await;
+                        Some(HandleResult::SlashHandled)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Dispatch a slash command with permission checks.
     ///
     /// Returns `Some(HandleResult::SlashHandled)` when the message is consumed
@@ -88,34 +166,24 @@ impl Gateway {
             Some(parsed) => parsed,
             None => return None,
         };
+
+        // Gateway-level interception: permission commands are handled
+        // directly before reaching the SlashDispatcher.
+        if let Some(result) = self
+            .intercept_permission_cmd(cmd, args, session_id, sender_id, channel)
+            .await
+        {
+            return Some(result);
+        }
+
         let Some(handler) = dispatcher.get_handler(cmd) else {
-            let reply = format!("未知指令：/{cmd}。输入 /help 查看所有可用指令。");
-            self.route_slash_reply(session_id, channel, vec![ContentBlock::Text(reply)])
-                .await;
+            self.reply_unknown_cmd(cmd, session_id, channel).await;
             return Some(HandleResult::SlashHandled);
         };
 
         // Non-immediate commands: if session is busy, enqueue for later.
         if !dispatcher.is_immediate(cmd) && self.session_manager.is_session_busy(session_id).await {
-            let msg = PendingMessage::with_role(
-                format!("pending-{}", chrono::Utc::now().timestamp_millis()),
-                content.to_owned(),
-                "user".to_string(),
-            );
-            if let Err(e) = self
-                .session_manager
-                .push_pending_message(session_id, msg)
-                .await
-            {
-                tracing::warn!(
-                    session_id,
-                    error = %e,
-                    "failed to enqueue pending slash command"
-                );
-            }
-            if let Some(sh) = self.session_handler.as_ref() {
-                sh.send_reply("⏳ 正在排队...".to_owned()).await;
-            }
+            self.enqueue_pending_slash(session_id, content).await;
             return Some(HandleResult::SlashHandled);
         }
 
@@ -292,94 +360,45 @@ impl Gateway {
     /// Constructs a [`SideEffectContext`] with a [`GatewaySlashExecutor`]
     /// and calls [`SlashResult::execute`], then dispatches the produced
     /// [`ReplyAction`]s through the session handler.
-    async fn execute_and_route(
+    /// Permission check for `execute_and_route`: dispatches to the
+    /// appropriate engine/handler check based on the [`SlashResult`] variant.
+    ///
+    /// Returns `true` when the command is allowed, `false` when denied
+    /// (reply already sent).
+    async fn check_permission_for_execute(
         &self,
-        handler: &dyn SlashHandler,
+        result: &SlashResult,
         cmd_name: &str,
-        args: &str,
-        session_id: &str,
         sender_id: Option<&str>,
-        channel: &str,
-    ) -> Option<HandleResult> {
-        let slash_ctx = SlashContext {
-            command: cmd_name.to_owned(),
-            sender_id: sender_id.unwrap_or("").to_owned(),
-            session_id: session_id.to_owned(),
-            channel: channel.to_owned(),
-        };
-        let result = handler.handle(args, &slash_ctx).await;
-
-        // PermissionOp is intercepted here — handled directly in the daemon,
-        // never enters the normal execute() path.
-        if let SlashResult::PermissionOp { op } = &result {
-            let reply = self.handle_permission_op(op, sender_id).await;
-            if let Some(sh) = self.session_handler.as_ref() {
-                sh.send_reply(reply).await;
-            }
-            return Some(HandleResult::SlashHandled);
-        }
-
-        // UserApprove/UserReject are intercepted here — they go through
-        // the ApprovalFlow for user registration management.
-        if let SlashResult::UserApprove {
-            request_id,
-            initial_permissions,
-        } = &result
-        {
-            let reply = self
-                .handle_user_approve(request_id, initial_permissions, sender_id)
-                .await;
-            if let Some(sh) = self.session_handler.as_ref() {
-                sh.send_reply(reply).await;
-            }
-            return Some(HandleResult::SlashHandled);
-        }
-        if let SlashResult::UserReject { request_id } = &result {
-            let reply = self.handle_user_reject(request_id, sender_id).await;
-            if let Some(sh) = self.session_handler.as_ref() {
-                sh.send_reply(reply).await;
-            }
-            return Some(HandleResult::SlashHandled);
-        }
-
-        // Permission check AFTER handler returns SlashResult but BEFORE execute.
-        //
-        // For Exec results, the handler's requires_permission field controls
-        // whether the permission engine is invoked:
-        //   - false → bypass entirely (read-only, no engine check needed)
-        //   - true  → call check_engine_permission directly (skip handler-level
-        //             requires_permission() check, go straight to the engine)
-        // For all other result types, use the full check_slash_permission path.
-        match &result {
+        session_id: &str,
+    ) -> bool {
+        match result {
             SlashResult::Exec {
                 requires_permission: false,
                 ..
-            } => {
-                // No permission check needed — skip directly to execution.
-            }
+            } => true,
             SlashResult::Exec {
                 requires_permission: true,
                 ..
             } => {
-                // Exec with write intent: go through the permission engine,
-                // bypassing the handler-level requires_permission() check.
-                if !self
-                    .check_engine_permission(cmd_name, sender_id, session_id)
+                self.check_engine_permission(cmd_name, sender_id, session_id)
                     .await
-                {
-                    return Some(HandleResult::SlashHandled);
-                }
             }
             _ => {
-                if !self
-                    .check_slash_permission(cmd_name, sender_id, session_id)
+                self.check_slash_permission(cmd_name, sender_id, session_id)
                     .await
-                {
-                    return Some(HandleResult::SlashHandled);
-                }
             }
         }
+    }
 
+    /// Execute a [`SlashResult`]'s side effects and route replies back
+    /// through the outbound processor chain.
+    async fn execute_side_effects(
+        &self,
+        result: SlashResult,
+        session_id: &str,
+        channel: &str,
+    ) {
         let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel(8);
         let session_mgr: Arc<dyn closeclaw_common::SessionLookup> =
             self.session_manager.clone() as Arc<dyn closeclaw_common::SessionLookup>;
@@ -409,279 +428,35 @@ impl Gateway {
                 ReplyAction::Nothing => {}
             }
         }
-
-        Some(HandleResult::SlashHandled)
     }
 
-    /// Handle a [`PermissionOp`] — owner-only permission rule management.
-    async fn handle_permission_op(
+    async fn execute_and_route(
         &self,
-        op: &closeclaw_common::PermissionOperation,
+        handler: &dyn SlashHandler,
+        cmd_name: &str,
+        args: &str,
+        session_id: &str,
         sender_id: Option<&str>,
-    ) -> String {
-        if sender_id != Some("owner") {
-            return "权限不足：仅 Owner 可以执行权限管理操作".to_owned();
-        }
-
-        // Path traversal validation for file operations.
-        if let Some(paths) = Self::op_file_paths(op) {
-            for path in paths {
-                if Self::is_path_dangerous(path) {
-                    return format!("拒绝：路径包含危险模式 '{path}'");
-                }
-            }
-        }
-
-        let (rule, agent_id) = match Self::build_rule_from_op(op) {
-            Some(v) => v,
-            None => return "错误：无法构建规则".to_owned(),
-        };
-
-        let config_dir = match self.get_config_dir().await {
-            Some(dir) => dir,
-            None => return "错误：config_dir 未配置".to_owned(),
-        };
-        if let Err(e) = closeclaw_permission::whitelist::append_rule(&config_dir, &agent_id, rule) {
-            return format!("错误：写入规则失败 — {e}");
-        }
-
-        // Hot-reload the permission engine with the updated ruleset.
-        self.hot_reload_engine(&self.permission_engine, &config_dir, &agent_id)
-            .await;
-
-        format!("✅ 已执行：{}", op.describe())
-    }
-
-    fn op_file_paths(op: &closeclaw_common::PermissionOperation) -> Option<Vec<&String>> {
-        match op {
-            closeclaw_common::PermissionOperation::AddFileWhitelist { paths, .. }
-            | closeclaw_common::PermissionOperation::AddFileDeny { paths, .. } => {
-                Some(paths.iter().collect())
-            }
-            _ => None,
-        }
-    }
-
-    fn build_rule_from_op(
-        op: &closeclaw_common::PermissionOperation,
-    ) -> Option<(closeclaw_permission::Rule, String)> {
-        let whitelist = matches!(
-            op,
-            closeclaw_common::PermissionOperation::AddFileWhitelist { .. }
-                | closeclaw_common::PermissionOperation::AddCommandWhitelist { .. }
-        );
-        let (agent, body, name) = match op {
-            closeclaw_common::PermissionOperation::AddFileWhitelist { agent, op, paths }
-            | closeclaw_common::PermissionOperation::AddFileDeny { agent, op, paths } => {
-                let prefix = if whitelist { "allow" } else { "deny" };
-                (
-                    agent.clone(),
-                    PermissionRequestBody::FileOp {
-                        agent: agent.clone(),
-                        path: paths.join(","),
-                        op: op.clone(),
-                    },
-                    format!("perm-{prefix}-file-{agent}"),
-                )
-            }
-            closeclaw_common::PermissionOperation::AddCommandWhitelist {
-                agent,
-                command,
-                args,
-                ..
-            }
-            | closeclaw_common::PermissionOperation::AddCommandDeny {
-                agent,
-                command,
-                args,
-                ..
-            } => {
-                let prefix = if whitelist { "allow" } else { "deny" };
-                (
-                    agent.clone(),
-                    PermissionRequestBody::CommandExec {
-                        agent: agent.clone(),
-                        cmd: command.clone(),
-                        args: args.clone(),
-                    },
-                    format!("perm-{prefix}-cmd-{agent}"),
-                )
-            }
-            // CreateUser goes through the ApprovalFlow, not through
-            // the whitelist/deny rule path.
-            closeclaw_common::PermissionOperation::CreateUser { .. } => {
-                return None;
-            }
-        };
-        let caller = Caller {
-            user_id: "owner".to_owned(),
-            agent: agent.clone(),
-            creator_id: String::new(),
-        };
-        let rule_fn = if whitelist {
-            closeclaw_permission::whitelist::build_whitelist_rule
-        } else {
-            closeclaw_permission::whitelist::build_deny_rule
-        };
-        rule_fn(&caller, &body, &name, WhitelistTarget::Auto).map(|r| (r, agent))
-    }
-
-    async fn hot_reload_engine(
-        &self,
-        permission_engine: &RwLock<Option<Arc<tokio::sync::RwLock<PermissionEngine>>>>,
-        config_dir: &std::path::Path,
-        agent_id: &str,
-    ) {
-        let path = config_dir
-            .join("agents")
-            .join(agent_id)
-            .join("permissions.json");
-        if let Ok(json) = tokio::fs::read_to_string(&path).await {
-            if let Ok(ruleset) = serde_json::from_str::<closeclaw_permission::RuleSet>(&json) {
-                if let Some(engine_arc) = permission_engine.read().await.as_ref() {
-                    if let Ok(mut engine) = engine_arc.try_write() {
-                        engine.reload_rules(ruleset);
-                    }
-                }
-            }
-        }
-    }
-
-    fn is_path_dangerous(path: &str) -> bool {
-        path.contains("../")
-            || path.contains("..\\")
-            || path.starts_with('/')
-            || (path.len() >= 2 && path.as_bytes()[1] == b':')
-            || path.contains('\0')
-    }
-
-    /// Handle a `UserApprove` result — register the user via ApprovalFlow.
-    async fn handle_user_approve(
-        &self,
-        request_id: &str,
-        initial_permissions: &[closeclaw_common::permission_op::InitialPermissionSet],
-        sender_id: Option<&str>,
-    ) -> String {
-        if sender_id != Some("owner") {
-            return "权限不足：仅 Owner 可以审批用户注册".to_owned();
-        }
-
-        let flow_guard = self.approval_flow.read().await;
-        let Some(flow_arc) = flow_guard.as_ref() else {
-            return "错误：审批流未配置".to_owned();
-        };
-        let mut flow = flow_arc.lock().await;
-        // Set the selected initial permissions on the pending request.
-        flow.set_user_creation_permissions(request_id, initial_permissions.to_vec());
-        match flow
-            .approve_request(
-                request_id,
-                closeclaw_permission::approval::ApprovalMode::Once,
-            )
-            .await
-        {
-            Ok(true) => {
-                let perms: Vec<&str> = initial_permissions.iter().map(|p| p.label()).collect();
-                format!("✅ 用户注册已批准（权限: [{}]）", perms.join(", "))
-            }
-            Ok(false) => "用户注册审批失败：用户可能已注册".to_owned(),
-            Err(e) => format!("用户注册审批失败：{:?}", e),
-        }
-    }
-
-    /// Handle a `UserReject` result — reject the user registration via ApprovalFlow.
-    async fn handle_user_reject(&self, request_id: &str, sender_id: Option<&str>) -> String {
-        if sender_id != Some("owner") {
-            return "权限不足：仅 Owner 可以拒绝用户注册".to_owned();
-        }
-
-        let flow_guard = self.approval_flow.read().await;
-        let Some(flow_arc) = flow_guard.as_ref() else {
-            return "错误：审批流未配置".to_owned();
-        };
-        let mut flow = flow_arc.lock().await;
-        if flow.deny_request(request_id) {
-            "用户注册已拒绝".to_owned()
-        } else {
-            "拒绝失败：请求不存在或已处理".to_owned()
-        }
-    }
-
-    /// Check if a sender is a new unregistered user and auto-submit
-    /// a user creation request via the ApprovalFlow.
-    ///
-    /// When a non-owner, unregistered user sends their first message:
-    /// 1. Submit a user creation request via `ApprovalFlow::submit_user_creation()`
-    /// 2. Notify the user that their request is pending approval
-    /// 3. Return `Some(HandleResult::SlashHandled)` to block further processing
-    ///
-    /// Returns `None` if the sender is owner, already registered, or no
-    /// approval flow is configured.
-    pub(crate) async fn check_new_user_registration(
-        &self,
-        sender_id: &str,
         channel: &str,
     ) -> Option<HandleResult> {
-        // Owner doesn't need registration.
-        if sender_id == "owner" {
-            return None;
-        }
-
-        // Load user registry from config_dir/users.json.
-        let config_dir = self.get_config_dir().await?;
-        let registry_path = config_dir.join("users.json");
-        let registry: UserRegistry = tokio::fs::read_to_string(&registry_path)
-            .await
-            .ok()
-            .and_then(|data| serde_json::from_str(&data).ok())
-            .unwrap_or_default();
-
-        // Already registered → proceed normally.
-        if registry.is_registered(sender_id) {
-            return None;
-        }
-
-        // New user → submit creation request.
-        let flow_guard = self.approval_flow.read().await;
-        let Some(flow_arc) = flow_guard.as_ref() else {
-            tracing::debug!(
-                sender_id,
-                "no approval flow configured, cannot register new user"
-            );
-            return None;
+        let slash_ctx = SlashContext {
+            command: cmd_name.to_owned(),
+            sender_id: sender_id.unwrap_or("").to_owned(),
+            session_id: session_id.to_owned(),
+            channel: channel.to_owned(),
         };
-        let mut flow = flow_arc.lock().await;
-        match flow.submit_user_creation(sender_id, channel, vec![]) {
-            Some(request_id) => {
-                tracing::info!(
-                    sender_id,
-                    channel,
-                    request_id = %request_id,
-                    "new user registration request auto-submitted"
-                );
-                if let Some(sh) = self.session_handler.as_ref() {
-                    sh.send_reply(format!(
-                        "👋 您是新用户，已向 Owner 提交注册申请（请求 ID: {}）。请等待审批。",
-                        request_id
-                    ))
-                    .await;
-                }
-                Some(HandleResult::SlashHandled)
-            }
-            None => {
-                // Duplicate request or other issue.
-                tracing::debug!(
-                    sender_id,
-                    channel,
-                    "user creation request already pending or failed"
-                );
-                if let Some(sh) = self.session_handler.as_ref() {
-                    sh.send_reply("⏳ 您的注册请求正在审批中，请等待。".to_owned())
-                        .await;
-                }
-                Some(HandleResult::SlashHandled)
-            }
+        let result = handler.handle(args, &slash_ctx).await;
+
+        // Permission check AFTER handler returns SlashResult but BEFORE execute.
+        if !self
+            .check_permission_for_execute(&result, cmd_name, sender_id, session_id)
+            .await
+        {
+            return Some(HandleResult::SlashHandled);
         }
+
+        self.execute_side_effects(result, session_id, channel).await;
+        Some(HandleResult::SlashHandled)
     }
 }
 

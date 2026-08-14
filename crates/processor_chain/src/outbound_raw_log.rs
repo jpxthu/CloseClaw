@@ -4,6 +4,8 @@
 //! mode.  Mirrors [`super::raw_log_processor::RawLogProcessor`] but operates
 //! on the outbound phase.
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use tokio::fs;
 use tracing::level_enabled;
@@ -78,7 +80,7 @@ struct OutboundSnapshot {
     /// Summaries of structured content blocks.
     content_blocks_summary: Vec<String>,
     /// Processor metadata.
-    metadata: std::collections::HashMap<String, String>,
+    metadata: HashMap<String, String>,
 }
 
 #[async_trait]

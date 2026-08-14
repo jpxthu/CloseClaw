@@ -10,12 +10,13 @@ mod tests {
     use crate::llm_session::PROGRESS_APPEND_PREFIX;
     use crate::persistence::{PersistenceService, ProgressToolCallRecord};
     use crate::recovery::{
-        parse_progress_call_record, rebuild_plan_state_from_calls,
+        parse_progress_call_record, rebuild_execution_state_from_calls,
         rebuild_progress_summary_from_calls, scan_progress_tool_calls, SessionRecoveryService,
         APPROVAL_HISTORY_PREFIX, PLAN_REFERENCES_PREFIX,
     };
     use crate::storage::memory::MemoryStorage;
-    use closeclaw_common::{ContentBlock, ExecutionStepStatus};
+    use closeclaw_common::ContentBlock;
+    use closeclaw_execution::ExecutionStepStatus;
 
     fn create_test_checkpoint(session_id: &str) -> crate::persistence::SessionCheckpoint {
         use crate::persistence::*;
@@ -155,7 +156,7 @@ mod tests {
                 error_message: None,
             },
         ];
-        let ps = rebuild_plan_state_from_calls(&calls);
+        let ps = rebuild_execution_state_from_calls(&calls);
         assert_eq!(ps.execution_steps.len(), 1);
         assert_eq!(ps.execution_steps[0].status, ExecutionStepStatus::Completed);
         assert_eq!(ps.execution_steps[0].summary, "done");
@@ -191,7 +192,7 @@ mod tests {
                 error_message: Some("oops".to_string()),
             },
         ];
-        let ps = rebuild_plan_state_from_calls(&calls);
+        let ps = rebuild_execution_state_from_calls(&calls);
         assert_eq!(ps.execution_steps.len(), 2);
         assert_eq!(ps.execution_steps[0].status, ExecutionStepStatus::Completed);
         assert_eq!(ps.execution_steps[1].status, ExecutionStepStatus::Failed);
@@ -204,7 +205,7 @@ mod tests {
             summary: None,
             error_message: None,
         }];
-        let ps2 = rebuild_plan_state_from_calls(&invalid);
+        let ps2 = rebuild_execution_state_from_calls(&invalid);
         assert_eq!(ps2.execution_steps[0].status, ExecutionStepStatus::Pending);
     }
 

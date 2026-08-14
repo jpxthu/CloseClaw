@@ -278,12 +278,6 @@ impl SlashResultExecutor for SlashResult {
             SlashResult::SetVerbosity { level } => execute_set_verbosity(ctx, level).await,
             SlashResult::InjectMeta { content } => execute_inject_meta(ctx, content).await,
             SlashResult::Unknown(cmd) => execute_unknown(ctx, cmd).await,
-            // PermissionOp is intercepted in execute_and_route before execute()
-            // is called. This arm exists for exhaustive match compilation.
-            SlashResult::PermissionOp { .. } => {}
-            // UserApprove/UserReject are intercepted in execute_and_route before
-            // execute() is called.
-            SlashResult::UserApprove { .. } | SlashResult::UserReject { .. } => {}
         }
     }
 }

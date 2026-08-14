@@ -12,6 +12,8 @@
 //!
 //! Priority 5 — runs before [`DslParser`] (priority 10).
 
+use std::collections::HashMap;
+
 use std::str::FromStr;
 
 use async_trait::async_trait;
@@ -50,9 +52,7 @@ impl VerbosityFilter {
     }
 
     /// Parse verbosity level from metadata string, defaulting to `Normal`.
-    pub(crate) fn verbosity_from_metadata(
-        metadata: &std::collections::HashMap<String, String>,
-    ) -> VerbosityLevel {
+    pub(crate) fn verbosity_from_metadata(metadata: &HashMap<String, String>) -> VerbosityLevel {
         metadata
             .get("verbosity_level")
             .and_then(|v| VerbosityLevel::from_str(v).ok())

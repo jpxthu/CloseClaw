@@ -101,6 +101,10 @@ pub struct InboundChainInput {
     pub message_type: MessageType,
     /// Media attachment references.
     pub media_refs: Vec<MediaRef>,
+    /// Chat/group name (e.g. Feishu group title), or None.
+    pub chat_name: Option<String>,
+    /// Trace ID for distributed tracing, or None.
+    pub trace_id: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 
 use crate::model_info::ModelInfo;
 
@@ -90,8 +91,7 @@ impl ModelCache {
         let key = CacheKey::compute(provider, &CacheKey::token_prefix(token));
 
         let data = std::fs::read_to_string(&self.persist_path).ok()?;
-        let cache: std::collections::HashMap<String, CacheEntry> =
-            serde_json::from_str(&data).ok()?;
+        let cache: HashMap<String, CacheEntry> = serde_json::from_str(&data).ok()?;
 
         let entry = cache.get(&key)?;
 
@@ -110,11 +110,10 @@ impl ModelCache {
         let now = chrono::Utc::now().timestamp();
 
         // Load existing cache or start empty
-        let mut cache: std::collections::HashMap<String, CacheEntry> =
-            std::fs::read_to_string(&self.persist_path)
-                .ok()
-                .and_then(|data| serde_json::from_str(&data).ok())
-                .unwrap_or_default();
+        let mut cache: HashMap<String, CacheEntry> = std::fs::read_to_string(&self.persist_path)
+            .ok()
+            .and_then(|data| serde_json::from_str(&data).ok())
+            .unwrap_or_default();
 
         cache.insert(
             key,
@@ -139,11 +138,10 @@ impl ModelCache {
             Ok(d) => d,
             Err(_) => return,
         };
-        let mut cache: std::collections::HashMap<String, CacheEntry> =
-            match serde_json::from_str(&data) {
-                Ok(m) => m,
-                Err(_) => return,
-            };
+        let mut cache: HashMap<String, CacheEntry> = match serde_json::from_str(&data) {
+            Ok(m) => m,
+            Err(_) => return,
+        };
 
         cache.retain(|_, entry| !entry.is_expired());
 
