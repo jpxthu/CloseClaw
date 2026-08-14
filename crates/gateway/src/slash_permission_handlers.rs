@@ -379,7 +379,7 @@ impl Gateway {
                 Self::user_usage()
             );
         }
-        self.handle_user_reject(&parts[0], sender_id).await
+        self.handle_user_reject(parts[0], sender_id).await
     }
 
     pub(crate) fn user_usage() -> String {
