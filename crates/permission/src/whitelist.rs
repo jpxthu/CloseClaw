@@ -66,6 +66,8 @@ pub fn request_body_to_action(body: &PermissionRequestBody) -> Option<Action> {
 ///
 /// - [`WhitelistTarget::Auto`]: Owner → `AgentOnly`, non-owner → `UserAndAgent`
 /// - [`WhitelistTarget::AgentOnly`]: always `AgentOnly`
+/// - [`WhitelistTarget::UserOnly`]: `UserOnly` when `user_id` is
+///   non-empty, otherwise fallback to `AgentOnly`
 /// - [`WhitelistTarget::UserAndAgent`]: `UserAndAgent` when `user_id` is
 ///   non-empty, otherwise fallback to `AgentOnly`
 pub fn caller_to_subject(caller: &Caller, target: WhitelistTarget) -> Subject {
@@ -89,6 +91,19 @@ pub fn caller_to_subject(caller: &Caller, target: WhitelistTarget) -> Subject {
             agent: caller.agent.clone(),
             match_type: Default::default(),
         },
+        WhitelistTarget::UserOnly => {
+            if caller.user_id.is_empty() {
+                Subject::AgentOnly {
+                    agent: caller.agent.clone(),
+                    match_type: Default::default(),
+                }
+            } else {
+                Subject::UserOnly {
+                    user_id: caller.user_id.clone(),
+                    match_type: Default::default(),
+                }
+            }
+        }
         WhitelistTarget::UserAndAgent => {
             if caller.user_id.is_empty() {
                 Subject::AgentOnly {
