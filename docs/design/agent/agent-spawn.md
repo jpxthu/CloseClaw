@@ -17,32 +17,32 @@ LLM 调用 sessions_spawn(agentId, task, ...)
   ↓
 SkillTool 触发 SpawnValidator 执行前置检查（注意：下文「父 agent」指配置来源，「父 session」指发出 spawn 调用的运行时会话）：
   ① depth 检查：父 agent 有效预算 ≤ 0 → 拒绝（预算见 Depth 追踪节）
-  ② 并发检查：活跃子 session 数 >= 父 agent.subagents.maxChildren → 拒绝
-  ③ requireAgentId 检查：spawn 未传 agentId 且 requireAgentId=true → 拒绝
-  ④ agentId 解析：spawn 未传 agentId 时默认使用当前 Agent 的 ID（spawn 自身分身）
-  ⑤ 白名单检查：agentId 不在父 agent.subagents.allowAgents 中 → 拒绝
+  ② 并发检查：活跃子 session 数 >= 父 agent.subagents.maxChildren → 拒绝（maxChildren 默认值见 agent-config.md）
+  ③ requireAgentId 检查（配置校验）：requireAgentId=true 且 spawn 未传 agentId → 拒绝。requireAgentId 是可选加严项——默认 false 时遵循「agentId 可解析（显式指定或走 ④ 默认回退）」语义，置 true 时要求显式指定、关闭 ④ 的默认回退
+  ④ agentId 解析（解析）：spawn 未传 agentId 且 requireAgentId=false 时，默认使用当前 Agent 的 ID（spawn 自身分身）
+  ⑤ 白名单检查（配置校验）：agentId 不在父 agent.subagents.allowAgents 中 → 拒绝
   ↓
 SpawnValidator 前置检查通过 → sessions_spawn 经 tools 模块触发 PermissionEngine.evaluate() 执行权限检查：
   ⑥ 权限检查：子 agent 经权限继承计算后无任何执行权限 → 拒绝（见 agent-permissions.md）
   ↓
 全部检查通过 → SpawnController 创建 child session：
   - 加载目标 agent 的配置档案（config.json + permissions.json）
-  - workspace：spawn 参数指定 → 目标 agent.workspace → 父 agent workspace 下的子目录（{agent_id}/{user_id}）
-  - bootstrap 模式：lightContext=true → minimal；否则 → 目标 agent.bootstrapMode
+  - workspace：由 Session 模块按工作目录解析顺序确定（spawn 参数指定 → 目标 agent.workspace → 子 session 默认工作目录），详见 [working-directory.md](../session/working-directory.md)
+  - bootstrap 模式：lightContext=true → minimal；否则 → 目标 agent.bootstrapMode（bootstrap 文件集由目标 agent 配置的 bootstrapMode/agentDir 决定，spawn 不提供独立的 bootstrap 文件路径覆盖）
   - 注入 task 作为首条用户消息
   - tools：`allowedTools` 参数提供时完全替换子 agent 的 config.tools，否则使用 agent 配置的工具白名单；有效预算 ≤ 0 时从白名单中移除 sessions_spawn
   - skills：按 agent 配置的 skills 白名单过滤
   - 注入 spawn 角色标记（parent_session_id, depth, spawn_mode, fork）
   - timeout：spawn 参数指定 → 目标 agent 配置 → 全局默认，控制子 session 的最大执行时长
   ↓
-子 session 注册到父 session 的子 session 跟踪表
+子 session 注册到 spawn_tree（详见 [spawn-tree.md](../session/spawn-tree.md)）
   ↓
 通信配置生成（详见下方「通信配置」小节）
   ↓
 子 session 启动执行
   ↓
 mode="run"：子 session 完成后触发 announce
-mode="session"：子 session 保持存活，等待父 agent 后续 steer
+mode="session"：子 session 保持存活，等待父 session 后续 steer
 ```
 
 > 模型覆盖（按优先级链选择子 agent 模型，详见 agent-config.md「模型解析优先级」）不在上述编号步骤内执行，由 sessions_spawn 工具在子 session 创建阶段单独完成，无匹配时回退系统默认，不拒绝 spawn。
@@ -76,6 +76,8 @@ Agent A 向 Agent B 发送消息
 ```
 
 此配置注入子 session 的 LLM 会话上下文，在消息路由时由 Session 模块使用。默认仅父 agent 可达，如需扩展（如兄弟 agent 之间），需显式配置额外 agent ID。
+
+路由检查在消息发送路径的出站阶段执行（见下方路由检查流程）。通信配置仅在 spawn 时生成——根 session（用户直接创建、非 spawn 产生）无通信配置，其跨 agent 通信仅由 Permission 引擎的跨 Agent 通信维度约束。
 
 ### Depth 追踪
 
@@ -117,13 +119,15 @@ Spawn:   [system prompt] [task prompt]
 Fork:    [system prompt] [父 session messages] [task prompt]
 ```
 
-Fork 与 Spawn 共用同一 session 创建流程，区别仅在 session 组装阶段：fork 模式在注入 task 之前先注入父 agent 的 transcript messages。
+Fork 与 Spawn 共用同一 session 创建流程，区别仅在 session 组装阶段：fork 模式在注入 task 之前先注入父 session 的 transcript messages。
 
 | | Spawn | Fork |
 |---|-------|------|
 | 子 agent 上下文 | 仅 task 描述 | 父 session 完整对话历史 + task 描述 |
 | 适用场景 | 独立子任务，需完整 briefing | 父 agent 需要子 agent 理解已发生的事 |
 | 父 session 的说明成本 | 子 agent 不知前情，需解释背景 | 子 agent 已知前情，只需写指令 |
+
+Fork 是 spawn 的组装阶段变体，不改变 spawn_tree 结构：fork 标记仅在 session 组装时决定是否注入父 session transcript，不写入 spawn_tree 节点、不持久化到 checkpoint。
 
 ### Announce 机制
 
@@ -188,90 +192,15 @@ sessions_spawn 支持通过 `promptTemplate` 参数选择预定义的行为约�
 - **Steer**：向子 session 发送新 task，子 session 重新执行
 - **Kill**：终止子 session 及其所有后代（级联），释放资源，session 对话历史保留。对所有 mode（run / session）有效
 
-两个操作通过子 session 跟踪表完成。
+两个操作通过 spawn_tree 完成——steer/kill 的树查询与级联执行见 [spawn-tree.md](../session/spawn-tree.md)。
 
 ### Spawn 树形拓扑
 
-Spawn 树由 Session 模块内部的 spawn_tree 子组件维护，记录父子 session 的运行时关系。每棵 spawn 树的根节点是顶层 session（直接由用户或外部事件创建，非 spawn 产生），子节点由 sessions_spawn 创建时注册。
+Spawn 树由 Session 模块内部的 spawn_tree 子组件维护，记录父子 session 的运行时关系。spawn_tree 的存储结构、查询接口、节点回收、级联 Kill、生命周期联动和重启恢复的完整设计见 [spawn-tree.md](../session/spawn-tree.md)。
 
-#### 存储结构
-
-spawn_tree 维护一张内存查找表，以父 session ID 为键，子 session 列表为值。每个节点记录以下信息：
-
-| 字段 | 含义 |
-|------|------|
-| session_id | 子 session 唯一标识 |
-| parent_session_id | 父 session 标识（顶层 session 为空） |
-| agent_id | 目标 agent ID |
-| depth | 当前层级（根节点为 0） |
-| mode | spawn 模式（run / session） |
-
-spawn 成功时注册新节点，子 session 完成时标记状态，kill 时移除节点。
-
-#### 查询接口
-
-spawn_tree 提供三类只读查询，供 Session 模块内部使用：
-
-- **list_children**：查询某 session 的所有**直接子节点**。Session 模块的 depth 检查、并发检查、steer/kill 操作依赖此查询
-- **list_descendants**：递归查询某 session 的**所有后代节点**（子树遍历）。级联 kill 和父 session 结束时自动清理依赖此查询
-- **get_parent**：查询某 session 的**父节点**。用于层级完整性校验
-
-#### 级联 Kill
-
-sessions_kill 终止指定 session 及其所有后代（子树）。kill 操作始终级联——不存在仅杀单个 session 而不杀其子孙的模式。
-
-级联 kill 的执行顺序：
-
-```
-kill session A
-  ↓
-递归遍历 A 的子树，找出所有后代节点
-  ↓
-从最深层向浅层逐级终止（先杀叶子，再杀父）：
-  每步执行：取消子 session → 清理子 session 数据 → 从 spawn_tree 移除节点
-  ↓
-最后终止 A 自身
-```
-
-从深层向浅层逐级执行，确保每层数据清理完毕后再向上走，不留下孤儿节点。已完成或已终止的 session 跳过终止步骤，但仍从 spawn_tree 移除。
-
-#### 生命周期联动
-
-除显式 kill 外，以下场景自动触发级联清理（子 session 对话历史均保留供查阅）：
-
-- **父 session 正常结束**：父 session 完成时，所有仍活跃的子 session 被自动级联终止。否则子 session 失去父节点后无法被 steer
-- **父 session 超时清理**：父 session 被 sweeper 超时清理时，同上级联终止所有子 session
-
-子 session 的结束不影响父 session 或其他兄弟节点。
-
-#### 重启恢复
-
-spawn_tree 的运行时数据（内存查找表）随网关重启丢失。恢复依赖 session checkpoint 持久化：
-
-**Checkpoint 字段**：`SessionCheckpoint` 包含以下字段用于记录 spawn 关系：
-
-| 字段 | 含义 |
-|------|------|
-| parent_session_id | 谁 spawn 了我（顶层 session 为空） |
-| depth | 当前层级（根节点为 0） |
-
-spawn 子 session 时写入这两个字段。根 session（非 spawn 创建）没有 parent_session_id，depth 为 0。
-
-**恢复流程**：
-
-```
-网关启动
-  ↓
-Session 模块逐个恢复活跃 session（现有恢复流程，从 checkpoint 重建 session）
-  ↓
-spawn_tree 重建：
-  遍历所有已恢复的 session 的 checkpoint
-  → 有 parent_session_id 且父 session 也已恢复 → 在 spawn_tree 中注册父子关系
-  → 有 parent_session_id 但父 session 未恢复（已被 sweep）→ 子 session 降级为根节点，depth 重置为 0
-  → 无 parent_session_id → 确认为根节点
-```
-
-降级策略：父 session 已不存在时，子 session 降级为独立根节点而非级联清理。恢复是被动行为——重启不应主动删除已持久化的 session 数据。降级后的 session 仍可正常服务用户请求。Announce 队列不持久化——若子 session 恰好在重启前完成但父 session 还来不及消费 announce，该 announce 丢失。
+- **注册**：sessions_spawn 创建子 session 时在 spawn_tree 注册节点
+- **回收**：子 session 完成、完成通知入队后回收节点（已完成节点不长期占用内存）
+- **移除**：kill 或父 session 结束时级联移除节点
 
 ## 数据流
 
@@ -282,27 +211,18 @@ spawn_tree 重建：
   ↓
 前置检查：depth / 并发 / requireAgentId / agentId 解析 / 白名单 / 权限
   ↓ （全部通过）
-创建 child session：
-  agent_id = 目标 agent
-  parent_session_id = 父 session
-  depth = 父 depth + 1
-  bootstrap = 按 lightContext 决定
-  tools = allowedTools 参数提供时完全替换，否则使用目标 agent 配置白名单
-  permissions = 继承计算结果（见 agent-permissions.md）
-  model = 按优先级链解析（显式 model > 父.subagents.model > 目标.model > 系统默认），不拒绝 spawn
-  promptTemplate = 按 spawn 参数注入行为约束模板（若无则不注入）
-  first_message = task 内容
+创建 child session（字段设置与通信配置生成详见架构 Spawn 控制流程）
   ↓
-子 session 注册到父 session 的子 session 跟踪表
+子 session 注册到 spawn_tree（详见 [spawn-tree.md](../session/spawn-tree.md)）
   ↓
 子 agent 执行 task（可能多轮 turn）
   ↓
 子 session 完成：
   - 最后一条 assistant 消息提取为 announce 内容
   - announce 入队到父 session 的消息队列（作为消息注入对话流）
-  - 跟踪表中标记完成
+  - spawn_tree 回收该子节点（详见 [spawn-tree.md](../session/spawn-tree.md) 节点回收）
   ↓
-父 agent 下一轮 turn 开始时处理 announce
+父 session 下一轮 turn 开始时处理 announce
 ```
 
 ### Fork 模式流程
@@ -327,52 +247,13 @@ spawn_tree 重建：
   ↓
 子 session 启动执行 → 完成后保持存活
   ↓
-父 agent 可通过 sessions_steer 发送新 task
-父 agent 可通过 sessions_kill 终止子 session
+父 session 可通过 sessions_steer 发送新 task
+父 session 可通过 sessions_kill 终止子 session
   ↓
 子 session 最终被 kill 或超时自动清理
 ```
 
-### 级联 Kill 流程
-
-```
-sessions_kill(session_id)
-  ↓
-spawn_tree 递归遍历 session_id 的子树，收集所有后代节点
-  ↓
-从最深层向浅层逐级处理每个后代：
-  - 取消子 session（终止 LLM 调用和工具执行）
-  - 清理子 session 数据（从 conversation_sessions 和 sessions 表移除）
-  - 从 spawn_tree 移除节点
-  - 已完成/已终止的 session 跳过取消步骤，仅移除节点
-  ↓
-最后终止目标 session 自身
-```
-
-### 父 Session 结束时的级联清理
-
-```
-父 session 完成或超时
-  ↓
-spawn_tree 查询父 session 的所有后代
-  ↓
-从深层向浅层级联终止所有仍活跃的子 session
-  ↓
-清理子 session 数据
-```
-
-### 重启恢复流程
-
-```
-网关启动
-  ↓
-Session 模块逐个恢复活跃 session（从 checkpoint 重建）
-  ↓
-spawn_tree 重建：遍历所有已恢复 session 的 checkpoint
-  → 有 parent_session_id 且父 session 也已恢复 → 注册为父子关系
-  → 有 parent_session_id 但父 session 未恢复（已被 sweep）→ 子 session 降级为根节点，depth 重置为 0
-  → 无 parent_session_id → 确认为根节点
-```
+级联 Kill、父 Session 结束时的级联清理、重启恢复的完整流程见 [spawn-tree.md](../session/spawn-tree.md)。
 
 ## 模块关系
 
@@ -387,7 +268,7 @@ spawn_tree 重建：遍历所有已恢复 session 的 checkpoint
 
 | 模块 | 调用关系 |
 |------|---------|
-| Session | 创建 child session、注入 task 消息、管理子 session 跟踪表和 announce 队列。spawn_tree 作为 Session 模块的内部子组件，维护 spawn 树的父子关系、提供树形查询、执行级联清理和重启恢复 |
+| Session | 创建 child session、注入 task 消息、管理 announce 队列。spawn_tree 作为 Session 模块的内部子组件，其存储、查询、回收、级联清理和重启恢复见 [spawn-tree.md](../session/spawn-tree.md) |
 | System Prompt | 按 lightContext/agent.bootstrapMode 决定子 session 的 bootstrap 文件集 |
 
 ### 无关

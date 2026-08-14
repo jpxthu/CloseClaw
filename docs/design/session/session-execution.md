@@ -230,10 +230,10 @@ Forceful 模式：
 ```
 子 session 执行完成
   → 提取子 session 的最后一条 assistant 消息作为结果
-  → 父 session 中子 session 状态标记为完成
   → 生成结构化通知消息
   → 入队父 session 消息队列（优先级 next）
   → 带去重保护
+  → spawn_tree 回收该子节点（见 spawn-tree.md 节点回收）
   ↓
 父 session 下一轮 turn
   → 消息队列出队 → 子 session 完成通知作为消息注入对话流
