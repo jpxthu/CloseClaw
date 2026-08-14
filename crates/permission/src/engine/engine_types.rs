@@ -256,10 +256,12 @@ pub struct TemplateRef {
 
 /// Subject that a rule applies to.
 ///
-/// Supports two matching modes:
+/// Supports three matching modes:
 /// - `AgentOnly` (match_mode = "agent_only" or absent): legacy mode, matches only by `agent` field
 /// - `UserAndAgent` (match_mode = "user_and_agent"): dual-key match,
 ///   both `user_id` AND `agent` must match
+/// - `UserOnly` (match_mode = "user_only"): user-only matching,
+///   matches by `user_id` regardless of agent
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "match_mode", rename_all = "snake_case", content = "fields")]
 pub enum Subject {
@@ -278,6 +280,12 @@ pub enum Subject {
         #[serde(default)]
         agent_match: MatchType,
     },
+    /// User-only matching: matches by user_id regardless of agent.
+    UserOnly {
+        user_id: String,
+        #[serde(default)]
+        match_type: MatchType,
+    },
 }
 
 impl Subject {
@@ -286,6 +294,7 @@ impl Subject {
         match self {
             Subject::AgentOnly { agent, .. } => agent,
             Subject::UserAndAgent { agent, .. } => agent,
+            Subject::UserOnly { .. } => "",
         }
     }
 
@@ -294,6 +303,7 @@ impl Subject {
         match self {
             Subject::AgentOnly { .. } => "",
             Subject::UserAndAgent { user_id, .. } => user_id,
+            Subject::UserOnly { user_id, .. } => user_id,
         }
     }
 
@@ -305,6 +315,11 @@ impl Subject {
     /// Returns true if this is a UserAndAgent subject.
     pub fn is_user_and_agent(&self) -> bool {
         matches!(self, Subject::UserAndAgent { .. })
+    }
+
+    /// Returns true if this is a UserOnly subject.
+    pub fn is_user_only(&self) -> bool {
+        matches!(self, Subject::UserOnly { .. })
     }
 
     /// Check if this subject matches the given caller.
@@ -330,6 +345,13 @@ impl Subject {
                 };
                 user_ok && agent_ok
             }
+            Subject::UserOnly {
+                user_id,
+                match_type,
+            } => match match_type {
+                MatchType::Exact => user_id == &caller.user_id,
+                MatchType::Glob => glob_match(user_id, &caller.user_id),
+            },
         }
     }
 }
@@ -373,6 +395,22 @@ mod subject_de {
                         agent: fields.agent,
                         user_match: fields.user_match,
                         agent_match: fields.agent_match,
+                    })
+                }
+                Some("user_only") => {
+                    #[derive(serde::Deserialize)]
+                    struct UOFields {
+                        #[serde(alias = "user_id")]
+                        user_id: String,
+                        #[serde(alias = "match", alias = "match_type", default)]
+                        match_type: Option<MatchType>,
+                    }
+                    let inner = json.get("fields").cloned().unwrap_or(json);
+                    let fields: UOFields =
+                        serde_json::from_value(inner).map_err(serde::de::Error::custom)?;
+                    Ok(Subject::UserOnly {
+                        user_id: fields.user_id,
+                        match_type: fields.match_type.unwrap_or_default(),
                     })
                 }
                 _ => {

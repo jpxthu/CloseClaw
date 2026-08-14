@@ -24,6 +24,7 @@ pub fn get_agent_deny_subjects(
             match &rule.subject {
                 Subject::AgentOnly { agent, .. } => agent == parent_agent_id,
                 Subject::UserAndAgent { .. } => false,
+                Subject::UserOnly { .. } => false,
             }
         })
         .map(|rule| match &rule.subject {
@@ -35,6 +36,7 @@ pub fn get_agent_deny_subjects(
                 match_type: match_type.clone(),
             },
             Subject::UserAndAgent { .. } => unreachable!(),
+            Subject::UserOnly { .. } => unreachable!(),
         })
         .collect()
 }

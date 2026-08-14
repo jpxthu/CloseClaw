@@ -46,7 +46,8 @@ impl Gateway {
                 "⚠️ 审批 [{}] Agent [{}] 以 [{}] 执行 [{}] (风险:{})。\n\
                  回复 /approve-once {} 放行 或 /deny {} 拒绝。\n\
                  可选：/approve-whitelist {} 加入白名单（默认自动推断维度），\n\
-                 --agent-only 仅 Agent，--user-and-agent 同时覆盖 Agent 和 User。",
+                 --agent-only 仅 Agent，--user-only 仅 User，\n\
+                 --user-and-agent 同时覆盖 Agent 和 User。",
                 request_id, agent, user, op, risk, request_id, request_id, request_id,
             );
 
@@ -88,7 +89,7 @@ impl Gateway {
     ///
     /// Supported prefixes (checked in order):
     /// - `/approve-once <id>` → `ApprovalMode::Once`
-    /// - `/approve-whitelist <id> [--agent-only|--user-and-agent]` → `ApprovalMode::WithWhitelist`
+    /// - `/approve-whitelist <id> [--agent-only|--user-only|--user-and-agent]` → `ApprovalMode::WithWhitelist`
     /// - `/approve <id>` → `ApprovalMode::Once` (backward compatible)
     /// - `/deny <id>` → deny flow
     ///
@@ -161,11 +162,13 @@ impl Gateway {
         let mode = if let Some(m) = mode_override {
             m
         } else {
-            // /approve-whitelist path: parse --agent-only / --user-and-agent flags
+            // /approve-whitelist path: parse --agent-only / --user-only / --user-and-agent flags
             let target = if rest.contains("--user-and-agent") {
                 WhitelistTarget::UserAndAgent
             } else if rest.contains("--agent-only") {
                 WhitelistTarget::AgentOnly
+            } else if rest.contains("--user-only") {
+                WhitelistTarget::UserOnly
             } else {
                 WhitelistTarget::Auto
             };
