@@ -269,6 +269,8 @@ fn build_body_for_action(
 mod tests {
     use super::*;
     use crate::engine::engine_types::{Defaults, Effect, MatchType, Rule, RuleSet, Subject};
+    use crate::approval_flow::HeartbeatApprovalMode;
+    use crate::mock_session_lookup::MockSessionLookup;
     use std::collections::HashMap;
 
     fn make_engine_with_rules(rules: Vec<Rule>) -> Arc<tokio::sync::RwLock<PermissionEngine>> {
@@ -282,6 +284,27 @@ mod tests {
         Arc::new(tokio::sync::RwLock::new(
             PermissionEngine::new_with_default_data_root(ruleset),
         ))
+    }
+
+    fn make_skill_approval_flow_wrapper(
+        notify_count: Arc<std::sync::atomic::AtomicUsize>,
+        handle: tokio::runtime::Handle,
+    ) -> SkillApprovalFlowWrapper {
+        let sm: Arc<dyn closeclaw_common::SessionLookup> =
+            Arc::new(MockSessionLookup::new());
+        let nc = Arc::clone(&notify_count);
+        let flow = ApprovalFlow::new(
+            sm,
+            Arc::new(move |_n: crate::approval_flow::ApprovalNotification| {
+                nc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }),
+            Arc::new(|_| {}),
+            handle,
+            HeartbeatApprovalMode::default(),
+            std::env::temp_dir(),
+            RuleSet::default(),
+        );
+        SkillApprovalFlowWrapper::new(Arc::new(tokio::sync::Mutex::new(flow)))
     }
 
     #[test]
@@ -571,5 +594,57 @@ mod tests {
             .await;
         // Should not panic — agent_id defaults to "unknown"
         assert!(matches!(result, PermissionEvalResult::Denied { .. }));
+    }
+
+    #[test]
+    fn test_submit_denial_sub_agent_returns_none() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let notify_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let wrapper = make_skill_approval_flow_wrapper(Arc::clone(&notify_count), rt.handle().clone());
+        let caller = CallerInfo {
+            user_id: "user_1".to_string(),
+            agent: "agent_1".to_string(),
+            creator_id: "creator_1".to_string(),
+            is_sub_agent: true,
+        };
+        let result = rt.block_on(wrapper.submit_denial(
+            "file_read",
+            "/tmp/test.txt",
+            "denied",
+            RiskLevel::Low,
+            "session_1",
+            &caller,
+        ));
+        assert!(result.is_none());
+        assert_eq!(
+            notify_count.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+    }
+
+    #[test]
+    fn test_submit_denial_non_sub_agent_returns_some() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let notify_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let wrapper = make_skill_approval_flow_wrapper(Arc::clone(&notify_count), rt.handle().clone());
+        let caller = CallerInfo {
+            user_id: "user_1".to_string(),
+            agent: "agent_1".to_string(),
+            creator_id: "creator_1".to_string(),
+            is_sub_agent: false,
+        };
+        let result = rt.block_on(wrapper.submit_denial(
+            "file_read",
+            "/tmp/test.txt",
+            "denied",
+            RiskLevel::Low,
+            "session_1",
+            &caller,
+        ));
+        assert!(result.is_some());
+        assert_eq!(
+            notify_count.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
     }
 }
