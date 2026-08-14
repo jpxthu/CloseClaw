@@ -28,7 +28,7 @@ SpawnValidator 前置检查通过 → sessions_spawn 经 tools 模块触发 Perm
 全部检查通过 → SpawnController 创建 child session：
   - 加载目标 agent 的配置档案（config.json + permissions.json）
   - workspace：由 Session 模块按工作目录解析顺序确定（spawn 参数指定 → 目标 agent.workspace → 子 session 默认工作目录），详见 [working-directory.md](../session/working-directory.md)
-  - bootstrap 模式：lightContext=true → minimal；否则 → 目标 agent.bootstrapMode
+  - bootstrap 模式：lightContext=true → minimal；否则 → 目标 agent.bootstrapMode（bootstrap 文件集由目标 agent 配置的 bootstrapMode/agentDir 决定，spawn 不提供独立的 bootstrap 文件路径覆盖）
   - 注入 task 作为首条用户消息
   - tools：`allowedTools` 参数提供时完全替换子 agent 的 config.tools，否则使用 agent 配置的工具白名单；有效预算 ≤ 0 时从白名单中移除 sessions_spawn
   - skills：按 agent 配置的 skills 白名单过滤
