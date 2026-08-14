@@ -33,15 +33,29 @@ records.json lives alongside this script.  Each record has the fields:
 
 from __future__ import annotations
 
-import json
 import subprocess
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List
 
 import click
+
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from _tracker_core import (  # noqa: E402
+    collect_md_files as _core_collect_md_files,
+    commit_committer_date as _core_commit_committer_date,
+    load_records as _core_load_records,
+    merge_base_commit as _core_merge_base_commit,
+    now_iso as _core_now_iso,
+    run as _core_run,
+    save_records as _core_save_records,
+    sort_key as _core_sort_key,
+    upsert_record as _core_upsert_record,
+)
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 REPO_ROOT = Path(
@@ -59,40 +73,25 @@ DESIGN_DOC_DIR = REPO_ROOT / "docs" / "design"
 
 def _run(cmd: List[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
     """Run a command inside the repo root, return CompletedProcess."""
-    return subprocess.run(
-        cmd, cwd=REPO_ROOT, capture_output=True, text=True, **kwargs
-    )
+    return _core_run(cmd, REPO_ROOT, **kwargs)
 
 
 def _commit_committer_date(ref: str = "HEAD") -> str:
     """Return ISO-8601 committer date for *ref*."""
-    r = _run(["git", "log", "-1", "--format=%cI", ref])
-    return r.stdout.strip()
+    return _core_commit_committer_date(_run, ref)
 
 
 def _merge_base_commit() -> str | None:
     """Return the merge-base of HEAD and origin/master, or None on failure."""
-    r = _run(["git", "merge-base", "HEAD", "origin/master"])
-    if r.returncode != 0 or not r.stdout.strip():
-        return None
-    return r.stdout.strip()
+    return _core_merge_base_commit(_run)
 
 
 def _load_records() -> List[Dict[str, str]]:
-    if RECORDS_FILE.exists():
-        with open(RECORDS_FILE, "r", encoding="utf-8") as f:
-            records = json.load(f)
-        for rec in records:
-            rec.setdefault("blocked_reason", "")
-        return records
-    return []
+    return _core_load_records(RECORDS_FILE, {"blocked_reason": ""})
 
 
 def _save_records(records: List[Dict[str, str]]) -> None:
-    records.sort(key=lambda r: r["path"])
-    with open(RECORDS_FILE, "w", encoding="utf-8") as f:
-        json.dump(records, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    _core_save_records(RECORDS_FILE, records, "path")
 
 
 # Paths excluded from check output (relative to REPO_ROOT)
@@ -112,7 +111,7 @@ def _sort_key(p: Path) -> list:
     ``docs/design/agent/README.md`` sorts before
     ``docs/design/README.md``.
     """
-    return [part.lower() for part in p.relative_to(REPO_ROOT).parts]
+    return _core_sort_key(REPO_ROOT, p)
 
 
 def _collect_md_files(directory: Path) -> List[Path]:
@@ -121,18 +120,11 @@ def _collect_md_files(directory: Path) -> List[Path]:
     Results are sorted with subdirectory contents before index files
     at each level, and BLACKLIST entries are excluded.
     """
-    result: List[Path] = []
-    for p in sorted(directory.rglob("*.md"), key=_sort_key):
-        if p.is_file():
-            rel = str(p.relative_to(REPO_ROOT))
-            if rel in BLACKLIST:
-                continue
-            result.append(Path(rel))
-    return result
+    return _core_collect_md_files(REPO_ROOT, directory, BLACKLIST)
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).astimezone().isoformat()
+    return _core_now_iso()
 
 
 # ── sub-commands ─────────────────────────────────────────────────────────
@@ -143,21 +135,14 @@ def _upsert_record(records: List[Dict[str, str]], path: str, **fields: str) -> L
 
     Returns the mutated *records* list (same object).
     """
-    existing: Dict[str, int] = {r["path"]: i for i, r in enumerate(records)}
-    if path in existing:
-        records[existing[path]].update(fields)
-    else:
-        entry: Dict[str, str] = {
-            "path": path,
-            "commit": "",
-            "commit_time": "",
-            "confirmed_time": "",
-            "comment": "",
-            "blocked_reason": "",
-        }
-        entry.update(fields)
-        records.append(entry)
-    return records
+    defaults: Dict[str, str] = {
+        "commit": "",
+        "commit_time": "",
+        "confirmed_time": "",
+        "comment": "",
+        "blocked_reason": "",
+    }
+    return _core_upsert_record(records, "path", path, defaults, **fields)
 
 
 def cmd_finished(args: SimpleNamespace) -> int:
