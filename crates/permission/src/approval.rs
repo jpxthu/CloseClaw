@@ -213,6 +213,9 @@ pub enum WhitelistTarget {
     Auto,
     /// Whitelist applies to the agent identity only.
     AgentOnly,
+    /// Whitelist applies to the user identity only.
+    /// Falls back to `AgentOnly` when `user_id` is empty.
+    UserOnly,
     /// Whitelist applies to both user and agent identities.
     /// Falls back to `AgentOnly` when `user_id` is empty.
     UserAndAgent,
