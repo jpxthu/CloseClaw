@@ -1,12 +1,9 @@
 //! Plan Mode state types — shared across session and mode modules.
 //!
-//! `PlanState` is the minimal state structure for plan mode.
-//! Execution-specific types (`ExecutionStep`, `ExecutionStepStatus`,
-//! `TransitionError`) have been migrated to `closeclaw_execution::execution_types`.
+//! `PlanState` is the minimal state structure for plan mode,
+//! containing only `phase`, `pending_steps`, and `plan_file_path`.
 
 use serde::{Deserialize, Serialize};
-
-use crate::ExecutionStep;
 
 /// Plan Path — plan 双路径选择
 ///
@@ -57,8 +54,8 @@ pub enum PlanPhase {
 /// Session 恢复时从 checkpoint 重建。
 ///
 /// 执行步骤的完成状态由 Agent 写在 plan 文件中管理，系统不介入
-/// 进度判断。执行步骤状态机相关的字段和方法已迁移到
-/// `closeclaw_execution::plan_state` 模块。
+/// 进度判断。执行步骤状态机相关的类型和方法在
+/// `closeclaw_execution` crate 中。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PlanState {
     /// 当前规划阶段
@@ -70,13 +67,6 @@ pub struct PlanState {
     /// plan 文件路径 — Agent 写入和读取的唯一可写目标
     #[serde(default)]
     pub plan_file_path: String,
-    /// 执行步骤列表
-    #[serde(default)]
-    pub execution_steps: Vec<ExecutionStep>,
-    /// 当前正在执行的步骤索引
-    #[serde(default)]
-    pub current_step: Option<usize>,
-
 }
 
 impl PlanState {
