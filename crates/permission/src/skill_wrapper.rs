@@ -108,7 +108,13 @@ impl SkillApprovalSubmitter for SkillApprovalFlowWrapper {
             creator_id: caller_info.creator_id.clone(),
         };
         let mut flow = self.flow.lock().await;
-        flow.submit_denial(&caller, &body, engine_risk, session_id, caller_info.is_sub_agent)
+        flow.submit_denial(
+            &caller,
+            &body,
+            engine_risk,
+            session_id,
+            caller_info.is_sub_agent,
+        )
     }
 }
 
@@ -268,8 +274,8 @@ fn build_body_for_action(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::engine_types::{Defaults, Effect, MatchType, Rule, RuleSet, Subject};
     use crate::approval_flow::HeartbeatApprovalMode;
+    use crate::engine::engine_types::{Defaults, Effect, MatchType, Rule, RuleSet, Subject};
     use crate::mock_session_lookup::MockSessionLookup;
     use std::collections::HashMap;
 
@@ -290,8 +296,7 @@ mod tests {
         notify_count: Arc<std::sync::atomic::AtomicUsize>,
         handle: tokio::runtime::Handle,
     ) -> SkillApprovalFlowWrapper {
-        let sm: Arc<dyn closeclaw_common::SessionLookup> =
-            Arc::new(MockSessionLookup::new());
+        let sm: Arc<dyn closeclaw_common::SessionLookup> = Arc::new(MockSessionLookup::new());
         let nc = Arc::clone(&notify_count);
         let flow = ApprovalFlow::new(
             sm,
@@ -600,7 +605,8 @@ mod tests {
     fn test_submit_denial_sub_agent_returns_none() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let notify_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let wrapper = make_skill_approval_flow_wrapper(Arc::clone(&notify_count), rt.handle().clone());
+        let wrapper =
+            make_skill_approval_flow_wrapper(Arc::clone(&notify_count), rt.handle().clone());
         let caller = CallerInfo {
             user_id: "user_1".to_string(),
             agent: "agent_1".to_string(),
@@ -616,17 +622,15 @@ mod tests {
             &caller,
         ));
         assert!(result.is_none());
-        assert_eq!(
-            notify_count.load(std::sync::atomic::Ordering::SeqCst),
-            0
-        );
+        assert_eq!(notify_count.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 
     #[test]
     fn test_submit_denial_non_sub_agent_returns_some() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let notify_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let wrapper = make_skill_approval_flow_wrapper(Arc::clone(&notify_count), rt.handle().clone());
+        let wrapper =
+            make_skill_approval_flow_wrapper(Arc::clone(&notify_count), rt.handle().clone());
         let caller = CallerInfo {
             user_id: "user_1".to_string(),
             agent: "agent_1".to_string(),
@@ -642,9 +646,6 @@ mod tests {
             &caller,
         ));
         assert!(result.is_some());
-        assert_eq!(
-            notify_count.load(std::sync::atomic::Ordering::SeqCst),
-            1
-        );
+        assert_eq!(notify_count.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 }
