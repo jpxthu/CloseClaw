@@ -291,7 +291,9 @@ impl SpawnCreationContext for MockCreationContextWithSkills {
         &self,
         parent_session_id: &str,
     ) -> Option<Arc<RwLock<ConversationSession>>> {
-        self.inner.get_parent_conversation_session(parent_session_id).await
+        self.inner
+            .get_parent_conversation_session(parent_session_id)
+            .await
     }
 
     async fn load_checkpoint(&self, session_id: &str) -> Option<SessionCheckpoint> {
@@ -366,16 +368,21 @@ async fn test_skills_whitelist_injected() {
     let ctx = MockCreationContextWithSkills::new(Some(config));
     let params = default_params();
 
-    let result = create_child_conversation_session(&ctx, &ctx.get_agent_config("child-agent").unwrap(), &params)
-        .await
-        .expect("should succeed");
+    let result = create_child_conversation_session(
+        &ctx,
+        &ctx.get_agent_config("child-agent").unwrap(),
+        &params,
+    )
+    .await
+    .expect("should succeed");
 
     let cs = result.conversation_session.read().await;
     let skills = cs.agent_skills().expect("agent_skills should be Some");
-    assert_eq!(skills, &[
-        "skill-a".to_string(),
-        "skill-b".to_string(),
-    ], "whitelist must match config.effective_skills()");
+    assert_eq!(
+        skills,
+        &["skill-a".to_string(), "skill-b".to_string(),],
+        "whitelist must match config.effective_skills()"
+    );
 }
 
 /// **Test 2 — Wildcard semantics**: Empty or `["*"]` skills must not be
@@ -387,12 +394,19 @@ async fn test_skills_wildcard_empty_no_injection() {
     let ctx = MockCreationContextWithSkills::new(Some(config));
     let params = default_params();
 
-    let result = create_child_conversation_session(&ctx, &ctx.get_agent_config("child-agent").unwrap(), &params)
-        .await
-        .expect("should succeed");
+    let result = create_child_conversation_session(
+        &ctx,
+        &ctx.get_agent_config("child-agent").unwrap(),
+        &params,
+    )
+    .await
+    .expect("should succeed");
 
     let cs = result.conversation_session.read().await;
-    assert!(cs.agent_skills().is_none(), "empty skills must not inject whitelist");
+    assert!(
+        cs.agent_skills().is_none(),
+        "empty skills must not inject whitelist"
+    );
 }
 
 /// Wildcard `["*"]` must also leave agent_skills as None.
@@ -403,12 +417,19 @@ async fn test_skills_wildcard_star_no_injection() {
     let ctx = MockCreationContextWithSkills::new(Some(config));
     let params = default_params();
 
-    let result = create_child_conversation_session(&ctx, &ctx.get_agent_config("child-agent").unwrap(), &params)
-        .await
-        .expect("should succeed");
+    let result = create_child_conversation_session(
+        &ctx,
+        &ctx.get_agent_config("child-agent").unwrap(),
+        &params,
+    )
+    .await
+    .expect("should succeed");
 
     let cs = result.conversation_session.read().await;
-    assert!(cs.agent_skills().is_none(), "[\"*\"] skills must not inject whitelist");
+    assert!(
+        cs.agent_skills().is_none(),
+        "[\"*\"] skills must not inject whitelist"
+    );
 }
 
 /// **Test 3 — Scenario independence**: Fork mode + lightContext both inject whitelist.
@@ -423,12 +444,18 @@ async fn test_skills_injected_in_fork_mode() {
         ..default_params()
     };
 
-    let result = create_child_conversation_session(&ctx, &ctx.get_agent_config("child-agent").unwrap(), &params)
-        .await
-        .expect("should succeed");
+    let result = create_child_conversation_session(
+        &ctx,
+        &ctx.get_agent_config("child-agent").unwrap(),
+        &params,
+    )
+    .await
+    .expect("should succeed");
 
     let cs = result.conversation_session.read().await;
-    let skills = cs.agent_skills().expect("agent_skills should be Some in fork mode");
+    let skills = cs
+        .agent_skills()
+        .expect("agent_skills should be Some in fork mode");
     assert_eq!(skills, &["only-this".to_string()]);
 }
 
@@ -444,12 +471,18 @@ async fn test_skills_injected_in_light_context() {
         ..default_params()
     };
 
-    let result = create_child_conversation_session(&ctx, &ctx.get_agent_config("child-agent").unwrap(), &params)
-        .await
-        .expect("should succeed");
+    let result = create_child_conversation_session(
+        &ctx,
+        &ctx.get_agent_config("child-agent").unwrap(),
+        &params,
+    )
+    .await
+    .expect("should succeed");
 
     let cs = result.conversation_session.read().await;
-    let skills = cs.agent_skills().expect("agent_skills should be Some in light context");
+    let skills = cs
+        .agent_skills()
+        .expect("agent_skills should be Some in light context");
     assert_eq!(skills, &["light-skill".to_string()]);
 }
 
@@ -466,7 +499,10 @@ async fn test_skills_no_config_no_panic() {
         .expect("should not panic even without agent config");
 
     let cs = result.conversation_session.read().await;
-    assert!(cs.agent_skills().is_none(), "no config should result in no whitelist injection");
+    assert!(
+        cs.agent_skills().is_none(),
+        "no config should result in no whitelist injection"
+    );
 }
 
 // ── Gap 4: Prompt template injection into system prompt ───────────────────
