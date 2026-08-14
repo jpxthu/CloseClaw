@@ -787,7 +787,7 @@ impl ApprovalFlow {
             )
             .await;
         } else {
-            Self::handle_same_session_path(sm, session_id, &mut plan_state, &plan_meta).await;
+            Self::handle_same_session_path(sm, session_id, &mut plan_state).await;
         }
     }
 }
@@ -813,7 +813,6 @@ impl ApprovalFlow {
     /// Create a [`PlanState`] configured for the child session.
     fn setup_child_plan_state(
         path: &str,
-        _meta: &Option<PlanExecMetadata>,
     ) -> closeclaw_common::PlanState {
         let mut state = closeclaw_common::PlanState::new();
         state.plan_file_path = path.to_string();
@@ -827,7 +826,6 @@ impl ApprovalFlow {
         sm: &Arc<dyn SessionLookup>,
         session_id: &str,
         plan_state: &mut closeclaw_common::PlanState,
-        _plan_meta: &Option<PlanExecMetadata>,
     ) {
         tracing::info!(
             parent_session = %session_id,
@@ -913,12 +911,12 @@ impl ApprovalFlow {
                 }
             }
             None => {
-                Self::handle_new_session_fallback(sm, session_id, plan_state, plan_meta).await;
+                Self::handle_new_session_fallback(sm, session_id, plan_state).await;
                 return;
             }
         };
 
-        let child_plan_state = Self::setup_child_plan_state(&plan_file_path, plan_meta);
+        let child_plan_state = Self::setup_child_plan_state(&plan_file_path);
         sm.set_plan_state(&new_session_id, child_plan_state).await;
         sm.set_session_mode(&new_session_id, SessionMode::Auto)
             .await;
@@ -935,7 +933,6 @@ impl ApprovalFlow {
         sm: &Arc<dyn SessionLookup>,
         session_id: &str,
         plan_state: &mut closeclaw_common::PlanState,
-        _plan_meta: &Option<PlanExecMetadata>,
     ) {
         plan_state.phase = PlanPhase::FinalPlan;
         sm.set_plan_state(session_id, plan_state.clone()).await;

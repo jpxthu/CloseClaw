@@ -238,15 +238,9 @@ impl ExecuteHandler {
             return SlashResult::Reply("当前 plan 没有关联的 plan 文件，无法执行。".to_owned());
         }
 
-        let plan_file_path = std::path::PathBuf::from(&plan_state.plan_file_path);
-
-        self.session_manager
-            .set_plan_state(&ctx.session_id, plan_state)
-            .await;
-
         SlashResult::SetMode {
             mode: "auto".to_owned(),
-            plan_file_path: Some(plan_file_path),
+            plan_file_path: Some(std::path::PathBuf::from(&plan_state.plan_file_path)),
             initial_input: None,
             reply_message: Some("开始执行".to_owned()),
         }
@@ -335,16 +329,10 @@ impl SlashHandler for PauseHandler {
             return SlashResult::Reply("当前 plan 没有关联的 plan 文件，无法暂停。".to_owned());
         }
 
-        // Step 3: Persist plan state as-is (no status transition needed)
-        let plan_file_path = std::path::PathBuf::from(&plan_state.plan_file_path);
-        self.session_manager
-            .set_plan_state(&ctx.session_id, plan_state)
-            .await;
-
-        // Step 4: Switch session mode back to Plan Mode
+        // Step 3: Switch session mode back to Plan Mode
         SlashResult::SetMode {
             mode: "plan".to_owned(),
-            plan_file_path: Some(plan_file_path),
+            plan_file_path: Some(std::path::PathBuf::from(&plan_state.plan_file_path)),
             initial_input: None,
             reply_message: Some("已切换到 Plan 模式".to_owned()),
         }
