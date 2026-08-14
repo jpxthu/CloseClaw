@@ -109,6 +109,14 @@ pub async fn create_child_conversation_session(
 
     wire_session_dependencies(ctx, &mut cs, config.hooks.clone());
 
+    // Inject agent-level skills whitelist into the child session.
+    // Mirrors the normal session path in resolve.rs::wire_skill_listing_deps:
+    // effective_skills() returns None for wildcard (empty/["*"]), meaning
+    // no filtering — which is the same as not calling set_agent_skills.
+    if let Some(skills) = config.effective_skills() {
+        cs.set_agent_skills(skills);
+    }
+
     let spawn_context = build_spawn_context(
         params.depth,
         params.max_spawn_depth,
