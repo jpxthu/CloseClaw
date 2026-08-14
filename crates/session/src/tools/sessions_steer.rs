@@ -123,6 +123,7 @@ impl Tool for SessionsSteerTool {
                 user_id: String::new(),
                 agent: ctx.agent_id.clone(),
                 creator_id: String::new(),
+                is_sub_agent: false,
             };
             let session_id = ctx.session_id.as_deref().unwrap_or("");
             let flow = self.approval_flow.lock().await;
