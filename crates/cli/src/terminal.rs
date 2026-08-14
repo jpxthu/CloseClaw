@@ -79,7 +79,6 @@ impl TerminalAdapter {
             media_refs: vec![],
             thread_id: None,
             account_id: "owner".to_string(),
-            ..Default::default()
         }
     }
 }
