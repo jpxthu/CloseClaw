@@ -669,6 +669,43 @@ async fn test_plan_path_no_title_enters_plan_mode() {
     }
 }
 
+/// /plan --path should NOT write explicit_path to PlanState.
+/// The path is parsed by the handler but no longer stored in PlanState;
+/// it belongs in ExecutionState (set by the execution engine).
+#[tokio::test]
+async fn test_plan_path_does_not_write_explicit_path_to_plan_state() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_test_session(&sm).await;
+    let h = PlanModeHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid.clone();
+    // /plan --path standard task title
+    h.handle("--path standard 实现登录", &ctx).await;
+    let plan_state = sm.get_plan_state(&sid).await;
+    assert!(plan_state.is_some(), "plan state should exist after /plan with title");
+    let ps = plan_state.unwrap();
+    assert_eq!(ps.phase, closeclaw_common::PlanPhase::Research);
+    assert!(!ps.plan_file_path.is_empty(), "plan_file_path should be set");
+    // Verify no extra fields — serialize and check
+    let json = serde_json::to_value(&ps).unwrap();
+    let obj = json.as_object().unwrap();
+    assert!(!obj.contains_key("explicit_path"), "PlanState must NOT have explicit_path field");
+    assert!(!obj.contains_key("step_selection"), "PlanState must NOT have step_selection field");
+}
+
+/// /plan --path without title enters plan mode but does NOT create PlanState.
+#[tokio::test]
+async fn test_plan_path_no_title_no_plan_state() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_test_session(&sm).await;
+    let h = PlanModeHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid.clone();
+    h.handle("--path interview", &ctx).await;
+    let plan_state = sm.get_plan_state(&sid).await;
+    assert!(plan_state.is_none(), "no PlanState should be created for --path without title");
+}
+
 // ── AutoModeHandler tests ─────────────────────────────────────────────────
 
 #[test]

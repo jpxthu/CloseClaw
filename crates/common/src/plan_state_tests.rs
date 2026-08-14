@@ -165,6 +165,69 @@ fn test_plan_state_serde_backward_compat_old_checkpoint() {
     assert!(state.pending_steps.is_empty());
 }
 
+// --- PlanState 3-field closure verification ---
+
+#[test]
+fn test_plan_state_serialization_has_exactly_three_fields() {
+    // PlanState should serialize to exactly: phase, pending_steps, plan_file_path.
+    // No extra fields (explicit_path, step_selection, execution_steps, current_step).
+    let state = PlanState {
+        phase: PlanPhase::Design,
+        pending_steps: vec!["s1".into()],
+        plan_file_path: "/tmp/p.md".into(),
+    };
+    let json = serde_json::to_value(&state).unwrap();
+    let obj = json.as_object().expect("PlanState should serialize to JSON object");
+    assert_eq!(obj.len(), 3, "PlanState must have exactly 3 fields, got: {:?}", obj.keys().collect::<Vec<_>>());
+    assert!(obj.contains_key("phase"));
+    assert!(obj.contains_key("pending_steps"));
+    assert!(obj.contains_key("plan_file_path"));
+    // These fields must NOT exist
+    assert!(!obj.contains_key("explicit_path"), "PlanState must not contain explicit_path");
+    assert!(!obj.contains_key("step_selection"), "PlanState must not contain step_selection");
+    assert!(!obj.contains_key("execution_steps"), "PlanState must not contain execution_steps");
+    assert!(!obj.contains_key("current_step"), "PlanState must not contain current_step");
+}
+
+#[test]
+fn test_plan_state_default_serialization_has_exactly_three_fields() {
+    let state = PlanState::default();
+    let json = serde_json::to_value(&state).unwrap();
+    let obj = json.as_object().expect("default PlanState should serialize to JSON object");
+    assert_eq!(obj.len(), 3, "default PlanState must have exactly 3 fields");
+}
+
+// --- PlanState old checkpoint: all old fields combined ---
+
+#[test]
+fn test_plan_state_serde_backward_compat_all_old_fields() {
+    // Old checkpoint with ALL previously-removed fields.
+    let json = r#"{
+        "phase": "design",
+        "pending_steps": ["a", "b"],
+        "plan_file_path": "/tmp/plan.md",
+        "explicit_path": "interview",
+        "step_selection": [0, 2, 4],
+        "execution_steps": [{"step_index": 0, "status": "completed"}],
+        "current_step": 1
+    }"#;
+    let state: PlanState = serde_json::from_str(json).unwrap();
+    assert_eq!(state.phase, PlanPhase::Design);
+    assert_eq!(state.pending_steps, vec!["a", "b"]);
+    assert_eq!(state.plan_file_path, "/tmp/plan.md");
+    // Removed fields must be silently ignored
+    assert_eq!(state.phase, PlanPhase::Design);
+    assert!(state.pending_steps.len() == 2);
+}
+
+#[test]
+fn test_plan_state_serde_empty_object_produces_defaults() {
+    let state: PlanState = serde_json::from_str("{}").unwrap();
+    assert_eq!(state.phase, PlanPhase::Research);
+    assert!(state.pending_steps.is_empty());
+    assert!(state.plan_file_path.is_empty());
+}
+
 // --- TransitionError tests (type stays in common) ---
 
 #[test]

@@ -702,3 +702,128 @@ fn test_execution_step_status_serde_snake_case() {
         "\"pending\""
     );
 }
+
+// --- ExecutionState.explicit_path serde tests ---
+
+/// explicit_path roundtrip: None → None.
+#[test]
+fn test_execution_state_explicit_path_none_default() {
+    let state = ExecutionState::new();
+    assert!(state.explicit_path.is_none());
+    let json = serde_json::to_string(&state).unwrap();
+    let restored: ExecutionState = serde_json::from_str(&json).unwrap();
+    assert!(restored.explicit_path.is_none());
+}
+
+/// explicit_path roundtrip: Standard.
+#[test]
+fn test_execution_state_explicit_path_standard_roundtrip() {
+    let mut state = ExecutionState::new();
+    state.explicit_path = Some(closeclaw_common::PlanPath::Standard);
+    let json = serde_json::to_string(&state).unwrap();
+    let restored: ExecutionState = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored.explicit_path, Some(closeclaw_common::PlanPath::Standard));
+}
+
+/// explicit_path roundtrip: Interview.
+#[test]
+fn test_execution_state_explicit_path_interview_roundtrip() {
+    let mut state = ExecutionState::new();
+    state.explicit_path = Some(closeclaw_common::PlanPath::Interview);
+    let json = serde_json::to_string(&state).unwrap();
+    let restored: ExecutionState = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored.explicit_path, Some(closeclaw_common::PlanPath::Interview));
+}
+
+/// explicit_path deserialization from old PlanState checkpoint format.
+#[test]
+fn test_execution_state_explicit_path_from_old_plan_state_checkpoint() {
+    // Old PlanState had explicit_path; now it lives in ExecutionState.
+    // Verify deserialization from old-format JSON works.
+    let json = r#"{"explicit_path": "standard"}"#;
+    let state: ExecutionState = serde_json::from_str(json).unwrap();
+    assert_eq!(state.explicit_path, Some(closeclaw_common::PlanPath::Standard));
+}
+
+/// explicit_path deserialization with old snake_case string values.
+#[test]
+fn test_execution_state_explicit_path_snake_case_values() {
+    for (input, expected) in [
+        (r#""standard""#, Some(closeclaw_common::PlanPath::Standard)),
+        (r#""interview""#, Some(closeclaw_common::PlanPath::Interview)),
+    ] {
+        let json = format!(r#"{{"explicit_path": {}}}"#, input);
+        let state: ExecutionState = serde_json::from_str(&json).unwrap();
+        assert_eq!(state.explicit_path, expected, "input: {input}");
+    }
+}
+
+// --- ExecutionState.step_selection serde tests ---
+
+/// step_selection None default roundtrip.
+#[test]
+fn test_execution_state_step_selection_none_default() {
+    let state = ExecutionState::new();
+    assert!(state.step_selection.is_none());
+    let json = serde_json::to_string(&state).unwrap();
+    let restored: ExecutionState = serde_json::from_str(&json).unwrap();
+    assert!(restored.step_selection.is_none());
+}
+
+/// step_selection Some roundtrip.
+#[test]
+fn test_execution_state_step_selection_some_roundtrip() {
+    let mut state = ExecutionState::new();
+    state.step_selection = Some(vec![0, 1, 2]);
+    let json = serde_json::to_string(&state).unwrap();
+    let restored: ExecutionState = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored.step_selection, Some(vec![0, 1, 2]));
+}
+
+/// step_selection empty vec: Some(vec![]) serializes and deserializes.
+#[test]
+fn test_execution_state_step_selection_empty_vec() {
+    let mut state = ExecutionState::new();
+    state.step_selection = Some(vec![]);
+    let json = serde_json::to_string(&state).unwrap();
+    let restored: ExecutionState = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored.step_selection, Some(vec![]));
+}
+
+/// step_selection from old PlanState checkpoint format.
+#[test]
+fn test_execution_state_step_selection_from_old_plan_state_checkpoint() {
+    let json = r#"{"step_selection": [0, 1]}"#;
+    let state: ExecutionState = serde_json::from_str(json).unwrap();
+    assert_eq!(state.step_selection, Some(vec![0, 1]));
+}
+
+/// step_selection null value in JSON → None.
+#[test]
+fn test_execution_state_step_selection_null_value() {
+    let json = r#"{"step_selection": null}"#;
+    let state: ExecutionState = serde_json::from_str(json).unwrap();
+    assert!(state.step_selection.is_none());
+}
+
+// --- ExecutionState: both explicit_path + step_selection together ---
+
+/// Old checkpoint with both explicit_path and step_selection.
+#[test]
+fn test_execution_state_old_checkpoint_with_both_fields() {
+    let json = r#"{
+        "explicit_path": "interview",
+        "step_selection": [2, 4]
+    }"#;
+    let state: ExecutionState = serde_json::from_str(json).unwrap();
+    assert_eq!(state.explicit_path, Some(closeclaw_common::PlanPath::Interview));
+    assert_eq!(state.step_selection, Some(vec![2, 4]));
+}
+
+/// Empty object: both fields default to None.
+#[test]
+fn test_execution_state_empty_object_both_fields_none() {
+    let state: ExecutionState = serde_json::from_str("{}").unwrap();
+    assert!(state.explicit_path.is_none());
+    assert!(state.step_selection.is_none());
+}
