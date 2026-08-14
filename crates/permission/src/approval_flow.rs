@@ -811,9 +811,7 @@ impl ApprovalFlow {
     }
 
     /// Create a [`PlanState`] configured for the child session.
-    fn setup_child_plan_state(
-        path: &str,
-    ) -> closeclaw_common::PlanState {
+    fn setup_child_plan_state(path: &str) -> closeclaw_common::PlanState {
         let mut state = closeclaw_common::PlanState::new();
         state.plan_file_path = path.to_string();
         state.phase = PlanPhase::FinalPlan;

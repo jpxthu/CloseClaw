@@ -393,12 +393,7 @@ impl Gateway {
 
     /// Execute a [`SlashResult`]'s side effects and route replies back
     /// through the outbound processor chain.
-    async fn execute_side_effects(
-        &self,
-        result: SlashResult,
-        session_id: &str,
-        channel: &str,
-    ) {
+    async fn execute_side_effects(&self, result: SlashResult, session_id: &str, channel: &str) {
         let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel(8);
         let session_mgr: Arc<dyn closeclaw_common::SessionLookup> =
             self.session_manager.clone() as Arc<dyn closeclaw_common::SessionLookup>;

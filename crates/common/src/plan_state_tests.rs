@@ -177,23 +177,44 @@ fn test_plan_state_serialization_has_exactly_three_fields() {
         plan_file_path: "/tmp/p.md".into(),
     };
     let json = serde_json::to_value(&state).unwrap();
-    let obj = json.as_object().expect("PlanState should serialize to JSON object");
-    assert_eq!(obj.len(), 3, "PlanState must have exactly 3 fields, got: {:?}", obj.keys().collect::<Vec<_>>());
+    let obj = json
+        .as_object()
+        .expect("PlanState should serialize to JSON object");
+    assert_eq!(
+        obj.len(),
+        3,
+        "PlanState must have exactly 3 fields, got: {:?}",
+        obj.keys().collect::<Vec<_>>()
+    );
     assert!(obj.contains_key("phase"));
     assert!(obj.contains_key("pending_steps"));
     assert!(obj.contains_key("plan_file_path"));
     // These fields must NOT exist
-    assert!(!obj.contains_key("explicit_path"), "PlanState must not contain explicit_path");
-    assert!(!obj.contains_key("step_selection"), "PlanState must not contain step_selection");
-    assert!(!obj.contains_key("execution_steps"), "PlanState must not contain execution_steps");
-    assert!(!obj.contains_key("current_step"), "PlanState must not contain current_step");
+    assert!(
+        !obj.contains_key("explicit_path"),
+        "PlanState must not contain explicit_path"
+    );
+    assert!(
+        !obj.contains_key("step_selection"),
+        "PlanState must not contain step_selection"
+    );
+    assert!(
+        !obj.contains_key("execution_steps"),
+        "PlanState must not contain execution_steps"
+    );
+    assert!(
+        !obj.contains_key("current_step"),
+        "PlanState must not contain current_step"
+    );
 }
 
 #[test]
 fn test_plan_state_default_serialization_has_exactly_three_fields() {
     let state = PlanState::default();
     let json = serde_json::to_value(&state).unwrap();
-    let obj = json.as_object().expect("default PlanState should serialize to JSON object");
+    let obj = json
+        .as_object()
+        .expect("default PlanState should serialize to JSON object");
     assert_eq!(obj.len(), 3, "default PlanState must have exactly 3 fields");
 }
 

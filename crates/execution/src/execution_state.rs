@@ -37,7 +37,6 @@ impl ExecutionState {
     pub fn new() -> Self {
         Self::default()
     }
-
 }
 
 /// 根据步骤描述列表初始化执行步骤（全部 pending），
