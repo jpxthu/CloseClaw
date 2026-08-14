@@ -108,7 +108,7 @@ impl Gateway {
             }
             "user" => {
                 let parts: Vec<&str> = args.split_whitespace().collect();
-                match parts.first().map(|s| *s) {
+                match parts.first().copied() {
                     Some("approve") => {
                         let reply = self.handle_user_approve_cmd(&parts[1..], sender_id).await;
                         self.route_slash_reply(
