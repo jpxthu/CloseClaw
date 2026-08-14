@@ -57,13 +57,17 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 from _tracker_core import (  # noqa: E402
     commit_committer_date,
+    collect_md_files,
     diff_quiet_changed,
     load_records,
     merge_base_commit,
     now_iso,
     run,
+    run_check,
     save_records,
     upsert_record,
+    RECORD_DEFAULT_FIELDS,
+    RECORD_MIGRATION_FIELDS,
 )
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -80,13 +84,8 @@ REQUIREMENTS_DIR = REPO_ROOT / "docs" / "requirements"
 # Requirement files that are not modules.
 EXCLUDED_REQUIREMENTS = frozenset({"README.md", "STANDARDS.md"})
 
-_RECORD_DEFAULTS: Dict[str, str] = {
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "",
-    "comment": "",
-    "blocked_reason": "",
-}
+RECORD_DEFAULTS = RECORD_DEFAULT_FIELDS
+RECORD_MIGRATION_FIELDS = RECORD_MIGRATION_FIELDS
 
 # ── helpers ──────────────────────────────────────────────────────────────
 
@@ -107,7 +106,7 @@ def _merge_base_commit() -> str | None:
 
 
 def _load_records() -> List[Dict[str, str]]:
-    return load_records(RECORDS_FILE, {"blocked_reason": ""})
+    return load_records(RECORDS_FILE, RECORD_MIGRATION_FIELDS)
 
 
 def _save_records(records: List[Dict[str, str]]) -> None:
@@ -122,18 +121,22 @@ def _upsert_record(
     records: List[Dict[str, str]], module: str, **fields: str
 ) -> List[Dict[str, str]]:
     """Find or create a record for *module*, then update it with *fields*."""
-    return upsert_record(records, "module", module, _RECORD_DEFAULTS, **fields)
+    return upsert_record(records, "module", module, RECORD_DEFAULTS, **fields)
 
 
 def _discover_modules() -> List[str]:
     """Return module names derived from ``docs/requirements/*.md`` filenames."""
-    if not REQUIREMENTS_DIR.exists():
-        return []
-    modules: List[str] = []
-    for p in sorted(REQUIREMENTS_DIR.glob("*.md")):
-        if p.is_file() and p.name not in EXCLUDED_REQUIREMENTS:
-            modules.append(p.stem)
-    return modules
+    docs = collect_md_files(
+        REPO_ROOT,
+        REQUIREMENTS_DIR,
+        blacklist={
+            str(p.relative_to(REPO_ROOT))
+            for p in REQUIREMENTS_DIR.glob("*.md")
+            if p.name in EXCLUDED_REQUIREMENTS
+        },
+        recursive=False,
+    )
+    return [p.stem for p in docs]
 
 
 def _requirement_doc(module: str) -> Path | None:
@@ -238,52 +241,23 @@ def cmd_blocked(args: SimpleNamespace) -> int:
 
 
 def cmd_check(args: SimpleNamespace) -> int:
-    records = _load_records()
-    record_map: Dict[str, Dict[str, str]] = {r["module"]: r for r in records}
+    changed = run_check(
+        key_field="module",
+        discover_keys=_discover_modules,
+        key_changed=_module_changed,
+        load_records=_load_records,
+        save_records=_save_records,
+        upsert_record=_upsert_record,
+        merge_base_commit=_merge_base_commit,
+        commit_committer_date=_commit_committer_date,
+        now_iso=_now_iso,
+    )
 
-    changed: List[str] = []
-
-    for module in _discover_modules():
-        rec = record_map.get(module)
-        if rec is None:
-            # no record → untracked
-            changed.append(module)
-            continue
-        if rec["commit"] == "":
-            # empty commit → treat as changed
-            blocked = rec.get("blocked_reason", "")
-            if blocked:
-                # blocked module with empty commit → auto-unblock
-                _upsert_record(records, module, blocked_reason="")
-                _save_records(records)
-                record_map = {r["module"]: r for r in records}
-            changed.append(module)
-            continue
-        if _module_changed(rec["commit"], module):
-            # requirement doc changed since last confirmation
-            blocked = rec.get("blocked_reason", "")
-            if blocked:
-                # blocked module updated → auto-unblock
-                new_commit = _merge_base_commit() or rec["commit"]
-                _upsert_record(
-                    records, module,
-                    blocked_reason="",
-                    commit=new_commit,
-                    commit_time=_commit_committer_date(new_commit),
-                    confirmed_time=_now_iso(),
-                )
-                _save_records(records)
-                record_map = {r["module"]: r for r in records}
-            changed.append(module)
-        else:
-            # no change — skip blocked modules entirely
-            blocked = rec.get("blocked_reason", "")
-            if blocked:
-                continue
-
+    record_map: Dict[str, Dict[str, str]] = {
+        r["module"]: r for r in _load_records()
+    }
     for module in changed:
-        rec = record_map.get(module, {})
-        comment = rec.get("comment", "")
+        comment = record_map.get(module, {}).get("comment", "")
         if comment:
             print(f"{module}\t{comment}")
         else:
