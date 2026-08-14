@@ -9,8 +9,9 @@ use std::sync::{Arc, Mutex};
 use crate::engine::ExecutionEngine;
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
+use crate::{ExecutionState, ExecutionStepStatus};
 use async_trait::async_trait;
-use closeclaw_common::{ExecutionStepStatus, PlanState, PlanStateNotifier};
+use closeclaw_common::PlanStateNotifier;
 
 use crate::error::ExecutionError;
 
@@ -96,7 +97,7 @@ async fn test_on_plan_completed_called_on_all_steps_success() {
             error_message: None,
         }),
     ]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(
         plan_state,
         default_config(),
@@ -126,7 +127,7 @@ async fn test_on_plan_completed_not_called_on_failure() {
         changed_files: vec![],
         error_message: Some("fail".into()),
     })]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(
         plan_state,
         default_config(),
@@ -157,7 +158,7 @@ async fn test_on_plan_completed_called_spawn_all_success() {
         changed_files: vec![],
         error_message: None,
     })]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(
         plan_state,
         config,
@@ -191,7 +192,7 @@ async fn test_on_plan_completed_not_called_spawn_all_failure() {
         changed_files: vec![],
         error_message: Some("fail".into()),
     })]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(
         plan_state,
         config,

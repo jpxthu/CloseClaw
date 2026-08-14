@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use crate::error::ExecutionError;
 use crate::spawn::SpawnAdapter;
 use crate::types::SubAgentResult;
-use closeclaw_common::ExecutionStepStatus;
+use crate::ExecutionStepStatus;
 
 /// Strategy trait for executing a single step in a given mode.
 ///

@@ -50,6 +50,7 @@ redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 
 [dev-dependencies]
+closeclaw-execution = { path = "../execution" }
 tempfile = "3.10"
 serial_test = "3.4"
 filetime = "0.2"

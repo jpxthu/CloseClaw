@@ -14,7 +14,6 @@ fn make_normalized(account_id: &str) -> NormalizedMessage {
         media_refs: vec![],
         thread_id: None,
         account_id: account_id.into(),
-        chat_name: String::new(),
         ..Default::default()
     }
 }
@@ -100,15 +99,52 @@ fn test_message_type_audio_roundtrip() {
     assert_mt_roundtrip(&MessageType::Audio, r#""audio""#);
 }
 
-#[test]
-fn test_message_type_other_roundtrip() {
-    assert_mt_roundtrip(&MessageType::Other("video".into()), r#""video""#);
-}
-
+/// Unknown string deserializes to Text (no Other variant).
 #[test]
 fn test_message_type_deserialize_unknown_string() {
     let mt: MessageType = serde_json::from_str(r#""unknown_type""#).unwrap();
-    assert_eq!(mt, MessageType::Other("unknown_type".into()));
+    assert_eq!(mt, MessageType::Text);
+}
+
+/// Unknown string via From<&str> maps to Text (no Other variant).
+#[test]
+fn test_message_type_from_str_unknown_maps_to_text() {
+    let mt: MessageType = "video".into();
+    assert_eq!(
+        mt,
+        MessageType::Text,
+        "unknown type 'video' should map to Text"
+    );
+
+    let mt2: MessageType = "sticker".into();
+    assert_eq!(
+        mt2,
+        MessageType::Text,
+        "unknown type 'sticker' should map to Text"
+    );
+
+    let mt3: MessageType = "post".into();
+    assert_eq!(
+        mt3,
+        MessageType::Text,
+        "'post' (Feishu rich text) should map to Text"
+    );
+}
+
+/// Known strings map to their respective variants.
+#[test]
+fn test_message_type_from_str_known_variants() {
+    let mt_text: MessageType = "text".into();
+    assert_eq!(mt_text, MessageType::Text);
+
+    let mt_image: MessageType = "image".into();
+    assert_eq!(mt_image, MessageType::Image);
+
+    let mt_file: MessageType = "file".into();
+    assert_eq!(mt_file, MessageType::File);
+
+    let mt_audio: MessageType = "audio".into();
+    assert_eq!(mt_audio, MessageType::Audio);
 }
 
 #[test]

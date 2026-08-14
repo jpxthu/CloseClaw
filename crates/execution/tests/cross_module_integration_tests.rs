@@ -8,12 +8,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use closeclaw_common::{ExecutionStepStatus, NoopNotifier, PlanState, PlanStateNotifier};
+use closeclaw_common::{NoopNotifier, PlanStateNotifier};
 use closeclaw_execution::error::ExecutionError;
 use closeclaw_execution::event::ExecutionEvent;
 use closeclaw_execution::hook::{HookError, HookResult, HookRunner, NotifyHook, StepHook};
 use closeclaw_execution::spawn::SpawnAdapter;
 use closeclaw_execution::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
+use closeclaw_execution::ExecutionState;
+use closeclaw_execution::ExecutionStepStatus;
 use closeclaw_execution::{ExecutionEngine, StepResult};
 
 // ── Mock adapters ────────────────────────────────────────────────────────
@@ -227,7 +229,7 @@ fn new_engine_with_config(
     adapter: impl SpawnAdapter + 'static,
     config: ExecutionConfig,
 ) -> ExecutionEngine<impl SpawnAdapter> {
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None)
 }
 
@@ -256,7 +258,7 @@ async fn test_full_flow_completed_hook_notifies_system_prompt() {
         Ok(success_result(1, "write tests")),
     ]);
 
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state.clone(),
         spawn_per_step_config(),
@@ -335,7 +337,7 @@ async fn test_hook_fires_on_each_completed_step() {
         Ok(success_result(1, "step 1 done")),
     ]);
 
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state.clone(),
         spawn_per_step_config(),
@@ -391,7 +393,7 @@ async fn test_hook_and_notifier_coordination() {
     });
 
     let adapter = SequenceMock::new(vec![Ok(success_result(0, "step done"))]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state,
         spawn_per_step_config(),
@@ -429,7 +431,7 @@ async fn test_hook_failure_does_not_block_notifier() {
     let notifier: Arc<dyn PlanStateNotifier> = system_appends.clone();
 
     let adapter = SequenceMock::new(vec![Ok(success_result(0, "done"))]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state,
         spawn_per_step_config(),
@@ -493,7 +495,7 @@ async fn test_nontrivial_hook_with_progress_tracking() {
         }),
     ]);
 
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state,
         spawn_per_step_config(),
@@ -540,7 +542,7 @@ async fn test_hook_failure_does_not_prevent_step_completion() {
 
     let adapter = SequenceMock::new(vec![Ok(success_result(0, "done"))]);
 
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state.clone(),
         spawn_per_step_config(),
@@ -588,7 +590,7 @@ async fn test_multi_step_mixed_hook_results() {
         // Step 1 should never be executed due to hook block on step 0
     ]);
 
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state,
         spawn_per_step_config(),
@@ -730,7 +732,7 @@ async fn test_sub_agent_skipped_stops_execution() {
         // Step 2 should never be reached
     ]);
 
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::with_hook_runner(
         plan_state.clone(),
         spawn_per_step_config(),

@@ -87,8 +87,6 @@ impl MessageProcessor for SessionRouter {
                 media_refs: Vec::new(),
                 thread_id: None,
                 account_id: String::new(),
-                chat_name: String::new(),
-                ..Default::default()
             }
         });
 
@@ -134,9 +132,6 @@ impl MessageProcessor for SessionRouter {
         metadata.insert("platform".to_string(), platform);
         metadata.insert("sender_id".to_string(), sender_id);
         metadata.insert("peer_id".to_string(), peer_id);
-        if !msg.chat_name.is_empty() {
-            metadata.insert("chat_name".to_string(), msg.chat_name);
-        }
 
         Ok(Some(ProcessedMessage {
             content_blocks: vec![ContentBlock::Text(ctx.content.clone())],

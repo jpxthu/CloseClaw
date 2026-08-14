@@ -48,7 +48,6 @@ mod tests {
             media_refs: vec![],
             thread_id: None,
             account_id: String::new(),
-            chat_name: String::new(),
             ..Default::default()
         };
         assert_eq!(msg.platform, "terminal");
@@ -68,7 +67,6 @@ mod tests {
             media_refs: vec![],
             thread_id: None,
             account_id: String::new(),
-            chat_name: String::new(),
             ..Default::default()
         };
         assert!(msg.thread_id.is_none());
@@ -87,7 +85,6 @@ mod tests {
             media_refs: vec![],
             thread_id: None,
             account_id: String::new(),
-            chat_name: String::new(),
             ..Default::default()
         };
         // Timestamp is a valid Unix timestamp (after 2023)
@@ -106,7 +103,6 @@ mod tests {
             media_refs: vec![],
             thread_id: None,
             account_id: String::new(),
-            chat_name: String::new(),
             ..Default::default()
         };
         let json = serde_json::to_string(&msg).unwrap();
@@ -127,7 +123,6 @@ mod tests {
             media_refs: vec![],
             thread_id: None,
             account_id: String::new(),
-            chat_name: String::new(),
             ..Default::default()
         };
         assert!(msg.content.is_empty());
@@ -145,7 +140,6 @@ mod tests {
             media_refs: vec![],
             thread_id: None,
             account_id: String::new(),
-            chat_name: String::new(),
             ..Default::default()
         };
         let lines: Vec<&str> = msg.content.lines().collect();

@@ -26,6 +26,7 @@ fn make_test_adapter() -> FeishuAdapter {
         http_client,
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: FEISHU_API_BASE.to_string(),
+        last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     }
 }
 
@@ -39,6 +40,7 @@ fn make_adapter_with_base(base_url: &str) -> FeishuAdapter {
         http_client,
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: base_url.to_string(),
+        last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     }
 }
 
@@ -310,7 +312,7 @@ async fn test_parse_message_event_post_type() {
     let event = make_message_event("post", &content.to_string());
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.content, "T\nbody");
-    assert_eq!(msg.message_type, MessageType::Other("post".to_string()));
+    assert_eq!(msg.message_type, MessageType::Text);
     assert!(msg.media_refs.is_empty());
 }
 #[tokio::test]
@@ -640,7 +642,7 @@ async fn test_parse_inbound_post_type() {
     });
     let payload = make_webhook_payload("post", &content.to_string());
     let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
-    assert_eq!(msg.message_type, MessageType::Other("post".to_string()));
+    assert_eq!(msg.message_type, MessageType::Text);
     assert_eq!(msg.content, "Post\nbody");
 }
 #[tokio::test]

@@ -5,6 +5,7 @@
 //!
 //! Light / REM / Deep are programmatic; lesson consolidation is LLM-driven.
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
@@ -417,7 +418,7 @@ impl DreamingPipeline {
         existing_rules: &[String],
     ) -> Vec<MemoryEntry> {
         // Layer 1: exact batch-internal dedup.
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         let exact_deduped: Vec<MemoryEntry> = entries
             .into_iter()
             .filter(|e| {
@@ -448,8 +449,8 @@ impl DreamingPipeline {
         if a.is_empty() || b.is_empty() {
             return 0.0;
         }
-        let set_a: std::collections::HashSet<&String> = a.iter().collect();
-        let set_b: std::collections::HashSet<&String> = b.iter().collect();
+        let set_a: HashSet<&String> = a.iter().collect();
+        let set_b: HashSet<&String> = b.iter().collect();
         let intersection = set_a.intersection(&set_b).count();
         let union = set_a.len().max(set_b.len());
         intersection as f64 / union as f64
@@ -457,8 +458,7 @@ impl DreamingPipeline {
 
     /// Split entries into groups by entity type.
     pub(crate) fn chunk_by_entity_type(&self, entries: Vec<MemoryEntry>) -> Vec<Vec<MemoryEntry>> {
-        let mut groups: std::collections::HashMap<String, Vec<MemoryEntry>> =
-            std::collections::HashMap::new();
+        let mut groups: HashMap<String, Vec<MemoryEntry>> = HashMap::new();
         for e in entries {
             groups.entry(e.entity_type.clone()).or_default().push(e);
         }
@@ -468,26 +468,21 @@ impl DreamingPipeline {
     // ── REM stage ────────────────────────────────────────────────────
 
     /// Load entity → agent_id mapping from SQLite for cross-agent detection.
-    fn load_entity_agent_map(
-        &self,
-    ) -> std::collections::HashMap<(String, String), std::collections::HashSet<String>> {
+    fn load_entity_agent_map(&self) -> HashMap<(String, String), HashSet<String>> {
         let db_path = match &self.db_path {
             Some(p) => p,
-            None => return std::collections::HashMap::new(),
+            None => return HashMap::new(),
         };
         let conn = match rusqlite::Connection::open(db_path) {
             Ok(c) => c,
-            Err(_) => return std::collections::HashMap::new(),
+            Err(_) => return HashMap::new(),
         };
         let mut stmt =
             match conn.prepare("SELECT ent.name, ent.type, ent.agent_id FROM entities ent") {
                 Ok(s) => s,
-                Err(_) => return std::collections::HashMap::new(),
+                Err(_) => return HashMap::new(),
             };
-        let mut map: std::collections::HashMap<
-            (String, String),
-            std::collections::HashSet<String>,
-        > = std::collections::HashMap::new();
+        let mut map: HashMap<(String, String), HashSet<String>> = HashMap::new();
         if let Ok(rows) = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -506,8 +501,7 @@ impl DreamingPipeline {
     pub(crate) fn rem_stage(&self, chunks: Vec<Vec<MemoryEntry>>) -> Vec<EntityGroup> {
         let all: Vec<MemoryEntry> = chunks.into_iter().flatten().collect();
         let agent_map = self.load_entity_agent_map();
-        let mut groups: std::collections::HashMap<(String, String), Vec<MemoryEntry>> =
-            std::collections::HashMap::new();
+        let mut groups: HashMap<(String, String), Vec<MemoryEntry>> = HashMap::new();
         for e in all {
             groups
                 .entry((e.entity_name.clone(), e.entity_type.clone()))
@@ -520,11 +514,11 @@ impl DreamingPipeline {
                 let frequency = entries
                     .iter()
                     .map(|e| &e.source_session_id)
-                    .collect::<std::collections::HashSet<_>>()
+                    .collect::<HashSet<_>>()
                     .len();
                 let cross_agent_count = agent_map
                     .get(&(name.clone(), etype.clone()))
-                    .map(std::collections::HashSet::len)
+                    .map(HashSet::len)
                     .unwrap_or(1);
                 EntityGroup {
                     entity_name: name,
@@ -652,7 +646,7 @@ impl DreamingPipeline {
         }
 
         let types: Vec<String> = groups.iter().map(|g| g.entity_type.clone()).collect();
-        let unique_types: std::collections::HashSet<String> = types.into_iter().collect();
+        let unique_types: HashSet<String> = types.into_iter().collect();
 
         for etype in unique_types {
             let type_scores: Vec<f64> = groups
@@ -786,7 +780,7 @@ impl DreamingPipeline {
         rules: &[String],
         verified: &[String],
     ) -> Vec<PromotedGroupInfo> {
-        let verified_set: std::collections::HashSet<usize> = rules
+        let verified_set: HashSet<usize> = rules
             .iter()
             .zip(0..)
             .filter(|(rule, _)| {
@@ -872,7 +866,7 @@ impl DreamingPipeline {
         } else {
             String::new()
         };
-        let existing_rules: std::collections::HashSet<String> = existing
+        let existing_rules: HashSet<String> = existing
             .lines()
             .filter_map(|line| line.strip_prefix("- ").map(String::from))
             .collect();

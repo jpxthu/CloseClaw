@@ -152,6 +152,7 @@ mod tests {
     use crate::model_cache::{CacheEntry, CacheKey};
     use crate::model_info::InputType;
     use crate::LLMError;
+    use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
@@ -285,7 +286,7 @@ mod tests {
                 input_types: vec![],
             }],
         };
-        let mut map = std::collections::HashMap::new();
+        let mut map = HashMap::new();
         map.insert(key, expired_entry);
         let path = dir.path().join("cache.json");
         std::fs::write(&path, serde_json::to_string_pretty(&map).unwrap()).unwrap();

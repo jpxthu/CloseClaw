@@ -7,10 +7,9 @@ use crate::error::ExecutionError;
 use crate::event::ExecutionEvent;
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
+use crate::{ExecutionState, ExecutionStepStatus};
 use async_trait::async_trait;
-use closeclaw_common::{
-    ExecutionPermissionCheck, ExecutionStepStatus, NoopNotifier, PermissionDenied, PlanState,
-};
+use closeclaw_common::{ExecutionPermissionCheck, NoopNotifier, PermissionDenied};
 use std::sync::{Arc, Mutex};
 
 // ---------------------------------------------------------------------------
@@ -53,7 +52,7 @@ fn default_config() -> ExecutionConfig {
 }
 
 fn new_engine(adapter: MockSpawnAdapter) -> ExecutionEngine<MockSpawnAdapter> {
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     ExecutionEngine::new(
         plan_state,
         default_config(),
@@ -100,7 +99,7 @@ async fn test_permission_pass_allows_execution() {
         changed_files: vec![],
         error_message: None,
     })]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(
         plan_state,
         default_config(),
@@ -118,7 +117,7 @@ async fn test_permission_pass_allows_execution() {
 #[tokio::test]
 async fn test_permission_deny_marks_step_failed() {
     let adapter = MockSpawnAdapter::new(vec![]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(
         plan_state,
         default_config(),
@@ -147,7 +146,7 @@ async fn test_permission_deny_marks_step_failed() {
 #[tokio::test]
 async fn test_permission_deny_stops_subsequent_steps() {
     let adapter = MockSpawnAdapter::new(vec![]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(
         plan_state,
         default_config(),
@@ -184,7 +183,7 @@ async fn test_no_permission_checker_allows_execution() {
 #[tokio::test]
 async fn test_permission_deny_records_step_failed_event() {
     let adapter = MockSpawnAdapter::new(vec![]);
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(
         plan_state,
         default_config(),
@@ -210,7 +209,7 @@ async fn test_permission_deny_spawn_all_marks_all_steps_failed() {
         mode: ExecutionMode::SpawnAllSteps,
         ..default_config()
     };
-    let plan_state = Arc::new(Mutex::new(PlanState::new()));
+    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
     let engine = ExecutionEngine::new(
         plan_state,
         config,

@@ -74,8 +74,8 @@ fn build_full_outbound_chain() -> ProcessorRegistry {
 }
 
 /// Build a metadata map with the given verbosity level.
-fn make_meta(verbosity: &str) -> std::collections::HashMap<String, String> {
-    let mut m = std::collections::HashMap::new();
+fn make_meta(verbosity: &str) -> HashMap<String, String> {
+    let mut m = HashMap::new();
     m.insert("verbosity_level".to_string(), verbosity.to_string());
     m
 }

@@ -115,7 +115,7 @@ impl IMPlugin for MockPlugin {
 /// ensuring `resolve_session_from_message` can match the existing session.
 fn make_processed_msg(msg: &Message, channel: &str) -> ProcessedMessage {
     let session_key = compute_session_key(channel, &msg.from, &msg.to, None, msg.timestamp);
-    let mut metadata = std::collections::HashMap::new();
+    let mut metadata = HashMap::new();
     metadata.insert("session_key".to_string(), session_key);
     metadata.insert("peer_id".to_string(), msg.to.clone());
     metadata.insert("sender_id".to_string(), msg.from.clone());

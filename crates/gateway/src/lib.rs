@@ -59,6 +59,7 @@ mod slash_executor_system_append_tests;
 #[cfg(test)]
 mod slash_executor_tests;
 pub mod slash_permission;
+pub mod slash_permission_handlers;
 #[cfg(test)]
 mod slash_permission_tests;
 #[cfg(test)]
@@ -652,7 +653,7 @@ impl Gateway {
             content: processed.text_content().unwrap_or("").to_string(),
             channel: channel.to_string(),
             timestamp: chrono::Utc::now().timestamp(),
-            metadata: std::collections::HashMap::new(),
+            metadata: HashMap::new(),
             thread_id: processed.metadata.get("thread_id").cloned(),
             platform: None,
             dsl_result: None,
@@ -914,8 +915,6 @@ impl Gateway {
             media_refs: input.media_refs.clone(),
             thread_id: input.thread_id.clone(),
             account_id: input.account_id.clone().unwrap_or_default(),
-            chat_name: String::new(),
-            ..Default::default()
         };
 
         match registry.process_inbound(normalized).await {
@@ -940,8 +939,8 @@ impl Gateway {
 ///
 /// Propagates `thread_id`, `message_type`, and `media_refs`
 /// so they are available downstream in the Gateway.
-fn build_extra_metadata(input: &InboundChainInput) -> std::collections::HashMap<String, String> {
-    let mut meta = std::collections::HashMap::new();
+fn build_extra_metadata(input: &InboundChainInput) -> HashMap<String, String> {
+    let mut meta = HashMap::new();
     if let Some(ref thread_id) = input.thread_id {
         meta.insert("thread_id".to_string(), thread_id.clone());
     }
@@ -955,6 +954,12 @@ fn build_extra_metadata(input: &InboundChainInput) -> std::collections::HashMap<
     );
     if let Some(ref account_id) = input.account_id {
         meta.insert("account_id".to_string(), account_id.clone());
+    }
+    if let Some(ref chat_name) = input.chat_name {
+        meta.insert("chat_name".to_string(), chat_name.clone());
+    }
+    if let Some(ref trace_id) = input.trace_id {
+        meta.insert("trace_id".to_string(), trace_id.clone());
     }
     meta
 }

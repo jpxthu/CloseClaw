@@ -6,6 +6,8 @@
 pub mod engine;
 pub mod error;
 pub mod event;
+pub mod execution_state;
+pub mod execution_types;
 pub mod hook;
 pub mod mode;
 pub mod notification;
@@ -16,6 +18,12 @@ pub use engine::{ExecutionEngine, ExecutionReport, StepResult};
 
 pub use error::ExecutionError;
 pub use event::ExecutionEvent;
+pub use execution_state::{
+    apply_transition, current_step_index, get_step_status, init_execution_steps, progress_summary,
+    step_status_to_marker, validate_transition, DefaultPlanStateWriter, ExecutionState,
+    PlanStateWriter,
+};
+pub use execution_types::{ExecutionStep, ExecutionStepStatus, TransitionError};
 pub use hook::{
     CustomHook, HookError, HookResult, HookRunner, NotifyHook, StepHook, VerificationHook,
 };
@@ -44,3 +52,6 @@ mod permission_tests;
 
 #[cfg(test)]
 mod engine_step_selection_tests;
+
+#[cfg(test)]
+mod execution_state_tests;
