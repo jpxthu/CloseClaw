@@ -348,7 +348,8 @@ impl PermissionEngine {
             rules,
             user_agent_rule_index,
         );
-        let (user_result, user_only_matched) = self.match_rules_with_info(&user_candidates, rules, &caller, request.body());
+        let (user_result, user_only_matched) =
+            self.match_rules_with_info(&user_candidates, rules, &caller, request.body());
 
         // Step 1.4: ConfigWrite Allowed → forced Denied (user phase)
         let user_result = match user_result {
@@ -759,7 +760,8 @@ impl PermissionEngine {
         caller: &super::engine_types::Caller,
         request_body: &PermissionRequestBody,
     ) -> Option<PermissionResponse> {
-        let (result, _user_only) = self.match_rules_with_info(candidates, rules, caller, request_body);
+        let (result, _user_only) =
+            self.match_rules_with_info(candidates, rules, caller, request_body);
         result
     }
 
@@ -800,11 +802,14 @@ impl PermissionEngine {
                     rule = %rule.name,
                     "permission check completed"
                 );
-                return (Some(PermissionResponse::Denied {
-                    reason,
-                    rule: rule.name.clone(),
-                    risk_level: assess_risk_level(request_body),
-                }), user_only_matched);
+                return (
+                    Some(PermissionResponse::Denied {
+                        reason,
+                        rule: rule.name.clone(),
+                        risk_level: assess_risk_level(request_body),
+                    }),
+                    user_only_matched,
+                );
             }
         }
 
@@ -815,10 +820,13 @@ impl PermissionEngine {
                 reason = "matched_rule",
                 "permission check completed"
             );
-            return (Some(PermissionResponse::Allowed {
-                token: generate_token(),
-                context_modifier: None,
-            }), user_only_matched);
+            return (
+                Some(PermissionResponse::Allowed {
+                    token: generate_token(),
+                    context_modifier: None,
+                }),
+                user_only_matched,
+            );
         }
         (None, false)
     }
