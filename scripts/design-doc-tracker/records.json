@@ -1,11 +1,11 @@
 [
   {
     "path": "docs/design/agent/README.md",
-    "commit": "d1888c4c99c97bbfe6b119fd823a5d756d7d0e92",
-    "commit_time": "2026-07-13T23:34:48+08:00",
-    "confirmed_time": "2026-08-15T06:23:54.686128+08:00",
+    "commit": "512ede2cfd58a8a05d9d52628acd73875fecbe06",
+    "commit_time": "2026-08-15T06:24:41+08:00",
+    "confirmed_time": "2026-08-15T06:39:12.843855+08:00",
     "comment": "",
-    "blocked_reason": "文档内部矛盾：agent/README.md 与 agent-spawn.md 称『SkillTool 触发 SpawnValidator 执行前置检查』，但 tools/README.md 定义 SkillTool 属 skills 分组仅桥接 skill 注册表，skills/skill-execution.md 明确标注 SkillTool 与 session/spawn 无关（『无关：session（skill 不创建子 session）』）。三份文档对 SkillTool 职责定义互斥，无论代码对齐哪篇都会违反另一篇，需 owner 裁定权威描述。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/agent/agent-config.md",
