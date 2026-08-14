@@ -33,11 +33,11 @@
   },
   {
     "path": "docs/design/agent/agent-spawn.md",
-    "commit": "e5318beee3156d23d6dbaeda045eb5d251362360",
-    "commit_time": "2026-07-17T21:54:48+08:00",
-    "confirmed_time": "2026-08-15T04:31:57.450755+08:00",
+    "commit": "015fce8bf7f8f100cf9ec07b22c8007e6307aee0",
+    "commit_time": "2026-08-15T05:15:34+08:00",
+    "confirmed_time": "2026-08-15T05:52:38.233128+08:00",
     "comment": "",
-    "blocked_reason": "设计文档内部矛盾：概述段同时声称'sessions_spawn 由 Session 模块提供工具定义'与'SkillTool 触发 SpawnValidator'两个互斥主体。代码中 SkillTool 是独立的 skill 加载工具（group=skills），与 spawn 无关；实际触发者为 SessionsSpawnTool（group=sessions）直接同步调用 SpawnValidator。此外文档写'SpawnController（session crate）'但活跃实现在 gateway crate（crates/gateway/src/session_manager/spawn_controller.rs），session crate 版本未被主流程使用。对齐文档需引入无功能需求的 SkillTool 中间层组件，无法确定产品形态，需 Owner 澄清 spawn 验证触发者与 SpawnController 架构归属。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/cli/README.md",
