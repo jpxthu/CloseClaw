@@ -70,9 +70,9 @@ Hook 是可选的轻量 LLM 质量门禁，按 agent 配置选择性启用：
 
 **第一层：即时检测**。父 agent spawn 子 agent 后，每轮对话开始时系统注入当前活跃子 Session 摘要（详见 [session/README.md](README.md) Session 运行时）。父 agent 可据此判断子 agent 是否仍在执行中，是否继续等待。
 
-**第二层：定时巡检**。Run Health 模块内置 AnnounceSweeper，定时扫描所有活跃子 agent session，执行两类检查：
+**第二层：定时巡检**。Run Health 模块内置 AnnounceSweeper，定时扫描 spawn_tree 中的子 session 节点（含活跃与完成待回收，见 [spawn-tree.md](spawn-tree.md)），执行两类检查：
 
-- **补推**：子 agent 已结束（四维执行状态全部归零且已产出最终 assistant 消息）但完成通知未成功送达父 Session → 补推完成通知。若父 Session 已归档则跳过。
+- **补推**：子 agent 已结束（四维执行状态全部归零且已产出最终 assistant 消息）但完成通知未成功送达父 Session → 补推完成通知，成功后回收节点。若父 Session 已归档则跳过补推并回收节点。
 - **僵死检测**：子 agent 未结束且超过五分钟无新产出（无新 assistant 消息、无工具执行结果变化）→ 判定为僵死，自动终止该子 agent（级联终止其所有后代），向父 Session 注入僵死通知。若父 Session 已归档则跳过。
 
 与 session-lifecycle 的 ArchiveSweeper（负责归档/清理，可配置间隔）是独立组件。

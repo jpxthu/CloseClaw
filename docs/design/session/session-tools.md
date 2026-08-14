@@ -33,7 +33,7 @@ Session 模块实现 [ToolRegistrar](../common/core-traits.md#toolregistrar) tra
 | `model` | 覆盖目标 agent 的默认模型（解析优先级见下方） | 否 | 按优先级链自动解析 |
 | `timeout` | 子 agent 硬超时（秒），达到后系统自动终止。覆盖目标 agent 配置和全局默认值 | 否 | 目标 agent.subagents.timeout → 全局默认（48h） |
 | `timeout_warning` | 子 agent 预期执行时长（秒），达到后启动循环预警通知。覆盖目标 agent 配置和全局默认值 | 否 | 目标 agent.subagents.timeout_warning → 全局默认值 |
-| `workspace` | 独立工作目录 | 否 | spawn 参数指定 → 目标 agent.workspace → 父 Agent 工作目录 |
+| `workspace` | 独立工作目录 | 否 | spawn 参数指定 → 目标 agent.workspace → 子 session 默认工作目录（见 [working-directory.md](working-directory.md)）|
 | `label` | 子 session 简短标签 | 否 | 自动生成 |
 | `lightContext` | 是否使用 minimal bootstrap | 否 | `false` |
 | `promptTemplate` | 注入的 prompt 模板（`explore` / `plan` / `executor` / `validation`） | 否 | 无 |
