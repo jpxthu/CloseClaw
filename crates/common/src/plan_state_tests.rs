@@ -152,6 +152,18 @@ fn test_plan_state_serde_backward_compat_with_extra_fields() {
     let state: PlanState = serde_json::from_str(json).unwrap();
     assert_eq!(state.phase, PlanPhase::Research);
     assert_eq!(state.plan_file_path, "/tmp/plan.md");
+    assert!(state.pending_steps.is_empty());
+}
+
+#[test]
+fn test_plan_state_serde_backward_compat_old_checkpoint() {
+    // Old checkpoints may contain explicit_path and step_selection fields.
+    // These should be silently ignored during deserialization.
+    let json = r#"{"phase": "research", "plan_file_path": "/tmp/plan.md", "explicit_path": "standard", "step_selection": [0, 1]}"#;
+    let state: PlanState = serde_json::from_str(json).unwrap();
+    assert_eq!(state.phase, PlanPhase::Research);
+    assert_eq!(state.plan_file_path, "/tmp/plan.md");
+    assert!(state.pending_steps.is_empty());
 }
 
 // --- TransitionError tests (type stays in common) ---

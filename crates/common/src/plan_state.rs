@@ -6,6 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::ExecutionStep;
+
 /// Plan Path — plan 双路径选择
 ///
 /// 标准路径（需求明确）或 Interview 路径（需求模糊）。
@@ -68,14 +70,13 @@ pub struct PlanState {
     /// plan 文件路径 — Agent 写入和读取的唯一可写目标
     #[serde(default)]
     pub plan_file_path: String,
-    /// 显式指定的 plan 路径（None 表示由系统自动判断）
+    /// 执行步骤列表
     #[serde(default)]
-    pub explicit_path: Option<PlanPath>,
-    /// Optional step selection (0-based indices) for partial execution.
-    /// `None` means execute all steps; `Some(indices)` means execute
-    /// only the specified steps.
+    pub execution_steps: Vec<ExecutionStep>,
+    /// 当前正在执行的步骤索引
     #[serde(default)]
-    pub step_selection: Option<Vec<usize>>,
+    pub current_step: Option<usize>,
+
 }
 
 impl PlanState {

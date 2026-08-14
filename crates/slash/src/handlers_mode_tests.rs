@@ -641,15 +641,12 @@ async fn test_mode_handler_no_args_shows_current_mode() {
 
 // ── PlanModeHandler transition tests (Step 1.3 — Gap 1 transitions) ─────
 
-// ── Step 1.5: /plan --path explicit_path tests ──────────────────────────
+// ── /plan --path tests (explicit_path removed from PlanState) ────────────
 
 #[tokio::test]
-async fn test_plan_path_no_title_sets_explicit_path() {
+async fn test_plan_path_no_title_enters_plan_mode() {
     let sm = make_session_manager_with_storage();
-    for (arg, expected) in &[
-        ("--path interview", PlanPath::Interview),
-        ("--path standard", PlanPath::Standard),
-    ] {
+    for arg in &["--path interview", "--path standard"] {
         let sid = create_test_session(&sm).await;
         let h =
             PlanModeHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
@@ -669,15 +666,6 @@ async fn test_plan_path_no_title_sets_explicit_path() {
             }
             other => panic!("expected SetMode{{mode: \"plan\"}} for {arg}, got {other:?}"),
         }
-        let ps = sm
-            .get_plan_state(&sid)
-            .await
-            .expect("PlanState should be set");
-        assert_eq!(
-            ps.explicit_path,
-            Some(*expected),
-            "explicit_path should be {expected:?} after {arg}"
-        );
     }
 }
 
