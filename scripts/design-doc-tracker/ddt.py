@@ -48,13 +48,16 @@ if str(_SCRIPTS_DIR) not in sys.path:
 from _tracker_core import (  # noqa: E402
     collect_md_files as _core_collect_md_files,
     commit_committer_date as _core_commit_committer_date,
+    diff_quiet_changed as _core_diff_quiet_changed,
     load_records as _core_load_records,
     merge_base_commit as _core_merge_base_commit,
     now_iso as _core_now_iso,
     run as _core_run,
+    run_check as _core_run_check,
     save_records as _core_save_records,
-    sort_key as _core_sort_key,
     upsert_record as _core_upsert_record,
+    RECORD_DEFAULT_FIELDS as _RECORD_DEFAULTS,
+    RECORD_MIGRATION_FIELDS as _RECORD_MIGRATION_FIELDS,
 )
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -87,7 +90,7 @@ def _merge_base_commit() -> str | None:
 
 
 def _load_records() -> List[Dict[str, str]]:
-    return _core_load_records(RECORDS_FILE, {"blocked_reason": ""})
+    return _core_load_records(RECORDS_FILE, _RECORD_MIGRATION_FIELDS)
 
 
 def _save_records(records: List[Dict[str, str]]) -> None:
@@ -99,19 +102,6 @@ BLACKLIST = frozenset({
     "docs/design/README.md",
     "docs/design/STANDARDS.md",
 })
-
-
-def _sort_key(p: Path) -> list:
-    """Sort key: subdirectories before index files at each level.
-
-    Splits the path into segments and lowercases each one for
-    case-insensitive comparison.  Directory segments (which precede a
-    ``/`` in the original string) naturally sort before file-name
-    segments at the same depth, so
-    ``docs/design/agent/README.md`` sorts before
-    ``docs/design/README.md``.
-    """
-    return _core_sort_key(REPO_ROOT, p)
 
 
 def _collect_md_files(directory: Path) -> List[Path]:
@@ -135,14 +125,7 @@ def _upsert_record(records: List[Dict[str, str]], path: str, **fields: str) -> L
 
     Returns the mutated *records* list (same object).
     """
-    defaults: Dict[str, str] = {
-        "commit": "",
-        "commit_time": "",
-        "confirmed_time": "",
-        "comment": "",
-        "blocked_reason": "",
-    }
-    return _core_upsert_record(records, "path", path, defaults, **fields)
+    return _core_upsert_record(records, "path", path, _RECORD_DEFAULTS, **fields)
 
 
 def cmd_finished(args: SimpleNamespace) -> int:
@@ -245,64 +228,26 @@ def cmd_blocked(args: SimpleNamespace) -> int:
 
 
 def cmd_check(args: SimpleNamespace) -> int:
-    records = _load_records()
-    record_map: Dict[str, Dict[str, str]] = {r["path"]: r for r in records}
+    changed = _core_run_check(
+        key_field="path",
+        # A missing DESIGN_DOC_DIR yields no files → nothing to check.
+        discover_keys=lambda: [str(p) for p in _collect_md_files(DESIGN_DOC_DIR)],
+        key_changed=lambda commit, path: _core_diff_quiet_changed(
+            _run, commit, [path]
+        ),
+        load_records=_load_records,
+        save_records=_save_records,
+        upsert_record=_upsert_record,
+        merge_base_commit=_merge_base_commit,
+        commit_committer_date=_commit_committer_date,
+        now_iso=_now_iso,
+    )
 
-    if not DESIGN_DOC_DIR.exists():
-        # nothing to check
-        return 0
-
-    md_files = _collect_md_files(DESIGN_DOC_DIR)
-    changed: List[str] = []
-
-    for rel_path in md_files:
-        key = str(rel_path)
-        rec = record_map.get(key)
-        if rec is None:
-            # no record → treat as changed
-            changed.append(key)
-            continue
-        if rec["commit"] == "":
-            # empty commit → treat as changed
-            blocked = rec.get("blocked_reason", "")
-            if blocked:
-                # blocked doc with empty commit → auto-unblock
-                _upsert_record(
-                    records, key,
-                    blocked_reason="",
-                )
-                _save_records(records)
-                record_map = {r["path"]: r for r in records}
-            changed.append(key)
-            continue
-        # git diff --quiet exits 1 if there are changes
-        r = _run(["git", "diff", "--quiet", f"{rec['commit']}..HEAD", "--", key])
-        if r.returncode != 0:
-            # file changed since last record
-            blocked = rec.get("blocked_reason", "")
-            if blocked:
-                # blocked doc updated → auto-unblock
-                new_commit = _merge_base_commit() or rec["commit"]
-                _upsert_record(
-                    records, key,
-                    blocked_reason="",
-                    commit=new_commit,
-                    commit_time=_commit_committer_date(new_commit),
-                    confirmed_time=_now_iso(),
-                )
-                _save_records(records)
-                # refresh record_map after mutation
-                record_map = {r["path"]: r for r in records}
-            changed.append(key)
-        else:
-            # no change — skip blocked docs entirely
-            blocked = rec.get("blocked_reason", "")
-            if blocked:
-                continue
-
+    record_map: Dict[str, Dict[str, str]] = {
+        r["path"]: r for r in _load_records()
+    }
     for p in changed:
-        rec = record_map.get(p, {})
-        comment = rec.get("comment", "")
+        comment = record_map.get(p, {}).get("comment", "")
         if comment:
             print(f"{p}\t{comment}")
         else:
