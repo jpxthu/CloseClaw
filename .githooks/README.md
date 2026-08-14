@@ -90,7 +90,7 @@ Source: issue #123
 Type: feat
 ```
 
-Source 支持：`issue #N`、`Fixes #N`、`Refs #N`、`Closes #N`、`CI`、`user`  
+Source 支持：`issue #N`、`design-doc <path>`、`requirement <path>`、`Fixes #N`、`Refs #N`、`Closes #N`、`CI`、`user`  
 Type 支持：`feat` `fix` `docs` `refactor` `test` `perf` `chore`
 
 ### pre-push
