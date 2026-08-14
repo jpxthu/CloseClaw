@@ -108,7 +108,7 @@ impl SkillApprovalSubmitter for SkillApprovalFlowWrapper {
             creator_id: caller_info.creator_id.clone(),
         };
         let mut flow = self.flow.lock().await;
-        flow.submit_denial(&caller, &body, engine_risk, session_id, false)
+        flow.submit_denial(&caller, &body, engine_risk, session_id, caller_info.is_sub_agent)
     }
 }
 
